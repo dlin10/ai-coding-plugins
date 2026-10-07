@@ -514,6 +514,43 @@ public sealed class TimerTests
         Assert.Equal(0, run.Counter(OrderingCounters.UNPROVEN_JOINS));
     }
 
+    /// <summary>A timer a call's task completes with, consumed as deep as it stands, is the timer the twin returning it directly names
+    /// (R1, R2): a start of it activates no other timer, and a handler subscribed to it runs on it alone.</summary>
+    /// <param name="start">The statement that consumes the call's task to its depth and starts the timer it gives.</param>
+    [Theory]
+    [InlineData("Get().Start();")]
+    [InlineData("var inner = await Wrap(); (await inner).Start();")]
+    [InlineData("Wrap().Result.Result.Start();")]
+    [InlineData("Wrap().GetAwaiter().GetResult().GetAwaiter().GetResult().Start();")]
+    [InlineData("(await await Outer()).Start();")]
+    public void Start_of_a_timer_a_call_completes_with_at_its_depth_activates_no_other_timer(string start)
+    {
+        var run = Analyze(Worker("var idle = new System.Timers.Timer(100); idle.Elapsed += (_, _) => state.Rmw(); " + start, COMPLETED_TIMER));
+
+        Assert.DoesNotContain(run.Accesses("Value"), access => Is(access, "Rmw"));
+    }
+
+    [Theory]
+    [InlineData("Get()")]
+    [InlineData("await await Wrap()")]
+    [InlineData("Wrap().Result.Result")]
+    [InlineData("await await Outer()")]
+    public void Elapsed_subscription_to_a_timer_a_call_completes_with_at_its_depth_runs_on_that_timer_alone(string timer)
+    {
+        var run = Analyze(Worker($"var timer = {timer}; timer.Elapsed += (_, _) => state.Rmw();", COMPLETED_TIMER));
+
+        // The timer is never started, so a handler that runs on it alone never runs.
+        Assert.DoesNotContain(run.Accesses("Value"), access => Is(access, "Rmw"));
+    }
+
+    [Fact]
+    public void Elapsed_subscription_to_a_completed_timer_that_may_be_an_opaque_one_runs_a_periodic_handler()
+    {
+        var run = Analyze(Worker("var timer = await await Maybe(); timer.Elapsed += (_, _) => state.Rmw();", COMPLETED_TIMER));
+
+        Assert.True(Overlap(run, "Rmw", "Rmw"));
+    }
+
     [Fact]
     public void Elapsed_subscription_to_a_timer_a_dispatch_the_heap_cannot_resolve_returned_runs_a_periodic_handler()
     {
@@ -695,6 +732,18 @@ public sealed class TimerTests
             public System.Timers.Timer? Known;
             public System.Timers.Timer Get() => Known!;
         }
+        """;
+
+    /// <summary>A timer never started, handed back directly, or as what a task of a task completes with by a non-async or an async body;
+    /// and one that may be a timer the heap cannot name.</summary>
+    private const string COMPLETED_TIMER = """
+        private readonly bool _flag;
+        private readonly System.Timers.Timer _other = new System.Timers.Timer(100);
+        private System.Timers.Timer Get() => _other;
+        private Task<Task<System.Timers.Timer>> Wrap() => Task.FromResult(Task.FromResult(_other));
+        private async Task<Task<System.Timers.Timer>> Outer() { await Task.Yield(); return Task.FromResult(_other); }
+        private Task<Task<System.Timers.Timer>> Maybe() =>
+            Task.FromResult(Task.FromResult(_flag ? _other : System.Activator.CreateInstance<System.Timers.Timer>()));
         """;
 
     /// <summary>An interface whose implementation returns timers the heap cannot name.</summary>

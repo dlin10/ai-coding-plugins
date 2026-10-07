@@ -3,37 +3,37 @@
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 314,
+    "roots": 319,
     "rootsPerProvider": {
-      "aspnetcore": 140,
-      "hosting": 174
+      "aspnetcore": 144,
+      "hosting": 175
     },
-    "reachableBodies": 1241,
-    "summaries": 1241,
-    "regions": 801,
-    "instances": 1287,
-    "accesses": 1584,
+    "reachableBodies": 1266,
+    "summaries": 1266,
+    "regions": 828,
+    "instances": 1312,
+    "accesses": 1606,
     "pairs": {
-      "comparisons": 1649,
-      "cartesianBound": 591329,
+      "comparisons": 1665,
+      "cartesianBound": 606652,
       "largestBucket": 8,
-      "buckets": 684,
+      "buckets": 696,
       "skips": {
-        "confined": 10,
+        "confined": 11,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 71,
-        "no-overlap": 294,
+        "no-overlap": 295,
         "ordered": 21,
-        "read-read": 990,
+        "read-read": 1000,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 239
+      "candidates": 243
     },
-    "findings": 220,
-    "occurrences": 236,
-    "groups": 175,
+    "findings": 224,
+    "occurrences": 240,
+    "groups": 178,
     "fingerprints": [
       "006126d59d446beb",
       "00c0f9fbc81a0228",
@@ -62,6 +62,7 @@
       "22f49fa00c6b6c6a",
       "23027766c83eb5c9",
       "243e5f431bb28527",
+      "24d14ef8712ea5f3",
       "27b0533faa174d90",
       "2a86c82078c0775c",
       "2bdeb4f5cc9954f1",
@@ -110,6 +111,7 @@
       "601a2642cbab2ba1",
       "608cad26b11b15f2",
       "60ff67a816854abe",
+      "62338a0bcdf81935",
       "63130a58ff958b92",
       "644c6073c130aa6a",
       "64bdde19a43fcdbd",
@@ -145,6 +147,7 @@
       "8096ef09db83e8d1",
       "8187d8ad17a08bbd",
       "8405e1e3a6fff46c",
+      "862b662cf2b5585f",
       "878aecf3a8a0c20c",
       "878b961cd3dd728f",
       "88f686c572789f17",
@@ -155,6 +158,7 @@
       "8dc507dbc846de3c",
       "8e4c61cf1c9679fd",
       "901a6f7ff986900e",
+      "90e2bb102fcab7c4",
       "914b4f529557f822",
       "91eb8facff869387",
       "927e2ca1ff50a0a7",
@@ -261,23 +265,23 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 140,
-        "hosting": 173
+        "aspnetcore": 144,
+        "hosting": 174
       },
-      "accesses": 1087,
+      "accesses": 1101,
       "counters": {
         "delegate-to-opaque": 7,
         "element-operation": 34,
-        "known-call": 263,
-        "known-call-built-in": 259,
+        "known-call": 271,
+        "known-call-built-in": 267,
         "known-call-project": 4,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 16,
         "opaque-by-project": 1,
-        "opaque-call": 1066,
+        "opaque-call": 1084,
         "out-of-range-call": 0,
-        "reachable-bodies": 1238,
+        "reachable-bodies": 1263,
         "scc-budget-exceeded": 0,
         "semantic-gap": 10,
         "solver-available": 1,
@@ -291,11 +295,11 @@
         "wildcard-access": 8
       },
       "ordering": {
-        "spawn-sites": 44,
+        "spawn-sites": 45,
         "timers-disabled": 1,
         "timers-one-shot": 5,
         "timers-periodic": 7,
-        "unproven-joins": 29
+        "unproven-joins": 36
       },
       "semanticGaps": [
         "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",

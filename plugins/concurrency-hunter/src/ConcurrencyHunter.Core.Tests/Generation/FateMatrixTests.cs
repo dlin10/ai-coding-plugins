@@ -23,15 +23,11 @@ public sealed class FateMatrixTests
     private const string IN_TEMPORARY = "the driver hands an in delegate as a temporary the engine cannot name: invoking it is an unresolved " +
                                         "dispatch, and the probe is never followed into the member";
 
-    private const string TASK_NOT_ASYNC = "a ref parameter forbids async, and the heap does not say what Task.FromResult's or a ValueTask's " +
-                                          "task completes with: the result is unknown, so nothing is proven not kept";
-
-    private const string AWAITED_SEQUENCE = "the heap carries no value through an await, so V_Enum's foreach never enumerates an awaited " +
-                                            "sequence: how it runs or holds the delegate is never seen";
-
-    private const string NO_RUNNING_TRIGGER = "R7 keeps a holder only when a trigger ran the delegate it keeps, and a trigger's call on an " +
-                                              "awaited result runs no body, since the heap carries no value through an await (SCENARIOS, " +
-                                              "holder-trigger)";
+    /// <summary>The shapes a task handing takes: one per result kind and one task result. Every cell costs about 0.19 s of every
+    /// suite run, so the member's shape is crossed with <see cref="Handing.Value"/> and <see cref="Handing.Carried"/> in full, and
+    /// with a task handing only here.</summary>
+    private static readonly HashSet<string> TaskHandingShapes = new(["StaticVoid", "StaticReference", "StaticTaskOfReference", "StaticSequence"],
+                                                                    StringComparer.Ordinal);
 
     /// <summary>The cells whose expected answer the engine cannot reach without changing the engine, by name, with the reason: their
     /// answer may be wider than the table, never narrower, and stays in the matrix so a change of either shows.</summary>
@@ -65,34 +61,6 @@ public sealed class FateMatrixTests
             "In/InstanceVoid/CombineIntoThis", "In/InstanceReference/CombineIntoThis", "In/InstanceTaskOfReference/CombineIntoThis",
             "In/InstanceValueTaskOfReference/CombineIntoThis", "In/InstanceSequence/CombineIntoThis", "In/InstanceTaskOfSequence/CombineIntoThis",
             "In/Constructor/CombineIntoThis"
-        ]),
-        (TASK_NOT_ASYNC, [
-            "Ref/InstanceTaskOfReference/InvokeNow", "Ref/InstanceTaskOfReference/KeepInResult", "Ref/InstanceTaskOfReference/KeepInThis",
-            "Ref/InstanceTaskOfSequence/InvokeNow", "Ref/InstanceTaskOfSequence/KeepInThis",
-            "Ref/InstanceTaskOfSequence/LazySequence",
-            "Ref/InstanceValueTaskOfReference/InvokeNow", "Ref/InstanceValueTaskOfReference/KeepInResult", "Ref/InstanceValueTaskOfReference/KeepInThis",
-            "Ref/StaticTaskOfReference/InvokeNow", "Ref/StaticTaskOfReference/KeepInResult",
-            "Ref/StaticTaskOfSequence/InvokeNow", "Ref/StaticTaskOfSequence/LazySequence",
-            "Ref/StaticValueTaskOfReference/InvokeNow", "Ref/StaticValueTaskOfReference/KeepInResult",
-            "Ref/StaticTaskOfReference/DoNothing", "Ref/StaticValueTaskOfReference/DoNothing", "Ref/StaticTaskOfSequence/DoNothing",
-            "Ref/InstanceTaskOfReference/DoNothing", "Ref/InstanceValueTaskOfReference/DoNothing", "Ref/InstanceTaskOfSequence/DoNothing",
-            "Ref/StaticTaskOfReference/CompareOnly", "Ref/StaticValueTaskOfReference/CompareOnly", "Ref/StaticTaskOfSequence/CompareOnly",
-            "Ref/InstanceTaskOfReference/CompareOnly", "Ref/InstanceValueTaskOfReference/CompareOnly", "Ref/InstanceTaskOfSequence/CompareOnly",
-            "Ref/InstanceTaskOfReference/RemoveFromThis", "Ref/InstanceValueTaskOfReference/RemoveFromThis", "Ref/InstanceTaskOfSequence/RemoveFromThis",
-            "Ref/InstanceTaskOfReference/CombineIntoThis", "Ref/InstanceValueTaskOfReference/CombineIntoThis", "Ref/InstanceTaskOfSequence/CombineIntoThis"
-        ]),
-        (AWAITED_SEQUENCE, [
-            "Value/InstanceTaskOfSequence/LazySequence", "Value/StaticTaskOfSequence/LazySequence",
-            "Carried/InstanceTaskOfSequence/LazySequence", "Carried/StaticTaskOfSequence/LazySequence",
-            "TwoCarried/InstanceTaskOfSequence/LazySequence", "TwoCarried/StaticTaskOfSequence/LazySequence"
-        ]),
-        (NO_RUNNING_TRIGGER, [
-            "Value/StaticTaskOfReference/KeepInResult", "Value/StaticValueTaskOfReference/KeepInResult", "Value/InstanceTaskOfReference/KeepInResult",
-            "Value/InstanceValueTaskOfReference/KeepInResult", "Carried/StaticTaskOfReference/KeepInResult",
-            "Carried/StaticValueTaskOfReference/KeepInResult", "Carried/InstanceTaskOfReference/KeepInResult",
-            "Carried/InstanceValueTaskOfReference/KeepInResult", "TwoCarried/StaticTaskOfReference/KeepInResult",
-            "TwoCarried/StaticValueTaskOfReference/KeepInResult", "TwoCarried/InstanceTaskOfReference/KeepInResult",
-            "TwoCarried/InstanceValueTaskOfReference/KeepInResult"
         ]));
 
     private static readonly Lazy<Matrix> Results = new(Run, LazyThreadSafetyMode.ExecutionAndPublication);
@@ -106,7 +74,20 @@ public sealed class FateMatrixTests
         Carried,
         CarriedSetupInvokes,
         CarriedSetupHandsToOpaqueCall,
-        TwoCarried
+        TwoCarried,
+
+        /// <summary>The delegate handed as a <c>Task&lt;Action&gt;</c>; its twin is <see cref="Value"/>.</summary>
+        TaskOfValue,
+
+        /// <summary>The delegate handed as a <c>ValueTask&lt;Action&gt;</c>; its twin is <see cref="Value"/>.</summary>
+        ValueTaskOfValue,
+
+        /// <summary>A <c>Task&lt;Carrier&gt;</c>, the carrier holding the delegate as <see cref="Carried"/>'s does; its twin is
+        /// <see cref="Carried"/>.</summary>
+        TaskOfCarried,
+
+        /// <summary>A <c>ValueTask&lt;Carrier&gt;</c>; its twin is <see cref="Carried"/>.</summary>
+        ValueTaskOfCarried
     }
 
     /// <summary>What the member does with the delegate.</summary>
@@ -175,7 +156,7 @@ public sealed class FateMatrixTests
 
         public string Class => $"C_{Handing}_{Shape.Name}_{Act}";
 
-        public string Parameter => Handing is Handing.Value or Handing.In or Handing.Ref ? "a" : "c";
+        public string Parameter => Handing is Handing.Value or Handing.In or Handing.Ref or Handing.TaskOfValue or Handing.ValueTaskOfValue ? "a" : "c";
 
         public override string ToString() => Name;
     }
@@ -292,6 +273,16 @@ public sealed class FateMatrixTests
         Assert.True(refused.Length == 0, $"{refused.Length} cell(s) got no classification:\n" + string.Join("\n", refused));
     }
 
+    [Fact]
+    public void Every_task_handing_cell_has_an_admitted_twin()
+    {
+        var cells = Cells().ToHashSet();
+        var orphans = cells.Where(cell => Twin(cell) is { } twin && !cells.Contains(twin)).Select(cell => cell.Name).Order(StringComparer.Ordinal).ToArray();
+
+        Assert.Contains(cells, cell => Twin(cell) is not null);
+        Assert.True(orphans.Length == 0, $"{orphans.Length} task handing cell(s) without an admitted twin:\n" + string.Join("\n", orphans));
+    }
+
     // ---- the table ----
 
     /// <summary>The cell's expected answer, from TD-034b's fates and G-5's applicability: <c>invoke-now</c> for a delegate run in the
@@ -301,10 +292,12 @@ public sealed class FateMatrixTests
     /// <c>iterator</c> for a lazy sequence that runs it when enumerated; <c>not-run</c> for one the member ignores, only compares or only
     /// removes from a field with <c>-=</c> (R7); <c>unknown-execution</c> for every other cell — one kept where no member of the class
     /// runs it included (R7) — for a fate the member's kind does not admit, and for a probe that setup's construction ran or handed to
-    /// a call the engine cannot follow.</summary>
+    /// a call the engine cannot follow. A task handing expects what its twin does (R6).</summary>
     /// <param name="cell">The cell.</param>
     private static ClassifiedFate Expected(Cell cell)
     {
+        if (Twin(cell) is { } twin)
+            return Expected(twin);
         if (cell.Handing is Handing.CarriedSetupInvokes or Handing.CarriedSetupHandsToOpaqueCall)
             return Unknown;
         var fate = cell.Act switch
@@ -348,6 +341,16 @@ public sealed class FateMatrixTests
 
     private static string Show(ClassifiedFate fate) => fate.Holder is null ? fate.Fate : $"{fate.Fate} {fate.Holder}";
 
+    /// <summary>A task handing's twin: the same cell with the task taken out, the delegate or the carrier handed directly; <c>null</c>
+    /// for any other handing.</summary>
+    /// <param name="cell">The cell.</param>
+    private static Cell? Twin(Cell cell) => cell.Handing switch
+    {
+        Handing.TaskOfValue or Handing.ValueTaskOfValue => cell with { Handing = Handing.Value },
+        Handing.TaskOfCarried or Handing.ValueTaskOfCarried => cell with { Handing = Handing.Carried },
+        _ => null
+    };
+
     private static Dictionary<string, string> Listed(params (string Reason, string[] Cells)[] groups) =>
         groups.SelectMany(group => group.Cells.Select(cell => (cell, group.Reason))).ToDictionary(pair => pair.cell, pair => pair.Reason, StringComparer.Ordinal);
 
@@ -358,7 +361,8 @@ public sealed class FateMatrixTests
     /// sequence result; another slot of the value handed exists only for a carried handing, and two probes treated differently only for
     /// two carried probes. A constructor's <c>this</c> is the object it constructs, so keeping in the result and in <c>this</c> are both
     /// keeping in it there, and keeping in both is one keep; a constructor returns no lazy sequence. A static member has no receiver
-    /// field to keep in, combine into or remove from.</summary>
+    /// field to keep in, combine into or remove from. A task handing takes exactly the cells its twin takes, among
+    /// <see cref="TaskHandingShapes"/>.</summary>
     private static IEnumerable<Cell> Cells() =>
         from handing in Enum.GetValues<Handing>()
         from shape in Shapes
@@ -369,6 +373,8 @@ public sealed class FateMatrixTests
 
     private static bool Allowed(Cell cell)
     {
+        if (Twin(cell) is { } twin)
+            return TaskHandingShapes.Contains(cell.Shape.Name) && Allowed(twin);
         var shape = cell.Shape;
         var hasResult = shape.Constructor || shape.Result != Result.None;
         return cell.Act switch
@@ -410,10 +416,16 @@ public sealed class FateMatrixTests
         var delegates = cell.Handing == Handing.TwoCarried ? new[] { "d", "e" } : ["d"];
         var kept = new SortedSet<int>();
         var body = new List<string>();
+        // A task handing reads the delegate or the carrier out of the task: by await where its twin is async, by .Result where not.
+        var read = IsAsync(cell) ? "await " : "";
+        var completed = IsAsync(cell) ? "" : ".Result";
+        var carrier = cell.Handing is Handing.TaskOfCarried or Handing.ValueTaskOfCarried ? "carrier" : "c";
         body.AddRange(cell.Handing switch
         {
             Handing.TwoCarried => ["var d = c.A;", "var e = c.B;"],
             Handing.Value or Handing.In or Handing.Ref => ["var d = a;"],
+            Handing.TaskOfValue or Handing.ValueTaskOfValue => [$"var d = {read}a{completed};"],
+            Handing.TaskOfCarried or Handing.ValueTaskOfCarried => [$"var carrier = {read}c{completed};", "var d = carrier.A;"],
             _ => new[] { "var d = c.A;" }
         });
 
@@ -495,7 +507,7 @@ public sealed class FateMatrixTests
                 body.AddRange(delegates.Select((d, index) => $"b.{(index == 0 ? "A" : "B")} = {d};"));
                 break;
             case Act.StoreIntoOtherSlot:
-                body.AddRange(delegates.Select((d, index) => $"c.Other{(index == 0 ? "A" : "B")} = {d};"));
+                body.AddRange(delegates.Select((d, index) => $"{carrier}.Other{(index == 0 ? "A" : "B")} = {d};"));
                 break;
             case Act.AssignToOut:
                 body.AddRange(delegates.Select((d, index) => $"k{index} = {d};"));
@@ -572,6 +584,10 @@ public sealed class FateMatrixTests
                 Handing.Carried => "Carrier c",
                 Handing.CarriedSetupInvokes => "InvokingCarrier c",
                 Handing.CarriedSetupHandsToOpaqueCall => "LeakingCarrier c",
+                Handing.TaskOfValue => "Task<Action> a",
+                Handing.ValueTaskOfValue => "ValueTask<Action> a",
+                Handing.TaskOfCarried => "Task<Carrier> c",
+                Handing.ValueTaskOfCarried => "ValueTask<Carrier> c",
                 _ => "Pair c"
             }
         };

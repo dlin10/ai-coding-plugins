@@ -80,8 +80,8 @@ _Avoid_: background execution, anonymous thread, somewhere
 
 **Join**:
 A point in an execution that runs only after another execution has ended: an `await`, `Wait`,
-`Join` or `WhenAll` on a handle proven to be that execution's, reached on every path including the
-exceptional ones. A `WhenAny`, a wait that can return on a timeout, an event wait or a `Dispose()` is
+`Join`, `WhenAll`, `.Result` or `GetAwaiter().GetResult()` on a handle proven to be that execution's,
+reached on every path including the exceptional ones. A `WhenAny`, a wait that can return on a timeout, an event wait or a `Dispose()` is
 not a join.
 _Avoid_: wait, sync point, completion (a completion is the end of an execution, a join is where someone relies on it)
 
@@ -156,6 +156,15 @@ collection or an element write put there. Reading a cell yields what the storage
 reaches as far as the collection holding it. A dictionary holds its keys apart from its values: a key
 is held, and escapes with its dictionary, but it is never a cell.
 _Avoid_: contents, items, elements (bare)
+
+**Completion value**:
+The value a task completes with, and what an `await`, `.Result` or `GetResult()` on it yields: what
+an async body returns, what the work of `Task.Run`, `StartNew` or a continuation returns, what
+`FromResult` or a `ValueTask` is built from, what a `TaskCompletionSource` is set to, the completion
+values of the tasks `WhenAll` waits for, and the task `WhenAny` picks. A value reached through a task
+is the same value its producer handed over, as if it had been returned directly; a task whose
+producer the analysis does not see completes with an unknown value.
+_Avoid_: task result (the result of a task-returning call is the task), awaited value
 
 **Ownership**:
 What the analysis proved about who can reach a region: `Owned`, `ThreadConfined`, `Escaped`, `Shared`

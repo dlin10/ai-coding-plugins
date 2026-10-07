@@ -136,12 +136,16 @@ public sealed class EffectReaderTests
     }
 
     [Fact]
-    public void Awaiting_a_task_of_object_in_the_call_gives_incomplete()
+    public void Awaiting_a_task_of_object_in_the_call_gives_its_synchronous_twins_reason()
     {
+        // The heap carries what the task completes with, so the await leaves nothing incomplete: the twin reads the value directly.
         var reader = Read("public static class Api { public static async Task Run(Task<object> value, Action done) { _ = await value; done(); } }",
                           "M:Lib.Api.Run(System.Threading.Tasks.Task{System.Object},System.Action)");
+        var twin = Read("public static class Api { public static void Run(object value, Action done) { _ = value; done(); } }",
+                        "M:Lib.Api.Run(System.Object,System.Action)");
 
-        Assert.Equal(GenerationReasons.INCOMPLETE, reader.Reason);
+        Assert.Null(twin.Reason);
+        Assert.Equal(twin.Reason, reader.Reason);
     }
 
     [Fact]

@@ -6,9 +6,16 @@ using ConcurrencyHunter.Roots;
 namespace ConcurrencyHunter.Execution;
 
 /// <summary>A body segment an execution runs.</summary>
+/// <param name="InstanceId">The method instance visited.</param>
+/// <param name="Segment">The segment of its body the execution runs.</param>
 internal sealed record ExecutionVisit(string InstanceId, BodySegment Segment);
 
 /// <summary>A call edge an execution follows, with the segments of caller and callee it runs.</summary>
+/// <param name="Caller">The calling instance.</param>
+/// <param name="CallerSegment">The segment of the caller's body the call is in.</param>
+/// <param name="OperationId">The call operation.</param>
+/// <param name="Callee">The called instance.</param>
+/// <param name="CalleeSegment">The segment of the callee's body the execution runs.</param>
 internal sealed record ExecutionStep(string Caller, BodySegment CallerSegment, int OperationId, string Callee, BodySegment CalleeSegment);
 
 internal enum SpawnAnchorKind
@@ -20,6 +27,11 @@ internal enum SpawnAnchorKind
 
 /// <summary>Where an execution starts a child: at a spawn or timer operation, or, for an async call, at the synthetic point where the
 /// call returns.</summary>
+/// <param name="ExecutionId">The execution that starts the child.</param>
+/// <param name="CallerInstance">The instance making the spawn, timer or async call.</param>
+/// <param name="OperationId">The operation that starts the child.</param>
+/// <param name="ChildId">The child execution started.</param>
+/// <param name="Kind">Whether the anchor is a spawn, a timer or an async call's return.</param>
 internal sealed record SpawnAnchor(string ExecutionId, string CallerInstance, int OperationId, string ChildId, SpawnAnchorKind Kind);
 
 /// <summary>
@@ -53,6 +65,7 @@ internal sealed class HappensBefore
     private readonly Dictionary<string, List<(string Execution, int Join)>> _joinedBy = new(StringComparer.Ordinal);
     private readonly HashSet<(string BodyId, int OperationId)> _unprovenJoins = [];
     private readonly HashSet<(string Instance, int Operation)> _proving = [];
+    private readonly HashSet<(string Task, int Depth)> _provingTasks = [];
     private readonly Dictionary<string, bool> _quietEvents = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _enumerated = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _executionReach = new(StringComparer.Ordinal);
@@ -145,10 +158,15 @@ internal sealed class HappensBefore
 
     /// <summary>Whether every path of an execution to an access passes a join operation: only then could that join, proven, order the
     /// access after what it waits for.</summary>
+    /// <param name="execution">The execution whose paths are checked.</param>
+    /// <param name="joinInstance">The instance making the join.</param>
+    /// <param name="joinOperation">The join operation.</param>
+    /// <param name="access">The access the paths lead to.</param>
     internal bool JoinDominates(string execution, string joinInstance, int joinOperation, Access access) =>
         FlowOf(execution).Dominates(new PointKey(joinInstance, joinOperation, false), new PointKey(access.InstanceId, access.OperationId, false));
 
     /// <summary>Whether every work callee of a spawn anchor's site has an async body.</summary>
+    /// <param name="anchor">The anchor whose spawn site is checked.</param>
     private bool AllWorkAsync(SpawnAnchor anchor) =>
         _spawnSites.TryGetValue((anchor.CallerInstance, anchor.OperationId), out var site) &&
         site.Callees.Where(callee => callee.Role == SpawnRole.Work)
@@ -213,6 +231,8 @@ internal sealed class HappensBefore
         type.StartsWith("System.Threading.Tasks.ValueTask<", StringComparison.Ordinal);
 
     /// <summary>The one execution of the joining execution's instance tree a handle region names, or null.</summary>
+    /// <param name="joining">The joining execution.</param>
+    /// <param name="region">The handle region.</param>
     private string? HandleExecution(string joining, string region)
     {
         if (!_handles.TryGetValue(region, out var candidates) || !_executions.TryGetValue(joining, out var execution))
@@ -232,6 +252,10 @@ internal sealed class HappensBefore
     }
 
     /// <summary>An event of the search; a join node remembers the execution whose end reached it.</summary>
+    /// <param name="Kind">The kind of event.</param>
+    /// <param name="Execution">The execution the event belongs to.</param>
+    /// <param name="Join">The index of the join among the execution's joins, or -1 for other events.</param>
+    /// <param name="Joined">The execution whose end reached a join node; null for other events.</param>
     private sealed record EventNode(EventKind Kind, string Execution, int Join, string? Joined = null);
 
     private bool Path(Access from, Access to)
@@ -356,6 +380,7 @@ internal sealed class HappensBefore
 
     /// <summary>The anchors whose spawn edge holds for every instance of the child: the spawning execution runs at most once, and a timer's
     /// creation site runs once in it.</summary>
+    /// <param name="execution">The spawning execution.</param>
     private IEnumerable<SpawnAnchor> TrustedAnchors(string execution) =>
         Once(execution)
             ? (_anchors.GetValueOrDefault(execution) ?? []).Where(anchor => anchor.Kind != SpawnAnchorKind.Timer || _executions[anchor.ChildId].SpawnedOnce)
@@ -471,7 +496,7 @@ internal sealed class HappensBefore
                     if (!proven)
                         _unprovenJoins.Add((instance.BodyId, join.OperationId));
                     if (targets.Count != 0)
-                        Wait(candidates, resumed, execution, visit, instance, join.OperationId, targets, join.Kind == SummaryJoinKind.Await);
+                        Wait(candidates, resumed, execution, visit, instance, join.OperationId, targets, join.ThrowsOnlyAfterCompletion);
                 }
             }
 
@@ -513,6 +538,14 @@ internal sealed class HappensBefore
     /// <summary>Where a wait orders what it waits for: at the operation itself, or, for the <c>await</c> a prefix stops at, at the start of
     /// the tails that continue after it, since the prefix has no point past that <c>await</c>; those are kept until every such
     /// <c>await</c> is known.</summary>
+    /// <param name="candidates">The join candidates the wait is added to when it orders at the operation.</param>
+    /// <param name="resumed">The targets kept per prefix <c>await</c>, to be ordered at the start of its tails.</param>
+    /// <param name="execution">The waiting execution.</param>
+    /// <param name="visit">The visit the wait runs in.</param>
+    /// <param name="instance">The instance making the wait.</param>
+    /// <param name="operationId">The wait operation.</param>
+    /// <param name="targets">The executions it waits for.</param>
+    /// <param name="throwsAfter">Whether the wait throws only after the work completed.</param>
     private void Wait(List<Candidate> candidates, Dictionary<(string Instance, int Operation), IReadOnlyList<string>> resumed, string execution,
                       ExecutionVisit visit, MethodInstance instance, int operationId, IReadOnlyList<string> targets, bool throwsAfter)
     {
@@ -599,6 +632,7 @@ internal sealed class HappensBefore
     }
 
     /// <summary>The <c>await</c> operations a body's prefix may stop at.</summary>
+    /// <param name="instance">The instance whose body is read.</param>
     private IReadOnlyList<int> PrefixAwaits(MethodInstance instance) =>
         _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body)
             ? body.Blocks.SelectMany(block => block.Operations)
@@ -759,6 +793,9 @@ internal sealed class HappensBefore
 
     /// <summary>The await of a <c>DisposeAsync()</c> result in the same visit, directly, through assignments, or through the
     /// <c>ConfigureAwait</c> the await keeps its task behind.</summary>
+    /// <param name="visit">The visit whose segment the await must run in.</param>
+    /// <param name="instance">The instance making the dispose.</param>
+    /// <param name="timer">The <c>DisposeAsync()</c> timer step.</param>
     private List<int> DisposeAwaits(ExecutionVisit visit, MethodInstance instance, SummaryTimer timer)
     {
         var body = _scope.Reachable.Bodies[instance.BodyId];
@@ -823,6 +860,7 @@ internal sealed class HappensBefore
     /// that no call, store, capture, return or spawn receives except its constructor, <c>WaitOne()</c> calls and
     /// <c>Dispose(handle)</c> calls on one and the same timer.
     /// </summary>
+    /// <param name="region">The handle's region.</param>
     private bool IsQuietEvent(string region)
     {
         if (_quietEvents.TryGetValue(region, out var cached))
@@ -898,6 +936,8 @@ internal sealed class HappensBefore
 
     /// <summary>The dispose event of a call that is <c>System.Threading.Timer.Dispose(WaitHandle)</c>: the lowering follows exactly that
     /// call with it.</summary>
+    /// <param name="instance">The instance making the call.</param>
+    /// <param name="callOperationId">The call operation.</param>
     private SummaryTimer? TimerDisposeWithHandle(MethodInstance instance, int callOperationId)
     {
         if (!_scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
@@ -936,6 +976,10 @@ internal sealed class HappensBefore
     /// handle (or tail) in this instance tree, the spawn runs once in a parent that runs once, the task is no composite, and the value
     /// comes from nowhere else. A field read counts when the field holds only that handle and a store of it precedes the join on every
     /// path; a call result counts when it is an async call's handle.</summary>
+    /// <param name="execution">The joining execution.</param>
+    /// <param name="instance">The instance expressing the handle value.</param>
+    /// <param name="handle">The handle value.</param>
+    /// <param name="joinOperation">The operation the handle is judged at.</param>
     private string? ProveHandle(string execution, MethodInstance instance, SummaryValue handle, int joinOperation)
     {
         var regions = handle.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
@@ -950,8 +994,15 @@ internal sealed class HappensBefore
 
     /// <summary>Whether every unknown source of a value that resolves to one region is one that cannot be another object: a field read
     /// before its first write, when the field holds only that region and a store of it precedes the operation on every path, or an
-    /// async call's result, when the region is that call's handle and every call the value comes from returns that same handle.</summary>
+    /// async call's result, when the region is that call's handle and every call the value comes from returns that same handle. A value
+    /// that is a task's completion is excused only where no task its await reads may complete with an object the heap cannot name.</summary>
+    /// <param name="execution">The execution proving the value.</param>
+    /// <param name="instance">The instance expressing the value.</param>
+    /// <param name="value">The value.</param>
+    /// <param name="region">The one region it resolves to.</param>
+    /// <param name="operation">The operation it is judged at.</param>
     private bool SourcesExcused(string execution, MethodInstance instance, SummaryValue value, string region, int operation) =>
+        !value.Completions.Any(completion => _heap.UnfollowedCompletions.Contains((instance.Id, completion))) &&
         value.UnknownSources.All(source => source switch
         {
             UnknownSource.FieldBeforeWrite => FieldStoreDominates(execution, instance, value, region, operation),
@@ -963,6 +1014,9 @@ internal sealed class HappensBefore
     /// <summary>Whether every parameter the value comes from binds, in this instance, to that one region and nothing else. A summary
     /// cannot name what a parameter holds, which is why it records the parameter as an unknown source; the instance the call site
     /// made can, so a handle handed to a callee is as proven there as one it read from a field (R4).</summary>
+    /// <param name="instance">The instance whose parameter bindings are read.</param>
+    /// <param name="value">The value.</param>
+    /// <param name="region">The one region it resolves to.</param>
     private static bool BoundToRegion(MethodInstance instance, SummaryValue value, string region)
     {
         var parameters = value.Values.OfType<ParameterValue>().ToArray();
@@ -972,16 +1026,28 @@ internal sealed class HappensBefore
     }
 
     /// <summary>Whether every call a value comes from returns that region and nothing else; a call whose result the heap does not follow
-    /// there, or whose callee may return an object the heap cannot name, may return any task.</summary>
+    /// there, or whose callee may return an object the heap cannot name, may return any task. A call the value is the completion of gives
+    /// what its result's tasks complete with, followed as many times as the value consumed it (<see cref="HeapSolution.Gives"/>).</summary>
+    /// <param name="execution">The execution proving the value.</param>
+    /// <param name="instance">The instance expressing the value.</param>
+    /// <param name="value">The value.</param>
+    /// <param name="region">The one region it resolves to.</param>
     private bool CallsReturn(string execution, MethodInstance instance, SummaryValue value, string region) =>
         value.SourceCalls.Count != 0 &&
         value.SourceCalls.All(call => !_heap.UnfollowedCallResults.Contains((instance.Id, call)) &&
-                                      _heap.Resolve(instance.Id, new CallResultValue(call)).ToHashSet(StringComparer.Ordinal).SetEquals([region]) &&
-                                      ReturnsExcused(execution, instance, call, region));
+                                      value.Depths(call).All(depth => _heap.Gives(instance.Id, call, depth).SetEquals([region]) &&
+                                                                      ReturnsExcused(execution, instance, call, region, depth)));
 
-    /// <summary>Whether every body the call may run returns that handle with an origin it can account for itself: the regions of a call
-    /// result name the objects the returned values point to, not the null or the field before its first write they may also be.</summary>
-    private bool ReturnsExcused(string execution, MethodInstance instance, int call, string region)
+    /// <summary>Whether every body the call may run gives that handle with an origin it can account for itself: the regions of a call
+    /// result name the objects the returned values point to, not the null or the field before its first write they may also be. An async
+    /// body gives its call the task the call makes, which its returns complete; so its returns account for the completion of its task,
+    /// one consumption fewer, never for the task itself. A non-async body's returns are what the call gives, consumed as often.</summary>
+    /// <param name="execution">The execution proving the value.</param>
+    /// <param name="instance">The instance making the call.</param>
+    /// <param name="call">The call's operation.</param>
+    /// <param name="region">The one region the value resolves to.</param>
+    /// <param name="depth">How many times the value consumed the call's task.</param>
+    private bool ReturnsExcused(string execution, MethodInstance instance, int call, string region, int depth)
     {
         if (!_proving.Add((instance.Id, call)))
             return false;
@@ -993,14 +1059,92 @@ internal sealed class HappensBefore
                                      .OfType<MethodInstance>()
                                      .ToArray();
             return callees.Length != 0 &&
-                   callees.All(callee => callee.Summary.Returns.All(
-                       returned => SourcesExcused(execution, callee,
-                                                  new SummaryValue(returned.Values, returned.UnknownSources) { SourceCalls = returned.SourceCalls },
-                                                  region, returned.OperationId)));
+                   callees.All(callee => (_scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) &&
+                                          body is { IsAsync: true, IsAsyncIterator: false }) switch
+                   {
+                       true when depth == 0 => true,
+                       true => ReturnsExcusedAt(execution, callee, region, depth - 1),
+                       false => ReturnsExcusedAt(execution, callee, region, depth)
+                   });
         }
         finally
         {
             _proving.Remove((instance.Id, call));
+        }
+    }
+
+    /// <summary>Whether every value a body returns, consumed <paramref name="depth"/> times, is that handle with an origin it can account
+    /// for itself (<see cref="ExcusedAt"/>).</summary>
+    /// <param name="execution">The execution proving the value.</param>
+    /// <param name="callee">The body's instance.</param>
+    /// <param name="region">The one region the value resolves to.</param>
+    /// <param name="depth">How many times the returned values are consumed.</param>
+    private bool ReturnsExcusedAt(string execution, MethodInstance callee, string region, int depth) =>
+        callee.Summary.Returns.All(returned => ExcusedAt(execution, callee,
+                                                         new SummaryValue(returned.Values, returned.UnknownSources)
+                                                         {
+                                                             SourceCalls = returned.SourceCalls,
+                                                             Completions = returned.Completions,
+                                                             CompletedCalls = returned.CompletedCalls
+                                                         },
+                                                         region, returned.OperationId, depth));
+
+    /// <summary>Whether a value, consumed <paramref name="depth"/> times, gives that handle with an origin it can account for itself.
+    /// Unconsumed, its own unknown sources must be excused (<see cref="SourcesExcused"/>). Consumed, the tasks it names must be all it
+    /// may be — no unknown source but a call whose result the heap follows, no completion of an unfollowed task —, and what each of them
+    /// completes with, consumed once fewer, must be excused in turn (<see cref="TaskExcused"/>).</summary>
+    /// <param name="execution">The execution proving the value.</param>
+    /// <param name="instance">The instance expressing the value.</param>
+    /// <param name="value">The value.</param>
+    /// <param name="region">The one region the value resolves to once consumed.</param>
+    /// <param name="operation">The operation it is judged at.</param>
+    /// <param name="depth">How many times the value is consumed.</param>
+    private bool ExcusedAt(string execution, MethodInstance instance, SummaryValue value, string region, int operation, int depth)
+    {
+        if (depth == 0)
+            return SourcesExcused(execution, instance, value, region, operation);
+        if (value.Completions.Any(completion => _heap.UnfollowedCompletions.Contains((instance.Id, completion))) ||
+            value.UnknownSources.Any(source => source != UnknownSource.SourceCall) ||
+            value.SourceCalls.Any(call => _heap.UnfollowedCallResults.Contains((instance.Id, call))))
+        {
+            return false;
+        }
+
+        var tasks = value.Values.SelectMany(item => _heap.Resolve(instance.Id, item)).Distinct(StringComparer.Ordinal).ToArray();
+        return tasks.Length != 0 && tasks.All(task => TaskExcused(execution, task, region, depth));
+    }
+
+    /// <summary>Whether what a task region completes with, consumed once fewer than <paramref name="depth"/>, is that handle with an
+    /// origin it can account for itself: the heap follows its completion, and every producer of it the heap names is an async body's
+    /// returns or a task member completing it with values (<see cref="TaskCompleterKind.Returns"/>,
+    /// <see cref="TaskCompleterKind.TaskOperation"/>), each of them excused in turn.</summary>
+    /// <param name="execution">The execution proving the value.</param>
+    /// <param name="task">The task region.</param>
+    /// <param name="region">The one region the value resolves to once consumed.</param>
+    /// <param name="depth">How many times the task is consumed.</param>
+    private bool TaskExcused(string execution, string task, string region, int depth)
+    {
+        if (_heap.UnfollowedTaskCompletions.Contains(task) || _heap.TaskCompleters.GetValueOrDefault(task) is not { Count: > 0 } completers ||
+            !_provingTasks.Add((task, depth)))
+        {
+            return false;
+        }
+
+        try
+        {
+            return completers.All(completer => _heap.Instances.GetValueOrDefault(completer.Instance) is { } producer && completer.Kind switch
+            {
+                TaskCompleterKind.Returns => ReturnsExcusedAt(execution, producer, region, depth - 1),
+                TaskCompleterKind.TaskOperation =>
+                    producer.Summary.TaskOperations.FirstOrDefault(operation => operation.OperationId == completer.Operation) is
+                        { Kind: IrTaskKind.Completed } completing &&
+                    completing.Values.All(value => ExcusedAt(execution, producer, value, region, completing.OperationId, depth - 1)),
+                _ => false
+            });
+        }
+        finally
+        {
+            _provingTasks.Remove((task, depth));
         }
     }
 
@@ -1050,11 +1194,21 @@ internal sealed class HappensBefore
     {
         if (_flows.TryGetValue(execution, out var flow))
             return flow;
-        var throwsAfter = Joins(execution).Where(join => join.ThrowsOnlyAfterCompletion).Select(join => (join.Point.Instance, join.Point.Operation)).ToHashSet();
+        var throwsAfter = Joins(execution).Where(join => join.ThrowsOnlyAfterCompletion).Select(join => (join.Point.Instance, ThrowingOperation(join.Point)))
+                                          .ToHashSet();
         flow = NewFlow(execution, throwsAfter);
         _flows.Add(execution, flow);
         return flow;
     }
+
+    /// <summary>The operation a join's exceptions leave from: the call of a joining BCL call, which is what may throw, and not the join
+    /// that marks it; an await, or a call site a wait is hoisted to, throws from the point itself.</summary>
+    /// <param name="point">The join's point.</param>
+    private int ThrowingOperation(PointKey point) =>
+        _heap.Instances.TryGetValue(point.Instance, out var instance) &&
+        instance.Summary.Joins.FirstOrDefault(join => join.OperationId == point.Operation) is { CallOperationId: int call }
+            ? call
+            : point.Operation;
 
     private Flow PlainFlow(string execution)
     {
@@ -1071,6 +1225,9 @@ internal sealed class HappensBefore
 
     /// <summary>Whether the execution has waited for a target at a point: every path to it passes one of the joins that wait for that
     /// target, which need not be the same one on every path.</summary>
+    /// <param name="execution">The waiting execution.</param>
+    /// <param name="joined">The target execution waited for.</param>
+    /// <param name="point">The point the paths lead to.</param>
     private bool Dominates(string execution, string joined, PointKey point) =>
         FlowOf(execution).Dominates(Joins(execution).Where(join => join.Targets.Contains(joined, StringComparer.Ordinal))
                                                    .Select(join => join.Point)
@@ -1085,6 +1242,9 @@ internal sealed class HappensBefore
     }
 
     /// <summary>A point of an execution: the position before an operation of an instance, or, for an async call, the position after it.</summary>
+    /// <param name="Instance">The instance the operation belongs to.</param>
+    /// <param name="Operation">The operation, or -1 for the execution's start.</param>
+    /// <param name="AfterCall">Whether the point is after the operation rather than before it.</param>
     internal readonly record struct PointKey(string Instance, int Operation, bool AfterCall)
     {
         /// <summary>The point every other point of the execution follows: where it starts.</summary>
@@ -1332,6 +1492,7 @@ internal sealed class HappensBefore
         /// <summary>Whether an operation can throw where it stands: calls, awaits, field and element reads and writes, conversions,
         /// arithmetic, locks and operations the lowering does not model. Assignments, phis, comparisons, allocations (their constructor is
         /// a call) and the BCL marks that follow a call cannot.</summary>
+        /// <param name="operation">The operation.</param>
         private static bool MayThrow(IrOperation operation) => operation is IrCallOperation or IrAwaitOperation or IrLoadFieldOperation or
             IrStoreFieldOperation or IrLoadElementOperation or IrStoreElementOperation or IrConvertOperation or IrComputeOperation or
             IrAcquireOperation or IrReleaseOperation or IrUnknownOperation or IrAtomicOperation;
@@ -1349,6 +1510,8 @@ internal sealed class HappensBefore
         internal bool Dominates(PointKey join, PointKey point) => Dominates([join], point);
 
         /// <summary>Whether no path from the execution's start reaches the point around every one of the cut points.</summary>
+        /// <param name="cuts">The cut points.</param>
+        /// <param name="point">The point the paths lead to.</param>
         internal bool Dominates(IReadOnlyCollection<PointKey> cuts, PointKey point)
         {
             var cutNodes = cuts.SelectMany(Nodes).ToHashSet();
@@ -1365,6 +1528,8 @@ internal sealed class HappensBefore
 
         /// <summary>Whether every path from just after an operation (from the point itself for a point after a call, from the
         /// execution's start for none) to the execution's end passes one of the targets.</summary>
+        /// <param name="from">The point the paths start after, or null for the execution's start.</param>
+        /// <param name="targets">The points one of which every path must pass.</param>
         internal bool AlwaysFollows(PointKey? from, IReadOnlyCollection<PointKey> targets)
         {
             var fromNodes = from is not { } point ? _starts.ToArray()

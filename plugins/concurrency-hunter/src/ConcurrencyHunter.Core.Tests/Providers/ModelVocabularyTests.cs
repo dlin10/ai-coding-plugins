@@ -24,6 +24,8 @@ public sealed class ModelVocabularyTests
         new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
 
     /// <summary>How many parameters the <c>Invoke</c> of a built-in member's delegate parameter takes.</summary>
+    /// <param name="memberId">The member's documentation comment id.</param>
+    /// <param name="parameter">The name of the member's delegate parameter.</param>
     internal static int DelegateArity(string memberId, string parameter) =>
         ((INamedTypeSymbol)Resolve(memberId).First().Parameters.Single(candidate => candidate.Name == parameter).Type).DelegateInvokeMethod!.Parameters.Length;
 
@@ -55,6 +57,19 @@ public sealed class ModelVocabularyTests
         Assert.Equal(["f", "g"], member.Fates.Select(fate => fate.Parameter).Order(StringComparer.Ordinal));
     }
 
+    [Fact]
+    public void Built_in_entries_look_through_task_results()
+    {
+        var iterator = Assert.Single(BuiltInModelReader.Read(Encoding.UTF8.GetBytes(BUILT_IN.Replace(
+            "ENTRY", ""","result":"task(sequence(returns:f))","fates":{"f":{"fate":"iterator"}}"""))).Members);
+        var keeper = Assert.Single(BuiltInModelReader.Read(Encoding.UTF8.GetBytes(BUILT_IN.Replace(
+            "ENTRY", ""","result":"task(task(new))","keeps":{"result":["arg:a"]}"""))).Members);
+
+        Assert.Equal("task(sequence(returns:f))", iterator.Result?.ToString());
+        Assert.Equal((LibraryResultKind.Sequence, 1), (iterator.Result!.Leaf.Kind, iterator.Result.TaskDepth));
+        Assert.Equal((LibraryResultKind.New, 2), (keeper.Result!.Leaf.Kind, keeper.Result.TaskDepth));
+    }
+
     [Theory]
     [InlineData("arg:source", false)]
     [InlineData("returns:selector", false)]
@@ -77,6 +92,14 @@ public sealed class ModelVocabularyTests
     [InlineData("[elements(arg:source)]", true)]
     [InlineData("[elements(arg:source),arg:defaultValue]", true)]
     [InlineData("sequence(grouping(returns:keySelector,elements(arg:source)))", true)]
+    [InlineData("completion(arg:task)", false)]
+    [InlineData("completion(completion(arg:nested))", false)]
+    [InlineData("elements(completion(arg:task))", false)]
+    [InlineData("task(new)", true)]
+    [InlineData("task(task(new))", true)]
+    [InlineData("task(sequence(returns:selector))", true)]
+    [InlineData("task([completion(arg:task),arg:other])", true)]
+    [InlineData("task(collection(elements(completion(arg:task))))", true)]
     public void Accepted_values(string text, bool result) =>
         Assert.Equal(text, result ? LibraryResult.Parse(text)?.ToString() : LibraryValue.Parse(text)?.ToString());
 
@@ -110,6 +133,14 @@ public sealed class ModelVocabularyTests
     [InlineData("arg:a", true)]
     [InlineData("[arg:a] ", true)]
     [InlineData("", false)]
+    [InlineData("completion()", false)]
+    [InlineData("completion(arg:task", false)]
+    [InlineData("task(new)", false)]
+    [InlineData("completion(arg:task)", true)]
+    [InlineData("task()", true)]
+    [InlineData("task(new", true)]
+    [InlineData("task(arg:a)", true)]
+    [InlineData("task(new,new)", true)]
     public void Refused_values(string text, bool result) =>
         Assert.Null(result ? LibraryResult.Parse(text) : LibraryValue.Parse(text));
 
@@ -142,6 +173,13 @@ public sealed class ModelVocabularyTests
     [InlineData("returns of an iterator in an invoke-now input", ""","result":"sequence(arg:a)","fates":{"f":{"fate":"iterator"},"g":{"fate":"invoke-now","inputs":[["returns:f"]]}}""", "iterator delegate")]
     [InlineData("iterator without a sequence", ""","result":"[arg:a]","fates":{"f":{"fate":"iterator"}}""", "needs a sequence")]
     [InlineData("holder of the result beside a result", ""","result":"[arg:a]","fates":{"f":{"fate":"holder","holder":"result"}}""", "carries no result")]
+    [InlineData("iterator under a task without a sequence", ""","result":"task([arg:a])","fates":{"f":{"fate":"iterator"}}""", "needs a sequence")]
+    [InlineData("holder of the result beside a task result", ""","result":"task(new)","fates":{"f":{"fate":"holder","holder":"result"}}""", "carries no result")]
+    [InlineData("result keeper beside a task of no new", ""","result":"task([arg:a])","keeps":{"result":["arg:b"]}""", "keeps.result needs the result new")]
+    [InlineData("task in outputs", ""","outputs":{"o":"task(new)"}""", "outputs never take task")]
+    [InlineData("new inside completion", ""","result":"[completion(new)]" """, "new is not allowed")]
+    [InlineData("completion of a sequence", ""","result":"[completion(sequence(arg:a))]" """, "needs a task")]
+    [InlineData("completion of a grouping", ""","result":"[completion(grouping(arg:a,arg:b))]" """, "needs a task")]
     [InlineData("result not a string", ""","result":1""", "Invalid built-in library model")]
     [InlineData("result that does not parse", ""","result":"list(arg:a)" """, "does not parse")]
     [InlineData("repeated fate property", ""","fates":{"f":{"fate":"invoke-now","fate":"invoke-now"}}""", "Repeated JSON property 'fate'")]

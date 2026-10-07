@@ -920,6 +920,40 @@ public sealed class HappensBeforeTests
         Assert.False(Overlap(run, "P1", "F"));
     }
 
+    /// <summary>A join on the task a call's task completes with, consumed as deep as it stands, proves the work as the synchronous twin
+    /// returning that task directly does (R1, R3): a non-async helper's <c>FromResult</c> of it, an async body's, through
+    /// <c>await</c>, <c>.Result</c> or <c>GetResult()</c>.</summary>
+    /// <param name="body">The worker's statements: the join at its depth, then <c>P1</c>.</param>
+    /// <param name="members">The worker's helper members returning the call's task.</param>
+    [Theory]
+    [InlineData("await Wrap(); P1();", "private Task Wrap() => Work();")]
+    [InlineData("var inner = await Wrap(); await inner; P1();", "private Task<Task> Wrap() => Task.FromResult(Work());")]
+    [InlineData("var inner = Wrap().Result; await inner; P1();", "private Task<Task> Wrap() => Task.FromResult(Work());")]
+    [InlineData("var inner = Wrap().GetAwaiter().GetResult(); inner.Wait(); P1();", "private Task<Task> Wrap() => Task.FromResult(Work());")]
+    [InlineData("var inner = await Outer(); await inner; P1();", "private async Task<Task> Outer() { await Task.Yield(); return Work(); }")]
+    [InlineData("var middle = await Outer(); var inner = await middle; await inner; P1();",
+                "private async Task<Task<Task>> Outer() { await Task.Yield(); return Task.FromResult(Work()); }")]
+    [InlineData("var inner = Outer().Result.Result; inner.Wait(); P1();",
+                "private async Task<Task<Task>> Outer() { await Task.Yield(); return Task.FromResult(Work()); }")]
+    public void Join_on_the_task_a_call_completes_with_at_its_depth_orders_the_work(string body, string members)
+    {
+        var run = Analyze(Worker(body, WORK + members));
+
+        Assert.False(Overlap(run, "P1", "F"));
+    }
+
+    [Theory]
+    [InlineData("var inner = await Wrap(); await inner; P1();",
+                "private Task<Task> Wrap() => Task.FromResult(_flag ? Work() : System.IO.File.WriteAllTextAsync(\"a\", \"b\"));")]
+    [InlineData("var middle = await Outer(); var inner = await middle; await inner; P1();",
+                "private async Task<Task<Task>> Outer() { await Task.Yield(); return Task.FromResult(_flag ? Work() : System.IO.File.WriteAllTextAsync(\"a\", \"b\")); }")]
+    public void Join_on_a_completed_task_that_may_be_an_opaque_one_orders_nothing(string body, string members)
+    {
+        var run = Analyze(Worker(body, WORK + members));
+
+        Assert.True(Overlap(run, "P1", "F"));
+    }
+
     [Fact]
     public void Call_on_a_receiver_an_opaque_call_may_have_made_orders_nothing()
     {
@@ -1036,6 +1070,8 @@ public sealed class HappensBeforeTests
 
     /// <summary>A worker that hands its spawned task to both implementations of <c>IWaiter</c> and calls one of them; the call runs in the
     /// worker's tail, so an implementation that awaits the task waits inside the call.</summary>
+    /// <param name="implementations">The declarations of <c>FirstWaiter</c> and <c>SecondWaiter</c>.</param>
+    /// <param name="call">The statement in the worker's tail that calls a waiter.</param>
     private static string Waiters(string implementations, string call) => $$"""
         public interface IWaiter { Task WaitAsync(); }
 
@@ -1092,6 +1128,9 @@ public sealed class HappensBeforeTests
             public async Task WaitAsync() => await Work!;
         }
         """;
+
+    /// <summary>An async call whose tail writes, and a flag to choose by.</summary>
+    private const string WORK = "private readonly bool _flag; private async Task Work() { await Task.Yield(); F(); } ";
 
     /// <summary>A helper whose <c>Get</c> returns either the task it was handed or one from an opaque call, and whose <c>Take</c> returns
     /// only the one it was handed; the task handed to it is an async call whose tail writes.</summary>

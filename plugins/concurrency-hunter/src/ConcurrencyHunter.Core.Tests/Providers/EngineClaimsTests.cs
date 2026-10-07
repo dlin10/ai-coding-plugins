@@ -21,6 +21,8 @@ public sealed class EngineClaimsTests
     [InlineData("lock", "System.Threading", "ReaderWriterLockSlim")]
     [InlineData("service-call", "Microsoft.Extensions.DependencyInjection", "IServiceScopeFactory")]
     [InlineData("recognized", "Microsoft.Extensions.DependencyInjection", "IServiceScope")]
+    [InlineData("recognized", "System.Threading.Tasks", "TaskCompletionSource<TResult>")]
+    [InlineData("recognized", "System.Threading.Tasks", "TaskCompletionSource")]
     [InlineData("di-registration", "Microsoft.Extensions.DependencyInjection", "ServiceCollectionServiceExtensions")]
     public void A_library_declaring_a_type_a_recognizer_claims_is_engine_recognized(string recognizer, string ns, string type) =>
         AssertRefused(recognizer, ns, type);

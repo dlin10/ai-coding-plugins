@@ -214,15 +214,34 @@ public sealed class GeneratedFateTests
     }
 
     [Fact]
-    public void A_member_returning_Task_of_a_sequence_that_runs_the_delegate_when_enumerated_is_never_narrower_than_holder_result()
+    public void A_member_returning_Task_of_a_sequence_that_runs_the_delegate_when_enumerated_gets_its_synchronous_twins_fate()
     {
-        // The engine carries no awaited value into V_Enum's foreach, so V_Enum never enumerates the sequence: neither iterator nor a
-        // holder result can be shown, since how the sequence runs the delegate when enumerated was never seen.
+        // The heap carries the awaited sequence into V_Enum's foreach, which enumerates it as the twin's V_Enum enumerates its result.
         var trace = Trace(LAZY + "public static class Api { public static async Task<IEnumerable<int>> WhereAsync(IEnumerable<int> s, Func<int, bool> p) " +
                           "{ await Task.Delay(1); return Seq.Iter(s, p); } }", "M:Lib.Api.WhereAsync" + SEQUENCE_PREDICATE);
+        var twin = Trace(LAZY + "public static class Api { public static IEnumerable<int> Where(IEnumerable<int> s, Func<int, bool> p) => Seq.Iter(s, p); }",
+                         "M:Lib.Api.Where" + SEQUENCE_PREDICATE);
 
-        Assert.Equal(Unknown, FateOf(trace, "p"));
-        Assert.Null(FateClassifier.Refusal(trace.Driver!.Member, Iterator));
+        Assert.Equal(Iterator, FateOf(twin, "p"));
+        Assert.Equal(FateOf(twin, "p"), FateOf(trace, "p"));
+    }
+
+    [Theory]
+    [InlineData("Task<Task<IEnumerable<Box>>>", "Task.FromResult(Task.FromResult(BoxSeq.Iter(s, p)))")]
+    [InlineData("ValueTask<Task<IEnumerable<Box>>>", "new ValueTask<Task<IEnumerable<Box>>>(Task.FromResult(BoxSeq.Iter(s, p)))")]
+    public void A_member_returning_nested_tasks_of_a_sequence_that_runs_the_delegate_when_enumerated_gets_its_synchronous_twins_fate(string returned,
+                                                                                                                                   string body)
+    {
+        // The driver awaits once per task level, so V_Enum enumerates the innermost sequence as the twin's V_Enum enumerates its result.
+        const string BOX_SEQ = "public static class BoxSeq { public static IEnumerable<Box> Iter(IEnumerable<Box> s, Func<Box, bool> p) { foreach (var x in s) if (p(x)) yield return x; } } ";
+        const string PARAMETERS = "(System.Collections.Generic.IEnumerable{Lib.Box},System.Func{Lib.Box,System.Boolean})";
+        var trace = Trace(BOX_SEQ + $"public static class Api {{ public static {returned} WhereNested(IEnumerable<Box> s, Func<Box, bool> p) => {body}; }}",
+                          "M:Lib.Api.WhereNested" + PARAMETERS);
+        var twin = Trace(BOX_SEQ + "public static class Api { public static IEnumerable<Box> Where(IEnumerable<Box> s, Func<Box, bool> p) => BoxSeq.Iter(s, p); }",
+                         "M:Lib.Api.Where" + PARAMETERS);
+
+        Assert.Equal(Iterator, FateOf(twin, "p"));
+        Assert.Equal(FateOf(twin, "p"), FateOf(trace, "p"));
     }
 
     [Fact]
@@ -318,19 +337,24 @@ public sealed class GeneratedFateTests
     }
 
     [Fact]
-    public void A_member_that_is_not_async_returning_Task_of_T_that_keeps_the_delegate_is_unknown_execution()
+    public void A_member_that_is_not_async_returning_Task_of_T_that_keeps_the_delegate_gets_its_synchronous_twins_fate()
     {
-        // The heap does not say what Task.FromResult's task completes with: the result is unknown, and nothing is proven not kept.
+        // The heap says what Task.FromResult's and the ValueTask's task complete with: the holder the twin returns directly.
         var task = Trace("public static class Api { public static Task<Holder> Make(Action a) { a(); return Task.FromResult(new Holder(a)); } }",
                          "M:Lib.Api.Make(System.Action)");
         var valueTask = Trace("public static class Api { public static ValueTask<Holder> Make(Action a) { a(); return new ValueTask<Holder>(new Holder(a)); } }",
                               "M:Lib.Api.Make(System.Action)");
+        var twin = Trace("public static class Api { public static Holder Make(Action a) { a(); return new Holder(a); } }", "M:Lib.Api.Make(System.Action)");
         var receiver = Trace("public sealed class Bus { private Action _a; public Task<Holder> On(Action a) { _a = a; return Task.FromResult(new Holder(a)); } public void Fire() => _a(); }",
                              "M:Lib.Bus.On(System.Action)");
+        var receiverTwin = Trace("public sealed class Bus { private Action _a; public Holder On(Action a) { _a = a; return new Holder(a); } public void Fire() => _a(); }",
+                                 "M:Lib.Bus.On(System.Action)");
 
-        Assert.Equal(Unknown, FateOf(task, "a"));
-        Assert.Equal(Unknown, FateOf(valueTask, "a"));
-        Assert.Equal(Unknown, FateOf(receiver, "a"));
+        Assert.Equal(Unknown, FateOf(twin, "a"));
+        Assert.Equal(FateOf(twin, "a"), FateOf(task, "a"));
+        Assert.Equal(FateOf(twin, "a"), FateOf(valueTask, "a"));
+        Assert.Equal(Unknown, FateOf(receiverTwin, "a"));
+        Assert.Equal(FateOf(receiverTwin, "a"), FateOf(receiver, "a"));
     }
 
     [Fact]
@@ -665,23 +689,26 @@ public sealed class GeneratedFateTests
     }
 
     [Fact]
-    public void A_member_returning_Task_of_T_whose_awaited_object_keeps_the_delegate_is_unknown_execution()
+    public void A_member_returning_Task_of_T_whose_awaited_object_keeps_the_delegate_is_holder_result_as_its_synchronous_twin()
     {
-        // The fate run finds the awaited object a holder, but R7 keeps it only when a trigger ran the delegate: a trigger's Fire on the
-        // awaited object runs no body, since the heap carries no value through an await.
+        // The heap carries the awaited holder to the trigger, whose Fire runs the delegate as the twin's does (R7).
         var trace = Trace("public static class Api { public static async Task<Holder> MakeAsync(Action a) { await Task.Delay(1); return new Holder(a); } }",
                           "M:Lib.Api.MakeAsync(System.Action)");
+        var twin = Trace("public static class Api { public static Holder Make(Action a) => new Holder(a); }", "M:Lib.Api.Make(System.Action)");
 
-        Assert.Equal(Unknown, FateOf(trace, "a"));
+        Assert.Equal(HolderResult, FateOf(twin, "a"));
+        Assert.Equal(FateOf(twin, "a"), FateOf(trace, "a"));
     }
 
     [Fact]
-    public void A_member_returning_ValueTask_of_T_whose_awaited_object_keeps_the_delegate_is_unknown_execution()
+    public void A_member_returning_ValueTask_of_T_whose_awaited_object_keeps_the_delegate_is_holder_result_as_its_synchronous_twin()
     {
         var trace = Trace("public static class Api { public static async ValueTask<Holder> MakeAsync(Action a) { await Task.Delay(1); return new Holder(a); } }",
                           "M:Lib.Api.MakeAsync(System.Action)");
+        var twin = Trace("public static class Api { public static Holder Make(Action a) => new Holder(a); }", "M:Lib.Api.Make(System.Action)");
 
-        Assert.Equal(Unknown, FateOf(trace, "a"));
+        Assert.Equal(HolderResult, FateOf(twin, "a"));
+        Assert.Equal(FateOf(twin, "a"), FateOf(trace, "a"));
     }
 
     [Fact]

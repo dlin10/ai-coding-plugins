@@ -1,5 +1,9 @@
 ﻿using Demo.Web.Cases.ProjectModelKeptObject;
 using Demo.Web.Cases.ProjectModelTryGetValue;
+using Demo.Web.Cases.AwaitedResultShared;
+using Demo.Web.Cases.TaskRunResultShared;
+using Demo.Web.Cases.CompletionSourceHandoff;
+using Demo.Web.Cases.AwaitedFreshResult;
 // Only a list of calls: every registration, endpoint and startup write lives in its case file, so no
 // two cases share a line here that the analysis could mistake for shared state.
 using Demo.Web.Cases.ActionSelfOverlap;
@@ -374,7 +378,11 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddProjectModelKeptObject()
                 .AddFieldLikeEventRaisedByWorker()
                 .AddFieldLikeEventRaisedInRequest()
-                .AddProjectModelTryGetValue();
+                .AddProjectModelTryGetValue()
+                .AddAwaitedResultShared()
+                .AddTaskRunResultShared()
+                .AddCompletionSourceHandoff()
+                .AddAwaitedFreshResult();
 
 var app = builder.Build();
 

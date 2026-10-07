@@ -24,12 +24,23 @@ public enum ExecutionKind
 /// <summary>Where a spawned execution starts: the API (<c>Task.Run</c>, <c>async-call</c>, a timer type, ...), the symbol of the member
 /// holding the site, and the site. A tail is the part of async work after its first await that its spawn does not wait for; it
 /// starts at the synthetic point where the work returns.</summary>
+/// <param name="Api">The API that starts the execution.</param>
+/// <param name="Symbol">The symbol of the member holding the site.</param>
+/// <param name="BodyId">The body holding the site.</param>
+/// <param name="OperationId">The site's operation.</param>
+/// <param name="IsTail">Whether the execution is the tail of async work.</param>
 public sealed record SpawnOrigin(string Api, string Symbol, string BodyId, int OperationId, bool IsTail);
 
 /// <summary>One execution of the scope: a root with its invocation policy, a lazily resolved construction, a type initializer that does
 /// not run at startup, or an execution a spawn site or a timer starts inside its <see cref="ParentId"/> (<see cref="ExecutionModel.STARTUP"/>
 /// for startup). <see cref="Subject"/> is the region or closed type a construction builds; <see cref="TreeRootId"/> is the root id, or
 /// <c>startup</c>, or the construction execution id at the top of the tree.</summary>
+/// <param name="Id">The execution's id.</param>
+/// <param name="Kind">What kind of execution it is.</param>
+/// <param name="Display">The execution's display name.</param>
+/// <param name="Policy">How often the execution runs and whether its runs may overlap.</param>
+/// <param name="RootId">The root the execution belongs to, or null.</param>
+/// <param name="Subject">The region or closed type a construction builds, or null.</param>
 public sealed record ExecutionInstance(string Id, ExecutionKind Kind, string Display, InvocationPolicy Policy, string? RootId, string? Subject)
 {
     public string? ParentId { get; init; }
@@ -70,6 +81,9 @@ public enum BodySegment
 /// <summary>Where an execution starts: its root entry, a constructor chain it runs (starting inside the interval of the object
 /// under construction), a type initializer (inside its closed type's static region), or the work of a spawn, in the
 /// <see cref="Segment"/> of its body the execution runs.</summary>
+/// <param name="InstanceId">The method instance the execution starts in.</param>
+/// <param name="Kind">What kind of entry it is.</param>
+/// <param name="IntervalObject">The object under construction or static region the entry starts inside, or null.</param>
 public sealed record ExecutionEntry(string InstanceId, ExecutionEntryKind Kind, string? IntervalObject)
 {
     public BodySegment Segment { get; init; } = BodySegment.Whole;
@@ -88,6 +102,11 @@ public sealed record RegionOwnership(OwnershipKind Kind, IReadOnlyList<string> E
 
 /// <summary>An access as one execution runs it on one region. A construction-local access touches the object its enclosing
 /// construction builds, before the construction publishes it, and never pairs.</summary>
+/// <param name="ExecutionId">The execution running the access.</param>
+/// <param name="InstanceId">The method instance making the access.</param>
+/// <param name="Access">The access from the instance's summary.</param>
+/// <param name="RegionId">The region the access touches.</param>
+/// <param name="IsConstructionLocal">Whether the access is construction-local.</param>
 public sealed record CollectedAccess(string ExecutionId, string InstanceId, SummaryAccess Access, string RegionId, bool IsConstructionLocal);
 
 public sealed class ExecutionAnalysis
@@ -148,12 +167,19 @@ public sealed class ExecutionAnalysis
     public ExecutionInstance Execution(string id) => _executions[id];
 
     /// <summary>Two executions of one scope overlap; an execution overlaps itself only when its policy says so.</summary>
+    /// <param name="first">The first execution's id.</param>
+    /// <param name="second">The second execution's id.</param>
     public bool Overlaps(string first, string second) => first != second || _executions[first].OverlapsItself;
 
     /// <summary>Whether a happens-before path trusted for every instance it connects orders two accesses of different executions.</summary>
+    /// <param name="first">The first access.</param>
+    /// <param name="second">The second access.</param>
     public bool Ordered(Access first, Access second) => first.ExecutionId != second.ExecutionId && _order?.Ordered(first, second) == true;
 
     /// <summary>Whether a join of an instance comes before an access on every path of the access's execution (R6).</summary>
+    /// <param name="joinInstance">The instance making the join.</param>
+    /// <param name="joinOperation">The join operation.</param>
+    /// <param name="access">The access.</param>
     public bool JoinDominates(string joinInstance, int joinOperation, Access access) =>
         _order?.JoinDominates(access.ExecutionId, joinInstance, joinOperation, access) ?? true;
 
@@ -171,6 +197,7 @@ public sealed class ExecutionAnalysis
         new Dictionary<string, IReadOnlyList<TimerCallbackSite>>();
 
     /// <summary>Whether a region is provably one object per process, as a lock identity.</summary>
+    /// <param name="regionId">The region.</param>
     public bool IsSingleObject(string regionId) => _singleObjects.Contains(regionId);
 
     /// <summary>For each spawned execution, the member symbols from its tree's root to its spawn site, ending with the site's
@@ -182,6 +209,8 @@ public sealed class ExecutionAnalysis
 
     /// <summary>The sites of the segments an access's call path passes: its execution's, when the path starts with that execution's
     /// prefix.</summary>
+    /// <param name="executionId">The access's execution.</param>
+    /// <param name="callPath">The access's call path.</param>
     public IReadOnlyList<SpawnSiteLocation> SpawnSitesOf(string executionId, IReadOnlyList<string> callPath) =>
         SpawnSiteLocations.TryGetValue(executionId, out var sites) && CallPathPrefixes.TryGetValue(executionId, out var prefix) &&
         callPath.Take(prefix.Count).SequenceEqual(prefix)
@@ -189,10 +218,16 @@ public sealed class ExecutionAnalysis
             : [];
 
     /// <summary>Whether a segment of a body runs an operation; a negative operation is the body's entry.</summary>
+    /// <param name="bodyId">The body.</param>
+    /// <param name="segment">The segment of the body.</param>
+    /// <param name="operationId">The operation.</param>
     public bool Runs(string bodyId, BodySegment segment, int operationId) => _segments?.Runs(bodyId, segment, operationId) ?? true;
 
     /// <summary>The segment of its callee a call edge runs in the caller's execution, or null when that segment of the caller does
     /// not run the call.</summary>
+    /// <param name="caller">The calling instance.</param>
+    /// <param name="segment">The segment of the caller the execution runs.</param>
+    /// <param name="edge">The call edge.</param>
     public BodySegment? Follow(MethodInstance caller, BodySegment segment, CallEdge edge) =>
         _segments is null ? BodySegment.Whole : _segments.Follow(caller, segment, edge);
 }
@@ -202,6 +237,8 @@ public sealed class ExecutionAnalysis
 /// await is in its prefix; one reachable from an await is in its tail. An async spawn edge runs its callee's prefix in the caller;
 /// inside a prefix, an awaited call into an async body runs that body's prefix too, its tail joining the caller's tail.
 /// </summary>
+/// <param name="scope">The scope program whose bodies are read.</param>
+/// <param name="heap">The solved heap, giving the async spawn sites and instances.</param>
 public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
 {
     private readonly Dictionary<string, (HashSet<int> Prefix, HashSet<int> Tail)> _bodies = new(StringComparer.Ordinal);
@@ -219,6 +256,7 @@ public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
         _asyncCallees.TryGetValue((caller, operationId), out var callees) && callees.Contains(callee);
 
     /// <summary>An async body that is not an async iterator: one that starts work its caller may not wait for.</summary>
+    /// <param name="bodyId">The body.</param>
     public bool IsAsync(string bodyId) => scope.Reachable.Bodies.TryGetValue(bodyId, out var body) && body is { IsAsync: true, IsAsyncIterator: false };
 
     public BodySegment? Follow(MethodInstance caller, BodySegment segment, CallEdge edge)
@@ -311,6 +349,7 @@ public static class ExecutionModel
     }
 
     /// <summary>The id of the unknown execution running a delegate region an unresolved call was handed (R3).</summary>
+    /// <param name="delegateRegion">The delegate region.</param>
     public static string UnknownDelegateCallId(string delegateRegion) => $"unknown-delegate-call:{delegateRegion}";
 
     private sealed class Builder(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken, ExecutionWalkOrder? walkOrder)
@@ -536,6 +575,7 @@ public static class ExecutionModel
         }
 
         /// <summary>The counter a timer creation site of one kind is counted in.</summary>
+        /// <param name="kind">The timer kind.</param>
         private static string Counter(TimerKind kind) => kind switch
         {
             TimerKind.Disabled => OrderingCounters.TIMERS_DISABLED,
@@ -787,6 +827,9 @@ public static class ExecutionModel
 
         /// <summary>Enters spawned work: whole, or, for async work its spawn does not wait for, its prefix here and its tail in a child
         /// execution that starts where the work returns.</summary>
+        /// <param name="execution">The spawned execution entering the work.</param>
+        /// <param name="calleeId">The work's instance.</param>
+        /// <param name="awaitsTask">Whether the spawn waits for the work's task, so async work is entered whole.</param>
         private void EnterWork(string execution, string calleeId, bool awaitsTask)
         {
             if (!_segments.IsAsync(heap.Instances[calleeId].BodyId) || awaitsTask)
@@ -806,6 +849,9 @@ public static class ExecutionModel
         }
 
         /// <summary>The execution an async spawn edge starts: its callee's tail, from the synthetic point where the call returns.</summary>
+        /// <param name="parent">The execution making the call.</param>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="operationId">The call operation.</param>
         private string AsyncChild(string parent, MethodInstance caller, int operationId)
         {
             var site = _asyncSpawns[(caller.Id, operationId)];
@@ -873,6 +919,7 @@ public static class ExecutionModel
         private IEnumerable<string> HandedRegions() => _handoffs.Keys.Concat(_fateHandings.Keys).Distinct(StringComparer.Ordinal);
 
         /// <summary>The executions that hand a delegate region to its unknown call, each with the site it hands it at.</summary>
+        /// <param name="region">The delegate region.</param>
         private IEnumerable<(string Execution, string BodyId, int OperationId)> Handings(string region) =>
             (_handoffs.TryGetValue(region, out var handoff)
                 ? handoff.Sites.SelectMany(site => (_instanceExecutions.GetValueOrDefault(site.CallerInstance) ?? [])
@@ -954,6 +1001,7 @@ public static class ExecutionModel
 
         /// <summary>Whether every site a callback runs for names the timer it runs on: one that may run a timer of unknown origin may have
         /// been created in another execution, so neither the site it starts at nor the execution it starts in is proven.</summary>
+        /// <param name="callback">The callback execution.</param>
         private bool OriginKnown(string callback) => (_timerSites.GetValueOrDefault(callback) ?? []).All(site => site.TimersKnown);
 
         /// <summary>The broadest kind among the timers a callback execution's sites subscribe to, each counted at its creation site; a site
@@ -984,6 +1032,7 @@ public static class ExecutionModel
 
         /// <summary>Whether an <c>Elapsed</c> subscription runs once in the one execution that runs it; otherwise the handler may be attached
         /// more than once, and its callbacks overlap as periodic ones do.</summary>
+        /// <param name="site">The subscription site.</param>
         private bool SubscribedOnce(TimerCallbackSite site) =>
             _instanceExecutions.GetValueOrDefault(site.CallerInstance) is { Count: 1 } executions && RunsOnce(executions.First()) &&
             SiteOnce(executions.First(), heap.Instances[site.CallerInstance].BodyId, site.OperationId);
@@ -993,6 +1042,7 @@ public static class ExecutionModel
         /// assigns <c>false</c> and one of them precedes its one activation on every path, and that activation runs once in an execution that
         /// runs once and is no callback of this timer; periodic otherwise, as <c>AutoReset</c> defaults to <c>true</c>.
         /// </summary>
+        /// <param name="region">The timer's region.</param>
         private TimerKind TimersKind(string region)
         {
             var activations = _timerSteps.Activations(region);
@@ -1049,6 +1099,9 @@ public static class ExecutionModel
         }
 
         /// <summary>Counts a timer at its creation site, in the broadest kind any of its contexts gives it.</summary>
+        /// <param name="site">The callback site, whose own operation counts when the timer's creation is not located.</param>
+        /// <param name="region">The timer's region.</param>
+        /// <param name="kind">The kind this context gives the timer.</param>
         private void CountTimer(TimerCallbackSite site, string region, TimerKind kind)
         {
             var key = heap.Regions[region] is { SiteBodyId: { } bodyId, SiteOperationId: { } operationId }
@@ -1058,6 +1111,7 @@ public static class ExecutionModel
         }
 
         /// <summary>The source of the operation a spawned execution starts at.</summary>
+        /// <param name="origin">The spawned execution's origin.</param>
         private Analysis.SourceSpan SiteSource(SpawnOrigin origin) =>
             scope.Reachable.Bodies[origin.BodyId].Blocks.SelectMany(block => block.Operations)
                  .First(operation => operation.Id == origin.OperationId).Provenance.Span;
@@ -1683,6 +1737,9 @@ public static class ExecutionModel
         /// <summary>A target reachable only through the object under construction: an object or delegate reachable from it that
         /// shared storage does not also reach, or a container object the container resolved for it, whose context names it as the
         /// resolver. A singleton or a root-scope object is shared with everything else, so it is never internal.</summary>
+        /// <param name="object">The object under construction.</param>
+        /// <param name="inside">The regions reachable from the object.</param>
+        /// <param name="target">The region a store puts the object into.</param>
         private bool IsInternal(string @object, IReadOnlySet<string> inside, string target) =>
             heap.Regions[target] is var region && !SharedReach(@object).Contains(target) &&
             (inside.Contains(target) && region.Kind is HeapRegionKind.Allocation or HeapRegionKind.Delegate ||
@@ -1690,6 +1747,7 @@ public static class ExecutionModel
 
         /// <summary>Every region shared storage reaches: static storage, singletons and root-scope objects, and what they hold. The
         /// object under construction is left out as a root, since what it holds is what this asks about.</summary>
+        /// <param name="object">The object under construction.</param>
         private HashSet<string> SharedReach(string @object) =>
             _sharedReach.TryGetValue(@object, out var reach)
                 ? reach
@@ -1866,6 +1924,10 @@ public static class ExecutionModel
 
         /// <summary>One hop of an escape chain, with the source location that made it: the delegate creation of a capture, or the
         /// store that put the target there.</summary>
+        /// <param name="accesses">The collected accesses, searched first for the store.</param>
+        /// <param name="source">The region the hop starts at.</param>
+        /// <param name="field">The field slot, or <c>capture</c> for a delegate capture.</param>
+        /// <param name="target">The region the hop reaches.</param>
         private string EscapeEvidence(IReadOnlyList<CollectedAccess> accesses, string source, string field, string target)
         {
             if (field == "capture")
@@ -1930,15 +1992,29 @@ public static class ExecutionModel
                 ? body.Blocks.SelectMany(block => block.Operations).FirstOrDefault(item => item.Id == operation)?.Provenance.Span
                 : null;
 
+        /// <summary>The visits of each instance: the executions it runs in, each with the segment of its body it runs there.</summary>
+        private Dictionary<string, (string Execution, BodySegment Segment)[]> VisitsByInstance =>
+            _visitsByInstance ??= _visitList.GroupBy(visit => visit.Instance, StringComparer.Ordinal)
+                                            .ToDictionary(group => group.Key, group => group.Select(visit => (visit.Execution, visit.Segment)).Distinct().ToArray(),
+                                                          StringComparer.Ordinal);
+
+        private Dictionary<string, (string Execution, BodySegment Segment)[]>? _visitsByInstance;
+
         private string Describe(IEnumerable<string> executions) =>
             string.Join(", ", executions.Order(StringComparer.Ordinal)
                                         .Select(id => _executions.TryGetValue(id, out var execution) ? execution.Display : id));
 
+        /// <summary>The executions that create a region. An allocation or a delegate is created by the executions that run its site: an
+        /// async body's prefix runs in its caller's execution and its tail, after the first await, in the tail's, so an object the tail
+        /// creates is not created where the prefix runs.</summary>
+        /// <param name="region">The region.</param>
         private HashSet<string> CreationExecutions(HeapRegion region) => region.Kind switch
         {
             HeapRegionKind.Allocation or HeapRegionKind.Delegate =>
                 heap.Instances.Values.Where(instance => instance.BodyId == region.SiteBodyId && instance.Context == region.Context)
-                    .SelectMany(instance => _instanceExecutions.GetValueOrDefault(instance.Id) ?? [])
+                    .SelectMany(instance => (VisitsByInstance.GetValueOrDefault(instance.Id) ?? [])
+                                .Where(visit => region.SiteOperationId is not { } site || _segments.Runs(instance.BodyId, visit.Segment, site))
+                                .Select(visit => visit.Execution))
                     .ToHashSet(StringComparer.Ordinal),
             HeapRegionKind.Receiver => [region.Context],
             _ => (_regionExecutions.GetValueOrDefault(region.Identity) ?? [])

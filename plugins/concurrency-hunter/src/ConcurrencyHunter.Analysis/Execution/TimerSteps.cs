@@ -13,6 +13,9 @@ internal enum TimerKind
 }
 
 /// <summary>A timer step at one operation of one instance.</summary>
+/// <param name="InstanceId">The method instance making the step.</param>
+/// <param name="BodyId">The body of that instance.</param>
+/// <param name="OperationId">The operation of the step.</param>
 internal sealed record TimerStep(string InstanceId, string BodyId, int OperationId);
 
 /// <summary>
@@ -68,15 +71,22 @@ internal sealed class TimerSteps
         }
     }
 
-    /// <summary>Whether a step may reach a timer beside the ones it resolves to.</summary>
+    /// <summary>Whether a step may reach a timer beside the ones it resolves to. A call whose task the timer is the completion of gives what
+    /// that task completes with, followed as many times as the timer consumed it (<see cref="HeapSolution.Gives"/>).</summary>
+    /// <param name="heap">The solved heap.</param>
+    /// <param name="instance">The instance making the step.</param>
+    /// <param name="timer">The step.</param>
+    /// <param name="regions">The timers it resolves to.</param>
     private static bool Unknown(HeapSolution heap, MethodInstance instance, SummaryTimer timer, IReadOnlyList<string> regions) =>
         timer.Timer.UnknownSources.Any(source => source is not (UnknownSource.Null or UnknownSource.FieldBeforeWrite or UnknownSource.SourceCall)) ||
+        timer.Timer.Completions.Any(completion => heap.UnfollowedCompletions.Contains((instance.Id, completion))) ||
         timer.Timer.SourceCalls.Any(call => heap.UnfollowedCallResults.Contains((instance.Id, call)) ||
-                                            heap.Resolve(instance.Id, new CallResultValue(call)).ToArray() is not { Length: > 0 } returned ||
-                                            !returned.All(regions.Contains));
+                                            timer.Timer.Depths(call).Any(depth => heap.Gives(instance.Id, call, depth) is not { Count: > 0 } returned ||
+                                                                                  !returned.All(regions.Contains)));
 
     /// <summary>A <c>System.Threading.Timer</c>: disabled when created with an infinite due time and no <c>Change</c> reaches it, one-shot
     /// when created with an infinite or zero period and no <c>Change</c> reaches it, periodic otherwise.</summary>
+    /// <param name="region">The timer's heap region.</param>
     internal TimerKind ThreadingKind(string region) =>
         !_creations.TryGetValue(region, out var creation) || _changed.Contains(region) || _unknownTargets.Contains(IrTimerAction.Change) ? TimerKind.Periodic
         : creation.DueInfinite ? TimerKind.Disabled
@@ -84,6 +94,7 @@ internal sealed class TimerSteps
         : TimerKind.Periodic;
 
     /// <summary>The activations of a <c>System.Timers.Timer</c>: none means it is disabled.</summary>
+    /// <param name="region">The timer's heap region.</param>
     internal IReadOnlyList<TimerStep> Activations(string region) => _activations.GetValueOrDefault(region) ?? [];
 
     /// <summary>Whether an activation or an <c>AutoReset</c> assignment reaches a timer of unknown origin, so it may reach this one:
@@ -93,6 +104,7 @@ internal sealed class TimerSteps
     internal bool MayBeResetElsewhere => _unknownTargets.Contains(IrTimerAction.SetAutoReset);
 
     /// <summary>The <c>AutoReset</c> assignments of a <c>System.Timers.Timer</c>, and whether each assigns <c>false</c>.</summary>
+    /// <param name="region">The timer's heap region.</param>
     internal IReadOnlyList<(TimerStep Step, bool Off)> AutoResets(string region) => _autoResets.GetValueOrDefault(region) ?? [];
 
     private static void Add<TValue>(Dictionary<string, List<TValue>> map, string key, TValue value)

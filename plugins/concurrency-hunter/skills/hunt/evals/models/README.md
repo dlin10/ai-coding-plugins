@@ -59,6 +59,9 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   `demo/SCENARIOS.md` — in question 90's closing row when it stays exact, in an open question otherwise. Run B2b
   changes two: `AbstractValidator<T>.Validate` and `ValidateAsync` of FluentValidation reach 458 bodies instead of 457,
   through `TrackingCollection<T>.ItemAdded` (`event-call`).
+  Run A4 adds the cause `completion-value`: the answer changed because the run now follows the value a task completes
+  with — through `await`, `.Result`, `FromResult`, `ValueTask` and `task(…)` results — where it lost it before; each
+  such answer is named under the heading `5d run A4` in `demo/SCENARIOS.md`.
 - **Verdict report.** When `CH_MODEL_EVALS_REPORT` names a folder, `ModelEvalTests`, `EffectsEvalTests`,
   `LinqOracleTests` and `AccessorEvalTests` write `members.json`, `effects.json`, `linq.json` and `accessors.json`
   there: one line per unit the set's recorded count counts, each with its declaration id and its verdict — `exact`,

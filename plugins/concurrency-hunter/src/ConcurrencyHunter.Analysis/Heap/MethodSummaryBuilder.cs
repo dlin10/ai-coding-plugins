@@ -23,11 +23,16 @@ public static class MethodSummaryBuilder
 
     /// <summary><paramref name="bodies"/> resolves a nested body id, so a delegate creation knows whether its target uses the
     /// receiver; without it a target body that is not at hand is assumed to use it.</summary>
+    /// <param name="body">The body to summarize.</param>
+    /// <param name="index">The program index the body's calls, methods and types are resolved against.</param>
+    /// <param name="limits">The analysis limits, such as the maximum access path depth.</param>
+    /// <param name="bodies">Resolves a nested body id to its body, or <see langword="null"/> when none are at hand.</param>
     public static MethodSummary Build(IrBody body, ProgramIndex index, AnalysisLimits limits, Func<string, IrBody?>? bodies = null) =>
         new Builder(body, index, limits, bodies).Build();
 
     /// <summary>The method ids a virtual or interface call could run a source body for: every source-bodied method, and every method
     /// such a method overrides or implements, directly or through the methods it overrides.</summary>
+    /// <param name="index">The program whose methods are scanned; the result is cached per index.</param>
     private static HashSet<string> DispatchedWithBody(ProgramIndex index) =>
         DISPATCHED_WITH_BODY.GetValue(index, program =>
         {
@@ -69,9 +74,22 @@ public static class MethodSummaryBuilder
         private readonly Dictionary<int, HashSet<ValueDependency>> _dependencies = [];
         private readonly Dictionary<int, HashSet<UnknownSource>> _unknown = [];
         private readonly Dictionary<int, HashSet<int>> _sourceCalls = [];
+        private readonly Dictionary<int, HashSet<int>> _completions = [];
+        private readonly Dictionary<int, HashSet<(int Call, int Depth)>> _completedCalls = [];
         private readonly Dictionary<int, HashSet<int>> _workValues;
         private readonly HashSet<int> _modeledCalls = [];
         private readonly Dictionary<int, int> _unwrapped = [];
+
+        /// <summary>The values that are the same task as another (<see cref="IrTaskKind.Same"/>), by value: each is that value in every
+        /// respect the summary follows, its objects, its unknown sources and the calls and completions it comes from.</summary>
+        private readonly Dictionary<int, int> _sameTasks = [];
+
+        /// <summary>The values a constructor creates that are the new task of its site instead, by value: the call's.</summary>
+        private readonly Dictionary<int, int> _createdTasks = [];
+
+        /// <summary>The results of the calls of <see cref="IrJoinKind.Result"/> joins, by value: the join, whose one handle is the task
+        /// the result is the completion value of, as an await's result is.</summary>
+        private readonly Dictionary<int, IrJoinOperation> _resultJoins = [];
 
         /// <summary>What each <c>foreach</c> of the body enumerates, by its enumeration id: the receiver of its <c>GetEnumerator</c>.</summary>
         private readonly Dictionary<int, int> _enumerated = [];
@@ -99,6 +117,8 @@ public static class MethodSummaryBuilder
             _parameterOrdinals = body.Parameters.ToDictionary(parameter => parameter.Value, parameter => parameter.Ordinal);
             _capturedKeys = _operations.OfType<IrCaptureOperation>().Select(capture => capture.SymbolKey).OfType<string>()
                                        .ToHashSet(StringComparer.Ordinal);
+            var callResults = _operations.OfType<IrCallOperation>().Where(call => call.ResultValue is not null)
+                                         .ToDictionary(call => call.Id, call => call.ResultValue!.Value);
             foreach (var operation in _operations)
             {
                 switch (operation)
@@ -115,6 +135,18 @@ public static class MethodSummaryBuilder
                         break;
                     case IrWhenAllOperation whenAll:
                         ModelCall(whenAll.ResultValue);
+                        break;
+                    case IrTaskOperation { Kind: IrTaskKind.Same, ResultValue: int same, TaskValue: int task }:
+                        _sameTasks[same] = task;
+                        break;
+                    case IrJoinOperation { Kind: IrJoinKind.Result, HandleValues: [_] } join when callResults.TryGetValue(join.CallOperationId, out var read):
+                        ModelCall(read);
+                        _resultJoins[read] = join;
+                        break;
+                    case IrTaskOperation { ResultValue: int given } task:
+                        ModelCall(given);
+                        if (_definitions.GetValueOrDefault(given) is IrAllocateOperation)
+                            _createdTasks[given] = task.CallOperationId;
                         break;
                     case IrCallOperation { EnumerationRole: IrEnumerationRole.GetEnumerator, EnumerationId: int enumeration, ReceiverValue: int enumerated } call:
                         _enumerated[enumeration] = enumerated;
@@ -276,6 +308,8 @@ public static class MethodSummaryBuilder
                         {
                             UnknownSources = _unknown[returned],
                             SourceCalls = _sourceCalls[returned],
+                            Completions = _completions[returned],
+                            CompletedCalls = _completedCalls[returned],
                             Producers = Producers(returned)
                         });
                         break;
@@ -355,6 +389,7 @@ public static class MethodSummaryBuilder
                             IsAwaitedImmediately = call.IsAwaitedImmediately,
                             ReceiverUnknownSources = call.ReceiverValue is int receiver ? _unknown[receiver] : new HashSet<UnknownSource>(),
                             ReceiverSourceCalls = call.ReceiverValue is int source ? _sourceCalls[source] : new HashSet<int>(),
+                            ReceiverCompletions = call.ReceiverValue is int completed ? _completions[completed] : new HashSet<int>(),
                             // An access runs where the call that reaches it runs, so the guards of the call site travel with the
                             // edge; without them two helpers called from exclusive branches look reachable together (R8, TD-090).
                             Conditions = Conditions(call.Id),
@@ -520,12 +555,22 @@ public static class MethodSummaryBuilder
                 WhenAlls = _operations.OfType<IrWhenAllOperation>()
                                       .Select(whenAll => new SummaryWhenAll(whenAll.Id, DefiningCall(whenAll.ResultValue)!.Value,
                                                                             whenAll.TaskValues.Select(task => Value(task, delegates)).ToArray(),
-                                                                            whenAll.TasksKnown, whenAll.Provenance))
+                                                                            whenAll.TasksKnown, whenAll.Provenance)
+                                      {
+                                          ArrayTypeKey = whenAll.ArrayTypeKey,
+                                          Source = Value(whenAll.SourceValue, delegates)
+                                      })
                                       .ToArray(),
                 Unwraps = _operations.OfType<IrUnwrapOperation>()
                                      .Select(unwrap => new SummaryUnwrap(unwrap.Id, DefiningCall(unwrap.ResultValue)!.Value, Value(unwrap.OuterValue, delegates),
                                                                          unwrap.Provenance))
                                      .ToArray(),
+                TaskOperations = _operations.OfType<IrTaskOperation>()
+                                            .Where(task => task.Kind != IrTaskKind.Same)
+                                            .Select(task => new SummaryTaskOperation(task.Id, task.Kind, task.CallOperationId, Value(task.TaskValue, delegates),
+                                                                                     task.Values.Select(value => Value(value, delegates)).ToArray(),
+                                                                                     task.ValuesKnown, task.Provenance))
+                                            .ToArray(),
                 Timers = _operations.OfType<IrTimerOperation>().Select(timer => Timer(timer, delegates)).ToArray(),
                 DynamicOperations = dynamicOperations,
                 ResultStores = ResultStores(delegates),
@@ -638,6 +683,8 @@ public static class MethodSummaryBuilder
                 ? new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []) { Elements = [Final(Points(input), delegates)] } : ValueOrigin.None,
             IrModelElements { Source: IrModelThis } => new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []) { Elements = [Final(Points(call.ReceiverValue), delegates)] },
             IrModelElements elements => ModelOrigin(call, elements.Source, delegates),
+            // What a task completes with comes from wherever the task's own value does, as an argument's comes from its producers.
+            IrModelCompletion completion => ModelOrigin(call, completion.Source, delegates),
             IrModelSequence sequence => ValueOrigin.Union(sequence.Values.Select(item => ModelOrigin(call, item, delegates))),
             IrModelGrouping grouping => ValueOrigin.Union([ModelOrigin(call, grouping.Key, delegates), ModelOrigin(call, grouping.Values, delegates)]),
             IrModelReturns => new ValueOrigin(new HashSet<int> { call.Id }, new HashSet<int>(), []),
@@ -653,6 +700,8 @@ public static class MethodSummaryBuilder
         /// where that member holds it (null) and none where it does not (empty); for a call through an interface, the kinds of objects it
         /// decides whose member holds it, and those alone (ADR 0010, amendment of the phase 5b third run). The index of an array's element
         /// is no such argument, as it is none of an element store.</summary>
+        /// <param name="call">The collection member call or interface call.</param>
+        /// <param name="ordinal">The parameter ordinal of the argument.</param>
         private static IReadOnlySet<string>? HoldingKinds(IrCallOperation call, int ordinal) =>
             call.Collection is { } own
                 ? InterproceduralAccesses.IsHeldArgument(own, ordinal) ? null : new HashSet<string>()
@@ -667,6 +716,11 @@ public static class MethodSummaryBuilder
         /// <summary>What a collection member puts into the collection it is called on, as an element store puts a value into an array's
         /// cells: each argument it holds, into the storage that argument goes to (ADR 0010, phase 5b second run). A node handed to a
         /// list is no element of it: what the node holds goes into the list's cells, and the node becomes a cell of that list.</summary>
+        /// <param name="call">The collection member call.</param>
+        /// <param name="member">The collection member the call is, which says which arguments it holds and where.</param>
+        /// <param name="collection">The value the call is made on, whose objects receive the stores.</param>
+        /// <param name="delegates">The final delegate creations used to resolve stored and target objects.</param>
+        /// <param name="takesPair">Whether the call hands a whole key-value pair, which a dictionary splits into its key and value.</param>
         private IEnumerable<ElementTransfer> CollectionStores(IrCallOperation call, IrCollectionCall member, int collection,
                                                               IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates,
                                                               bool takesPair = false)
@@ -725,6 +779,7 @@ public static class MethodSummaryBuilder
         /// <summary>What a call does to a collection: its own member's effects, or, for a call through an interface, those of every member
         /// it is on the objects it decides together, which is what decides whether it reads or changes the collection a check before it
         /// is on. Null for every other call.</summary>
+        /// <param name="call">The call whose collection effects are combined.</param>
         private static IrCollectionCall? EffectsOf(IrCallOperation call)
         {
             if (call.Collection is not null || call.Implementations.Count == 0)
@@ -744,12 +799,14 @@ public static class MethodSummaryBuilder
             : IrCollectionEffect.ReadWrite;
 
         /// <summary>The members an interface call is on the objects it decides, each with the kinds of objects it is that member on.</summary>
+        /// <param name="call">The interface call whose implementations are grouped by member.</param>
         private static IEnumerable<(IrImplementation Implementation, IReadOnlySet<string> Kinds)> ImplementationGroups(IrCallOperation call) =>
             call.Implementations.GroupBy(implementation => implementation.Member)
                 .Select(group => (group.First(), (IReadOnlySet<string>)group.Select(implementation => implementation.Kind).ToHashSet(StringComparer.Ordinal)));
 
         /// <summary>Whether a member touches nothing and hands out nothing: what an array does with a member it refuses by throwing, and with
         /// one it answers without touching the array. A view touches nothing either, and still hands itself out.</summary>
+        /// <param name="member">The collection member to test.</param>
         private static bool Refused(IrCollectionCall member) =>
             member is { Structure: IrCollectionEffect.None, Element: IrCollectionEffect.None, View: null };
 
@@ -841,11 +898,15 @@ public static class MethodSummaryBuilder
 
         /// <summary>The storage of an interface call's site on the objects it decides that holds what it hands out through its result, or
         /// through the <c>out</c> argument of <paramref name="ordinal"/>.</summary>
+        /// <param name="call">The interface call whose site names the storage.</param>
+        /// <param name="ordinal">The ordinal of the <c>out</c> argument, or null for the call's result.</param>
         private string DecidedSlot(IrCallOperation call, int? ordinal) =>
             $"[decided:{_body.BodyId}#{call.Id}{(ordinal is int argument ? $":{argument}" : "")}]";
 
         /// <summary>Whether an interface call hands anything out through its result, or through the <c>out</c> argument of
         /// <paramref name="ordinal"/>, on some object it decides.</summary>
+        /// <param name="call">The call to test; only an interface call with implementations can qualify.</param>
+        /// <param name="ordinal">The ordinal of the <c>out</c> argument, or null for the call's result.</param>
         private static bool HandsOutDecided(IrCallOperation call, int? ordinal) =>
             call is { Collection: null, Implementations.Count: > 0 } &&
             call.Implementations.Any(implementation => ordinal is null && implementation.Member.View is not null ||
@@ -857,6 +918,8 @@ public static class MethodSummaryBuilder
         /// they fill: a view holds the storage of its dictionary it hands out, a pair the key and the value it yields, and a copy
         /// what enumerating its source yields, keys and values apart where both ends are dictionaries, as the heap decides for each
         /// object the source may be (ADR 0010, phase 5b second run).</summary>
+        /// <param name="call">The call that may make a view, hand out an enumerated pair, or copy a collection.</param>
+        /// <param name="delegates">The final delegate creations used to resolve target and source objects.</param>
         private IEnumerable<ElementTransfer> CopyStores(IrCallOperation call, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
         {
             if (call is { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration, ResultValue: int pair } &&
@@ -926,6 +989,10 @@ public static class MethodSummaryBuilder
         }
 
         /// <summary>A pair's two storages, filled from those of the dictionary it is enumerated out of.</summary>
+        /// <param name="call">The <c>Current</c> call that hands out the pair.</param>
+        /// <param name="pair">The object synthesized for the pair at the call site.</param>
+        /// <param name="dictionary">The value of the enumerated dictionary.</param>
+        /// <param name="delegates">The final delegate creations used to resolve objects.</param>
         private IEnumerable<ElementTransfer> PairStores(IrCallOperation call, AllocationValue pair, int dictionary,
                                                         IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
         [
@@ -937,6 +1004,11 @@ public static class MethodSummaryBuilder
         /// object keeps it for the site of the <c>Current</c> call, and its two storages are filled from those of each such object, as
         /// the dictionary's own enumeration fills them (ADR 0010, amendment of the phase 5b third run). Every other object keeps for that
         /// site what its cells hold, and never a dictionary's values beside its pairs.</summary>
+        /// <param name="call">The <c>Current</c> call that hands out the pair.</param>
+        /// <param name="pair">The object synthesized for the pair at the call site.</param>
+        /// <param name="collection">The value the <c>foreach</c> enumerates.</param>
+        /// <param name="enumerator">The interface <c>GetEnumerator</c> call of the enumeration, which decides the dictionary kinds.</param>
+        /// <param name="delegates">The final delegate creations used to resolve objects.</param>
         private IEnumerable<ElementTransfer> DecidedPairStores(IrCallOperation call, AllocationValue pair, int collection, IrCallOperation enumerator,
                                                                IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
         {
@@ -972,6 +1044,12 @@ public static class MethodSummaryBuilder
 
         /// <summary>A transfer into one storage of <paramref name="targets"/> of what <paramref name="source"/> holds along
         /// <paramref name="path"/>; its origin is the storage it was read from, so a gap's result is followed through it.</summary>
+        /// <param name="call">The call the transfer belongs to.</param>
+        /// <param name="targets">The objects whose storage receives the copy.</param>
+        /// <param name="source">The value whose objects are read from.</param>
+        /// <param name="path">The storage segments followed from the source's objects to what is copied.</param>
+        /// <param name="slot">The storage of the targets the copy goes into.</param>
+        /// <param name="delegates">The final delegate creations used to resolve objects.</param>
         private ElementTransfer Copy(IrCallOperation call, IEnumerable<AbstractValue> targets, int source, string[] path, string slot,
                                      IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
         {
@@ -987,11 +1065,15 @@ public static class MethodSummaryBuilder
 
         /// <summary>An object a collection member makes at its own call: a pair, a view, or the pairs a copy enumerates out of a
         /// dictionary. It is one per call site, as an allocation is.</summary>
+        /// <param name="call">The call whose site the object is made at.</param>
+        /// <param name="type">The type of the object made.</param>
         private AllocationValue Synthesized(IrCallOperation call, string type) => new(new CreationSite(_body.BodyId, call.Id, type, 1));
 
         /// <summary>Whether a <c>foreach</c> enumerates a dictionary through the dictionary's own enumerator, which hands out pairs, or
         /// through an interface call that is that enumerator on some object it decides, where what it hands out, of type
         /// <paramref name="current"/>, may be a pair: one typed as a pair, or as an object, as a non-generic enumeration hands them out.</summary>
+        /// <param name="enumeration">The enumeration id of the <c>foreach</c>.</param>
+        /// <param name="current">The type of what the enumeration's <c>Current</c> hands out.</param>
         private bool EnumeratesDictionary(int enumeration, string current) =>
             _enumerators.TryGetValue(enumeration, out var call) &&
             (call.Collection is { } member
@@ -1000,6 +1082,7 @@ public static class MethodSummaryBuilder
                   (current.StartsWith(KEY_VALUE_PAIR_TYPE, StringComparison.Ordinal) || current.TrimEnd('?') is "object" or "System.Object"));
 
         /// <summary>The kinds of objects an interface call is a member of a dictionary on.</summary>
+        /// <param name="call">The interface call whose implementations are inspected.</param>
         private static IReadOnlySet<string> DictionaryKinds(IrCallOperation call) =>
             call.Implementations.Where(implementation => IsDictionaryMember(implementation.Member))
                 .Select(implementation => implementation.Kind)
@@ -1016,11 +1099,14 @@ public static class MethodSummaryBuilder
             type.StartsWith("System.Collections.Generic.IReadOnlyDictionary<", StringComparison.Ordinal);
 
         /// <summary>The type of the collection a view is: the view type of a live one, a list of what it holds for a snapshot.</summary>
+        /// <param name="member">The member that makes the view; an atomic one makes a snapshot.</param>
+        /// <param name="resultType">The type of the view the call hands out.</param>
         private static string ViewType(IrCollectionCall member, string resultType) =>
             member.IsAtomic ? $"System.Collections.Generic.List<{TypeArguments(resultType)}>" : resultType;
 
         /// <summary>The view a call of a member of the table hands out, with its type; an interface call's views are the transfers of the
         /// objects it decides (<see cref="ImplementationTransfers"/>).</summary>
+        /// <param name="call">The call whose result may be a view.</param>
         private IEnumerable<(IrCollectionCall Member, string Type, IReadOnlySet<string>? Kinds)> Views(IrCallOperation call)
         {
             if (call.ResultValue is not int view)
@@ -1032,6 +1118,8 @@ public static class MethodSummaryBuilder
         /// <summary>The storages a call hands a held value out of, for its result or for the <c>out</c> parameter with this ordinal: its own
         /// member's, or those of every member an interface call is on the objects it decides, which is where the value came from; which
         /// object's storage it is, only the heap says (<see cref="ImplementationTransfers"/>).</summary>
+        /// <param name="call">The call that hands the value out.</param>
+        /// <param name="ordinal">The ordinal of the <c>out</c> parameter, or null for the call's result.</param>
         private static IReadOnlyList<string> HandedOut(IrCallOperation call, int? ordinal) =>
             (call.Collection is { } own ? [own] : call.Implementations.Select(implementation => implementation.Member).Where(member => !Refused(member)))
                 .Where(member => ordinal is null ? InterproceduralAccesses.HandsOutHeld(member).Result : InterproceduralAccesses.HandsOutHeld(member).Out)
@@ -1041,6 +1129,7 @@ public static class MethodSummaryBuilder
 
         /// <summary>The pair type a sequence declared as <paramref name="type"/> yields when it is a dictionary: that of a dictionary type,
         /// the element type of a sequence of pairs, and a pair of objects where the declaration names neither.</summary>
+        /// <param name="type">The declared type of the sequence.</param>
         private static string PairTypeOf(string type) =>
             IsDictionaryType(type) ? $"System.Collections.Generic.KeyValuePair<{TypeArguments(type)}>"
             : TypeArguments(type) is var element && element.StartsWith("System.Collections.Generic.KeyValuePair<", StringComparison.Ordinal) ? element
@@ -1051,6 +1140,8 @@ public static class MethodSummaryBuilder
 
         /// <summary>The storage an element of a deconstructed pair comes from: its key for the first, its value for the second; null for
         /// any other operation.</summary>
+        /// <param name="compute">The operation that may read a tuple element of the pair.</param>
+        /// <param name="pair">The value the operation reads from, which counts only when it is a key-value pair.</param>
         private string? PairElement(IrComputeOperation compute, int pair) =>
             _values[pair].Type.StartsWith("System.Collections.Generic.KeyValuePair<", StringComparison.Ordinal)
                 ? compute.Operator switch
@@ -1067,6 +1158,7 @@ public static class MethodSummaryBuilder
         private const string LINKED_LIST_NODE = "System.Collections.Generic.LinkedListNode<";
 
         /// <summary>The stores through a reference into a field of the objects the reference names.</summary>
+        /// <param name="delegates">The final delegate creations used to resolve bases and stored objects.</param>
         private List<StoreTransfer> ReferenceStores(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             _operations.OfType<IrStoreReferenceOperation>()
                        .SelectMany(store => References(store.AddressValue).OfType<ReferenceCell>().Where(cell => !cell.IsOnCollection)
@@ -1078,6 +1170,7 @@ public static class MethodSummaryBuilder
                        .ToList();
 
         /// <summary>The stores through a reference into a cell of the arrays the reference names: the arrays are what its field holds.</summary>
+        /// <param name="delegates">The final delegate creations used to resolve arrays and stored objects.</param>
         private List<ElementTransfer> ReferenceElementStores(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             _operations.OfType<IrStoreReferenceOperation>()
                        .SelectMany(store => References(store.AddressValue).OfType<ReferenceCell>().Where(cell => cell.IsOnCollection)
@@ -1119,6 +1212,13 @@ public static class MethodSummaryBuilder
                     // A captured variable read where no assignment of this body defines it holds what its owner or a lambda put there.
                     if (_values[current].SymbolKey is { } key && _capturedKeys.Contains(key))
                         captured.Add(key);
+                    continue;
+                }
+
+                // A Result join's call gives what its task completes with, as an await does.
+                if (_resultJoins.TryGetValue(current, out var read))
+                {
+                    pending.Push(read.HandleValues[0]);
                     continue;
                 }
 
@@ -1193,7 +1293,7 @@ public static class MethodSummaryBuilder
                     case IrCallOperation call when call.ResultValue == current:
                         calls.Add(call.Id);
                         if (call.Library is { InRange: true, DeclaredOpaque: false, Result: { } form })
-                            kept.AddRange(ValueOrigin.Union(form.Values.Select(item => ModelOrigin(call, item, new Dictionary<CreationSite, DelegateCreationValue>()))).Kept);
+                            kept.AddRange(ValueOrigin.Union(form.Leaf.Values.Select(item => ModelOrigin(call, item, new Dictionary<CreationSite, DelegateCreationValue>()))).Kept);
                         break;
                     case IrUnknownOperation { DynamicCallee: not null } dynamic:
                         calls.Add(dynamic.Id);
@@ -1227,6 +1327,7 @@ public static class MethodSummaryBuilder
                                                         IrJoinKind.Join => SummaryJoinKind.Join,
                                                         IrJoinKind.WaitAll => SummaryJoinKind.WaitAll,
                                                         IrJoinKind.WaitOne => SummaryJoinKind.WaitOne,
+                                                        IrJoinKind.Result => SummaryJoinKind.Result,
                                                         _ => throw new ArgumentOutOfRangeException(nameof(operation), join.Kind, null)
                                                     },
                                                     join.CallOperationId, join.HandleValues.Select(handle => Value(handle, delegates)).ToArray(),
@@ -1247,7 +1348,10 @@ public static class MethodSummaryBuilder
             };
 
         private SummaryValue Value(int value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
-            new(Final(_points[value], delegates), _unknown[value]) { SourceCalls = _sourceCalls[value], Producers = Producers(value) };
+            new(Final(_points[value], delegates), _unknown[value])
+            {
+                SourceCalls = _sourceCalls[value], Completions = _completions[value], CompletedCalls = _completedCalls[value], Producers = Producers(value)
+            };
 
         private SummaryValue? Value(int? value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             value is int id ? Value(id, delegates) : null;
@@ -1265,13 +1369,18 @@ public static class MethodSummaryBuilder
                         ? Final(CreatedElements(value), delegates)
                         : null,
                     Producers = Producers(value),
-                    IsFresh = IsFresh(value)
+                    IsFresh = IsFresh(value),
+                    UnknownSources = _unknown[value],
+                    SourceCalls = _sourceCalls[value],
+                    Completions = _completions[value]
                 })
                 .ToArray();
 
         /// <summary>Whether every definition of a value, through assignments, phis and conversions, is an allocation of this body: an
         /// object two invocations of the body never share (R12). A parameter, a capture, the receiver and anything loaded or returned
-        /// are not.</summary>
+        /// are not. The completion value of a task this body completes itself and hands nowhere is what it completed the task with, as
+        /// that value handed over directly is (R2).</summary>
+        /// <param name="value">The value.</param>
         private bool IsFresh(int value)
         {
             var visited = new HashSet<int>();
@@ -1285,6 +1394,18 @@ public static class MethodSummaryBuilder
                     _parameterOrdinals.ContainsKey(current) || !_definitions.TryGetValue(current, out var definition))
                 {
                     return false;
+                }
+
+                var task = _resultJoins.TryGetValue(current, out var read) ? read.HandleValues[0]
+                    : definition is IrAwaitOperation awaited && AwaitsCompletion(awaited, irValue) ? awaited.TaskValue ?? awaited.AwaitableValue
+                    : (int?)null;
+                if (task is int completed)
+                {
+                    if (CompletedWith(completed) is not { } values)
+                        return false;
+                    foreach (var completion in values)
+                        pending.Push(completion);
+                    continue;
                 }
 
                 switch (definition)
@@ -1309,8 +1430,82 @@ public static class MethodSummaryBuilder
             return true;
         }
 
+        /// <summary>The values a task completes with when this body alone completes it, or null: through assignments, phis, conversions
+        /// and the same task, every task it may be is one a task member of this body completed with one value — <c>FromResult</c>, a value
+        /// task of a value, or a <c>TaskCompletionSource</c> this body creates and uses for nothing but its own completion and task.</summary>
+        /// <param name="task">The task value.</param>
+        private List<int>? CompletedWith(int task)
+        {
+            var values = new List<int>();
+            var visited = new HashSet<int>();
+            var pending = new Stack<int>([task]);
+            while (pending.TryPop(out var current))
+            {
+                if (!visited.Add(current))
+                    continue;
+                if (_sameTasks.TryGetValue(current, out var same))
+                {
+                    pending.Push(same);
+                    continue;
+                }
+
+                switch (_definitions.GetValueOrDefault(current))
+                {
+                    case null:
+                        return null;
+                    case IrAssignOperation assign:
+                        pending.Push(assign.SourceValue);
+                        continue;
+                    case IrPhiOperation phi:
+                        foreach (var input in phi.Inputs)
+                            pending.Push(input.Value);
+                        continue;
+                    case IrConvertOperation convert:
+                        pending.Push(convert.OperandValue);
+                        continue;
+                    case var definition:
+                        var operations = _operations.OfType<IrTaskOperation>()
+                                                    .Where(operation => operation.ResultValue == current ||
+                                                                        operation.TaskValue is int target && Origin(target) == current)
+                                                    .ToArray();
+                        // A same task over this one only reads it; what completes it is a completion that gives it or names it.
+                        var completing = operations.Where(operation => operation.Kind == IrTaskKind.Completed).ToArray();
+                        if (completing.Length == 0 || completing.Any(operation => operation.Values.Count != 1) ||
+                            operations.Any(operation => operation.Kind is not (IrTaskKind.Completed or IrTaskKind.Same)))
+                            return null;
+                        if (definition is IrAllocateOperation && !_createdTasks.ContainsKey(current) && !OnlyCompletes(current, operations))
+                            return null;
+                        values.AddRange(completing.Select(operation => operation.Values[0]));
+                        continue;
+                }
+            }
+
+            return values;
+        }
+
+        /// <summary>Whether this body uses an object it creates, a <c>TaskCompletionSource</c>, for nothing but its construction and the
+        /// task members of <paramref name="operations"/>: no other call, store, capture or merge hands it to code that could complete it
+        /// with another value.</summary>
+        /// <param name="created">The value its allocation defines.</param>
+        /// <param name="operations">The task operations over it.</param>
+        private bool OnlyCompletes(int created, IReadOnlyList<IrTaskOperation> operations)
+        {
+            var aliases = _definitions.Keys.Where(value => Origin(value) == created).Append(created).ToHashSet();
+            if (aliases.Any(alias => _values[alias].SymbolKey is { } key && _capturedKeys.Contains(key)))
+                return false;
+            var calls = operations.Select(operation => operation.CallOperationId).ToHashSet();
+            return _operations.Where(operation => operation.Operands.Any(aliases.Contains)).All(operation => operation switch
+            {
+                IrAssignOperation or IrConvertOperation { ConversionKind: not IrConversionKind.Numeric } => true,
+                IrTaskOperation task => operations.Contains(task),
+                IrCallOperation call => (call.CallKind == IrCallKind.Constructor || calls.Contains(call.Id)) && !call.ArgumentValues.Any(aliases.Contains),
+                _ => false
+            });
+        }
+
         /// <summary>The elements of an array or collection expression created in an argument's place: the values stored into the
         /// allocated array, or the operands of the collection expression.</summary>
+        /// <param name="value">The argument value whose creating operation is inspected.</param>
         private IEnumerable<AbstractValue> CreatedElements(int value) =>
             Definition(Origin(value)) switch
             {
@@ -1329,6 +1524,8 @@ public static class MethodSummaryBuilder
                 _dependencies[value.Id] = [];
                 _unknown[value.Id] = [];
                 _sourceCalls[value.Id] = [];
+                _completions[value.Id] = [];
+                _completedCalls[value.Id] = [];
             }
 
             var changed = true;
@@ -1364,6 +1561,20 @@ public static class MethodSummaryBuilder
                         _sourceCalls[value.Id] = sourceCalls;
                         changed = true;
                     }
+
+                    var completions = EvaluateCompletions(value);
+                    if (!completions.SetEquals(_completions[value.Id]))
+                    {
+                        _completions[value.Id] = completions;
+                        changed = true;
+                    }
+
+                    var completedCalls = EvaluateCompletedCalls(value);
+                    if (!completedCalls.SetEquals(_completedCalls[value.Id]))
+                    {
+                        _completedCalls[value.Id] = completedCalls;
+                        changed = true;
+                    }
                 }
             }
         }
@@ -1392,6 +1603,8 @@ public static class MethodSummaryBuilder
 
             return definition switch
             {
+                _ when _sameTasks.TryGetValue(value.Id, out var same) => [.. _unknown[same]],
+                _ when _resultJoins.TryGetValue(value.Id, out var read) => [.. _unknown[read.HandleValues[0]]],
                 IrAssignOperation assign => [.. _unknown[assign.SourceValue]],
                 IrCombineDelegatesOperation combine => combine.ContributingOperands.SelectMany(operand => _unknown[operand]).ToHashSet(),
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _unknown[input.Value]).ToHashSet(),
@@ -1401,7 +1614,7 @@ public static class MethodSummaryBuilder
                 IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _unknown[outer]],
                 IrCallOperation call when call.ResultValue == value.Id && _modeledCalls.Contains(call.Id) => [],
                 IrCallOperation call => [IsOpaque(call) ? UnknownSource.OpaqueCall : UnknownSource.SourceCall],
-                IrAwaitOperation awaited when IsTaskType(value.Type) => [.. _unknown[awaited.TaskValue ?? awaited.AwaitableValue]],
+                IrAwaitOperation awaited when AwaitsCompletion(awaited, value) => [.. _unknown[awaited.TaskValue ?? awaited.AwaitableValue]],
                 _ => [UnknownSource.Other]
             };
         }
@@ -1419,6 +1632,8 @@ public static class MethodSummaryBuilder
 
             return definition switch
             {
+                _ when _sameTasks.TryGetValue(value.Id, out var same) => [.. _sourceCalls[same]],
+                _ when _resultJoins.TryGetValue(value.Id, out var read) => [.. _sourceCalls[read.HandleValues[0]]],
                 IrAssignOperation assign => [.. _sourceCalls[assign.SourceValue]],
                 IrCombineDelegatesOperation combine => combine.ContributingOperands.SelectMany(operand => _sourceCalls[operand]).ToHashSet(),
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _sourceCalls[input.Value]).ToHashSet(),
@@ -1426,15 +1641,95 @@ public static class MethodSummaryBuilder
                 IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _sourceCalls[outer]],
                 IrCallOperation call when call.ResultValue == value.Id && _modeledCalls.Contains(call.Id) => [],
                 IrCallOperation call => IsOpaque(call) ? [] : [call.Id],
-                IrAwaitOperation awaited when IsTaskType(value.Type) => [.. _sourceCalls[awaited.TaskValue ?? awaited.AwaitableValue]],
+                IrAwaitOperation awaited when AwaitsCompletion(awaited, value) => [.. _sourceCalls[awaited.TaskValue ?? awaited.AwaitableValue]],
                 _ => []
             };
         }
 
-        private static bool IsTaskType(string type) =>
-            type is "System.Threading.Tasks.Task" or "System.Threading.Tasks.ValueTask" ||
-            type.StartsWith("System.Threading.Tasks.Task<", StringComparison.Ordinal) ||
-            type.StartsWith("System.Threading.Tasks.ValueTask<", StringComparison.Ordinal);
+        /// <summary>The awaits, <c>Result</c> joins and <c>Unwrap()</c> calls whose task's completion a value may be, followed over the same
+        /// steps as its source calls; an await of a completion keeps the completions of the task it awaits.</summary>
+        /// <param name="value">The value.</param>
+        private HashSet<int> EvaluateCompletions(IrValue value)
+        {
+            if (value.Kind == IrValueKind.Receiver || (value.SymbolKey is { } key && _capturedKeys.Contains(key)) ||
+                _parameterOrdinals.ContainsKey(value.Id) || !_definitions.TryGetValue(value.Id, out var definition))
+            {
+                return [];
+            }
+
+            return definition switch
+            {
+                _ when _sameTasks.TryGetValue(value.Id, out var same) => [.. _completions[same]],
+                _ when _resultJoins.TryGetValue(value.Id, out var read) => [.. _completions[read.HandleValues[0]], read.Id],
+                IrAssignOperation assign => [.. _completions[assign.SourceValue]],
+                IrCombineDelegatesOperation combine => combine.ContributingOperands.SelectMany(operand => _completions[operand]).ToHashSet(),
+                IrPhiOperation phi => phi.Inputs.SelectMany(input => _completions[input.Value]).ToHashSet(),
+                IrConvertOperation convert => [.. _completions[convert.OperandValue]],
+                IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _completions[outer], call.Id],
+                IrAwaitOperation awaited when AwaitsCompletion(awaited, value) => [.. _completions[awaited.TaskValue ?? awaited.AwaitableValue], awaited.Id],
+                // A known call with no task around its result, whose result may be a completion value — directly or kept by a keeper —,
+                // is that value's completion, which the heap marks where it may be an object it does not follow (R2).
+                IrCallOperation { Library: { InRange: true, DeclaredOpaque: false, Result: { TaskDepth: 0 } form } } call
+                    when call.ResultValue == value.Id && form.Values.Any(CarriesCompletion) => [call.Id],
+                _ => []
+            };
+        }
+
+        /// <summary>Whether a model value may deliver a <c>completion(…)</c> value: one itself, what a keeper keeps, or one inside it.</summary>
+        /// <param name="value">The model value.</param>
+        private static bool CarriesCompletion(IrModelValue value) => value switch
+        {
+            IrModelCompletion or IrModelKept => true,
+            IrModelElements elements => CarriesCompletion(elements.Source),
+            IrModelSequence sequence => sequence.Values.Any(CarriesCompletion),
+            IrModelGrouping grouping => CarriesCompletion(grouping.Key) || CarriesCompletion(grouping.Values),
+            _ => false
+        };
+
+        /// <summary>The source calls a value comes from through the completion of the task a call gave, each with how many times the
+        /// value consumed that call's task (<see cref="SummaryValue.CompletedCalls"/>), followed over the same steps as its source calls.</summary>
+        /// <param name="value">The value.</param>
+        private HashSet<(int Call, int Depth)> EvaluateCompletedCalls(IrValue value)
+        {
+            if (value.Kind == IrValueKind.Receiver || (value.SymbolKey is { } key && _capturedKeys.Contains(key)) ||
+                _parameterOrdinals.ContainsKey(value.Id) || !_definitions.TryGetValue(value.Id, out var definition))
+            {
+                return [];
+            }
+
+            return definition switch
+            {
+                _ when _sameTasks.TryGetValue(value.Id, out var same) => [.. _completedCalls[same]],
+                _ when _resultJoins.TryGetValue(value.Id, out var read) => Consumed(read.HandleValues[0]),
+                IrAssignOperation assign => [.. _completedCalls[assign.SourceValue]],
+                IrCombineDelegatesOperation combine => combine.ContributingOperands.SelectMany(operand => _completedCalls[operand]).ToHashSet(),
+                IrPhiOperation phi => phi.Inputs.SelectMany(input => _completedCalls[input.Value]).ToHashSet(),
+                IrConvertOperation convert => [.. _completedCalls[convert.OperandValue]],
+                IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => Consumed(outer),
+                IrAwaitOperation awaited when AwaitsCompletion(awaited, value) => Consumed(awaited.TaskValue ?? awaited.AwaitableValue),
+                _ => []
+            };
+
+            // One consumption more of every call the task comes from: once of the calls that gave it, once more of those it is the
+            // completion of. A depth stops at SummaryValue.MAX_COMPLETION_DEPTH, which no decider follows.
+            HashSet<(int Call, int Depth)> Consumed(int task) =>
+                _sourceCalls[task].SelectMany(call => SummaryValue.Depths(_completedCalls[task], call)
+                                                                  .Select(depth => (call, Math.Min(depth + 1, SummaryValue.MAX_COMPLETION_DEPTH))))
+                                  .ToHashSet();
+        }
+
+        /// <summary>Whether a value is the result of an await that gives its task's completion value: the awaited value, or the task behind
+        /// its <c>ConfigureAwait</c>, is a <c>Task&lt;T&gt;</c> or a <c>ValueTask&lt;T&gt;</c>, or a configured awaitable of one kept
+        /// before it is awaited, which is the same task (<see cref="IrTaskKind.Same"/>), whatever the result's own type. An await of any
+        /// other awaitable gives nothing the heap follows.</summary>
+        /// <param name="awaited">The await.</param>
+        /// <param name="value">The value it may define.</param>
+        private bool AwaitsCompletion(IrAwaitOperation awaited, IrValue value) =>
+            awaited.ResultValue == value.Id && _values[awaited.TaskValue ?? awaited.AwaitableValue].Type is var type &&
+            (type.StartsWith("System.Threading.Tasks.Task<", StringComparison.Ordinal) ||
+             type.StartsWith("System.Threading.Tasks.ValueTask<", StringComparison.Ordinal) ||
+             type.StartsWith("System.Runtime.CompilerServices.ConfiguredTaskAwaitable<", StringComparison.Ordinal) ||
+             type.StartsWith("System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable<", StringComparison.Ordinal));
 
         private HashSet<AbstractValue> EvaluatePoints(IrValue value)
         {
@@ -1449,10 +1744,15 @@ public static class MethodSummaryBuilder
 
             return definition switch
             {
+                _ when _sameTasks.TryGetValue(value.Id, out var same) => [.. _points[same]],
+                // What a Result join's call gives is the completion value of the task it waits for, as an await's result is (R1).
+                _ when _resultJoins.TryGetValue(value.Id, out var read) => [new AwaitResultValue(read.Id)],
                 IrAssignOperation assign => [.. _points[assign.SourceValue]],
                 IrCombineDelegatesOperation combine => combine.ContributingOperands.SelectMany(operand => _points[operand]).ToHashSet(),
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _points[input.Value]).ToHashSet(),
                 IrConvertOperation convert => [.. _points[convert.OperandValue]],
+                // A value task a constructor creates is the new task of its site, which the heap gives the call's result.
+                IrAllocateOperation when _createdTasks.TryGetValue(value.Id, out var created) => [new CallResultValue(created)],
                 IrAllocateOperation allocate => [new AllocationValue(new CreationSite(_body.BodyId, allocate.Id,
                                                                                       allocate.AllocatedTypeKey ?? allocate.AllocatedType,
                                                                                       allocate.SiteOrdinal))],
@@ -1507,7 +1807,7 @@ public static class MethodSummaryBuilder
                                             .Select(pair => (AbstractValue)new RefResultValue(call.Id, pair.Key))
                                             .ToHashSet(),
                 IrCreateDelegateOperation create => [new DelegateCreationValue(Site(create), Target(create), new Dictionary<string, IReadOnlySet<AbstractValue>>())],
-                IrAwaitOperation awaited when IsTaskType(value.Type) => [new AwaitResultValue(awaited.Id)],
+                IrAwaitOperation awaited when AwaitsCompletion(awaited, value) => [new AwaitResultValue(awaited.Id)],
                 _ => []
             };
         }
@@ -1530,7 +1830,7 @@ public static class MethodSummaryBuilder
                 // What a removal removes decides its result as much as what it removes from, so every operand is a dependency (R3).
                 IrCombineDelegatesOperation combine => combine.OperandValues.SelectMany(operand => _dependencies[operand]).ToHashSet(),
                 IrCompareOperation compare => compare.Operands.SelectMany(operand => _dependencies[operand]).ToHashSet(),
-                IrAwaitOperation awaited => [.. _dependencies[awaited.AwaitableValue]],
+                IrAwaitOperation awaited => [.. _dependencies[awaited.TaskValue ?? awaited.AwaitableValue]],
                 IrUnknownOperation unknown => unknown.OperandValues.SelectMany(operand => _dependencies[operand]).ToHashSet(),
                 IrLoadFieldOperation load => [new LoadDependency(load.Id)],
                 IrLoadReferenceOperation load => [new LoadDependency(load.Id)],
@@ -1554,6 +1854,8 @@ public static class MethodSummaryBuilder
         }
 
         /// <summary>What a value a call the analysis can follow hands back depends on: the callee's return, or its ref or out parameter.</summary>
+        /// <param name="call">The call the value comes from.</param>
+        /// <param name="value">The call's result or one of its ref or out results.</param>
         private static HashSet<ValueDependency> Dispatched(IrCallOperation call, IrValue value) =>
             call.ResultValue == value.Id
                 ? [new CallDependency(call.Id)]
@@ -1563,6 +1865,7 @@ public static class MethodSummaryBuilder
 
         /// <summary>The bases of an access: the limit is on the access path, the base path and the accessed field together, so a base
         /// the field would grow past the limit is the wildcard of the region its path starts from (R5).</summary>
+        /// <param name="bases">The objects the access is made on.</param>
         private HashSet<AbstractValue> AccessBases(IEnumerable<AbstractValue> bases) =>
             bases.Select(value => value is PathValue { IsWildcard: false } path && path.Segments.Count >= _limits.MaxAccessPathDepth
                              ? new PathValue(path.Base, [PathValue.WILDCARD])
@@ -1602,6 +1905,8 @@ public static class MethodSummaryBuilder
 
         /// <summary>Whether a lambda or local function touches the receiver it closes over, itself, through a delegate it creates or
         /// through a local function it calls; a body that is not at hand may, so it counts as using it.</summary>
+        /// <param name="bodyId">The id of the lambda or local function body to inspect.</param>
+        /// <param name="visited">The body ids already inspected, so recursion through nested bodies stops.</param>
         private bool UsesReceiver(string bodyId, HashSet<string> visited)
         {
             if (!visited.Add(bodyId))
@@ -1625,6 +1930,8 @@ public static class MethodSummaryBuilder
         }
 
         /// <summary>A value set with each delegate creation replaced by its final value carrying what it captured.</summary>
+        /// <param name="values">The value set to finalize.</param>
+        /// <param name="delegates">The final delegate creations, by creation site.</param>
         private static HashSet<AbstractValue> Final(IEnumerable<AbstractValue> values, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             values.Select(value => value is DelegateCreationValue created && delegates.TryGetValue(created.Site, out var final) ? final : value)
                   .ToHashSet();
@@ -1660,6 +1967,9 @@ public static class MethodSummaryBuilder
         /// <summary>The cell an element operation touches: the field the collection was read from, the object holding that field,
         /// and which cell of it (TD-043). A collection the body did not read from a field — a local array, a parameter — is no
         /// resource of its own here, so it has no cell.</summary>
+        /// <param name="receiver">The collection value the element operation is on.</param>
+        /// <param name="indices">The index values of the element operation.</param>
+        /// <param name="namesOneCell">Whether the indices name one cell; otherwise which cell stays unknown.</param>
         private ElementCell? Cell(int receiver, IReadOnlyList<int> indices, bool namesOneCell = true)
         {
             var slice = Slice(receiver);
@@ -1675,6 +1985,9 @@ public static class MethodSummaryBuilder
 
         /// <summary>The cell an element address takes of a collection this body got by value: which cell, in the coordinates of the
         /// collection its caller handed over. Only the value the parameter has on entry is that collection.</summary>
+        /// <param name="receiver">The collection value the element address is taken of.</param>
+        /// <param name="indices">The index values of the element address.</param>
+        /// <param name="namesOneCell">Whether the indices name one cell; otherwise which cell stays unknown.</param>
         private ReferenceParameterElement? ParameterElement(int receiver, IReadOnlyList<int> indices, bool namesOneCell)
         {
             var slice = Slice(receiver);
@@ -1690,6 +2003,7 @@ public static class MethodSummaryBuilder
 
         /// <summary>The collection an element operation is on when a call with a body returned it: which cell of it is left
         /// unknown, since only the callee's returns say what storage that is (R3).</summary>
+        /// <param name="receiver">The collection value the element operation is on.</param>
         private ReferenceCallCollection? CallCollection(int receiver)
         {
             var array = Slice(receiver).Array;
@@ -1700,6 +2014,7 @@ public static class MethodSummaryBuilder
 
         /// <summary>The collection a value is, as a caller hands it to a callee or a callee hands it back: the field it was read
         /// from, the parameter it came in as, or the call that returned it, with the slice cut from it.</summary>
+        /// <param name="value">The value whose collection is sought.</param>
         private ArgumentCollection? Collection(int value)
         {
             var slice = Slice(value);
@@ -1743,6 +2058,7 @@ public static class MethodSummaryBuilder
         /// <summary>The places a reference that joins several may point to. Where some alternative names a place and another names
         /// none, the unnamed one is a place nothing proves: it is kept as such, so it is counted rather than lost behind the others
         /// (R3). Alternatives that all name nothing are a value that is no reference at all.</summary>
+        /// <param name="alternatives">The places each joined reference may point to.</param>
         private static IReadOnlyList<ReferenceTarget> Alternatives(IReadOnlyList<ReferenceTarget>[] alternatives) =>
             alternatives.Any(targets => targets.Count != 0) && alternatives.Any(targets => targets.Count == 0)
                 ? [.. alternatives.SelectMany(targets => targets), ReferenceUnproven.Instance]
@@ -1752,6 +2068,8 @@ public static class MethodSummaryBuilder
         /// is: an index of a slice names the cell that many places further along, and handing the solver the index of the window
         /// would make <c>span(4, 8)[1]</c> and <c>array[5]</c> two cells although they are one. An offset nothing proves keeps the
         /// unknown it is rather than passing the window's own index off as the array's (TD-092).</summary>
+        /// <param name="term">The index expression in the slice's coordinates.</param>
+        /// <param name="shift">The offset the slice starts at, or null when nothing proves it.</param>
         private static ValueTerm? Shifted(ValueTerm term, long? shift) => shift switch
         {
             null => null,
@@ -1762,6 +2080,7 @@ public static class MethodSummaryBuilder
         /// <summary>The member a call names, without the type that declares it, its generic arguments or its parameters:
         /// <c>System.MemoryExtensions.AsSpan&lt;T&gt;(int[], int, int)</c> is <c>AsSpan</c>. A member is recognised by its name and
         /// never by a substring of the whole signature, which a generic argument list is enough to defeat.</summary>
+        /// <param name="method">The method signature a call names.</param>
         private static string MemberOf(string method)
         {
             var parameters = method.IndexOf('(', StringComparison.Ordinal);
@@ -1775,12 +2094,15 @@ public static class MethodSummaryBuilder
         /// <summary>Whether the type that declares the member is one whose slices start where they say they do. A member is
         /// matched by its declaring type together with its name and never by the name alone: a foreign <c>Slice</c> may ignore the
         /// offset it is given, and reading it as a window would place its cells where nothing put them (TD-043).</summary>
+        /// <param name="call">The slicing call whose declaring type is checked.</param>
         private static bool DeclaresKnownSlices(IrCallOperation call) =>
             call.TargetContainingTypeKey is { } key &&
             SpanTypes.Names(key.IndexOf(':') is var assembly && assembly >= 0 ? key[(assembly + 1)..] : key);
 
         /// <summary>A slice reduces to the region it is cut from and the offset it starts at, so two slices are compared by those
         /// and never by the slice objects (TD-043).</summary>
+        /// <param name="value">The value that may be a slice.</param>
+        /// <param name="depth">How many slices of the chain have been unwound so far.</param>
         private SliceOf Slice(int value, int depth = 0)
         {
             var origin = Origin(value);
@@ -1815,6 +2137,7 @@ public static class MethodSummaryBuilder
 
         /// <summary>What an index or a key names: a proven constant, a constant key, or the value's own identity, which proves
         /// nothing until a solver reads it but keeps two indices apart from a third.</summary>
+        /// <param name="index">The index or key value.</param>
         private ElementSelector Selector(int index)
         {
             var value = Origin(index);
@@ -1829,6 +2152,8 @@ public static class MethodSummaryBuilder
         /// <summary>The expression a cell's index is, in the width of its own type: constants, sums and conversions as far as
         /// the budget goes, and a value of this body's own beyond it. The solver compares two of these, so a conversion kept
         /// here is a conversion decided there (TD-094).</summary>
+        /// <param name="value">The index value.</param>
+        /// <param name="depth">How deep into the expression the term already is.</param>
         private ValueTerm Term(int value, int depth = 0)
         {
             var origin = Origin(value);
@@ -1854,6 +2179,7 @@ public static class MethodSummaryBuilder
 
         /// <summary>The width of a numeric type in bits; anything else is taken as the width of an <c>int</c>, which is what an
         /// index is unless the source says otherwise.</summary>
+        /// <param name="type">The type name, or null when unknown.</param>
         private static int Width(string? type) => type switch
         {
             "byte" or "sbyte" or "System.Byte" or "System.SByte" => 8,
@@ -1870,11 +2196,13 @@ public static class MethodSummaryBuilder
 
         /// <summary>Whether a type is signed. Every unsigned integral type of the language is named here, <c>char</c> among them:
         /// it is a 16-bit unsigned number, and widening one by a sign it does not have turns a high code point negative (R9).</summary>
+        /// <param name="type">The type name, or null when unknown.</param>
         private static bool IsSigned(string? type) =>
             type is not ("byte" or "ushort" or "uint" or "ulong" or "char" or "nuint" or
                          "System.Byte" or "System.UInt16" or "System.UInt32" or "System.UInt64" or "System.Char" or "System.UIntPtr");
 
         /// <summary>The text of a constant that is not a number, <c>null</c> and the frontend's own placeholders aside.</summary>
+        /// <param name="value">The value whose constant text is read.</param>
         private string? Literal(int value) =>
             _body.Values.FirstOrDefault(candidate => candidate.Id == NumericOrigin(value)) is { Kind: IrValueKind.Constant } constant &&
             constant.Name is not ("null" or "default" or "exceptional")
@@ -1886,6 +2214,8 @@ public static class MethodSummaryBuilder
         /// that depends on an earlier read of the same collection is one compound operation, reported where the change is, over
         /// the resource the dependency crosses: the cell when both ends prove the same one, the structure otherwise, because a
         /// dependency between two cells nothing proves the same is only contained by the whole collection.</summary>
+        /// <param name="delegates">The final delegate creations used to resolve the bases of the accesses.</param>
+        /// <param name="held">The locks held at each operation, by operation id.</param>
         /// <remarks>A member whose receiver no field of this body names makes no access here: its cell and the reads its change depends
         /// on are handed back as standing, for the collections the heap names both to be, which decides whether they are one
         /// collection (ADR 0010, phase 5b third run). It still takes part in the checks of the others, as they do in its own.</remarks>
@@ -1974,11 +2304,13 @@ public static class MethodSummaryBuilder
         }
 
         /// <summary>The interface member a call of one is, for deciding its objects; null for every other call.</summary>
+        /// <param name="call">The call to inspect.</param>
         private static string? InterfaceMethodOf(IrCallOperation call) =>
             call is { Collection: null, Implementations.Count: > 0 } ? call.TargetMethodId ?? call.Method : null;
 
         /// <summary>The load of the field holding the collection a receiver is: the receiver itself, or, for a <c>LinkedListNode</c>,
         /// the list the members handing it out were called on, since a node is a cell of its list (ADR 0010, phase 5b).</summary>
+        /// <param name="receiver">The receiver value of a collection member call.</param>
         private IrLoadFieldOperation? HolderLoad(int receiver)
         {
             var visited = new HashSet<int>();
@@ -2009,9 +2341,11 @@ public static class MethodSummaryBuilder
 
         /// <summary>Whether a call takes a live view of a <c>Dictionary</c>: a snapshot of a <c>ConcurrentDictionary</c> is a collection of
         /// its own.</summary>
+        /// <param name="call">The call to test.</param>
         private static bool IsLiveView(IrCallOperation call) => call.Collection is { View: not null, IsAtomic: false };
 
         /// <summary>The list a linked list member of the body adds a node to, where the body adds it to one.</summary>
+        /// <param name="node">The value of the node created in the body.</param>
         private int? AddedTo(int node) =>
             _operations.OfType<IrCallOperation>()
                        .FirstOrDefault(call => call.Collection is { HandsOutCell: true, Structure: IrCollectionEffect.Write } && call.ReceiverValue is not null &&
@@ -2019,6 +2353,9 @@ public static class MethodSummaryBuilder
 
         /// <summary>The reads of the same collection that the change of <paramref name="member"/> depends on: through the
         /// conditions that decide it runs, and through the values it is given.</summary>
+        /// <param name="member">The changing member whose checks are sought.</param>
+        /// <param name="members">The collection members of the body the checks are chosen from.</param>
+        /// <param name="sameCollectionUndecided">Whether to leave to the heap whether a read is of the same collection.</param>
         /// <remarks>Where <paramref name="sameCollectionUndecided"/>, whether a read is of the same collection is left to the heap: a
         /// member on a parameter and one on another parameter may be one collection, which only the arguments of a call say.</remarks>
         private IReadOnlyList<CollectionMember> Checks(CollectionMember member, IReadOnlyList<CollectionMember> members, bool sameCollectionUndecided = false)
@@ -2050,6 +2387,8 @@ public static class MethodSummaryBuilder
         /// object at all, the field that names it is the only thing left to compare, and where no field names one of them, the
         /// value each receiver is.
         /// </summary>
+        /// <param name="first">One of the two members.</param>
+        /// <param name="second">The other member.</param>
         private bool IsSameCollection(CollectionMember first, CollectionMember second)
         {
             var ours = Points(first.Call.ReceiverValue);
@@ -2065,6 +2404,8 @@ public static class MethodSummaryBuilder
 
         /// <summary>The cell a member names, read from the parameter that declares the key and never from the position the
         /// caller wrote it at.</summary>
+        /// <param name="call">The collection member call.</param>
+        /// <param name="effects">The member's effects, which name the key parameter.</param>
         private ElementSelector? Key(IrCallOperation call, IrCollectionCall effects) =>
             effects.KeyArgument is { } ordinal && call.ArgumentAt(ordinal) is { } key ? Selector(key) : null;
 
@@ -2096,6 +2437,7 @@ public static class MethodSummaryBuilder
         /// destination a branch jumps to means the condition holds as the branch tests it; reaching the other means it does not.
         /// It is the edge that has to stand on every path, not only its destination: the block after an <c>if</c> without an
         /// <c>else</c> is the destination of the branch that skips the <c>if</c>, and is reached from its body as well.</summary>
+        /// <param name="operationId">The id of the operation whose guards are sought.</param>
         private IReadOnlyList<(int Value, bool Expected)> Guards(int operationId)
         {
             if (!BlockOf.TryGetValue(operationId, out var block))
@@ -2121,6 +2463,9 @@ public static class MethodSummaryBuilder
         /// <summary>Whether every path to <paramref name="block"/> takes the edge from <paramref name="from"/> to
         /// <paramref name="to"/>: <paramref name="to"/> dominates it, and nothing enters <paramref name="to"/> but that edge and
         /// paths that already passed through <paramref name="to"/> itself.</summary>
+        /// <param name="from">The ordinal of the block the edge leaves.</param>
+        /// <param name="to">The ordinal of the block the edge enters.</param>
+        /// <param name="block">The ordinal of the block every path to which is checked.</param>
         private bool EdgeDominates(int from, int to, int block) =>
             Dominators[block].Contains(to) &&
             _body.Blocks[to].Predecessors.All(predecessor => predecessor == from || Dominators[predecessor].Contains(to));
@@ -2128,6 +2473,7 @@ public static class MethodSummaryBuilder
         /// <summary>The predicates that must hold where an operation runs (TD-090): one per condition that decides it, read as
         /// far as the bounded forms go. Everything else is kept as an unsupported predicate, which constrains nothing and is
         /// reported as an uncertainty rather than dropped (TD-095).</summary>
+        /// <param name="operationId">The id of the operation whose conditions are sought.</param>
         private IReadOnlyList<SummaryPredicate> Conditions(int operationId) =>
             Guards(operationId).Select(guard => Predicate(guard.Value, guard.Expected)).ToArray();
 
@@ -2151,6 +2497,9 @@ public static class MethodSummaryBuilder
 
         /// <summary>A comparison as a predicate on the side of it that is not a constant. A comparison of two values the
         /// analysis cannot reduce to a constant is unsupported, as is one whose operator the lowering did not record.</summary>
+        /// <param name="compare">The comparison operation.</param>
+        /// <param name="comparison">The operator the comparison applies.</param>
+        /// <param name="expected">The outcome the branch requires of the comparison where the operation runs.</param>
         private SummaryPredicate? Compare(IrCompareOperation compare, IrComparisonOperator comparison, bool expected)
         {
             // Whether what the branch tests holds where the access runs: an inequality holds exactly where its equality does not.
@@ -2176,6 +2525,9 @@ public static class MethodSummaryBuilder
 
         /// <summary>The predicate on a value: on the field it loads, so that another execution reading the same field of the
         /// same object states the same subject, or on the value itself, which is this execution's own.</summary>
+        /// <param name="value">The compared value.</param>
+        /// <param name="relation">The relation the value must stand in to the constant.</param>
+        /// <param name="constant">The constant text, or type, the value is compared against; null where there is none.</param>
         private SummaryPredicate Subject(int value, PathRelation relation, string? constant)
         {
             var origin = Origin(value);
@@ -2190,6 +2542,8 @@ public static class MethodSummaryBuilder
 
         /// <summary>What an ordering leaves its subject on the branch it decides: the comparison itself where it holds, and its
         /// negation where it does not.</summary>
+        /// <param name="comparison">The ordering operator.</param>
+        /// <param name="expected">Whether the comparison holds on the branch.</param>
         private static PathRelation? Ordering(IrComparisonOperator comparison, bool expected) => (comparison, expected) switch
         {
             (IrComparisonOperator.Less, true) or (IrComparisonOperator.GreaterOrEqual, false) => PathRelation.Less,
@@ -2200,6 +2554,7 @@ public static class MethodSummaryBuilder
         };
 
         /// <summary>The comparison as the other side states it: <c>5 &lt; x</c> is <c>x &gt; 5</c>.</summary>
+        /// <param name="comparison">The operator to mirror.</param>
         private static IrComparisonOperator Mirror(IrComparisonOperator comparison) => comparison switch
         {
             IrComparisonOperator.Less => IrComparisonOperator.Greater,
@@ -2213,9 +2568,11 @@ public static class MethodSummaryBuilder
         /// field is not one: two names are two fields and never proof of two values, and a field whose value the analysis has not
         /// read leaves a predicate that constrains nothing rather than one that decides on a spelling (TD-090, TD-095). A
         /// constant reaches here as its own value, an enum member's number among them.</summary>
+        /// <param name="value">The value compared against.</param>
         private string? ConstantText(int value) => Literal(value);
 
         /// <summary>What an unsupported predicate is called in the uncertainties.</summary>
+        /// <param name="value">The value the predicate is on.</param>
         private string Describe(int value) => Definition(value) switch
         {
             IrCallOperation call => call.Method,
@@ -2229,6 +2586,7 @@ public static class MethodSummaryBuilder
         /// the narrowest width it passes through — null where it passes through none. A conversion narrower than the range of the
         /// values the parameter takes maps two of them to one cell, and a cell two iterations may share proves nothing about
         /// either of them (TD-068).</summary>
+        /// <param name="value">The value, typically an index.</param>
         private (int? Ordinal, int? Width) ParameterOf(int value)
         {
             var origin = Origin(value);
@@ -2244,6 +2602,7 @@ public static class MethodSummaryBuilder
         }
 
         /// <summary>The type the body records for a value, null where it records none.</summary>
+        /// <param name="value">The value whose type is read.</param>
         private string? TypeOf(int value) => _values.TryGetValue(Origin(value), out var named) ? named.Type : null;
 
         private IReadOnlyDictionary<int, int> BlockOf =>
@@ -2282,6 +2641,10 @@ public static class MethodSummaryBuilder
 
         /// <summary>One call of a modelled collection member: the call, what it does, the load of the collection it works on — null
         /// where no field of this body names it — and the cell its key names.</summary>
+        /// <param name="Call">The member call.</param>
+        /// <param name="Effects">What the call does to the collection.</param>
+        /// <param name="Load">The load of the field holding the collection, or null where no field of this body names it.</param>
+        /// <param name="Selector">The cell the call's key names, or null where it takes no key.</param>
         private sealed record CollectionMember(IrCallOperation Call, IrCollectionCall Effects, IrLoadFieldOperation? Load,
                                                ElementSelector? Selector);
 
@@ -2294,6 +2657,7 @@ public static class MethodSummaryBuilder
         /// <summary>The value a number is read from, through the widening conversions the language inserts to compare or index
         /// with two numeric types. A widening conversion hands on the number it is given, so a constant behind one is the same
         /// constant; a narrowing one the compiler has not already folded is a number of its own and stops the walk.</summary>
+        /// <param name="value">The value the number is read through.</param>
         private int NumericOrigin(int value)
         {
             var origin = Origin(value);
@@ -2311,16 +2675,24 @@ public static class MethodSummaryBuilder
 
         /// <summary>A slice reduced to what it cuts: the value of the underlying collection, the offset it starts at when that is
         /// proven, and its length when that is a constant.</summary>
+        /// <param name="Array">The value of the underlying collection.</param>
+        /// <param name="Shift">The offset the slice starts at, or null when not proven.</param>
+        /// <param name="Length">The slice's length, or null when it is not a constant.</param>
         private readonly record struct SliceOf(int Array, long? Shift, long? Length);
 
         /// <summary>One cell of one collection: the field it was read from, the object holding that field, which cell, and the
         /// expression naming that cell in the collection's own coordinates (TD-092).</summary>
+        /// <param name="Field">The field the collection was read from.</param>
+        /// <param name="BaseValue">The value of the object holding that field.</param>
+        /// <param name="Selector">Which cell of the collection it is.</param>
+        /// <param name="Term">The expression naming the cell in the collection's coordinates, or null where none is kept.</param>
         private readonly record struct ElementCell(IrFieldRef Field, int BaseValue, ElementSelector Selector, ValueTerm? Term);
 
         /// <summary>The value a lock object comes from through assigns and the conversions that keep it the same value, so a lock
         /// statement's release matches its acquisition when the object's values are unknown. A numeric conversion is not one of
         /// them: <c>(byte)i</c> is a number of its own, and following it through would hand the index of <c>i</c> to a cell it
         /// does not name (TD-094).</summary>
+        /// <param name="value">The value to follow back.</param>
         private int Origin(int value)
         {
             var visited = new HashSet<int>();
@@ -2357,6 +2729,9 @@ public static class MethodSummaryBuilder
 
         /// <summary>The IR values of a variable that may reach the end of a block: its last definition there, or its values at the end
         /// of every flow predecessor, or its incoming value at the entry.</summary>
+        /// <param name="ordinal">The ordinal of the block whose end is considered.</param>
+        /// <param name="symbolKey">The symbol key of the variable, or null when it has none.</param>
+        /// <param name="incoming">The variable's value on entry to the body.</param>
         private HashSet<int> ValuesAtEnd(int ordinal, string? symbolKey, int incoming)
         {
             var result = new HashSet<int>();
@@ -2403,6 +2778,8 @@ public static class MethodSummaryBuilder
         /// <summary>The load whose own value a compare-and-swap checks the cell against, null where it checks anything else. It
         /// is the value that must match, not the reads it was computed from: <c>old</c> is the value the sequence observed and
         /// <c>old + 2</c> is a value nobody observed, however plainly it depends on <c>old</c> (R1).</summary>
+        /// <param name="atomic">The atomic marks of the body, by the operation each makes atomic.</param>
+        /// <param name="operationId">The id of the store whose comparand is sought.</param>
         private int? Comparand(IReadOnlyDictionary<int, IrAtomicOperation> atomic, int operationId)
         {
             if (!atomic.TryGetValue(operationId, out var mark) || mark.ComparandValue is not { } comparand)

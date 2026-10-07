@@ -85,6 +85,7 @@ internal static class ModelEntryWriter
         LibraryResultKind.Collection => $"collection({LibraryResult.Set(result.Values)})",
         LibraryResultKind.Dictionary => $"dictionary({string.Join(',', result.Values.Select(value => value.Canonical))})",
         LibraryResultKind.New => "new",
+        LibraryResultKind.Task => $"task({ResultText(result.Inner!)})",
         _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
     };
 

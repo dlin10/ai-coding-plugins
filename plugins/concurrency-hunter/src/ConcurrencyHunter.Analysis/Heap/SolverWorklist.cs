@@ -171,6 +171,10 @@ public static partial class WholeProgram
             internal TrackedMap<string, (TrackedSet<(string Caller, int Operation)> Sites, TrackedSet<string> Callees)> Handoffs { get; } = new(StringComparer.Ordinal);
             internal TrackedSet<(string Caller, int Operation, string Region, string Callee)> StartupDelegates { get; } = [];
             internal TrackedSet<(string Instance, int Operation, string Region)> IteratorEnumerations { get; } = [];
+            internal TrackedSet<DelegateSite> DelegateSites { get; } = [];
+            internal TrackedSet<(DelegateSite Site, DelegateRun Run)> DelegateRuns { get; } = [];
+            internal TrackedSet<DelegateSite> UnseenDelegates { get; } = [];
+            internal TrackedSet<(DelegateSite Site, string Callee)> FateRuns { get; } = [];
 
             internal void Union(RebuiltState other)
             {
@@ -181,6 +185,10 @@ public static partial class WholeProgram
                 Merge(UnresolvedFateInputs, other.UnresolvedFateInputs);
                 StartupDelegates.UnionWith(other.StartupDelegates);
                 IteratorEnumerations.UnionWith(other.IteratorEnumerations);
+                DelegateSites.UnionWith(other.DelegateSites);
+                DelegateRuns.UnionWith(other.DelegateRuns);
+                UnseenDelegates.UnionWith(other.UnseenDelegates);
+                FateRuns.UnionWith(other.FateRuns);
                 foreach (var pair in other.Handoffs)
                 {
                     if (!Handoffs.TryGetValue(pair.Key, out var handoff))
@@ -204,7 +212,9 @@ public static partial class WholeProgram
                 NoReceiver.SequenceEqual(other.NoReceiver) && UnresolvedDispatches.SequenceEqual(other.UnresolvedDispatches) &&
                 SameMap(UnresolvedReceivers, other.UnresolvedReceivers) && SameMap(UnresolvedFactoryInputs, other.UnresolvedFactoryInputs) &&
                 SameMap(UnresolvedFateInputs, other.UnresolvedFateInputs) && StartupDelegates.SequenceEqual(other.StartupDelegates) &&
-                IteratorEnumerations.SequenceEqual(other.IteratorEnumerations) && Handoffs.Keys.SequenceEqual(other.Handoffs.Keys) &&
+                IteratorEnumerations.SequenceEqual(other.IteratorEnumerations) && DelegateSites.SequenceEqual(other.DelegateSites) &&
+                DelegateRuns.SequenceEqual(other.DelegateRuns) && UnseenDelegates.SequenceEqual(other.UnseenDelegates) &&
+                FateRuns.SequenceEqual(other.FateRuns) && Handoffs.Keys.SequenceEqual(other.Handoffs.Keys) &&
                 Handoffs.All(pair => pair.Value.Sites.SequenceEqual(other.Handoffs[pair.Key].Sites) &&
                                      pair.Value.Callees.SequenceEqual(other.Handoffs[pair.Key].Callees));
 

@@ -57,7 +57,8 @@ public static class FateClassifier
     /// <summary>Why the applicability rules of TD-034a refuse a fate on a member, or <c>null</c> when they allow it: <c>holder</c>
     /// <c>this</c> needs an instance method that is not a constructor, <c>holder</c> <c>result</c> a constructor or a result of reference
     /// type, <c>iterator</c> a result that implements <c>System.Collections.IEnumerable</c>. The result is what the member returns, or
-    /// <c>T</c> of a <c>Task&lt;T&gt;</c> or <c>ValueTask&lt;T&gt;</c> it returns, or the type a constructor constructs.</summary>
+    /// what the innermost of the <c>Task&lt;T&gt;</c> or <c>ValueTask&lt;T&gt;</c> it returns completes with, or the type a constructor
+    /// constructs.</summary>
     /// <param name="member">The member's definition.</param>
     /// <param name="fate">The fate.</param>
     public static string? Refusal(IMethodSymbol member, ClassifiedFate fate)
@@ -74,8 +75,9 @@ public static class FateClassifier
         };
     }
 
-    /// <summary>The member's result type: the type a constructor constructs, <c>T</c> of an awaited <c>Task&lt;T&gt;</c> or
-    /// <c>ValueTask&lt;T&gt;</c>, the return type otherwise; <c>null</c> for <c>void</c>, <c>Task</c> and <c>ValueTask</c>.</summary>
+    /// <summary>The member's result type: the type a constructor constructs, what the innermost task completes with for a
+    /// <c>Task&lt;T&gt;</c> or <c>ValueTask&lt;T&gt;</c> at any depth, the return type otherwise; <c>null</c> for <c>void</c> and for
+    /// a task whose innermost task is <c>Task</c> or <c>ValueTask</c>.</summary>
     /// <param name="member">The member.</param>
     public static ITypeSymbol? ResultType(IMethodSymbol member)
     {
@@ -83,12 +85,8 @@ public static class FateClassifier
             return member.ContainingType;
         if (member.ReturnsVoid)
             return null;
-        return TypeShape.Of(member.ReturnType) switch
-        {
-            TypeShapeKind.Task => null,
-            TypeShapeKind.TaskOfT => ((INamedTypeSymbol)member.ReturnType).TypeArguments[0],
-            _ => member.ReturnType
-        };
+        var innermost = TaskTypes.Innermost(member.ReturnType);
+        return TaskTypes.IsValueless(innermost) ? null : innermost;
     }
 
     /// <summary>The fates after a holder's confirmation run (A5): a <c>holder</c> stands only when the driver's triggers cover that
@@ -183,15 +181,13 @@ public static class FateClassifier
         private readonly string? _resultObject;
         private readonly string? _receiverObject;
         private readonly bool _resultHanded;
-        private readonly bool _resultUnknown;
-        private readonly bool _enumerationLost;
         private readonly bool _callUnseen;
 
         public Run(Driver driver, ScopeRun run)
         {
             _driver = driver;
             _heap = run.Heap!;
-            _reach = new HeapReachability(_heap, Held(driver, run));
+            _reach = new HeapReachability(_heap, Held(run));
             _starts = _reach.StaticFields().Where(start => !start.Slot.StartsWith(Inputs, StringComparison.Ordinal) &&
                                                           !start.Slot.StartsWith(Witnessed, StringComparison.Ordinal) &&
                                                           !start.Slot.StartsWith(WitnessedRefs, StringComparison.Ordinal)).ToArray();
@@ -230,12 +226,6 @@ public static class FateClassifier
                 : null;
             _receiverObject = _reach.StaticField(ReceiverOfCall) is { } receiver && _reach.Targets(receiver) is { Count: 1 } receivers ? receivers.First() : null;
             _resultHanded = _resultObject is not null && _handed.Contains(_resultObject);
-
-            // The heap carries no value through an await: what the task completes with is read from an async member's returns only, and
-            // V_Enum's foreach over an awaited result enumerates nothing.
-            _resultUnknown = AwaitsValue(driver) && !driver.Member.IsAsync &&
-                             TypeShape.Of(ResultType(driver.Member)!) is not (TypeShapeKind.Immutable or TypeShapeKind.PlainStruct);
-            _enumerationLost = driver.Enumerates && AwaitsValue(driver);
         }
 
         public FateClassification Classify()
@@ -260,8 +250,8 @@ public static class FateClassifier
 
         /// <summary>The first fate of G-5 that applies to one probe of <c>V_Call</c>, with its counterpart of <c>V_Enum</c>. Each fate
         /// runs the delegate in the execution of the action that called the member; a counterpart the engine saw run anywhere else ran in
-        /// a way no fate covers. A result the heap cannot say keeps everything, and a sequence V_Enum could not enumerate shows neither
-        /// how it runs the delegate nor that it only holds it. When no fate applies, a probe the call carried into the member that
+        /// a way no fate covers. A task member's result is what the driver's await of it holds, which the heap carries through the
+        /// task's completion. When no fate applies, a probe the call carried into the member that
         /// fired nowhere, is not kept, was handed to nothing the analysis cannot follow, and whose call reached no unseen code is
         /// <c>not-run</c> (R7); any other is <c>unknown-execution</c>.</summary>
         /// <param name="parameter">The parameter.</param>
@@ -279,7 +269,7 @@ public static class FateClassifier
             if (fired.Count != 0)
                 return new ClassifiedFate(UNKNOWN_EXECUTION, null);
 
-            var throughResult = !_enumerationLost && _resultObject is not null && OnlyThrough(parameter, probe, _resultObject, [KeepResult]);
+            var throughResult = _resultObject is not null && OnlyThrough(parameter, probe, _resultObject, [KeepResult]);
             if (throughResult && counterpart is not null && Fired(counterpart) is { Count: > 0 } enumerated &&
                 enumerated.All(execution => DriverExecutions.IsOwn(execution, DriverSynthesizer.ENUMERATE)))
             {
@@ -342,15 +332,12 @@ public static class FateClassifier
         }
 
         /// <summary>Whether a counted path reaches the probe, avoiding <paramref name="avoid"/> when it is set: one from any path start
-        /// but the parameter's own field, or one from its own field that passes an object an execution other than setup writes. When
-        /// the heap cannot say what the result holds, the result may hold the probe, on any path.</summary>
+        /// but the parameter's own field, or one from its own field that passes an object an execution other than setup writes.</summary>
         /// <param name="parameter">The parameter.</param>
         /// <param name="probe">The probe of <c>V_Call</c>.</param>
         /// <param name="avoid">An object every counted path must avoid, or <c>null</c>.</param>
         private bool Kept(DriverParameter parameter, DriverProbe probe, string? avoid)
         {
-            if (_resultUnknown)
-                return true;
             var targets = Regions(probe);
             var own = parameter.OwnFields.TryGetValue(probe.Variant, out var field) ? DriverSlot(field) : null;
             return _starts.Any(start => _reach.Reaches(start, targets, avoid, start.Slot != own, _written));
@@ -386,10 +373,9 @@ public static class FateClassifier
         /// <summary>What static fields hold beyond what the heap says: every value an execution's store into a static field stored; every
         /// value a callee's <c>ref</c> or <c>out</c> parameter may hold when it returns, for a static field passed by reference — the
         /// heap carries such a value back to a caller's local only, never into the field, and that is how the member reaches the driver's
-        /// <c>Out_</c> fields; and for <c>Keep.R</c>, what an awaited call completes with.</summary>
-        /// <param name="driver">The driver.</param>
+        /// <c>Out_</c> fields.</summary>
         /// <param name="run">The run.</param>
-        private static Dictionary<string, IReadOnlySet<string>> Held(Driver driver, ScopeRun run)
+        private static Dictionary<string, IReadOnlySet<string>> Held(ScopeRun run)
         {
             var heap = run.Heap!;
             var held = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
@@ -419,39 +405,10 @@ public static class FateClassifier
                 }
             }
 
-            At(KeepResult).UnionWith(AwaitedResult(driver, heap));
             return held.Select(pair => (pair.Key, Values: pair.Value.Where(heap.Regions.ContainsKey).ToHashSet(StringComparer.Ordinal)))
                        .Where(pair => pair.Values.Count != 0)
                        .ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Values, StringComparer.Ordinal);
         }
-
-        /// <summary>What <c>Keep.R</c> holds beyond what the heap says when the driver awaits the member's <c>Task&lt;T&gt;</c> or
-        /// <c>ValueTask&lt;T&gt;</c>: what the task completes with, which the heap does not carry through an <c>await</c> — the values
-        /// the member's instances that <c>V_Call</c> calls return. Empty for a member the driver does not await for a value.</summary>
-        /// <param name="driver">The driver.</param>
-        /// <param name="heap">The run's heap.</param>
-        private static IReadOnlySet<string> AwaitedResult(Driver driver, HeapSolution heap)
-        {
-            var awaited = new HashSet<string>(StringComparer.Ordinal);
-            if (!AwaitsValue(driver))
-                return awaited;
-            var call = $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.{DriverSynthesizer.CALL}";
-            var member = IrLowering.RootBodyId(driver.Member);
-            foreach (var edge in heap.Edges.Where(edge => heap.Instances.TryGetValue(edge.CallerInstance, out var caller) && caller.BodyId == call &&
-                                                          heap.Instances.TryGetValue(edge.CalleeInstance, out var callee) && callee.BodyId == member))
-            {
-                var callee = heap.Instances[edge.CalleeInstance];
-                awaited.UnionWith(callee.Summary.Returns.SelectMany(returned => returned.Values).SelectMany(value => heap.Resolve(callee.Id, value)));
-            }
-
-            return awaited;
-        }
-
-        /// <summary>Whether the driver awaits the member's call for a value: a method returning <c>Task&lt;T&gt;</c> or
-        /// <c>ValueTask&lt;T&gt;</c>.</summary>
-        /// <param name="driver">The driver.</param>
-        private static bool AwaitsValue(Driver driver) =>
-            driver.Member.MethodKind != MethodKind.Constructor && TypeShape.Of(driver.Member.ReturnType) == TypeShapeKind.TaskOfT;
 
         /// <summary>The action that hands over a variant's probes: <c>V_Call</c>, <c>V_Enum</c>, or the trigger action of the same
         /// name, which the fate run does not root.</summary>

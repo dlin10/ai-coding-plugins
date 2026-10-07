@@ -138,10 +138,14 @@ public static class ModelGenerator
     /// <param name="request">The member asked for.</param>
     /// <param name="library">The library compilation.</param>
     /// <param name="cancellationToken">Cancels the generation.</param>
-    internal static GenerationTrace Trace(GenerationRequest request, LibraryCompilationResult library, CancellationToken cancellationToken) =>
-        Classify(new Facts(request), library, cancellationToken);
+    /// <param name="models">The models the runs use in place of the built-in ones outside the library, for tests of a dependency's
+    /// model; <c>null</c> for those.</param>
+    internal static GenerationTrace Trace(GenerationRequest request, LibraryCompilationResult library, CancellationToken cancellationToken,
+                                          LibraryModels? models = null) =>
+        Classify(new Facts(request), library, cancellationToken, models);
 
-    private static GenerationTrace Classify(Facts facts, LibraryCompilationResult library, CancellationToken cancellationToken)
+    private static GenerationTrace Classify(Facts facts, LibraryCompilationResult library, CancellationToken cancellationToken,
+                                            LibraryModels? models = null)
     {
         facts.ExternBodies = library.ExternBodies;
         if (library.Compilation is not { } compilation)
@@ -160,7 +164,7 @@ public static class ModelGenerator
         facts.Seeds = driver.SeedStatements.Count;
         facts.Unseeded = driver.Unseeded;
 
-        var models = ModelsOutside(compilation.AssemblyName!);
+        models ??= ModelsOutside(compilation.AssemblyName!);
         var loadedStatics = new HashSet<(string Type, string Name)>();
         var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
         ScopeRun Pipeline(bool triggers) =>
@@ -302,7 +306,7 @@ public static class ModelGenerator
                 if (effect.Kind == EffectReader.READS_DEEP && EnumerationReadIsNamed(parameter, effect, fates, values))
                     continue;
                 if (effect.Roots.Contains(DriverSynthesizer.ENUMERATE, StringComparer.Ordinal) &&
-                    values.Result?.Kind != LibraryResultKind.Sequence)
+                    values.Result?.Leaf.Kind != LibraryResultKind.Sequence)
                 {
                     reason = ModelReasons.VOCABULARY;
                     return null;
@@ -367,7 +371,7 @@ public static class ModelGenerator
                      .Concat(values.Outputs.Values.SelectMany(output => output.Values))
                      .Any(value => NamesElements(value, parameter)),
             DriverSynthesizer.ENUMERATE =>
-                (values.Result?.Kind == LibraryResultKind.Sequence && values.Result.Values.Any(value => NamesElements(value, parameter))) ||
+                (values.Result?.Leaf.Kind == LibraryResultKind.Sequence && values.Result.Leaf.Values.Any(value => NamesElements(value, parameter))) ||
                 fates.Where(fate => fate.Kind == LibraryFateKind.Iterator).SelectMany(fate => fate.Inputs?.SelectMany(input => input) ?? [])
                      .Any(value => NamesElements(value, parameter)),
             _ => false
@@ -380,6 +384,8 @@ public static class ModelGenerator
         ElementsValue elements => NamesElements(elements.Source, parameter),
         SequenceValue sequence => sequence.Values.Any(item => NamesElements(item, parameter)),
         GroupingValue grouping => NamesElements(grouping.Key, parameter) || NamesElements(grouping.Values, parameter),
+        // A completion value is what a task completes with, never the elements of the argument that names the task.
+        CompletionValue => false,
         _ => false
     };
 

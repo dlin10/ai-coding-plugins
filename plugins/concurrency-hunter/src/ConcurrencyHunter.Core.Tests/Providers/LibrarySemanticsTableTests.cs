@@ -398,7 +398,8 @@ public sealed class LibrarySemanticsTableTests
     {
         // Phase 5c run B adds Comparer<T>.Create, every Enumerable operator taking a delegate and no comparer, only ExceptBy and
         // IntersectBy with an effect, and the System.Array statics R7 names, and gives the phase 5a LINQ members R6 names a result
-        // without changing their effects.
+        // without changing their effects. Phase 5d run A4 gives the HttpClient members whose task carries a response or a string the
+        // result task(new), without changing their effects.
         var runB = RunBFamilies();
         var table = Table.Members.Select(member => (member.Id, Effects(member.Effects)))
                          .Concat(Table.ImmutableTypes.Select(type => (type.Id, Effects: type.IncludesDerived ? "IncludesDerived" : "")))
@@ -418,7 +419,10 @@ public sealed class LibrarySemanticsTableTests
         Assert.Equal(15, resultOnly.Length);
         Assert.Equal(10, deserializers.Length);
         Assert.All(Table.Members.Where(member => deserializers.Contains(member.Id, StringComparer.Ordinal)), member => Assert.Equal("new", member.Result?.ToString()));
-        Assert.Equal(runB.Select(entry => entry.Id).Concat(resultOnly).Concat(deserializers).Order(StringComparer.Ordinal), described.Order(StringComparer.Ordinal));
+        Assert.Equal(26, HttpClientTaskResults.Length);
+        Assert.All(Table.Members.Where(member => HttpClientTaskResults.Contains(member.Id, StringComparer.Ordinal)), member => Assert.Equal("task(new)", member.Result?.ToString()));
+        Assert.Equal(runB.Select(entry => entry.Id).Concat(resultOnly).Concat(deserializers).Concat(HttpClientTaskResults).Order(StringComparer.Ordinal),
+                     described.Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -780,6 +784,7 @@ public sealed class LibrarySemanticsTableTests
     ];
 
     /// <summary>The named rules an overload may be rejected by, in the order they are asked: the first that applies names it.</summary>
+    /// <param name="excluded">The parameter types the overload's family excludes.</param>
     private static (string Name, Func<IMethodSymbol, bool> Rejects)[] Rules(string[] excluded) =>
     [
         // Since phase 5c run B an Enumerable operator with a delegate is listed unless a comparer rejects it (R6).
@@ -798,6 +803,38 @@ public sealed class LibrarySemanticsTableTests
     private static readonly string[] R6Phase5aNames =
         ["Skip", "Take", "Cast", "OfType", "Union", "AsEnumerable", "ToList", "ToArray", "First", "FirstOrDefault", "Single", "SingleOrDefault",
          "Last", "LastOrDefault"];
+
+    /// <summary>The phase 5a HttpClient members phase 5d run A4 gives the result <c>task(new)</c>: every GetAsync, GetStringAsync,
+    /// PostAsync, PutAsync and SendAsync overload and both ReadAsStringAsync overloads.</summary>
+    private static readonly string[] HttpClientTaskResults =
+    [
+        "M:System.Net.Http.HttpClient.GetAsync(System.String)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.GetAsync(System.String,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.GetAsync(System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.GetAsync(System.String,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.GetAsync(System.Uri)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.GetStringAsync(System.String)~System.Threading.Tasks.Task{System.String}",
+        "M:System.Net.Http.HttpClient.GetStringAsync(System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
+        "M:System.Net.Http.HttpClient.GetStringAsync(System.Uri)~System.Threading.Tasks.Task{System.String}",
+        "M:System.Net.Http.HttpClient.GetStringAsync(System.Uri,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
+        "M:System.Net.Http.HttpClient.PostAsync(System.String,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.PostAsync(System.String,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.PostAsync(System.Uri,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.PostAsync(System.Uri,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.PutAsync(System.String,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.PutAsync(System.String,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.PutAsync(System.Uri,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.PutAsync(System.Uri,System.Net.Http.HttpContent,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
+        "M:System.Net.Http.HttpContent.ReadAsStringAsync~System.Threading.Tasks.Task{System.String}",
+        "M:System.Net.Http.HttpContent.ReadAsStringAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
+    ];
 
     /// <summary>The members phase 5c run B adds with their effects: <c>Comparer&lt;T&gt;.Create</c> and every public Enumerable method taking
     /// a delegate and neither an <c>IEqualityComparer</c> nor an <c>IComparer</c>, of which ExceptBy and IntersectBy read their
@@ -864,6 +901,8 @@ public sealed class LibrarySemanticsTableTests
              .Where(method => method.DeclaredAccessibility is Accessibility.Public or Accessibility.Protected);
 
     /// <summary>The methods <paramref name="source"/> calls, in order: invocations, object creations and property reads.</summary>
+    /// <param name="source">The C# source to compile and walk.</param>
+    /// <param name="references">The references to compile against alone; <see langword="null"/> adds the source to the real packages' compilation.</param>
     private static List<IMethodSymbol> Calls(string source, IEnumerable<MetadataReference>? references = null)
     {
         var compilation = references is null ? Real.Value.AddSyntaxTrees(Parse(source)) : Compile(source, references);

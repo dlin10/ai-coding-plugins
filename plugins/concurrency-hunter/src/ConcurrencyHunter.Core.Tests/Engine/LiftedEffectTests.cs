@@ -202,12 +202,12 @@ public sealed class LiftedEffectTests
                      await Verdict("using (_holder.Lock.Lock()) { await Task.Yield(); _holder.Value = 1; }",
                                    "using (_holder.Lock.Lock()) { _holder.Value = 2; }", isAsync: true));
 
-    /// <summary>A measured limit, pinned here so that lifting it fails loudly: the heap does not follow an async method's result
-    /// to the object it returns, so the disposal of a scope handed out that way names no callee at all, the exit is not proven,
-    /// and the entry it carried is therefore not protection. The same wrapper taken synchronously does prove it.</summary>
+    /// <summary>The heap follows an async method's result to the object it returns, the completion value of its task, so the disposal
+    /// of a scope handed out that way names the releaser, the exit is proven, and the awaited wrapper proves what the same wrapper
+    /// taken synchronously does (R2).</summary>
     [Fact]
-    public async Task An_awaited_wrapper_proves_nothing_until_an_async_result_is_followed() =>
-        Assert.Equal(PairProtection.UNPROTECTED,
+    public async Task An_awaited_wrapper_proves_protection_as_its_synchronous_twin_does() =>
+        Assert.Equal(PairProtection.SUFFICIENT,
                      await Verdict("using (await _holder.Lock.LockAsync()) { _holder.Value = 1; }",
                                    "using (await _holder.Lock.LockAsync()) { _holder.Value = 2; }", isAsync: true));
 
@@ -372,6 +372,9 @@ public sealed class LiftedEffectTests
 
     /// <summary>The verdict of the one pair the two workers make on the guarded field; no finding means the protection was
     /// sufficient and took the candidate away.</summary>
+    /// <param name="first">The body of the first worker's <c>ExecuteAsync</c>.</param>
+    /// <param name="second">The body of the second worker's <c>ExecuteAsync</c>.</param>
+    /// <param name="isAsync">Whether both workers' <c>ExecuteAsync</c> is <c>async</c>.</param>
     private static async Task<string> Verdict(string first, string second, bool isAsync = false)
     {
         var result = await Analyze(Primitives + Worker("First", first, isAsync) + Worker("Second", second, isAsync) +

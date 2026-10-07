@@ -5,12 +5,19 @@ namespace ConcurrencyHunter.Heap;
 
 /// <summary>The bounds of the heap analysis. <see cref="MaxAccessPathDepth"/> is the number of field segments a path keeps from
 /// its base before it collapses to a wildcard.</summary>
+/// <param name="MaxAccessPathDepth">The number of field segments an access path keeps before it collapses to a wildcard.</param>
+/// <param name="MaxContextsPerMethod">The number of calling contexts a method is analysed in before further ones are given up.</param>
+/// <param name="MaxSccIterations">The number of rounds a changing call-graph cycle is solved before it is given up.</param>
 public sealed record AnalysisLimits(int MaxAccessPathDepth = 8, int MaxContextsPerMethod = 16, int MaxSccIterations = 16)
 {
     public static AnalysisLimits Default { get; } = new();
 }
 
 /// <summary>Where an object or a delegate is created: the body, the operation, the created type and the frontend's site ordinal.</summary>
+/// <param name="BodyId">The body the creation is in.</param>
+/// <param name="OperationId">The creating operation in that body.</param>
+/// <param name="TypeKey">The created type.</param>
+/// <param name="SiteOrdinal">The frontend's ordinal of the creation site.</param>
 public sealed record CreationSite(string BodyId, int OperationId, string TypeKey, int SiteOrdinal);
 
 /// <summary>A value a summary is symbolic in; nothing in it names a context.</summary>
@@ -29,6 +36,7 @@ public sealed record ParameterValue(int Ordinal) : AbstractValue
 }
 
 /// <summary>The object held in a static field.</summary>
+/// <param name="Field">The static field.</param>
 public sealed record StaticFieldValue(IrFieldRef Field) : AbstractValue
 {
     public override string ToString() => $"static:{Field.Assembly}:{Field.ContainingTypeId}.{Field.Name}";
@@ -83,6 +91,9 @@ public sealed record ReferenceLocationValue(ReferenceTarget Target, bool Read) :
 /// <summary>A delegate created at <see cref="Site"/> for <see cref="Target"/> (a nested body id, a method id or a method symbol).
 /// <see cref="CapturedValues"/> maps each captured symbol key, and <c>this</c>, to the union of the variable's values in the creating
 /// body; two creation values at one site are equal whatever they captured.</summary>
+/// <param name="Site">Where the delegate is created.</param>
+/// <param name="Target">The nested body id, method id or method symbol the delegate runs.</param>
+/// <param name="CapturedValues">The values of each captured symbol key, and of <c>this</c>, in the creating body.</param>
 public sealed record DelegateCreationValue(CreationSite Site, string Target, IReadOnlyDictionary<string, IReadOnlySet<AbstractValue>> CapturedValues)
     : AbstractValue
 {
@@ -93,13 +104,17 @@ public sealed record DelegateCreationValue(CreationSite Site, string Target, IRe
     public override string ToString() => $"delegate:{Site.BodyId}#{Site.OperationId}";
 }
 
-/// <summary>The result of an await whose result is itself a task: the tail of the awaited task.</summary>
+/// <summary>The result of an await of a task (a <c>Task&lt;T&gt;</c>, a <c>ValueTask&lt;T&gt;</c> or a configured awaitable of one), or of
+/// the call of a <see cref="SummaryJoinKind.Result"/> join, by the join's operation: the completion value of the task waited for, what
+/// the heap's tasks hold in their completion slot.</summary>
+/// <param name="OperationId">The await or <see cref="SummaryJoinKind.Result"/> join.</param>
 public sealed record AwaitResultValue(int OperationId) : AbstractValue
 {
     public override string ToString() => $"await:{OperationId}";
 }
 
 /// <summary>A variable a nested body captures from the body that creates it: every version, on either side.</summary>
+/// <param name="SymbolKey">The captured variable's symbol key.</param>
 public sealed record CapturedValue(string SymbolKey) : AbstractValue
 {
     public override string ToString() => $"captured:{SymbolKey}";
@@ -115,15 +130,20 @@ public static class FieldSlot
     public static string Key(IrFieldRef field) => $"{TypeKey(field.Assembly, field.ContainingTypeId)}.{field.Name}";
 
     /// <summary>A declaring type in the form a slot key carries it.</summary>
+    /// <param name="assembly">The assembly declaring the type.</param>
+    /// <param name="type">The declaring type, with or without type arguments.</param>
     public static string TypeKey(string assembly, string type) => $"{assembly}:{WithoutTypeArguments(type)}";
 
     /// <summary>The declaring type key a slot key starts with, empty for <c>[]</c> and <c>*</c>.</summary>
+    /// <param name="key">The slot key.</param>
     public static string DeclaringTypeKey(string key) => key.LastIndexOf('.') is var dot && dot >= 0 ? key[..dot] : "";
 
     /// <summary>The field name a slot key ends with, which is what the report and the expectations show.</summary>
+    /// <param name="key">The slot key.</param>
     public static string Name(string key) => key.LastIndexOf('.') is var dot && dot >= 0 ? key[(dot + 1)..] : key;
 
     /// <summary>A type key without its type arguments, as a slot key carries it.</summary>
+    /// <param name="type">The type key to strip.</param>
     public static string WithoutTypeArguments(string type)
     {
         var name = new System.Text.StringBuilder();
@@ -144,6 +164,7 @@ public static class FieldSlot
 
 /// <summary>One region of the solved heap, named directly: the base of an access a known call's effect makes on an object the heap
 /// already resolved (R3). No summary produces it; only the collection of accesses does, after the heap is solved.</summary>
+/// <param name="RegionId">The id of the solved heap region.</param>
 public sealed record RegionValue(string RegionId) : AbstractValue
 {
     public override string ToString() => $"region:{RegionId}";
@@ -163,6 +184,9 @@ public sealed record PathValue(AbstractValue Base, IReadOnlyList<string> Segment
 
     /// <summary>Objects kept by a library object, reachable but never a cell or an access path.</summary>
     public const string KEPT = "[kept]";
+
+    /// <summary>What a task region completes with, its completion slot: never a cell or an access path.</summary>
+    public const string COMPLETION = "<completion>";
 
     /// <summary>The list a <c>LinkedListNode&lt;T&gt;</c> created on its own was added to, of which it is a cell.</summary>
     public const string NODE_LIST = "[list]";
@@ -187,6 +211,7 @@ public sealed record PathValue(AbstractValue Base, IReadOnlyList<string> Segment
 public abstract record ValueDependency;
 
 /// <summary>The value of the field load with this operation id.</summary>
+/// <param name="OperationId">The field load.</param>
 public sealed record LoadDependency(int OperationId) : ValueDependency;
 
 public sealed record ParameterDependency(int Ordinal) : ValueDependency;
@@ -194,13 +219,18 @@ public sealed record ParameterDependency(int Ordinal) : ValueDependency;
 public sealed record CapturedDependency(string SymbolKey) : ValueDependency;
 
 /// <summary>The result of the call with this operation id; the callee decides what that depends on.</summary>
+/// <param name="OperationId">The call.</param>
 public sealed record CallDependency(int OperationId) : ValueDependency;
 
 /// <summary>The new value of a <c>ref</c> or <c>out</c> argument of the call with this operation id; what the callee's parameter
 /// of this ordinal holds when it ends decides what that depends on.</summary>
+/// <param name="OperationId">The call.</param>
+/// <param name="Ordinal">The ordinal of the <c>ref</c> or <c>out</c> parameter.</param>
 public sealed record RefResultDependency(int OperationId, int Ordinal) : ValueDependency;
 
 /// <summary>A lock the body must hold at an operation: the values of its lock object, empty when they are unknown.</summary>
+/// <param name="Values">The values of the lock object, empty when they are unknown.</param>
+/// <param name="AcquisitionId">The acquisition that took the lock.</param>
 public sealed record HeldLockValue(IReadOnlySet<AbstractValue> Values, int AcquisitionId);
 
 public enum SummaryAccessKind
@@ -217,6 +247,11 @@ public enum SummaryAccessKind
 /// load it constrains, whose canonical identity the caller's context decides; <see cref="SubjectValue"/> names a value of this
 /// body instead, which no other execution shares. A predicate with neither names nothing and only carries its
 /// <see cref="Text"/> into the uncertainties (TD-095).</summary>
+/// <param name="SubjectLoad">The field load the predicate constrains, if it constrains one.</param>
+/// <param name="SubjectValue">The value of this body the predicate constrains, if it constrains one.</param>
+/// <param name="Relation">How the predicate constrains its subject.</param>
+/// <param name="Value">What the subject is compared with, null for a relation without one.</param>
+/// <param name="Text">The predicate's source text.</param>
 public sealed record SummaryPredicate(int? SubjectLoad, int? SubjectValue, PathRelation Relation, string? Value, string Text)
 {
     /// <summary>The width in bits of the subject's own type, and whether that type is signed, carried so that the solver decides
@@ -228,6 +263,15 @@ public sealed record SummaryPredicate(int? SubjectLoad, int? SubjectValue, PathR
 
 /// <summary>A field or auto-property load or store. <see cref="Bases"/> are the objects it touches, empty for a static field;
 /// <see cref="Values"/> are the loaded or stored values, and a store's <see cref="Dependencies"/> are what its value depends on.</summary>
+/// <param name="OperationId">The load or store operation.</param>
+/// <param name="Kind">Whether the access loads or stores.</param>
+/// <param name="Field">The field accessed.</param>
+/// <param name="Bases">The objects whose field is accessed, empty for a static field.</param>
+/// <param name="Provenance">Where the access is in source.</param>
+/// <param name="HeldLocks">The locks the body holds at the access.</param>
+/// <param name="ReadModifyWriteOf">The load this store writes back a modification of, if any.</param>
+/// <param name="Values">The loaded or stored values.</param>
+/// <param name="Dependencies">What a stored value depends on.</param>
 public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFieldRef Field, IReadOnlySet<AbstractValue> Bases,
                                    IrProvenance Provenance, IReadOnlyList<HeldLockValue> HeldLocks, int? ReadModifyWriteOf,
                                    IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
@@ -287,6 +331,10 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
 }
 
 /// <summary>A reference-typed field or static store: the field of each base (none for a static) now points to the values.</summary>
+/// <param name="OperationId">The store operation.</param>
+/// <param name="Field">The field stored into.</param>
+/// <param name="Bases">The objects whose field is stored into, none for a static.</param>
+/// <param name="Values">The stored values.</param>
 public sealed record StoreTransfer(int OperationId, IrFieldRef Field, IReadOnlySet<AbstractValue> Bases, IReadOnlySet<AbstractValue> Values)
 {
     /// <inheritdoc cref="SummaryValue.Producers"/>
@@ -340,6 +388,8 @@ public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Para
 }
 
 /// <summary>A field a value may be read from, and the objects it is read on: none for a static field.</summary>
+/// <param name="Field">The field the value may be read from.</param>
+/// <param name="Bases">The objects it is read on, none for a static field.</param>
 public sealed record FieldOrigin(IrFieldRef Field, IReadOnlySet<AbstractValue> Bases);
 
 public enum ElementOperationKind
@@ -350,6 +400,10 @@ public enum ElementOperationKind
 
 /// <summary>An array element load or store, or what a member of a collection ADR 0010 models puts into it: points-to only, never an
 /// access.</summary>
+/// <param name="OperationId">The element operation or collection member call.</param>
+/// <param name="Kind">Whether the transfer loads or stores.</param>
+/// <param name="Arrays">The arrays or collections whose storage the transfer reads or writes.</param>
+/// <param name="Values">The loaded or stored values.</param>
 public sealed record ElementTransfer(int OperationId, ElementOperationKind Kind, IReadOnlySet<AbstractValue> Arrays,
                                      IReadOnlySet<AbstractValue> Values)
 {
@@ -406,11 +460,19 @@ public sealed record ReturnTransfer(int OperationId, IReadOnlySet<AbstractValue>
     public IReadOnlySet<UnknownSource> UnknownSources { get; init; } = new HashSet<UnknownSource>();
     public IReadOnlySet<int> SourceCalls { get; init; } = new HashSet<int>();
 
+    /// <inheritdoc cref="SummaryValue.Completions"/>
+    public IReadOnlySet<int> Completions { get; init; } = new HashSet<int>();
+
+    /// <inheritdoc cref="SummaryValue.CompletedCalls"/>
+    public IReadOnlySet<(int Call, int Depth)> CompletedCalls { get; init; } = new HashSet<(int, int)>();
+
     /// <inheritdoc cref="SummaryValue.Producers"/>
     public ValueOrigin Producers { get; init; } = ValueOrigin.None;
 }
 
 /// <summary>The values a <c>ref</c> or <c>out</c> parameter may hold when the body ends, and what they were computed from.</summary>
+/// <param name="Ordinal">The parameter's ordinal.</param>
+/// <param name="Values">The values the parameter may hold when the body ends.</param>
 public sealed record RefParameterTransfer(int Ordinal, IReadOnlySet<AbstractValue> Values)
 {
     public IReadOnlySet<ValueDependency> Dependencies { get; init; } = new HashSet<ValueDependency>();
@@ -419,11 +481,19 @@ public sealed record RefParameterTransfer(int Ordinal, IReadOnlySet<AbstractValu
 /// <summary>A delegate creation; the target type keys are the method group's containing type and method type arguments as the
 /// creation names them, in the creating body's own type parameters. A non-virtual one names its method through <c>base</c> and runs
 /// it without dispatch.</summary>
+/// <param name="OperationId">The creating operation.</param>
+/// <param name="Delegate">The created delegate.</param>
+/// <param name="Receivers">The objects the delegate's method is bound to.</param>
+/// <param name="TargetContainingTypeKey">The method group's containing type as the creation names it.</param>
+/// <param name="TargetMethodTypeArgumentKeys">The method group's type arguments as the creation names them.</param>
+/// <param name="IsNonVirtual">Whether the creation names its method through <c>base</c> and runs it without dispatch.</param>
 public sealed record DelegateTransfer(int OperationId, DelegateCreationValue Delegate, IReadOnlySet<AbstractValue> Receivers,
                                       string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null,
                                       bool IsNonVirtual = false);
 
 /// <summary>A call argument bound to its parameter, with what its value depends on.</summary>
+/// <param name="ParameterOrdinal">The ordinal of the parameter the argument binds.</param>
+/// <param name="Values">The values the argument may be.</param>
 public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractValue> Values)
 {
     public IReadOnlySet<ValueDependency> Dependencies { get; init; } = new HashSet<ValueDependency>();
@@ -446,11 +516,24 @@ public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractVal
     /// <summary>Whether every definition of the argument's value is an allocation of the calling body: an unknown effect then
     /// touches the fields of a fresh object (R12).</summary>
     public bool IsFresh { get; init; }
+
+    /// <summary>Where the argument's value may come from besides <see cref="Values"/>, as <see cref="SummaryValue"/> records it: what a
+    /// task argument completes with is unknown where the task itself may be one the heap does not follow (R1).</summary>
+    public IReadOnlySet<UnknownSource> UnknownSources { get; init; } = new HashSet<UnknownSource>();
+
+    /// <inheritdoc cref="SummaryValue.SourceCalls"/>
+    public IReadOnlySet<int> SourceCalls { get; init; } = new HashSet<int>();
+
+    /// <inheritdoc cref="SummaryValue.Completions"/>
+    public IReadOnlySet<int> Completions { get; init; } = new HashSet<int>();
 }
 
 /// <summary>A collection handed over by value: <see cref="Collection"/> is a <see cref="ReferenceCell"/> of the field it was read
 /// from or a <see cref="ReferenceParameterElement"/> of the parameter it came in as, cut at <see cref="Shift"/> for
 /// <see cref="Length"/> cells.</summary>
+/// <param name="Collection">The field cell or parameter element the collection comes from.</param>
+/// <param name="Shift">The cell the handed-over collection starts at, null when unknown.</param>
+/// <param name="Length">The number of cells handed over, null when unknown.</param>
 public sealed record ArgumentCollection(ReferenceTarget Collection, long? Shift, long? Length);
 
 public abstract record ReferenceTarget;
@@ -470,6 +553,9 @@ public sealed record ReferenceCall(int OperationId) : ReferenceTarget;
 /// <summary>A cell of the collection a by-value parameter holds on entry, in that collection's own coordinates; the caller's
 /// argument says which collection that is. <see cref="Term"/> is the cell's expression in the same coordinates, which is what a
 /// guard of the caller over the index is compared with (R1).</summary>
+/// <param name="Ordinal">The by-value parameter's ordinal.</param>
+/// <param name="Selector">The cell of the collection.</param>
+/// <param name="Term">The cell's expression in the collection's own coordinates, if known.</param>
 public sealed record ReferenceParameterElement(int Ordinal, ElementSelector Selector, ValueTerm? Term = null) : ReferenceTarget
 {
     /// <inheritdoc cref="ReferenceCell.IsTermBound"/>
@@ -478,6 +564,7 @@ public sealed record ReferenceParameterElement(int Ordinal, ElementSelector Sele
 
 /// <summary>A cell nothing numbers of the collection a call with a body returns: the storage that body hands back, as its own
 /// returns name it (R3).</summary>
+/// <param name="OperationId">The call returning the collection.</param>
 public sealed record ReferenceCallCollection(int OperationId) : ReferenceTarget;
 
 /// <summary>A place a reference may point to that nothing proves: counted in coverage, never an access to a guessed place (R3).</summary>
@@ -502,6 +589,13 @@ public sealed record SummaryReferenceAccess(int OperationId, SummaryAccessKind K
 
 /// <summary>A monitor acquisition or release: the values of its lock object, and the IR value the object comes from through
 /// assigns and conversions, which matches a lock statement's release to its acquisition when the values are unknown.</summary>
+/// <param name="OperationId">The acquire or release operation.</param>
+/// <param name="IsAcquire">Whether it acquires rather than releases.</param>
+/// <param name="Primitive">The synchronization primitive.</param>
+/// <param name="Mode">The mode the lock is taken or let go in.</param>
+/// <param name="Values">The values of the lock object.</param>
+/// <param name="Origin">The IR value the lock object comes from through assigns and conversions.</param>
+/// <param name="Provenance">Where the operation is in source.</param>
 public sealed record LockTransfer(int OperationId, bool IsAcquire, IrSynchronizationPrimitive Primitive, IrLockMode Mode,
                                   IReadOnlySet<AbstractValue> Values, int Origin, IrProvenance Provenance)
 {
@@ -514,6 +608,14 @@ public sealed record LockTransfer(int OperationId, bool IsAcquire, IrSynchroniza
 
 /// <summary>A call into a body the scope may have: <see cref="Target"/> is the method id, or the nested body id of a local function.
 /// The target type keys are as the call names them, in the calling body's own type parameters.</summary>
+/// <param name="OperationId">The call operation.</param>
+/// <param name="Target">The method id, or the nested body id of a local function.</param>
+/// <param name="Kind">How the call dispatches.</param>
+/// <param name="Receivers">The receiver objects.</param>
+/// <param name="Arguments">The arguments bound to their parameters.</param>
+/// <param name="HeldLocks">The locks the body holds at the call.</param>
+/// <param name="TargetContainingTypeKey">The target's containing type as the call names it.</param>
+/// <param name="TargetMethodTypeArgumentKeys">The target's method type arguments as the call names them.</param>
 public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kind, IReadOnlySet<AbstractValue> Receivers,
                                   IReadOnlyList<CallArgument> Arguments, IReadOnlyList<HeldLockValue> HeldLocks,
                                   string? TargetContainingTypeKey = null, IReadOnlyList<string>? TargetMethodTypeArgumentKeys = null)
@@ -524,6 +626,9 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
     /// over the regions alone cannot tell a receiver the heap named from one it could not.</summary>
     public IReadOnlySet<UnknownSource> ReceiverUnknownSources { get; init; } = new HashSet<UnknownSource>();
     public IReadOnlySet<int> ReceiverSourceCalls { get; init; } = new HashSet<int>();
+
+    /// <inheritdoc cref="SummaryValue.Completions"/>
+    public IReadOnlySet<int> ReceiverCompletions { get; init; } = new HashSet<int>();
 
     /// <summary>The predicates that must hold for the call to run, in the calling body's own values. Everything the callee does
     /// runs under them too, so the guards of a call site are part of the condition of every access it reaches (R8, TD-090).</summary>
@@ -591,6 +696,9 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
 
 /// <summary>An operation on a <c>dynamic</c> value (<see cref="IrUnknownOperation.DynamicCallee"/>): the objects its receiver, arguments
 /// and assigned value may be, all of which it sees whole (R1).</summary>
+/// <param name="OperationId">The <c>dynamic</c> operation.</param>
+/// <param name="Callee">The member the operation names.</param>
+/// <param name="Values">The objects its receiver, arguments and assigned value may be.</param>
 public sealed record SummaryDynamicOperation(int OperationId, string Callee, IReadOnlySet<AbstractValue> Values)
 {
     /// <inheritdoc cref="SummaryOpaqueCall.Provenance"/>
@@ -624,6 +732,13 @@ public sealed record SummaryResultStore(int SourceOperationId, IReadOnlySet<Abst
 /// <summary>What a known call does to one argument (R3), a deep read or a write: the objects the argument may be, or the collection
 /// or slice it is cut from, with the call's own place, locks and conditions. Collecting the accesses expands it over the solved
 /// heap.</summary>
+/// <param name="Kind">Whether the effect is a deep read or a write.</param>
+/// <param name="OperationId">The known call.</param>
+/// <param name="Values">The objects the argument may be.</param>
+/// <param name="Collection">The collection the argument is cut from, if the body names one.</param>
+/// <param name="IsSlice">Whether the argument is a slice of <paramref name="Collection"/>.</param>
+/// <param name="Provenance">Where the call is in source.</param>
+/// <param name="HeldLocks">The locks the body holds at the call.</param>
 public sealed record SummaryArgumentEffect(IrLibraryEffectKind Kind, int OperationId, IReadOnlySet<AbstractValue> Values,
                                            ArgumentCollection? Collection, bool IsSlice, IrProvenance Provenance,
                                            IReadOnlyList<HeldLockValue> HeldLocks)
@@ -676,9 +791,15 @@ public sealed record SummaryArgumentEffect(IrLibraryEffectKind Kind, int Operati
 }
 
 /// <summary>A read of a collection a change depends on: the operation making it and the cell its key names, null for none.</summary>
+/// <param name="OperationId">The operation making the read.</param>
+/// <param name="Selector">The cell its key names, null for none.</param>
 public sealed record SummaryMemberCheck(int OperationId, ElementSelector? Selector);
 
 /// <summary>An assignment, in a nested body, to a variable it captures: task 5 joins it with the outer variable.</summary>
+/// <param name="OperationId">The assignment.</param>
+/// <param name="SymbolKey">The captured variable's symbol key.</param>
+/// <param name="Values">The assigned values.</param>
+/// <param name="Dependencies">What the assigned value depends on.</param>
 public sealed record CapturedStore(int OperationId, string SymbolKey, IReadOnlySet<AbstractValue> Values,
                                    IReadOnlySet<ValueDependency> Dependencies)
 {
@@ -687,6 +808,9 @@ public sealed record CapturedStore(int OperationId, string SymbolKey, IReadOnlyS
 }
 
 /// <summary>The union of every version of a local or parameter in the body.</summary>
+/// <param name="SymbolKey">The variable's symbol key.</param>
+/// <param name="Values">The values of every version of the variable.</param>
+/// <param name="Dependencies">What those values depend on.</param>
 public sealed record SummaryVariable(string SymbolKey, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
 {
     public IReadOnlySet<UnknownSource> UnknownSources { get; init; } = new HashSet<UnknownSource>();
@@ -712,11 +836,42 @@ public enum UnknownSource
 
 /// <summary>A value an event names, with the unknown sources it may also come from; an empty set means it comes only from what
 /// <see cref="Values"/> name.</summary>
+/// <param name="Values">The objects the value may be.</param>
+/// <param name="UnknownSources">The unknown sources the value may also come from.</param>
 public sealed record SummaryValue(IReadOnlySet<AbstractValue> Values, IReadOnlySet<UnknownSource> UnknownSources)
 {
     /// <summary>The calls whose results the value comes from as <see cref="UnknownSource.SourceCall"/>: what each of them returns is the
     /// callee's business, so only the region a call is known to produce excuses it.</summary>
     public IReadOnlySet<int> SourceCalls { get; init; } = new HashSet<int>();
+
+    /// <summary>The operations whose task's completion value the value may be: the awaits of a task and the <c>Unwrap()</c> calls, by
+    /// operation. The heap records which of them read a task whose completion may be an object it does not follow
+    /// (<c>HeapSolution.UnfollowedCompletions</c>), as it does for a call's result.</summary>
+    public IReadOnlySet<int> Completions { get; init; } = new HashSet<int>();
+
+    /// <summary>The deepest consumption <see cref="CompletedCalls"/> records; a value consuming a call's task more often records this
+    /// depth, and no decider follows it (<see cref="HeapSolution.Completions"/> gives nothing for it).</summary>
+    public const int MAX_COMPLETION_DEPTH = 8;
+
+    /// <summary>The <see cref="SourceCalls"/> the value comes from through the completion of the task such a call gave, not as that task
+    /// itself, each with how many times the value consumed it: what the call gives such a value is what its result's tasks complete with,
+    /// followed that many times (<see cref="Depths(int)"/>).</summary>
+    public IReadOnlySet<(int Call, int Depth)> CompletedCalls { get; init; } = new HashSet<(int, int)>();
+
+    /// <summary>How many times the value consumed the task a source call gave: each depth <see cref="CompletedCalls"/> records for it,
+    /// or none where it records none.</summary>
+    /// <param name="call">The source call.</param>
+    public IReadOnlyList<int> Depths(int call) => Depths(CompletedCalls, call);
+
+    /// <summary>How many times a value consumed the task a source call gave, by the completed calls it records: each depth recorded for
+    /// the call, or none (0) where none is.</summary>
+    /// <param name="completedCalls">The value's completed calls.</param>
+    /// <param name="call">The source call.</param>
+    public static IReadOnlyList<int> Depths(IReadOnlySet<(int Call, int Depth)> completedCalls, int call)
+    {
+        var depths = completedCalls.Where(item => item.Call == call).Select(item => item.Depth).Order().ToArray();
+        return depths.Length == 0 ? [0] : depths;
+    }
 
     /// <summary>Where the value comes from in its body (<see cref="ValueOrigin"/>): what says a semantic gap's result decides a join,
     /// a timer or a lock (R6).</summary>
@@ -725,6 +880,12 @@ public sealed record SummaryValue(IReadOnlySet<AbstractValue> Values, IReadOnlyS
 
 /// <summary>Work a BCL call starts (<see cref="IrSpawnOperation"/>): <see cref="Handle"/> is the call's result, or the started
 /// thread for <see cref="IrSpawnKind.ThreadStart"/>, whose work a <see cref="SummaryThreadWork"/> binds.</summary>
+/// <param name="OperationId">The spawn operation.</param>
+/// <param name="CallOperationId">The BCL call that starts the work.</param>
+/// <param name="Kind">The kind of spawn.</param>
+/// <param name="Handle">The call's result, or the started thread.</param>
+/// <param name="Work">The delegates the call starts.</param>
+/// <param name="Provenance">Where the call is in source.</param>
 public sealed record SummarySpawn(int OperationId, int CallOperationId, IrSpawnKind Kind, SummaryValue? Handle,
                                   IReadOnlyList<SummaryValue> Work, IrProvenance Provenance)
 {
@@ -744,22 +905,64 @@ public enum SummaryJoinKind
     Wait,
     Join,
     WaitAll,
-    WaitOne
+    WaitOne,
+    Result
 }
 
 /// <summary>A wait for handles: an await, which throws only after its task completes, or a joining BCL call, which may throw
-/// earlier. <see cref="CallOperationId"/> is null for an await.</summary>
+/// earlier unless <see cref="ThrowsOnlyAfterCompletion"/> says it does not (the <c>Result</c> of a <c>Task</c>).
+/// <see cref="CallOperationId"/> is null for an await.</summary>
+/// <param name="OperationId">The await or join operation.</param>
+/// <param name="Kind">The kind of wait.</param>
+/// <param name="CallOperationId">The joining call; null for an await.</param>
+/// <param name="Handles">The handles it waits for.</param>
+/// <param name="HandlesKnown">Whether the wait names its handles.</param>
+/// <param name="ThrowsOnlyAfterCompletion">Whether it throws only after its handles complete.</param>
+/// <param name="Provenance">Where the wait is in source.</param>
 public sealed record SummaryJoin(int OperationId, SummaryJoinKind Kind, int? CallOperationId, IReadOnlyList<SummaryValue> Handles,
                                  bool HandlesKnown, bool ThrowsOnlyAfterCompletion, IrProvenance Provenance);
 
 /// <summary>A <c>Task.WhenAll</c> call; its result is a task that completes after <see cref="Tasks"/>, unless they are unknown.</summary>
+/// <param name="OperationId">The when-all operation.</param>
+/// <param name="CallOperationId">The call.</param>
+/// <param name="Tasks">The tasks the call lists.</param>
+/// <param name="TasksKnown">Whether the call lists its tasks.</param>
+/// <param name="Provenance">Where the call is in source.</param>
 public sealed record SummaryWhenAll(int OperationId, int CallOperationId, IReadOnlyList<SummaryValue> Tasks, bool TasksKnown,
-                                    IrProvenance Provenance);
+                                    IrProvenance Provenance)
+{
+    /// <inheritdoc cref="IrWhenAllOperation.ArrayTypeKey"/>
+    public string? ArrayTypeKey { get; init; }
+
+    /// <inheritdoc cref="IrWhenAllOperation.SourceValue"/>
+    public SummaryValue? Source { get; init; }
+}
+
+/// <summary>A BCL task member's word on a task's completion value (<see cref="IrTaskOperation"/>), other than a same task, which the
+/// summary's values already carry: the new task of its site, which <see cref="CallOperationId"/>'s result gives, or the existing tasks
+/// <see cref="Task"/> names completes with <see cref="Values"/>, as its kind reads them.</summary>
+/// <param name="OperationId">The task operation.</param>
+/// <param name="Kind">What the task completes with.</param>
+/// <param name="CallOperationId">The call of the task member.</param>
+/// <param name="Task">The existing tasks it completes; null when it gives the new task of its site.</param>
+/// <param name="Values">The values the kind reads.</param>
+/// <param name="ValuesKnown">Whether the values list the tasks of a <see cref="IrTaskKind.AnyOf"/> themselves.</param>
+/// <param name="Provenance">Where the call is in source.</param>
+public sealed record SummaryTaskOperation(int OperationId, IrTaskKind Kind, int CallOperationId, SummaryValue? Task,
+                                          IReadOnlyList<SummaryValue> Values, bool ValuesKnown, IrProvenance Provenance);
 
 /// <summary>An <c>Unwrap()</c> call: its result is the tail of <see cref="Outer"/>.</summary>
+/// <param name="OperationId">The unwrap operation.</param>
+/// <param name="CallOperationId">The <c>Unwrap()</c> call.</param>
+/// <param name="Outer">The task of a task being unwrapped.</param>
+/// <param name="Provenance">Where the call is in source.</param>
 public sealed record SummaryUnwrap(int OperationId, int CallOperationId, SummaryValue Outer, IrProvenance Provenance);
 
 /// <summary>A timer step (<see cref="IrTimerOperation"/>) with its values.</summary>
+/// <param name="OperationId">The timer operation.</param>
+/// <param name="Action">What the step does to the timer.</param>
+/// <param name="Timer">The timer.</param>
+/// <param name="Provenance">Where the step is in source.</param>
 public sealed record SummaryTimer(int OperationId, IrTimerAction Action, SummaryValue Timer, IrProvenance Provenance)
 {
     public SummaryValue? Callback { get; init; }
@@ -797,6 +1000,7 @@ public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> A
     public IReadOnlyList<SummaryJoin> Joins { get; init; } = [];
     public IReadOnlyList<SummaryWhenAll> WhenAlls { get; init; } = [];
     public IReadOnlyList<SummaryUnwrap> Unwraps { get; init; } = [];
+    public IReadOnlyList<SummaryTaskOperation> TaskOperations { get; init; } = [];
     public IReadOnlyList<SummaryTimer> Timers { get; init; } = [];
     public IReadOnlyList<SummaryDynamicOperation> DynamicOperations { get; init; } = [];
     public IReadOnlyList<SummaryResultStore> ResultStores { get; init; } = [];

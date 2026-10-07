@@ -10,19 +10,19 @@
     },
     "reachableBodies": 832,
     "summaries": 953,
-    "regions": 1340,
-    "instances": 1482,
-    "accesses": 3176,
+    "regions": 1401,
+    "instances": 1483,
+    "accesses": 3760,
     "pairs": {
-      "comparisons": 3725,
-      "cartesianBound": 428882,
+      "comparisons": 5163,
+      "cartesianBound": 686599,
       "largestBucket": 11,
-      "buckets": 1327,
+      "buckets": 1436,
       "skips": {
-        "confined": 1815,
+        "confined": 2345,
         "fresh-object": 9,
         "no-overlap": 24,
-        "read-read": 1841
+        "read-read": 2749
       },
       "suppressed": 0,
       "candidates": 36
@@ -76,7 +76,7 @@
         "aspnetcore": 8,
         "hosting": 0
       },
-      "accesses": 116,
+      "accesses": 169,
       "counters": {
         "delegate-to-opaque": 19,
         "element-operation": 9,
@@ -185,7 +185,7 @@
         "aspnetcore": 19,
         "hosting": 0
       },
-      "accesses": 463,
+      "accesses": 713,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 16,
@@ -194,7 +194,7 @@
         "known-call-project": 0,
         "merged-context": 1,
         "model-entry-rejected": 0,
-        "no-receiver-object": 8,
+        "no-receiver-object": 0,
         "opaque-by-project": 0,
         "opaque-call": 881,
         "out-of-range-call": 0,
@@ -213,7 +213,7 @@
         "timers-disabled": 0,
         "timers-one-shot": 0,
         "timers-periodic": 0,
-        "unproven-joins": 66
+        "unproven-joins": 67
       },
       "semanticGaps": [
         "Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions.set_Predicate(Func\u003CHealthCheckRegistration, bool\u003E)",
@@ -231,7 +231,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 287,
+      "accesses": 423,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 6,
@@ -464,7 +464,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 304,
+      "accesses": 449,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 10,

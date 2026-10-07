@@ -9,6 +9,9 @@ using ConcurrencyHunter.Roots;
 namespace ConcurrencyHunter.Heap;
 
 /// <summary>Builds a body's summary the first time it is asked for, and counts how many it built.</summary>
+/// <param name="bodies">The lowered bodies by id, which summaries are built from.</param>
+/// <param name="program">The program index the summaries are built against.</param>
+/// <param name="limits">The limits the summaries are built under.</param>
 public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, ProgramIndex program, AnalysisLimits limits)
 {
     private readonly Dictionary<string, MethodSummary> _summaries = new(StringComparer.Ordinal);
@@ -33,6 +36,13 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
 }
 
 /// <summary>Everything the whole-program fixpoint of one process scope is solved over.</summary>
+/// <param name="ScopeId">The id of the process scope.</param>
+/// <param name="Roots">The execution roots of the scope.</param>
+/// <param name="Reachable">The bodies reachable from the roots.</param>
+/// <param name="Summaries">The cache of the bodies' summaries.</param>
+/// <param name="Program">The program index.</param>
+/// <param name="DiIndex">The DI registrations of the scope.</param>
+/// <param name="InjectionBindings">The constructor and member injections of the types.</param>
 public sealed record ScopeProgram(string ScopeId, IReadOnlyList<ExecutionRootDescriptor> Roots, ReachableSetResult Reachable,
                                   SummaryCache Summaries, ProgramIndex Program, DiIndex DiIndex,
                                   IReadOnlyList<TypeInjectionBindings> InjectionBindings)
@@ -79,6 +89,16 @@ public sealed record HeapRegion(string Identity, HeapRegionKind Kind, string Dis
 
 /// <summary>An instantiation of a body: its context, type substitution and the regions its receiver and parameters point to.
 /// A receiverless instance has no <c>this</c>; its accesses based on <c>this</c> have no resource.</summary>
+/// <param name="Id">The instance's id.</param>
+/// <param name="BodyId">The body it instantiates.</param>
+/// <param name="Context">Its context.</param>
+/// <param name="Substitution">The type substitution, by type parameter.</param>
+/// <param name="IsMerged">Whether it is the body's merged context.</param>
+/// <param name="IsReceiverless">Whether it has no <c>this</c>.</param>
+/// <param name="Summary">The body's summary.</param>
+/// <param name="Receivers">The regions its receiver points to.</param>
+/// <param name="Parameters">The regions each parameter points to, by ordinal.</param>
+/// <param name="CellOwners">The instances whose capture cells hold the variables its body captures.</param>
 public sealed record MethodInstance(string Id, string BodyId, string Context, IReadOnlyDictionary<string, string> Substitution,
                                     bool IsMerged, bool IsReceiverless, MethodSummary Summary, IReadOnlySet<string> Receivers,
                                     IReadOnlyDictionary<int, IReadOnlySet<string>> Parameters, IReadOnlySet<string> CellOwners);
@@ -88,14 +108,23 @@ public sealed record CallEdge(string CallerInstance, int OperationId, string Cal
 public sealed record IteratorObject(string RegionId, CallEdge Creation);
 
 /// <summary>A closed type's type initializer: the instance running it and what triggered it.</summary>
+/// <param name="TypeKey">The closed type.</param>
+/// <param name="InstanceId">The instance running its type initializer.</param>
+/// <param name="TriggeringInstances">The instances that triggered it.</param>
+/// <param name="TriggeringRegions">The regions that triggered it.</param>
 public sealed record TypeInitializerConstruction(string TypeKey, string InstanceId, IReadOnlyList<string> TriggeringInstances,
                                                  IReadOnlyList<string> TriggeringRegions);
 
 /// <summary>A region the container or the framework constructs, with the constructor instances that run for it.</summary>
+/// <param name="RegionId">The constructed region.</param>
+/// <param name="ConstructorInstances">The constructor instances that run for it.</param>
 public sealed record RegionConstruction(string RegionId, IReadOnlyList<string> ConstructorInstances);
 
 /// <summary>An operation of an instance that triggers the construction of a region: a locator call, or the entry (operation
 /// <c>-1</c>) of a root or constructor body whose injections resolve it.</summary>
+/// <param name="InstanceId">The triggering instance.</param>
+/// <param name="OperationId">The triggering operation, or <c>-1</c> for the instance's entry.</param>
+/// <param name="RegionId">The region whose construction it triggers.</param>
 public sealed record RegionTrigger(string InstanceId, int OperationId, string RegionId);
 
 public enum SpawnRole
@@ -110,10 +139,22 @@ public sealed record SpawnCallee(string InstanceId, SpawnRole Role);
 /// <summary>A spawn of a caller instance (<see cref="SummarySpawn"/>): the handle regions its site creates in the caller's context,
 /// or the started threads; the tail region when the handle's work returns a task the handle does not wait for; the instances it
 /// runs. These are not call edges: the spawned bodies run as their own work.</summary>
+/// <param name="CallerInstance">The instance making the spawn.</param>
+/// <param name="OperationId">The spawn operation.</param>
+/// <param name="CallOperationId">The call operation the spawn lowers.</param>
+/// <param name="Kind">The kind of spawn.</param>
+/// <param name="Handles">The handle regions, or the started threads.</param>
+/// <param name="Tail">The tail region, when the handle's work returns a task the handle does not wait for.</param>
+/// <param name="Callees">The instances it runs, with their roles.</param>
 public sealed record SpawnSite(string CallerInstance, int OperationId, int CallOperationId, IrSpawnKind Kind, IReadOnlySet<string> Handles,
                                string? Tail, IReadOnlyList<SpawnCallee> Callees);
 
 /// <summary>A timer's callback or <c>Elapsed</c> handler (<see cref="SummaryTimer"/>) with the timer regions and the instances it runs.</summary>
+/// <param name="CallerInstance">The instance making the timer operation.</param>
+/// <param name="OperationId">The timer operation.</param>
+/// <param name="Action">What the timer operation does.</param>
+/// <param name="Timers">The timer regions.</param>
+/// <param name="Callees">The instances the callback or handler runs.</param>
 public sealed record TimerCallbackSite(string CallerInstance, int OperationId, IrTimerAction Action, IReadOnlySet<string> Timers,
                                        IReadOnlyList<string> Callees)
 {
@@ -125,15 +166,32 @@ public sealed record TimerCallbackSite(string CallerInstance, int OperationId, I
 /// <summary>A resolved call edge into an async body whose result is not awaited at once: an <see cref="IrSpawnKind.AsyncCall"/>,
 /// whose result is the <see cref="Handle"/> region of the site in the caller's context, or an <see cref="IrSpawnKind.AsyncVoid"/>.
 /// The edges themselves stay call edges: the body runs in the caller up to its first await.</summary>
+/// <param name="CallerInstance">The instance making the call.</param>
+/// <param name="OperationId">The spawn operation of the call.</param>
+/// <param name="Kind">The kind of spawn: an async call or an async void.</param>
+/// <param name="Handle">The handle region of the site, for an async call.</param>
+/// <param name="Callees">The async instances the call runs.</param>
 public sealed record AsyncSpawnSite(string CallerInstance, int OperationId, IrSpawnKind Kind, string? Handle, IReadOnlyList<string> Callees);
 
 /// <summary>A delegate region handed to unresolved calls (R3): the calls that handed it, by caller instance and operation, and the
 /// instances running its target. These are not call edges: the body runs in an unknown execution of its own.</summary>
+/// <param name="RegionId">The delegate region.</param>
+/// <param name="Sites">The calls that handed it, by caller instance and operation.</param>
+/// <param name="Callees">The instances running its target.</param>
 public sealed record DelegateHandoff(string RegionId, IReadOnlyList<(string CallerInstance, int OperationId)> Sites, IReadOnlyList<string> Callees);
 
 /// <summary>A library sequence a known call returned, or one a value of its model created, or a grouping (R5). The call that created it,
 /// its deferred effects being that call's in its summary where it is the call's result; the sources its enumeration enumerates; what it
 /// yields and, for a grouping, its key; and the instances an unknown enumeration of it runs.</summary>
+/// <param name="RegionId">The sequence's region.</param>
+/// <param name="CreatorInstance">The instance making the call that created it; empty for a grouping.</param>
+/// <param name="CreatorOperation">That call's operation.</param>
+/// <param name="IsResult">Whether it is the call's result rather than a sequence a value of its model created.</param>
+/// <param name="IsGrouping">Whether it is a grouping.</param>
+/// <param name="Sources">The sources its enumeration enumerates.</param>
+/// <param name="Yields">What it yields.</param>
+/// <param name="Keys">A grouping's key.</param>
+/// <param name="EnumerationInstances">The instances an unknown enumeration of it runs.</param>
 public sealed record LibrarySequence(string RegionId, string CreatorInstance, int CreatorOperation, bool IsResult, bool IsGrouping,
                                      IReadOnlyList<string> Sources, IReadOnlyList<string> Yields, IReadOnlyList<string> Keys,
                                      IReadOnlyList<string> EnumerationInstances)
@@ -149,14 +207,81 @@ public sealed record LibrarySequence(string RegionId, string CreatorInstance, in
 
 /// <summary>An unresolved iterator delegate of a library sequence: the callee, the objects its inputs hand it and the receivers its
 /// captures are seen through.</summary>
+/// <param name="Callee">The unresolved iterator delegate.</param>
+/// <param name="Inputs">The objects its inputs hand it.</param>
+/// <param name="Receivers">The receivers its captures are seen through, each with the run's own declaring type, when any.</param>
 public sealed record SequenceDispatch(string Callee, IReadOnlyList<string> Inputs, IReadOnlyList<(string Region, string? DeclaringTypeKey)> Receivers);
 
 /// <summary>A delegate region a known call runs by its <c>startup</c> fate, the call by caller instance and operation, and one instance
 /// running its target.</summary>
+/// <param name="CallerInstance">The instance making the known call.</param>
+/// <param name="OperationId">The known call's operation.</param>
+/// <param name="RegionId">The delegate region.</param>
+/// <param name="CalleeInstance">An instance running its target.</param>
 public sealed record StartupDelegate(string CallerInstance, int OperationId, string RegionId, string CalleeInstance);
 
 /// <summary>The tasks a <c>Task.WhenAll</c> result completes after, or that they are unknown.</summary>
+/// <param name="Members">The task regions it completes after.</param>
+/// <param name="MembersKnown">Whether <paramref name="Members"/> names every task it completes after.</param>
 public sealed record TaskGroup(IReadOnlySet<string> Members, bool MembersKnown);
+
+/// <summary>What completes a task region, as <see cref="TaskCompleter"/> says where to read it.</summary>
+public enum TaskCompleterKind
+{
+    /// <summary>What the body of <see cref="TaskCompleter.Instance"/> returns: an async body's returns, or a work's.</summary>
+    Returns,
+
+    /// <summary>What the tasks the body of <see cref="TaskCompleter.Instance"/> returns complete with: a non-async work whose task the
+    /// spawn waits for.</summary>
+    ReturnedTasks,
+
+    /// <summary>The work values the spawn <see cref="TaskCompleter.Operation"/> of the instance was handed; the instances they run
+    /// complete it as well.</summary>
+    Spawn,
+
+    /// <summary>The task operation <see cref="TaskCompleter.Operation"/> of the instance (<see cref="SummaryTaskOperation"/>).</summary>
+    TaskOperation,
+
+    /// <summary>The new array of the <c>WhenAll</c> <see cref="TaskCompleter.Operation"/> of the instance, which holds the completion
+    /// values of its tasks.</summary>
+    WhenAll,
+
+    /// <summary>The result form of the model of the known call <see cref="TaskCompleter.Operation"/> of the instance.</summary>
+    ModelResult,
+
+    /// <summary>A task region the heap makes at the operation: a tail, a further level of a model's <c>task(…)</c>.</summary>
+    Task,
+
+    /// <summary>Code the analysis does not see in full: a work no body is resolved for, a dispatch not every body of which is known.</summary>
+    Unseen
+}
+
+/// <summary>One thing that completed a task region: where its completion value comes from.</summary>
+/// <param name="Instance">The instance whose code completes the task: the callee whose returns do, or the instance making the
+/// operation.</param>
+/// <param name="Operation">The operation in that instance, or <c>-1</c> for a callee's returns.</param>
+/// <param name="Kind">How to read what completes it.</param>
+public sealed record TaskCompleter(string Instance, int Operation, TaskCompleterKind Kind);
+
+/// <summary>A delegate parameter of a known call: the instance making the call, the call and the parameter.</summary>
+/// <param name="Instance">The instance making the known call.</param>
+/// <param name="Operation">The known call's operation.</param>
+/// <param name="Ordinal">The delegate parameter's ordinal.</param>
+public sealed record DelegateSite(string Instance, int Operation, int Ordinal);
+
+/// <summary>One run of a delegate at a known call: the instance it runs, and the task region the run gives back where that body is
+/// async and not void, whose completion is what the body returns.</summary>
+/// <param name="Callee">The instance the delegate runs.</param>
+/// <param name="Task">The task region the run gives back, or null where the run gives back what the body returns.</param>
+public sealed record DelegateRun(string Callee, string? Task);
+
+/// <summary>What one run of a delegate a model may name the returns of gives back at a known call, as the engine answers
+/// <c>returns:</c> (R1, R2, R4).</summary>
+/// <param name="Runs">The delegate's runs.</param>
+/// <param name="Regions">The objects the runs give back: each async run's task region, every other run's returns.</param>
+/// <param name="Unseen">Whether some alternative of the delegate runs code the analysis does not see in full: no delegate object is
+/// known for it, one resolves no body, a dispatch of one has no receiver, or the argument may be an object the heap does not follow.</param>
+public sealed record DelegateReturnRuns(IReadOnlyList<DelegateRun> Runs, IReadOnlySet<string> Regions, bool Unseen);
 
 public static class HeapCounters
 {
@@ -232,6 +357,61 @@ public sealed class HeapSolution
     /// <summary>The call results whose value may come from an origin points-to does not follow: the callee may return an object the heap
     /// cannot name, so the regions of the result are not all the result may be.</summary>
     public IReadOnlySet<(string Instance, int Operation)> UnfollowedCallResults { get; init; } = new HashSet<(string, int)>();
+
+    /// <summary>What completed each task region (<see cref="TaskCompleter"/>): the instances and operations its completion value comes
+    /// from. A task region with none here has a producer the heap does not name.</summary>
+    public IReadOnlyDictionary<string, IReadOnlySet<TaskCompleter>> TaskCompleters { get; init; } =
+        new Dictionary<string, IReadOnlySet<TaskCompleter>>(StringComparer.Ordinal);
+
+    /// <summary>What one run of each <c>invoke-now</c> or <c>iterator</c> delegate of a known call gives back, by the delegate
+    /// parameter: the one answer the engine gives a model's <c>returns:</c>. A site with none here has no answer the engine gave.</summary>
+    public IReadOnlyDictionary<DelegateSite, DelegateReturnRuns> DelegateReturns { get; init; } = new Dictionary<DelegateSite, DelegateReturnRuns>();
+
+    /// <summary>The delegate parameters of known calls whose fate runs each instance, by the instance: its parameters are handed the
+    /// fate's inputs there.</summary>
+    public IReadOnlyDictionary<string, IReadOnlySet<DelegateSite>> FateRuns { get; init; } =
+        new Dictionary<string, IReadOnlySet<DelegateSite>>(StringComparer.Ordinal);
+
+    /// <summary>The awaits and <c>Unwrap()</c> calls whose value may come from such an origin: a task they read may complete with an object
+    /// the heap cannot name (<see cref="SummaryValue.Completions"/>).</summary>
+    public IReadOnlySet<(string Instance, int Operation)> UnfollowedCompletions { get; init; } = new HashSet<(string, int)>();
+
+    /// <summary>The channels of known calls through which a <c>completion(…)</c> value of their model may deliver an object the heap
+    /// does not follow, each answering for itself: the result, an output, a fate input, a keeper or a store target
+    /// (<see cref="WholeProgram"/>'s channel names). A task it names may complete with such an object, or be one the heap does not
+    /// follow.</summary>
+    public IReadOnlySet<(string Instance, int Operation, string Channel)> UnfollowedModelCompletions { get; init; } =
+        new HashSet<(string, int, string)>();
+
+    /// <summary>What a task region completes with: the regions its completion slot holds.</summary>
+    /// <param name="task">The task region.</param>
+    public IReadOnlySet<string> Completion(string task) => CompletionQuery(task);
+
+    internal Func<string, IReadOnlySet<string>> CompletionQuery { get; init; } = _ => new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>The task regions whose completion may be an object the heap does not follow: what completes them may be one, or their
+    /// producer is code the analysis does not see in full.</summary>
+    public IReadOnlySet<string> UnfollowedTaskCompletions { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>What a call gives a value that consumed the call's task <paramref name="depth"/> times
+    /// (<see cref="SummaryValue.Depths(int)"/>): the call's result, or what its tasks complete with, followed that many times.</summary>
+    /// <param name="instance">The instance making the call.</param>
+    /// <param name="call">The call's operation.</param>
+    /// <param name="depth">How many times the value consumed the call's task.</param>
+    public IReadOnlySet<string> Gives(string instance, int call, int depth) => Completions(Resolve(instance, new CallResultValue(call)), depth, Completion);
+
+    /// <summary>What tasks complete with, followed <paramref name="depth"/> times: the tasks themselves for none. Nothing for
+    /// <see cref="SummaryValue.MAX_COMPLETION_DEPTH"/>, which stands for any deeper consumption as well.</summary>
+    /// <param name="tasks">The regions to start from.</param>
+    /// <param name="depth">How many completions to follow.</param>
+    /// <param name="completion">What one task region completes with.</param>
+    public static IReadOnlySet<string> Completions(IEnumerable<string> tasks, int depth, Func<string, IEnumerable<string>> completion)
+    {
+        var regions = depth >= SummaryValue.MAX_COMPLETION_DEPTH ? new HashSet<string>(StringComparer.Ordinal) : tasks.ToHashSet(StringComparer.Ordinal);
+        for (var level = 0; level < depth && regions.Count != 0; level++)
+            regions = regions.SelectMany(completion).ToHashSet(StringComparer.Ordinal);
+        return regions;
+    }
 
     /// <summary>The virtual, interface and delegate calls whose receiver may come from such an origin: the edges of the call name the
     /// bodies the heap could resolve, not every body the call may run.</summary>
@@ -312,24 +492,34 @@ public sealed class HeapSolution
     public IReadOnlyDictionary<string, TaskGroup> TaskGroups { get; init; } = new Dictionary<string, TaskGroup>();
 
     /// <summary>The storage region of a static field as an instance's substitution names it.</summary>
+    /// <param name="instanceId">The instance whose substitution names the field's type.</param>
+    /// <param name="field">The static field.</param>
     public string StaticRegionOf(string instanceId, IrFieldRef field) => _staticRegion(instanceId, field);
 
     /// <summary>The fields (and <c>[]</c>) through which a region points to other regions.</summary>
+    /// <param name="regionId">The region.</param>
     public IReadOnlyList<string> FieldsOf(string regionId) => _fieldsOf(regionId);
 
     /// <summary>The regions a delegate region captures: its receiver and the cells of the variables it closes over.</summary>
+    /// <param name="regionId">The delegate region.</param>
     public IReadOnlySet<string> DelegateCaptures(string regionId) => _delegateCaptures(regionId);
 
     /// <summary>The regions an abstract value of an instance's summary points to.</summary>
+    /// <param name="instanceId">The instance whose summary the value belongs to.</param>
+    /// <param name="value">The abstract value.</param>
     public IReadOnlySet<string> Resolve(string instanceId, AbstractValue value) =>
         value is RegionValue region ? new HashSet<string>(StringComparer.Ordinal) { region.RegionId } : _resolve(instanceId, value);
 
     /// <summary>The regions a field of a region points to, including what open regions of its group store. The field is a slot key
     /// as <see cref="FieldsOf"/> gives it, <c>[]</c>, or a bare field name, which joins the slots of every declaring type with that
     /// name.</summary>
+    /// <param name="regionId">The region.</param>
+    /// <param name="field">The field: a slot key, <c>[]</c>, or a bare field name.</param>
     public IReadOnlySet<string> PointsTo(string regionId, string field) => _load(regionId, field);
 
     /// <summary>The regions the capture cell of a symbol key in a member-body instance points to.</summary>
+    /// <param name="ownerInstanceId">The member-body instance owning the cell.</param>
+    /// <param name="symbolKey">The captured symbol's key.</param>
     public IReadOnlySet<string> Cell(string ownerInstanceId, string symbolKey) => _cell(ownerInstanceId, symbolKey);
 }
 
@@ -369,6 +559,7 @@ public static partial class WholeProgram
     private static readonly Regex ASSEMBLY_PREFIX = new(@"(?<=^|[<\s,])[^<>,\s:\[\]*]+:");
 
     /// <summary>A type key as <c>SymbolNames.Type</c> displays it: every assembly prefix removed.</summary>
+    /// <param name="typeKey">The assembly-aware type key.</param>
     internal static string DisplayType(string typeKey) => ASSEMBLY_PREFIX.Replace(typeKey, "");
 
     /// <summary>The reason of a call edge from a locator call to the constructor or factory instances of the object it resolved.</summary>
@@ -380,6 +571,8 @@ public static partial class WholeProgram
 
     /// <summary>Where a DI resolution happens: inside one HTTP invocation, in the root scope, or in the scope object a
     /// <c>CreateScope</c> call created.</summary>
+    /// <param name="InvocationRootId">The root of the HTTP invocation the resolution happens in, if any.</param>
+    /// <param name="CreatedScope">The scope region a <c>CreateScope</c> call created, if the resolution happens in one.</param>
     private sealed record ResolutionScope(string? InvocationRootId, string? CreatedScope = null)
     {
         internal string Context => CreatedScope is { } created ? $"scope:{created}"
@@ -426,6 +619,13 @@ public static partial class WholeProgram
         /// <summary>The calls whose result, and the returns of this instance, may come from an origin points-to does not follow.</summary>
         internal TrackedSet<int> UnfollowedCallResults { get; } = [];
 
+        /// <summary>The awaits and <c>Unwrap()</c> calls that read a task whose completion may come from such an origin.</summary>
+        internal TrackedSet<int> UnfollowedCompletions { get; } = [];
+
+        /// <summary>The known calls and channels whose <c>completion(…)</c> value may come from such an origin, one channel apart from
+        /// another.</summary>
+        internal TrackedSet<(int Operation, string Channel)> UnfollowedModelCompletions { get; } = [];
+
         /// <summary>The calls whose receiver may come from such an origin, so their edges are not all the targets they may run.</summary>
         internal TrackedSet<int> UnresolvedCallTargets { get; } = [];
         private readonly TrackedValue<bool> _returnsUnfollowed = new();
@@ -449,6 +649,8 @@ public static partial class WholeProgram
             Parameters.Attach(key.Member("InstanceState.Parameters"), read, write);
             CallResults.Attach(key.Member("InstanceState.CallResults"), read, write);
             UnfollowedCallResults.Attach(key.Member("InstanceState.UnfollowedCallResults"), read, write);
+            UnfollowedCompletions.Attach(key.Member("InstanceState.UnfollowedCompletions"), read, write);
+            UnfollowedModelCompletions.Attach(key.Member("InstanceState.UnfollowedModelCompletions"), read, write);
             UnresolvedCallTargets.Attach(key.Member("InstanceState.UnresolvedCallTargets"), read, write);
             RefResults.Attach(key.Member("InstanceState.RefResults"), read, write);
             Returns.Attach(key.Member("InstanceState.Returns"), read, write);
@@ -513,6 +715,12 @@ public static partial class WholeProgram
 
         /// <summary>The synthetic field of a <c>Thread</c> region holding the work its constructor bound.</summary>
         private const string THREAD_WORK_FIELD = "<thread-work>";
+
+        /// <summary>The synthetic slot of a task region holding the value the task completes with (<see cref="Complete"/>).</summary>
+        private const string COMPLETION_FIELD = PathValue.COMPLETION;
+
+        /// <summary>The path of a model value a library sequence enumerates as a source: it delivers nothing through a channel of the call.</summary>
+        private const string SOURCE_PATH = "source";
 
         private readonly ScopeProgram _scope;
         private readonly ProgramIndex _program;
@@ -592,6 +800,22 @@ public static partial class WholeProgram
         private readonly TrackedMap<string, string> _tails = new(StringComparer.Ordinal);
         private readonly TrackedMap<string, TrackedSet<string>> _antecedents = new(StringComparer.Ordinal);
         private readonly TrackedMap<string, (TrackedSet<string> Members, bool Known)> _taskGroups = new(StringComparer.Ordinal);
+
+        /// <summary>The task regions whose completion may be an object the heap does not follow: what completes them is unfollowed where
+        /// it is produced, or their producer's code is not seen in full.</summary>
+        private readonly TrackedSet<string> _unfollowedCompletions = new(StringComparer.Ordinal);
+
+        /// <summary>The keepers a known call made keep a <c>completion(…)</c> value that may be an object the heap does not follow: what
+        /// a later call reads as <c>kept:…</c> of one of them may be such an object (R2).</summary>
+        private readonly TrackedSet<string> _unfollowedKept = new(StringComparer.Ordinal);
+
+        /// <summary>The keepers a known call made keep any value that may be an object the heap does not follow. Only a task's completion
+        /// reads it: a synchronous <c>kept:…</c> keeps no unknown source of what it names, a rule this set leaves as it is (R2).</summary>
+        private readonly TrackedSet<string> _unfollowedKeptValues = new(StringComparer.Ordinal);
+
+        /// <summary>What completed each task region, for the export only (<see cref="HeapSolution.TaskCompleters"/>): no rule of the solve
+        /// reads it.</summary>
+        private readonly TrackedSet<(string Task, TaskCompleter Completer)> _completers = [];
         private int _changes;
         private readonly CancellationToken _cancellationToken;
         private readonly TrackedValue<bool> _solvingState = new(true);
@@ -699,6 +923,10 @@ public static partial class WholeProgram
             _tails.Attach(new StateKey("_tails"), ReadState, WroteState);
             _antecedents.Attach(new StateKey("_antecedents"), ReadState, WroteState);
             _taskGroups.Attach(new StateKey("_taskGroups"), ReadState, WroteState);
+            _unfollowedCompletions.Attach(new StateKey("_unfollowedCompletions"), ReadState, WroteState);
+            _unfollowedKept.Attach(new StateKey("_unfollowedKept"), ReadState, WroteState);
+            _unfollowedKeptValues.Attach(new StateKey("_unfollowedKeptValues"), ReadState, WroteState);
+            _completers.Attach(new StateKey("_completers"), ReadState, WroteState);
             _solvingState.Attach(new StateKey("_solvingState"), ReadState, WroteState);
         }
 
@@ -890,35 +1118,58 @@ public static partial class WholeProgram
                 if (!_scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
                     continue;
                 var calls = body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>().ToTrackedMap(call => call.Id);
-                foreach (var call in instance.Summary.OpaqueCalls)
+                // A task member that completes a task with a value hands it to that task, which carries it as a value handed over
+                // directly would be carried (R2): it escapes where the task does.
+                var completing = instance.Summary.TaskOperations.Select(task => task.CallOperationId).ToHashSet();
+                foreach (var call in instance.Summary.OpaqueCalls.Where(call => !completing.Contains(call.OperationId)))
                 {
                     CheckCancellation();
                     if (!calls.TryGetValue(call.OperationId, out var operation))
                         continue;
                     var candidateValues = call.Receivers.Concat(call.Arguments.SelectMany(argument => argument.Values))
                                               .Where(PotentialIteratorValue).ToArray();
-                    if (candidateValues.Length == 0)
+                    // A fresh object is no iterator, but one the solve completed as a task — a TaskCompletionSource — carries what it
+                    // completes with; it is looked up, never made, so the export adds no region.
+                    var completingObjects = SolvedTasks(instance, call.Receivers.Concat(call.Arguments.SelectMany(argument => argument.Values))
+                                                                          .OfType<AllocationValue>().ToArray());
+                    if (candidateValues.Length == 0 && completingObjects.Count == 0)
                         continue;
-                    var iteratorRegions = Eval(instance, candidateValues).Where(IsEnumerable).ToArray();
+                    var handed = Eval(instance, candidateValues);
+                    handed.UnionWith(completingObjects);
+                    // A task handed over hands over what it completes with, at any depth, as that value handed over directly would be;
+                    // a delegate it completes with hands over what it captured, as one a field keeps does (R2).
+                    var completed = Carried(handed).Where(region => !handed.Contains(region)).ToArray();
+                    var iteratorRegions = handed.Where(IsEnumerable)
+                                                .Concat(completed.Where(IsEnumerable))
+                                                .Concat(completed.Where(_delegates.ContainsKey).SelectMany(Captures).Where(IsEnumerable))
+                                                .Distinct(StringComparer.Ordinal).ToArray();
                     if (iteratorRegions.Length == 0)
                         continue;
                     // A consumer enumerates what it reads deep, names the elements of or copies, and a known call returning a library
-                    // sequence keeps what the sequence enumerates; what a call is handed any other way escapes to it (R3, R5).
+                    // sequence keeps what the sequence enumerates; what a call is handed any other way escapes to it (R3, R5). What a
+                    // task it is handed completes with is consumed or handed otherwise as that task is.
                     var consumed = Consumed(call);
                     var consumedRegions = consumed.Count == 0
                         ? []
-                        : Eval(instance, call.Arguments.Where(argument => consumed.Contains(argument.ParameterOrdinal))
-                                             .SelectMany(argument => argument.Values)
-                                             .Concat(consumed.Contains(IrLibraryCall.RECEIVER) ? call.Receivers : []).Where(PotentialIteratorValue));
+                        : Carried(Eval(instance, call.Arguments.Where(argument => consumed.Contains(argument.ParameterOrdinal))
+                                                     .SelectMany(argument => argument.Values)
+                                                     .Concat(consumed.Contains(IrLibraryCall.RECEIVER) ? call.Receivers : []).Where(PotentialIteratorValue)));
                     var handedOtherwise = consumed.Count == 0
                         ? []
-                        : Eval(instance, call.Receivers.Where(_ => !consumed.Contains(IrLibraryCall.RECEIVER))
-                                             .Concat(call.Arguments.Where(argument => !consumed.Contains(argument.ParameterOrdinal))
-                                                                             .SelectMany(argument => argument.Values))
-                                             .Where(PotentialIteratorValue));
+                        : Carried(Eval(instance, call.Receivers.Where(_ => !consumed.Contains(IrLibraryCall.RECEIVER))
+                                                     .Concat(call.Arguments.Where(argument => !consumed.Contains(argument.ParameterOrdinal))
+                                                                                     .SelectMany(argument => argument.Values))
+                                                     .Where(PotentialIteratorValue)));
                     foreach (var region in iteratorRegions)
                     {
                         CheckCancellation();
+                        if (!handed.Contains(region))
+                        {
+                            // Reached only through a task's completion: what consumes the task enumerates it, anything else lets it escape.
+                            if (!consumedRegions.Contains(region) || handedOtherwise.Contains(region))
+                                unknownIterators.Add(region);
+                            continue;
+                        }
                         if (_iteratorMemberReceivers.GetValueOrDefault((instance.Id, call.OperationId))?.Contains(region) == true &&
                             Eval(instance, call.Receivers).Contains(region))
                             continue;
@@ -947,14 +1198,16 @@ public static partial class WholeProgram
 
             // An iterator or a library sequence escapes when a field keeps it, or keeps a delegate that captured it: whoever calls that
             // delegate enumerates it (open question 24). The delegate itself, stored without a visible call, runs nowhere of its own. What a
-            // library sequence or a grouping holds is what it yields, which is no field of the run's.
+            // library sequence or a grouping holds is what it yields, which is no field of the run's. A task's completion slot is no field
+            // either: the task carries what it completes with, which escapes where the task does, as a value handed over directly would (R2).
             foreach (var (key, values) in _fields)
             {
                 CheckCancellation();
-                if (_sequences.ContainsKey(key.Region) || _groupings.Contains(key.Region))
+                if (_sequences.ContainsKey(key.Region) || _groupings.Contains(key.Region) || key.Field == COMPLETION_FIELD)
                     continue;
-                unknownIterators.UnionWith(values.Where(IsEnumerable));
-                unknownIterators.UnionWith(values.Where(_delegates.ContainsKey).SelectMany(Captures).Where(IsEnumerable));
+                var carried = Carried(values);
+                unknownIterators.UnionWith(carried.Where(IsEnumerable));
+                unknownIterators.UnionWith(carried.Where(_delegates.ContainsKey).SelectMany(Captures).Where(IsEnumerable));
             }
 
             // What an unknown enumeration of a library sequence runs: its delegates, and what enumerating its sources runs.
@@ -1005,7 +1258,7 @@ public static partial class WholeProgram
                 CheckCancellation();
                 return value switch
                 {
-                    AllocationValue or DelegateCreationValue or AwaitResultValue => false,
+                    AllocationValue or DelegateCreationValue => false,
                     PathValue path => PotentialIteratorValue(path.Base),
                     _ => true
                 };
@@ -1070,9 +1323,25 @@ public static partial class WholeProgram
                 UnfollowedCallResults = _instances.Values
                                                   .SelectMany(instance => instance.UnfollowedCallResults.Select(operation => (instance.Id, operation)))
                                                   .ToTrackedSet(),
+                TaskCompleters = _completers.GroupBy(item => item.Task, StringComparer.Ordinal)
+                                            .ToDictionary(group => group.Key, group => (IReadOnlySet<TaskCompleter>)group.Select(item => item.Completer).ToHashSet(),
+                                                          StringComparer.Ordinal),
+                DelegateReturns = DelegateReturnsExport(),
+                FateRuns = _rebuilding.FateRuns.GroupBy(item => item.Callee, StringComparer.Ordinal)
+                                      .ToDictionary(group => group.Key, group => (IReadOnlySet<DelegateSite>)group.Select(item => item.Site).ToHashSet(),
+                                                    StringComparer.Ordinal),
                 UnresolvedCallTargets = _instances.Values
                                                   .SelectMany(instance => instance.UnresolvedCallTargets.Select(operation => (instance.Id, operation)))
                                                   .ToTrackedSet(),
+                UnfollowedCompletions = _instances.Values
+                                                  .SelectMany(instance => instance.UnfollowedCompletions.Select(operation => (instance.Id, operation)))
+                                                  .ToTrackedSet(),
+                UnfollowedModelCompletions = _instances.Values
+                                                       .SelectMany(instance => instance.UnfollowedModelCompletions.Select(item =>
+                                                                       (instance.Id, item.Operation, item.Channel)))
+                                                       .ToTrackedSet(),
+                CompletionQuery = Query((string task) => (IReadOnlySet<string>)Completion([task])),
+                UnfollowedTaskCompletions = _unfollowedCompletions.ToHashSet(StringComparer.Ordinal),
                 LocatorCreators = _locatorCreators.ToTrackedMap(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value, StringComparer.Ordinal),
                 RegionTriggers = _regionTriggers.OrderBy(item => item.InstanceId, StringComparer.Ordinal).ThenBy(item => item.OperationId)
                                                 .ThenBy(item => item.RegionId, StringComparer.Ordinal)
@@ -1104,6 +1373,20 @@ public static partial class WholeProgram
 
             static IReadOnlyList<string> Callees(SiteState site) =>
                 site.Callees.Select(callee => callee.Instance).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        }
+
+        /// <summary>What <see cref="ReturnsOf"/> answered at the last pass for each delegate parameter it answered, for the export
+        /// (<see cref="HeapSolution.DelegateReturns"/>): the runs, what they give back, and whether an alternative is unseen.</summary>
+        private Dictionary<DelegateSite, DelegateReturnRuns> DelegateReturnsExport()
+        {
+            var runs = _rebuilding.DelegateRuns.ToLookup(item => item.Site, item => item.Run);
+            return _rebuilding.DelegateSites.ToDictionary(site => site, site =>
+            {
+                var siteRuns = runs[site].Distinct().ToArray();
+                var regions = siteRuns.SelectMany(run => run.Task is { } task ? [task] : (IEnumerable<string>)_instances[run.Callee].Returns)
+                                      .ToHashSet(StringComparer.Ordinal);
+                return new DelegateReturnRuns(siteRuns, regions, _rebuilding.UnseenDelegates.Contains(site));
+            });
         }
 
         /// <summary>What a delegate region captures: the receiver it was created on and the values of the variables it closes over.</summary>
@@ -1312,6 +1595,7 @@ public static partial class WholeProgram
         private static bool IsServiceProvider(string? typeKey) => typeKey?.EndsWith(SERVICE_PROVIDER_TYPE, StringComparison.Ordinal) == true;
 
         /// <summary>The region standing for a scope's <see cref="IServiceProvider"/>.</summary>
+        /// <param name="scope">The resolution scope.</param>
         private string Provider(ResolutionScope scope)
         {
             var provider = Region($"provider|{scope.Context}", HeapRegionKind.Provider, $"provider:{scope.Context}", null, scope.Context, null);
@@ -1467,6 +1751,12 @@ public static partial class WholeProgram
 
         /// <summary>The region a DI resolution gives: the bound registration's region, or the scope's provider for
         /// <see cref="IServiceProvider"/>.</summary>
+        /// <param name="resolution">The DI resolution.</param>
+        /// <param name="scope">The scope the resolution happens in.</param>
+        /// <param name="resolver">What resolves the service: the invocation, the resolving region or the resolving instance; a transient's
+        /// context.</param>
+        /// <param name="consumer">What consumes the service; a transient's context.</param>
+        /// <param name="parameter">The parameter the service is resolved for, or empty; a transient's context.</param>
         private IReadOnlyList<string> Resolve(DiResolution resolution, ResolutionScope scope, string resolver, string consumer, string parameter)
         {
             if (IsServiceProvider(resolution.ServiceType))
@@ -1482,6 +1772,10 @@ public static partial class WholeProgram
 
         /// <summary>A registration's identity in the heap: its index identity, the number shown only from the second identical
         /// registration on, as the display shows it.</summary>
+        /// <param name="serviceTypeKey">The service type.</param>
+        /// <param name="implementationTypeKey">The implementation type.</param>
+        /// <param name="lifetime">The registration's lifetime.</param>
+        /// <param name="number">The registration's number among identical registrations.</param>
         private static string HeapIdentity(string serviceTypeKey, string implementationTypeKey, DiLifetime lifetime, int number) =>
             number < 2 ? $"di|{serviceTypeKey}|{implementationTypeKey}@{lifetime}" : DiIndex.RegionId(serviceTypeKey, implementationTypeKey, lifetime, number);
 
@@ -1491,6 +1785,12 @@ public static partial class WholeProgram
         /// <summary>The region of one registration: one object for a singleton; per invocation, per created scope, or one root-scope
         /// object, for a scoped service; per resolving object, consumer and parameter for a transient. A new region with a type
         /// registration is constructed; a factory or instance registration's region is recorded for its object.</summary>
+        /// <param name="serviceTypeKey">The service type.</param>
+        /// <param name="registration">The registration.</param>
+        /// <param name="scope">The scope the resolution happens in.</param>
+        /// <param name="resolver">What resolves the service; a transient's context.</param>
+        /// <param name="consumer">What consumes the service; a transient's context.</param>
+        /// <param name="parameter">The parameter the service is resolved for, or empty; a transient's context.</param>
         private string Registration(string serviceTypeKey, DiRegistration registration, ResolutionScope scope, string resolver, string consumer,
                                     string parameter)
         {
@@ -1744,7 +2044,7 @@ public static partial class WholeProgram
             {
                 CheckCancellation();
                 Add(instance.Returns, Eval(instance, @return.Values));
-                if (!instance.ReturnsUnfollowed && Unfollowed(instance, @return.UnknownSources, @return.SourceCalls))
+                if (!instance.ReturnsUnfollowed && Unfollowed(instance, @return.UnknownSources, @return.SourceCalls, @return.Completions))
                 {
                     instance.ReturnsUnfollowed = true;
                     _changes++;
@@ -1905,14 +2205,42 @@ public static partial class WholeProgram
             foreach (var unwrap in summary.Unwraps)
             {
                 CheckCancellation();
-                Add(CallResult(instance, unwrap.CallOperationId), Tails(Eval(instance, unwrap.Outer.Values)));
+                var outer = Eval(instance, unwrap.Outer.Values);
+                Add(CallResult(instance, unwrap.CallOperationId), Completion(outer));
+                ReadsCompletion(instance, unwrap.CallOperationId, outer);
+            }
+            foreach (var task in summary.TaskOperations)
+            {
+                CheckCancellation();
+                TaskOperation(instance, task);
+            }
+            foreach (var join in summary.Joins.Where(join => join.Kind is SummaryJoinKind.Await or SummaryJoinKind.Result))
+            {
+                CheckCancellation();
+                ReadsCompletion(instance, join.OperationId, Eval(instance, join.Handles.SelectMany(handle => handle.Values)));
+            }
+        }
+
+        /// <summary>Records that an operation reading the completion of tasks — an await, a <c>Result</c> join, an <c>Unwrap()</c> — may give an object the heap
+        /// does not follow, when any of the tasks may complete with one (<see cref="Unfollowed"/>).</summary>
+        /// <param name="instance">The instance.</param>
+        /// <param name="operationId">The reading operation.</param>
+        /// <param name="tasks">The tasks it reads.</param>
+        private void ReadsCompletion(InstanceState instance, int operationId, IEnumerable<string> tasks)
+        {
+            if (!instance.UnfollowedCompletions.Contains(operationId) && tasks.Any(_unfollowedCompletions.Contains) &&
+                instance.UnfollowedCompletions.Add(operationId))
+            {
+                _changes++;
             }
         }
 
         /// <summary>Runs a spawn's work: the delegates it names, the work bound to a started thread, or the <c>Execute()</c> of each
         /// work item object. A handle is a region of the site in the caller's context; <c>StartNew</c>, <c>ContinueWith</c> and a
         /// <c>Task.Run</c> overload that does not wait for its work's task also have a tail once a resolved callee's body is async. The work gets its state, a continuation its
-        /// antecedent, and a <c>Parallel</c> loop's body and <c>localFinally</c> the values <c>localInit</c> and the body return.</summary>
+        /// antecedent, and a <c>Parallel</c> loop's body and <c>localFinally</c> the values <c>localInit</c> and the body return. A task's
+        /// handle completes with what one run of each work completes with where the overload waits for the work's task, and otherwise with
+        /// what the work returns: an async work's tail, which completes with its returns, or a non-async work's returns themselves.</summary>
         /// <param name="caller">The caller.</param>
         /// <param name="spawn">The spawn.</param>
         private void Spawn(InstanceState caller, SummarySpawn spawn)
@@ -1939,11 +2267,12 @@ public static partial class WholeProgram
                 }
             }
 
+            // A work value the heap cannot follow, a delegate that runs no body it has, or a work that resolves no callee is code the
+            // analysis does not see in full: what the spawn's task completes with is then unknown as well.
+            var unseen = false;
             var callees = works.Select(regions => spawn.WorkMethod is { } workMethod
                                                       ? WorkItemCallees(regions, workMethod)
-                                                      : regions.Where(_delegates.ContainsKey)
-                                                               .SelectMany(region => DelegateCallees(caller, spawn.OperationId, _delegates[region], () => { }))
-                                                               .ToTrackedList())
+                                                      : regions.SelectMany(WorkCallees).ToTrackedList())
                                .ToArray();
             if (handle is not null && site.Tail is null &&
                 (spawn.Kind is IrSpawnKind.StartNew or IrSpawnKind.ContinueWith || spawn is { Kind: IrSpawnKind.TaskRun, AwaitsWorkTask: false }) &&
@@ -1951,6 +2280,33 @@ public static partial class WholeProgram
             {
                 site.Tail = TailRegion(handle);
                 _changes++;
+            }
+
+            if (handle is not null && spawn.Kind is IrSpawnKind.TaskRun or IrSpawnKind.StartNew or IrSpawnKind.ContinueWith)
+            {
+                // The export tells a work whose body is not seen apart from a work value it reads itself (TaskCompleterKind.Spawn).
+                var unseenCode = unseen || callees.Any(list => list.Count == 0);
+                unseen = unseenCode || spawn.Work.Any(work => Unfollowed(caller, work.UnknownSources, work.SourceCalls, work.Completions));
+                Complete(handle, [], unseen, new TaskCompleter(caller.Id, spawn.OperationId, TaskCompleterKind.Spawn));
+                if (unseenCode)
+                    Completed(handle, new TaskCompleter(caller.Id, spawn.OperationId, TaskCompleterKind.Unseen));
+                foreach (var callee in callees.SelectMany(list => list))
+                {
+                    CheckCancellation();
+                    if (spawn.AwaitsWorkTask)
+                    {
+                        var (values, unfollowed) = CompletionOf(callee);
+                        Complete(handle, values, unfollowed,
+                                 new TaskCompleter(callee.Id, -1, IsAsyncBody(callee.BodyId) ? TaskCompleterKind.Returns : TaskCompleterKind.ReturnedTasks));
+                    }
+                    else if (IsAsyncBody(callee.BodyId) && site.Tail is { } tail)
+                    {
+                        Complete(tail, callee.Returns, callee.ReturnsUnfollowed || unseen, new TaskCompleter(callee.Id, -1, TaskCompleterKind.Returns));
+                        Complete(handle, [tail], false, new TaskCompleter(caller.Id, spawn.CallOperationId, TaskCompleterKind.Task));
+                    }
+                    else
+                        Complete(handle, callee.Returns, callee.ReturnsUnfollowed, new TaskCompleter(callee.Id, -1, TaskCompleterKind.Returns));
+                }
             }
 
             var state = spawn.State is { } stateValue ? Eval(caller, stateValue.Values) : [];
@@ -1981,6 +2337,18 @@ public static partial class WholeProgram
                     if (site.Callees.Add((callee.Id, role)))
                         _changes++;
                 }
+            }
+
+            TrackedList<InstanceState> WorkCallees(string region)
+            {
+                if (_delegates.TryGetValue(region, out var work) &&
+                    DelegateCallees(caller, spawn.OperationId, work, () => unseen = true) is { Count: > 0 } resolved)
+                {
+                    return resolved;
+                }
+
+                unseen = true;
+                return [];
             }
         }
 
@@ -2026,7 +2394,8 @@ public static partial class WholeProgram
             }
         }
 
-        /// <summary>A <c>WhenAll</c> result is a region of its site whose group remembers the listed tasks, or that they are unknown.</summary>
+        /// <summary>A <c>WhenAll</c> result is a region of its site whose group remembers the listed tasks, or that they are unknown, and
+        /// which completes with an array of their completion values over <c>Task&lt;T&gt;</c>.</summary>
         /// <param name="caller">The caller.</param>
         /// <param name="whenAll">The whenAll.</param>
         private void WhenAll(InstanceState caller, SummaryWhenAll whenAll)
@@ -2040,17 +2409,70 @@ public static partial class WholeProgram
             }
 
             Add(members.Members, whenAll.Tasks.SelectMany(task => Eval(caller, task.Values)).ToArray());
+            // Over Task<T> the group completes with a new array of the site, whose cells hold what every task completes with: the listed
+            // ones, or those the argument holds. The array is an object the heap makes, so it is followed whatever its cells hold; over
+            // Task the group completes with nothing.
+            if (whenAll.ArrayTypeKey is not { } arrayType)
+                return;
+            var tasks = whenAll.TasksKnown
+                ? whenAll.Tasks.SelectMany(task => Eval(caller, task.Values))
+                : whenAll.Source is { } source ? Eval(caller, source.Values).SelectMany(collection => Load(collection, PathValue.ELEMENT)) : [];
+            var array = CompletionArray(caller, whenAll.CallOperationId, arrayType);
+            Add(Field(array, PathValue.ELEMENT), Completion(tasks.ToArray()));
+            Complete(group, [array], false, new TaskCompleter(caller.Id, whenAll.OperationId, TaskCompleterKind.WhenAll));
+        }
+
+        /// <summary>What a BCL task member makes of a task's completion value (R1, R2): the new task of its site, which the call's result
+        /// gives, or the existing tasks it names complete with a value, a value the heap does not follow, what other tasks complete with,
+        /// or one of several tasks. A value crossing the completion slot keeps whether it may be an object the heap does not follow.</summary>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="task">The task operation.</param>
+        private void TaskOperation(InstanceState instance, SummaryTaskOperation task)
+        {
+            IReadOnlyCollection<string> targets;
+            if (task.Task is { } existing)
+                targets = Eval(instance, existing.Values).ToArray();
+            else
+            {
+                var region = TaskRegion(instance, task.CallOperationId);
+                Add(CallResult(instance, task.CallOperationId), [region]);
+                targets = [region];
+            }
+
+            bool Unknown(SummaryValue value) => Unfollowed(instance, value.UnknownSources, value.SourceCalls, value.Completions);
+            var (values, unfollowed) = task.Kind switch
+            {
+                IrTaskKind.Completed => (task.Values.SelectMany(value => Eval(instance, value.Values)).ToArray(), task.Values.Any(Unknown)),
+                IrTaskKind.CompletionOf when Eval(instance, task.Values.SelectMany(value => value.Values)) is var tasks =>
+                    (Completion(tasks).ToArray(), task.Values.Any(Unknown) || tasks.Any(_unfollowedCompletions.Contains)),
+                // A task a collection holds is one its cells hold, and what was stored there is not followed to its origin.
+                IrTaskKind.AnyOf when !task.ValuesKnown =>
+                    (Eval(instance, task.Values.SelectMany(value => value.Values)).SelectMany(source => Load(source, PathValue.ELEMENT)).ToArray(), true),
+                IrTaskKind.AnyOf => (task.Values.SelectMany(value => Eval(instance, value.Values)).ToArray(), task.Values.Any(Unknown)),
+                _ => (Array.Empty<string>(), true)
+            };
+            foreach (var target in targets)
+            {
+                CheckCancellation();
+                Complete(target, values, unfollowed, new TaskCompleter(instance.Id, task.OperationId, TaskCompleterKind.TaskOperation));
+            }
         }
 
         /// <summary>Whether the regions of a timer callback site name every timer it may run. As in <c>TimerSteps</c>, a null or a field
         /// read before its first write is no timer, and a source call names one only when what it returned is among those regions: a call
-        /// with no resolved implementation, or one returning a value the heap does not follow, may return any timer.</summary>
+        /// with no resolved implementation, or one returning a value the heap does not follow, may return any timer. A call whose task the
+        /// timer is the completion of gives what that task completes with, followed as many times as the timer consumed it.</summary>
+        /// <param name="callerId">The instance making the timer step.</param>
+        /// <param name="operationId">The step's operation.</param>
+        /// <param name="timers">The regions of the site.</param>
         private bool TimersKnown(string callerId, int operationId, IReadOnlySet<string> timers)
         {
             var caller = _instances[callerId];
             var timer = caller.Summary.Timers.First(step => step.OperationId == operationId).Timer;
-            return !Unfollowed(caller, timer.UnknownSources, timer.SourceCalls) &&
-                   timer.SourceCalls.All(call => CallResult(caller, call) is { Count: > 0 } result && result.All(timers.Contains));
+            return !Unfollowed(caller, timer.UnknownSources, timer.SourceCalls, timer.Completions) &&
+                   timer.SourceCalls.All(call => timer.Depths(call).All(depth =>
+                       HeapSolution.Completions(CallResult(caller, call), depth, task => Completion([task])) is { Count: > 0 } result &&
+                       result.All(timers.Contains)));
         }
 
         private SiteState SiteOf(TrackedMap<(string Caller, int Operation), SiteState> sites, InstanceState caller, int operationId,
@@ -2066,6 +2488,9 @@ public static partial class WholeProgram
         }
 
         /// <summary>Binds a parameter of a spawned or called-back body, when the body has it.</summary>
+        /// <param name="callee">The instance of the spawned or called-back body.</param>
+        /// <param name="ordinal">The parameter's ordinal.</param>
+        /// <param name="regions">The regions the parameter is bound to.</param>
         private void BindParameter(InstanceState callee, int ordinal, IEnumerable<string> regions)
         {
             if (ordinal >= 0 && ordinal < ParameterCount(callee))
@@ -2075,14 +2500,32 @@ public static partial class WholeProgram
         private int ParameterCount(InstanceState instance) =>
             _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.Parameters.Count : 0;
 
-        /// <summary>The handle region an operation of an instance creates: a spawn's task, an async call's task or a
-        /// <c>WhenAll</c> result, one per site and context.</summary>
-        private string TaskRegion(InstanceState instance, int operationId)
+        /// <summary>The handle region an operation of an instance creates: a spawn's task, an async call's task, a
+        /// <c>WhenAll</c> result or the new task of a BCL task member, one per site and context.</summary>
+        /// <param name="instance">The instance making the operation.</param>
+        /// <param name="operationId">The operation's call.</param>
+        /// <param name="depth">For a known call's <c>task(…)</c> result, how many tasks deep this one stands inside the call's own: each
+        /// level is a region of its own (R4).</param>
+        private string TaskRegion(InstanceState instance, int operationId, int depth = 0)
         {
             var owner = _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.OwnerSymbol : instance.BodyId;
-            return Region($"task|{instance.BodyId}#{operationId}|{ContextKey(instance)}", HeapRegionKind.Task, $"task:{owner}#{operationId}", null,
-                          instance.Context, $"task|{instance.BodyId}#{operationId}", merged: instance.IsMerged,
+            var level = depth == 0 ? "" : "@" + depth;
+            return Region($"task|{instance.BodyId}#{operationId}{level}|{ContextKey(instance)}", HeapRegionKind.Task, $"task:{owner}#{operationId}{level}", null,
+                          instance.Context, $"task|{instance.BodyId}#{operationId}{level}", merged: instance.IsMerged,
                           site: new CreationSite(instance.BodyId, operationId, "", 0));
+        }
+
+        /// <summary>The array a <c>WhenAll</c> over <c>Task&lt;T&gt;</c> completes with: an object of its site, one per site and context.</summary>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="operationId">The call's operation.</param>
+        /// <param name="arrayType">The array's type key.</param>
+        private string CompletionArray(InstanceState instance, int operationId, string arrayType)
+        {
+            var typeKey = ProgramIndex.Substitute(arrayType, instance.Substitution);
+            var owner = _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.OwnerSymbol : instance.BodyId;
+            return Region($"completion|{instance.BodyId}#{operationId}|{typeKey}|{ContextKey(instance)}", HeapRegionKind.Allocation,
+                          $"alloc:{owner}#{DisplayType(typeKey)}", typeKey, instance.Context, $"completion|{instance.BodyId}#{operationId}",
+                          merged: instance.IsMerged, site: new CreationSite(instance.BodyId, operationId, arrayType, 1), exactType: true);
         }
 
         private string TailRegion(string handle)
@@ -2096,7 +2539,78 @@ public static partial class WholeProgram
             return tail;
         }
 
-        private IEnumerable<string> Tails(IEnumerable<string> handles) => handles.Select(_tails.GetValueOrDefault).OfType<string>();
+        /// <summary>What tasks complete with: what their completion slots hold.</summary>
+        /// <param name="tasks">The task regions.</param>
+        private TrackedSet<string> Completion(IEnumerable<string> tasks)
+        {
+            var result = new TrackedSet<string>(StringComparer.Ordinal);
+            foreach (var task in tasks)
+            {
+                CheckCancellation();
+                result.UnionWith(Load(task, COMPLETION_FIELD));
+            }
+            return result;
+        }
+
+        /// <summary>The objects fresh values name that the solve made and completed as tasks: a <c>TaskCompletionSource</c> stands for its
+        /// own task. Each is looked up as a query, so a value the solve never evaluated names no region and adds none.</summary>
+        /// <param name="instance">The instance expressing the values.</param>
+        /// <param name="values">The fresh values.</param>
+        private TrackedSet<string> SolvedTasks(InstanceState instance, AllocationValue[] values) =>
+            values.Length == 0
+                ? new TrackedSet<string>(StringComparer.Ordinal)
+                : Query((AllocationValue[] fresh) => Eval(instance, fresh.Cast<AbstractValue>())
+                                                     .Where(region => _regions.ContainsKey(region) && _fields.ContainsKey((region, COMPLETION_FIELD)))
+                                                     .ToTrackedSet(StringComparer.Ordinal))(values);
+
+        /// <summary>The regions, and what the tasks among them complete with, at any depth: what a value carries wherever it goes, as each
+        /// of those values handed over directly would be carried (R2). Every escape decider reads it.</summary>
+        /// <param name="regions">The regions to start from.</param>
+        private TrackedSet<string> Carried(IEnumerable<string> regions)
+        {
+            var carried = new TrackedSet<string>(StringComparer.Ordinal);
+            var pending = new Stack<string>(regions);
+            while (pending.TryPop(out var region))
+            {
+                CheckCancellation();
+                if (!carried.Add(region) || !_fields.TryGetValue((region, COMPLETION_FIELD), out var completion))
+                    continue;
+                foreach (var value in completion)
+                    pending.Push(value);
+            }
+            return carried;
+        }
+
+        /// <summary>Completes a task with values, and marks its completion as one that may be an object the heap does not follow when what
+        /// completes it is, where it is produced, or the task's producer is code the analysis does not see in full. An empty, followed
+        /// completion is a known default.</summary>
+        /// <param name="task">The task region.</param>
+        /// <param name="values">The regions it completes with.</param>
+        /// <param name="unfollowed">Whether what completes it may be such an object.</param>
+        /// <param name="completer">Where what completes it comes from, for the export (<see cref="Completed"/>).</param>
+        private void Complete(string task, IEnumerable<string> values, bool unfollowed, TaskCompleter completer)
+        {
+            var completed = values.ToArray();
+            if (completed.Length != 0)
+                Add(Field(task, COMPLETION_FIELD), completed);
+            if (unfollowed && _unfollowedCompletions.Add(task))
+                _changes++;
+            Completed(task, completer);
+        }
+
+        /// <summary>Records where what completes a task region comes from (<see cref="HeapSolution.TaskCompleters"/>); no rule of the
+        /// solve reads it, so it changes nothing the solve depends on.</summary>
+        /// <param name="task">The task region.</param>
+        /// <param name="completer">Where what completes it comes from.</param>
+        private void Completed(string task, TaskCompleter completer) => _completers.Add((task, completer));
+
+        /// <summary>What one run of a body completes with, and whether it may be an object the heap does not follow: an async body's returns,
+        /// or what the tasks a non-async body returns complete with.</summary>
+        /// <param name="callee">The body's instance.</param>
+        private (TrackedSet<string> Values, bool Unfollowed) CompletionOf(InstanceState callee) =>
+            IsAsyncBody(callee.BodyId)
+                ? (callee.Returns, callee.ReturnsUnfollowed)
+                : (Completion(callee.Returns), callee.ReturnsUnfollowed || callee.Returns.Any(_unfollowedCompletions.Contains));
 
         /// <summary>Models a service call: a created scope is an allocation of the calling execution whose <c>ServiceProvider</c>
         /// stands for it; a locator call with a constant type resolves in each scope its receiver stands for, and
@@ -2399,7 +2913,8 @@ public static partial class WholeProgram
             return receivers.Count != 0 && receivers.All(region => _typeSafety.CannotBe(_regions[region], containing)) &&
                    !call.ReceiverUnknownSources.Contains(UnknownSource.OpaqueCall) &&
                    !call.ReceiverUnknownSources.Contains(UnknownSource.Other) &&
-                   !call.ReceiverSourceCalls.Any(caller.UnfollowedCallResults.Contains);
+                   !call.ReceiverSourceCalls.Any(caller.UnfollowedCallResults.Contains) &&
+                   !call.ReceiverCompletions.Any(caller.UnfollowedCompletions.Contains);
         }
 
         /// <summary>The delegates among values an unresolved call is handed, each run by the instances of its target in an unknown
@@ -2597,7 +3112,10 @@ public static partial class WholeProgram
                 var arguments = previous.Arguments.Concat(call.Arguments).GroupBy(argument => argument.ParameterOrdinal)
                     .Select(group => new CallArgument(group.Key, group.SelectMany(argument => argument.Values).ToTrackedSet())
                     {
-                        References = group.SelectMany(argument => argument.References).Distinct().ToArray()
+                        References = group.SelectMany(argument => argument.References).Distinct().ToArray(),
+                        UnknownSources = group.SelectMany(argument => argument.UnknownSources).ToHashSet(),
+                        SourceCalls = group.SelectMany(argument => argument.SourceCalls).ToHashSet(),
+                        Completions = group.SelectMany(argument => argument.Completions).ToHashSet()
                     }).ToArray();
                 // Reuse unchanged immutable inputs so the map's setter sees a no-op as a no-op.
                 projections[library] = call with
@@ -2611,33 +3129,43 @@ public static partial class WholeProgram
             else
                 projections[library] = call;
             var runs = new TrackedMap<int, TrackedList<(string Region, InstanceState Callee)>>();
+            // The delegates some alternative of which runs code the analysis does not see in full: no delegate object is known for an
+            // alternative, one resolves no body, or a dispatch of one has no receiver.
+            var unseen = new HashSet<int>();
             // A not-run delegate is neither run nor kept by the call (ADR 0015): it has no callees, no missing receiver and no
             // unresolved fate, though its parameter still counts as fated.
             foreach (var fate in library.Fates.Where(fate => fate.Kind != IrFateKind.NotRun))
             {
                 CheckCancellation();
                 var invocation = Invocation(call, fate, []);
-                runs[fate.ParameterOrdinal] = Eval(caller, invocation.Receivers).Where(_delegates.ContainsKey)
-                                                  .SelectMany(region => DelegateCallees(caller, call.OperationId, _delegates[region],
-                                                                                        () => NoReceiver(caller, invocation))
-                                                                  .Select(callee => (region, callee)))
-                                                  .ToTrackedList();
+                var delegates = Eval(caller, invocation.Receivers).Where(_delegates.ContainsKey).ToArray();
+                runs[fate.ParameterOrdinal] = delegates.SelectMany(region => DelegateCallees(caller, call.OperationId, _delegates[region], () =>
+                                                           {
+                                                               NoReceiver(caller, invocation);
+                                                               unseen.Add(fate.ParameterOrdinal);
+                                                           })
+                                                           .Select(callee => (region, callee)))
+                                                       .ToTrackedList();
+                var argument = call.Arguments.FirstOrDefault(candidate => candidate.ParameterOrdinal == fate.ParameterOrdinal);
+                if (delegates.Length == 0 || delegates.Any(region => runs[fate.ParameterOrdinal].All(run => run.Region != region)) ||
+                    argument is not null && Unfollowed(caller, argument.UnknownSources, argument.SourceCalls, argument.Completions))
+                {
+                    unseen.Add(fate.ParameterOrdinal);
+                }
             }
 
             // What the delegates return so far, for the inputs and the result naming it: the analysis does not order a delegate's runs,
             // and the fixpoint runs the call again as they grow. An iterator delegate's runs are there to be had where the entry step lets
             // a model name them.
-            var returns = library.Fates.Where(fate => fate.Kind is IrFateKind.InvokeNow or IrFateKind.Iterator)
-                                 .ToTrackedMap(fate => fate.ParameterOrdinal,
-                                               fate => runs[fate.ParameterOrdinal].SelectMany(run => run.Callee.Returns).ToTrackedSet(StringComparer.Ordinal));
+            var returns = ReturnsOf(caller, call, runs, unseen);
             // The library sequence the call returns keeps its iterator delegates; nothing of it runs here (R5).
-            var sequence = library.Result?.Kind == IrResultKind.Sequence ? NewSequence(caller, call, "result", nested: false) : null;
+            var sequence = library.Result?.Leaf.Kind == IrResultKind.Sequence ? NewSequence(caller, call, "result", nested: false) : null;
             // What a delegate returned that the model names the elements of is enumerated as an argument would be: at the call when the
             // call returns no library sequence, else as a source of the one it returns, by whoever enumerates it (R3, R5).
-            Consume(caller, call.OperationId, library.EnumeratedReturns(false).SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []),
+            Consume(caller, call.OperationId, EnumeratedReturned(caller, call, library.EnumeratedReturns(false), library.EnumeratedCompletions(false), returns),
                     new TrackedSet<string>(StringComparer.Ordinal));
             if (sequence is not null)
-                AddReturnedSources(sequence, library.EnumeratedReturns(true).SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []));
+                AddReturnedSources(sequence, EnumeratedReturned(caller, call, library.EnumeratedReturns(true), library.EnumeratedCompletions(true), returns));
             foreach (var fate in library.Fates.Where(fate => fate.Kind != IrFateKind.NotRun))
             {
                 CheckCancellation();
@@ -2691,6 +3219,7 @@ public static partial class WholeProgram
                             CheckCancellation();
                             Add(Parameter(callee, input.ParameterOrdinal), Eval(caller, input.Values));
                         }
+                        _rebuilding.FateRuns.Add((new DelegateSite(caller.Id, call.OperationId, fate.ParameterOrdinal), callee.Id));
                         Add(callee.Requests, caller.Requests);
                         switch (fate.Kind)
                         {
@@ -2745,10 +3274,16 @@ public static partial class WholeProgram
                 if (!_libraryKeeping.TryGetValue(key, out var kept))
                     _libraryKeeping.Add(key, kept = new TrackedSet<string>(StringComparer.Ordinal));
                 Add(kept, keep.Value.SelectMany((value, position) => ModelValues(caller, call, value, returns, $"keep{keep.Key}.{position}")));
+                var unfollowedKept = caller.UnfollowedModelCompletions.Contains((call.OperationId, $"keep{keep.Key}"));
+                var unfollowedValue = keep.Value.Any(value => ModelUnfollowed(caller, call, value, returns));
                 foreach (var keeper in KeeperTargets(caller, call, keep.Key, read: false))
                 {
                     CheckCancellation();
                     Add(Field(keeper, PathValue.KEPT), kept);
+                    if (unfollowedKept && _unfollowedKept.Add(keeper))
+                        _changes++;
+                    if (unfollowedValue && _unfollowedKeptValues.Add(keeper))
+                        _changes++;
                 }
             }
             foreach (var store in library.Stores)
@@ -2873,11 +3408,22 @@ public static partial class WholeProgram
 
         private TrackedSet<string> KeeperTargets(InstanceState caller, SummaryOpaqueCall call, int ordinal, bool read)
         {
-            var targets = ordinal == IrLibraryCall.RESULT ? CallResult(caller, call.OperationId).ToTrackedSet(StringComparer.Ordinal) :
-                Eval(caller, ArgumentOf(call, ordinal));
+            var targets = ordinal == IrLibraryCall.RESULT ? ResultObjects(caller, call) : Eval(caller, ArgumentOf(call, ordinal));
             if (ordinal != IrLibraryCall.RESULT && (_keptFallbacks.Contains((caller.Id, call.OperationId, ordinal)) || read && targets.Count == 0))
                 targets.Add(KeeperStore(call, ordinal));
             return targets;
+        }
+
+        /// <summary>What <c>keeps.result</c> keeps into: the object the call returns, or under tasks the innermost completion value
+        /// (R4).</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        private TrackedSet<string> ResultObjects(InstanceState caller, SummaryOpaqueCall call)
+        {
+            var objects = CallResult(caller, call.OperationId).ToTrackedSet(StringComparer.Ordinal);
+            for (var level = call.Library!.Result?.TaskDepth ?? call.Library.ReturnTaskDepth; level > 0; level--)
+                objects = Completion(objects);
+            return objects;
         }
 
         private static IReadOnlySet<AbstractValue> ArgumentOf(SummaryOpaqueCall call, int ordinal) =>
@@ -2885,6 +3431,9 @@ public static partial class WholeProgram
                 call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == ordinal)?.Values ?? new TrackedSet<AbstractValue>();
 
         /// <summary>A call of a fated delegate at the known call's site, handed <paramref name="inputs"/>.</summary>
+        /// <param name="call">The known call.</param>
+        /// <param name="fate">The fate naming the delegate parameter.</param>
+        /// <param name="inputs">The arguments the delegate is handed.</param>
         private static CallTransfer Invocation(SummaryOpaqueCall call, IrLibraryFate fate, IReadOnlyList<CallArgument> inputs) =>
             new(call.OperationId, call.Callee, IrCallKind.Delegate, ArgumentOf(call, fate.ParameterOrdinal), inputs, []);
 
@@ -2905,6 +3454,103 @@ public static partial class WholeProgram
             AddEdge((caller.Id, invocation.OperationId, callee.Id, "delegate"));
         }
 
+        /// <summary>What one run of each delegate a model may name the returns of gives back at a known call, and which of them may give
+        /// back an object the heap does not follow: the one answer every model value naming <c>returns:</c> reads (R1, R2, R4).</summary>
+        /// <param name="Values">The objects each delegate parameter's runs give back, by parameter ordinal.</param>
+        /// <param name="Unfollowed">The delegate parameters some run of which may give back such an object.</param>
+        private sealed record DelegateReturns(IReadOnlyDictionary<int, TrackedSet<string>> Values, IReadOnlySet<int> Unfollowed)
+        {
+            public IEnumerable<string> Of(int ordinal) => Values.GetValueOrDefault(ordinal) ?? [];
+        }
+
+        /// <summary>What one run of each <c>invoke-now</c> or <c>iterator</c> delegate gives back: a non-async body what it returns, an
+        /// async body its task, a region of the call and the parameter that completes with what the body returns, as the task of an async
+        /// call does (R1). A delegate gives back an object the heap does not follow where a run of it may, or where some alternative of it
+        /// runs code the analysis does not see in full (R2).</summary>
+        /// <param name="caller">The instance making the known call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="runs">The delegate regions and the instances they run, by parameter ordinal.</param>
+        /// <param name="unseen">The delegate parameters some alternative of which runs code the analysis does not see in full.</param>
+        private DelegateReturns ReturnsOf(InstanceState caller, SummaryOpaqueCall call, IReadOnlyDictionary<int, TrackedList<(string Region, InstanceState Callee)>> runs,
+                                          IReadOnlySet<int> unseen)
+        {
+            var values = new TrackedMap<int, TrackedSet<string>>();
+            var unfollowed = new HashSet<int>();
+            foreach (var fate in call.Library!.Fates.Where(fate => fate.Kind is IrFateKind.InvokeNow or IrFateKind.Iterator))
+            {
+                CheckCancellation();
+                var returned = new TrackedSet<string>(StringComparer.Ordinal);
+                var site = new DelegateSite(caller.Id, call.OperationId, fate.ParameterOrdinal);
+                _rebuilding.DelegateSites.Add(site);
+                foreach (var (_, callee) in runs[fate.ParameterOrdinal])
+                {
+                    CheckCancellation();
+                    if (IsAsyncBody(callee.BodyId) && _scope.Reachable.Bodies[callee.BodyId].ReturnType != "void")
+                    {
+                        var task = ReturnedTask(caller, call.OperationId, fate.ParameterOrdinal);
+                        Complete(task, callee.Returns, callee.ReturnsUnfollowed, new TaskCompleter(callee.Id, -1, TaskCompleterKind.Returns));
+                        returned.Add(task);
+                        _rebuilding.DelegateRuns.Add((site, new DelegateRun(callee.Id, task)));
+                    }
+                    else
+                    {
+                        returned.UnionWith(callee.Returns);
+                        _rebuilding.DelegateRuns.Add((site, new DelegateRun(callee.Id, null)));
+                    }
+                }
+
+                values[fate.ParameterOrdinal] = returned;
+                if (unseen.Contains(fate.ParameterOrdinal))
+                    _rebuilding.UnseenDelegates.Add(site);
+                if (unseen.Contains(fate.ParameterOrdinal) || runs[fate.ParameterOrdinal].Any(run => run.Callee.ReturnsUnfollowed))
+                    unfollowed.Add(fate.ParameterOrdinal);
+            }
+
+            return new DelegateReturns(values, unfollowed);
+        }
+
+        /// <summary>The task an async delegate's run gives back at a known call, one per call, delegate parameter and context.</summary>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="operationId">The call's operation.</param>
+        /// <param name="ordinal">The delegate parameter's ordinal.</param>
+        private string ReturnedTask(InstanceState instance, int operationId, int ordinal)
+        {
+            var owner = _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.OwnerSymbol : instance.BodyId;
+            return Region($"task|{instance.BodyId}#{operationId}^returns{ordinal}|{ContextKey(instance)}", HeapRegionKind.Task,
+                          $"task:{owner}#{operationId}^returns{ordinal}", null, instance.Context, $"task|{instance.BodyId}#{operationId}^returns{ordinal}",
+                          merged: instance.IsMerged, site: new CreationSite(instance.BodyId, operationId, "", 0));
+        }
+
+        /// <summary>What a known call enumerates of what its delegates give back: what the delegates whose returns it names the elements
+        /// of returned, and what the tasks complete with that a completion names the elements of, with each value holding those tasks,
+        /// where they are no argument's, the receiver's or a keeper's, which the call's own effects enumerate
+        /// (<see cref="CollectionObjects.LibraryEffects"/>) (R2, R5).</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="ordinals">The delegate parameters whose returns are enumerated.</param>
+        /// <param name="completions">The completions whose values are enumerated.</param>
+        /// <param name="returns">What the call's delegates give back.</param>
+        private IEnumerable<string> EnumeratedReturned(InstanceState caller, SummaryOpaqueCall call, IEnumerable<int> ordinals,
+                                                       IEnumerable<IrModelCompletion> completions, DelegateReturns returns) =>
+            ordinals.SelectMany(returns.Of)
+                    .Concat(completions.Where(completion => !IrLibraryCall.ReachesCallValues(completion))
+                                       .SelectMany(completion => CompletionSources(caller, call, completion, returns)))
+                    .ToArray();
+
+        /// <summary>What enumerating a completion's values enumerates: what the tasks it names complete with, and each value holding those
+        /// tasks, as elements(…) of it would (R2).</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="completion">The completion.</param>
+        /// <param name="returns">What the call's delegates give back.</param>
+        private IEnumerable<string> CompletionSources(InstanceState caller, SummaryOpaqueCall call, IrModelCompletion completion, DelegateReturns returns)
+        {
+            var (source, depth) = IrLibraryCall.CompletedSource(completion);
+            return IrLibraryCall.CompletionHolders(completion).SelectMany(holder => ModelValues(caller, call, holder, returns, SOURCE_PATH))
+                                .Concat(HeapSolution.Completions(ModelValues(caller, call, source, returns, SOURCE_PATH), depth, task => Completion([task])))
+                                .ToArray();
+        }
+
         /// <summary>An unresolved dispatch of a fated delegate, which sees what the delegate is handed (R1).</summary>
         /// <param name="caller">The caller.</param>
         /// <param name="invocation">The invocation.</param>
@@ -2923,9 +3569,9 @@ public static partial class WholeProgram
         /// <param name="caller">The instance making the call.</param>
         /// <param name="call">The known call.</param>
         /// <param name="value">The model value to evaluate.</param>
-        /// <param name="returns">The objects each named delegate returned.</param>
+        /// <param name="returns">What each named delegate gives back (<see cref="ReturnsOf"/>).</param>
         /// <param name="path">The value's path within this call's model.</param>
-        private TrackedSet<string> ModelValues(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, IReadOnlyDictionary<int, TrackedSet<string>> returns,
+        private TrackedSet<string> ModelValues(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, DelegateReturns returns,
                                             string path)
         {
             switch (value)
@@ -2935,11 +3581,17 @@ public static partial class WholeProgram
                 case IrModelNew created:
                     return [ModelNew(caller, call.OperationId, created, path)];
                 case IrModelKept kept:
-                    return KeeperTargets(caller, call, kept.KeeperOrdinal, read: true).SelectMany(keeper => Load(keeper, PathValue.KEPT)).ToTrackedSet(StringComparer.Ordinal);
+                {
+                    var keepers = KeeperTargets(caller, call, kept.KeeperOrdinal, read: true).ToArray();
+                    // A keeper keeping an unfollowed completion value delivers it through this channel as that completion would (R2).
+                    if (path != SOURCE_PATH && keepers.Any(_unfollowedKept.Contains) && caller.UnfollowedModelCompletions.Add((call.OperationId, Channel(path))))
+                        _changes++;
+                    return keepers.SelectMany(keeper => Load(keeper, PathValue.KEPT)).ToTrackedSet(StringComparer.Ordinal);
+                }
                 case IrModelArgument argument:
                     return Eval(caller, ArgumentOf(call, argument.ParameterOrdinal));
                 case IrModelReturns returned:
-                    return new TrackedSet<string>(returns.GetValueOrDefault(returned.ParameterOrdinal) ?? [], StringComparer.Ordinal);
+                    return new TrackedSet<string>(returns.Of(returned.ParameterOrdinal), StringComparer.Ordinal);
                 case IrModelElements elements:
                     return Elements(ModelValues(caller, call, elements.Source, returns, path + ".e"), elements.ElementTypeKey);
                 case IrModelSequence sequenceValue:
@@ -2948,9 +3600,9 @@ public static partial class WholeProgram
                     var sequence = NewSequence(caller, call, path, nested: true);
                     AddSequenceYields(sequence,
                         sequenceValue.Values.SelectMany((item, position) => ModelValues(caller, call, item, returns, $"{path}.{position}")));
-                    AddSources(caller, call, sequence, sequenceValue.Values);
-                    AddReturnedSources(sequence, IrLibraryCall.EnumeratedReturns(sequenceValue.Values)
-                                                              .SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []));
+                    AddSources(caller, call, sequence, sequenceValue.Values, returns);
+                    AddReturnedSources(sequence, EnumeratedReturned(caller, call, IrLibraryCall.EnumeratedReturns(sequenceValue.Values),
+                                                                    IrLibraryCall.EnumeratedCompletions(sequenceValue.Values), returns));
                     return [sequence.Region];
                 }
                 case IrModelGrouping groupingValue:
@@ -2968,10 +3620,53 @@ public static partial class WholeProgram
                 }
                 case IrModelHolderArgument:
                     return new TrackedSet<string>(StringComparer.Ordinal);
+                case IrModelCompletion completion:
+                {
+                    // What the tasks the source names complete with (R4). Where one of them may complete with an object the heap does not
+                    // follow, or the source may itself name one, as a task argument or what a delegate gives back may, this channel's value
+                    // may be such an object, and no other's (R2).
+                    var tasks = ModelValues(caller, call, completion.Source, returns, path + ".c");
+                    if ((tasks.Any(_unfollowedCompletions.Contains) || ModelUnfollowed(caller, call, completion.Source, returns)) &&
+                        caller.UnfollowedModelCompletions.Add((call.OperationId, Channel(path))))
+                        _changes++;
+                    return Completion(tasks);
+                }
                 default:
                     throw new System.Diagnostics.UnreachableException($"Unknown value kind {value.GetType().Name}.");
             }
         }
+
+        /// <summary>The channel a model value's path stands in, which answers for its own <c>completion(…)</c> values: the result, an
+        /// output, a keeper or a store target by its first segment, a fate input by its parameter and index.</summary>
+        /// <param name="path">The value's path within its call's model.</param>
+        private static string Channel(string path)
+        {
+            var segments = path.Split('.');
+            return segments[0].StartsWith("fate", StringComparison.Ordinal) && segments.Length > 1 ? $"{segments[0]}.{segments[1]}" : segments[0];
+        }
+
+        /// <summary>Whether a model value at a known call may name an object the heap does not follow, as the same value handed over
+        /// directly would: an argument by its own sources, source calls and completions, what a delegate gives back as <see cref="ReturnsOf"/> answers, what a
+        /// keeper keeps by what was put there, and a value built of others by any of them. A task completing with it carries the answer
+        /// (R2). A <c>completion(…)</c> value answers through its channel, which <see cref="ModelValues"/> marks; <c>this</c>, <c>new</c>
+        /// and a holder argument are followed.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="value">The model value.</param>
+        /// <param name="returns">What the call's delegates give back, and which may give back such an object.</param>
+        private bool ModelUnfollowed(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, DelegateReturns returns) => value switch
+        {
+            IrModelArgument argument => call.Arguments.Any(candidate => candidate.ParameterOrdinal == argument.ParameterOrdinal &&
+                                                                        Unfollowed(caller, candidate.UnknownSources, candidate.SourceCalls, candidate.Completions)),
+            IrModelReturns returned => returns.Unfollowed.Contains(returned.ParameterOrdinal),
+            IrModelKept kept => KeeperTargets(caller, call, kept.KeeperOrdinal, read: true)
+                .Any(keeper => _unfollowedKept.Contains(keeper) || _unfollowedKeptValues.Contains(keeper)),
+            IrModelElements elements => ModelUnfollowed(caller, call, elements.Source, returns),
+            IrModelSequence sequence => sequence.Values.Any(item => ModelUnfollowed(caller, call, item, returns)),
+            IrModelGrouping grouping => ModelUnfollowed(caller, call, grouping.Key, returns) ||
+                                        ModelUnfollowed(caller, call, grouping.Values, returns),
+            _ => false
+        };
 
         /// <summary>A fresh object a model hands to one delegate parameter at one call site.</summary>
         /// <param name="caller">The instance making the call.</param>
@@ -2993,12 +3688,13 @@ public static partial class WholeProgram
         /// <param name="call">The modelled call.</param>
         /// <param name="sequence">The sequence keeping these sources.</param>
         /// <param name="values">The model values naming their elements.</param>
-        private void AddSources(InstanceState caller, SummaryOpaqueCall call, SequenceState sequence, IEnumerable<IrModelValue> values)
+        /// <param name="returns">What the call's delegates give back (<see cref="ReturnsOf"/>).</param>
+        private void AddSources(InstanceState caller, SummaryOpaqueCall call, SequenceState sequence, IEnumerable<IrModelValue> values, DelegateReturns returns)
         {
             foreach (var kept in IrLibraryCall.EnumeratedKeepers(values))
             {
                 CheckCancellation();
-                foreach (var source in ModelValues(caller, call, kept, new TrackedMap<int, TrackedSet<string>>(), "source"))
+                foreach (var source in ModelValues(caller, call, kept, returns, SOURCE_PATH))
                 {
                 CheckCancellation();
                     if (sequence.Sources.Add(source))
@@ -3012,6 +3708,17 @@ public static partial class WholeProgram
                 {
                     CheckCancellation();
                     if (sequence.Sources.Add(source))
+                        _changes++;
+                }
+            }
+            // What the tasks a completion names complete with is a source as that value handed over directly would be (R2).
+            foreach (var completion in IrLibraryCall.EnumeratedCompletions(values))
+            {
+                CheckCancellation();
+                foreach (var completed in CompletionSources(caller, call, completion, returns))
+                {
+                    CheckCancellation();
+                    if (sequence.Sources.Add(completed))
                         _changes++;
                 }
             }
@@ -3078,23 +3785,34 @@ public static partial class WholeProgram
         /// <summary>Assigns the objects a model's result form names or creates to its result or output destination.</summary>
         /// <param name="caller">The instance making the call.</param>
         /// <param name="call">The known call whose result is evaluated.</param>
-        /// <param name="result">The model's result form.</param>
-        /// <param name="returns">The objects the model's delegates returned.</param>
+        /// <param name="form">The model's result form, its leaf under any depth of <c>task(…)</c>.</param>
+        /// <param name="returns">What the model's delegates give back, and which may give back an object the heap does not follow.</param>
         /// <param name="sequence">The sequence created for a sequence result.</param>
         /// <param name="destination">The result or output parameter receiving the objects.</param>
-        private void ModelResult(InstanceState caller, SummaryOpaqueCall call, IrLibraryResult result, IReadOnlyDictionary<int, TrackedSet<string>> returns,
+        private void ModelResult(InstanceState caller, SummaryOpaqueCall call, IrLibraryResult form, DelegateReturns returns,
                                  SequenceState? sequence, ResultDestination destination)
         {
+            // Under task(…) the leaf is what the innermost task completes with (R4).
+            var result = form.Leaf;
             var values = result.Values.Select((value, position) => ModelValues(caller, call, value, returns, $"{destination.Path}.{position}")).ToArray();
-            var target = destination.OutputOrdinal is int ordinal ? RefResult(caller, call.OperationId, ordinal) : CallResult(caller, call.OperationId);
+            // A task completing with a oneOf leaf completes unfollowed where any of its values is, as that value handed over directly would
+            // be (R2); a new object, collection, dictionary or sequence the call creates is followed whatever it is built of, as its
+            // synchronous twin is. With no task around it, a synchronous result keeps no unknown source of what it names but a
+            // completion(…)'s, as at the start commit.
+            var target = destination.OutputOrdinal is int ordinal ? RefResult(caller, call.OperationId, ordinal)
+                : ResultSlot(caller, call, form.TaskDepth,
+                             caller.UnfollowedModelCompletions.Contains((call.OperationId, destination.Path)) ||
+                             form.TaskDepth > 0 && result.Kind == IrResultKind.OneOf &&
+                             result.Values.Any(value => ModelUnfollowed(caller, call, value, returns)));
             switch (result.Kind)
             {
                 case IrResultKind.Sequence:
                     if (sequence is null)
                         throw new System.Diagnostics.UnreachableException("Sequence result has no sequence.");
                     AddSequenceYields(sequence, values.SelectMany(value => value));
-                    AddSources(caller, call, sequence, result.Values);
-                    AddReturnedSources(sequence, IrLibraryCall.EnumeratedReturns(result.Values).SelectMany(ordinal => returns.GetValueOrDefault(ordinal) ?? []));
+                    AddSources(caller, call, sequence, result.Values, returns);
+                    AddReturnedSources(sequence, EnumeratedReturned(caller, call, IrLibraryCall.EnumeratedReturns(result.Values),
+                                                                    IrLibraryCall.EnumeratedCompletions(result.Values), returns));
                     Add(target, [sequence.Region]);
                     break;
                 case IrResultKind.OneOf:
@@ -3108,7 +3826,7 @@ public static partial class WholeProgram
                 case IrResultKind.Dictionary:
                     if (destination.TypeKey is not { } typeKey)
                         return;
-                    var created = destination.OutputOrdinal is null ? CreatedAtCall(caller, call, typeKey)
+                    var created = destination.OutputOrdinal is null ? CreatedObject(caller, call, typeKey)
                                                                    : CreatedForDestination(caller, call, typeKey, destination, "root");
                     Add(target, [created]);
                     if (result.Kind == IrResultKind.Dictionary)
@@ -3123,6 +3841,37 @@ public static partial class WholeProgram
                     throw new System.Diagnostics.UnreachableException($"Unknown result kind {result.Kind}.");
             }
 
+        }
+
+        /// <summary>Where what a known call returns lands: the call's result, or for a result of <paramref name="depth"/> tasks the
+        /// completion slot of the innermost of a chain of task regions — the call's own task, completed with a task of its own for each
+        /// further level, each a region of its own (R4). With no task around it, what lands is the call's own completion value: the
+        /// summary records the call among the completions of its result (<see cref="SummaryValue.Completions"/>), and an unfollowed one
+        /// marks it as an await of an unfollowed task is marked, which every reader of <c>Unfollowed</c> sees (R2).</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="depth">How many tasks stand around what lands.</param>
+        /// <param name="unfollowed">Whether what lands in the innermost task may be an object the heap does not follow.</param>
+        private TrackedSet<string> ResultSlot(InstanceState caller, SummaryOpaqueCall call, int depth, bool unfollowed)
+        {
+            if (depth == 0)
+            {
+                if (unfollowed && caller.UnfollowedCompletions.Add(call.OperationId))
+                    _changes++;
+                return CallResult(caller, call.OperationId);
+            }
+            var task = TaskRegion(caller, call.OperationId);
+            Add(CallResult(caller, call.OperationId), [task]);
+            for (var level = 1; level < depth; level++)
+            {
+                CheckCancellation();
+                var inner = TaskRegion(caller, call.OperationId, level);
+                Complete(task, [inner], unfollowed: false, new TaskCompleter(caller.Id, call.OperationId, TaskCompleterKind.Task));
+                task = inner;
+            }
+
+            Complete(task, [], unfollowed, new TaskCompleter(caller.Id, call.OperationId, TaskCompleterKind.ModelResult));
+            return Field(task, COMPLETION_FIELD);
         }
 
         /// <summary>Creates an object whose identity, group and display distinguish its destination and path in the call's graph.</summary>
@@ -3200,7 +3949,7 @@ public static partial class WholeProgram
 
         private sealed record GraphNode(string Path, string TypeKey, string? Parent, string? Slot, int Depth);
 
-        private IReadOnlyList<GraphNode> CreatedNodes(IrLibraryResult form, string typeKey, ResultDestination destination) => form.Kind switch
+        private IReadOnlyList<GraphNode> CreatedNodes(IrLibraryResult form, string typeKey, ResultDestination destination) => form.Leaf.Kind switch
         {
             IrResultKind.New => GraphNodes(typeKey),
             IrResultKind.Collection or IrResultKind.Dictionary when destination.OutputOrdinal is not null => [new GraphNode("root", typeKey, null, null, 0)],
@@ -3278,12 +4027,22 @@ public static partial class WholeProgram
             return objects["root"];
         }
 
-        /// <summary>The new object of its result type a known call creates and returns, null where the model names no result type.</summary>
-        private string? CreatedAtCall(InstanceState caller, SummaryOpaqueCall call) =>
-            call.Library!.ResultTypeKey is { } resultType ? CreatedAtCall(caller, call, resultType) : null;
-
         /// <summary>The new object of <paramref name="resultType"/> a call creates at its site and returns.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The call.</param>
+        /// <param name="resultType">The object's type key before the caller's substitution.</param>
         private string CreatedAtCall(InstanceState caller, SummaryOpaqueCall call, string resultType)
+        {
+            var created = CreatedObject(caller, call, resultType);
+            Add(CallResult(caller, call.OperationId), [created]);
+            return created;
+        }
+
+        /// <summary>The new object of <paramref name="resultType"/> a call creates at its site, wherever its result puts it.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The call.</param>
+        /// <param name="resultType">The object's type key before the caller's substitution.</param>
+        private string CreatedObject(InstanceState caller, SummaryOpaqueCall call, string resultType)
         {
             var typeKey = ProgramIndex.Substitute(resultType, caller.Substitution);
             var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
@@ -3291,7 +4050,6 @@ public static partial class WholeProgram
                                  $"alloc:{owner}#{DisplayType(typeKey)}", typeKey, caller.Context, $"alloc|{caller.BodyId}#{call.OperationId}",
                                  merged: caller.IsMerged, site: new CreationSite(caller.BodyId, call.OperationId, resultType, 1),
                                  exactType: call.IsConstructor);
-            Add(CallResult(caller, call.OperationId), [created]);
             return created;
         }
 
@@ -3405,8 +4163,8 @@ public static partial class WholeProgram
         /// <param name="caller">The caller.</param>
         /// <param name="call">The call.</param>
         /// <param name="fate">The fate.</param>
-        /// <param name="returns">The returns.</param>
-        private void Hold(InstanceState caller, SummaryOpaqueCall call, IrLibraryFate fate, IReadOnlyDictionary<int, TrackedSet<string>> returns)
+        /// <param name="returns">What the call's delegates give back (<see cref="ReturnsOf"/>).</param>
+        private void Hold(InstanceState caller, SummaryOpaqueCall call, IrLibraryFate fate, DelegateReturns returns)
         {
             var regions = fate.Inputs.Select((input, ordinal) => input.Select((value, position) => (Value: value, Position: position))
                                                                       .Where(item => item.Value is not (IrModelHolderArgument or IrModelNew))
@@ -3422,8 +4180,10 @@ public static partial class WholeProgram
                                                                                            ((IrModelNew)item.value).TypeKey)).ToTrackedSet())
                                        .ToArray();
             var delegates = Eval(caller, ArgumentOf(call, fate.ParameterOrdinal)).Where(_delegates.ContainsKey).ToArray();
+            // On a task member the holder is the innermost completion value, inside the chain of tasks a task(…) result of the
+            // member's depth makes (R4).
             IReadOnlyCollection<string> holders = fate.Holder == IrHolderKind.Result && !call.IsConstructor
-                ? CreatedAtCall(caller, call) is { } created ? [created] : []
+                ? call.Library!.ResultTypeKey is { } holderType ? [HolderAtCall(caller, call, holderType)] : []
                 : Eval(caller, call.Receivers);
             if (holders.Count == 0)
             {
@@ -3453,6 +4213,17 @@ public static partial class WholeProgram
                     Keep(holder, region, call.Callee, regions, holderArguments, newInputs);
                 }
             }
+        }
+
+        /// <summary>The holder of the result a known call creates, put where a <c>new</c> result of the member would stand.</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The known call.</param>
+        /// <param name="holderType">The holder's type key, the innermost type the member returns.</param>
+        private string HolderAtCall(InstanceState caller, SummaryOpaqueCall call, string holderType)
+        {
+            var created = CreatedObject(caller, call, holderType);
+            Add(ResultSlot(caller, call, call.Library!.ReturnTaskDepth, unfollowed: false), [created]);
+            return created;
         }
 
         private void Keep(string holder, string region, string callee, IReadOnlyList<TrackedSet<string>> regions,
@@ -3683,10 +4454,19 @@ public static partial class WholeProgram
             return reached;
         }
 
-        /// <summary>Records an unresolved dispatch with the receiver objects it sees and hands off the delegates it is given (R1, R3).</summary>
+        /// <summary>Records an unresolved dispatch with the receiver objects it sees and hands off the delegates it is given (R1, R3). An
+        /// async call whose other alternatives start a body has a task that body's returns do not account for alone.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="call">The unresolved call.</param>
+        /// <param name="receivers">The receiver objects it sees, each with the type of the run's own declaring the implementation.</param>
         private void Unresolved(InstanceState caller, CallTransfer call, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers)
         {
             _rebuilding.UnresolvedDispatches.Add((caller.Id, call.OperationId));
+            if (_asyncSpawns.TryGetValue((caller.Id, call.OperationId), out var site))
+            {
+                foreach (var handle in site.Handles.ToArray())
+                    Complete(handle, [], true, new TaskCompleter(caller.Id, call.OperationId, TaskCompleterKind.Unseen));
+            }
             if (!_rebuilding.UnresolvedReceivers.TryGetValue((caller.Id, call.OperationId), out var known))
                 _rebuilding.UnresolvedReceivers.Add((caller.Id, call.OperationId), known = []);
             known.UnionWith(receivers);
@@ -3756,6 +4536,7 @@ public static partial class WholeProgram
         }
 
         /// <summary>A lambda or local function body instance has the context of the member-body instance owning its cells.</summary>
+        /// <param name="cellOwners">The instances owning the body's capture cells.</param>
         private static string OwnerContext(IEnumerable<string> cellOwners) => string.Join(",", cellOwners.Order(StringComparer.Ordinal));
 
         private void Dispatch(InstanceState caller, CallTransfer call, string methodId, string receiver, IReadOnlyList<string> typeArguments,
@@ -3789,12 +4570,16 @@ public static partial class WholeProgram
         /// <summary>Whether a call through an interface decides every receiver object the heap knows for it as a member of the table: it is
         /// then no unresolved call, and runs nothing it is handed, as the member it is on each of them does not (ADR 0010, amendment of the
         /// phase 5b third run). A call the heap knows no receiver object for stays unresolved.</summary>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="call">The call through an interface.</param>
         private bool DecidesEvery(InstanceState instance, SummaryOpaqueCall call) =>
             (call.Implementations.Count != 0 || !_held.IsEmpty && !call.IsConstructor) && Eval(instance, call.Receivers) is { Count: > 0 } receivers &&
             receivers.All(receiver => !call.IsConstructor && _held.ContainsKey(receiver) ||
                                       call.Implementations.Count != 0 && CollectionObjects.Decision(call.Implementations, ObjectKind(receiver)) is not null);
 
         /// <summary>What a region is to a call through an interface (<see cref="CollectionObjects"/>).</summary>
+        /// <param name="regionId">The region.</param>
+        /// <param name="interfaceMethod">The interface member called, if any.</param>
         private string? ObjectKind(string regionId, string? interfaceMethod = null) =>
             CollectionObjects.KindOf(_regions[regionId], _program, _scope.Summaries, interfaceMethod);
 
@@ -3853,7 +4638,17 @@ public static partial class WholeProgram
                 AsyncSpawn(caller, call.OperationId, callee, kind);
             else
             {
-                Add(CallResult(caller, call.OperationId), callee.Returns);
+                // A call awaited at once into an async body gives its task, which completes with what the body returns; any other call
+                // gives what the body returns, a non-async body's tasks included.
+                if (call.IsAwaitedImmediately && IsAsyncBody(callee.BodyId))
+                {
+                    var task = TaskRegion(caller, call.OperationId);
+                    Add(CallResult(caller, call.OperationId), [task]);
+                    Complete(task, callee.Returns, callee.ReturnsUnfollowed, new TaskCompleter(callee.Id, -1, TaskCompleterKind.Returns));
+                    UnseenAlternative(caller, call.OperationId, task);
+                }
+                else
+                    Add(CallResult(caller, call.OperationId), callee.Returns);
                 if (callee.ReturnsUnfollowed && caller.UnfollowedCallResults.Add(call.OperationId))
                     _changes++;
             }
@@ -3869,13 +4664,20 @@ public static partial class WholeProgram
         /// <summary>An edge into an async body (not an async iterator) whose result the caller does not await at once starts that body
         /// as a spawn: <see cref="IrSpawnKind.AsyncVoid"/> for a <c>void</c> body, <see cref="IrSpawnKind.AsyncCall"/> otherwise, since
         /// an async body can only return <c>Task</c>, <c>ValueTask</c>, their generic forms or a type with an async method builder.</summary>
+        /// <param name="call">The call edge.</param>
+        /// <param name="callee">The instance the call runs.</param>
         private IrSpawnKind? AsyncSpawnKind(CallTransfer call, InstanceState callee) =>
             !call.IsAwaitedImmediately && _scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) && body is { IsAsync: true, IsAsyncIterator: false }
                 ? body.ReturnType == "void" ? IrSpawnKind.AsyncVoid : IrSpawnKind.AsyncCall
                 : null;
 
         /// <summary>Marks an async spawn edge; an <see cref="IrSpawnKind.AsyncCall"/>'s result is its site's handle region instead of
-        /// what the body returns, which is the task's value, not the task.</summary>
+        /// what the body returns, which is the task's completion value, not the task. A call one of whose alternatives the heap cannot
+        /// resolve may run a body it does not see, so what its task completes with is unknown as well.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="operationId">The call's operation.</param>
+        /// <param name="callee">The async body's instance.</param>
+        /// <param name="kind">The async spawn's kind.</param>
         private void AsyncSpawn(InstanceState caller, int operationId, InstanceState callee, IrSpawnKind kind)
         {
             var site = SiteOf(_asyncSpawns, caller, operationId, () => new SiteState(kind, operationId));
@@ -3884,19 +4686,35 @@ public static partial class WholeProgram
                 var handle = TaskRegion(caller, operationId);
                 Add(site.Handles, [handle]);
                 Add(CallResult(caller, operationId), [handle]);
+                Complete(handle, callee.Returns, callee.ReturnsUnfollowed || caller.UnresolvedCallTargets.Contains(operationId),
+                         new TaskCompleter(callee.Id, -1, TaskCompleterKind.Returns));
+                UnseenAlternative(caller, operationId, handle);
             }
 
             if (site.Callees.Add((callee.Id, SpawnRole.Work)))
                 _changes++;
         }
 
+        /// <summary>Records, for the export, that the task of a call one of whose alternatives the heap cannot resolve may be completed by
+        /// a body it does not see (<see cref="TaskCompleterKind.Unseen"/>): no producer the export names says what that body returns.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="operationId">The call's operation.</param>
+        /// <param name="task">The call's task region.</param>
+        private void UnseenAlternative(InstanceState caller, int operationId, string task)
+        {
+            if (caller.UnresolvedCallTargets.Contains(operationId))
+                Completed(task, new TaskCompleter(caller.Id, operationId, TaskCompleterKind.Unseen));
+        }
+
         private void NoReceiver(InstanceState caller, CallTransfer call) => _rebuilding.NoReceiver.Add((caller.BodyId, call.OperationId));
 
         /// <summary>Marks a dispatch whose receiver may come from an origin points-to does not follow: the bodies it resolves to are not
         /// every body it may run, so nothing that holds for all of them holds for the call.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="call">The dispatch.</param>
         private void UnresolvedTargets(InstanceState caller, CallTransfer call)
         {
-            if (!Unfollowed(caller, call.ReceiverUnknownSources, call.ReceiverSourceCalls))
+            if (!Unfollowed(caller, call.ReceiverUnknownSources, call.ReceiverSourceCalls, call.ReceiverCompletions))
                 return;
             if (caller.UnresolvedCallTargets.Add(call.OperationId))
                 _changes++;
@@ -3907,6 +4725,9 @@ public static partial class WholeProgram
 
         /// <summary>The substitution of a method running on a receiver region: the region's type projected onto the method's declaring
         /// type, plus the call's method type arguments.</summary>
+        /// <param name="receiver">The receiver region.</param>
+        /// <param name="method">The method.</param>
+        /// <param name="typeArguments">The call's method type arguments.</param>
         private IReadOnlyDictionary<string, string> ReceiverSubstitution(HeapRegion receiver, ProgramMethod method, IReadOnlyList<string> typeArguments) =>
             Substitution(method, receiver.TypeKey is null ? null : _program.ConstructedBase(receiver.TypeKey, method.ContainingTypeKey), typeArguments);
 
@@ -3999,10 +4820,9 @@ public static partial class WholeProgram
                 .SelectMany(target => location.Read ? Load(target.Region, target.Slot) : [target.Region]).ToTrackedSet(StringComparer.Ordinal),
             DelegateCreationValue created => [DelegateRegion(instance, created)],
             CapturedValue captured => instance.CellOwners.SelectMany(owner => Cell(owner, captured.SymbolKey)).ToTrackedSet(StringComparer.Ordinal),
-            AwaitResultValue awaited => Tails(instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId)
-                                                      .SelectMany(join => join.Handles)
-                                                      .SelectMany(handle => Eval(instance, handle.Values)))
-                                            .ToTrackedSet(StringComparer.Ordinal),
+            AwaitResultValue awaited => Completion(instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId)
+                                                           .SelectMany(join => join.Handles)
+                                                           .SelectMany(handle => Eval(instance, handle.Values))),
             PathValue path => EvalPath(instance, path),
             RegionValue region => [region.RegionId],
             _ => new TrackedSet<string>(StringComparer.Ordinal)
@@ -4170,6 +4990,7 @@ public static partial class WholeProgram
 
         /// <summary>An instance's context with its substitution: one body reached from one call site with two type arguments runs in
         /// two contexts, so it creates two objects, even when the created type itself is not generic.</summary>
+        /// <param name="instance">The instance.</param>
         private static string ContextKey(InstanceState instance) =>
             instance.Substitution.Count == 0
                 ? instance.Context
@@ -4305,10 +5126,15 @@ public static partial class WholeProgram
 
         /// <summary>Whether a value may come from an origin points-to does not follow: a parameter, a captured variable, an opaque call or
         /// an operation the summary does not model. A null or a field read before its first write is no object, and a source call is
-        /// followed to its callee, so it counts only when that callee's own result is unfollowed.</summary>
-        private static bool Unfollowed(InstanceState instance, IReadOnlySet<UnknownSource> sources, IReadOnlySet<int> calls) =>
+        /// followed to its callee, so it counts only when that callee's own result is unfollowed; a task's completion counts only when one
+        /// of the tasks its await or <c>Unwrap()</c> reads may complete with such an object.</summary>
+        /// <param name="instance">The instance expressing the value.</param>
+        /// <param name="sources">The value's unknown sources.</param>
+        /// <param name="calls">The value's source calls.</param>
+        /// <param name="completions">The awaits and <c>Unwrap()</c> calls whose completion the value may be.</param>
+        private static bool Unfollowed(InstanceState instance, IReadOnlySet<UnknownSource> sources, IReadOnlySet<int> calls, IReadOnlySet<int> completions) =>
             sources.Any(source => source is not (UnknownSource.Null or UnknownSource.FieldBeforeWrite or UnknownSource.SourceCall)) ||
-            calls.Any(instance.UnfollowedCallResults.Contains);
+            calls.Any(instance.UnfollowedCallResults.Contains) || completions.Any(instance.UnfollowedCompletions.Contains);
 
         private TrackedSet<string> RefResult(InstanceState instance, int operation, int ordinal) => Get(instance.RefResults, (operation, ordinal));
 

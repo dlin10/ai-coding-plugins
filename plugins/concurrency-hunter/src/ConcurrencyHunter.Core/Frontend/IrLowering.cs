@@ -31,6 +31,10 @@ public static class IrLowering
     /// <summary>Lowers a member with a source body. A constructor's body runs its type's initializers (unless it chains to
     /// <c>this(...)</c>), then the base or <c>this</c> call, then its own body; a type initializer runs the static initializers,
     /// then the static constructor body; an auto-property accessor loads or stores its backing field.</summary>
+    /// <param name="method">The member to lower.</param>
+    /// <param name="compilation">The compilation the member is declared in.</param>
+    /// <param name="rootDirectory">The root directory source locations are made relative to.</param>
+    /// <param name="cancellationToken">Cancels the lowering.</param>
     public static IrLoweredMethod Lower(IMethodSymbol method, Compilation compilation, string rootDirectory,
                                         CancellationToken cancellationToken) =>
         Lower(method, compilation, rootDirectory, cancellationToken, LibraryModels.BuiltIn);
@@ -61,6 +65,9 @@ public static class IrLowering
 
     /// <summary>The IR body id of every lambda and local function nested in <paramref name="method"/>, at any depth,
     /// keyed by the span of the nested function's declaring syntax; the ids are those <see cref="Lower"/> assigns.</summary>
+    /// <param name="method">The method whose nested functions are collected.</param>
+    /// <param name="compilation">The compilation the method is declared in.</param>
+    /// <param name="cancellationToken">Cancels the walk.</param>
     public static IReadOnlyDictionary<(SyntaxTree Tree, TextSpan Span), string> NestedBodyIds(
         IMethodSymbol method, Compilation compilation, CancellationToken cancellationToken)
     {
@@ -104,6 +111,10 @@ public static class IrLowering
 
     /// <summary>Assigns the ids of a graph's own lambdas and local functions; lambdas are numbered from
     /// <paramref name="lambdaOffset"/> + 1, so the graphs of one constructor body never repeat a number.</summary>
+    /// <param name="graph">The control flow graph whose own lambdas and local functions are numbered.</param>
+    /// <param name="bodyId">The id of the body the graph lowers to, which prefixes every nested id.</param>
+    /// <param name="outerIds">The ids already assigned to enclosing nested functions, copied into the result.</param>
+    /// <param name="lambdaOffset">The number of lambdas already numbered in earlier graphs of the same body.</param>
     private static (IMethodSymbol[] LocalFunctions, IFlowAnonymousFunctionOperation[] AnonymousFunctions,
                     Dictionary<IMethodSymbol, string> NestedIds) AssignNestedIds(
         ControlFlowGraph graph, string bodyId, IReadOnlyDictionary<IMethodSymbol, string> outerIds, int lambdaOffset)
@@ -201,6 +212,7 @@ public static class IrLowering
     /// <summary>The id of the method body that <paramref name="bodyId"/> is, or is nested in. Nested bodies append
     /// <c>#lambda&lt;n&gt;</c> or <c>#local:&lt;name&gt;</c> with an optional <c>~&lt;n&gt;</c>, composed; a <c>#</c>
     /// inside the documentation id itself, as in an explicit interface implementation, is part of the method id.</summary>
+    /// <param name="bodyId">The body id to strip of its nested-body suffixes.</param>
     public static string EnclosingMethodBodyId(string bodyId) => NESTED_BODY_SUFFIX.Replace(bodyId, "");
 
     internal static string RootBodyId(IMethodSymbol method) =>
@@ -208,6 +220,8 @@ public static class IrLowering
 
     /// <summary>A source property whose accessors all lack bodies and which is neither abstract, extern nor an interface
     /// member: its accessors have synthesized bodies over its backing field.</summary>
+    /// <param name="property">The property to test.</param>
+    /// <param name="cancellationToken">Cancels reading the declaring syntax.</param>
     internal static bool IsAutoProperty(IPropertySymbol property, CancellationToken cancellationToken) =>
         !property.IsAbstract && !property.IsExtern && property.ContainingType.TypeKind != TypeKind.Interface &&
         property.DeclaringSyntaxReferences.Length != 0 &&
@@ -404,6 +418,10 @@ public static class IrLowering
     /// <summary>The primary constructor parameters the type captures: those referenced outside its initializers and the
     /// primary constructor's base argument list. A reference inside a lambda or local function an initializer declares is a
     /// capture too: that nested body reads the parameter through the type, so the constructor must store it there.</summary>
+    /// <param name="type">The type whose declarations are searched for references.</param>
+    /// <param name="constructor">The primary constructor whose parameters are tested.</param>
+    /// <param name="compilation">The compilation the type is declared in.</param>
+    /// <param name="cancellationToken">Cancels the walk.</param>
     internal static IReadOnlyList<IParameterSymbol> CapturedPrimaryConstructorParameters(INamedTypeSymbol type, IMethodSymbol constructor,
                                                                                       Compilation compilation,
                                                                                       CancellationToken cancellationToken)
@@ -622,6 +640,7 @@ public static class IrLowering
         /// <summary>Marks the calls whose result an await takes with nothing of the body in between. A conditional, a <c>??</c> or a
         /// <c>switch</c> expression reaches its await through the assignments and phis the control-flow graph introduces for it, over
         /// temporaries of its own; a task the body keeps in a local of its own does not, since it may do anything before awaiting it.</summary>
+        /// <param name="blocks">The lowered blocks of the body.</param>
         private IrBlock[] MarkAwaited(IrBlock[] blocks)
         {
             var operations = blocks.SelectMany(block => block.Operations).ToArray();
@@ -677,6 +696,7 @@ public static class IrLowering
         /// <summary>Turns a continuation of a composite task into the unrecognized form (R7): the plan names <c>ContinueWith</c> on the
         /// task of one spawn, not on the task <c>WhenAll</c>, another unrecognized form or an <c>Unwrap</c> of one built, so such a
         /// continuation runs as work that overlaps everything and its completion gives no order.</summary>
+        /// <param name="blocks">The lowered blocks of the body.</param>
         private static IrBlock[] MarkComposite(IrBlock[] blocks)
         {
             var operations = blocks.SelectMany(block => block.Operations).ToArray();
@@ -1038,6 +1058,7 @@ public static class IrLowering
         /// is what the region would have been, so the section is every block the body's operations fall in, however the compiler
         /// spread them (TD-080).
         /// </summary>
+        /// <param name="block">The control flow graph block whose operations are lowered.</param>
         private void LowerOperations(BasicBlock block)
         {
             _closedHere.Clear();
@@ -1076,6 +1097,9 @@ public static class IrLowering
 
         /// <summary>Whether anything this block runs after <paramref name="index"/>, its branch condition included, is still
         /// inside the section.</summary>
+        /// <param name="section">The <c>lock</c> section to test.</param>
+        /// <param name="block">The block being lowered.</param>
+        /// <param name="index">The index of the operation in the block after which to look.</param>
         private static bool CoversAfter(LockSectionInfo section, BasicBlock block, int index) =>
             block.Operations.Skip(index + 1).Concat(block.BranchValue is { } value ? [value] : [])
                  .Any(later => Covers(section, later));
@@ -1095,6 +1119,7 @@ public static class IrLowering
         /// out of it, a <c>return</c> inside it — which is what the language guarantees and what the missing region would have
         /// said. The innermost section is left first, so nesting unwinds the way it was entered (R3).
         /// </summary>
+        /// <param name="block">The control flow graph block just lowered.</param>
         private void LowerLockExits(BasicBlock block)
         {
             foreach (var section in LockSections().Where(candidate => candidate.Blocks.Contains(block.Ordinal))
@@ -1106,6 +1131,8 @@ public static class IrLowering
         }
 
         /// <summary>Whether control leaves a section's blocks from this one: a successor outside them, or no successor at all.</summary>
+        /// <param name="block">The block whose successors are checked.</param>
+        /// <param name="section">The <c>lock</c> section whose blocks are tested.</param>
         private static bool LeavesSection(BasicBlock block, LockSectionInfo section) =>
             Successors(block).Any(successor => successor is not { } ordinal || !section.Blocks.Contains(ordinal));
 
@@ -1120,6 +1147,7 @@ public static class IrLowering
         }
 
         /// <summary>The <c>lock</c> statement an operation opens, when the statement is one over a <c>System.Threading.Lock</c>.</summary>
+        /// <param name="operation">The operation whose syntax may be a <c>lock</c> statement.</param>
         private LockSectionInfo? LockSectionOf(IOperation operation) =>
             operation.Syntax is LockStatementSyntax statement
                 ? LockSections().FirstOrDefault(section => section.Statement == statement)
@@ -1258,6 +1286,9 @@ public static class IrLowering
                 IArgumentOperation argument => LowerArgument(argument) ?? Unknown(argument, "address-taken"),
                 IDynamicInvocationOperation invocation => LowerDynamicInvocation(invocation),
                 IDynamicMemberReferenceOperation or IDynamicIndexerAccessOperation => LowerDynamicRead(operation),
+                // A default value task is complete with its result's default, which is no object, as a default of that type would be (R1).
+                IDefaultValueOperation { Type.IsValueType: true } value when Bcl.IsTask(value.Type, withValueTask: true) =>
+                    Constant(value, null, "default-value-task"),
                 _ when operation.ConstantValue.HasValue => Constant(operation, "constant"),
                 _ => LowerUnsupported(operation)
             };
@@ -1570,6 +1601,7 @@ public static class IrLowering
 
         /// <summary>Whether a compound target is one <see cref="LowerLongForm"/> lowers: an array element of any rank, or a property the
         /// lowering calls, which has both accessors.</summary>
+        /// <param name="target">The compound assignment's or increment's target.</param>
         private static bool IsLongFormTarget(IOperation target) =>
             target is IArrayElementReferenceOperation or IPropertyReferenceOperation { Property: { GetMethod: not null, SetMethod: not null } };
 
@@ -1577,6 +1609,10 @@ public static class IrLowering
         /// once, then the read of the target, what <paramref name="compute"/> lowers — the right-hand side and the operator — and the
         /// write of what it computed. An array element is an element load and store; a property is its getter and its setter, called
         /// with the same receiver and arguments as the long form calls them. Hands back the value read and the value written.</summary>
+        /// <param name="target">The long form's target.</param>
+        /// <param name="source">The operation the write's provenance names.</param>
+        /// <param name="transformation">The transformation the write's provenance records.</param>
+        /// <param name="compute">Lowers the right-hand side and the operator over the value read, returning the value to write.</param>
         private (int Read, int Written) LowerLongForm(IOperation target, IOperation source, string transformation, Func<int, int> compute)
         {
             var (read, write) = LowerLongFormRead(target);
@@ -1834,6 +1870,8 @@ public static class IrLowering
         /// a copy is made to mean what it copies, so a meaning added later travels without every copy site being found again
         /// (R3, ADR 0009).
         /// </summary>
+        /// <param name="sourceValue">The value copied from.</param>
+        /// <param name="targetValue">The value copied into.</param>
         private void Carry(int sourceValue, int targetValue)
         {
             if (_lockScopes.TryGetValue(sourceValue, out var scope))
@@ -1846,6 +1884,8 @@ public static class IrLowering
 
         /// <summary>The same for a value merged from several paths: it means what they all mean, and means nothing where they
         /// disagree — one path's scope is no proof about the value that arrives on the other.</summary>
+        /// <param name="targetValue">The merged value.</param>
+        /// <param name="sources">The values arriving on the merged paths.</param>
         private void Merge(int targetValue, IReadOnlyList<int> sources)
         {
             if (sources.Count == 0)
@@ -1861,6 +1901,9 @@ public static class IrLowering
 
         /// <summary>Whether every one of these values carries the same meaning, and what it is. A meaning is a value type as
         /// often as not, so "found" is answered on its own and never by testing the meaning against null.</summary>
+        /// <param name="sources">The values to compare; at least one.</param>
+        /// <param name="meanings">The meanings recorded per value.</param>
+        /// <param name="shared">The meaning they all carry, when they agree.</param>
         private static bool Same<TMeaning>(IReadOnlyList<int> sources, Dictionary<int, TMeaning> meanings, out TMeaning shared)
         {
             shared = default!;
@@ -1935,7 +1978,7 @@ public static class IrLowering
         }
 
         /// <summary>The call of a property's getter on a receiver and arguments already lowered, with a library model's effects bound
-        /// to its indexer arguments (R4).</summary>
+        /// to its indexer arguments (R4), and what a BCL getter gives, such as the task of a <c>TaskCompletionSource</c> (R1).</summary>
         /// <param name="property">The property or indexer read.</param>
         /// <param name="receiver">The receiver's value; null for a static property.</param>
         /// <param name="arguments">The indexer arguments' lowered values and ordinals.</param>
@@ -1945,6 +1988,7 @@ public static class IrLowering
             var value = AddCall(property, getter, receiver, arguments, property.Type);
             _operations[^1] = AnnotateLibraryCall(AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property)), getter,
                                                   property.Arguments, arguments);
+            AnnotateBclCall(property, getter, (IrCallOperation)_operations[^1], property.Arguments, arguments);
             return value;
         }
 
@@ -2098,6 +2142,7 @@ public static class IrLowering
         /// ref-returning indexer names, or what a ref-returning call hands back — read as a load of it reads it, with the write of a value
         /// to the same storage through the receiver and indices that read evaluated, which are never evaluated again (R1). Null for every
         /// other captured operation.</summary>
+        /// <param name="captured">The captured operation to read.</param>
         private (int Read, Action<int, IOperation, string> Write)? LowerCapturedStorageRead(IOperation captured)
         {
             switch (captured)
@@ -2221,12 +2266,15 @@ public static class IrLowering
 
         /// <summary>A base call runs the base member itself, never an override of it (R1): an exact call of that member, which runs
         /// its source body where it has one and follows a library model where one describes it without a source body.</summary>
+        /// <param name="call">The lowered call.</param>
+        /// <param name="isVirtual">Whether the call is dispatched virtually; when not, a virtual call becomes an exact instance call.</param>
         private static IrCallOperation AsBaseCall(IrCallOperation call, bool isVirtual) =>
             !isVirtual && call.CallKind == IrCallKind.Virtual ? call with { CallKind = IrCallKind.Instance } : call;
 
         /// <summary>Whether a property's accessor or a method group is dispatched virtually: not through <c>base</c>, which, as a base
         /// invocation does, names the base member itself. Roslyn's <see cref="IMethodReferenceOperation.IsVirtual"/> is true for
         /// <c>base.M</c> as well, so only the receiver's syntax tells the two apart.</summary>
+        /// <param name="member">The property or method reference whose receiver is tested.</param>
         private static bool IsVirtualAccess(IMemberReferenceOperation member) => member.Instance?.Syntax is not BaseExpressionSyntax;
 
         private int AddCall(IOperation source, IMethodSymbol method, int? receiver,
@@ -2265,6 +2313,7 @@ public static class IrLowering
         /// <summary>Whether the value of <paramref name="operation"/> is awaited in the same expression, directly or through a
         /// task's <c>ConfigureAwait</c>. A conditional, a <c>??</c> or a <c>switch</c> expression does not reach the await this way: the
         /// control-flow graph captures its branches first, so <see cref="MarkAwaited"/> follows those to the await instead.</summary>
+        /// <param name="operation">The operation whose value is tested.</param>
         private static bool IsAwaitedImmediately(IOperation operation)
         {
             var child = operation;
@@ -2284,11 +2333,23 @@ public static class IrLowering
             return parent is IAwaitOperation;
         }
 
-        /// <summary>Follows a call of a recognized BCL member with what it starts, joins or does to a timer. A call of a recognized
-        /// type in another form that is handed delegates becomes an unrecognized spawn of them.</summary>
+        /// <summary>Follows a call of a recognized BCL member with what it starts, joins or does to a timer, or what the task it gives or
+        /// completes completes with. A call of a recognized type in another form that is handed delegates becomes an unrecognized spawn
+        /// of them.</summary>
+        /// <param name="source">The invocation, creation or property read making the call.</param>
+        /// <param name="method">The member called.</param>
+        /// <param name="call">The lowered call.</param>
+        /// <param name="argumentOperations">The source operations of the arguments.</param>
+        /// <param name="arguments">The arguments' lowered values and ordinals.</param>
         private void AnnotateBclCall(IOperation source, IMethodSymbol method, IrCallOperation call,
                                      IEnumerable<IArgumentOperation> argumentOperations, LoweredArguments arguments)
         {
+            if (IsFrameworkAwaiterMember(method))
+            {
+                AnnotateAwaiterCall(source, method, call);
+                return;
+            }
+
             var type = Bcl.TypeOf(method);
             if (type is null)
                 return;
@@ -2322,6 +2383,52 @@ public static class IrLowering
             IrJoinOperation Join(IrJoinKind kind) => new(NextOperation(), kind, call.Id, [call.ReceiverValue!.Value], true, provenance);
 
             IrTimerOperation Timer(IrTimerAction action) => new(NextOperation(), action, call.ReceiverValue!.Value, provenance);
+
+            IrTaskOperation TaskOperation(IrTaskKind kind, IReadOnlyList<int> values) => new(NextOperation(), kind, call.Id, values, provenance);
+
+            int[] Arguments() => Enumerable.Range(0, original.Parameters.Length).Select(ordinal => ArgumentValue(arguments, ordinal))
+                                           .OfType<int>().ToArray();
+
+            // What a task completes with (R1), whichever value carries the task: a call's result, or the value a constructor creates.
+            var given = call.ResultValue ?? (method.MethodKind == MethodKind.Constructor ? call.ReceiverValue : null);
+            if (TaskCompletion() is { } completion)
+            {
+                _operations.Add(completion);
+                return;
+            }
+
+            IrTaskOperation? TaskCompletion()
+            {
+                switch (type, method.Name, original.Parameters.Length)
+                {
+                    case (Bcl.TASK or Bcl.VALUE_TASK, "FromResult", 1) when given is not null:
+                        return TaskOperation(IrTaskKind.Completed, Arguments()) with { ResultValue = given };
+                    // Over a task it is that task; over an IValueTaskSource it is what the source gives, which the heap does not follow;
+                    // over a value, or none, it is that value or the default.
+                    case (Bcl.VALUE_TASK or Bcl.VALUE_TASK_T, WellKnownMemberNames.InstanceConstructorName, 1)
+                        when given is not null && Bcl.IsTask(original.Parameters[0].Type, withValueTask: false):
+                        return TaskOperation(IrTaskKind.Same, []) with { ResultValue = given, TaskValue = ArgumentValue(arguments, 0) };
+                    case (Bcl.VALUE_TASK or Bcl.VALUE_TASK_T, WellKnownMemberNames.InstanceConstructorName, 2) when given is not null:
+                        return TaskOperation(IrTaskKind.Unfollowed, []) with { ResultValue = given };
+                    case (Bcl.VALUE_TASK or Bcl.VALUE_TASK_T, WellKnownMemberNames.InstanceConstructorName, _) when given is not null:
+                        return TaskOperation(IrTaskKind.Completed, Arguments()) with { ResultValue = given };
+                    case (Bcl.VALUE_TASK or Bcl.VALUE_TASK_T, "AsTask", 0) when given is not null:
+                    case (Bcl.TASK or Bcl.TASK_T or Bcl.VALUE_TASK or Bcl.VALUE_TASK_T, "GetAwaiter" or "ConfigureAwait", _) when given is not null:
+                    case (Bcl.TCS or Bcl.TCS_T, "get_Task", 0) when given is not null:
+                        return TaskOperation(IrTaskKind.Same, []) with { ResultValue = given, TaskValue = call.ReceiverValue };
+                    case (Bcl.TASK or Bcl.TASK_T, "WaitAsync", _) when given is not null:
+                        return TaskOperation(IrTaskKind.CompletionOf, [call.ReceiverValue!.Value]) with { ResultValue = given };
+                    case (Bcl.TASK, "WhenAny", var count) when given is not null:
+                        var listed = count == 1 ? ListedElements(ArgumentOperation(0)) : Arguments();
+                        return TaskOperation(IrTaskKind.AnyOf, listed ?? Arguments()) with { ResultValue = given, ValuesKnown = listed is not null };
+                    case (Bcl.TCS or Bcl.TCS_T, "SetResult" or "TrySetResult", _):
+                        return TaskOperation(IrTaskKind.Completed, Arguments()) with { TaskValue = call.ReceiverValue };
+                    case (Bcl.TCS or Bcl.TCS_T, "SetFromTask" or "TrySetFromTask", 1):
+                        return TaskOperation(IrTaskKind.CompletionOf, Arguments()) with { TaskValue = call.ReceiverValue };
+                    default:
+                        return null;
+                }
+            }
 
             switch (type, method.Name, original.Parameters.Length)
             {
@@ -2380,6 +2487,10 @@ public static class IrLowering
                 case (Bcl.TASK, "Wait", 0):
                     _operations.Add(Join(IrJoinKind.Wait));
                     break;
+                // The Result of a Task<T> throws only after the task completes; that of a ValueTask<T> may throw before (R3).
+                case (Bcl.TASK_T or Bcl.VALUE_TASK_T, "get_Result", 0):
+                    _operations.Add(Join(IrJoinKind.Result) with { ThrowsOnlyAfterCompletion = type == Bcl.TASK_T });
+                    break;
                 case (Bcl.THREAD, "Join", 0):
                     _operations.Add(Join(IrJoinKind.Join));
                     break;
@@ -2396,8 +2507,14 @@ public static class IrLowering
                 case (Bcl.TASK, "WhenAll", 1):
                 {
                     var listed = ListedElements(ArgumentOperation(0));
+                    // Over Task<T> the group completes with a new array of every task's completion value.
+                    var array = method.ReturnType is INamedTypeSymbol { TypeArguments: [var completed] } ? TypeKeyOf(completed) : null;
                     _operations.Add(new IrWhenAllOperation(NextOperation(), call.ResultValue!.Value, listed ?? [], listed is not null,
-                                                           provenance));
+                                                           provenance)
+                    {
+                        ArrayTypeKey = array,
+                        SourceValue = array is not null && listed is null ? ArgumentValue(arguments, 0) : null
+                    });
                     break;
                 }
                 case (Bcl.TIMER, "Change", 2):
@@ -2425,7 +2542,39 @@ public static class IrLowering
                 default:
                     if (work.Count != 0 && Bcl.IsRecognizedType(type))
                         _operations.Add(Spawn(IrSpawnKind.Unrecognized, null, work));
+                    // Any other task with a value such a type gives completes with what the heap does not follow, never with nothing,
+                    // wherever it travels: a call's result, or the task a constructor creates. A task without one stays the call's
+                    // result, which has no completion value to lose.
+                    if (Bcl.IsTaskType(type) && call.ResultValue is int unnamed && Bcl.CarriesValue(original.ReturnType))
+                        _operations.Add(TaskOperation(IrTaskKind.Unfollowed, []) with { ResultValue = unnamed });
+                    else if (Bcl.IsTaskType(type) && method.MethodKind == MethodKind.Constructor && Bcl.CarriesValue(method.ContainingType) &&
+                             call.ReceiverValue is int created)
+                        _operations.Add(TaskOperation(IrTaskKind.Unfollowed, []) with { TaskValue = created });
                     break;
+            }
+        }
+
+        /// <summary>Follows a call of a framework awaiter member the lowering recognizes: <c>GetResult()</c> of an awaiter is a
+        /// <see cref="IrJoinKind.Result"/> join on the awaiter, which is the same task as the one it was taken from, and
+        /// <c>GetAwaiter()</c> of a configured awaitable gives an awaiter of the same task (R1, R3).</summary>
+        /// <param name="source">The invocation making the call.</param>
+        /// <param name="method">The member called.</param>
+        /// <param name="call">The lowered call.</param>
+        private void AnnotateAwaiterCall(IOperation source, IMethodSymbol method, IrCallOperation call)
+        {
+            if (call.ReceiverValue is not int receiver)
+                return;
+            var provenance = Provenance(source, "bcl");
+            if (Awaiters.IsGetResult(method, out var throwsOnlyAfterCompletion))
+            {
+                _operations.Add(new IrJoinOperation(NextOperation(), IrJoinKind.Result, call.Id, [receiver], true, provenance)
+                {
+                    ThrowsOnlyAfterCompletion = throwsOnlyAfterCompletion
+                });
+            }
+            else if (call.ResultValue is int awaiter)
+            {
+                _operations.Add(new IrTaskOperation(NextOperation(), IrTaskKind.Same, call.Id, [], provenance) { ResultValue = awaiter, TaskValue = receiver });
             }
         }
 
@@ -2504,6 +2653,7 @@ public static class IrLowering
 
         /// <summary>The values of the tasks a call lists itself (separate arguments, an array creation or a collection expression
         /// written in the call); null for any other collection.</summary>
+        /// <param name="argument">The argument operation, looked through its conversions.</param>
         private IReadOnlyList<int>? ListedElements(IOperation? argument)
         {
             while (argument is IConversionOperation conversion)
@@ -2569,6 +2719,7 @@ public static class IrLowering
         }
 
         /// <summary>Lowered as the unsupported operation it was; its elements are remembered when none is a spread.</summary>
+        /// <param name="collection">The collection expression.</param>
         private int LowerCollectionExpression(ICollectionExpressionOperation collection)
         {
             var operands = collection.ChildOperations.Select(LowerValue).ToArray();
@@ -2604,16 +2755,26 @@ public static class IrLowering
         }
 
         /// <summary>Whether a recognizer of phases 1-4 models the call (R1): a member of a type one owns, or the creation of a framework
-        /// slice, <c>AsSpan</c>, <c>AsMemory</c>, <c>Slice</c> or a <c>Span</c> or <c>ReadOnlySpan</c> constructor.</summary>
+        /// slice, <c>AsSpan</c>, <c>AsMemory</c>, <c>Slice</c> or a <c>Span</c> or <c>ReadOnlySpan</c> constructor; or a member of a
+        /// framework awaiter the lowering recognizes by itself (<see cref="RecognizerOf(IMethodSymbol)"/>).</summary>
+        /// <param name="method">The method called.</param>
         private static bool IsRecognized(IMethodSymbol method) =>
             Bcl.TypeOf(method) is { } type &&
             (LibraryModels.IsRecognizedType(type) ||
              SpanTypes.Names(type) && (method.MethodKind == MethodKind.Constructor
                                            ? type is "System.Span`1" or "System.ReadOnlySpan`1"
-                                           : method.Name is "AsSpan" or "AsMemory" or "Slice"));
+                                           : method.Name is "AsSpan" or "AsMemory" or "Slice")) ||
+            IsFrameworkAwaiterMember(method);
+
+        /// <summary>Whether a call is of a member of a framework awaiter or configured awaitable that the lowering recognizes: one the
+        /// owner claims, of a type declared outside source, so a same-named user type is an ordinary call.</summary>
+        /// <param name="method">The method called.</param>
+        private static bool IsFrameworkAwaiterMember(IMethodSymbol method) =>
+            RecognizerOf(method) is not null && !method.ContainingType.OriginalDefinition.Locations.Any(location => location.IsInSource);
 
         /// <summary>The ordinals of the parameters whose argument is an array created in its place: a <c>params</c> array or
         /// collection, or an array creation or collection expression written as the argument (R4).</summary>
+        /// <param name="arguments">The call's arguments.</param>
         private static int[] CreatedArrays(IEnumerable<IArgumentOperation> arguments) =>
             arguments.Where(argument => argument.Parameter is not null &&
                                         (argument.ArgumentKind is ArgumentKind.ParamArray or ArgumentKind.ParamCollection ||
@@ -2627,6 +2788,8 @@ public static class IrLowering
         /// <summary>Lowers a call that enters or leaves a synchronization primitive into that entry or exit (TD-080, TD-083). An
         /// entry with a timeout holds the primitive only where its success flag is true, and an asynchronous entry only where its
         /// result is awaited; an unrecognized type stays an ordinary call and is no protection.</summary>
+        /// <param name="invocation">The call to lower.</param>
+        /// <param name="result">The value the lowered call produces, when it was lowered.</param>
         private bool TryLowerSynchronization(IInvocationOperation invocation, out int result)
         {
             result = 0;
@@ -2695,6 +2858,9 @@ public static class IrLowering
         }
 
         /// <summary>The entry an <c>await</c> completes, if the value it awaits is the result of one.</summary>
+        /// <param name="awaitable">The value awaited, or a configured awaitable standing for its task.</param>
+        /// <param name="awaited">The await's result, which is the success flag of a conditional entry.</param>
+        /// <param name="source">The operation the entry's provenance names.</param>
         private void LowerPendingEntry(int awaitable, int? awaited, IOperation source)
         {
             var key = _configuredTasks.TryGetValue(awaitable, out var task) ? task : awaitable;
@@ -2717,6 +2883,8 @@ public static class IrLowering
         /// performs on that cell, marked atomic. A cell of an array is such a cell as much as a field is: nothing else in the
         /// program says that <c>Interlocked.Increment(ref slots[0])</c> changes that element at all (R1). A target the analysis
         /// does not name, a local among them, stays an ordinary call, as does every member that names no cell at all.</summary>
+        /// <param name="invocation">The call to lower.</param>
+        /// <param name="result">The value the lowered call produces, when it was lowered.</param>
         private bool TryLowerAtomic(IInvocationOperation invocation, out int result)
         {
             result = 0;
@@ -2770,6 +2938,12 @@ public static class IrLowering
 
         /// <summary>The same as <see cref="TryLowerAtomic"/> for a cell of a collection, which is a cell of the collection's own
         /// resource and not of any field of it (ADR 0010).</summary>
+        /// <param name="invocation">The call to lower.</param>
+        /// <param name="effect">The atomic effect of the called member.</param>
+        /// <param name="collection">The collection whose cell the call names.</param>
+        /// <param name="indexOperations">The indices of the cell.</param>
+        /// <param name="namesOneCell">Whether the indices name exactly one cell of the collection.</param>
+        /// <param name="result">The value the lowered call produces.</param>
         private bool TryLowerAtomicElement(IInvocationOperation invocation, IrAtomicEffect effect, IOperation collection,
                                            IReadOnlyList<IOperation> indexOperations, bool namesOneCell, out int result)
         {
@@ -2801,6 +2975,10 @@ public static class IrLowering
 
         /// <summary>Marks a field load or store atomic when its field is <c>volatile</c>: each read and write of such a field is
         /// atomic on its cell, although a read-modify-write built from two of them is not (TD-082).</summary>
+        /// <param name="field">The field loaded or stored.</param>
+        /// <param name="operationId">The id of the load or store operation.</param>
+        /// <param name="effect">Whether the access is a read or a write.</param>
+        /// <param name="provenance">The provenance of the access.</param>
         private void MarkVolatile(IrFieldRef field, int operationId, IrAtomicEffect effect, IrProvenance provenance)
         {
             if (field.IsVolatile)
@@ -2818,6 +2996,8 @@ public static class IrLowering
 
         /// <summary>The value a compare-and-swap checks the cell against, which is the parameter it declares for it; every other
         /// member checks nothing and writes what it was handed (R1).</summary>
+        /// <param name="effect">The atomic effect of the called member.</param>
+        /// <param name="arguments">The call's lowered arguments.</param>
         private static int? ComparandOf(IrAtomicEffect effect, LoweredArguments arguments) =>
             effect == IrAtomicEffect.CompareAndSwap ? arguments.At(Atomics.COMPARAND) : null;
 
@@ -3037,6 +3217,10 @@ public static class IrLowering
 
         /// <summary>A null test of <paramref name="tested"/>. Which way it runs is the comparison's operator: the compare itself
         /// is the same for <c>== null</c> and <c>!= null</c>.</summary>
+        /// <param name="test">The testing operation, whose type the result has and which the provenance names.</param>
+        /// <param name="tested">The operation whose value is tested against null.</param>
+        /// <param name="transformation">The transformation the provenance records.</param>
+        /// <param name="comparison">The comparison's operator: equal for <c>== null</c>, not equal for <c>!= null</c>.</param>
         private int LowerNullTest(IOperation test, IOperation tested, string transformation,
                                   IrComparisonOperator comparison = IrComparisonOperator.Equal)
         {
@@ -3051,6 +3235,7 @@ public static class IrLowering
         }
 
         /// <summary>The comparison an operator kind names.</summary>
+        /// <param name="kind">The binary operator kind.</param>
         private static IrComparisonOperator? Operator(BinaryOperatorKind kind) => kind switch
         {
             BinaryOperatorKind.Equals => IrComparisonOperator.Equal,
@@ -3064,6 +3249,7 @@ public static class IrLowering
 
         /// <summary>The operand <c>==</c> or <c>!=</c> compares with the <c>null</c> constant, when the operand is a reference
         /// or nullable value type and no user-defined operator is involved.</summary>
+        /// <param name="binary">The binary operation to inspect.</param>
         private static IOperation? NullTestOperand(IBinaryOperation binary)
         {
             if (binary.OperatorKind is not (BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals) || binary.OperatorMethod is not null)
@@ -3374,6 +3560,8 @@ public static class IrLowering
 
         /// <summary>The keys of the variables the body of <paramref name="function"/> captures, in the order its capture
         /// operations name them.</summary>
+        /// <param name="function">The lambda or local function whose captures are listed.</param>
+        /// <param name="graph">The function's control flow graph.</param>
         private IReadOnlyList<string> CapturedSymbolKeys(IMethodSymbol function, ControlFlowGraph graph) =>
             SsaPlan.Create(function, graph, EffectiveFlowGraph.Create(graph))
                    .CapturedVariables
@@ -3406,6 +3594,7 @@ public static class IrLowering
 
         /// <summary>A <c>dynamic</c> call: the receiver and the arguments are its operands, and the member it names is part of its
         /// callee, so a call of <c>d.Read()</c> is never taken for a read of a member <c>Read</c> (R4).</summary>
+        /// <param name="invocation">The dynamic invocation.</param>
         private int LowerDynamicInvocation(IDynamicInvocationOperation invocation)
         {
             var (receiver, callee) = invocation.Operation is IDynamicMemberReferenceOperation member
@@ -3480,6 +3669,7 @@ public static class IrLowering
         /// computes: an indexer that hands back a reference hands back the cell itself, which is what <c>Span&lt;T&gt;</c> and
         /// every other ref-returning indexer do. Anything a caller can assign through is storage, and storage of a receiver is
         /// an element of it (TD-043).</summary>
+        /// <param name="property">The property reference to test.</param>
         private static bool IsElementIndexer(IPropertyReferenceOperation property) =>
             property is { Property.IsIndexer: true, Property.RefKind: RefKind.Ref or RefKind.RefReadOnly, Instance: not null } &&
             property.Arguments.Length != 0;
@@ -3487,6 +3677,7 @@ public static class IrLowering
         /// <summary>Whether the index of such an indexer names one cell of the receiver: proven for the types
         /// <see cref="SpanTypes"/> knows and for nothing else, since a foreign indexer may hand back one cell for every index it
         /// is given, and numbering its cells would take a real pair away as two disjoint ones (TD-043).</summary>
+        /// <param name="property">The element indexer reference.</param>
         private static bool NamesOneCell(IPropertyReferenceOperation property) =>
             SpanTypes.Names(Bcl.TypeName(property.Property.ContainingType));
 
@@ -3571,6 +3762,7 @@ public static class IrLowering
         }
 
         /// <summary>Versions count per variable, and per symbol across the graphs of one body.</summary>
+        /// <param name="variable">The SSA variable a new version is defined for.</param>
         private int AddSsaValue(SsaVariable variable)
         {
             int version;
@@ -3601,6 +3793,7 @@ public static class IrLowering
         private string? KeyOf(SsaVariable variable) => variable.Symbol is null ? null : SymbolKey(variable.Symbol);
 
         /// <summary>A local's or parameter's identity: the body declaring it, its name and its declaration's span start.</summary>
+        /// <param name="symbol">The local or parameter.</param>
         private string SymbolKey(ISymbol symbol)
         {
             var declaringBody = symbol.ContainingSymbol is IMethodSymbol containing && _nestedIds.TryGetValue(containing, out var nestedId)
@@ -3709,10 +3902,17 @@ public static class IrLowering
         private readonly record struct FieldLocation(int? Receiver, IrFieldRef Field);
 
         /// <summary>A lock a scope object holds until it is disposed.</summary>
+        /// <param name="LockValue">The value of the primitive the scope holds.</param>
+        /// <param name="Primitive">The kind of synchronization primitive.</param>
+        /// <param name="Mode">The mode the primitive is held in.</param>
         private readonly record struct LockScope(int LockValue, IrSynchronizationPrimitive Primitive, IrLockMode Mode);
 
         /// <summary>An asynchronous entry waiting to be awaited; a conditional one holds the primitive only where the value the
         /// await produces is true.</summary>
+        /// <param name="LockValue">The value of the primitive entered.</param>
+        /// <param name="Primitive">The kind of synchronization primitive.</param>
+        /// <param name="Mode">The mode the primitive is entered in.</param>
+        /// <param name="IsConditional">Whether the entry holds the primitive only where the awaited result is true.</param>
         private readonly record struct PendingEntry(int LockValue, IrSynchronizationPrimitive Primitive, IrLockMode Mode,
                                                     bool IsConditional);
 
@@ -3725,6 +3925,7 @@ public static class IrLowering
             /// lowered in the order they are written, for their side effects, and read by the parameter they are bound to: a
             /// named argument may be written in any order, so a position names a different parameter for every caller who
             /// writes them differently.</summary>
+            /// <param name="ordinal">The ordinal of the parameter.</param>
             internal int? At(int ordinal)
             {
                 for (var position = 0; position < Values.Count; position++)
@@ -3753,6 +3954,13 @@ public static class IrLowering
         : LibraryModels.IsRecognizedType(metadataName) || SpanTypes.Names(metadataName) ? "recognized"
         : null;
 
+    /// <summary>The recognizer of the lowering that claims a member of a type it does not claim whole, wherever the type is declared:
+    /// <c>recognized</c> for <c>GetResult()</c> of a task's awaiter and <c>GetAwaiter()</c> of a configured awaitable (R3); <c>null</c>
+    /// for every other member, <c>OnCompleted</c> and <c>UnsafeOnCompleted</c> among them, whose callbacks stay unresolved handoffs.
+    /// The lowering's recognition and the generator's claims both ask it.</summary>
+    /// <param name="method">The method, from metadata or from source.</param>
+    internal static string? RecognizerOf(IMethodSymbol method) => Awaiters.Claims(method) ? "recognized" : null;
+
     /// <summary>The task, thread, parallel and timer members of the BCL the lowering recognizes, by the metadata name of the type
     /// declaring the called member. A type declared in source never matches, so a same-named user type is an ordinary call, and a
     /// derived type that does not override a member still calls the BCL one.</summary>
@@ -3769,10 +3977,20 @@ public static class IrLowering
         internal const string TIMER = "System.Threading.Timer";
         internal const string WAIT_HANDLE = "System.Threading.WaitHandle";
         internal const string TIMERS_TIMER = "System.Timers.Timer";
-        private const string VALUE_TASK = "System.Threading.Tasks.ValueTask";
-        private const string VALUE_TASK_T = "System.Threading.Tasks.ValueTask`1";
+        internal const string VALUE_TASK = "System.Threading.Tasks.ValueTask";
+        internal const string VALUE_TASK_T = "System.Threading.Tasks.ValueTask`1";
+        internal const string TCS = "System.Threading.Tasks.TaskCompletionSource";
+        internal const string TCS_T = "System.Threading.Tasks.TaskCompletionSource`1";
 
         internal static string? TypeOf(ISymbol member) => Name(member.ContainingType);
+
+        /// <summary>Whether a type is a task whose members give tasks the lowering follows to their completion values.</summary>
+        /// <param name="type">The type's metadata name.</param>
+        internal static bool IsTaskType(string type) => type is TASK or TASK_T or VALUE_TASK or VALUE_TASK_T;
+
+        /// <summary>Whether a type is a task that completes with a value: <c>Task&lt;T&gt;</c> or <c>ValueTask&lt;T&gt;</c>.</summary>
+        /// <param name="type">The type.</param>
+        internal static bool CarriesValue(ITypeSymbol? type) => Name(type) is TASK_T or VALUE_TASK_T;
 
         /// <summary>Whether a type is one whose members the lowering recognizes, so a call of it in another form is unrecognized
         /// rather than an ordinary call.</summary>
@@ -3795,6 +4013,7 @@ public static class IrLowering
 
         /// <summary>Whether a delegate type, as the overload declares it, returns <c>Task</c> or <c>Task&lt;T&gt;</c>; a type
         /// parameter that a call binds to a task does not count.</summary>
+        /// <param name="type">The delegate type, as the overload declares it.</param>
         internal static bool ReturnsTask(ITypeSymbol type) =>
             type is INamedTypeSymbol { DelegateInvokeMethod.ReturnType: var returned } && IsTask(returned, withValueTask: false);
 
@@ -3835,12 +4054,71 @@ public static class IrLowering
 
         /// <summary>The metadata name of a type declared outside source; null for a type of this compilation, so a same-named user
         /// type is never taken for the framework one.</summary>
+        /// <param name="type">The type to name.</param>
         internal static string? TypeName(ITypeSymbol? type) => Name(type);
 
         private static string? Name(ITypeSymbol? type) =>
             type?.OriginalDefinition is INamedTypeSymbol { ContainingType: null } named && !named.Locations.Any(location => location.IsInSource)
                 ? $"{named.ContainingNamespace.ToDisplayString()}.{named.MetadataName}"
                 : null;
+    }
+
+    /// <summary>The awaiters of the four task types and the configured awaitables, whose members the lowering recognizes one by one:
+    /// a recognized type would make every member of it recognized, and <c>OnCompleted</c> and <c>UnsafeOnCompleted</c> are handed
+    /// callbacks that have to stay unresolved handoffs. Types are named by metadata name, a nested one after its containing type and
+    /// a <c>+</c>.</summary>
+    private static class Awaiters
+    {
+        private const string NAMESPACE = "System.Runtime.CompilerServices.";
+        private const string CONFIGURED_TASK = NAMESPACE + "ConfiguredTaskAwaitable";
+        private const string CONFIGURED_TASK_T = NAMESPACE + "ConfiguredTaskAwaitable`1";
+        private const string CONFIGURED_VALUE_TASK = NAMESPACE + "ConfiguredValueTaskAwaitable";
+        private const string CONFIGURED_VALUE_TASK_T = NAMESPACE + "ConfiguredValueTaskAwaitable`1";
+
+        /// <summary>The awaiters, each with whether its <c>GetResult()</c> throws only after the task completes: a <c>Task</c>'s does, a
+        /// <c>ValueTask</c>'s may throw before when an <c>IValueTaskSource</c> backs it (R3).</summary>
+        private static readonly Dictionary<string, bool> ThrowsOnlyAfterCompletion = new(StringComparer.Ordinal)
+        {
+            [NAMESPACE + "TaskAwaiter"] = true,
+            [NAMESPACE + "TaskAwaiter`1"] = true,
+            [CONFIGURED_TASK + "+ConfiguredTaskAwaiter"] = true,
+            [CONFIGURED_TASK_T + "+ConfiguredTaskAwaiter"] = true,
+            [NAMESPACE + "ValueTaskAwaiter"] = false,
+            [NAMESPACE + "ValueTaskAwaiter`1"] = false,
+            [CONFIGURED_VALUE_TASK + "+ConfiguredValueTaskAwaiter"] = false,
+            [CONFIGURED_VALUE_TASK_T + "+ConfiguredValueTaskAwaiter"] = false
+        };
+
+        /// <summary>Whether a member is one the lowering recognizes on these types, wherever the type is declared: <c>GetResult()</c>
+        /// of an awaiter or <c>GetAwaiter()</c> of a configured awaitable.</summary>
+        /// <param name="method">The method.</param>
+        internal static bool Claims(IMethodSymbol method) => IsGetResult(method, out _) || IsConfiguredGetAwaiter(method);
+
+        /// <summary>Whether a method is <c>GetResult()</c> of an awaiter, and whether it throws only after the task completes.</summary>
+        /// <param name="method">The method.</param>
+        /// <param name="throwsOnlyAfterCompletion">Whether it throws only after the task completes.</param>
+        internal static bool IsGetResult(IMethodSymbol method, out bool throwsOnlyAfterCompletion)
+        {
+            throwsOnlyAfterCompletion = false;
+            return method is { Name: "GetResult", Parameters.Length: 0 } && Name(method.ContainingType) is { } type &&
+                   ThrowsOnlyAfterCompletion.TryGetValue(type, out throwsOnlyAfterCompletion);
+        }
+
+        /// <summary>Whether a method is <c>GetAwaiter()</c> of a configured awaitable, which gives an awaiter of the same task.</summary>
+        /// <param name="method">The method.</param>
+        internal static bool IsConfiguredGetAwaiter(IMethodSymbol method) =>
+            method is { Name: "GetAwaiter", Parameters.Length: 0 } &&
+            Name(method.ContainingType) is CONFIGURED_TASK or CONFIGURED_TASK_T or CONFIGURED_VALUE_TASK or CONFIGURED_VALUE_TASK_T;
+
+        private static string? Name(INamedTypeSymbol? type)
+        {
+            if (type?.OriginalDefinition is not { } named)
+                return null;
+            var name = named.MetadataName;
+            for (var outer = named.ContainingType; outer is not null; outer = outer.ContainingType)
+                name = $"{outer.MetadataName}+{name}";
+            return named.ContainingNamespace is { IsGlobalNamespace: false } ns ? $"{ns.ToDisplayString()}.{name}" : name;
+        }
     }
 
     /// <summary>How a call enters or leaves a synchronization primitive (TD-080, TD-083). An unconditional entry holds it once
@@ -3872,6 +4150,7 @@ public static class IrLowering
 
         /// <summary>The parameter a conditional entry writes its success into: the <c>ref bool</c> the overload declares, which
         /// stands second on one overload and third on another, so it is found by what it is and never by where it is.</summary>
+        /// <param name="method">The entry method called.</param>
         internal static int? SuccessFlag(IMethodSymbol method) =>
             method.Parameters.FirstOrDefault(parameter => parameter.RefKind == RefKind.Ref &&
                                                           parameter.Type.SpecialType == SpecialType.System_Boolean)?.Ordinal;
@@ -3887,6 +4166,8 @@ public static class IrLowering
 
         /// <summary>What a call does, read from the type of the object it works on: <c>WaitOne</c> is declared by
         /// <c>WaitHandle</c>, so only the receiver says whether it is a mutex.</summary>
+        /// <param name="method">The method called.</param>
+        /// <param name="receiverType">The type of the call's receiver, if it has one.</param>
         internal static SyncEffect? EffectOf(IMethodSymbol method, ITypeSymbol? receiverType)
         {
             var type = IsMonitor(method) ? MONITOR : Bcl.TypeName(receiverType);
@@ -3917,6 +4198,7 @@ public static class IrLowering
         }
 
         /// <summary>Whether the entry can come back without the primitive: every overload with a timeout can.</summary>
+        /// <param name="method">The entry method called.</param>
         private static bool HasTimeout(IMethodSymbol method) =>
             method.Parameters.Any(parameter => parameter.Type.SpecialType == SpecialType.System_Int32 ||
                                                Bcl.TypeName(parameter.Type) == "System.TimeSpan");
@@ -3932,6 +4214,8 @@ public static class IrLowering
         /// <summary>How many permits an exit gives back: one for every primitive taken and given back once, including
         /// <c>SemaphoreSlim.Release()</c>; the constant a <c>Release(n)</c> names, read from the parameter that declares the count
         /// and never from the position it is written in; and null where that count is no constant (TD-083).</summary>
+        /// <param name="invocation">The exit call, whose arguments give the count.</param>
+        /// <param name="method">The exit method called.</param>
         internal static int? PermitsOf(IInvocationOperation invocation, IMethodSymbol method) =>
             Bcl.TypeName(method.ContainingType) != SEMAPHORE_SLIM || method.Name != "Release" || method.Parameters.Length == 0
                 ? 1
@@ -3942,6 +4226,7 @@ public static class IrLowering
 
         /// <summary>The count a <c>SemaphoreSlim</c> was constructed with, when it is a constant: the parameter that declares it
         /// and never the argument that stands first, which a caller naming them may write anywhere (TD-083).</summary>
+        /// <param name="creation">The object creation.</param>
         internal static int? CapacityOf(IObjectCreationOperation creation) =>
             Bcl.TypeName(creation.Type) == SEMAPHORE_SLIM &&
             creation.Arguments.FirstOrDefault(argument => argument.Parameter?.Ordinal == 0)?.Value.ConstantValue
@@ -4091,6 +4376,7 @@ public static class IrLowering
         }
 
         /// <summary>How a collection compares the keys of its cells, read from the comparer its <c>new</c> is given.</summary>
+        /// <param name="creation">The collection's object creation.</param>
         internal static IrKeyEquality? EqualityOf(IObjectCreationOperation creation)
         {
             if (Bcl.TypeName(creation.Type) is not { } type || type is not (DICTIONARY or CONCURRENT_DICTIONARY))
@@ -4115,6 +4401,7 @@ public static class IrLowering
         }
 
         /// <summary>The name of the <c>StringComparer</c> member a comparer argument names, null for anything else.</summary>
+        /// <param name="value">The comparer argument's value.</param>
         private static string? Comparer(IOperation value) =>
             (value is IConversionOperation conversion ? conversion.Operand : value) is IPropertyReferenceOperation property &&
             Bcl.TypeName(property.Property.ContainingType) == "System.StringComparer"
@@ -4123,6 +4410,11 @@ public static class IrLowering
 
         /// <summary>A member's effects, with the ordinal of the argument naming its cell when it names one: without it the member
         /// touches every cell of the collection.</summary>
+        /// <param name="method">The member called.</param>
+        /// <param name="type">The metadata name of the collection type.</param>
+        /// <param name="keyed">Whether the member's first argument names its cell.</param>
+        /// <param name="structure">The member's effect on the collection's structure.</param>
+        /// <param name="element">The member's effect on the storage of its cells.</param>
         private static IrCollectionCall Effects(IMethodSymbol method, string type, bool keyed, IrCollectionEffect structure,
                                                 IrCollectionEffect element) =>
             new($"{type}.{method.Name}", structure, element, keyed && method.Parameters.Length != 0 ? 0 : null,
@@ -4155,6 +4447,7 @@ public static class IrLowering
 
         /// <summary>The view type declaring a member, <c>KeyCollection</c> or <c>ValueCollection</c> of a <c>Dictionary</c>; null for
         /// every other type, the views' own enumerators among them.</summary>
+        /// <param name="method">The member called.</param>
         private static string? ViewOf(IMethodSymbol method) =>
             method.ContainingType?.OriginalDefinition is { ContainingType: { } outer } view && Bcl.TypeName(outer) == DICTIONARY
                 ? view.Name switch
@@ -4167,6 +4460,7 @@ public static class IrLowering
 
         /// <summary>The ordinal of the parameter an overload takes a collection by, which it copies; null for an overload that takes
         /// none, such as a capacity or a comparer alone.</summary>
+        /// <param name="method">The overload called.</param>
         private static int? SourceOf(IMethodSymbol method) =>
             method.OriginalDefinition.Parameters.FirstOrDefault(parameter => IsSequence(parameter.Type))?.Ordinal;
 
@@ -4228,6 +4522,9 @@ public static class IrLowering
 
         /// <summary>The member of the table <paramref name="type"/> implements an interface member with, as a direct call of it is; null
         /// where the type does not implement the interface or the table does not model the member.</summary>
+        /// <param name="method">The interface member called.</param>
+        /// <param name="called">The interface declaring the member, as the call names it.</param>
+        /// <param name="type">The table type whose implementation is looked up.</param>
         private static IrImplementation? ImplementationOf(IMethodSymbol method, INamedTypeSymbol called, INamedTypeSymbol type)
         {
             foreach (var implemented in type.AllInterfaces.Where(@interface => SymbolEqualityComparer.Default.Equals(@interface.OriginalDefinition,
@@ -4267,6 +4564,8 @@ public static class IrLowering
         /// <summary>The public member of the table an explicit implementation stands for: the member of its type with the same name, or the
         /// one <see cref="Counterparts"/> names where the implementation calls a member of another name, and, where there are several, the
         /// one taking the implementation's parameters by name, then the one taking as many.</summary>
+        /// <param name="implementation">The explicit interface implementation.</param>
+        /// <param name="type">The table type declaring it.</param>
         private static IMethodSymbol? PublicCounterpart(IMethodSymbol implementation, INamedTypeSymbol type)
         {
             var name = implementation.Name[(implementation.Name.LastIndexOf('.') + 1)..];
@@ -4311,6 +4610,9 @@ public static class IrLowering
 
         /// <summary>The type of the view a <c>Keys</c> or <c>Values</c> member of <paramref name="implemented"/>'s type hands out, with the
         /// type arguments the call gives the interface.</summary>
+        /// <param name="target">The public <c>Keys</c> or <c>Values</c> member implementing the call.</param>
+        /// <param name="implemented">The interface as the type implements it.</param>
+        /// <param name="called">The interface as the call names it, whose type arguments are substituted.</param>
         private static string ViewTypeOf(IMethodSymbol target, INamedTypeSymbol implemented, INamedTypeSymbol called)
         {
             var type = target.ContainingType.OriginalDefinition;
@@ -4425,7 +4727,7 @@ public static class IrLowering
                 Keeps = match.Keeps.ToDictionary(keep => KeeperOrdinal(typed, keep.Key),
                                                  keep => (IReadOnlyList<IrModelValue>)keep.Value.Select(value => Value(typed, value)).ToArray()),
                 KeeperTypeKeys = match.Keeps.Keys.Where(name => name != "result")
-                    .Concat(match.Fates.SelectMany(fate => fate.Inputs ?? []).SelectMany(input => input).Concat(match.Result?.Values ?? [])
+                    .Concat(match.Fates.SelectMany(fate => fate.Inputs ?? []).SelectMany(input => input).Concat(match.Result?.Leaf.Values ?? [])
                                  .Concat(match.Stores.Values.SelectMany(values => values)).Concat(match.Outputs.Values.SelectMany(output => output.Values))
                                  .Concat(match.Keeps.Values.SelectMany(values => values)).SelectMany(Keepers))
                     .Distinct(StringComparer.Ordinal).ToDictionary(name => KeeperOrdinal(typed, name), name =>
@@ -4435,21 +4737,38 @@ public static class IrLowering
                 Outputs = match.Outputs.ToDictionary(output => Parameter(typed, output.Key).Ordinal, output => Result(typed, output.Value)),
                 OutputTypeKeys = match.Outputs.Keys.ToDictionary(name => Parameter(typed, name).Ordinal, name => SymbolNames.TypeKey(Parameter(typed, name).Type)),
                 Result = match.Result is { } result ? Result(typed, result) : null,
+                // The type of the result's leaf at every depth of task(…); a holder of the result on a task stands in its innermost
+                // completion value, so it is of the innermost type.
                 ResultTypeKey = method.MethodKind == MethodKind.Constructor ? SymbolNames.TypeKey(method.ContainingType)
                     : method.ReturnsVoid ? null
-                    : SymbolNames.TypeKey(method.ReturnType)
+                    : SymbolNames.TypeKey(Completion(method.ReturnType, match.Result?.TaskDepth ??
+                                                                         (match.Fates.Any(fate => fate.Holder == LibraryHolderKind.Result)
+                                                                             ? TaskTypes.Depth(method.ReturnType) : 0))),
+                ReturnTaskDepth = method.MethodKind == MethodKind.Constructor || method.ReturnsVoid ? 0 : TaskTypes.Depth(method.ReturnType)
             };
         }
 
-        private static IrLibraryResult Result(IMethodSymbol method, LibraryResult result) => new(result.Kind switch
+        /// <summary>What <paramref name="depth"/> levels of tasks around a type complete with.</summary>
+        /// <param name="type">The type.</param>
+        /// <param name="depth">How many task levels to look through.</param>
+        private static ITypeSymbol Completion(ITypeSymbol type, int depth)
         {
-            LibraryResultKind.Sequence => IrResultKind.Sequence,
-            LibraryResultKind.Collection => IrResultKind.Collection,
-            LibraryResultKind.Dictionary => IrResultKind.Dictionary,
-            LibraryResultKind.OneOf => IrResultKind.OneOf,
-            LibraryResultKind.New => IrResultKind.New,
-            _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
-        }, result.Values.Select(value => Value(method, value)).ToArray());
+            for (var level = 0; level < depth; level++)
+                type = TaskTypes.CompletionType(type) ?? throw new UnreachableException($"{type} completes with no value at depth {level}.");
+            return type;
+        }
+
+        private static IrLibraryResult Result(IMethodSymbol method, LibraryResult result) => result.Kind == LibraryResultKind.Task
+            ? new IrLibraryResult(IrResultKind.Task, [], Result(method, result.Inner!))
+            : new(result.Kind switch
+            {
+                LibraryResultKind.Sequence => IrResultKind.Sequence,
+                LibraryResultKind.Collection => IrResultKind.Collection,
+                LibraryResultKind.Dictionary => IrResultKind.Dictionary,
+                LibraryResultKind.OneOf => IrResultKind.OneOf,
+                LibraryResultKind.New => IrResultKind.New,
+                _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
+            }, result.Values.Select(value => Value(method, value)).ToArray());
 
         private static IrModelValue Value(IMethodSymbol method, LibraryValue value, ITypeSymbol? newType = null) => value switch
         {
@@ -4462,6 +4781,7 @@ public static class IrLowering
             ElementsValue elements => new IrModelElements(Value(method, elements.Source), ElementTypeKey(StaticType(method, elements.Source))),
             SequenceValue sequence => new IrModelSequence(sequence.Values.Select(item => Value(method, item)).ToArray()),
             GroupingValue grouping => new IrModelGrouping(Value(method, grouping.Key), Value(method, grouping.Values)),
+            CompletionValue completion => new IrModelCompletion(Value(method, completion.Source)),
             _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
         };
 
@@ -4478,6 +4798,7 @@ public static class IrLowering
             ElementsValue elements => Keepers(elements.Source),
             SequenceValue sequence => sequence.Values.SelectMany(Keepers),
             GroupingValue grouping => Keepers(grouping.Key).Concat(Keepers(grouping.Values)),
+            CompletionValue completion => Keepers(completion.Source),
             NewValue or ArgumentValue or ReturnsValue or HolderArgumentValue or Providers.LibraryModels.ThisValue => [],
             _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
         };
@@ -4495,6 +4816,7 @@ public static class IrLowering
             ArgumentValue argument => Parameter(method, argument.Parameter).Type,
             ReturnsValue returns => (Parameter(method, returns.Delegate).Type as INamedTypeSymbol)?.DelegateInvokeMethod?.ReturnType,
             ElementsValue elements => ElementType(StaticType(method, elements.Source)),
+            CompletionValue completion => TaskTypes.CompletionType(StaticType(method, completion.Source)),
             SequenceValue or GroupingValue or HolderArgumentValue or KeptValue => null,
             _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
         };
@@ -4508,6 +4830,7 @@ public static class IrLowering
 
         /// <summary>The type of what enumerating a value of <paramref name="source"/> yields, where it narrows what that may be: none for
         /// <c>object</c>, a type parameter or an unknown element type.</summary>
+        /// <param name="source">The static type of the enumerated value.</param>
         private static string? ElementTypeKey(ITypeSymbol? source) =>
             ElementType(source) is { SpecialType: not SpecialType.System_Object } element and not ITypeParameterSymbol
                 ? SymbolNames.TypeKey(element)
@@ -4621,6 +4944,9 @@ public static class IrLowering
 
         /// <summary>The kind of provider a value is: a well-known provider property, a constructor parameter (used directly or
         /// through an instance field only constructors write from one), or a local whose only write is such an initializer.</summary>
+        /// <param name="value">The receiver value to classify.</param>
+        /// <param name="model">The semantic model of the call's syntax tree.</param>
+        /// <param name="cancellationToken">Cancels the walk.</param>
         private static IrProviderKind? ProviderKind(IOperation value, SemanticModel model, CancellationToken cancellationToken)
         {
             switch (Unwrap(value))
@@ -4665,6 +4991,9 @@ public static class IrLowering
 
         /// <summary>An instance field of provider type whose every write is a constructor of its type storing one of the
         /// constructor's parameters, or an initializer storing a primary constructor parameter; at least one write.</summary>
+        /// <param name="field">The field to test.</param>
+        /// <param name="compilation">The compilation whose syntax trees declare the field's type.</param>
+        /// <param name="cancellationToken">Cancels the walk.</param>
         private static bool IsInjectedField(IFieldSymbol field, Compilation compilation, CancellationToken cancellationToken)
         {
             if (field.IsStatic || !IsServiceProvider(field.Type))
@@ -4705,6 +5034,7 @@ public static class IrLowering
         }
 
         /// <summary>A constructor parameter, possibly converted or guarded by <c>?? throw</c>.</summary>
+        /// <param name="value">The value written.</param>
         private static bool IsConstructorParameterValue(IOperation? value) => Unwrap(value) switch
         {
             IParameterReferenceOperation { Parameter: var parameter } => IsConstructorParameter(parameter),
@@ -4713,6 +5043,9 @@ public static class IrLowering
         };
 
         /// <summary>The initializer of a local declared once with one, when nothing else in its member writes it.</summary>
+        /// <param name="local">The local to look up.</param>
+        /// <param name="model">The semantic model of the syntax tree the local must be declared in.</param>
+        /// <param name="cancellationToken">Cancels the walk.</param>
         private static IOperation? SingleInitializer(ILocalSymbol local, SemanticModel model, CancellationToken cancellationToken)
         {
             if (local.DeclaringSyntaxReferences is not [var reference] ||

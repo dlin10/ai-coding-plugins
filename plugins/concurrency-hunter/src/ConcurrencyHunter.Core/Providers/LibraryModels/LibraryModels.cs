@@ -50,6 +50,9 @@ public sealed record LibraryModel(string Id, IReadOnlyList<SupportedAssemblyVers
 /// <summary>A type every one of whose members is known without effect when it takes only immutable arguments (R2). With
 /// <see cref="IncludesDerived"/> the rule covers every type of the framework that derives from it: one declared in the same
 /// assemblies, or in any other <c>System</c> assembly at the framework's range.</summary>
+/// <param name="Id">The type's declaration id.</param>
+/// <param name="Assemblies">The supported assemblies and version ranges.</param>
+/// <param name="IncludesDerived">Whether the rule also covers the framework types deriving from the type.</param>
 public sealed record ImmutableLibraryType(string Id, IReadOnlyList<SupportedAssemblyVersion> Assemblies, bool IncludesDerived = false);
 
 public enum LibraryMatchKind
@@ -109,6 +112,8 @@ public sealed class LibraryModels
         "System.Threading.Tasks.Parallel",
         "System.Threading.Tasks.ValueTask",
         "System.Threading.Tasks.ValueTask`1",
+        "System.Threading.Tasks.TaskCompletionSource",
+        "System.Threading.Tasks.TaskCompletionSource`1",
         "System.Threading.ThreadPool",
         "System.Threading.Thread",
         "System.Threading.Timer",
@@ -200,6 +205,7 @@ public sealed class LibraryModels
 
     /// <summary>Whether a recognizer of phases 3-4 owns the type with this metadata name: a call of its members keeps the behaviour
     /// of those phases and is never an unresolved call (R1).</summary>
+    /// <param name="metadataName">The type's metadata name.</param>
     public static bool IsRecognizedType(string metadataName) => RecognizedTypes.Contains(metadataName);
 
     /// <summary>Whether a member is declared in the run, so no library model ever applies to a call of it: the run lowers its body
@@ -211,6 +217,7 @@ public sealed class LibraryModels
     /// <summary>What a library model says about a call of <paramref name="method"/>: known, known but for the version of its assembly,
     /// or null for a member it does not describe. A member it describes by its immutable type only is known when every parameter
     /// is immutable and passed by value or <c>out</c>, and it is a method, a constructor, an operator or a getter.</summary>
+    /// <param name="method">The called method.</param>
     public LibraryMatch? Find(IMethodSymbol method)
     {
         var definition = (method.ReducedFrom ?? method).OriginalDefinition;
@@ -234,6 +241,7 @@ public sealed class LibraryModels
     /// <summary>The assemblies of built-in models that <paramref name="compilation"/> references at a version outside their range, one per
     /// assembly name: every call of theirs those models describe is an opaque call there (R5). They are the assemblies the models
     /// names, and any other <c>System</c> assembly declaring a type a rule for derived types covers.</summary>
+    /// <param name="compilation">The compilation whose referenced assemblies are checked.</param>
     public IEnumerable<(AssemblyIdentity Assembly, SupportedAssemblyVersion Range)> OutOfRangeReferences(Compilation compilation)
     {
         var named = _members.Values.SelectMany(member => member.Assemblies)
@@ -256,6 +264,8 @@ public sealed class LibraryModels
 
     /// <summary>Whether a namespace of an assembly declares a type deriving from the type with the documentation id
     /// <paramref name="baseId"/>.</summary>
+    /// <param name="namespace">The namespace searched, with its nested namespaces.</param>
+    /// <param name="baseId">The base type's documentation id.</param>
     private static bool Declares(INamespaceSymbol @namespace, string baseId) =>
         @namespace.GetTypeMembers().Any(type => DerivesFrom(type, baseId)) ||
         @namespace.GetNamespaceMembers().Any(nested => Declares(nested, baseId));
@@ -274,11 +284,16 @@ public sealed class LibraryModels
     /// <summary>Whether a value of <paramref name="type"/> can be neither changed nor used to reach anything that can: a string, a
     /// primitive, an enum, an immutable type of the built-in models whose type arguments are immutable too, and, inside the members of
     /// <paramref name="owner"/>, one of its own type parameters.</summary>
+    /// <param name="type">The type checked.</param>
+    /// <param name="owner">The type whose own type parameters count as immutable, or null for none.</param>
     public bool IsImmutable(ITypeSymbol type, INamedTypeSymbol? owner = null) => IsImmutable(type, owner, inRange: true);
 
     /// <summary><see cref="IsImmutable(ITypeSymbol, INamedTypeSymbol?)"/>, with the version of the type's assembly checked only
     /// when <paramref name="inRange"/>: a member's shape is the same at every version, and whether its own assembly is in range is
     /// what tells known from out of range (R5).</summary>
+    /// <param name="type">The type checked.</param>
+    /// <param name="owner">The type whose own type parameters count as immutable, or null for none.</param>
+    /// <param name="inRange">Whether the version of the type's assembly must be inside the rule's range.</param>
     private bool IsImmutable(ITypeSymbol type, INamedTypeSymbol? owner, bool inRange) => type switch
     {
         { TypeKind: TypeKind.Enum } => true,
@@ -339,6 +354,8 @@ public sealed class LibraryModels
 
     /// <summary>The range an immutable type's rule holds for in <paramref name="assembly"/>: one of its own assemblies, or, for a
     /// rule that covers derived types, any other <c>System</c> assembly of the framework at the framework's range.</summary>
+    /// <param name="type">The immutable type's rule.</param>
+    /// <param name="assembly">The assembly declaring the type, or null.</param>
     private static SupportedAssemblyVersion? RangeOf(ImmutableLibraryType type, IAssemblySymbol? assembly) =>
         RangeOf(type.Assemblies, assembly) ??
         (type.IncludesDerived && assembly?.Identity.Name is { } name && (name == "System" || name.StartsWith("System.", StringComparison.Ordinal))
@@ -366,6 +383,7 @@ public sealed class LibraryModels
 
     /// <summary>The metadata name of the type an id names or declares a member of: <c>T:System.String</c> names
     /// <c>System.String</c>, <c>M:System.Linq.Enumerable.ToList``1(...)</c> is declared by <c>System.Linq.Enumerable</c>.</summary>
+    /// <param name="id">The type or member documentation id.</param>
     private static string TypeOf(string id)
     {
         var name = id[2..];

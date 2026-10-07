@@ -49,6 +49,26 @@ public sealed class EntryComparatorTests
     public void A_result_of_another_form_is_an_unsafe_narrowing() =>
         Unsafe(Answer(Model(result: Result("collection(arg:p)"))), EntryTruth.Entry(Model(result: Result("[arg:p]"))));
 
+    [Theory]
+    [InlineData("[arg:p]", "task([arg:p])")]
+    [InlineData("task(collection(arg:p))", "task([arg:p])")]
+    [InlineData("task([arg:p])", "task(task([arg:p]))")]
+    [InlineData("task([arg:p])", "task([arg:p,arg:q])")]
+    [InlineData("task([completion(arg:p)])", "task([completion(arg:q)])")]
+    [InlineData("task([arg:p])", "task([completion(arg:p)])")]
+    public void A_task_result_whose_completion_differs_is_an_unsafe_narrowing(string answered, string truth) =>
+        Unsafe(Answer(Model(result: Result(answered))), EntryTruth.Entry(Model(result: Result(truth))));
+
+    [Fact]
+    public void A_task_result_covering_its_completion_values_is_safe()
+    {
+        var comparison = EntryComparator.Compare(Answer(Model(result: Result("task([completion(arg:p),arg:q])"))),
+                                                 EntryTruth.Entry(Model(result: Result("task([completion(arg:p)])"))));
+        Assert.False(comparison.IsUnsafeNarrowing, comparison.Detail);
+        Assert.False(comparison.IsExact, comparison.Detail);
+        Assert.True(EntryComparator.Compare(Answer(Model(result: Result("task(task(new))"))), EntryTruth.Entry(Model(result: Result("task(task(new))")))).IsExact);
+    }
+
     [Fact]
     public void A_result_missing_a_nested_value_is_an_unsafe_narrowing() =>
         Unsafe(Answer(Model(result: Result("[sequence(arg:p)]"))), EntryTruth.Entry(Model(result: Result("[sequence(arg:p,arg:q)]"))));

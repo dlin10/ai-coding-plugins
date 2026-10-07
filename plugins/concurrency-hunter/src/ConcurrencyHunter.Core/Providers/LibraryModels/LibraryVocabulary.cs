@@ -37,6 +37,7 @@ public sealed record LibraryFate(string Parameter, LibraryFateKind Kind, Library
 public abstract record LibraryValue
 {
     /// <summary>The value <paramref name="text"/> writes, or null when it breaks the grammar anywhere.</summary>
+    /// <param name="text">The complete value form.</param>
     public static LibraryValue? Parse(string text) => LibraryVocabulary.ValueParser.Whole(text, parser => parser.Value());
 
     /// <summary>The text two values that mean the same share, whatever order a <c>sequence</c> lists its values in.</summary>
@@ -51,6 +52,7 @@ public sealed record NewValue : LibraryValue
 }
 
 /// <summary><c>arg:P</c>: what the argument of parameter P points to.</summary>
+/// <param name="Parameter">The parameter's name.</param>
 public sealed record ArgumentValue(string Parameter) : LibraryValue
 {
     public override string ToString() => "arg:" + Parameter;
@@ -65,6 +67,7 @@ public sealed record ThisValue : LibraryValue
 }
 
 /// <summary><c>returns:D</c>: every object any run of delegate D returns.</summary>
+/// <param name="Delegate">The delegate parameter's name.</param>
 public sealed record ReturnsValue(string Delegate) : LibraryValue
 {
     public override string ToString() => "returns:" + Delegate;
@@ -72,6 +75,7 @@ public sealed record ReturnsValue(string Delegate) : LibraryValue
 }
 
 /// <summary><c>holder-arg:N</c>: the N-th argument of the call of a holder's member.</summary>
+/// <param name="Index">The argument's index N.</param>
 public sealed record HolderArgumentValue(int Index) : LibraryValue
 {
     public override string ToString() => "holder-arg:" + Index;
@@ -79,6 +83,7 @@ public sealed record HolderArgumentValue(int Index) : LibraryValue
 }
 
 /// <summary><c>elements(v)</c>: what enumerating v yields.</summary>
+/// <param name="Source">The enumerated value v.</param>
 public sealed record ElementsValue(LibraryValue Source) : LibraryValue
 {
     public override string ToString() => $"elements({Source})";
@@ -86,6 +91,7 @@ public sealed record ElementsValue(LibraryValue Source) : LibraryValue
 }
 
 /// <summary><c>sequence(v, …)</c>: a new library sequence yielding the values.</summary>
+/// <param name="Values">The values the sequence yields.</param>
 public sealed record SequenceValue(IReadOnlyList<LibraryValue> Values) : LibraryValue
 {
     public override string ToString() => $"sequence({string.Join(',', Values)})";
@@ -93,6 +99,8 @@ public sealed record SequenceValue(IReadOnlyList<LibraryValue> Values) : Library
 }
 
 /// <summary><c>grouping(k, v)</c>: a new object whose <c>Key</c> is k and which yields v.</summary>
+/// <param name="Key">The grouping's key k.</param>
+/// <param name="Values">The value v the grouping yields.</param>
 public sealed record GroupingValue(LibraryValue Key, LibraryValue Values) : LibraryValue
 {
     public override string ToString() => $"grouping({Key},{Values})";
@@ -107,17 +115,32 @@ public sealed record KeptValue(string Keeper) : LibraryValue
     internal override string Canonical => ToString();
 }
 
-public enum LibraryResultKind { Sequence, Collection, Dictionary, OneOf, New }
+/// <summary><c>completion(v)</c>: the completion value of the tasks v names.</summary>
+/// <param name="Source">The value v naming the tasks.</param>
+public sealed record CompletionValue(LibraryValue Source) : LibraryValue
+{
+    public override string ToString() => $"completion({Source})";
+    internal override string Canonical => $"completion({Source.Canonical})";
+}
+
+public enum LibraryResultKind { Sequence, Collection, Dictionary, OneOf, New, Task }
 
 /// <summary>What a known call returns: a new library sequence, a new collection or array, a new dictionary (keys, then values), or
-/// one of the objects the values name, or a new object graph of the destination's type.</summary>
+/// one of the objects the values name, or a new object graph of the destination's type, or a task completing with an inner result.</summary>
 /// <param name="Kind">The result form.</param>
-/// <param name="Values">The values the form names.</param>
-public sealed record LibraryResult(LibraryResultKind Kind, IReadOnlyList<LibraryValue> Values)
+/// <param name="Values">The values the form names; none for <c>task(…)</c>.</param>
+/// <param name="Inner">The result a <c>task(…)</c> completes with, otherwise null.</param>
+public sealed record LibraryResult(LibraryResultKind Kind, IReadOnlyList<LibraryValue> Values, LibraryResult? Inner = null)
 {
     /// <summary>The result <paramref name="text"/> writes, or null when it breaks the grammar anywhere.</summary>
     /// <param name="text">The complete result form.</param>
     public static LibraryResult? Parse(string text) => LibraryVocabulary.ValueParser.Whole(text, parser => parser.Result());
+
+    /// <summary>The innermost result that is not <c>task(…)</c>: the one owner of looking through <c>task(…)</c>.</summary>
+    public LibraryResult Leaf => Kind == LibraryResultKind.Task ? Inner!.Leaf : this;
+
+    /// <summary>How many <c>task(…)</c> stand around <see cref="Leaf"/>.</summary>
+    public int TaskDepth => Kind == LibraryResultKind.Task ? 1 + Inner!.TaskDepth : 0;
 
     public override string ToString() => Kind switch
     {
@@ -126,6 +149,7 @@ public sealed record LibraryResult(LibraryResultKind Kind, IReadOnlyList<Library
         LibraryResultKind.Dictionary => $"dictionary({string.Join(',', Values)})",
         LibraryResultKind.OneOf => $"[{string.Join(',', Values)}]",
         LibraryResultKind.New => "new",
+        LibraryResultKind.Task => $"task({Inner})",
         _ => throw new UnreachableException($"Unknown result kind {Kind}.")
     };
 
@@ -136,6 +160,7 @@ public sealed record LibraryResult(LibraryResultKind Kind, IReadOnlyList<Library
         LibraryResultKind.Dictionary => $"dictionary({string.Join(',', Values.Select(value => value.Canonical))})",
         LibraryResultKind.Sequence or LibraryResultKind.Collection or LibraryResultKind.OneOf => $"{Kind}({Set(Values)})",
         LibraryResultKind.New => "new",
+        LibraryResultKind.Task => $"task({Inner!.Canonical})",
         _ => throw new UnreachableException($"Unknown result kind {Kind}.")
     };
 
@@ -144,6 +169,10 @@ public sealed record LibraryResult(LibraryResultKind Kind, IReadOnlyList<Library
 }
 
 /// <summary>A fate as a model file writes it, before the entry step reads it.</summary>
+/// <param name="Parameter">The delegate parameter's name.</param>
+/// <param name="Fate">The fate's text, or null when absent.</param>
+/// <param name="Holder">The holder's text, or null when absent.</param>
+/// <param name="Inputs">The value texts handed to each delegate parameter, or null when absent.</param>
 internal sealed record RawFate(string Parameter, string? Fate, string? Holder, IReadOnlyList<IReadOnlyList<string>>? Inputs);
 
 /// <summary>The rules of the model file format (ADR 0012): the entry step, which needs only the file, and the member step, which
@@ -241,6 +270,8 @@ internal static class LibraryVocabulary
             if (ValueParser.Whole(target, parser => parser.Name()) is null)
                 throw new FormatException($"outputs target '{target}' must be a parameter name.");
             var output = LibraryResult.Parse(text) ?? throw new FormatException($"outputs value '{text}' does not parse.");
+            if (OutputRefusal(output) is { } outputRefusal)
+                throw new FormatException(outputRefusal);
             foreach (var value in output.Values)
                 Place(value, fates, into: null, output, "outputs", whole: true);
             outputs.Add(target, output);
@@ -250,9 +281,8 @@ internal static class LibraryVocabulary
         {
             if (ValueParser.Whole(keeper, parser => parser.Name()) is null || texts.Length == 0)
                 throw new FormatException("keeps must map a keeper to a non-empty array of values.");
-            if (keeper == "result" && result?.Kind != LibraryResultKind.New &&
-                !fates.Values.Any(fate => fate.Holder == LibraryHolderKind.Result))
-                throw new FormatException("keeps.result needs the result new.");
+            if (keeper == "result" && KeepsResultRefusal(result, fates.Values) is { } keepsRefusal)
+                throw new FormatException(keepsRefusal);
             var values = texts.Select(text => LibraryValue.Parse(text) ?? throw new FormatException($"keeps value '{text}' does not parse.")).ToArray();
             foreach (var value in values)
                 Place(value, fates, into: null, result: null, "keeps", whole: true);
@@ -261,8 +291,8 @@ internal static class LibraryVocabulary
         foreach (var fate in fates.Values)
             foreach (var value in fate.Inputs?.SelectMany(input => input) ?? [])
                 Place(value, fates, fate, result: null, "input", whole: true);
-        foreach (var value in result?.Values ?? [])
-            Place(value, fates, into: null, result, result!.Kind switch
+        foreach (var value in result?.Leaf.Values ?? [])
+            Place(value, fates, into: null, result, result!.Leaf.Kind switch
             {
                 LibraryResultKind.Sequence => "sequence(…)",
                 LibraryResultKind.Collection => "collection(…)",
@@ -270,12 +300,43 @@ internal static class LibraryVocabulary
                 LibraryResultKind.OneOf => "result list",
                 _ => "result"
             }, whole: true);
-        if (fates.Values.Any(fate => fate.Kind == LibraryFateKind.Iterator) && result?.Kind != LibraryResultKind.Sequence)
-            throw new FormatException("an iterator fate needs a sequence(…) result.");
-        if (result is not null && fates.Values.Any(fate => fate.Holder == LibraryHolderKind.Result))
-            throw new FormatException("an entry whose holder is the result carries no result.");
+        if (IteratorRefusal(result, fates.Values) is { } iteratorRefusal)
+            throw new FormatException(iteratorRefusal);
+        if (HolderResultRefusal(result, fates.Values) is { } holderRefusal)
+            throw new FormatException(holderRefusal);
         return (result, fates.Values.ToArray(), stores, outputs, keeps);
     }
+
+    /// <summary>The rule of <c>keeps.result</c>: it needs a result whose <see cref="LibraryResult.Leaf"/> is <c>new</c> under any
+    /// depth of <c>task(…)</c>, or a holder of the result. Null when it holds.</summary>
+    /// <param name="result">The entry's result, or null.</param>
+    /// <param name="fates">The entry's fates.</param>
+    private static string? KeepsResultRefusal(LibraryResult? result, IEnumerable<LibraryFate> fates) =>
+        result?.Leaf.Kind != LibraryResultKind.New && !fates.Any(fate => fate.Holder == LibraryHolderKind.Result)
+            ? "keeps.result needs the result new, under any depth of task(…), or a holder of the result."
+            : null;
+
+    /// <summary>The rule of an iterator fate: it needs a result whose <see cref="LibraryResult.Leaf"/> is <c>sequence(…)</c> under
+    /// any depth of <c>task(…)</c>. Null when it holds.</summary>
+    /// <param name="result">The entry's result, or null.</param>
+    /// <param name="fates">The entry's fates.</param>
+    private static string? IteratorRefusal(LibraryResult? result, IEnumerable<LibraryFate> fates) =>
+        fates.Any(fate => fate.Kind == LibraryFateKind.Iterator) && result?.Leaf.Kind != LibraryResultKind.Sequence
+            ? "an iterator fate needs a sequence(…) result, under any depth of task(…)."
+            : null;
+
+    /// <summary>The rule of a holder of the result: the entry carries no result, <c>task(…)</c> included. Null when it holds.</summary>
+    /// <param name="result">The entry's result, or null.</param>
+    /// <param name="fates">The entry's fates.</param>
+    private static string? HolderResultRefusal(LibraryResult? result, IEnumerable<LibraryFate> fates) =>
+        result is not null && fates.Any(fate => fate.Holder == LibraryHolderKind.Result)
+            ? "an entry whose holder is the result carries no result."
+            : null;
+
+    /// <summary>The rule of an <c>outputs</c> entry: <c>task(…)</c> describes a member's result only. Null when it holds.</summary>
+    /// <param name="output">The output's result form.</param>
+    private static string? OutputRefusal(LibraryResult output) =>
+        output.Kind == LibraryResultKind.Task ? "outputs never take task(…), which describes a member's result only." : null;
 
     /// <summary>Checks where a value stands: in the inputs of <paramref name="into"/>, or in <paramref name="result"/>.</summary>
     /// <param name="value">The value to check.</param>
@@ -309,7 +370,7 @@ internal static class LibraryVocabulary
                 var available = source.Kind switch
                 {
                     LibraryFateKind.InvokeNow => true,
-                    LibraryFateKind.Iterator => result?.Kind == LibraryResultKind.Sequence ||
+                    LibraryFateKind.Iterator => result?.Leaf.Kind == LibraryResultKind.Sequence ||
                                                 into is { Kind: LibraryFateKind.Iterator } && into.Parameter != source.Parameter,
                     LibraryFateKind.Holder or LibraryFateKind.Startup or LibraryFateKind.UnknownExecution or LibraryFateKind.NotRun => false,
                     _ => throw new UnreachableException($"Unknown fate kind {source.Kind}.")
@@ -319,6 +380,12 @@ internal static class LibraryVocabulary
                 break;
             case ElementsValue elements:
                 Place(elements.Source, fates, into, result, "elements(…)", whole: false);
+                break;
+            case CompletionValue completion:
+                // A value the entry builds itself is no task, whatever the member's types (R4).
+                if (completion.Source is SequenceValue or GroupingValue)
+                    throw new FormatException($"{value}: completion(…) needs a task, and {completion.Source} builds none.");
+                Place(completion.Source, fates, into, result, "completion(…)", whole: false);
                 break;
             case SequenceValue sequence:
                 foreach (var item in sequence.Values)
@@ -409,11 +476,12 @@ internal static class LibraryVocabulary
     {
         internal void Run()
         {
-            if (result is not null && fates.Any(fate => fate.Holder == LibraryHolderKind.Result))
-                throw new Refusal("an entry whose holder is the result carries no result.");
-            if (keeps.ContainsKey("result") && result?.Kind != LibraryResultKind.New &&
-                !fates.Any(fate => fate.Holder == LibraryHolderKind.Result))
-                throw new Refusal("keeps.result needs the result new.");
+            if (HolderResultRefusal(result, fates) is { } holderRefusal)
+                throw new Refusal(holderRefusal);
+            if (keeps.ContainsKey("result") && KeepsResultRefusal(result, fates) is { } keepsRefusal)
+                throw new Refusal(keepsRefusal);
+            if (IteratorRefusal(result, fates) is { } iteratorRefusal)
+                throw new Refusal(iteratorRefusal);
             foreach (var effect in effects)
             {
                 var target = TargetType(effect.Parameter);
@@ -454,8 +522,10 @@ internal static class LibraryVocabulary
                     throw new Refusal($"inputs of '{fate.Parameter}' name {inputs.Count} parameters; its delegate takes {invoke.Parameters.Length}.");
                 if (fate.Holder == LibraryHolderKind.This && (method.IsStatic || method.MethodKind == MethodKind.Constructor))
                     throw new Refusal("holder this needs an instance method that is not a constructor.");
-                if (fate.Holder == LibraryHolderKind.Result && method.MethodKind != MethodKind.Constructor && !method.ReturnType.IsReferenceType)
-                    throw new Refusal("holder result needs a constructor or a method returning a reference type.");
+                // On a task the holder is the innermost completion value; a task completing with no value holds nothing.
+                if (fate.Holder == LibraryHolderKind.Result && method.MethodKind != MethodKind.Constructor &&
+                    (TaskTypes.IsValueless(method.ReturnType) || !TaskTypes.Innermost(method.ReturnType).IsReferenceType))
+                    throw new Refusal("holder result needs a constructor or a method returning a reference type, or a task whose innermost completion value is one.");
                 for (var index = 0; index < (fate.Inputs?.Count ?? 0); index++)
                 {
                     foreach (var value in fate.Inputs![index])
@@ -482,10 +552,32 @@ internal static class LibraryVocabulary
                                 throw new Refusal($"outputs names '{output.Key}', which is no parameter.");
                 if (parameter.RefKind is not (RefKind.Out or RefKind.Ref))
                     throw new Refusal($"outputs parameter '{output.Key}' must be out or ref.");
+                if (OutputRefusal(output.Value) is { } outputRefusal)
+                    throw new Refusal(outputRefusal);
                 CheckResult(output.Value, parameter.Type);
             }
             if (result is not null)
-                CheckResult(result, method.ReturnType);
+                CheckMemberResult(result, method.ReturnType);
+        }
+
+        /// <summary>Checks a member's result against what it returns: a task's result is <c>task(X)</c>, X checked against what the
+        /// task completes with as the result of a member returning that type, or <c>[…]</c> of tasks the call returns; a task with no
+        /// value carries no result.</summary>
+        /// <param name="form">The result form.</param>
+        /// <param name="returnType">The type the member, or the task around this level, returns.</param>
+        private void CheckMemberResult(LibraryResult form, ITypeSymbol returnType)
+        {
+            if (form.Kind == LibraryResultKind.Task)
+            {
+                CheckMemberResult(form.Inner!, TaskTypes.CompletionType(returnType) ??
+                                               throw new Refusal($"task(…) needs Task<T> or ValueTask<T>; the member returns {returnType.ToDisplayString()}."));
+                return;
+            }
+            if (TaskTypes.IsValueless(returnType))
+                throw new Refusal($"{returnType.ToDisplayString()} completes with no value, so the member carries no result.");
+            if (TaskTypes.CompletionType(returnType) is not null && form.Kind != LibraryResultKind.OneOf)
+                throw new Refusal($"{form} names no task; a member returning {returnType.ToDisplayString()} takes task(…) or […] of tasks.");
+            CheckResult(form, returnType);
         }
 
         private void CheckLeaves(LibraryValue value)
@@ -569,7 +661,7 @@ internal static class LibraryVocabulary
                 case ElementsValue elements:
                     Projected(elements.Source, destination, 1);
                     return;
-                case ArgumentValue or ReturnsValue or ThisValue or HolderArgumentValue or KeptValue:
+                case ArgumentValue or ReturnsValue or ThisValue or HolderArgumentValue or KeptValue or CompletionValue:
                     break;
                 case NewValue:
                     throw new Refusal("new is allowed only at the top level of a fate input.");
@@ -601,7 +693,7 @@ internal static class LibraryVocabulary
                 case ElementsValue elements:
                     Projected(elements.Source, destination, depth + 1);
                     break;
-                case ArgumentValue or ReturnsValue or ThisValue or HolderArgumentValue or KeptValue:
+                case ArgumentValue or ReturnsValue or ThisValue or HolderArgumentValue or KeptValue or CompletionValue:
                     for (var step = 0; step < depth; step++)
                         value = new ElementsValue(value);
                     var source = TypeOf(value);
@@ -640,6 +732,13 @@ internal static class LibraryVocabulary
                 case ElementsValue elements:
                     var source = TypeOf(elements.Source);
                     return source is null ? null : ElementType(source) ?? throw new Refusal($"{value}: {source.ToDisplayString()} is not enumerable.");
+                case CompletionValue completion:
+                    // completion(v) needs a v whose type is a Task<T> or ValueTask<T> (R4): a value whose type is not known — a built
+                    // sequence or grouping, what a keeper keeps, a holder's argument — is no task the entry can show.
+                    var task = TypeOf(completion.Source) ??
+                               throw new Refusal($"{value}: {completion.Source} has no type of a Task<T> or ValueTask<T>, so it names no completion.");
+                    return TaskTypes.CompletionType(task) ??
+                           throw new Refusal($"{value}: {task.ToDisplayString()} is no Task<T> or ValueTask<T>, so it completes with no value.");
                 case SequenceValue or GroupingValue or HolderArgumentValue:
                     return null;
                 case NewValue:
@@ -671,6 +770,7 @@ internal static class LibraryVocabulary
 
         /// <summary>What enumerating a value of <paramref name="type"/> yields: an array's element type, the <c>T</c> of the
         /// <c>IEnumerable&lt;T&gt;</c> it is or implements, <c>object</c> for a non-generic <c>IEnumerable</c>; else null.</summary>
+        /// <param name="type">The enumerated type.</param>
         private ITypeSymbol? ElementType(ITypeSymbol type) =>
             type is IArrayTypeSymbol array ? array.ElementType :
             IsGenericEnumerable(type) ? ((INamedTypeSymbol)type).TypeArguments[0] :
@@ -688,6 +788,7 @@ internal static class LibraryVocabulary
     }
 
     /// <summary>A recursive-descent reader of the value and result grammar; it allows no whitespace anywhere.</summary>
+    /// <param name="text">The text read.</param>
     internal sealed class ValueParser(string text)
     {
         private int _at;
@@ -714,6 +815,8 @@ internal static class LibraryVocabulary
                 return Number() is { } index ? new HolderArgumentValue(index) : null;
             if (Take("elements("))
                 return Value() is { } source && Take(")") ? new ElementsValue(source) : null;
+            if (Take("completion("))
+                return Value() is { } task && Take(")") ? new CompletionValue(task) : null;
             if (Take("sequence("))
                 return List(")") is { } values ? new SequenceValue(values) : null;
             if (Take("grouping("))
@@ -735,6 +838,8 @@ internal static class LibraryVocabulary
                     : null;
             if (Take("["))
                 return List("]") is { } values ? new LibraryResult(LibraryResultKind.OneOf, values) : null;
+            if (Take("task("))
+                return Result() is { } inner && Take(")") ? new LibraryResult(LibraryResultKind.Task, [], inner) : null;
             return null;
         }
 

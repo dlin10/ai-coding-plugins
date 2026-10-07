@@ -607,12 +607,16 @@ public sealed class ValueProvenanceTests
     }
 
     [Fact]
-    public void An_awaited_result_that_would_need_a_name_has_vocabulary_reason()
+    public void An_awaited_result_that_would_need_a_name_is_named_as_its_synchronous_twins_inside_task()
     {
         var values = Read("public static class Api { public static async Task<object> Make(object x) { await Task.Delay(1); return new object(); } }",
                           "M:Lib.Api.Make(System.Object)");
+        var twin = Read("public static class Api { public static object Make(object x) => new object(); }", "M:Lib.Api.Make(System.Object)");
 
-        Assert.Equal(GenerationReasons.VOCABULARY, values.Reason);
+        Assert.Null(twin.Reason);
+        Assert.Equal("new", twin.Result?.ToString());
+        Assert.Equal(twin.Reason, values.Reason);
+        Assert.Equal($"task({twin.Result})", values.Result?.ToString());
     }
 
     [Fact]
@@ -717,18 +721,46 @@ public sealed class ValueProvenanceTests
     }
 
     [Fact]
-    public void A_task_result_holding_the_delegate_has_vocabulary_reason()
+    public void A_task_result_holding_the_delegate_is_a_holder_result_with_no_result_as_its_synchronous_twin()
     {
-        var trace = Trace("public sealed class Result { private readonly Action _done; public Result(Action done) { _done = done; } public void Fire() { _done(); } } " +
-                          "public static class Api { public static async Task<Result> Make(Action done) { await Task.Yield(); return new Result(done); } }",
+        const string RESULT = "public sealed class Result { private readonly Action _done; public Result(Action done) { _done = done; } public void Fire() { _done(); } } ";
+        // The confirmation run's trigger fires on the awaited object, which the heap carries: the holder stands, and a holder of the
+        // result describes the innermost completion value, so the entry carries no result.
+        var values = Read(RESULT + "public static class Api { public static async Task<Result> Make(Action done) { await Task.Yield(); return new Result(done); } }",
                           "M:Lib.Api.Make(System.Action)");
-        // The fate run finds the holder; R7 drops it after the confirmation run, whose trigger's Fire on the awaited object runs no body.
-        var classified = FateClassifier.Classify(trace.Driver!, trace.Run!).Classified;
-        var values = new ValueProvenance(trace.Driver!, trace.Run!, classified, trace.Confirmation);
+        var twinTrace = Trace(RESULT + "public static class Api { public static Result Make(Action done) => new Result(done); }", "M:Lib.Api.Make(System.Action)");
+        var twin = Read(twinTrace);
 
-        Assert.Equal(new ClassifiedFate(FateClassifier.HOLDER, FateClassifier.RESULT), classified["done"]);
-        Assert.Equal(FateClassifier.UNKNOWN_EXECUTION, trace.Answer.Classified!["done"].Fate);
-        Assert.Equal(GenerationReasons.VOCABULARY, values.Reason);
+        Assert.Equal(new ClassifiedFate(FateClassifier.HOLDER, FateClassifier.RESULT), twinTrace.Answer.Classified!["done"]);
+        Assert.Null(twin.Result);
+        Assert.Equal(twin.Reason, values.Reason);
+        Assert.Null(values.Result);
+    }
+
+    [Fact]
+    public void A_task_member_completing_with_a_box_or_an_unseen_object_has_no_task_result_naming_only_the_box()
+    {
+        var trace = Trace("public static class Externals { public static extern Box Opaque(); } " +
+                          "public static class Api { public static async Task<Box> Pick(Box box, bool flag) { await Task.Yield(); return flag ? box : Externals.Opaque(); } }",
+                          "M:Lib.Api.Pick(Lib.Box,System.Boolean)");
+
+        Assert.Equal(GenerationReasons.VOCABULARY, Read(trace).Reason);
+        Assert.Null(trace.Answer.Model?.Result);
+    }
+
+    [Fact]
+    public void A_task_member_awaiting_a_stored_task_of_an_unseen_object_has_no_task_result()
+    {
+        // The field's task is Inner's, which completes with its parameter, bound to what Opaque returned: the stored task completes with
+        // an object the heap does not name, however many regions it resolves to.
+        var trace = Trace("public static class Externals { public static extern Box Opaque(); } " +
+                          "public sealed class Api { private Task<Box> _pending; " +
+                          "public async Task<Box> Run(Box box) { _pending = Inner(Externals.Opaque()); return await _pending; } " +
+                          "private static async Task<Box> Inner(Box p) => p; }",
+                          "M:Lib.Api.Run(Lib.Box)");
+
+        Assert.Equal(GenerationReasons.VOCABULARY, Read(trace).Reason);
+        Assert.Null(trace.Answer.Model?.Result);
     }
 
     [Fact]

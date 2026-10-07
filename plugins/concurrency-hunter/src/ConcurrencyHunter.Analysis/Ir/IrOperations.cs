@@ -24,6 +24,10 @@ public sealed record IrPhiOperation(int Id, int TargetValue, IReadOnlyList<IrPhi
 
 /// <summary><see cref="SiteOrdinal"/> is the 1-based source order of this <c>new</c> among those of the same created type in
 /// the containing member, initializers and nested functions included; 0 when unknown.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The value receiving the new object.</param>
+/// <param name="AllocatedType">The created type's display name.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrAllocateOperation(int Id, int ResultValue, string AllocatedType,
                                          IrProvenance Provenance) : IrOperation(Id, Provenance)
 {
@@ -57,6 +61,11 @@ public sealed record IrStoreFieldOperation(int Id, int? ReceiverValue, IrFieldRe
 }
 
 /// <summary>The address of a field or element. Taking the address does not read or write its storage.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The value receiving the address.</param>
+/// <param name="ReceiverValue">The object whose field is addressed, null for a static field.</param>
+/// <param name="Field">The field addressed.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrAddressFieldOperation(int Id, int ResultValue, int? ReceiverValue, IrFieldRef Field,
                                              IrProvenance Provenance) : IrOperation(Id, Provenance)
 {
@@ -101,6 +110,7 @@ public static class SpanTypes
     /// <summary>Whether the type named here is one of them. The name may be a metadata name or a display name, with or without
     /// its type arguments (<c>System.Span`1</c>, <c>System.Span&lt;int&gt;</c>), so that one set decides for the frontend and for
     /// the summaries alike.</summary>
+    /// <param name="type">The type name to check, or null.</param>
     public static bool Names(string? type)
     {
         if (type is null)
@@ -163,6 +173,7 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     /// is whichever parameter the caller chose to name first, and reading by position names a different parameter for every
     /// caller who writes them differently.
     /// </summary>
+    /// <param name="ordinal">The parameter's ordinal.</param>
     public int? ArgumentAt(int ordinal)
     {
         for (var position = 0; position < ArgumentValues.Count; position++)
@@ -242,6 +253,11 @@ public enum IrEnumerationRole
 /// collection's own path, and the storage of its cells. <see cref="KeyArgument"/> is the ordinal of the argument naming the one
 /// cell the member touches; without it a member that touches cells touches all of them. <see cref="IsAtomic"/> is the
 /// collection's own guarantee: a thread-safe collection performs each of its members atomically on both resources.</summary>
+/// <param name="Member">The collection member called.</param>
+/// <param name="Structure">What the member does to the collection's structure.</param>
+/// <param name="Element">What the member does to the storage of its cells.</param>
+/// <param name="KeyArgument">The ordinal of the argument naming the one cell the member touches, null when it names none.</param>
+/// <param name="IsAtomic">Whether the collection performs the member atomically on both resources.</param>
 public sealed record IrCollectionCall(string Member, IrCollectionEffect Structure, IrCollectionEffect Element, int? KeyArgument,
                                       bool IsAtomic)
 {
@@ -333,8 +349,13 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     public IrLibraryResult? Result { get; init; }
 
     /// <summary>The type key of what the call returns: the type of a new collection a <c>collection(…)</c> or <c>dictionary(…)</c>
-    /// result creates.</summary>
+    /// result creates. Under <c>task(…)</c> it is the type of what the innermost task completes with, the result's leaf; for a holder of
+    /// the result on a task member, the innermost type the member returns.</summary>
     public string? ResultTypeKey { get; init; }
+
+    /// <summary>How many <c>Task&lt;…&gt;</c> or <c>ValueTask&lt;…&gt;</c> levels stand around what the member returns: the tasks
+    /// a holder of the result stands inside.</summary>
+    public int ReturnTaskDepth { get; init; }
 
     /// <summary>The ordinals of the parameters whose argument the model names the elements of in its inputs or its result, outside a
     /// <c>sequence(…)</c> a value builds: the call enumerates each once (R3). What a built sequence names the elements of, that sequence
@@ -348,8 +369,66 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
 
     /// <summary>The ordinals of the parameters whose argument the model names the elements of anywhere, a built sequence included: the
     /// call enumerates each or keeps it for a sequence that will.</summary>
-    public IEnumerable<int> NamedArguments() => Values().SelectMany(value => Enumerated(value, intoSequences: true)).Select(Ordinal).Where(ordinal => ordinal is not null)
-                                                        .Select(ordinal => ordinal!.Value).Distinct();
+    public IEnumerable<int> NamedArguments() => Values().SelectMany(value => Enumerated(value, intoSequences: true))
+                                                        .Select(value => value is IrModelCompletion completion ? CompletedOrdinal(completion) : Ordinal(value))
+                                                        .Where(ordinal => ordinal is not null).Select(ordinal => ordinal!.Value).Distinct();
+
+    /// <summary>The completions enumerated once at the selected moment: what the tasks each names complete with is enumerated there, as
+    /// the argument <c>elements(…)</c> names directly is (R2).</summary>
+    /// <param name="deferred">Whether the enumerations belong to the sequence result instead of the call.</param>
+    public IEnumerable<IrModelCompletion> EnumeratedCompletions(bool deferred) => Enumerations(deferred).OfType<IrModelCompletion>().Distinct();
+
+    /// <summary>The completions <paramref name="values"/> name the elements of, outside a built sequence.</summary>
+    /// <param name="values">The model values that name the enumerated completions.</param>
+    public static IEnumerable<IrModelCompletion> EnumeratedCompletions(IEnumerable<IrModelValue> values) =>
+        values.SelectMany(value => Enumerated(value, intoSequences: false)).OfType<IrModelCompletion>().Distinct();
+
+    /// <summary>The value a completion's tasks come from under every nested <c>completion(…)</c>, and how many completions stand
+    /// around it.</summary>
+    /// <param name="completion">The completion.</param>
+    public static (IrModelValue Source, int Depth) CompletedSource(IrModelCompletion completion)
+    {
+        var depth = 1;
+        var source = completion.Source;
+        for (; source is IrModelCompletion inner; depth++)
+            source = inner.Source;
+        return (source, depth);
+    }
+
+    /// <summary>Whether a value reaches what it names from the call's own values, an argument, the receiver or a keeper, through any
+    /// <c>elements(…)</c> and <c>completion(…)</c>: the call's effects enumerate such a completion's values; the heap enumerates any other,
+    /// what a delegate gives back among them (R2).</summary>
+    /// <param name="value">The model value.</param>
+    public static bool ReachesCallValues(IrModelValue value) => Root(value) is IrModelArgument or IrModelThis or IrModelKept;
+
+    /// <summary>The value a value reaches what it names from, under every <c>elements(…)</c> and <c>completion(…)</c>.</summary>
+    /// <param name="value">The model value.</param>
+    private static IrModelValue Root(IrModelValue value) => value switch
+    {
+        IrModelElements elements => Root(elements.Source),
+        IrModelCompletion completion => Root(completion.Source),
+        _ => value
+    };
+
+    /// <summary>The values holding the tasks a completion reaches through <c>elements(…)</c>: enumerating the completion values enumerates
+    /// each, as its synchronous twin <c>elements(…)</c> of it does (R2).</summary>
+    /// <param name="completion">The completion.</param>
+    public static IEnumerable<IrModelValue> CompletionHolders(IrModelCompletion completion)
+    {
+        for (var inner = completion.Source; inner is IrModelElements or IrModelCompletion;
+             inner = inner is IrModelElements elements ? elements.Source : ((IrModelCompletion)inner).Source)
+        {
+            if (inner is IrModelElements { Source: var holder })
+                yield return holder;
+        }
+    }
+
+    private static int? CompletedOrdinal(IrModelCompletion completion) => Root(completion) switch
+    {
+        IrModelArgument argument => argument.ParameterOrdinal,
+        IrModelThis => RECEIVER,
+        _ => null
+    };
 
     /// <summary>The ordinals of the delegate parameters whose returns the model names the elements of, outside a built sequence.</summary>
     public IEnumerable<int> EnumeratedReturns() => EnumeratedReturns(Values());
@@ -370,7 +449,7 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
         values.SelectMany(value => Enumerated(value, intoSequences: false)).OfType<IrModelReturns>().Select(returned => returned.ParameterOrdinal).Distinct();
 
     public IEnumerable<IrModelValue> Values() => Fates.SelectMany(fate => fate.Inputs).SelectMany(input => input)
-                                                      .Concat(Result?.Values ?? []).Concat(Stores.Values.SelectMany(values => values))
+                                                      .Concat(Result?.Leaf.Values ?? []).Concat(Stores.Values.SelectMany(values => values))
                                                       .Concat(Outputs.Values.SelectMany(output => output.Values)).Concat(Keeps.Values.SelectMany(values => values));
 
     /// <summary>The kept sources enumerated once at the selected moment.</summary>
@@ -383,9 +462,9 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
         values.SelectMany(value => Enumerated(value, intoSequences: false)).OfType<IrModelKept>().Distinct();
 
     private IEnumerable<IrModelValue> Enumerations(bool deferred) =>
-        Fates.Where(fate => (Result?.Kind == IrResultKind.Sequence && fate.Kind == IrFateKind.Iterator) == deferred)
+        Fates.Where(fate => (Result?.Leaf.Kind == IrResultKind.Sequence && fate.Kind == IrFateKind.Iterator) == deferred)
              .SelectMany(fate => fate.Inputs.SelectMany(input => input).SelectMany(value => Enumerated(value, intoSequences: fate.Kind == IrFateKind.InvokeNow)))
-             .Concat((Result?.Kind == IrResultKind.Sequence) == deferred ? (Result?.Values ?? []).SelectMany(value => Enumerated(value, intoSequences: false)) : [])
+             .Concat((Result?.Leaf.Kind == IrResultKind.Sequence) == deferred ? (Result?.Leaf.Values ?? []).SelectMany(value => Enumerated(value, intoSequences: false)) : [])
              .Concat(deferred ? [] : Keeps.Values.SelectMany(values => values).SelectMany(value => Enumerated(value, intoSequences: true)))
              .Concat(deferred ? [] : Stores.Values.SelectMany(values => values).SelectMany(value => Enumerated(value, intoSequences: true)))
              .Concat(deferred ? [] : Outputs.Values.Where(output => output.Kind != IrResultKind.Sequence)
@@ -395,22 +474,22 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     {
         IrModelArgument argument => argument.ParameterOrdinal,
         IrModelThis => RECEIVER,
-        IrModelReturns or IrModelKept or IrModelNew => null,
+        IrModelReturns or IrModelKept or IrModelNew or IrModelCompletion => null,
         _ => throw new UnreachableException($"Unexpected enumerated value kind {value.GetType().Name}.")
     };
 
-    /// <summary>The arguments and delegate returns a value names the elements of. A grouping holds its values from the moment it is built;
+    /// <summary>The arguments, delegate returns and completions a value names the elements of. A grouping holds its values from the moment it is built;
     /// a built sequence yields its own only where it is enumerated, which the elements of it are.</summary>
     /// <param name="value">The model value to inspect.</param>
     /// <param name="intoSequences">Whether nested sequence values belong to this enumeration moment.</param>
     private static IEnumerable<IrModelValue> Enumerated(IrModelValue value, bool intoSequences) => value switch
     {
-        IrModelElements { Source: IrModelArgument or IrModelReturns or IrModelThis or IrModelKept } elements => [elements.Source],
+        IrModelElements { Source: IrModelArgument or IrModelReturns or IrModelThis or IrModelKept or IrModelCompletion } elements => [elements.Source],
         IrModelElements { Source: IrModelSequence sequence } => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
         IrModelElements elements => Enumerated(elements.Source, intoSequences),
         IrModelSequence sequence when intoSequences => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
         IrModelGrouping grouping => Enumerated(grouping.Key, intoSequences).Concat(Enumerated(grouping.Values, intoSequences)),
-        IrModelSequence or IrModelArgument or IrModelReturns or IrModelHolderArgument or IrModelThis or IrModelKept or IrModelNew => [],
+        IrModelSequence or IrModelArgument or IrModelReturns or IrModelHolderArgument or IrModelThis or IrModelKept or IrModelNew or IrModelCompletion => [],
         _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
     };
 }
@@ -421,6 +500,10 @@ public enum IrHolderKind { Result, This }
 
 /// <summary>The fate of the delegate bound to the parameter with <see cref="ParameterOrdinal"/>: one input list per parameter of its
 /// <c>Invoke</c>, each the values that parameter is handed, possibly none.</summary>
+/// <param name="ParameterOrdinal">The ordinal of the parameter the delegate is bound to.</param>
+/// <param name="Kind">Where the delegate runs.</param>
+/// <param name="Holder">What holds the delegate for a <see cref="IrFateKind.Holder"/> fate, otherwise null.</param>
+/// <param name="Inputs">The values each parameter of the delegate's <c>Invoke</c> is handed.</param>
 public sealed record IrLibraryFate(int ParameterOrdinal, IrFateKind Kind, IrHolderKind? Holder, IReadOnlyList<IReadOnlyList<IrModelValue>> Inputs);
 
 /// <summary>A value of a library model, with the parameters it names by ordinal: a set of objects a delegate is handed or the call
@@ -432,6 +515,7 @@ public abstract record IrModelValue;
 public sealed record IrModelNew(string TypeKey) : IrModelValue;
 
 /// <summary>What the argument of a parameter points to.</summary>
+/// <param name="ParameterOrdinal">The parameter's ordinal.</param>
 public sealed record IrModelArgument(int ParameterOrdinal) : IrModelValue;
 
 /// <summary>The receiver's objects, or the object a constructor creates.</summary>
@@ -442,38 +526,62 @@ public sealed record IrModelThis : IrModelValue;
 public sealed record IrModelKept(int KeeperOrdinal) : IrModelValue;
 
 /// <summary>Every object any run of the delegate bound to a parameter returns.</summary>
+/// <param name="ParameterOrdinal">The ordinal of the parameter the delegate is bound to.</param>
 public sealed record IrModelReturns(int ParameterOrdinal) : IrModelValue;
 
 /// <summary>The argument of a call of a holder's member at an index.</summary>
+/// <param name="Index">The argument's index in the holder member's call.</param>
 public sealed record IrModelHolderArgument(int Index) : IrModelValue;
 
 /// <summary>What enumerating a value yields. <see cref="ElementTypeKey"/> is the type of what it yields where that type narrows it, null
 /// where it may be anything: a sequence the analysis cannot enumerate yields every object it reaches of that type.</summary>
+/// <param name="Source">The value enumerated.</param>
+/// <param name="ElementTypeKey">The type of what it yields where that narrows it, otherwise null.</param>
 public sealed record IrModelElements(IrModelValue Source, string? ElementTypeKey) : IrModelValue;
 
 /// <summary>A new library sequence yielding the values.</summary>
+/// <param name="Values">The values the sequence yields.</param>
 public sealed record IrModelSequence(IReadOnlyList<IrModelValue> Values) : IrModelValue;
 
 /// <summary>A new grouping whose key is <see cref="Key"/> and which yields <see cref="Values"/>.</summary>
+/// <param name="Key">The grouping's key.</param>
+/// <param name="Values">The values the grouping yields.</param>
 public sealed record IrModelGrouping(IrModelValue Key, IrModelValue Values) : IrModelValue;
 
-public enum IrResultKind { Sequence, Collection, Dictionary, OneOf, New }
+/// <summary>The completion value of the tasks a value names.</summary>
+/// <param name="Source">The value naming the tasks.</param>
+public sealed record IrModelCompletion(IrModelValue Source) : IrModelValue;
+
+public enum IrResultKind { Sequence, Collection, Dictionary, OneOf, New, Task }
 
 /// <summary>What a known call returns: a new library sequence, a new collection holding the values, a new dictionary holding keys and
-/// values apart, one of the objects the values name, or a new object graph of the destination's type.</summary>
+/// values apart, one of the objects the values name, a new object graph of the destination's type, or a task completing with an inner
+/// result.</summary>
 /// <param name="Kind">The result form.</param>
-/// <param name="Values">The values the form names; empty for new.</param>
-public sealed record IrLibraryResult(IrResultKind Kind, IReadOnlyList<IrModelValue> Values);
+/// <param name="Values">The values the form names; empty for new and for a task.</param>
+/// <param name="Inner">The result a task completes with, otherwise null.</param>
+public sealed record IrLibraryResult(IrResultKind Kind, IReadOnlyList<IrModelValue> Values, IrLibraryResult? Inner = null)
+{
+    /// <summary>The innermost result that is not a task: the one owner of looking through <c>task(…)</c> in the run.</summary>
+    public IrLibraryResult Leaf => Kind == IrResultKind.Task ? Inner!.Leaf : this;
+
+    /// <summary>How many tasks stand around <see cref="Leaf"/>.</summary>
+    public int TaskDepth => Kind == IrResultKind.Task ? 1 + Inner!.TaskDepth : 0;
+}
 
 /// <summary>What a known call does to the argument bound to the parameter with <see cref="ParameterOrdinal"/>.
 /// <see cref="Arguments"/> are the values it does it to: the argument itself, or each element of a <c>params</c> array or slice
 /// the call creates, without those whose type is immutable, since an effect on them touches nothing (R3).</summary>
+/// <param name="Kind">What the call does to the argument.</param>
+/// <param name="ParameterOrdinal">The ordinal of the parameter the argument binds.</param>
 public sealed record IrLibraryEffect(IrLibraryEffectKind Kind, int ParameterOrdinal)
 {
     public IReadOnlyList<IrLibraryArgument> Arguments { get; init; } = [];
 }
 
 /// <summary>One value an effect applies to; a framework slice handed over ready is the storage it is cut from.</summary>
+/// <param name="Value">The IR value the effect applies to.</param>
+/// <param name="IsSlice">Whether the value is a framework slice, which stands for the storage it is cut from.</param>
 public sealed record IrLibraryArgument(int Value, bool IsSlice)
 {
     /// <summary>Whether the parameter takes a sequence of objects rather than one: <c>entities</c> and not <c>entity</c>. An effect
@@ -500,6 +608,9 @@ public enum IrLibraryEffectKind
 
 /// <summary>What a locator or scope-creation call names: the constant service type key (null when the type is not a constant)
 /// and the kind of provider its receiver is (null when its origin is none of <see cref="IrProviderKind"/>).</summary>
+/// <param name="Kind">The kind of locator or scope-creation call.</param>
+/// <param name="ServiceTypeKey">The constant service type key, null when the type is not a constant.</param>
+/// <param name="Provider">The kind of provider the receiver is, null when it is none of them.</param>
 public sealed record IrServiceCall(IrServiceCallKind Kind, string? ServiceTypeKey, IrProviderKind? Provider)
 {
     public string? Locator => ServiceTypeKey is null ? null : $"locator:{ServiceTypeKey}";
@@ -507,6 +618,12 @@ public sealed record IrServiceCall(IrServiceCallKind Kind, string? ServiceTypeKe
 
 /// <summary><see cref="CapturedSymbolKeys"/> are the variables the target body captures; the target members are as on
 /// <see cref="IrCallOperation"/>, null for a lambda or a local function.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The value receiving the delegate.</param>
+/// <param name="TargetBodyId">The nested body the delegate runs, for a lambda or a local function.</param>
+/// <param name="TargetMethod">The method group's display name, null for a lambda or a local function.</param>
+/// <param name="ReceiverValue">The object the method group is bound to, for an instance method.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrCreateDelegateOperation(int Id, int ResultValue, string? TargetBodyId,
                                                string? TargetMethod, int? ReceiverValue,
                                                IrProvenance Provenance) : IrOperation(Id, Provenance)
@@ -560,6 +677,10 @@ public interface IIrSuspension
 
 /// <summary>An await joins the task it awaits and throws only once that task is complete. <see cref="TaskValue"/> is the task
 /// when the awaitable is its <c>ConfigureAwait</c> result; otherwise the awaitable itself is the task.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The value receiving the await's result, when present.</param>
+/// <param name="AwaitableValue">The awaited value.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrAwaitOperation(int Id, int? ResultValue, int AwaitableValue, IrProvenance Provenance)
     : IrOperation(Id, Provenance), IIrSuspension
 {
@@ -570,6 +691,9 @@ public sealed record IrAwaitOperation(int Id, int? ResultValue, int AwaitableVal
 
 /// <summary>A <c>yield return</c>: the iterator hands a value to whoever is enumerating it and stops there until asked for the
 /// next one, which that caller may ask for from another thread.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="Value">The value handed out, when present.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrYieldOperation(int Id, int? Value, IrProvenance Provenance)
     : IrOperation(Id, Provenance), IIrSuspension
 {
@@ -583,6 +707,12 @@ public sealed record IrYieldOperation(int Id, int? Value, IrProvenance Provenanc
 /// the call does not list, or, with <see cref="WorkMethod"/>, an object the spawn calls that method on. <see cref="AwaitsWorkTask"/> (set by the overload, whatever the work's body) says the call's handle
 /// completes only after the task an async work returns; <see cref="JoinsOnReturn"/> says the call itself returns, and throws,
 /// only after every iteration is complete.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="Kind">The kind of spawn.</param>
+/// <param name="CallOperationId">The BCL call that starts the work.</param>
+/// <param name="HandleValue">The call's result or the started thread, when present.</param>
+/// <param name="WorkValues">The work the spawn runs.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrSpawnOperation(int Id, IrSpawnKind Kind, int CallOperationId, int? HandleValue,
                                       IReadOnlyList<int> WorkValues, IrProvenance Provenance)
     : IrOperation(Id, Provenance)
@@ -600,6 +730,10 @@ public sealed record IrSpawnOperation(int Id, IrSpawnKind Kind, int CallOperatio
 
 /// <summary>A <c>Thread</c> constructor binding the work its <c>Start</c> runs; a thread never waits for the task an async
 /// work returns.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ThreadValue">The constructed thread.</param>
+/// <param name="WorkValue">The delegate its <c>Start</c> runs.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrThreadWorkOperation(int Id, int ThreadValue, int WorkValue, IrProvenance Provenance)
     : IrOperation(Id, Provenance)
 {
@@ -609,25 +743,93 @@ public sealed record IrThreadWorkOperation(int Id, int ThreadValue, int WorkValu
 }
 
 /// <summary>A BCL call, <see cref="CallOperationId"/>, that returns only after its handles complete; unlike an await it may
-/// throw before they do. Handles are unknown when the call's tasks are not listed in the call itself.</summary>
+/// throw before they do, unless <see cref="ThrowsOnlyAfterCompletion"/> says otherwise. Handles are unknown when the call's tasks
+/// are not listed in the call itself. A <see cref="IrJoinKind.Result"/> join defines nothing: its call keeps defining its own result,
+/// which is the completion value of its one handle.</summary>
+/// <param name="Id">The operation's id.</param>
+/// <param name="Kind">The kind of joining call.</param>
+/// <param name="CallOperationId">The call that joins.</param>
+/// <param name="HandleValues">The handles it waits for.</param>
+/// <param name="HandlesKnown">Whether the call names its handles.</param>
+/// <param name="Provenance">Where the call is in source.</param>
 public sealed record IrJoinOperation(int Id, IrJoinKind Kind, int CallOperationId, IReadOnlyList<int> HandleValues,
                                      bool HandlesKnown, IrProvenance Provenance) : IrOperation(Id, Provenance)
 {
     public override IReadOnlyList<int> DefinedValues => [];
     public override IReadOnlyList<int> Operands => HandleValues;
-    public bool ThrowsOnlyAfterCompletion => false;
+
+    /// <summary>Whether the call throws only after its handle completes, as an await does: the <c>Result</c> of a <c>Task</c> or a
+    /// <c>Task&lt;T&gt;</c>. That of a <c>ValueTask</c> may throw before, when an <c>IValueTaskSource</c> backs it, as every other
+    /// join may (R3).</summary>
+    public bool ThrowsOnlyAfterCompletion { get; init; }
 }
 
 /// <summary>The task <c>Task.WhenAll</c> returned, <see cref="ResultValue"/>, completes after <see cref="TaskValues"/>;
-/// those are unknown when the tasks are not listed in the call itself.</summary>
+/// those are unknown when the tasks are not listed in the call itself. Over <c>Task&lt;T&gt;</c> it completes with a new array of
+/// type <see cref="ArrayTypeKey"/> holding every task's completion value: the listed tasks', or, when they are not listed, those of
+/// the tasks <see cref="SourceValue"/>, the argument, holds. Over <c>Task</c> it completes with nothing and both are null.</summary>
+/// <param name="Id">The operation's id.</param>
+/// <param name="ResultValue">The task the call returns.</param>
+/// <param name="TaskValues">The tasks the call lists.</param>
+/// <param name="TasksKnown">Whether the call lists its tasks.</param>
+/// <param name="Provenance">Where the call is in source.</param>
 public sealed record IrWhenAllOperation(int Id, int ResultValue, IReadOnlyList<int> TaskValues, bool TasksKnown,
                                         IrProvenance Provenance) : IrOperation(Id, Provenance)
 {
     public override IReadOnlyList<int> DefinedValues => [];
-    public override IReadOnlyList<int> Operands => [ResultValue, .. TaskValues];
+    public override IReadOnlyList<int> Operands => [ResultValue, .. TaskValues, .. new[] { SourceValue }.OfType<int>()];
+    public string? ArrayTypeKey { get; init; }
+    public int? SourceValue { get; init; }
+}
+
+/// <summary>What a BCL task member, <see cref="CallOperationId"/>, makes of a task's completion value (<see cref="IrTaskKind"/>). It
+/// gives a new task of its site as <see cref="ResultValue"/> — the call's result, or the value task a constructor creates — or
+/// completes the existing tasks <see cref="TaskValue"/> names: a <c>TaskCompletionSource</c>, which stands for its own task, or the
+/// task a constructor creates. A <see cref="IrTaskKind.Same"/> operation does neither: <see cref="ResultValue"/> is the task
+/// <see cref="TaskValue"/> names.</summary>
+/// <param name="Id">The operation's id.</param>
+/// <param name="Kind">What the task completes with.</param>
+/// <param name="CallOperationId">The call of the task member, an earlier call of the block.</param>
+/// <param name="Values">The values the kind reads: the value it completes with, the tasks whose completion or which one of it is.</param>
+/// <param name="Provenance">Where the call is in source.</param>
+public sealed record IrTaskOperation(int Id, IrTaskKind Kind, int CallOperationId, IReadOnlyList<int> Values, IrProvenance Provenance)
+    : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [];
+    public override IReadOnlyList<int> Operands => [.. new[] { ResultValue, TaskValue }.OfType<int>(), .. Values];
+    public int? ResultValue { get; init; }
+    public int? TaskValue { get; init; }
+
+    /// <summary>Whether <see cref="Values"/> lists the tasks of an <see cref="IrTaskKind.AnyOf"/> itself; otherwise its one value is
+    /// a collection holding them.</summary>
+    public bool ValuesKnown { get; init; } = true;
+}
+
+/// <summary>What the task of an <see cref="IrTaskOperation"/> completes with.</summary>
+public enum IrTaskKind
+{
+    /// <summary>The same task as another value: awaiting it is awaiting that task (<c>AsTask</c>, <c>ConfigureAwait</c>, a
+    /// <c>TaskCompletionSource</c>'s <c>Task</c>).</summary>
+    Same,
+
+    /// <summary>The one value it names, or a default with no object when it names none (<c>FromResult</c>, <c>SetResult</c>).</summary>
+    Completed,
+
+    /// <summary>A value the heap does not follow: a member the plan does not name, or an <c>IValueTaskSource</c>.</summary>
+    Unfollowed,
+
+    /// <summary>What the tasks its one value names complete with (<c>WaitAsync</c>, <c>SetFromTask</c>): a value, never a join.</summary>
+    CompletionOf,
+
+    /// <summary>One of the tasks its values name (<c>WhenAny</c>).</summary>
+    AnyOf
 }
 
 /// <summary><c>Unwrap()</c>: <see cref="ResultValue"/> is the handle of the task the outer task's work returned.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The unwrapped task.</param>
+/// <param name="OuterValue">The outer task being unwrapped.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrUnwrapOperation(int Id, int ResultValue, int OuterValue, IrProvenance Provenance)
     : IrOperation(Id, Provenance)
 {
@@ -639,6 +841,10 @@ public sealed record IrUnwrapOperation(int Id, int ResultValue, int OuterValue, 
 /// due time and period, <see cref="IrTimerAction.Change"/>, the disposals; <c>System.Timers.Timer</c>: the <c>Elapsed</c>
 /// subscription with its handler as callback, <c>AutoReset</c> and <c>Enabled</c> writes with their flag, <c>Start</c>,
 /// <c>Stop</c>. <see cref="ResultValue"/> is the task <c>DisposeAsync</c> returns.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="Action">The step in the timer's life.</param>
+/// <param name="TimerValue">The timer.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrTimerOperation(int Id, IrTimerAction Action, int TimerValue, IrProvenance Provenance)
     : IrOperation(Id, Provenance)
 {
@@ -656,6 +862,11 @@ public sealed record IrTimerOperation(int Id, IrTimerAction Action, int TimerVal
 
 /// <summary>An entry into a synchronization primitive. An unconditional entry holds the primitive once control goes on normally;
 /// a conditional one, which is every entry with a timeout, holds it only where <see cref="ConditionValue"/> is true (TD-083).</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="LockValue">The lock object entered.</param>
+/// <param name="Primitive">The synchronization primitive.</param>
+/// <param name="Mode">The mode the primitive is entered in.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrAcquireOperation(int Id, int LockValue, IrSynchronizationPrimitive Primitive,
                                         IrLockMode Mode, IrProvenance Provenance) : IrOperation(Id, Provenance)
 {
@@ -681,6 +892,11 @@ public sealed record IrReleaseOperation(int Id, int LockValue, IrSynchronization
 /// <summary>The mark that makes a field load or store atomic on its cell (TD-082), added after it the way the BCL marks follow a
 /// call. <see cref="OperationKind"/> names what it came from, <see cref="Effect"/> what it does to the cell, and
 /// <see cref="TargetOperationId"/> is the load or store it marks; a mark without one names no cell and is no access.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The value receiving the operation's result, when present.</param>
+/// <param name="OperationKind">What the mark came from.</param>
+/// <param name="OperandValues">The operation's operands.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
 public sealed record IrAtomicOperation(int Id, int? ResultValue, string OperationKind,
                                        IReadOnlyList<int> OperandValues, IrProvenance Provenance)
     : IrOperation(Id, Provenance)

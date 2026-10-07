@@ -176,7 +176,8 @@ public enum IrJoinKind
     Wait,
     Join,
     WaitAll,
-    WaitOne
+    WaitOne,
+    Result
 }
 
 public enum IrTimerAction
@@ -269,6 +270,11 @@ public sealed record IrBody(string BodyId, IrBodyKind Kind, string OwnerSymbol, 
 
 /// <summary><see cref="SymbolKey"/> identifies the local or parameter a value is a version of, across bodies: the id of the
 /// body declaring it, its name and its declaration's span start, or <c>this</c> for the receiver.</summary>
+/// <param name="Id">The value's identity in its body.</param>
+/// <param name="Kind">What the value is: a parameter, the receiver, a local, a temporary or a constant.</param>
+/// <param name="Type">The value type's display name.</param>
+/// <param name="Name">The value's name.</param>
+/// <param name="SsaVersion">The SSA version of the local or parameter the value is.</param>
 public sealed record IrValue(int Id, IrValueKind Kind, string Type, string Name, int SsaVersion)
 {
     public string? SymbolKey { get; init; }

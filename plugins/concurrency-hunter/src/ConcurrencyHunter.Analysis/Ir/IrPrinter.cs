@@ -85,7 +85,10 @@ public static class IrPrinter
                                   $"handles-known={Boolean(join.HandlesKnown)} " +
                                   $"throws-only-after-completion={Boolean(join.ThrowsOnlyAfterCompletion)}"),
         IrWhenAllOperation whenAll => F($"when-all {Value(whenAll.ResultValue)} tasks={Values(whenAll.TaskValues)} " +
-                                        $"tasks-known={Boolean(whenAll.TasksKnown)}"),
+                                        $"tasks-known={Boolean(whenAll.TasksKnown)}" +
+                                        (whenAll.ArrayTypeKey is { } array ? $" array={Text(array)} source={OptionalValue(whenAll.SourceValue)}" : "")),
+        IrTaskOperation task => F($"task {task.Kind} call={OperationId(task.CallOperationId)} result={OptionalValue(task.ResultValue)} " +
+                                  $"task={OptionalValue(task.TaskValue)} values={Values(task.Values)} values-known={Boolean(task.ValuesKnown)}"),
         IrUnwrapOperation unwrap => F($"unwrap {Value(unwrap.ResultValue)} <- {Value(unwrap.OuterValue)}"),
         IrTimerOperation timer => F($"timer {timer.Action} {Value(timer.TimerValue)} callback={OptionalValue(timer.CallbackValue)} " +
                                     $"state={OptionalValue(timer.StateValue)} due={Optional(timer.DueTime)} " +

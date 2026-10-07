@@ -76,11 +76,13 @@ public static class ParameterKinds
     public static bool IsHolding(ParameterKind kind) =>
         kind is ParameterKind.Container or ParameterKind.ProbeObject or ParameterKind.Subclass or ParameterKind.RecipeValue;
 
-    /// <summary>Whether a value of <paramref name="type"/> can carry a user object and makes its member a generation candidate.</summary>
+    /// <summary>Whether a value of <paramref name="type"/> can carry a user object and makes its member a generation candidate: a
+    /// <c>Task&lt;T&gt;</c> or <c>ValueTask&lt;T&gt;</c> exactly when its completion type T can, as the value handed directly would.</summary>
     /// <param name="type">The receiver or parameter type.</param>
     public static bool IsCandidate(ITypeSymbol type) => TypeShape.Of(type) switch
     {
         TypeShapeKind.Delegate or TypeShapeKind.Reference or TypeShapeKind.StructWithReferences => true,
+        TypeShapeKind.TaskOfT => TaskTypes.CompletionType(type) is { } completion && IsCandidate(completion),
         _ => false
     };
 

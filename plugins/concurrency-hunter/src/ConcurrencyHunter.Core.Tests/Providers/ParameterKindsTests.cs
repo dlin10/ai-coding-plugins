@@ -27,6 +27,7 @@ public sealed class ParameterKindsTests
             public struct Pair { public string Name; public object Value; }
             public struct Point { public int X; public int Y; }
             public sealed class Many : List<int>, ISink { public void Put(object value) { } }
+            public sealed class Holder { public Action Run; }
 
             public static unsafe class Api
             {
@@ -36,6 +37,8 @@ public sealed class ParameterKindsTests
                 public static void Generic<T>(T value, IEnumerable<T> values) { }
                 public static void Passing(ref Action first, out Action second, in Action third, ref Bag fourth) { second = null; }
                 public static void Arrays(int[] single, int[,] square, int[][] jagged, Func<int>[] probes, Action done) { }
+                public static void Tasks(Task<Func<int>> probe, ValueTask<Holder> holder, Task<Box> box, Task<Pair> pair, Task<int> number, Task plain,
+                                         ValueTask plainValue, Task<Task<Box>> nested) { }
             }
         }
         """;
@@ -133,6 +136,24 @@ public sealed class ParameterKindsTests
         Assert.Equal(ParameterKind.Delegate, Kind("Passing", "second"));
         Assert.Equal(ParameterKind.Delegate, Kind("Passing", "third"));
         Assert.Equal(ParameterKind.Subclass, Kind("Passing", "fourth"));
+    }
+
+    [Fact]
+    public void A_task_of_T_is_a_candidate_exactly_when_T_is()
+    {
+        // A delegate, a class holding a delegate, a sealed class and a struct with a reference field each carry a user object, and so
+        // does the task completing with one, at any depth (R6).
+        foreach (var name in new[] { "probe", "holder", "box", "pair", "nested" })
+        {
+            var type = Parameter("Tasks", name).Type;
+            Assert.True(ParameterKinds.IsCandidate(type), $"{type.ToDisplayString()} is no candidate");
+            Assert.True(ParameterKinds.IsCandidate(((INamedTypeSymbol)type).TypeArguments[0]));
+            Assert.Equal(ParameterKind.RecipeValue, ParameterKinds.Of(type));
+        }
+
+        // A task of an int, and a task completing with no value, carry nothing.
+        foreach (var name in new[] { "number", "plain", "plainValue" })
+            Assert.False(ParameterKinds.IsCandidate(Parameter("Tasks", name).Type), $"{name} is a candidate");
     }
 
     [Fact]

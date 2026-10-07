@@ -26,7 +26,9 @@ occurrences pass through.
   array), `ThreadConfined` (reached only by one execution, such as a scoped service within one request),
   `Owned` (never reached by any access) or `Unknown` (the analysis could not tell, for example after
   contexts were merged). Explain a finding on an `alloc:` object through that evidence: say how the
-  object escaped rather than just naming the region.
+  object escaped rather than just naming the region. A `<completion>` step in that evidence names the
+  value a task completes with: the object was handed over through a task, for example returned by an
+  async method or set through a `TaskCompletionSource`, and reached whoever awaited it.
   A resource whose path is `*` is a wildcard: an access path deeper than the analysis follows was
   collapsed onto the region it starts from, so the finding stands for some field reached through that
   path. Such a finding is labeled Medium because the exact field is not identified; say so in the

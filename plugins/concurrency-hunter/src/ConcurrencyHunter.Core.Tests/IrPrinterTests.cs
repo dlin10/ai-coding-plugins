@@ -61,6 +61,7 @@ public sealed class IrPrinterTests
             new IrJoinOperation(nextOperation++, IrJoinKind.Wait, 7, [6], true, Provenance),
             new IrWhenAllOperation(nextOperation++, 6, [0], true, Provenance),
             new IrUnwrapOperation(nextOperation++, 7, 6, Provenance),
+            new IrTaskOperation(nextOperation++, IrTaskKind.Completed, 7, [0], Provenance) { ResultValue = 6 },
             new IrTimerOperation(nextOperation++, IrTimerAction.Dispose, 3, Provenance),
             new IrAcquireOperation(nextOperation++, 3, IrSynchronizationPrimitive.Monitor,
                                    IrLockMode.Exclusive, Provenance),
@@ -90,7 +91,7 @@ public sealed class IrPrinterTests
                      "assign", "phi", "allocate", "load-field", "store-field", "load-element",
                      "store-element", "address-field", "address-element", "load-reference", "store-reference",
                      "create-delegate", "capture", "escape", "return", "await", "yield",
-                     "spawn", "thread-work", "join", "when-all", "unwrap", "timer", "acquire", "release", "atomic", "compute", "combine-delegates", "remove-delegates", "compare", "convert", "unknown"
+                     "spawn", "thread-work", "join", "when-all", "unwrap", "task", "timer", "acquire", "release", "atomic", "compute", "combine-delegates", "remove-delegates", "compare", "convert", "unknown"
                  })
         {
             Assert.Contains($" {form} ", text);

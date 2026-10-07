@@ -494,6 +494,95 @@ public sealed class GeneratedEntryTests
         AssertPassesReader(answer);
     }
 
+    [Theory]
+    [InlineData("public static Task<Box> Echo(Task<Box> p) => p;", "M:Lib.Api.Echo(System.Threading.Tasks.Task{Lib.Box})", "[arg:p]")]
+    [InlineData("public static async Task<Box> Pass(Task<Box> p) => await p;", "M:Lib.Api.Pass(System.Threading.Tasks.Task{Lib.Box})",
+                "task([completion(arg:p)])")]
+    [InlineData("public static ValueTask<Box> EchoValue(ValueTask<Box> p) => p;", "M:Lib.Api.EchoValue(System.Threading.Tasks.ValueTask{Lib.Box})",
+                "[arg:p]")]
+    [InlineData("public static async ValueTask<Box> PassValue(ValueTask<Box> p) => await p;",
+                "M:Lib.Api.PassValue(System.Threading.Tasks.ValueTask{Lib.Box})", "task([completion(arg:p)])")]
+    [InlineData("public static async Task<Box> PassTwice(Task<Task<Box>> p) => await await p;",
+                "M:Lib.Api.PassTwice(System.Threading.Tasks.Task{System.Threading.Tasks.Task{Lib.Box}})", "task([completion(completion(arg:p))])")]
+    [InlineData("public static Task<Task<Box>> Make(Box x) => Task.FromResult(Task.FromResult(x));", "M:Lib.Api.Make(Lib.Box)", "task(task([arg:x]))")]
+    // A task argument the member returns inside a task of its own is named by itself at that level: its join stays the argument's (R6).
+    [InlineData("public static Task<Task<Box>> Wrap(Task<Box> p) => Task.FromResult(p);",
+                "M:Lib.Api.Wrap(System.Threading.Tasks.Task{Lib.Box})", "task([arg:p])")]
+    [InlineData("public static ValueTask<Task<Box>> WrapValue(Task<Box> p) => new ValueTask<Task<Box>>(p);",
+                "M:Lib.Api.WrapValue(System.Threading.Tasks.Task{Lib.Box})", "task([arg:p])")]
+    [InlineData("public static Task<Task<Task<Box>>> WrapTwice(Task<Box> p) => Task.FromResult(Task.FromResult(p));",
+                "M:Lib.Api.WrapTwice(System.Threading.Tasks.Task{Lib.Box})", "task(task([arg:p]))")]
+    [InlineData("public static async Task<Task<Box>> WrapAsync(Task<Box> p) { await Task.Yield(); return p; }",
+                "M:Lib.Api.WrapAsync(System.Threading.Tasks.Task{Lib.Box})", "task([arg:p])")]
+    [InlineData("public static Task<Task<Box>> Any(Task<Box> p) => Task.WhenAny(p);",
+                "M:Lib.Api.Any(System.Threading.Tasks.Task{Lib.Box})", "task([arg:p])")]
+    public void A_task_result_is_named_through_the_task_argument_it_returns_or_completes_with(string member, string id, string expected)
+    {
+        // The argument's task itself is arg:p; what it completes with, handed to a task of the member's own, is completion(arg:p) (R6).
+        var answer = Answer($"public static class Api {{ {member} }}", id);
+
+        AssertPassesReader(answer);
+        Assert.Equal(expected, answer.Model!.Result?.ToString());
+    }
+
+    private const string CARRIER = "public sealed class Inner { public Box Slot; } " +
+                                   "public sealed class Carrier { public Box Slot; public Box[] Items = new Box[1]; public Inner Inner = new Inner(); } ";
+
+    /// <summary>The synchronous twin: a direct store into a carrier argument is a keep of the argument.</summary>
+    [Fact]
+    public void A_store_into_a_carrier_argument_is_kept_by_the_argument()
+    {
+        var answer = Answer(CARRIER + "public static class Api { public static void Keep(Carrier p, Box d) { p.Slot = d; } }",
+                            "M:Lib.Api.Keep(Lib.Carrier,Lib.Box)");
+
+        AssertPassesReader(answer);
+        Assert.Contains("arg:d", Text(answer.Model!.Keeps.GetValueOrDefault("p") ?? []));
+    }
+
+    /// <summary>The synchronous twin of a store into an element or a further field of a carrier argument has no name for its keep.</summary>
+    /// <param name="store">The store, into <c>p</c>.</param>
+    [Theory]
+    [InlineData("p.Items[0] = d;")]
+    [InlineData("p.Inner.Slot = d;")]
+    public void A_store_below_a_carrier_argument_has_vocabulary_reason(string store)
+    {
+        var answer = Answer(CARRIER + $"public static class Api {{ public static void Keep(Carrier p, Box d) {{ {store} }} }}",
+                            "M:Lib.Api.Keep(Lib.Carrier,Lib.Box)");
+
+        AssertNoModel(answer, ModelReasons.VOCABULARY);
+    }
+
+    /// <summary>A store into what a task argument completes with is read as the twin's store into the argument; <c>keeps.p</c> would keep
+    /// into the task, not into what it completes with, so the vocabulary has no name for it and the member has no model (R6, R7) —
+    /// never an entry that leaves the keep out.</summary>
+    /// <param name="parameter">The task parameter's type.</param>
+    /// <param name="id">The type's documentation id.</param>
+    /// <param name="carrier">The expression giving the carrier from <c>p</c>.</param>
+    /// <param name="store">The store, into <c>c</c>.</param>
+    [Theory]
+    [InlineData("Task<Carrier>", "System.Threading.Tasks.Task{Lib.Carrier}", "await p", "c.Slot = d;")]
+    [InlineData("Task<Carrier>", "System.Threading.Tasks.Task{Lib.Carrier}", "await p", "c.Items[0] = d;")]
+    [InlineData("Task<Carrier>", "System.Threading.Tasks.Task{Lib.Carrier}", "await p", "c.Inner.Slot = d;")]
+    [InlineData("ValueTask<Carrier>", "System.Threading.Tasks.ValueTask{Lib.Carrier}", "await p", "c.Slot = d;")]
+    [InlineData("Task<Task<Carrier>>", "System.Threading.Tasks.Task{System.Threading.Tasks.Task{Lib.Carrier}}", "await await p", "c.Slot = d;")]
+    public void A_store_into_what_a_task_argument_completes_with_has_vocabulary_reason(string parameter, string id, string carrier, string store)
+    {
+        var answer = Answer(CARRIER + $"public static class Api {{ public static async Task Keep({parameter} p, Box d) {{ var c = {carrier}; {store} }} }}",
+                            $"M:Lib.Api.Keep({id},Lib.Box)");
+
+        AssertNoModel(answer, ModelReasons.VOCABULARY);
+    }
+
+    [Fact]
+    public void A_task_argument_awaited_without_a_store_into_what_it_completes_with_keeps_its_entry()
+    {
+        var answer = Answer(CARRIER + "public static class Api { public static async Task<Box> Pass(Task<Carrier> p, Box d) { await p; return d; } }",
+                            "M:Lib.Api.Pass(System.Threading.Tasks.Task{Lib.Carrier},Lib.Box)");
+
+        AssertPassesReader(answer);
+        Assert.Empty(answer.Model!.Keeps);
+    }
+
     private static GeneratedAnswer Answer(string source, string member)
     {
         var answer = Trace(source, member).Answer;

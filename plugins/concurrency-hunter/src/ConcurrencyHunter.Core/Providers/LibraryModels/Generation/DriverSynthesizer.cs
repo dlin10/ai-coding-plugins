@@ -427,7 +427,9 @@ public static class DriverSynthesizer
         private bool _staticsSeeded;
         private INamedTypeSymbol? _receiver;
         private ITypeSymbol? _result;
-        private bool _awaits;
+
+        /// <summary>How many times the call is awaited: once per task level around the member's result.</summary>
+        private int _awaits;
 
         public List<string> Failures { get; } = [];
 
@@ -465,15 +467,12 @@ public static class DriverSynthesizer
                 _result = containing;
             else if (!member.ReturnsVoid)
             {
+                // A task is awaited once per level, down to what its innermost task completes with, or to nothing for Task and ValueTask.
                 var returned = Substitute(member.ReturnType);
-                var shape = TypeShape.Of(returned);
-                _awaits = shape is TypeShapeKind.Task or TypeShapeKind.TaskOfT;
-                _result = shape switch
-                {
-                    TypeShapeKind.Task => null,
-                    TypeShapeKind.TaskOfT => ((INamedTypeSymbol)returned).TypeArguments[0],
-                    _ => returned
-                };
+                var innermost = TaskTypes.Innermost(returned);
+                var valueless = TaskTypes.IsValueless(innermost);
+                _awaits = TaskTypes.Depth(returned) + (valueless ? 1 : 0);
+                _result = valueless ? null : innermost;
             }
 
             Enumerates = _result is { SpecialType: not SpecialType.System_String } result &&
@@ -1309,8 +1308,11 @@ public static class DriverSynthesizer
         {
             var lines = new List<string>();
             var call = Call(variant, lines);
-            if (_awaits)
-                lines.Add(_result is null ? $"await {call};" : $"var r = await {call};");
+            if (_awaits != 0)
+            {
+                var awaited = string.Concat(Enumerable.Repeat("await ", _awaits)) + call;
+                lines.Add(_result is null ? $"{awaited};" : $"var r = {awaited};");
+            }
             else if (_result is not null)
                 lines.Add($"var r = {call};");
             else

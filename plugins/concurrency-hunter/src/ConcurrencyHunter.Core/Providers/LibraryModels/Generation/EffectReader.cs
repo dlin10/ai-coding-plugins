@@ -4,8 +4,6 @@ using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Operations;
 
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
@@ -87,8 +85,6 @@ public sealed class EffectReader
         ReadSummaryEvidence();
         ReadUnknownDelegateStateStores();
         ReadWitnessesAndUnknownCalls();
-        if (AwaitsHoldingValue())
-            _incomplete = true;
 
         Effects = _effects.Where(pair => fates?.GetValueOrDefault(pair.Key.Parameter)?.Fate != FateClassifier.NOT_RUN)
                           .OrderBy(pair => pair.Key.Parameter, StringComparer.Ordinal).ThenBy(pair => pair.Key.Kind, StringComparer.Ordinal)
@@ -763,36 +759,6 @@ public sealed class EffectReader
     private static bool Within(SourceSpan inner, FileLinePositionSpan outer) =>
         (inner.StartLine, inner.StartColumn).CompareTo((outer.StartLinePosition.Line + 1, outer.StartLinePosition.Character + 1)) >= 0 &&
         (inner.EndLine, inner.EndColumn).CompareTo((outer.EndLinePosition.Line + 1, outer.EndLinePosition.Character + 1)) <= 0;
-
-    private bool AwaitsHoldingValue()
-    {
-        var activeBodies = _analysis.InstanceExecutions.Where(pair => pair.Value.Any(execution => ActionOf(execution) is not null))
-                                    .Select(pair => _heap.Instances.GetValueOrDefault(pair.Key)?.BodyId)
-                                    .Where(body => body is not null && IsLibraryBody(body)).Cast<string>().Distinct(StringComparer.Ordinal);
-        foreach (var bodyId in activeBodies)
-        {
-            if (!_runBodies.TryGetValue(bodyId, out var body))
-                continue;
-            foreach (var awaitOperation in body.Blocks.SelectMany(block => block.Operations).OfType<IrAwaitOperation>())
-            {
-                if (awaitOperation.ResultValue is int result && body.Values.FirstOrDefault(value => value.Id == result) is { } value &&
-                    ResolveType(value.Type) is { } type && CanHoldUserObject(type))
-                {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private ITypeSymbol? ResolveType(string display)
-    {
-        var tree = CSharpSyntaxTree.ParseText($"internal sealed class __EffectReaderAwaited {{ public {display} Value; }}",
-                                              new CSharpParseOptions(LanguageVersion.Preview));
-        var compilation = _driver.Compilation.AddSyntaxTrees(tree);
-        var variable = tree.GetRoot().DescendantNodes().OfType<VariableDeclaratorSyntax>().Single();
-        return (compilation.GetSemanticModel(tree).GetDeclaredSymbol(variable) as IFieldSymbol)?.Type;
-    }
 
     private bool IsEnumerationRead(MethodInstance instance, int operationId)
     {

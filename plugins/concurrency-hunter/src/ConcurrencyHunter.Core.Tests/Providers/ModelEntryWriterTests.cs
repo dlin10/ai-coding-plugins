@@ -123,6 +123,19 @@ public sealed class ModelEntryWriterTests
     }
 
     [Theory]
+    [InlineData("task([arg:items,completion(arg:output)])", "task([completion(arg:output),arg:items])", "task([arg:items,completion(arg:output)])")]
+    [InlineData("task(task(sequence(arg:output,arg:items)))", "task(task(sequence(arg:items,arg:output)))", "task(task(sequence(arg:items,arg:output)))")]
+    [InlineData("task(dictionary(arg:output,completion(arg:items)))", "task(dictionary(arg:output,completion(arg:items)))", "task(dictionary(arg:output,completion(arg:items)))")]
+    public void Task_results_write_their_completion_with_recursive_set_order(string first, string second, string written)
+    {
+        var a = WithResult(first);
+
+        Assert.Equal(ModelEntryWriter.File(a), ModelEntryWriter.File(WithResult(second)));
+        Assert.Equal(written, ModelEntryWriter.Write(a)["result"]!.GetValue<string>());
+        Assert.Empty(ProjectModelFiles.Read("model.json", ModelEntryWriter.File(a)).Rejections);
+    }
+
+    [Theory]
     [InlineData("dictionary(arg:items,arg:output)", "dictionary(arg:output,arg:items)")]
     [InlineData("[grouping(arg:items,arg:output)]", "[grouping(arg:output,arg:items)]")]
     public void Dictionary_and_grouping_positions_remain_distinct(string first, string second) =>
@@ -134,6 +147,13 @@ public sealed class ModelEntryWriterTests
     {
         Result = LibraryResult.Parse(text),
         Outputs = new Dictionary<string, LibraryResult> { ["output"] = LibraryResult.Parse(text)! }
+    };
+
+    /// <summary>Builds a model with a result only, as <c>task(…)</c> describes a member's result and never an output.</summary>
+    /// <param name="text">The result text.</param>
+    private static LibraryModel WithResult(string text) => new(MEMBER, [new("A", new Version(1, 0, 0, 0), new Version(2, 0, 0, 0))], [])
+    {
+        Result = LibraryResult.Parse(text)
     };
 
     private static LibraryModel Model(bool reverse)

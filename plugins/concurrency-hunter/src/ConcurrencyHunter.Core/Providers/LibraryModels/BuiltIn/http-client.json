@@ -11,33 +11,45 @@
   "models": [
     {
       "member": "M:System.Net.Http.HttpClient.GetAsync(System.String)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetAsync(System.String,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetAsync(System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetAsync(System.String,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetStringAsync(System.String)~System.Threading.Tasks.Task{System.String}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetStringAsync(System.String,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.PostAsync(System.String,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
       "effects": {
         "content": [
           "reads-deep"
+        ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:content"
         ]
       }
     },
@@ -47,6 +59,12 @@
         "content": [
           "reads-deep"
         ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:content"
+        ]
       }
     },
     {
@@ -54,6 +72,12 @@
       "effects": {
         "content": [
           "reads-deep"
+        ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:content"
         ]
       }
     },
@@ -63,37 +87,55 @@
         "content": [
           "reads-deep"
         ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:content"
+        ]
       }
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetAsync(System.Uri)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Net.Http.HttpCompletionOption)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetAsync(System.Uri,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetStringAsync(System.Uri)~System.Threading.Tasks.Task{System.String}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.GetStringAsync(System.Uri,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpClient.PostAsync(System.Uri,System.Net.Http.HttpContent)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
       "effects": {
         "content": [
           "reads-deep"
+        ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:content"
         ]
       }
     },
@@ -103,6 +145,12 @@
         "content": [
           "reads-deep"
         ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:content"
+        ]
       }
     },
     {
@@ -110,6 +158,12 @@
       "effects": {
         "content": [
           "reads-deep"
+        ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:content"
         ]
       }
     },
@@ -119,6 +173,12 @@
         "content": [
           "reads-deep"
         ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:content"
+        ]
       }
     },
     {
@@ -126,6 +186,12 @@
       "effects": {
         "request": [
           "reads-deep"
+        ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:request"
         ]
       }
     },
@@ -135,6 +201,12 @@
         "request": [
           "reads-deep"
         ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:request"
+        ]
       }
     },
     {
@@ -143,6 +215,12 @@
         "request": [
           "reads-deep"
         ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:request"
+        ]
       }
     },
     {
@@ -150,6 +228,12 @@
       "effects": {
         "request": [
           "reads-deep"
+        ]
+      },
+      "result": "task(new)",
+      "keeps": {
+        "result": [
+          "arg:request"
         ]
       }
     },
@@ -187,11 +271,13 @@
     },
     {
       "member": "M:System.Net.Http.HttpContent.ReadAsStringAsync~System.Threading.Tasks.Task{System.String}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpContent.ReadAsStringAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
-      "effects": {}
+      "effects": {},
+      "result": "task(new)"
     },
     {
       "member": "M:System.Net.Http.HttpRequestMessage.get_Headers~System.Net.Http.Headers.HttpRequestHeaders",

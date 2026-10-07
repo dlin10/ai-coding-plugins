@@ -139,6 +139,8 @@ internal static class EntryComparator
     {
         if (actual.Kind != expected.Kind)
             return false;
+        if (actual.Kind == LibraryResultKind.Task)
+            return Covers(actual.Inner!, expected.Inner!);
         if (actual.Kind == LibraryResultKind.Dictionary)
             return actual.Values.Count == expected.Values.Count && actual.Values.Zip(expected.Values).All(pair => Covers(pair.First, pair.Second));
         return Covers(actual.Values, expected.Values);
@@ -151,6 +153,7 @@ internal static class EntryComparator
     {
         (SequenceValue a, SequenceValue e) => Covers(a.Values, e.Values),
         (ElementsValue a, ElementsValue e) => Covers(a.Source, e.Source),
+        (CompletionValue a, CompletionValue e) => Covers(a.Source, e.Source),
         (GroupingValue a, GroupingValue e) => Covers(a.Key, e.Key) && Covers(a.Values, e.Values),
         _ => actual.Canonical == expected.Canonical
     };

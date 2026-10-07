@@ -187,14 +187,33 @@ public sealed class ValueProvenance
     {
         if (_driver.Member.MethodKind == MethodKind.Constructor || ObservedResultType() is not { } type)
             return null;
-        // What a task completes with has no name before run A4, whatever holds the delegate (question 94).
-        if (TypeShape.Of(_driver.Member.ReturnType) == TypeShapeKind.TaskOfT && CanHoldObject(type))
-        {
-            _vocabulary = true;
-            return null;
-        }
         if (_fates.Values.Any(fate => fate.Fate == FateClassifier.HOLDER && fate.Holder == FateClassifier.RESULT))
             return null;
+        // A task's result is task(X) at each level, X what its innermost completion value is named as the result of a member
+        // returning that type; the regions are the completion objects the driver's await holds.
+        if (TaskTypes.Depth(_driver.Member.ReturnType) is var depth and > 0)
+        {
+            // What the member returns names its result when every value it returns has a name: a task argument returned itself is
+            // [arg:p]; an async body returns what its own task completes with, completion(arg:p) for an awaited argument, inside task(…).
+            if (SymbolicReturnNames(complete: true) is { Count: > 0 } returned)
+            {
+                var named = new LibraryResult(LibraryResultKind.OneOf, returned);
+                return _driver.Member.IsAsync ? new LibraryResult(LibraryResultKind.Task, [], named) : named;
+            }
+            // A task the member returns but does not make is named by itself at the level it stands: the argument's task returned
+            // through FromResult or WhenAny is [arg:p] inside the levels the member makes, never a task made anew around its completion.
+            if (NamedTaskLevel(depth) is { } existing)
+                return existing;
+            if (regions.Count == 0 && type.ContainingAssembly?.Name == DriverSynthesizer.ASSEMBLY)
+            {
+                _vocabulary = true;
+                return null;
+            }
+            var completion = ResultOf(regions, type, ValuePlace.WholeResult, ValuePlace.ResultValue, _fate, DriverSynthesizer.CALL);
+            for (var level = 0; completion is not null && level < depth; level++)
+                completion = new LibraryResult(LibraryResultKind.Task, [], completion);
+            return completion;
+        }
         if (regions.Count == 0 && SymbolicReturnNames() is { Count: > 0 } symbolic)
             return new LibraryResult(LibraryResultKind.OneOf, symbolic);
         if (regions.Count == 0 && type.ContainingAssembly?.Name == DriverSynthesizer.ASSEMBLY)
@@ -209,6 +228,33 @@ public sealed class ValueProvenance
             return null;
         }
         return ResultOf(regions, type, ValuePlace.WholeResult, ValuePlace.ResultValue, _fate, DriverSynthesizer.CALL);
+    }
+
+    /// <summary>The result of a task member named at the first level whose tasks all have a name of their own, inside one <c>task(…)</c>
+    /// for every level above it: the member's call gives level 0, and each level's tasks complete with the next one's. <c>null</c> when
+    /// no level above the innermost completion value is named so, and the innermost value names the result instead.</summary>
+    /// <param name="depth">How many tasks stand around the member's innermost completion value.</param>
+    private LibraryResult? NamedTaskLevel(int depth)
+    {
+        IReadOnlySet<string> tasks = _fate.Heap.Instances.Values
+                                          .Where(instance => instance.BodyId == ValueObservation.DriverBody(DriverSynthesizer.CALL))
+                                          .SelectMany(instance => _fate.Heap.Edges.Where(edge => edge.CallerInstance == instance.Id &&
+                                                                                                 _fate.Heap.Instances.TryGetValue(edge.CalleeInstance, out var callee) &&
+                                                                                                 _fate.MemberInstances(DriverSynthesizer.CALL).Contains(callee))
+                                                                                   .SelectMany(edge => _fate.Heap.Resolve(instance.Id, new CallResultValue(edge.OperationId))))
+                                          .ToHashSet(StringComparer.Ordinal);
+        for (var level = 0; level < depth && tasks.Count != 0; level++)
+        {
+            if (tasks.All(task => _fate.RootNames(task).Count != 0))
+            {
+                LibraryResult named = new(LibraryResultKind.OneOf, Names(tasks, ValuePlace.ResultValue, _fate, null, markMissing: false));
+                for (var above = 0; above < level; above++)
+                    named = new LibraryResult(LibraryResultKind.Task, [], named);
+                return named;
+            }
+            tasks = tasks.SelectMany(_fate.Heap.Completion).ToHashSet(StringComparer.Ordinal);
+        }
+        return null;
     }
 
     private ITypeSymbol? ObservedResultType() =>
@@ -243,33 +289,66 @@ public sealed class ValueProvenance
         return false;
     }
 
-    private IReadOnlyList<LibraryValue> SymbolicReturnNames()
+    /// <summary>The names of what the member's call returns, from its own frame.</summary>
+    /// <param name="complete">Whether to answer nothing unless every returned value has a name.</param>
+    private IReadOnlyList<LibraryValue> SymbolicReturnNames(bool complete = false)
     {
         var values = new List<LibraryValue>();
-        foreach (var returned in _fate.MemberInstances(DriverSynthesizer.CALL).SelectMany(instance => instance.Summary.Returns))
+        foreach (var instance in _fate.MemberInstances(DriverSynthesizer.CALL))
         {
-            foreach (var value in returned.Values)
+            foreach (var value in instance.Summary.Returns.SelectMany(returned => returned.Values))
             {
-                if (SymbolicName(value) is { } named)
+                if (SymbolicName(value, instance) is { } named)
                     values.Add(named);
+                else if (complete)
+                    return [];
             }
         }
         return Order(values);
     }
 
     /// <summary>The name an entry gives a value of the member's own frame, or <c>null</c> when it has none. A delegate parameter
-    /// never has one: a fate speaks for it, and TD-034a refuses <c>arg:P</c> for a delegate-typed <c>P</c> (task 11).</summary>
+    /// never has one: a fate speaks for it, and TD-034a refuses <c>arg:P</c> for a delegate-typed <c>P</c> (task 11). What an
+    /// <c>await</c> of a task argument yields is named through the argument (<see cref="CompletionOf"/>).</summary>
     /// <param name="value">The value.</param>
-    private LibraryValue? SymbolicName(AbstractValue value) => value switch
+    /// <param name="instance">The member's instance expressing the value, which says what an <c>await</c> awaited; <c>null</c> names
+    /// no awaited value.</param>
+    private LibraryValue? SymbolicName(AbstractValue value, MethodInstance? instance = null) => value switch
     {
         ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length &&
                                       TypeShape.Of(_driver.Member.Parameters[parameter.Ordinal].Type) != TypeShapeKind.Delegate =>
             new ArgumentValue(_driver.Member.Parameters[parameter.Ordinal].Name),
         ConcurrencyHunter.Heap.ThisValue => new ThisValue(),
-        PathValue path when SymbolicName(path.Base) is { } root && path.Segments.All(segment => segment is ELEMENT or KEYS) =>
+        PathValue path when SymbolicName(path.Base, instance) is { } root && path.Segments.All(segment => segment is ELEMENT or KEYS) =>
             path.Segments.Aggregate(root, (current, _) => (LibraryValue)new ElementsValue(current)),
+        AwaitResultValue when instance is not null && SymbolicTask(value, instance) is { } awaited => awaited.Name,
         _ => null
     };
+
+    /// <summary>A value of the member's own frame that is a task argument or what awaiting one yields, at any depth, with its type.</summary>
+    /// <param name="value">The value.</param>
+    /// <param name="instance">The member's instance expressing the value.</param>
+    private (LibraryValue Name, ITypeSymbol Type)? SymbolicTask(AbstractValue value, MethodInstance instance) => value switch
+    {
+        ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length =>
+            (new ArgumentValue(_driver.Member.Parameters[parameter.Ordinal].Name), _driver.Member.Parameters[parameter.Ordinal].Type),
+        AwaitResultValue awaited when instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId).SelectMany(join => join.Handles)
+                                              .SelectMany(handle => handle.Values).Distinct().ToArray() is [var task] &&
+                                      SymbolicTask(task, instance) is { } named => CompletionOf(named.Name, named.Type),
+        _ => null
+    };
+
+    /// <summary>The one name of a value reached through a task argument: what a task's completion slot holds is <c>completion(…)</c>
+    /// around the task's own name, the argument's task itself being <c>arg:p</c>, and a <c>Task&lt;Task&lt;T&gt;&gt;</c> argument
+    /// awaited twice <c>completion(completion(arg:p))</c> (R6). <c>null</c> when the type is no <c>Task&lt;T&gt;</c> or
+    /// <c>ValueTask&lt;T&gt;</c>, and when what it completes with is a delegate, which a fate speaks for as it does for a delegate
+    /// argument.</summary>
+    /// <param name="task">The task's name.</param>
+    /// <param name="type">The task's type, or <c>null</c> when it is not known.</param>
+    private static (LibraryValue Name, ITypeSymbol Type)? CompletionOf(LibraryValue task, ITypeSymbol? type) =>
+        TaskTypes.CompletionType(type) is { } completion && TypeShape.Of(completion) != TypeShapeKind.Delegate
+            ? (new CompletionValue(task), completion)
+            : null;
 
     private IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> BuildKeeps()
     {
@@ -423,6 +502,24 @@ public sealed class ValueProvenance
         }
         foreach (var (name, region) in keepers.Distinct())
             ReadKeeper(name, region);
+
+        // What a task argument completes with is a keeper as the argument handed over directly would be: the walk reads the stores into
+        // the object its innermost completion holds, at any depth. keeps.p keeps into the task itself, not into what it completes with,
+        // so a keep found there has no name, and the member no model (R6, R7).
+        foreach (var parameter in _driver.Member.Parameters.Where(parameter => parameter.RefKind != RefKind.Out && TaskTypes.Depth(parameter.Type) > 0))
+        {
+            IReadOnlySet<string> carriers = _fate.RootsOf(new ArgumentValue(parameter.Name)).ToHashSet(StringComparer.Ordinal);
+            carriers = HeapSolution.Completions(carriers, TaskTypes.Depth(parameter.Type), _fate.Heap.Completion);
+            foreach (var carrier in carriers.Where(region => _fate.IsLibraryRegion(region) && !_keptByRegion.ContainsKey(region)))
+            {
+                ReadKeeper(parameter.Name, carrier);
+                if (!_keptByRegion.Remove(carrier))
+                    continue;
+                _keepingChain.Remove(carrier);
+                _symbolicKeeps.Remove(carrier);
+                _vocabulary = true;
+            }
+        }
     }
 
     private void ReadKeeper(string name, string keeper)
@@ -498,7 +595,7 @@ public sealed class ValueProvenance
         var symbolic = _fate.CallInstances().Where(_fate.IsMemberEntry)
                             .SelectMany(instance => instance.Summary.Stores.Concat(instance.Summary.ReferenceStores)
                                 .Where(store => store.Bases.Any(value => _fate.Matches(instance, value, keeper)))
-                                .SelectMany(store => store.Values).Select(SymbolicName))
+                                .SelectMany(store => store.Values).Select(value => SymbolicName(value, instance)))
                             .Where(value => value is not null).Cast<LibraryValue>().ToArray();
         if (symbolic.Length != 0)
         {
@@ -565,10 +662,20 @@ public sealed class ValueProvenance
         var result = _fate.StaticTargets(DriverSynthesizer.KEEP_TYPE, "R").ToHashSet(StringComparer.Ordinal);
         if (_driver.Member.MethodKind == MethodKind.Constructor)
             result.UnionWith(_fate.Heap.Regions.Keys.Where(region => _fate.Allocations.Of(region).Kind == AllocationKind.MemberObject));
-        if (ObservedResultType() is { } type && CanHoldObject(type))
-            foreach (var instance in _fate.MemberInstances(DriverSynthesizer.CALL))
-                foreach (var returned in instance.Summary.Returns)
-                    result.UnionWith(ObservedValues(_fate, instance, returned.Values, returned.Producers));
+        if (ObservedResultType() is not { } type || !CanHoldObject(type))
+            return result;
+        // A task member's result is the completion value the driver's await stores into Keep.R; any other member's is what it returns.
+        if (_driver.Member.MethodKind != MethodKind.Constructor && TaskTypes.Depth(_driver.Member.ReturnType) > 0)
+        {
+            foreach (var instance in _fate.Heap.Instances.Values.Where(instance => instance.BodyId == ValueObservation.DriverBody(DriverSynthesizer.CALL)))
+                foreach (var store in instance.Summary.Stores.Where(store => store.Field is
+                    { IsStatic: true, Assembly: DriverSynthesizer.ASSEMBLY, ContainingType: DriverSynthesizer.KEEP_TYPE, Name: "R" }))
+                    result.UnionWith(ObservedValues(_fate, instance, store.Values, store.Producers));
+            return result;
+        }
+        foreach (var instance in _fate.MemberInstances(DriverSynthesizer.CALL))
+            foreach (var returned in instance.Summary.Returns)
+                result.UnionWith(ObservedValues(_fate, instance, returned.Values, returned.Producers));
         return result;
     }
 
@@ -623,7 +730,7 @@ public sealed class ValueProvenance
             foreach (var value in parameter.Values)
             {
                 values.UnionWith(ObservedValues(_fate, instance, [value], ValueOrigin.None));
-                if (_fate.IsMemberEntry(instance) && SymbolicName(value) is { } named)
+                if (_fate.IsMemberEntry(instance) && SymbolicName(value, instance) is { } named)
                     symbolic.Add(named);
             }
         }
@@ -1367,7 +1474,7 @@ public sealed class ValueProvenance
                     var initial = parameter.RefKind == RefKind.Ref ? InitialValues(field) : StaticTargets(DriverSynthesizer.DRIVER_TYPE, field);
                     foreach (var region in initial)
                     {
-                        AddRootGraph(region, new ArgumentValue(parameter.Name));
+                        AddRootGraph(region, new ArgumentValue(parameter.Name), parameter.Type);
                     }
                 }
             }
@@ -1408,11 +1515,15 @@ public sealed class ValueProvenance
             }
         }
 
-        private void AddRootGraph(string root, LibraryValue value)
+        /// <summary>Names a root and what setup placed in it: its elements, and what a task argument completes with.</summary>
+        /// <param name="root">The root region.</param>
+        /// <param name="value">The root's name.</param>
+        /// <param name="type">The root's type, or <c>null</c> when only its elements are named.</param>
+        private void AddRootGraph(string root, LibraryValue value, ITypeSymbol? type = null)
         {
-            var pending = new Stack<(string Region, LibraryValue Value)>();
+            var pending = new Stack<(string Region, LibraryValue Value, ITypeSymbol? Type)>();
             var seen = new HashSet<(string Region, string Value)>();
-            pending.Push((root, value));
+            pending.Push((root, value, type));
             while (pending.TryPop(out var item))
             {
                 if (!seen.Add((item.Region, item.Value.Canonical)))
@@ -1424,7 +1535,13 @@ public sealed class ValueProvenance
                 foreach (var edge in Reachability.Edges(item.Region).Where(edge => (edge.Field is ELEMENT or KEYS) &&
                     (!Written.Contains(new WrittenEdge(item.Region, edge.Field, edge.Target)) ||
                      _placed.Contains(new WrittenEdge(item.Region, edge.Field, edge.Target)))))
-                    pending.Push((edge.Target, new ElementsValue(item.Value)));
+                    pending.Push((edge.Target, new ElementsValue(item.Value), null));
+                // What a task argument completes with is named through it, at every level, as the value handed directly would be (R2).
+                if (CompletionOf(item.Value, item.Type) is { } completion)
+                {
+                    foreach (var target in Heap.Completion(item.Region))
+                        pending.Push((target, completion.Name, completion.Type));
+                }
             }
         }
 
@@ -1573,7 +1690,13 @@ public sealed class ValueProvenance
 
         private static string DriverBody(string action) => ValueObservation.DriverBody(action);
 
-        private static int ElementDepth(LibraryValue value) => value is ElementsValue elements ? 1 + ElementDepth(elements.Source) : 0;
+        private static int ElementDepth(LibraryValue value) => value switch
+        {
+            ElementsValue elements => 1 + ElementDepth(elements.Source),
+            // What a task completes with is no element of anything: it stands at the depth of a whole value.
+            CompletionValue => 0,
+            _ => 0
+        };
 
         private static bool FieldMatches(string edge, string field) => edge == field || edge.EndsWith("." + field, StringComparison.Ordinal) ||
             field.StartsWith('[') && edge == ELEMENT;

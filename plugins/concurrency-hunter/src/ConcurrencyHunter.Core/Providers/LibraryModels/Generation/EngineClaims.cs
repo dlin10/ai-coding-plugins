@@ -17,11 +17,13 @@ public static class EngineClaims
 {
     private const string DI_REGISTRATION = "di-registration";
 
-    /// <summary>The recognizer claiming a method by the metadata name of its outermost containing type, wherever that type is
-    /// declared; <c>null</c> when none does.</summary>
+    /// <summary>The recognizer claiming a method: the lowering's claim of the member itself, as on a task's awaiter, or else the claim
+    /// by the metadata name of its outermost containing type, wherever that type is declared; <c>null</c> when none does.</summary>
     /// <param name="method">The method, from metadata or from source.</param>
     public static string? Of(IMethodSymbol method)
     {
+        if (IrLowering.RecognizerOf(method) is { } member)
+            return member;
         var type = method.ContainingType?.OriginalDefinition;
         while (type?.ContainingType is { } outer)
             type = outer.OriginalDefinition;

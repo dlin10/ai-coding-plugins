@@ -97,6 +97,7 @@ public sealed class DriverSynthesisTests
                 public static void Slots(Func<Slot> make) { }
                 public static Holder Wrap(Box box) => new Holder(box.Make);
                 public static async Task<Holder> RunAsync(Func<int> f) { await Task.Yield(); return new Holder(f); }
+                public static Task<Task<Box>> BoxTwiceAsync(Func<int> make) => Task.FromResult(Task.FromResult(new Box(make)));
                 public static void Valued<T>(T value, Action done) where T : struct { }
                 public static void Unmanaged<T>(T value, Action done) where T : unmanaged { }
                 public static void NoOne<T>(T value, Action done) where T : struct, ISink { }
@@ -615,6 +616,15 @@ public sealed class DriverSynthesisTests
         Assert.Equal(["var r = await global::Lib.Api.RunAsync(L_f_0_Call());", "Keep.R = r;"], Lines(driver, DriverSynthesizer.CALL));
         Assert.Equal("Lib.Holder", driver.Compilation.GetTypeByMetadataName(DriverSynthesizer.KEEP_TYPE)!.GetMembers("R").OfType<IFieldSymbol>().Single().Type.ToDisplayString());
         Assert.Contains("await r.RunAsync();", driver.Source);
+    }
+
+    [Fact]
+    public void V_Call_of_a_task_of_a_task_awaits_twice_and_keeps_the_innermost_completion_value()
+    {
+        var driver = Drive("M:Lib.Api.BoxTwiceAsync(System.Func{System.Int32})");
+
+        Assert.Equal(["var r = await await global::Lib.Api.BoxTwiceAsync(L_make_0_Call());", "Keep.R = r;"], Lines(driver, DriverSynthesizer.CALL));
+        Assert.Equal("Lib.Box", driver.Compilation.GetTypeByMetadataName(DriverSynthesizer.KEEP_TYPE)!.GetMembers("R").OfType<IFieldSymbol>().Single().Type.ToDisplayString());
     }
 
     [Fact]

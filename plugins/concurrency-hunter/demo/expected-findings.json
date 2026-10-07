@@ -2365,6 +2365,50 @@
         { "symbol": "Demo.Web.Cases.ExplicitEnumeratorRunsBody.Feed.Touch(List<Item>)", "operation": "read-modify-write" },
         { "symbol": "Demo.Web.Cases.ExplicitEnumeratorRunsBody.Feed.Touch(List<Item>)", "operation": "read-modify-write" }
       ]
+    },
+    {
+      "id": "awaited-result-shared",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.AwaitedResultShared.TallyStore..ctor()#Demo.Web.Cases.AwaitedResultShared.Tally", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.AwaitedResultShared.TallyController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.AwaitedResultShared.TallyController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "task-run-result-shared",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.TaskRunResultShared.Board..ctor()#Demo.Web.Cases.TaskRunResultShared.Tally", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.TaskRunResultShared.BoardController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.TaskRunResultShared.BoardController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "completion-source-handoff/worker",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.CompletionSourceHandoff.TallyWorker.ExecuteAsync(CancellationToken)#Demo.Web.Cases.CompletionSourceHandoff.Tally", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.CompletionSourceHandoff.TallyController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.CompletionSourceHandoff.TallyWorker.ExecuteAsync(CancellationToken)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "completion-source-handoff/requests",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.CompletionSourceHandoff.TallyWorker.ExecuteAsync(CancellationToken)#Demo.Web.Cases.CompletionSourceHandoff.Tally", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.CompletionSourceHandoff.TallyController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.CompletionSourceHandoff.TallyController.Post()", "operation": "read-modify-write" }
+      ]
     }
   ],
   "notDefects": [
@@ -2888,6 +2932,11 @@
       "id": "field-like-event-raised-in-request/owned",
       "phase": "5d",
       "resource": { "region": "di:Demo.Web.Cases.FieldLikeEventRaisedInRequest.TickCounter@Scoped", "accessPath": ["_ticks"] }
+    },
+    {
+      "id": "awaited-fresh-result",
+      "phase": "5d",
+      "resource": { "region": "alloc:Demo.Web.Cases.AwaitedFreshResult.TallyFactory.CreateAsync()#Demo.Web.Cases.AwaitedFreshResult.Tally", "accessPath": ["Hits"] }
     }
   ]
 }

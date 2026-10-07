@@ -134,8 +134,28 @@ public static class IrValidator
                 if (!join.HandlesKnown && join.HandleValues.Count != 0)
                     problems.Add($"Join operation {join.Id} names handles it does not know.");
                 break;
-            case IrWhenAllOperation { TasksKnown: false, TaskValues.Count: > 0 } whenAll:
-                problems.Add($"When-all operation {whenAll.Id} names tasks it does not know.");
+            case IrWhenAllOperation whenAll:
+                if (!whenAll.TasksKnown && whenAll.TaskValues.Count > 0)
+                    problems.Add($"When-all operation {whenAll.Id} names tasks it does not know.");
+                if (whenAll.SourceValue is not null && (whenAll.TasksKnown || whenAll.ArrayTypeKey is null))
+                    problems.Add($"When-all operation {whenAll.Id} names a source it does not read.");
+                break;
+            case IrTaskOperation task:
+                RequireCall(task.Id, task.CallOperationId, calls, problems);
+                // A same task names both the alias and the task it is; every other kind either gives a new task or completes an
+                // existing one, never both.
+                if (task.Kind == IrTaskKind.Same ? task.ResultValue is null || task.TaskValue is null || task.Values.Count != 0
+                                                  : (task.ResultValue is null) == (task.TaskValue is null))
+                    problems.Add($"Task operation {task.Id} of kind {task.Kind} does not name the task it gives or completes.");
+                var carriesValues = task.Kind switch
+                {
+                    IrTaskKind.Completed => task.Values.Count <= 1,
+                    IrTaskKind.CompletionOf => task.Values.Count == 1,
+                    IrTaskKind.AnyOf => task.ResultValue is not null && (task.ValuesKnown || task.Values.Count == 1),
+                    _ => task.Values.Count == 0
+                };
+                if (!carriesValues ||!task.ValuesKnown && task.Kind != IrTaskKind.AnyOf)
+                    problems.Add($"Task operation {task.Id} of kind {task.Kind} does not carry the values of its kind.");
                 break;
             case IrTimerOperation timer:
                 var shape = (timer.CallbackValue is not null, timer.DueTime is not null && timer.Period is not null,

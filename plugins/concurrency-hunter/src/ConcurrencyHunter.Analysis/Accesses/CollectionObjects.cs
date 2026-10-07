@@ -32,6 +32,7 @@ public static class CollectionObjects
 
     /// <summary>The kind of the objects of one type, its bases aside: an array by its rank, a type of the table by its name without type
     /// arguments; null for every other type.</summary>
+    /// <param name="typeKey">The type key to classify, in either format; null gives null.</param>
     public static string? KindOfType(string? typeKey)
     {
         if (typeKey is null)
@@ -47,6 +48,10 @@ public static class CollectionObjects
     /// collection being that collection; a list is a snapshot where the call its region was made at is a view of a
     /// <c>ConcurrentDictionary</c>. For a call of <paramref name="interfaceMethod"/>, an object whose type of the run's own implements
     /// that member is no kind: it runs its own body, which is what dispatch does with it.</summary>
+    /// <param name="region">The region to classify.</param>
+    /// <param name="program">The program index, giving implementations and base types.</param>
+    /// <param name="summaries">The method summaries, read to tell whether the region was made by a snapshot view.</param>
+    /// <param name="interfaceMethod">The interface member being called, or null when no call is in question.</param>
     public static string? KindOf(HeapRegion region, ProgramIndex program, SummaryCache summaries, string? interfaceMethod = null)
     {
         if (interfaceMethod is not null && region.TypeKey is { } typeKey && program.Implementation(typeKey, interfaceMethod) is { HasSourceBody: true })
@@ -129,7 +134,7 @@ public static class CollectionObjects
                 IsSequence = kind is IrLibraryEffectKind.DeepRead or IrLibraryEffectKind.WriteArgument
             }];
         var library = call.Library!;
-        var deferred = library.Result?.Kind == IrResultKind.Sequence;
+        var deferred = library.Result?.Leaf.Kind == IrResultKind.Sequence;
         foreach (var effect in library.Effects)
         foreach (var bound in Bind(effect.Kind, effect.ParameterOrdinal))
             yield return bound with { IsDeferred = deferred, Conditions = call.Conditions };
@@ -146,10 +151,49 @@ public static class CollectionObjects
                 foreach (var bound in Bind(IrLibraryEffectKind.Enumerate, ordinal))
                     yield return bound with { IsDeferred = moment, Conditions = call.Conditions };
             }
+            // What the tasks a completion names complete with is enumerated as that value handed over directly would be (R2): the tasks
+            // are reached from the call's own values through any elements(…) and completion(…), and a value holding them is enumerated as
+            // elements(…) of it is. What a delegate gives back, the heap enumerates (WholeProgram.EnumeratedReturned).
+            foreach (var completion in library.EnumeratedCompletions(moment).Where(IrLibraryCall.ReachesCallValues))
+            {
+                foreach (var holder in IrLibraryCall.CompletionHolders(completion))
+                {
+                    if (holder is IrModelArgument or IrModelThis)
+                    {
+                        foreach (var bound in Bind(IrLibraryEffectKind.Enumerate, holder is IrModelArgument argument ? argument.ParameterOrdinal : IrLibraryCall.RECEIVER))
+                            yield return bound with { IsDeferred = moment, Conditions = call.Conditions };
+                    }
+                    else if (Reached(holder) is { Count: > 0 } holders)
+                        yield return Enumeration(holders, moment);
+                }
+
+                if (Reached(completion) is { Count: > 0 } completed)
+                    yield return Enumeration(completed, moment);
+            }
         }
+
+        // The values a model value reaches from the call's own values, as paths through what it names the elements and completion of.
+        IReadOnlySet<AbstractValue> Reached(IrModelValue value) => value switch
+        {
+            IrModelArgument argument => Values(argument.ParameterOrdinal),
+            IrModelThis => Values(IrLibraryCall.RECEIVER),
+            IrModelKept kept => new HashSet<AbstractValue> { new PathValue(new LibraryKeeperValue(call.OperationId, kept.KeeperOrdinal, Read: true), [PathValue.KEPT]) },
+            IrModelElements elements => Through(Reached(elements.Source), PathValue.ELEMENT),
+            IrModelCompletion inner => Through(Reached(inner.Source), PathValue.COMPLETION),
+            _ => new HashSet<AbstractValue>()
+        };
+
+        SummaryArgumentEffect Enumeration(IReadOnlySet<AbstractValue> values, bool moment) =>
+            new(IrLibraryEffectKind.Enumerate, call.OperationId, values, null, false, call.Provenance!, heldLocks) { IsDeferred = moment, Conditions = call.Conditions };
+
+        static IReadOnlySet<AbstractValue> Through(IReadOnlySet<AbstractValue> values, string segment) =>
+            values.Select(value => (AbstractValue)(value is PathValue path ? path with { Segments = [.. path.Segments, segment] } : new PathValue(value, [segment])))
+                  .ToHashSet();
     }
 
     /// <summary>Whether a region was made by a view of a <c>ConcurrentDictionary</c>, called directly or through an interface.</summary>
+    /// <param name="region">The region whose allocation site is checked.</param>
+    /// <param name="summaries">The method summaries holding the call at that site.</param>
     private static bool TakesSnapshot(HeapRegion region, SummaryCache summaries)
     {
         if (region is not { SiteBodyId: { } body, SiteOperationId: int operation } || summaries.Get(body) is not { } summary)

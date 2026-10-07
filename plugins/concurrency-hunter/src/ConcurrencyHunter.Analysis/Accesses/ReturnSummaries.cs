@@ -108,7 +108,7 @@ public static partial class InterproceduralAccesses
                 try
                 {
                     var call = caller.Summary.Calls.FirstOrDefault(call => call.OperationId == operation);
-                    var receiverFromCall = kind == ReturnKind.Reference && call?.Receivers.Any(value => value is CallResultValue) == true;
+                    var receiverFromCall = kind == ReturnKind.Reference && call?.Receivers.Any(value => value is CallResultValue or AwaitResultValue) == true;
                     foreach (var edge in _calls.GetValueOrDefault((caller.Id, operation)) ?? [])
                     foreach (var item in Of(edge.CalleeInstance, kind).ToArray())
                     foreach (var carried in Carry(caller, call, edge.CalleeInstance, item, mapping))

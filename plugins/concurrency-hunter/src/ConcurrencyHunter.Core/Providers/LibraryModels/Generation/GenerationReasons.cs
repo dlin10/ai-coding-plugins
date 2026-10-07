@@ -42,7 +42,7 @@ public static class GenerationReasons
     /// <summary>A probe or a value it reaches was touched where the analysis cannot see what happened.</summary>
     public const string UNKNOWN_TOUCH = "unknown-touch";
 
-    /// <summary>The driver could not seed a field the member read, or the member awaited an untracked completion value.</summary>
+    /// <summary>The driver could not seed a field the member read.</summary>
     public const string INCOMPLETE = "incomplete";
 
     /// <summary>The observed effect or value has no form in the library-model vocabulary.</summary>
@@ -63,7 +63,7 @@ public static class ModelReasons
     /// <summary>A probe or reachable value was touched where the analysis cannot see what happened.</summary>
     public const string UNKNOWN_TOUCH = "unknown-touch";
 
-    /// <summary>A field the member read could not be seeded, or an awaited completion value was not tracked.</summary>
+    /// <summary>A field the member read could not be seeded.</summary>
     public const string INCOMPLETE = "incomplete";
 
     /// <summary>The member wrote pre-existing library state outside a keeping chain.</summary>

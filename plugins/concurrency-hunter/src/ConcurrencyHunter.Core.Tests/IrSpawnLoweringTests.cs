@@ -357,9 +357,17 @@ public sealed class IrSpawnLoweringTests
     }
 
     [Fact]
-    public async Task When_any_is_an_ordinary_call()
+    public async Task When_any_is_an_any_of_proxy_and_no_join()
     {
-        Expect([], await Bcl("async Task M(Task first, Task second) { await Task.WhenAny(first, second); }"));
+        var lowered = await Lower("async Task M(Task first, Task second) { await Task.WhenAny(first, second); }");
+
+        Assert.Empty(Operations<IrSpawnOperation>(lowered.Body));
+        Assert.Empty(Operations<IrJoinOperation>(lowered.Body));
+        var call = Assert.Single(Operations<IrCallOperation>(lowered.Body), call => call.Method.Contains("WhenAny", StringComparison.Ordinal));
+        var task = Assert.Single(Operations<IrTaskOperation>(lowered.Body));
+        Assert.Equal((IrTaskKind.AnyOf, call.Id, call.ResultValue, (int?)null, true), (task.Kind, task.CallOperationId, task.ResultValue, task.TaskValue, task.ValuesKnown));
+        Assert.Equal(call.ArgumentValues, task.Values);
+        Assert.Matches(@"task AnyOf call=operation:\d+ result=%\d+ task=- values=\[%\d+,%\d+\] values-known=true", Print(lowered));
     }
 
     [Fact]
@@ -644,7 +652,9 @@ public sealed class IrSpawnLoweringTests
             .. block.Operations.Where(operation => operation is not IrJoinOperation and not IrTimerOperation),
             join with { HandlesKnown = false },
             timer with { DueTime = IrTimerInterval.Zero },
-            new IrSpawnOperation(90, IrSpawnKind.QueueUserWorkItem, 99, join.HandleValues[0], [join.HandleValues[0]], join.Provenance)
+            new IrSpawnOperation(90, IrSpawnKind.QueueUserWorkItem, 99, join.HandleValues[0], [join.HandleValues[0]], join.Provenance),
+            new IrTaskOperation(91, IrTaskKind.Same, join.CallOperationId, [], join.Provenance) { ResultValue = join.HandleValues[0] },
+            new IrTaskOperation(92, IrTaskKind.CompletionOf, join.CallOperationId, [], join.Provenance) { TaskValue = join.HandleValues[0] }
         ];
 
         var problems = IrValidator.Validate(body with
@@ -657,6 +667,8 @@ public sealed class IrSpawnLoweringTests
         Assert.Contains($"Timer operation {timer.Id} does not carry the values of Dispose.", problems);
         Assert.Contains("Operation 90 names operation 99, which is not an earlier call in its block.", problems);
         Assert.Contains("Spawn operation 90 of kind QueueUserWorkItem has a handle.", problems);
+        Assert.Contains("Task operation 91 of kind Same does not name the task it gives or completes.", problems);
+        Assert.Contains("Task operation 92 of kind CompletionOf does not carry the values of its kind.", problems);
     }
 
     private static void Expect(string[] expected, string[] actual) => Assert.Equal(expected, actual);
