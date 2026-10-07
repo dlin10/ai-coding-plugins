@@ -516,9 +516,9 @@ The critic judges a matrix task with the rest of the plan, so the plan spells it
 
 Each non-Cursor `forge.plan.review` call, or each Cursor start → poll → fetch round, runs exactly
 one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, address the
-findings in the plan yourself and run the next round. The Critic is a fresh process each round and
-receives only the current plan-phase ledger projection, so it converges on current findings without
-being anchored by the transcript.
+findings in the plan yourself — *Writing a revision* below says how — and run the next round. The
+Critic is a fresh process each round and receives only the current plan-phase ledger projection, so
+it converges on current findings without being anchored by the transcript.
 
 A revision that introduces a Change point no Impact pass has checked gets its own Impact pass and Evidence check before it is written.
 
@@ -575,6 +575,36 @@ to zero, and records it in the flow log. That is not a silent housekeeping detai
 chat, because the next `forge.build.next` will refuse until the user approves again, and the builder
 will then start from the first task. If tasks were already built, tell the user how many are about
 to be rebuilt before you write the new draft.
+
+### Writing a revision
+
+Measured over thirteen runs, about half of the plan-review findings after round 1 sat in text a
+revision had written, rising to two thirds from round 6 on: a rule that arrived without its gate, a
+change made in one place and left standing in another, a claim about the code nobody had checked, a
+mechanism invented to answer one finding. Before each `forge.plan.write` that answers a critique,
+walk every change the revision makes through these checks; the draft is ready when every change
+passes all six:
+
+- **Gate with the rule.** A rule, requirement or step the revision adds or changes arrives with its
+  gate rows, its tests and the task steps that build it, in the same revision.
+- **Every mention.** A term, rule, count, name or decision the revision changes is changed wherever
+  the plan states it — requirements, tasks, gates, test lists, counts — found by searching the draft.
+- **Evidence for claims.** Every claim the revision makes about the code — what exists today, a
+  name, a count, a behaviour — passes the Evidence check before it is written.
+- **The class, not the instance.** A finding that names one member of a class — one reader of a
+  value, one call form, one case of a rule — is answered for the whole class: list its members, by
+  references and callers where the class is code, and cover each one, or narrow the requirement in
+  words. Name the list in `revision`.
+- **Mechanisms are the user's.** When the answer to a finding is a new mechanism — a pass, a state,
+  a wrapper, a restart, a fixpoint — ask the user before writing it, with the simpler alternatives
+  beside it.
+- **The findings' scope.** The revision changes what the findings name and what the checks above
+  reach. A neighbouring case enters the plan when a critic raises it.
+
+From the second round on, label every new finding with the labels of *When a round is mostly
+fallout*, reading *revision* for *fix* — `own`, `sibling`, `same-class`, `older` — and record one
+line per round with `forge.log.append`:
+`Plan review round 3: own F-0021; sibling F-0024; same-class F-0019; older F-0022`.
 
 ## Show the workers' output as you go
 
