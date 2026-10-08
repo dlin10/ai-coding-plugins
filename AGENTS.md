@@ -56,6 +56,28 @@ restores into a log file, pass `--disable-build-servers -nodeReuse:false`.
 Log files belong outside the repository or under an ignored path — `.forge/`, `scratch/`, `*.tmp`
 and `*.scratch` are already ignored at the root.
 
+A probe written to answer one question writes its dump to a file and is deleted as soon as it has
+answered. Output a test prints comes back on every later run of the suite, and enough of it exceeds
+the harness output cap and kills the turn.
+
+Run the repository's PowerShell scripts under pwsh 7. Windows PowerShell 5.1 decodes a BOM-less
+script, the files it reads and a child process's output in the ANSI/OEM code pages, which turns
+non-ASCII into mojibake.
+
+## Verifying a change
+
+Before trusting a new test, revert the fix and watch that test go red. Revert with an editor or a
+file write: `Move-Item` and `Copy-Item` keep the restored file's old `LastWriteTime`, older than the
+binary built from the mutation, so MSBuild skips the compile and `dotnet test` runs the mutated
+build while printing its usual build line. After a cmdlet restore, touch the file:
+`(Get-Item $file).LastWriteTime = Get-Date`.
+
+A fix lands at one call site, and the rule behind it usually has several. Name the rule in one
+sentence, then find every other place that decides the same question — a cheap pre-filter as well as
+the full check, a lowering as well as the summary built from it — and fix them in the same change,
+or say which ones you left and why. Reverting the fix proves that the line matters; it does not
+prove that the rule now holds everywhere.
+
 ## Releasing
 
 Releasing a plugin is bumping its version, and the version lives in more than one place. All of
