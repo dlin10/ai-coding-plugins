@@ -17,6 +17,7 @@
 4. Запись в HTTP action всегда даёт self-pair: action пересекается сам с собой. Поэтому action в кейсах про защиту и порядок только читает, а negatives про disjointness строятся на `BackgroundService`, один экземпляр которого сам с собой не пересекается (TD-064). Spawn-кейсы фазы 3 живут внутри одного `BackgroundService`: до фазы 3 у них нет пересечения вообще.
 5. Access в лямбде или local function получает symbol содержащего члена (12.2). Если в файле нужны две записи с одинаковой парой symbol/operation на одном resource, тела spawn и callbacks выносятся в именованные методы, иначе записи неразличимы.
 6. Кейсы, которые проверяет не `expected-findings.json`, а тест отчёта или evals, помечены в колонке «Ожидание».
+7. Demo — собственный Repository root ([SPEC TD-034c](../docs/SPEC.md)): папка `demo/.concurrency-hunter/` лежит рядом с `Demo.slnx`, так что проектные модели demo читаются из `demo/.concurrency-hunter/models/`, а `models.lock.json` ран ведёт там же.
 
 ### Колонка «До фазы»
 

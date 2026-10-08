@@ -19,8 +19,8 @@
 | 6 | Закрыт → ADR 0009; SPEC TD-086. | `custom-async-lock-releaser` | 4 |
 | 7 | Закрыт → CONTEXT.md, «Channel<T>»; SPEC TD-086. | `channel-handoff` | 5b |
 | 8 | Закрыт → ADR 0006; SPEC TD-062b; thread-local ownership — PLAN, временные границы (5g). | `static-constructor-initialization` и кейсы «Фаза 2 — конструирование»; thread-local кейсы в разделе 5g | 5g |
-| 9 | Закрыт в 5c run A: **Repository root** — ближайшая папка от solution вверх с `.concurrency-hunter/`, иначе корень git work tree, иначе папка solution; отсутствующая папка не прерывает поиск. Проектная модель demo читается из его корня, и `models.lock.json` записывается там же (TD-034c, `RepositoryRootTests`). | `project-model-overrides-built-in`, `suppress-file-fingerprint` | 5c |
-| 10 | Закрыт в фазе 4: да, но только когда доказано всё сразу — регион представляет ровно один объект на процесс (статическое хранилище, DI singleton или allocation site, выполняющийся не более одного раза), поле `readonly` или get-only auto-property, вне конструирования своего региона его никто не пишет, и чтение происходит после этого конструирования. Всё остальное это значение одного исполнения, которого не разделяет никакое другое, и пару оно снять не может. Граница односторонняя: ошибка здесь подавляет настоящую гонку (TD-090, TD-092) | `mutually-exclusive-paths`, `unsupported-guard-kept` | 4 |
+| 9 | Закрыт → SPEC TD-034c; CONTEXT.md, «Repository root»; SCENARIOS, правило 7. | `project-model-overrides-built-in`, `suppress-file-fingerprint` | 5c |
+| 10 | Закрыт → SPEC TD-092, поле одного объекта на процесс. | `mutually-exclusive-paths`, `unsupported-guard-kept` | 4 |
 | 11 | Закрыт → SCENARIOS, «Колонка «До фазы»». | все ⚠ | план каждой фазы |
 | 12 | Закрыт → CONTEXT.md, «Unknown effect»; SPEC 3, «Unknown-call model»; TD-025. | `unknown-call-model-not-noop` | 5b |
 | 13 | Что именно redaction убирает из snippets | `redaction-in-snippet` | 6 |
