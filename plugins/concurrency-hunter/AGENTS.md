@@ -69,9 +69,6 @@ Keep the two apart:
   row in PLAN says what it delivered, and the temporary limits it lifted leave PLAN. SPEC changes
   only where a requirement changed.
 
-SPEC §1–13 still carry phase, run and question markers written before PLAN existed. Add none, and
-leave the existing ones to a pass of their own rather than to an unrelated change.
-
 ## Commands
 
 ```powershell
