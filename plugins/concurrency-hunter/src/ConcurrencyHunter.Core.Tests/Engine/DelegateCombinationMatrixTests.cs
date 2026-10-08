@@ -11,13 +11,15 @@ using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
 
 namespace ConcurrencyHunter.Core.Tests.Engine;
 
-/// <summary>The delegate-combination matrix (R3): one fixture program, compiled and analysed once, with one controller action per
-/// cell. The first table crosses every form that combines or removes delegates with what its left and right operands are; the second
-/// crosses four forms with the side an unknown operand stands on and where that operand comes from; the third observes the channels
-/// besides the runs — the cells a combination reads and what the stored combination depends on. The matrix checks the combination
-/// rule, not how precisely the engine keeps a value in each place: every operand of a cell has a twin action that puts it alone in
-/// the same place by plain assignment and invokes it the same way, and <see cref="Expected(Cell)"/> combines what the twins do by
-/// R3. The forms whose places are exact also meet R3's formulas over the operands themselves.</summary>
+/// <summary>The delegate-combination matrix (R3): two fixture programs, each compiled and analysed once, with one controller action
+/// per cell. The first table crosses every form that combines or removes delegates with what its left and right operands are; the
+/// second crosses four forms with the side an unknown operand stands on and where that operand comes from; the third observes the
+/// channels besides the runs — the cells a combination reads and what the stored combination depends on. The matrix checks the
+/// combination rule, not how precisely the engine keeps a value in each place: every operand of a cell has a twin action that puts it
+/// alone in the same place by plain assignment and invokes it the same way, and <see cref="Expected(Cell)"/> combines what the twins
+/// do by R3. The forms whose places are exact also meet R3's formulas over the operands themselves. The first two tables share a
+/// program that stops before pairing: its six hundred roots all write the two <c>Tally</c> fields, and pairing them made a hundred
+/// million pairs that no test reads. The third table, whose array-cell check reads a pair, is a program of its own.</summary>
 public sealed class DelegateCombinationMatrixTests
 {
     /// <summary>The line the invocation of a cell's or a twin's result stands on.</summary>
@@ -191,10 +193,14 @@ public sealed class DelegateCombinationMatrixTests
     /// <param name="OpaqueCombine">Whether its class makes an opaque <c>Combine</c> call.</param>
     private sealed record Observed(IReadOnlySet<string> Writes, bool Marked, int Invocations, bool OpaqueCombine);
 
-    /// <summary>The run and the lines of its source the marked invocations stand on.</summary>
-    /// <param name="Run">The engine run of the whole fixture.</param>
+    /// <summary>The run of the first two tables, collected without pairing, the lines of its source the marked invocations stand on,
+    /// and the engine run of the third table.</summary>
+    /// <param name="Execution">The executions of the first two tables' cells and twins over their solved heap.</param>
+    /// <param name="Collection">Their interprocedural accesses.</param>
     /// <param name="InvokedLines">The source lines the marked invocations stand on.</param>
-    private sealed record Matrix(EngineRun Run, IReadOnlySet<int> InvokedLines);
+    /// <param name="Channels">The engine run of the channels table, pairs included.</param>
+    private sealed record Matrix(ExecutionRun Execution, InterproceduralCollection Collection, IReadOnlySet<int> InvokedLines,
+                                 EngineRun Channels);
 
     // ---- the cells and their twins ----
 
@@ -314,7 +320,7 @@ public sealed class DelegateCombinationMatrixTests
     [Fact]
     public void Combination_reads_every_array_cell()
     {
-        var run = Results.Value.Run;
+        var run = Results.Value.Channels;
         var cells = run.Collection.Accesses.Where(access => !access.IsConstructionLocal && access.Resource.Selector is not null &&
                                                             access.Resource.Member.Name == "_arr").ToArray();
         // R3: Delegate.Combine of an existing array reads its cells, which a write of another execution may change.
@@ -326,7 +332,7 @@ public sealed class DelegateCombinationMatrixTests
     [Fact]
     public void Every_combination_depends_on_all_its_operands()
     {
-        var run = Results.Value.Run;
+        var run = Results.Value.Channels;
         var failures = new List<string>();
         foreach (var channel in new[] { Channel.FieldCompound, Channel.FieldRemove, Channel.SelfRightOfCombine, Channel.SelfRightOfRemove })
         {
@@ -361,10 +367,11 @@ public sealed class DelegateCombinationMatrixTests
         Assert.Empty(Combining.Intersect(Removing));
         Assert.Empty(Exact.Except(Combining.Concat(Removing)));
         Assert.Equal(expected.Order(StringComparer.Ordinal), Cells().Select(cell => cell.Name).Order(StringComparer.Ordinal));
-        // Every cell is a root of the run; the other roots are the twins and the writer of the array cells.
+        // Every cell is a root of one of the two runs, and of only one; the other roots are the twins and the writer of the array cells.
         var twins = Twins().Select(twin => Twin(twin.Form, twin.Side, twin.Operand))
                            .Concat(OriginCells().Select(cell => OriginTwin(cell.Form, cell.Side, cell.Origin)));
-        var roots = Results.Value.Run.Execution.Heap.Program.Input.Roots
+        var roots = Results.Value.Execution.Heap.Program.Input.Roots
+                           .Concat(Results.Value.Channels.Execution.Heap.Program.Input.Roots)
                            .Select(root => root.Entry.Symbol)
                            .Where(symbol => symbol.StartsWith("MatrixController.", StringComparison.Ordinal))
                            .Select(symbol => symbol["MatrixController.".Length..^"()".Length])
@@ -441,10 +448,12 @@ public sealed class DelegateCombinationMatrixTests
 
     private static Observed ObserveOnce(string name)
     {
-        var (run, lines) = (Results.Value.Run, Results.Value.InvokedLines);
-        var writes = new[] { "A", "B" }.Where(field => run.Of(field).Any(access => IsOf(access, name) && access.Operation != AccessOperation.Read))
+        var (matrix, lines) = (Results.Value, Results.Value.InvokedLines);
+        // The accesses of a field that can pair, construction-local accesses aside, as EngineRun.Of gives them.
+        IEnumerable<Access> Of(string field) => matrix.Collection.Accesses.Where(access => access.Resource.Member.Name == field && !access.IsConstructionLocal);
+        var writes = new[] { "A", "B" }.Where(field => Of(field).Any(access => IsOf(access, name) && access.Operation != AccessOperation.Read))
                                        .ToHashSet(StringComparer.Ordinal);
-        var heap = run.Execution.Heap;
+        var heap = matrix.Execution.Heap;
         var bodies = heap.Program.Result.Bodies.Values.Where(body => body.BodyId.Contains($"Cell_{name}.", StringComparison.Ordinal)).ToArray();
         var invocations = bodies.SelectMany(body => body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
                                                         .Where(call => call.CallKind == IrCallKind.Delegate && lines.Contains(call.Provenance.Span.StartLine))
@@ -473,14 +482,24 @@ public sealed class DelegateCombinationMatrixTests
 
     private static Matrix Run()
     {
-        var text = Source();
+        var (solution, lines) = Compile(Source());
+        var execution = Execute(Solve(ReachScope(solution, "scope:Fixture", ModelCellFixture.Resolve(solution, MODELS))));
+        var (channels, _) = Compile(ChannelSource());
+        return new Matrix(execution, Collect(execution), lines, AnalyzeScope(channels, "scope:Fixture", ModelCellFixture.Resolve(channels, MODELS)));
+    }
+
+    /// <summary>A fixture program over the keeper's library, which compiles without an error, and the lines of its source the marked
+    /// invocations stand on.</summary>
+    /// <param name="text">The program, without the usings every fixture gets.</param>
+    private static (Solution Solution, IReadOnlySet<int> InvokedLines) Compile(string text)
+    {
         var solution = FixtureSolution.Create(new FixtureOptions { MetadataReferences = [Library()] }, ("Case.cs", Usings + text));
         var compilation = solution.Projects.Single().GetCompilationAsync().GetAwaiter().GetResult()!;
         Assert.Empty(compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
         var lines = (Usings + text).Split('\n').Select((line, index) => (line, index))
                                    .Where(pair => pair.line.Contains(INVOKED, StringComparison.Ordinal))
                                    .Select(pair => pair.index + 1).ToHashSet();
-        return new Matrix(AnalyzeScope(solution, "scope:Fixture", ModelCellFixture.Resolve(solution, MODELS)), lines);
+        return (solution, lines);
     }
 
     /// <summary>The library whose keeper keeps what it is handed and returns it: its members have no body in the run.</summary>
@@ -500,24 +519,74 @@ public sealed class DelegateCombinationMatrixTests
         return MetadataReference.CreateFromImage(bytes.ToArray());
     }
 
-    /// <summary>The program: the tally both known delegates write, the opaque source of unknown delegates, one class per cell and
-    /// twin, the singleton of the channels table and the controller whose actions are the cells and the twins.</summary>
+    /// <summary>The tally both known delegates write.</summary>
+    private const string TALLY = """
+        public static class Tally
+        {
+            public static int A;
+            public static int B;
+        }
+
+        """;
+
+    /// <summary>The program of the first two tables: the tally, the opaque source of unknown delegates, one class per cell and twin
+    /// and the controller whose actions are the cells and the twins.</summary>
     private static string Source()
     {
-        var text = new StringBuilder("""
-            using System.Collections.Generic;
-
-            public static class Tally
-            {
-                public static int A;
-                public static int B;
-            }
-
+        var text = new StringBuilder("using System.Collections.Generic;\n\n" + TALLY + """
             public static class Opaque
             {
                 public static extern Action Unknown();
             }
 
+            """);
+        var actions = new List<string>();
+        void Add(string name, string members, string run)
+        {
+            text.Append($"public sealed class Cell_{name}\n{{\n{members}\n{run}\n}}\n\n");
+            actions.Add(name);
+        }
+
+        foreach (var cell in RunCells())
+        {
+            var (members, body) = Code(cell.Form);
+            var prelude = $"Action a = {OperandCode(cell.Left, "A")};\nAction b = {OperandCode(cell.Right, "B")};\n";
+            Add(cell.Name, members, $"public void Run()\n{{\n{prelude}{body}\n}}");
+        }
+
+        foreach (var cell in OriginCells())
+        {
+            var (members, body) = Code(cell.Form);
+            var operands = cell.Side == Side.Left ? "Action a = u;\nAction b = () => Tally.B = 1;\n" : "Action a = () => Tally.A = 1;\nAction b = u;\n";
+            var (originMembers, run) = OriginCode(cell.Origin, operands + body);
+            Add(cell.Name, members + "\n" + originMembers, run);
+        }
+
+        foreach (var (form, side, operand) in Twins())
+        {
+            var (members, body) = TwinCode(form, side);
+            Add(Twin(form, side, operand), members, $"public void Run()\n{{\nAction x = {OperandCode(operand, side == Side.Left ? "A" : "B")};\n{body}\n}}");
+        }
+
+        foreach (var cell in OriginCells())
+        {
+            var (members, body) = TwinCode(cell.Form, cell.Side);
+            var (originMembers, run) = OriginCode(cell.Origin, "Action x = u;\n" + body);
+            Add(OriginTwin(cell.Form, cell.Side, cell.Origin), members + "\n" + originMembers, run);
+        }
+
+        text.Append("public sealed class MatrixController : ControllerBase\n{\n");
+        foreach (var action in actions)
+            text.Append($"    public void {action}() => new Cell_{action}().Run();\n");
+        text.Append("}\n");
+        return text + Startup();
+    }
+
+    /// <summary>The program of the channels table: the tally, the singleton whose members are the cells and the writer of its array
+    /// cells, and the controller whose actions call them.</summary>
+    private static string ChannelSource()
+    {
+        var text = new StringBuilder(TALLY + """
             public sealed class Shared
             {
                 private readonly Delegate[] _arr = new Delegate[1];
@@ -561,44 +630,7 @@ public sealed class DelegateCombinationMatrixTests
             }
 
             """);
-        var actions = new List<string>();
-        void Add(string name, string members, string run)
-        {
-            text.Append($"public sealed class Cell_{name}\n{{\n{members}\n{run}\n}}\n\n");
-            actions.Add(name);
-        }
-
-        foreach (var cell in RunCells())
-        {
-            var (members, body) = Code(cell.Form);
-            var prelude = $"Action a = {OperandCode(cell.Left, "A")};\nAction b = {OperandCode(cell.Right, "B")};\n";
-            Add(cell.Name, members, $"public void Run()\n{{\n{prelude}{body}\n}}");
-        }
-
-        foreach (var cell in OriginCells())
-        {
-            var (members, body) = Code(cell.Form);
-            var operands = cell.Side == Side.Left ? "Action a = u;\nAction b = () => Tally.B = 1;\n" : "Action a = () => Tally.A = 1;\nAction b = u;\n";
-            var (originMembers, run) = OriginCode(cell.Origin, operands + body);
-            Add(cell.Name, members + "\n" + originMembers, run);
-        }
-
-        foreach (var (form, side, operand) in Twins())
-        {
-            var (members, body) = TwinCode(form, side);
-            Add(Twin(form, side, operand), members, $"public void Run()\n{{\nAction x = {OperandCode(operand, side == Side.Left ? "A" : "B")};\n{body}\n}}");
-        }
-
-        foreach (var cell in OriginCells())
-        {
-            var (members, body) = TwinCode(cell.Form, cell.Side);
-            var (originMembers, run) = OriginCode(cell.Origin, "Action x = u;\n" + body);
-            Add(OriginTwin(cell.Form, cell.Side, cell.Origin), members + "\n" + originMembers, run);
-        }
-
         text.Append("public sealed class MatrixController(Shared shared) : ControllerBase\n{\n    private readonly Shared _shared = shared;\n");
-        foreach (var action in actions)
-            text.Append($"    public void {action}() => new Cell_{action}().Run();\n");
         foreach (var cell in ChannelCells())
             text.Append($"    public void {cell.Name}() => _shared.{cell.Name}();\n");
         text.Append("    public void T3_ArrayCellsWriter() => _shared.T3_ArrayCellsWriter();\n}\n");

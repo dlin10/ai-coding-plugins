@@ -4,6 +4,9 @@
     <IsPackable>false</IsPackable>
     <AssemblyName>ConcurrencyHunter.Core.Tests</AssemblyName>
     <RootNamespace>ConcurrencyHunter.Core.Tests</RootNamespace>
+    <!-- The suite runs sixteen classes at once over a heap of many gigabytes; the workstation collector
+         collects it on one thread with every test stopped, and the run took 2.5 times as long. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

@@ -4,6 +4,8 @@
     <IsPackable>false</IsPackable>
     <AssemblyName>ConcurrencyHunter.Cli.Tests</AssemblyName>
     <RootNamespace>ConcurrencyHunter.Cli.Tests</RootNamespace>
+    <!-- As in Core.Tests: the workstation collector stops every test while it collects on one thread. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
