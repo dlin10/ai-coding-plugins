@@ -5,11 +5,19 @@ using System.Text.Json.Serialization;
 namespace PlanForge.Vendors;
 
 /// <summary>The identified critique exposed by the MCP tools and written to the Flow log.</summary>
+/// <param name="Verdict">The critic's verdict.</param>
+/// <param name="Findings">The identified findings.</param>
+/// <param name="Summary">The round's summary.</param>
+/// <param name="UnresolvedAssessments">Assessments of unresolved findings.</param>
+/// <param name="Reopenings">Proposals to reopen settled findings.</param>
+/// <param name="PendingFullGateFindingIds">Current pending IDs for code review with final full verification.</param>
 internal sealed record Critique(string Verdict,
                                 IReadOnlyList<Finding> Findings,
                                 string Summary,
                                 IReadOnlyList<UnresolvedAssessment>? UnresolvedAssessments = null,
-                                IReadOnlyList<ReopeningProposal>? Reopenings = null);
+                                IReadOnlyList<ReopeningProposal>? Reopenings = null,
+                                [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                IReadOnlyList<string>? PendingFullGateFindingIds = null);
 
 internal sealed record Finding(string Severity,
                                string Where,
@@ -183,11 +191,21 @@ internal sealed record ScoutFailure(string Code, string Summary);
 /// task's gate on the host. <see cref="Status"/> is the builder's word, except that a task whose
 /// gate failed is rewritten to <c>gate_failed</c> — see docs/adr/0015.
 /// </summary>
+/// <param name="Status">The Builder's completion status, adjusted when the host gate fails.</param>
+/// <param name="FilesChanged">Files the Builder reports changing.</param>
+/// <param name="Verification">The Builder's own verification report.</param>
+/// <param name="Summary">The Builder's account of the work.</param>
+/// <param name="Gate">The server's host gate result.</param>
+/// <param name="GateMode">The host's fix verification mode, absent for task results.</param>
+/// <param name="PendingFullGateFindingIds">Current pending findings covered by this fix attempt.</param>
 internal sealed record BuildResult(string Status,
                                    IReadOnlyList<string> FilesChanged,
                                    Verification Verification,
                                    string Summary,
-                                   GateRun? Gate = null);
+                                   GateRun? Gate = null,
+                                   [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? GateMode = null,
+                                   [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                   IReadOnlyList<string>? PendingFullGateFindingIds = null);
 
 /// <summary>
 /// The builder's own account of whether it proved the work, separate from whether it did the work.

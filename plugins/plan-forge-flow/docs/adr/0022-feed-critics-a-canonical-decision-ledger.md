@@ -17,6 +17,11 @@ holds the interview and approved-scope context; see
 
 ## Decision
 
+The current schema version and targeted-verification lifecycle are defined by
+[0030](0030-leave-targeted-fixes-pending-until-full-host-verification.md). Version-2 snapshots remain
+readable; their next mutation writes version 3. The version-2 extensions below describe the
+optional fields introduced by those decisions.
+
 Use the Run-local `decision-ledger.json` as the authoritative current state for findings that still
 matter to a future Critic, while `flow_log.md` remains the complete audit and never becomes Worker
 input. No review-log file is part of a ledger-era Run.
@@ -24,8 +29,10 @@ input. No review-log file is part of a ledger-era Run.
 Plan Forge assigns every new Critic finding a monotonic Run-local identity from one sequence shared
 by plan review and code review. The ledger stores only `unresolved`, `deferred` and `rejected`
 entries. Deferred and rejected entries preserve the original finding verbatim, the asserted
-decision-maker (`user` or `orchestrator`) and the reason. A successful plan revision or code fix
-removes the entry, never reuses its identity, and records the closure in the Flow log. A defect that
+decision-maker (`user` or `orchestrator`) and the reason. A successful plan revision or fully verified code fix
+removes the entry; targeted short success retains it pending full verification as defined in 0030,
+with closure only after successful full verification. A closure never reuses its identity and is
+recorded in the Flow log. A defect that
 later reappears is a new finding with a new identity.
 
 Each entry has immutable `origin` and mutable `activePhase`. Plan review receives entries active in
@@ -43,7 +50,7 @@ An exact retry returns the saved result without another ledger or Flow mutation,
 reuse returns the saved result. A new key represents only a new legal delta.
 Plan closures travel through the next review or final approved confirmation; code decisions and
 host-verified closures travel through the fix act. Fix execution is independent: one
-`fixAttemptId` binds one exact sorted ID set, retries retained work under the same key, and returns a
+`fixAttemptId` binds one exact sorted ID set and, in version 3, one mandatory gate mode, retries retained work under the same key, and returns a
 saved terminal result without another Builder or gate.
 
 Free-form revision and summary text remains audit narrative, not state. The ledger is an indented,

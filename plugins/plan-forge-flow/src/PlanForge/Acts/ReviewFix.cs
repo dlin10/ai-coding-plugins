@@ -12,7 +12,10 @@ namespace PlanForge.Acts;
 /// approved plan excludes, and what it drops is recorded in the ledger with a reason so the next
 /// round's critic treats it as settled.
 /// </summary>
-internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
+/// <param name="vendor">The Builder vendor.</param>
+/// <param name="prompts">The role prompt library.</param>
+/// <param name="gateTimeout">An optional bound on the host fix gate, defaulting to the production fix timeout.</param>
+internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts, TimeSpan? gateTimeout = null)
 {
     /// <summary>
     /// A raised finding has no ID until its batch is applied, so no fix set in the same call can name
@@ -30,7 +33,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 
     /// <summary>
     /// Applies the orchestrator's code-review decisions, then runs one builder turn over exactly the
-    /// findings named by <paramref name="fixFindingIds"/> and the run-wide gates after it. A call
+    /// findings named by <paramref name="fixFindingIds"/> and the selected gates after it. A call
     /// without fix IDs applies its decisions and starts no builder.
     /// </summary>
     /// <param name="run">The run whose ledger, state and timeline the fix reads and writes.</param>
@@ -43,6 +46,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
     /// The orchestrator's own framing for the findings, shown to the builder after them and recorded
     /// in the Flow log. Only a call that fixes something has anyone to show it to.
     /// </param>
+    /// <param name="gate">Full plan verification by default, or the explicit targeted Fix gate.</param>
     /// <returns>
     /// The builder's result as the gates left it, the saved result of a completed attempt, or a
     /// no-op result for a decisions-only call.
@@ -53,27 +57,14 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
                                               string? fixAttemptId,
                                               IReadOnlyList<string>? fixFindingIds,
                                               CancellationToken ct,
-                                              string? note = null)
+                                              string? note = null, string? gate = null)
     {
         var state = run.ReadState();
         if (!state.Approved) throw new NotApprovedException(run.RunId);
 
         var ledger = run.ReadDecisionLedger();
-        var ids = fixFindingIds is null ? [] : ledger.NormalizeFixFindingIds(fixFindingIds);
-        if (ids.Count == 0 && !string.IsNullOrWhiteSpace(fixAttemptId))
-            throw new ArgumentRejectedException("fixAttemptId requires non-empty fixFindingIds");
-        if (ids.Count == 0 && !string.IsNullOrWhiteSpace(note))
-            throw new ArgumentRejectedException("note requires non-empty fixFindingIds");
-        if (ids.Count > 0)
-        {
-            if (string.IsNullOrWhiteSpace(fixAttemptId))
-                throw new ArgumentRejectedException("fixFindingIds requires fixAttemptId");
-            if (decisionBatch is not null && decisionBatch.Decisions.Any(decision => ids.Contains(decision.FindingId)))
-                throw new DecisionLedgerRequestException("a fix finding ID cannot also appear in the decision batch");
-            if (decisionBatch?.Raises is { Count: > 0 })
-                throw new DecisionLedgerRequestException(RaiseWithFixRefused);
-        }
-        if (!string.IsNullOrWhiteSpace(note)) SensitiveInput.Guard(note, "the orchestrator's note");
+        var (mode, ids, existing, gates) = ValidateRequest(run, ledger, decisionBatch, fixAttemptId,
+                                                          fixFindingIds, note, gate);
 
         try
         {
@@ -87,16 +78,12 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
             throw;
         }
 
-        var existing = string.IsNullOrWhiteSpace(fixAttemptId) ? null : ledger.FindFixAttempt(fixAttemptId);
-        if (existing is not null && !existing.FixFindingIds.SequenceEqual(ids, StringComparer.Ordinal))
-            throw new DecisionLedgerRequestException($"fixAttemptId '{fixAttemptId}' was used with a different fixFindingIds set");
-
         if (decisionBatch is not null)
         {
             try
             {
                 var response = ledger.Apply(decisionBatch, LedgerPhase.CodeReview);
-                run.AppendFlowDecisionBatch("Review fix", decisionBatch, response);
+                run.AppendFlowDecisionBatch("Review fix", decisionBatch, response, LedgerPhase.CodeReview);
                 response.ThrowIfConflict();
                 RaisedFindingIds = response.Result.RaisedFindingIds ?? [];
             }
@@ -109,8 +96,9 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
 
         if (existing is { Terminal: true, LastResult: not null })
         {
-            run.AppendFlowFixAttemptNoOp(fixAttemptId!, ids, existing.LastResult);
-            return existing.LastResult;
+            var replay = Annotate(existing.LastResult, ledger, fixAttemptId!, mode);
+            run.AppendFlowFixAttemptNoOp(fixAttemptId!, ids, replay);
+            return replay;
         }
         if (ids.Count > 0) ledger.ValidateFixFindingIds(ids);
 
@@ -124,6 +112,8 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
             return skipped;
         }
 
+        ledger.BeginFixAttempt(fixAttemptId!, ids, mode);
+        if (!string.IsNullOrWhiteSpace(note)) SensitiveInput.Guard(note, "the orchestrator's note");
         var findings = ledger.RenderFixFindings(ids);
         SensitiveInput.Guard(findings, "ledger-derived fix findings");
 
@@ -131,7 +121,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         // and its later calls and retries resume. See docs/adr/0026.
         var scope = BuilderSession.FixScope(state.CodeReviewRounds);
         var resumeToken = BuilderSession.ResumeToken(state, vendor.Id, scope);
-        var prompt = Compose(findings, note, state.PendingGateFailure,
+        var prompt = Compose(findings, note, existing?.LastResult, state.PendingGateFailure, mode, gates,
                              resumeToken is null ? state.BuilderInstructions : null);
         if (resumeToken is null)
             prompt = BuilderBrief.Prepend(prompt, run.ReadPlan());
@@ -151,7 +141,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         }
         catch (TurnCutShortException cutShort)
         {
-            ledger.RecordFixAttempt(fixAttemptId!, ids, null, false);
+            ledger.RecordFixAttempt(fixAttemptId!, ids, null, false, mode);
             run.AppendFlowCutShort($"Fixes — round {state.CodeReviewRounds}", cutShort.FilesWritten,
                                    fixAttemptId, ids);
             run.WriteState(BuilderSession.Record(state, builder, vendor.Id, scope, resumeToken) with
@@ -164,12 +154,11 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
         var plan = run.ReadPlan();
         var killed = builder.KilledBackgroundTasks;
         SpeedWarning = builder.SpeedWarning;
-        var result = await Gatekeeper.CheckAsync(reported, PlanGates.RunWideGates(plan),
-                                                 PlanGates.HasRunWideGates(plan), killed, state, GateRunner.FIX_TIMEOUT, ct);
-        var closes = result.Gate?.Outcome == "passed"
-                     || (result.Gate?.Outcome == "not_executable"
-                         && result.Status == "done"
-                         && result.Verification.Outcome == "passed");
+        var result = await Gatekeeper.CheckAsync(reported, gates,
+                                                 mode == FixGatePolicy.Targeted || PlanGates.HasRunWideGates(plan),
+                                                 killed, state, gateTimeout ?? GateRunner.FIX_TIMEOUT, ct);
+        var completion = FixGatePolicy.Completion(mode, result);
+        var closes = completion == FixCompletion.Closed;
 
         DecisionLedgerRequestException? closureError = null;
         if (closes)
@@ -185,7 +174,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
                         id, LedgerClosureKind.AutomaticGate, LedgerDecisionMaker.Orchestrator,
                         "closed by the fix attempt", evidence)).ToArray());
                 var closure = ledger.Apply(closureBatch);
-                run.AppendFlowDecisionBatch("Review fix automatic gate", closureBatch, closure);
+                run.AppendFlowDecisionBatch("Review fix automatic gate", closureBatch, closure, LedgerPhase.CodeReview);
                 closure.ThrowIfConflict();
             }
             catch (DecisionLedgerRequestException error)
@@ -197,16 +186,57 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
             }
         }
 
-        ledger.RecordFixAttempt(fixAttemptId!, ids, result, closes);
-        run.AppendFlowFix(state.CodeReviewRounds, findings, note, result);
+        ledger.RecordFixAttempt(fixAttemptId!, ids, result, closes || completion == FixCompletion.PendingFullGate, mode);
+        run.AppendFlowFix(state.CodeReviewRounds, findings, note,
+                          Annotate(result, ledger, fixAttemptId!, mode), fixAttemptId, ids);
         run.WriteState(BuilderSession.Record(state, builder, vendor.Id, scope, resumeToken) with
         {
             PendingGateFailure = Gatekeeper.PendingFailure(result, killed, state.PendingGateFailure)
         });
         if (closureError is not null) throw closureError;
-        return result;
+        return Annotate(result, ledger, fixAttemptId!, mode);
 
     }
+
+    internal static (string Mode, IReadOnlyList<string> Ids, FixAttemptRecord? Existing,
+                     IReadOnlyList<GateCommand> Gates)
+        ValidateRequest(RunDirectory run, DecisionLedger ledger, OrchestratorDecisionBatch? decisions,
+                        string? fixAttemptId, IReadOnlyList<string>? fixFindingIds, string? note, string? gate)
+    {
+        var mode = FixGatePolicy.GateMode(gate);
+        var ids = fixFindingIds is null ? [] : ledger.NormalizeFixFindingIds(fixFindingIds);
+        if (ids.Count == 0 && gate is not null)
+            throw new ArgumentRejectedException("gate requires non-empty fixFindingIds");
+        if (ids.Count == 0 && !string.IsNullOrWhiteSpace(fixAttemptId))
+            throw new ArgumentRejectedException("fixAttemptId requires non-empty fixFindingIds");
+        if (ids.Count == 0 && !string.IsNullOrWhiteSpace(note))
+            throw new ArgumentRejectedException("note requires non-empty fixFindingIds");
+        if (ids.Count > 0)
+        {
+            if (string.IsNullOrWhiteSpace(fixAttemptId))
+                throw new ArgumentRejectedException("fixFindingIds requires fixAttemptId");
+            if (decisions is not null && decisions.Decisions.Any(decision => ids.Contains(decision.FindingId)))
+                throw new DecisionLedgerRequestException("a fix finding ID cannot also appear in the decision batch");
+            if (decisions?.Raises is { Count: > 0 })
+                throw new DecisionLedgerRequestException(RaiseWithFixRefused);
+        }
+        var existing = string.IsNullOrWhiteSpace(fixAttemptId) ? null
+            : ledger.ValidateFixBinding(fixAttemptId, ids, mode);
+        var gates = ids.Count > 0 && existing is not { Terminal: true }
+            ? FixGatePolicy.SelectGates(mode, run.ReadPlan()) : [];
+
+        return (mode, ids, existing, gates);
+    }
+
+    private static BuildResult Annotate(BuildResult result, DecisionLedger ledger, string attemptId, string mode) =>
+        result with
+        {
+            GateMode = mode,
+            PendingFullGateFindingIds = mode == FixGatePolicy.Targeted
+                ? ledger.Summary.PendingFullGateAttempts.Where(attempt => attempt.FixAttemptId == attemptId)
+                        .SelectMany(attempt => attempt.FindingIds).ToArray()
+                : null
+        };
 
     private static BuildResult NoFixesResult() => new("done", [],
         new Verification("passed", "no fix IDs were sent to the builder; nothing to change or verify"),
@@ -219,10 +249,14 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
     /// </summary>
     /// <param name="findings">The ledger's rendering of the findings to fix, heading included.</param>
     /// <param name="note">The orchestrator's framing, or null when it sent none.</param>
+    /// <param name="lastResult">The current attempt's last completed result, if any.</param>
     /// <param name="pendingGateFailure">What the last gate or turn left owing, or null when nothing is.</param>
+    /// <param name="mode">The immutable gate mode for this attempt.</param>
+    /// <param name="gates">The selected executable commands the server will run.</param>
     /// <param name="instructions">The user's builder instructions, for a fresh session only.</param>
     /// <returns>The prompt text, before the Builder Brief is put in front of it.</returns>
-    private static string Compose(string findings, string? note, string? pendingGateFailure, string? instructions)
+    private static string Compose(string findings, string? note, BuildResult? lastResult, string? pendingGateFailure,
+                                  string mode, IReadOnlyList<GateCommand> gates, string? instructions)
     {
         var prompt = new StringBuilder().AppendLine(findings);
         if (!string.IsNullOrWhiteSpace(note))
@@ -230,7 +264,16 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts)
                   .AppendLine("# From the orchestrator")
                   .AppendLine()
                   .AppendLine(note.TrimEnd());
-        Gatekeeper.AppendPendingFailure(prompt, pendingGateFailure);
+        prompt.AppendLine().AppendLine("# Fix verification").AppendLine()
+              .Append("gate=").AppendLine(mode)
+              .AppendLine(mode == FixGatePolicy.Targeted
+                  ? "The server runs the targeted Fix gate after your turn. The Orchestrator runs all full plan checks; a passed Fix gate leaves these findings pending full verification."
+                  : "The server runs the full plan G-commands after your turn. Check any plan conditions yourself.")
+              .AppendLine("Do not run executable task or fix gates, including on retries, or reproduce their full equivalent. Report only your own diagnostic checks in verification, or unavailable with the server ownership explained.");
+        foreach (var gate in gates)
+            prompt.AppendLine().Append(gate.Label).AppendLine(":").AppendLine("```")
+                  .AppendLine(gate.Command).AppendLine("```");
+        Gatekeeper.AppendFixRetry(prompt, lastResult, pendingGateFailure);
         RunInstructions.Append(prompt, instructions);
         return prompt.ToString();
     }

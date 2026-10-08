@@ -137,7 +137,7 @@ public sealed class ToolSurfaceTests
 
         var schema = tool.ProtocolTool.InputSchema;
         var properties = schema.GetProperty("properties");
-        Assert.Equal(["workspaceRoot", "runId", "plan", "approved", "gateEnvironment", "builderRoots", "decisions"],
+        Assert.Equal(["workspaceRoot", "runId", "plan", "approved", "gateEnvironment", "builderRoots", "decisions", "fullGate"],
                      properties.EnumerateObject().Select(property => property.Name));
         Assert.Equal(["workspaceRoot", "runId", "plan", "approved"],
                      schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
@@ -277,6 +277,56 @@ public sealed class ToolSurfaceTests
         Assert.Contains("boolean", properties.GetProperty("untrackedByReference").GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("excludePaths", required);
         Assert.DoesNotContain("untrackedByReference", required);
+    }
+
+    [Fact]
+    public void Fix_gate_and_full_gate_timing_are_optional_strings_only_on_their_public_routes()
+    {
+        foreach (var method in typeof(ForgeTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
+                     .Where(method => method.GetCustomAttribute<McpServerToolAttribute>() is not null))
+        {
+            var schema = SchemaFor(method.Name);
+            var properties = schema.GetProperty("properties");
+            var required = schema.GetProperty("required").EnumerateArray().Select(value => value.GetString()).ToList();
+            var acceptsGate = method.Name is nameof(ForgeTools.ReviewFix) or nameof(ForgeTools.StartWork);
+            var acceptsTiming = method.Name == nameof(ForgeTools.ConfirmPlan);
+            Assert.Equal(acceptsGate, properties.TryGetProperty("gate", out var gate));
+            Assert.Equal(acceptsTiming, properties.TryGetProperty("fullGate", out var timing));
+            if (acceptsGate) Assert.Contains("string", gate.GetRawText(), StringComparison.Ordinal);
+            if (acceptsTiming) Assert.Contains("string", timing.GetRawText(), StringComparison.Ordinal);
+            Assert.DoesNotContain("gate", required);
+            Assert.DoesNotContain("fullGate", required);
+        }
+    }
+
+    [Fact]
+    public void Model_schemas_exclude_host_verification_fields_and_host_json_preserves_empty_pending_arrays()
+    {
+        foreach (var schema in new[] { Schemas.BuildResult.Json, Schemas.Critique.Json })
+        {
+            Assert.DoesNotContain("gateMode", schema, StringComparison.Ordinal);
+            Assert.DoesNotContain("pendingFullGateFindingIds", schema, StringComparison.Ordinal);
+        }
+
+        var build = new BuildResult("done", [], new Verification("unavailable", "server-owned gate"), "implemented");
+        var task = System.Text.Json.JsonSerializer.SerializeToElement(build, ContractJson.Default.BuildResult);
+        Assert.False(task.TryGetProperty("gateMode", out _));
+        Assert.False(task.TryGetProperty("pendingFullGateFindingIds", out _));
+        var full = System.Text.Json.JsonSerializer.SerializeToElement(build with { GateMode = "full" }, ContractJson.Default.BuildResult);
+        Assert.Equal("full", full.GetProperty("gateMode").GetString());
+        Assert.False(full.TryGetProperty("pendingFullGateFindingIds", out _));
+        foreach (var ids in new string[][] { [], ["F-0001"] })
+        {
+            var targeted = System.Text.Json.JsonSerializer.SerializeToElement(
+                build with { GateMode = "targeted", PendingFullGateFindingIds = ids }, ContractJson.Default.BuildResult);
+            Assert.Equal("targeted", targeted.GetProperty("gateMode").GetString());
+            Assert.Equal(ids, targeted.GetProperty("pendingFullGateFindingIds").EnumerateArray().Select(id => id.GetString()));
+            var final = System.Text.Json.JsonSerializer.SerializeToElement(
+                new Critique("approve", [], "reviewed", PendingFullGateFindingIds: ids), ContractJson.Default.Critique);
+            Assert.Equal(ids, final.GetProperty("pendingFullGateFindingIds").EnumerateArray().Select(id => id.GetString()));
+        }
+        var plan = System.Text.Json.JsonSerializer.SerializeToElement(new Critique("approve", [], "reviewed"), ContractJson.Default.Critique);
+        Assert.False(plan.TryGetProperty("pendingFullGateFindingIds", out _));
     }
 
     private static System.Text.Json.JsonElement SchemaFor(string methodName)

@@ -66,7 +66,7 @@ public sealed class DecisionLedgerSkillTests
     [Fact]
     public void Fix_retry_reuses_retained_attempt_and_terminal_result()
     {
-        Contains("cut-short turn", "failed gate", "same attempt ID and exact ID set", Skill());
+        Contains("cut-short turn", "failed gate", "same attempt ID, exact ID set and `gate` mode", Skill());
         Contains("completed attempt returns its saved terminal result", Skill());
     }
 
@@ -142,7 +142,7 @@ public sealed class DecisionLedgerSkillTests
     [Fact]
     public void Cut_short_retry_and_gate_retry_are_linked_to_the_attempt()
     {
-        Contains("same `fixAttemptId` and exact `fixFindingIds`", "links the retry to the eventual automatic gate closure", Skill());
+        Contains("same `fixAttemptId`, exact `fixFindingIds` and `gate`", "preserves the attempt's immutable binding", "targeted success leaves them pending full verification", Skill());
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public sealed class DecisionLedgerSkillTests
         Contains("Only the server runs executable task gates", "Separate targeted Builder checks are optional",
                  "its verification is `unavailable` with that explicit reason", Skill());
         Contains("After the last task and before the first review round, run the plan's `## Gates` entries yourself",
-                 "After every `forge.review.fix`", Skill());
+                 "After a full-mode `forge.review.fix`", "targeted fix it runs only the Fix gate", Skill());
     }
 
     [Fact]

@@ -246,8 +246,8 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("settled"), LedgerPhase.CodeReview);
         ledger.Apply(new DecisionBatchRequest("settle", [], [], [
-            new LedgerClosureDecision(entry.FindingId, LedgerClosureKind.Revision,
-                                      LedgerDecisionMaker.Orchestrator, "done")
+            new LedgerClosureDecision(entry.FindingId, LedgerClosureKind.HostVerified,
+                                      LedgerDecisionMaker.Orchestrator, "done", "host check passed")
         ]));
         Assert.Throws<DecisionLedgerRequestException>(() => ledger.ValidateFixFindingIds([entry.FindingId]));
     }
@@ -661,8 +661,8 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var ledger = Ledger();
         var first = ledger.AddFinding(Finding("first"), LedgerPhase.CodeReview);
         ledger.Apply(new DecisionBatchRequest("close", [], [], [
-            new LedgerClosureDecision(first.FindingId, LedgerClosureKind.Revision,
-                                      LedgerDecisionMaker.Orchestrator, "done")
+            new LedgerClosureDecision(first.FindingId, LedgerClosureKind.HostVerified,
+                                      LedgerDecisionMaker.Orchestrator, "done", "host check passed")
         ]));
         Assert.Equal("F-0002", ledger.AddFinding(Finding("second"), LedgerPhase.CodeReview).FindingId);
     }
@@ -720,7 +720,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var ledger = LedgerWithAttemptIds();
         ledger.RecordFixAttempt("attempt", ["F-0001"], null, false);
-        Assert.Equal(2, ledger.Snapshot.SchemaVersion);
+        Assert.Equal(3, ledger.Snapshot.SchemaVersion);
     }
 
     [Fact]
@@ -966,7 +966,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var run = NewRun("flow-batch");
         run.AppendFlowDecisionBatch("test", new OrchestratorDecisionBatch("batch", [Decision("decline", "F-0001")]),
-            new DecisionBatchResponse("declined", new DecisionBatchResult("batch", "declined", ["F-0001"], [], [])));
+            new DecisionBatchResponse("declined", new DecisionBatchResult("batch", "declined", ["F-0001"], [], [])), LedgerPhase.PlanReview);
         Assert.Contains("batch", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
     }
 
@@ -978,7 +978,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var entry = ledger.AddFinding(Finding("flow"), LedgerPhase.PlanReview);
         var batch = Batch(Decision("defer", entry.FindingId, reason: "причина"));
 
-        run.AppendFlowDecisionBatch("test", batch, ledger.Apply(batch, LedgerPhase.PlanReview));
+        run.AppendFlowDecisionBatch("test", batch, ledger.Apply(batch, LedgerPhase.PlanReview), LedgerPhase.PlanReview);
 
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains($"- {entry.FindingId} defer (orchestrator): причина", flow, StringComparison.Ordinal);
@@ -994,7 +994,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         ledger.Apply(new OrchestratorDecisionBatch("same", [Decision("defer", entry.FindingId)]), LedgerPhase.PlanReview);
         var retry = new OrchestratorDecisionBatch("same", [Decision("reject", entry.FindingId, reason: "другое")]);
 
-        run.AppendFlowDecisionBatch("test", retry, ledger.Apply(retry, LedgerPhase.PlanReview));
+        run.AppendFlowDecisionBatch("test", retry, ledger.Apply(retry, LedgerPhase.PlanReview), LedgerPhase.PlanReview);
 
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains($"saved decisions: {entry.FindingId}", flow, StringComparison.Ordinal);
@@ -1215,7 +1215,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var run = NewRun("audit");
         run.AppendFlowDecisionBatch("fix", new OrchestratorDecisionBatch("batch", [Decision("decline", "F-0001")]),
-            new DecisionBatchResponse("declined", new DecisionBatchResult("batch", "declined", ["F-0001"], [], [])));
+            new DecisionBatchResponse("declined", new DecisionBatchResult("batch", "declined", ["F-0001"], [], [])), LedgerPhase.CodeReview);
         run.AppendFlowCutShort("Fixes — round 1", [], "attempt", ["F-0001"]);
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains("batch", flow, StringComparison.Ordinal);
@@ -1477,7 +1477,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var run = NewRun("flow-raise");
         var batch = Raises(Raise("the ref path", reason: "the fix for F-0001 left it"));
 
-        run.AppendFlowDecisionBatch("Review fix", batch, run.ReadDecisionLedger().Apply(batch, LedgerPhase.CodeReview));
+        run.AppendFlowDecisionBatch("Review fix", batch, run.ReadDecisionLedger().Apply(batch, LedgerPhase.CodeReview), LedgerPhase.CodeReview);
 
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains("- F-0001 raised (orchestrator): the fix for F-0001 left it", flow, StringComparison.Ordinal);

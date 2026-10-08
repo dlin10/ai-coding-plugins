@@ -32,6 +32,11 @@ internal sealed class PlanReview
     /// <summary>Set when the round's Fast turn was served at standard speed for part of it.</summary>
     internal string? SpeedWarning { get; private set; }
 
+    /// <summary>Reviews the current plan and applies independent plan-phase decisions.</summary>
+    /// <param name="run">The run whose plan, ledger and timeline the review reads and writes.</param>
+    /// <param name="selection">The critic's model, effort and speed.</param>
+    /// <param name="ct">Cancels the review.</param>
+    /// <param name="orchestratorDecisions">Optional decisions to apply before the review.</param>
     /// <param name="planDraft">
     /// The draft to review, written to <c>PLAN.md</c> on the way past. Omitted when
     /// <see cref="Write"/> already put it there, which is the flow the skill asks for.
@@ -91,7 +96,7 @@ internal sealed class PlanReview
             try
             {
                 var decisionResult = ledger.Apply(orchestratorDecisions, LedgerPhase.PlanReview);
-                run.AppendFlowDecisionBatch("Plan review", orchestratorDecisions, decisionResult);
+                run.AppendFlowDecisionBatch("Plan review", orchestratorDecisions, decisionResult, LedgerPhase.PlanReview);
                 decisionResult.ThrowIfConflict();
             }
             catch (DecisionLedgerRequestException error)

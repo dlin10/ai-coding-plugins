@@ -10,7 +10,7 @@ public sealed class FixNoteSkillTests
     {
         Contains("### Fix batches and their notes", "Form batches by the rule the findings break, not by file or severity",
                  "Never split one rule's findings across batches", "A batch may carry several rules",
-                 "every fix call runs the plan's `## Gates`", "is a rule of its own", Skill());
+                 "its selected gate (all executable G entries in full, only Fix gate in targeted)", "is a rule of its own", Skill());
     }
 
     [Fact]

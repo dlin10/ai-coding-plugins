@@ -37,7 +37,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     {
         scope ??= ReviewScope.Whole;
         var state = run.ReadState();
-        if (!state.Approved) throw new NotApprovedException(run.RunId);
+        RequireReady(run, state);
         if (state.CodeReviewRounds >= state.CodeReviewRoundCap && !userGrantedRound)
             throw new CodeReviewCapReachedException(state.CodeReviewRounds, state.CodeReviewRoundCap);
         var granted = state.CodeReviewRounds >= state.CodeReviewRoundCap;
@@ -46,7 +46,11 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         var window = await git.ReadReviewWindowAsync(state.BaselineHead, scope.ExcludedPaths, ct);
         GuardChangedPaths(window);
         if (window.Diff.Length == 0)
-            return WithReviewWindow(new Critique("approve", [], "nothing to review"), window, scope);
+        {
+            var empty = WithPending(WithReviewWindow(new Critique("approve", [], "nothing to review"), window, scope), state, ledger);
+            run.AppendFlowCritique("Code review", null, empty);
+            return empty;
+        }
 
         var plan = run.ReadPlan();
         var projection = ledger.RenderProjection(LedgerPhase.CodeReview);
@@ -96,7 +100,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
 
             try
             {
-                critique = WithReviewWindow(ledger.IngestCritique(wireCritique, LedgerPhase.CodeReview), window, scope);
+                critique = WithPending(WithReviewWindow(ledger.IngestCritique(wireCritique, LedgerPhase.CodeReview), window, scope), state, ledger);
             }
             catch (DecisionLedgerCritiqueException error)
             {
@@ -116,6 +120,16 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
             : state with { CodeReviewRounds = round });
         return critique;
     }
+
+    internal static void RequireReady(RunDirectory run, RunState state)
+    {
+        if (!state.Approved) throw new NotApprovedException(run.RunId);
+        FixGatePolicy.RequireReviewReady(state.FullGate, run.ReadDecisionLedger().Summary.PendingFullGateFindingIds.Count > 0);
+    }
+
+    private static Critique WithPending(Critique critique, RunState state, DecisionLedger ledger) =>
+        critique with { PendingFullGateFindingIds = state.FullGate == FixGatePolicy.Final
+            ? ledger.Summary.PendingFullGateFindingIds : null };
 
     /// <summary>
     /// The guard covers exactly the set of paths whose contents are sent, which is why it takes the
@@ -150,6 +164,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         var prompt = new StringBuilder().AppendLine("# Approved plan")
                                         .AppendLine()
                                         .AppendLine(plan)
+                                        .AppendLine($"Full host verification timing: {state.FullGate}")
                                         .AppendLine()
                                         .AppendLine("# Review window")
                                         .AppendLine()

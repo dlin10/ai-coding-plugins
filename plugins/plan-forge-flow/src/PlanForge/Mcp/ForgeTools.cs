@@ -377,31 +377,34 @@ internal sealed class ForgeTools
     /// <param name="gateEnvironment">Optional environment variables required by gate commands.</param>
     /// <param name="builderRoots">Compatibility-only absolute paths retained in the Run; vendors ignore them.</param>
     /// <param name="decisions">Optional final plan decisions, applied only with an approval.</param>
+    /// <param name="fullGate">Optional timing for full host verification of targeted fixes; omission preserves the saved choice.</param>
     /// <returns>The recorded decision, the task count and the filtered drift, as JSON.</returns>
-    [McpServerTool(Name = "forge.plan.confirm"), Description("With approved true, applies the same typed plan decisions as forge.plan.review, then refuses approval while any active plan finding is unresolved. With approved false, decisions are forbidden and the ledger is unchanged. Approval also records tasks, gateEnvironment and builderRoots; code-review entries do not block it.")]
+    [McpServerTool(Name = "forge.plan.confirm"), Description("With approved true, applies the same typed plan decisions as forge.plan.review, then refuses approval while any active plan finding is unresolved. With approved false, decisions are forbidden and the ledger is unchanged. Approval records tasks and optional fullGate=beforeNextRound|final (case-sensitive). Omitted timing and settings are preserved; explicit settings replace, empty settings clear. Approval clears the global gate failure, preserving attempts. Approved false leaves PLAN/state/ledger/approval unchanged; invalid fullGate is still refused. Saved timing is read first and a corrupt value stops the call unchanged. Confirm does not select gate mode or validate Fix gate. Code-review entries do not block confirmation.")]
     public static async Task<string> ConfirmPlan(SessionRoots roots,
                                                  [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                  [Description("Run id from forge.begin.")] string runId,
                                                  [Description("The plan to approve, as markdown.")] string plan,
                                                  [Description("What the user answered. Show them the plan and the filtered drift excluding `CONTEXT.md` and `docs/adr/**`, ask, and pass what they say; never decide this yourself.")] bool approved,
                                                  CancellationToken ct,
-                                                 [Description("Environment variables for the gate commands the server runs on the host after every build and fix turn, e.g. {\"CD_TEST_SQL_CONN\": \"Server=…\"}. Ask the user for what the plan's gates need before you confirm; the values are kept in the run state and only their names are logged.")] Dictionary<string, string>? gateEnvironment = null,
+                                                 [Description("Environment variables for server-owned task gates and selected full or targeted fix gates, e.g. {\"CD_TEST_SQL_CONN\": \"Server=…\"}. Ask the user for what the plan's gates need before you confirm; the values are kept in the run state and only their names are logged.")] Dictionary<string, string>? gateEnvironment = null,
                                                  [Description("Compatibility-only absolute paths retained in the run state. Vendors ignore this field; it does not control Builder permissions.")] string[]? builderRoots = null,
-                                                 [Description("Optional complete typed plan decision batch. Approved confirmation applies it before checking for unresolved active plan entries; refused confirmation rejects it without mutation.")] OrchestratorDecisionBatch? decisions = null)
+                                                 [Description("Optional complete typed plan decision batch. Approved confirmation applies it before checking for unresolved active plan entries; refused confirmation rejects it without mutation.")] OrchestratorDecisionBatch? decisions = null,
+                                                 [Description("Full host verification timing for targeted fixes: beforeNextRound or final, case-sensitive. Omission preserves the saved timing; old runs default to beforeNextRound. Changing timing does not verify pending fixes.")] string? fullGate = null)
     {
-        if (!approved && decisions is not null)
-            throw new ArgumentRejectedException("forge.plan.confirm(approved:false) does not accept decisions");
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         // The gate environment is logged by name only: a connection string is exactly what it holds.
         return await LoggedAsync(run, "forge.plan.confirm",
             [("approved", approved.ToString()), ("plan", plan),
              ("gateEnvironment", gateEnvironment is { Count: > 0 } ? string.Join(", ", gateEnvironment.Keys) : null),
              ("builderRoots", builderRoots is { Length: > 0 } ? string.Join(", ", builderRoots) : null),
-             ("decisionBatchId", decisions?.DecisionBatchId)],
+             ("decisionBatchId", decisions?.DecisionBatchId), ("fullGate", fullGate)],
             async () =>
             {
-                var gates = GateSettings.Validate(gateEnvironment, builderRoots);
                 var state = run.ReadState();
+                var timing = fullGate is null ? state.FullGate : FixGatePolicy.FullGateTiming(fullGate);
+                var gates = GateSettings.Validate(gateEnvironment, builderRoots);
+                if (!approved && decisions is not null)
+                    throw new ArgumentRejectedException("forge.plan.confirm(approved:false) does not accept decisions");
                 var tasks = PlanTasks.Parse(plan);
 
                 var drifted = await run.ReadBaseline(state.BaselineHead)
@@ -414,7 +417,7 @@ internal sealed class ForgeTools
                     try
                     {
                         var response = run.ReadDecisionLedger().Apply(decisions, LedgerPhase.PlanReview);
-                        run.AppendFlowDecisionBatch("Plan confirmation", decisions, response);
+                        run.AppendFlowDecisionBatch("Plan confirmation", decisions, response, LedgerPhase.PlanReview);
                         response.ThrowIfConflict();
                     }
                     catch (DecisionLedgerRequestException error)
@@ -440,8 +443,9 @@ internal sealed class ForgeTools
                 run.WriteState((briefChanged ? BuilderSession.Forget(state) : state) with
                 {
                     Approved = true,
-                    GateEnvironment = gates.Environment,
-                    BuilderRoots = gates.BuilderRoots,
+                    FullGate = timing,
+                    GateEnvironment = gateEnvironment is null ? state.GateEnvironment : gates.Environment,
+                    BuilderRoots = builderRoots is null ? state.BuilderRoots : gates.BuilderRoots,
                     PendingGateFailure = null
                 });
 
@@ -494,7 +498,7 @@ internal sealed class ForgeTools
     /// <param name="fast">Whether the critic runs at the vendor's Fast tier.</param>
     /// <param name="excludePaths">Paths this round leaves out of the review window.</param>
     /// <param name="untrackedByReference">Whether untracked files reach the critic by path instead of by content.</param>
-    [McpServerTool(Name = "forge.review.code"), Description("Runs one decision-free code-review round against the approved plan and the code-phase ledger projection. The Critic assesses every displayed unresolved ID and may only propose reopening settled IDs. Apply dispositions, reopening answers, duplicate closures and fixes through forge.review.fix. A prompt longer than the critic's vendor accepts — codex takes 1,048,576 characters — is refused before the critic starts, with the sizes that make it up and nothing counted; excludePaths and untrackedByReference narrow the round.")]
+    [McpServerTool(Name = "forge.review.code"), Description("Runs one decision-free code-review round against the approved plan and the code-phase ledger projection. Saved fullGate=beforeNextRound blocks review while fixes await full host verification, before cap/grant or worker startup. Saved final allows review and returns current pendingFullGateFindingIds, including an empty array. Critic assessments do not verify pending fixes. The Critic assesses every displayed unresolved ID and may only propose reopening settled IDs. Apply dispositions, reopening answers, duplicate closures and fixes through forge.review.fix. A prompt longer than the critic's vendor accepts — codex takes 1,048,576 characters — is refused before the critic starts, with the sizes that make it up and nothing counted; excludePaths and untrackedByReference narrow the round.")]
     public static async Task<string> ReviewCode(CatalogCache catalogs,
                                                 SessionRoots roots,
                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -517,6 +521,7 @@ internal sealed class ForgeTools
             async () =>
             {
                 var scope = ReviewScope.From(excludePaths, untrackedByReference);
+                CodeReview.RequireReady(run, run.ReadState());
                 var critic = VendorFactory.Create(vendor, workspaceRoot);
                 var selection = await FastTier.ConfirmAsync(catalogs, critic, new Selection(model, effort, fast), workspaceRoot, ct);
                 var act = new CodeReview(critic, new PromptLibrary(), new GitClient(workspaceRoot));
@@ -528,7 +533,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.review.fix"), Description("Applies typed code-review decisions, including duplicate and host-verified closures and raises, then independently fixes exactly fixFindingIds under fixAttemptId. Decisions-only calls start no Builder or gate; a batch with raises is decisions-only and answers with raisedFindingIds. Retry retained or cut-short work with the same attempt and exact ID set; a conflicting set is refused and a saved terminal attempt returns its result without another Builder or gate.")]
+    [McpServerTool(Name = "forge.review.fix"), Description("Applies typed code-review decisions, including duplicate and host-verified closures and raises, then independently fixes exactly fixFindingIds under fixAttemptId. Decisions-only calls start no Builder or gate; a batch with raises is decisions-only and answers with raisedFindingIds. Retry retained or cut-short work with the same attempt and exact ID set; gate is full by default or targeted for only the approved Fix gate. Preserve gate with the attempt and exact IDs on retry; a conflicting set or mode is refused and a saved terminal attempt returns its result without another Builder or gate, annotated with current pending IDs. Targeted success leaves findings pending full host verification by the Orchestrator at saved fullGate timing; short success and Critic assessment do not close them. Explicit gate requires fix IDs; empty, whitespace or unknown modes are refused before decisions or workers. New/nonterminal targeted fixes validate the approved Fix gate before decisions; terminal replay does not validate the current plan.")]
     public static async Task<string> ReviewFix(CatalogCache catalogs,
                                                SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -541,28 +546,39 @@ internal sealed class ForgeTools
                                                [Description("Required when fixFindingIds is non-empty; identifies the retryable fix attempt.")] string? fixAttemptId = null,
                                                [Description("Exact ledger finding IDs to fix. The Builder receives only their verbatim ledger findings.")] string[]? fixFindingIds = null,
                                                [Description(NOTE_DESCRIPTION)] string? note = null,
-                                               [Description(FAST_DESCRIPTION)] bool fast = false)
+                                               [Description(FAST_DESCRIPTION)] bool fast = false,
+                                               [Description("Fix verification: exactly full (default) or targeted (case-sensitive). Requires non-empty fixFindingIds.")] string? gate = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, "forge.review.fix",
             [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
              ("decisionBatchId", decisions?.DecisionBatchId), ("fixAttemptId", fixAttemptId),
              ("fixFindingIds", fixFindingIds is { Length: > 0 } ? string.Join(", ", fixFindingIds) : null),
-             ("note", note)],
+             ("note", note), ("gate", gate)],
             async () =>
             {
+                try
+                {
+                    OrchestrationPreflight.Validate(run, "review.fix", decisions, fixAttemptId, fixFindingIds, note, gate);
+                }
+                catch (DecisionLedgerRequestException error)
+                {
+                    if (decisions is not null)
+                        run.AppendFlowDecisionRejected("review.fix preflight", decisions.DecisionBatchId, error.Message);
+                    throw;
+                }
                 var builder = VendorFactory.Create(vendor, workspaceRoot);
                 var selection = await FastTier.ConfirmAsync(catalogs, builder, new Selection(model, effort, fast), workspaceRoot, ct);
                 var act = new ReviewFix(builder, new PromptLibrary());
                 var result = await act.FixAsync(run, selection, decisions, fixAttemptId,
-                                                fixFindingIds, ct, note);
+                                                fixFindingIds, ct, note, gate);
 
                 var json = JsonSerializer.Serialize(new ReviewFixResult(result, Documents(run)), ForgeToolJson.Default.ReviewFixResult);
                 return SpeedWarnings.Attach(run, RaisedFindings.Attach(json, act.RaisedFindingIds), act.SpeedWarning);
             });
     }
 
-    [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background. plan.review and review.fix use the same typed decisions, decisionBatchId and fix-attempt rules as their direct tools; ledger IDs, phases, states, batch conflicts and fix sets are preflighted before a job is created. Poll until terminal, then fetch. If started is false, rejoin the returned active job. Scout uses only its persisted selection plus question and explicit sessionMode.")]
+    [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background. plan.review and review.fix use the same typed decisions, decisionBatchId and fix-attempt rules as their direct tools; ledger IDs, phases, states, batch conflicts and fix sets are preflighted before a job is created. For review.fix only, optional case-sensitive gate=full|targeted requires fix IDs when explicit; preserve gate, attempt and exact IDs on retry. Targeted success leaves fixes pending full host verification. Empty, whitespace, unknown modes and new/nonterminal invalid Fix gates are refused before decisions or jobs; terminal replay uses its saved result. Saved fullGate timing governs review.code pending admission just as on the direct route. Poll until terminal, then fetch. If started is false, rejoin the returned active job. Scout uses only its persisted selection plus question and explicit sessionMode.")]
     public static Task<string> StartWork(JobRegistry registry,
                                          CatalogCache catalogs,
                                          SessionRoots roots,
@@ -585,13 +601,14 @@ internal sealed class ForgeTools
                                          [Description("For review.fix only. " + NOTE_DESCRIPTION)] string? note = null,
                                          [Description(FAST_DESCRIPTION + " Not for scout, which uses its persisted selection.")] bool fast = false,
                                          [Description("For review.code only. " + EXCLUDE_PATHS_DESCRIPTION)] string[]? excludePaths = null,
-                                         [Description("For review.code only. " + UNTRACKED_BY_REFERENCE_DESCRIPTION)] bool untrackedByReference = false)
+                                         [Description("For review.code only. " + UNTRACKED_BY_REFERENCE_DESCRIPTION)] bool untrackedByReference = false,
+                                         [Description("For review.fix only: exactly full (default) or targeted (case-sensitive). Requires non-empty fixFindingIds.")] string? gate = null)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
         return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft, null,
                          deferred, revision, userGrantedRound, question, sessionMode, ct,
                          id => VendorFactory.Create(id, workspaceRoot), null, decisions, fixAttemptId,
-                         fixFindingIds, catalogs, fast, note, excludePaths, untrackedByReference);
+                         fixFindingIds, catalogs, fast, note, excludePaths, untrackedByReference, gate);
     }
 
     internal static Task<string> StartWork(JobRegistry registry,
@@ -611,10 +628,10 @@ internal sealed class ForgeTools
                                            Func<IVendor> vendorFactory,
                                            OrchestratorDecisionBatch? decisions = null,
                                            string? fixAttemptId = null,
-                                           string[]? fixFindingIds = null) =>
+                                           string[]? fixFindingIds = null, string? gate = null) =>
         StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft,
                   findings, deferred, revision, userGrantedRound, null, null, ct, _ => vendorFactory(),
-                  null, decisions, fixAttemptId, fixFindingIds);
+                  null, decisions, fixAttemptId, fixFindingIds, gate: gate);
 
     internal static async Task<string> StartWork(JobRegistry registry,
                                                  SessionRoots roots,
@@ -641,7 +658,7 @@ internal sealed class ForgeTools
                                                  bool fast = false,
                                                  string? note = null,
                                                  string[]? excludePaths = null,
-                                                 bool untrackedByReference = false)
+                                                 bool untrackedByReference = false, string? gate = null)
     {
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
@@ -652,18 +669,19 @@ internal sealed class ForgeTools
              ("sessionMode", sessionMode), ("decisionBatchId", decisions?.DecisionBatchId),
              ("fixAttemptId", fixAttemptId),
              ("fixFindingIds", fixFindingIds is { Length: > 0 } ? string.Join(", ", fixFindingIds) : null),
-             ("note", note),
+             ("note", note), ("gate", gate),
              ("excludePaths", excludePaths is { Length: > 0 } ? string.Join(", ", excludePaths) : null),
              ("untrackedByReference", untrackedByReference ? "true" : null)],
             async () =>
             {
+                if (act == "review.fix") run.ReadState();
                 var selection = model is null ? null : new Selection(model, effort, fast);
                 var scope = excludePaths is null && !untrackedByReference
                     ? null
                     : ReviewScope.From(excludePaths, untrackedByReference);
                 WorkAct.ValidateArguments(act, planDraft, selection, findings, deferred, revision,
                                           userGrantedRound, question, sessionMode, decisions, fixAttemptId,
-                                          fixFindingIds, note, scope);
+                                          fixFindingIds, note, scope, gate);
                 if (act == "scout")
                 {
                     if (vendor is not null || effort is not null || fast)
@@ -683,7 +701,7 @@ internal sealed class ForgeTools
 
                 try
                 {
-                    OrchestrationPreflight.Validate(run, act, decisions, fixAttemptId, fixFindingIds);
+                    OrchestrationPreflight.Validate(run, act, decisions, fixAttemptId, fixFindingIds, note, gate);
                 }
                 catch (DecisionLedgerRequestException error)
                 {
@@ -702,7 +720,7 @@ internal sealed class ForgeTools
                 var started = registry.Start(run.Path, act,
                     jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision,
                                                userGrantedRound, jobCt, question, sessionMode, decisions,
-                                               fixAttemptId, fixFindingIds, note, scope));
+                                               fixAttemptId, fixFindingIds, note, scope, gate));
 
                 var record = started.Record;
                 return JsonSerializer.Serialize(new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started, Documents(run)),
@@ -762,7 +780,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.fetch"), Description("Fetches the terminal result of a background worker act: the act's own payload as the `result` string, beside its state, any `error`, and `documents`. Call it only after a forge.work.poll came back in a state other than `running` — a job still running has no result to fetch. A job id from a server process that has since exited cannot be fetched; start a new act instead, and read the persisted result under `.forge/<runId>/`.")]
+    [McpServerTool(Name = "forge.work.fetch"), Description("Fetches the terminal result of a background worker act: the act's own payload as the `result` string, beside its state, any `error`, and `documents`. Call it only after a forge.work.poll came back in a state other than `running` — a job still running has no result to fetch. The payload remains a historical completion snapshot; status and a new fix replay show current pending IDs. A job id from a server process that has since exited cannot be fetched; start a new act instead, and read the persisted result under `.forge/<runId>/`.")]
     public static async Task<string> FetchWork(JobRegistry registry,
                                                SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -793,7 +811,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing. `ledger` is the compact source-of-truth summary of current finding IDs by disposition and active phase, so a resumed Orchestrator need not read run files. Also returns run progress, `run.scout` with enabled/selection, current session and last failure, filtered drift, and active-job liveness. Call it before approval, retry or a round-cap decision.")]
+    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing. `ledger` is the compact source-of-truth summary of current finding IDs by disposition and active phase, so a resumed Orchestrator need not read run files. Also returns saved `run.fullGate` timing and current `ledger.pendingFullGateFindingIds` and covering attempts; corrupted or unknown saved timing, including non-string JSON, is refused without changing the run. Log the failure with forge.log.append and start a new run; do not hand-edit run files. beforeNextRound blocks review with pending fixes; final permits review, but full verification remains required before successful completion. Also returns run progress, `run.scout` with enabled/selection, current session and last failure, filtered drift, and active-job liveness. Call it before approval, retry or a round-cap decision.")]
     public static async Task<string> Status(JobRegistry registry,
                                             SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -1165,6 +1183,8 @@ internal sealed partial class ToolArgumentJson : JsonSerializerContext
 [JsonSerializable(typeof(InstructionsResult))]
 [JsonSerializable(typeof(PlanViewResult))]
 [JsonSerializable(typeof(StatusResult))]
+[JsonSerializable(typeof(LedgerSummary))]
+[JsonSerializable(typeof(PendingFullGateAttempt))]
 [JsonSerializable(typeof(ScoutSelectionResult))]
 [JsonSerializable(typeof(ScoutRunResult))]
 [JsonSerializable(typeof(ScoutReport))]

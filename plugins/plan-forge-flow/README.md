@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.43.0
+# Plan Forge Flow 0.44.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -29,15 +29,15 @@ not restrict access.
 | `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
 | `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
-| `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and gate/builder settings; refusal accepts no decisions |
+| `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and optional case-sensitive `fullGate=beforeNextRound\|final`; omission preserves timing/settings, explicit settings replace, empty settings clear. Approval resets the global gate failure, preserving attempts; approved false changes no PLAN/state/ledger or approval and accepts no decisions |
 | `forge.build.next` | Builds one task; only the server runs its executable gate, withholds the task on failure and briefs the retry. The Builder checks conditions and may run separate checks |
-| `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan. A prompt longer than the critic's vendor accepts is refused before it starts, with its sizes; `excludePaths` and `untrackedByReference` narrow that one round |
-| `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs the plan's executable `## Gates` on the host |
-| `forge.status` | Reports a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, and active-job liveness |
-| `forge.work.start` | On Cursor hosts, starts one worker act, including Scout, as a background job |
+| `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan. Saved beforeNextRound refuses pending fixes; final permits them and returns current pending IDs (including []); assessments do not verify them. A prompt longer than the critic's vendor accepts is refused before it starts, with its sizes; `excludePaths` and `untrackedByReference` narrow that one round |
+| `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs executable G entries by default (`gate=full`) or only the approved Fix gate (`gate=targeted`), leaving findings pending full host verification. Retry preserves gate, attempt and exact IDs |
+| `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempts, plus a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, and active-job liveness |
+| `forge.work.start` | On Cursor hosts, starts one worker act, including Scout, as a background job; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding |
 | `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call, and reports its latest stdout activity and recognised event |
 | `forge.work.cancel` | Requests cancellation of a background worker act; terminal jobs are unchanged and running jobs finish as failed |
-| `forge.work.fetch` | Fetches the terminal result of a background worker act |
+| `forge.work.fetch` | Fetches the historical terminal snapshot of a background worker act; status and new fix replay show current pending |
 | `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log |
 
 The draft the critic reads states its own intent: a `## Requirements` section above the tasks,
@@ -46,7 +46,51 @@ violated — a `Gate` ending each task, plus a `## Gates` section for whatever n
 Only the server runs an executable task gate, including on retries. The Builder checks conditions
 and may run separate targeted checks; when it leaves verification to the server, it reports
 `unavailable` with that explicit reason. The Orchestrator runs plan-wide gates before code review,
-and the server runs their executable commands after review fixes.
+and the server runs their executable commands after full-mode review fixes. Before the first plan,
+the interview asks once, in the conversation's language: full verification after each Builder fix
+turn (`gate=full; fullGate=beforeNextRound`), or only at the end (`gate=targeted; fullGate=final`)?
+The Brief records explicit parameters with its label in the plan's language. Targeted/beforeNextRound
+is also supported by explicit choice, without a third mandatory question or repeated interview.
+
+Targeted needs exactly one executable Fix gate in the first real `## Gates` section with real
+numbered G entries; the plan Critic checks it before approval. In targeted mode the Orchestrator
+runs all G1..Gn, conditions included, after the round's fixes before the next Critic by default,
+or after code approval with final. Short success leaves persistent pending findings and attempts;
+only successful full host verification closes them with `hostVerified` evidence. Record command,
+covered attempts, exit code and output tail through `forge.log.append`; failure leaves fixes
+unverified and the Orchestrator chooses repairs, raises or environment work without automatic
+attribution. Pass failure output in the next fix note or raise. Do not repeat a successful full run
+without edits; full-mode executable results may be reused, with conditions checked separately.
+
+Read saved timing from status. A timing-only change explicitly reconfirms the same plan, without
+plan.write or rewriting the initial Brief; later confirms omit fullGate until another explicit
+user change, including approval after a future revision. Both gate/fullGate are case-sensitive;
+empty, whitespace and unknown values are refused, including fullGate with approved false. Saved
+malformed timing stops state reads unchanged: log the failure with log.append and start a new run,
+without manual .forge edits. A new/nonterminal targeted fix validates its Fix gate before decisions
+or jobs; terminal replay needs no valid gate in the current plan. Explicit gate without fix IDs is
+refused; work.start accepts it only for review.fix.
+
+Full verification is required before success at either timing. A user stop or declined extra round
+ends an unfinished run with explicit pending IDs and attempts. Code repairs after final approval
+return to fix → new Critic → full verification; at the cap first ask for an extra round.
+Environment-only repairs repeat full checks without another Critic. Blocked beforeNextRound may
+repair the environment, explicitly reconfirm final, or consciously defer/reject with an honest
+unverified outcome. An unsuitable or broken short check can be bypassed with a new full-mode
+attempt for a separate batch; changing a plan requires ordinary revision/review/approval.
+Host result annotations use camelCase and are absent from model output schemas:
+
+| Result | gateMode | pendingFullGateFindingIds |
+|---|---|---|
+| Task build or decisions-only fix | omitted | omitted |
+| Full fix, including version-2 replay | full | omitted |
+| Targeted fix or replay | targeted | current pending for that attempt, or [] |
+| Code critique with saved final | omitted | current pending for the run, or [], including empty diff |
+| Plan critique or code critique with beforeNextRound | omitted | omitted |
+
+Only attempt.GateMode persists the mode; LastResult stores no host annotations. Direct and
+background completion agree; fetch is historical, while fix replay and status recompute pending.
+
 The requirements are under review beside the tasks, and only what they exclude is settled, so a plan
 aimed at the wrong thing is a finding rather than a clean approve.
 
@@ -74,8 +118,9 @@ which take the next IDs and are assessed by the next Critic like any other. See
 
 One `decisionBatchId` names one logical decision set. An exact retry is a no-op; a conflicting reuse
 returns the saved result, and a new key is only for a new legal delta. Fix execution is separate:
-one `fixAttemptId` names one exact sorted ID set. Cut-short, retained and gate-failed executions
-retry that same attempt and set, while a completed retry returns its saved terminal result.
+one `fixAttemptId` names one exact sorted ID set and one immutable gate mode. Cut-short, retained and gate-failed executions
+retry that same attempt, set and gate, while a completed retry returns its saved terminal result
+with current pending annotations. Background fetch keeps its historical completion snapshot.
 
 The plan itself is readable from the first round rather than at the end of them: each round starts
 with `forge.plan.write`, which puts the draft at `PLAN.md` and hands back its path in seconds, and

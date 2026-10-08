@@ -54,7 +54,8 @@ internal static class BuilderTurn
 
         try
         {
-            return await session.RunAsync(prompt, Schemas.BuildResult, ct);
+            var result = await session.RunAsync(prompt, Schemas.BuildResult, ct);
+            return result with { GateMode = null, PendingFullGateFindingIds = null };
         }
         // The host taking the call away, rather than the builder failing. Nothing here decides
         // otherwise — the cancellation travels on as itself — but it leaves with the file list.

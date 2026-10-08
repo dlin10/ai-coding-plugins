@@ -3,10 +3,12 @@ using PlanForge.Run;
 namespace PlanForge.Mcp;
 
 /// <summary>
-/// What <c>forge.begin</c> was told about the run's gates, checked before anything is written. Both
+/// What <c>forge.plan.confirm</c> was told about the run's gates, checked before anything is written. Both
 /// are per-run facts: the environment a gate command needs and the paths a builder may write to
 /// outside the workspace do not change between tasks, so they are asked for once.
 /// </summary>
+/// <param name="Environment">The environment required by host gates.</param>
+/// <param name="BuilderRoots">Compatibility-only paths retained in the run state.</param>
 internal sealed record GateSettings(IReadOnlyDictionary<string, string>? Environment, IReadOnlyList<string>? BuilderRoots)
 {
     public static GateSettings Validate(IReadOnlyDictionary<string, string>? environment, IReadOnlyList<string>? builderRoots)
