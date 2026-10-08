@@ -1,4 +1,5 @@
 using System.Text;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Heap;
 using Xunit;
 
@@ -10,13 +11,11 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// followed whatever it is built of, its elements read as the twin's are. The axes are the form and the place that makes the completion,
 /// the source (known, opaque, or either), the depth and outer type of the task, and the consumer. One fixture of project-model members,
 /// analysed once, with one method per row.</summary>
-public sealed class TaskCompletionProvenanceTests
+public sealed class TaskCompletionProvenanceTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     private const string FLAG = "Environment.ProcessorCount > 1";
 
     private const string PREFIX = "body:Fixture:M:Sweep.";
-
-    private static readonly Lazy<HeapRun> Run = new(Analyze, LazyThreadSafetyMode.ExecutionAndPublication);
 
     /// <summary>The model value form a task completes with, and the place that makes the completion.</summary>
     public enum Form
@@ -115,9 +114,9 @@ public sealed class TaskCompletionProvenanceTests
     /// <c>Unfollowed</c> answers it from the argument's unknown sources, source calls and completions.</summary>
     /// <param name="method">The row's method.</param>
     /// <param name="observer">The observing library member.</param>
-    private static bool Unfollowed(string method, string observer)
+    private bool Unfollowed(string method, string observer)
     {
-        var heap = Run.Value.Heap;
+        var heap = cache.Get("run", Analyze).Heap;
         var arguments = heap.Instances.Values
                             .Where(instance => instance.BodyId == PREFIX + method)
                             .SelectMany(instance => instance.Summary.OpaqueCalls

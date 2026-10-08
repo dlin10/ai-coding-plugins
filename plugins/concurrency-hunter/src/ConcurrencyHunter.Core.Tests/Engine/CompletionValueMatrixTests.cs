@@ -17,15 +17,15 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// in its direct form. The consumed value of a cell must be analysed as its twin's value is — the same objects by role, the same answer
 /// to whether it may be an object the analysis does not follow, and the same freshness and ownership of a write through it — and, where
 /// R1 says so, hold what the producer was handed. Every cell must be exact.</summary>
-public sealed class CompletionValueMatrixTests
+public sealed class CompletionValueMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     private const string FLAG = "Environment.ProcessorCount > 1";
 
     private const string CELL_PREFIX = "body:Fixture:M:Cell_";
 
-    private static readonly Lazy<Matrix> Results = new(Run, LazyThreadSafetyMode.ExecutionAndPublication);
+    private Matrix Results => cache.Get("results", Run);
 
-    private static readonly ConcurrentDictionary<string, Observed> Observations = new(StringComparer.Ordinal);
+    private ConcurrentDictionary<string, Observed> Observations => cache.Get("observations", () => new ConcurrentDictionary<string, Observed>(StringComparer.Ordinal));
 
     /// <summary>What makes the task.</summary>
     public enum Producer
@@ -288,7 +288,7 @@ public sealed class CompletionValueMatrixTests
         Assert.All(Enum.GetValues<Payload>(), payload => Assert.Contains(cells, cell => cell.Payload == payload));
         Assert.All(Enum.GetValues<TwinForm>(), form => Assert.Contains(Twins(), twin => twin.Form == form));
         // Every cell and every twin is a root of the run, and nothing else of the controller is.
-        var roots = Results.Value.Heap.Program.Input.Roots
+        var roots = Results.Heap.Program.Input.Roots
                            .Select(root => root.Entry.Symbol)
                            .Where(symbol => symbol.StartsWith("MatrixController.", StringComparison.Ordinal))
                            .Select(symbol => symbol["MatrixController.".Length..^"()".Length])
@@ -318,7 +318,7 @@ public sealed class CompletionValueMatrixTests
 
     // ---- comparing ----
 
-    private static void AssertExact(params Payload[] payloads)
+    private void AssertExact(params Payload[] payloads)
     {
         var failures = Cells().Where(cell => payloads.Contains(cell.Payload))
                               .SelectMany(cell => Failures(cell).Select(failure => $"{cell.Name}: {failure.Message}{(failure.Narrower ? " (narrower)" : " (wider)")}"))
@@ -329,7 +329,7 @@ public sealed class CompletionValueMatrixTests
     /// <summary>The differences of a cell that count: a cell <see cref="FieldRule"/> lists must be narrower in its unfollowed answer,
     /// and that narrowing alone is excused.</summary>
     /// <param name="cell">The cell.</param>
-    private static IEnumerable<Failure> Failures(Cell cell)
+    private IEnumerable<Failure> Failures(Cell cell)
     {
         var failures = Compare(cell).ToArray();
         if (!FieldRule.Contains(cell.Name))
@@ -342,7 +342,7 @@ public sealed class CompletionValueMatrixTests
 
     /// <summary>Every difference between a cell and its expectation: against its twin (R2) and, where R1 says so, absolutely.</summary>
     /// <param name="cell">The cell.</param>
-    private static IEnumerable<Failure> Compare(Cell cell)
+    private IEnumerable<Failure> Compare(Cell cell)
     {
         var observed = Observe(cell.Name, Handing(cell.Route));
         var twin = TwinOf(cell);
@@ -418,11 +418,11 @@ public sealed class CompletionValueMatrixTests
     /// <summary>What an action's consumed value is.</summary>
     /// <param name="name">The action, which runs the class <c>Cell_</c> of the same name.</param>
     /// <param name="handing">The method of the class that creates a <c>Fresh</c> payload.</param>
-    private static Observed Observe(string name, string handing) => Observations.GetOrAdd(name, _ => ObserveOnce(name, handing));
+    private Observed Observe(string name, string handing) => Observations.GetOrAdd(name, _ => ObserveOnce(name, handing));
 
-    private static Observed ObserveOnce(string name, string handing)
+    private Observed ObserveOnce(string name, string handing)
     {
-        var (heap, collection) = (Results.Value.Heap.Heap, Results.Value.Collection);
+        var (heap, collection) = (Results.Heap.Heap, Results.Collection);
         var prefix = $"{CELL_PREFIX}{name}.";
         var instances = heap.Instances.Values.Where(instance => instance.BodyId.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
 
@@ -449,14 +449,14 @@ public sealed class CompletionValueMatrixTests
     /// and not in the write's own: the part of its body after an async body's first await counts, the part before it does not.</summary>
     /// <param name="write">The write.</param>
     /// <param name="prefix">The body id prefix of the action's class.</param>
-    private static bool CreatedElsewhere(Access write, string prefix)
+    private bool CreatedElsewhere(Access write, string prefix)
     {
-        var heap = Results.Value.Heap.Heap;
+        var heap = Results.Heap.Heap;
         if (write.Resource.RegionId is not { } regionId || heap.Regions[regionId].SiteBodyId is not { } site ||
             !site.StartsWith(prefix, StringComparison.Ordinal))
             return false;
         var instances = heap.Instances.Values.Where(instance => instance.BodyId == site).Select(instance => instance.Id).ToHashSet(StringComparer.Ordinal);
-        var executions = Results.Value.Execution.Analysis.WalkNodeVisits.Keys
+        var executions = Results.Execution.Analysis.WalkNodeVisits.Keys
                                 .Where(visit => instances.Contains(visit.Instance) && visit.Segment != BodySegment.Prefix)
                                 .Select(visit => visit.Execution)
                                 .ToHashSet(StringComparer.Ordinal);
@@ -469,13 +469,13 @@ public sealed class CompletionValueMatrixTests
     /// <param name="regionId">The region.</param>
     /// <param name="prefix">The body id prefix of the action's class.</param>
     /// <param name="handing">The method of the class that creates a <c>Fresh</c> payload.</param>
-    private static string Role(string regionId, string prefix, string handing)
+    private string Role(string regionId, string prefix, string handing)
     {
-        if (Results.Value.Shared.Contains(regionId))
+        if (Results.Shared.Contains(regionId))
             return "Shared";
-        if (Results.Value.Other.Contains(regionId))
+        if (Results.Other.Contains(regionId))
             return "Other";
-        var region = Results.Value.Heap.Heap.Regions[regionId];
+        var region = Results.Heap.Heap.Regions[regionId];
         if (region.SiteBodyId is { } site && site.StartsWith(prefix, StringComparison.Ordinal))
         {
             var rest = site[prefix.Length..];

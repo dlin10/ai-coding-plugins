@@ -19,7 +19,7 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// atomicity and the compound flag — the objects a write through a handed-out value lands on are the same, and neither has an unknown
 /// effect or a semantic gap the other lacks.
 /// </summary>
-public sealed class CollectionRouteMatrixTests
+public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     private const string LIST = "System.Collections.Generic.List`1";
     private const string DICTIONARY = "System.Collections.Generic.Dictionary`2";
@@ -1096,18 +1096,18 @@ public sealed class CollectionRouteMatrixTests
 
     private sealed record Collected(InterproceduralCollection Collection, IReadOnlySet<int> Marked, IReadOnlySet<int> Taken);
 
-    private static readonly ConcurrentDictionary<string, Lazy<Collected>> Runs = new(StringComparer.Ordinal);
-
     /// <summary>A case's run, made once and reused by every row of it.</summary>
-    private static Collected Run(string key, Func<string> source) =>
-        Runs.GetOrAdd(key, _ => new Lazy<Collected>(() =>
+    /// <param name="key">The case.</param>
+    /// <param name="source">Writes the case's program.</param>
+    private Collected Run(string key, Func<string> source) =>
+        cache.Get("run:" + key, () =>
         {
             var text = source();
             var lines = (Usings + text).Split('\n');
             HashSet<int> LinesWith(string marker) => lines.Select((line, index) => (line, index)).Where(pair => pair.line.Contains(marker, StringComparison.Ordinal))
                                                           .Select(pair => pair.index + 1).ToHashSet();
             return new Collected(Collect(text), LinesWith(MARK), LinesWith(TAKEN));
-        })).Value;
+        });
 
     /// <summary>The controller whose actions are the roots, one per way.</summary>
     private static string Controller(IEnumerable<string> ids)

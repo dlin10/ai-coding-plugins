@@ -15,11 +15,11 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// when <c>HappensBefore</c> proves the consumer's join and the join comes before the write on every path, and, where there is a work,
 /// when the two writes form no pair; the two observations must agree. The oracle is the twin of each producer and path, which consumes
 /// the same task with <c>t.Wait()</c> (R3: "as <c>Wait()</c> is").</summary>
-public sealed class ResultJoinMatrixTests
+public sealed class ResultJoinMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
-    private static readonly Lazy<EngineRun> Results = new(() => Analyze(Source()), LazyThreadSafetyMode.ExecutionAndPublication);
+    private EngineRun Results => cache.Get("results", () => Analyze(Source()));
 
-    private static readonly ConcurrentDictionary<string, Observed> Observations = new(StringComparer.Ordinal);
+    private ConcurrentDictionary<string, Observed> Observations => cache.Get("observations", () => new ConcurrentDictionary<string, Observed>(StringComparer.Ordinal));
 
     /// <summary>How the task is consumed.</summary>
     public enum Consumer
@@ -135,7 +135,7 @@ public sealed class ResultJoinMatrixTests
 
     /// <summary>Whether a cell is ordered, by R3 over its twin.</summary>
     /// <param name="cell">The cell.</param>
-    private static bool Expected(Cell cell)
+    private bool Expected(Cell cell)
     {
         // R3: no single proven handle orders nothing.
         if (cell.Alternatives != Alternatives.One)
@@ -157,7 +157,7 @@ public sealed class ResultJoinMatrixTests
     /// <summary>Whether the producer's task at a path is proven: what its twin observes.</summary>
     /// <param name="producer">The producer.</param>
     /// <param name="path">The path.</param>
-    private static bool Proven(Producer producer, Path path) => Observe(Twin(producer, path)).Proven;
+    private bool Proven(Producer producer, Path path) => Observe(Twin(producer, path)).Proven;
 
     // ---- the tests ----
 
@@ -221,7 +221,7 @@ public sealed class ResultJoinMatrixTests
         Assert.Empty(compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
 
         // Every cell and every twin is a hosted service of the run, and nothing else is.
-        var roots = Results.Value.Execution.Heap.Program.Input.Roots
+        var roots = Results.Execution.Heap.Program.Input.Roots
                            .Select(root => root.Entry.Symbol)
                            .Where(symbol => symbol.EndsWith(".ExecuteAsync(CancellationToken)", StringComparison.Ordinal))
                            .Select(symbol => symbol[..symbol.IndexOf('.', StringComparison.Ordinal)])
@@ -233,7 +233,7 @@ public sealed class ResultJoinMatrixTests
 
     // ---- observing ----
 
-    private static List<string> Failures(IEnumerable<Cell> cells)
+    private List<string> Failures(IEnumerable<Cell> cells)
     {
         var failures = new List<string>();
         foreach (var cell in cells)
@@ -256,14 +256,14 @@ public sealed class ResultJoinMatrixTests
         return failures;
     }
 
-    private static Observed Observe(string name) => Observations.GetOrAdd(name, ObserveOnce);
+    private Observed Observe(string name) => Observations.GetOrAdd(name, ObserveOnce);
 
     /// <summary>What a cell or a twin did: whether the one join on its consumption line is proven and comes before its write on every
     /// path, and whether its work's write and its own form a pair.</summary>
     /// <param name="name">The hosted service.</param>
-    private static Observed ObserveOnce(string name)
+    private Observed ObserveOnce(string name)
     {
-        var run = Results.Value;
+        var run = Results;
         var lines = Lines.Value;
         int Line(string kind) => lines.TryGetValue($"{kind}:{name}", out var line) ? line : -1;
         var consumed = Line("C");

@@ -12,11 +12,11 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// <summary>What a known call's <c>task(…)</c> result gives the run outside the axes of <see cref="TaskResultRunMatrixTests"/> (R4): a
 /// task argument handed back, a holder of the result inside one or two tasks, <c>keeps.result</c> under tasks, and a model silent about
 /// a task result. The models are project models of a library the run has no source of.</summary>
-public sealed class TaskResultRunTests
+public sealed class TaskResultRunTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     private const string PREFIX = "body:Fixture:M:Facts.";
 
-    private static readonly Lazy<Facts> Run = new(Analyze, LazyThreadSafetyMode.ExecutionAndPublication);
+    private Facts Run => cache.Get("run", Analyze);
 
     [Fact]
     public void Task_argument_named_as_the_result_is_the_task_itself()
@@ -24,7 +24,7 @@ public sealed class TaskResultRunTests
         var task = Single(Roles("SameTask", "t"));
         Assert.Equal(HeapRegionKind.Task, Heap.Regions[task].Kind);
         Assert.Equal(task, Single(Roles("SameTask", "same")));
-        Assert.Equal(Run.Value.Shared.Single(), Single(Roles("SameTask", "consumed")));
+        Assert.Equal(Run.Shared.Single(), Single(Roles("SameTask", "consumed")));
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class TaskResultRunTests
     {
         var created = Single(Roles("KeepsTask", "consumed"));
         Assert.Equal("Fixture:Box", Heap.Regions[created].TypeKey);
-        Assert.Equal(Run.Value.Shared.Single(), Assert.Single(Heap.PointsTo(created, PathValue.KEPT)));
+        Assert.Equal(Run.Shared.Single(), Assert.Single(Heap.PointsTo(created, PathValue.KEPT)));
         Assert.Empty(Heap.PointsTo(Single(Roles("KeepsTask", "t")), PathValue.KEPT));
     }
 
@@ -67,7 +67,7 @@ public sealed class TaskResultRunTests
     {
         var created = Single(Roles("KeepsTaskOfTask", "consumed"));
         Assert.Equal("Fixture:Box", Heap.Regions[created].TypeKey);
-        Assert.Equal(Run.Value.Shared.Single(), Assert.Single(Heap.PointsTo(created, PathValue.KEPT)));
+        Assert.Equal(Run.Shared.Single(), Assert.Single(Heap.PointsTo(created, PathValue.KEPT)));
         Assert.Empty(Heap.PointsTo(Single(Roles("KeepsTaskOfTask", "inner")), PathValue.KEPT));
     }
 
@@ -78,7 +78,7 @@ public sealed class TaskResultRunTests
         Assert.True(TouchUnresolved("Silent"));
         // The same call with a task(…) result is followed: the mark comes from the silence, not from the await.
         Assert.False(TouchUnresolved("Spoken"));
-        Assert.Equal(Run.Value.Shared.Single(), Single(Roles("Spoken", "consumed")));
+        Assert.Equal(Run.Shared.Single(), Single(Roles("Spoken", "consumed")));
     }
 
     [Fact]
@@ -114,28 +114,28 @@ public sealed class TaskResultRunTests
 
     private sealed record Facts(HeapRun Heap, IReadOnlySet<string> Shared);
 
-    private static HeapSolution Heap => Run.Value.Heap.Heap;
+    private HeapSolution Heap => Run.Heap.Heap;
 
     private static string Single(IReadOnlySet<string> regions) => Assert.Single(regions);
 
     /// <summary>The regions a local of a method of <c>Facts</c> holds.</summary>
     /// <param name="method">The method's name.</param>
     /// <param name="variable">The local's name.</param>
-    private static IReadOnlySet<string> Roles(string method, string variable) =>
+    private IReadOnlySet<string> Roles(string method, string variable) =>
         Instances(method).SelectMany(instance => instance.Summary.Variables.Where(value => value.SymbolKey.Contains($"|{variable}|", StringComparison.Ordinal))
                                                          .SelectMany(value => Heap.Resolve(instance.Id, value.Values)))
                          .ToHashSet(StringComparer.Ordinal);
 
-    private static MethodInstance[] Instances(string method) =>
+    private MethodInstance[] Instances(string method) =>
         Heap.Instances.Values.Where(instance => instance.BodyId == PREFIX + method ||
                                                 instance.BodyId.StartsWith(PREFIX + method + "#", StringComparison.Ordinal)).ToArray();
 
     /// <summary>Whether a lambda written in the method runs: an edge of the heap reaches its body.</summary>
     /// <param name="method">The method's name.</param>
-    private static bool RunsLambda(string method) =>
+    private bool RunsLambda(string method) =>
         Heap.Edges.Any(edge => Heap.Instances[edge.CalleeInstance].BodyId.StartsWith(PREFIX + method + "#", StringComparison.Ordinal));
 
-    private static bool TouchUnresolved(string method) =>
+    private bool TouchUnresolved(string method) =>
         Instances(method).SelectMany(instance => instance.Summary.Calls.Where(call => call.Target.Contains("Box.Touch", StringComparison.Ordinal))
                                                          .Select(call => (instance.Id, call.OperationId)))
                          .Any(Heap.UnresolvedCallTargets.Contains);

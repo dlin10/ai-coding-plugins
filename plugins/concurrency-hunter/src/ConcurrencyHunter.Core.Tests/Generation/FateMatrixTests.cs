@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
 using Xunit;
@@ -11,7 +12,7 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 /// member is handed the delegate, the member's kind and result type, what it does with the delegate — compiled once and run through
 /// the model generator cell by cell. Each cell's expected answer comes from <see cref="Expected"/>, written from TD-034b's fates and
 /// G-5's applicability, never from running the classifier.</summary>
-public sealed class FateMatrixTests
+public sealed class FateMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     private static readonly ClassifiedFate InvokeNow = new(FateClassifier.INVOKE_NOW, null);
     private static readonly ClassifiedFate Iterator = new(FateClassifier.ITERATOR, null);
@@ -63,7 +64,7 @@ public sealed class FateMatrixTests
             "In/Constructor/CombineIntoThis"
         ]));
 
-    private static readonly Lazy<Matrix> Results = new(Run, LazyThreadSafetyMode.ExecutionAndPublication);
+    private Matrix Results => cache.Get("results", Run);
 
     /// <summary>How the member is handed the delegate.</summary>
     public enum Handing
@@ -227,7 +228,7 @@ public sealed class FateMatrixTests
     [Fact]
     public void Every_cell_has_no_unsafe_narrowing()
     {
-        var unsafeCells = Results.Value.Answers.Where(pair => !IsSafe(Classified(pair.Value, pair.Key), Expected(pair.Key)))
+        var unsafeCells = Results.Answers.Where(pair => !IsSafe(Classified(pair.Value, pair.Key), Expected(pair.Key)))
                                  .Select(pair => $"{pair.Key.Name}: expected {Show(Expected(pair.Key))}, got {Show(Classified(pair.Value, pair.Key))}")
                                  .Order(StringComparer.Ordinal).ToArray();
 
@@ -238,7 +239,7 @@ public sealed class FateMatrixTests
     public void Every_cell_gets_its_expected_fate()
     {
         var failures = new List<string>();
-        foreach (var (cell, answer) in Results.Value.Answers.OrderBy(pair => pair.Key.Name, StringComparer.Ordinal))
+        foreach (var (cell, answer) in Results.Answers.OrderBy(pair => pair.Key.Name, StringComparer.Ordinal))
         {
             var expected = Expected(cell);
             var actual = Classified(answer, cell);
@@ -253,7 +254,7 @@ public sealed class FateMatrixTests
                 failures.Add($"{cell.Name}: expected {Show(expected)}, got {Show(actual)}");
         }
 
-        foreach (var listed in Wider.Keys.Where(name => Results.Value.Answers.Keys.All(cell => cell.Name != name)))
+        foreach (var listed in Wider.Keys.Where(name => Results.Answers.Keys.All(cell => cell.Name != name)))
             failures.Add($"{listed}: listed as wider but is no cell of the matrix");
         Assert.True(failures.Count == 0, $"{failures.Count} cell(s) off the table:\n" + string.Join("\n", failures));
     }
@@ -261,14 +262,14 @@ public sealed class FateMatrixTests
     [Fact]
     public void The_matrix_covers_every_axis_value()
     {
-        var ran = Results.Value.Answers.Where(pair => pair.Value.Classified is not null).Select(pair => pair.Key).ToArray();
+        var ran = Results.Answers.Where(pair => pair.Value.Classified is not null).Select(pair => pair.Key).ToArray();
         var missing = Enum.GetValues<Handing>().Where(handing => ran.All(cell => cell.Handing != handing)).Select(handing => $"handing {handing}")
                           .Concat(Shapes.Where(shape => ran.All(cell => cell.Shape != shape)).Select(shape => $"shape {shape.Name}"))
                           .Concat(Enum.GetValues<Act>().Where(act => ran.All(cell => cell.Act != act)).Select(act => $"act {act}"))
                           .ToArray();
 
         Assert.True(missing.Length == 0, "No cell that ran has " + string.Join(", ", missing));
-        var refused = Results.Value.Answers.Where(pair => pair.Value.Classified is null)
+        var refused = Results.Answers.Where(pair => pair.Value.Classified is null)
                              .Select(pair => $"{pair.Key.Name}: {pair.Value.Reason} {pair.Value.Detail}").ToArray();
         Assert.True(refused.Length == 0, $"{refused.Length} cell(s) got no classification:\n" + string.Join("\n", refused));
     }

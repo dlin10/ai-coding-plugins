@@ -1,4 +1,5 @@
 using System.Text;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Heap;
 using Xunit;
 
@@ -9,13 +10,11 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// analysis does not see gives back an unknown value; and an iterator reached through f's task runs where its twin's runs. The axes are
 /// the form around <c>returns:</c> and its fate (invoke-now or iterator, the built-in LINQ <c>Select</c> among them), the delegate kind,
 /// what f returns, and the consumer. One fixture of project-model members, analysed once, with one method per row.</summary>
-public sealed class DelegateReturnsTests
+public sealed class DelegateReturnsTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     private const string FLAG = "Environment.ProcessorCount > 1";
 
     private const string PREFIX = "body:Fixture:M:Rows.";
-
-    private static readonly Lazy<HeapRun> Run = new(Analyze, LazyThreadSafetyMode.ExecutionAndPublication);
 
     /// <summary>The form around <c>returns:f</c>, its fate, and the member carrying it.</summary>
     public enum Form
@@ -151,13 +150,13 @@ public sealed class DelegateReturnsTests
 
     // ---- observing ----
 
-    private static HeapSolution Heap => Run.Value.Heap;
+    private HeapSolution Heap => cache.Get("run", Analyze).Heap;
 
-    private static MethodInstance[] Instances(string method) =>
+    private MethodInstance[] Instances(string method) =>
         Heap.Instances.Values.Where(instance => instance.BodyId == PREFIX + method ||
                                                 instance.BodyId.StartsWith(PREFIX + method + "#", StringComparison.Ordinal)).ToArray();
 
-    private static IEnumerable<(string Instance, CallArgument Argument)> Arguments(string method, string observer)
+    private IEnumerable<(string Instance, CallArgument Argument)> Arguments(string method, string observer)
     {
         var arguments = Instances(method).SelectMany(instance => instance.Summary.OpaqueCalls
                                                                          .Where(call => call.Callee.Contains($"Lib.{observer}", StringComparison.Ordinal))
@@ -170,14 +169,14 @@ public sealed class DelegateReturnsTests
     /// <summary>The objects the value handed to the observing call may be.</summary>
     /// <param name="method">The row's method.</param>
     /// <param name="observer">The observing library member.</param>
-    private static HashSet<string> Observed(string method, string observer) =>
+    private HashSet<string> Observed(string method, string observer) =>
         Arguments(method, observer).SelectMany(item => Heap.Resolve(item.Instance, item.Argument.Values)).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Whether the value handed to the observing call may be an object the heap does not follow, as the engine's
     /// <c>Unfollowed</c> answers it from the argument's unknown sources, source calls and completions.</summary>
     /// <param name="method">The row's method.</param>
     /// <param name="observer">The observing library member.</param>
-    private static bool Unfollowed(string method, string observer) =>
+    private bool Unfollowed(string method, string observer) =>
         Arguments(method, observer).Any(item => item.Argument.UnknownSources.Any(unknown => unknown is not (UnknownSource.Null or UnknownSource.FieldBeforeWrite or UnknownSource.SourceCall)) ||
                                                 item.Argument.SourceCalls.Any(call => Heap.UnfollowedCallResults.Contains((item.Instance, call))) ||
                                                 item.Argument.Completions.Any(completion => Heap.UnfollowedCompletions.Contains((item.Instance, completion))));
@@ -186,7 +185,7 @@ public sealed class DelegateReturnsTests
     /// escaping; null where it does.</summary>
     /// <param name="method">The row's method.</param>
     /// <param name="iterator">The iterator method's name.</param>
-    private static string? IteratorFailure(string method, string iterator)
+    private string? IteratorFailure(string method, string iterator)
     {
         var callers = Instances(method).Select(instance => instance.Id).ToHashSet(StringComparer.Ordinal);
         var made = Heap.IteratorObjects.Where(item => Heap.Instances[item.Creation.CalleeInstance].BodyId == PREFIX + iterator).ToArray();

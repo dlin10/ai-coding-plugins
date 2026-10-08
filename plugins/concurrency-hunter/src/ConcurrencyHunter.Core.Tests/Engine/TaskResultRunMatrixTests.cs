@@ -1,4 +1,5 @@
 using System.Text;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Heap;
 using Xunit;
 
@@ -12,13 +13,13 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// as the result of a member returning <c>T</c>. Their twins name <c>arg:x</c> for the value x the task completes with. Each delivered
 /// value is judged where a consumer reads it, by a dispatch on it. Every cell must be exact against its twin, but the channels of the
 /// cells <see cref="SynchronousTwinRule"/> lists, which are exact against what their task completes with and wider than the twin.</summary>
-public sealed class TaskResultRunMatrixTests
+public sealed class TaskResultRunMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     private const string FLAG = "Environment.ProcessorCount > 1";
 
     private const string CELL_PREFIX = "body:Fixture:M:Cell_";
 
-    private static readonly Lazy<Matrix> Results = new(Run, LazyThreadSafetyMode.ExecutionAndPublication);
+    private Matrix Results => cache.Get("results", Run);
 
     // ---- the axes ----
 
@@ -150,7 +151,7 @@ public sealed class TaskResultRunMatrixTests
         Assert.Equal(8, isolation.Count(cell => cell.Uses[0].Channel == cell.Uses[1].Channel));
         Assert.Equal(isolation.Length, isolation.Select(cell => cell.Name).Distinct().Count());
         // Every cell and every twin is a root of the run, and nothing else of the controller is.
-        var roots = Results.Value.Heap.Program.Input.Roots
+        var roots = Results.Heap.Program.Input.Roots
                            .Select(root => root.Entry.Symbol)
                            .Where(symbol => symbol.StartsWith("MatrixController.", StringComparison.Ordinal))
                            .Select(symbol => symbol["MatrixController.".Length..^"()".Length])
@@ -201,7 +202,7 @@ public sealed class TaskResultRunMatrixTests
         _ => throw new ArgumentOutOfRangeException(nameof(leaf), leaf, null)
     };
 
-    private static IEnumerable<string> Compare(ResultCell cell)
+    private IEnumerable<string> Compare(ResultCell cell)
     {
         var observed = Observe(cell.Name);
         var twin = Observe(TwinName(cell));
@@ -236,7 +237,7 @@ public sealed class TaskResultRunMatrixTests
         }
     }
 
-    private static IEnumerable<string> Compare(ChannelCell cell)
+    private IEnumerable<string> Compare(ChannelCell cell)
     {
         var observed = Observe(cell.Name);
         var twin = Observe(cell.TwinName);
@@ -365,9 +366,9 @@ public sealed class TaskResultRunMatrixTests
     /// <param name="Other">The region of <c>Boxes.Other</c>.</param>
     private sealed record Matrix(HeapRun Heap, string Shared, string Other);
 
-    private static Observed Observe(string name)
+    private Observed Observe(string name)
     {
-        var heap = Results.Value.Heap.Heap;
+        var heap = Results.Heap.Heap;
         var prefix = $"{CELL_PREFIX}{name}.";
         var instances = heap.Instances.Values.Where(instance => instance.BodyId.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
 
@@ -431,12 +432,12 @@ public sealed class TaskResultRunMatrixTests
     /// foreign.</summary>
     /// <param name="regionId">The region.</param>
     /// <param name="prefix">The body id prefix of the action's class.</param>
-    private static IEnumerable<string> Role(string regionId, string prefix)
+    private IEnumerable<string> Role(string regionId, string prefix)
     {
-        var heap = Results.Value.Heap.Heap;
-        if (regionId == Results.Value.Shared)
+        var heap = Results.Heap.Heap;
+        if (regionId == Results.Shared)
             return ["Shared"];
-        if (regionId == Results.Value.Other)
+        if (regionId == Results.Other)
             return ["Other"];
         var region = heap.Regions[regionId];
         if (region.Kind == HeapRegionKind.Task)
@@ -452,7 +453,7 @@ public sealed class TaskResultRunMatrixTests
             return Contents().Prepend("created:" + region.TypeKey);
         return [$"foreign:{region.Display}"];
 
-        string Name(string element) => element == Results.Value.Shared ? "Shared" : element == Results.Value.Other ? "Other" : $"foreign:{heap.Regions[element].Display}";
+        string Name(string element) => element == Results.Shared ? "Shared" : element == Results.Other ? "Other" : $"foreign:{heap.Regions[element].Display}";
     }
 
     // ---- the library ----

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
@@ -12,9 +13,9 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 /// generated with <see cref="ModelGenerator"/>'s trace. A store into a delegate-typed field of the receiver or of a static is no state
 /// store when every object its value may point to is a probe of the member's delegate parameter or the slot's own seed, and its value
 /// comes from no origin the heap does not follow (TD-034a, R3, R5, R6).</summary>
-public sealed class DelegateSlotMatrixTests
+public sealed class DelegateSlotMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
-    private static readonly Lazy<IReadOnlyDictionary<Cell, CellResult>> Results = new(Run, LazyThreadSafetyMode.ExecutionAndPublication);
+    private IReadOnlyDictionary<Cell, CellResult> Results => cache.Get("results", Run);
 
     /// <summary>Where the slot is.</summary>
     public enum Slot
@@ -89,7 +90,7 @@ public sealed class DelegateSlotMatrixTests
     [Fact]
     public void Every_cell_records_the_expected_slot_store()
     {
-        var failures = Results.Value.OrderBy(pair => pair.Key.Name, StringComparer.Ordinal)
+        var failures = Results.OrderBy(pair => pair.Key.Name, StringComparer.Ordinal)
                               .Where(pair => pair.Value.SlotStore != Expected(pair.Key).SlotStore)
                               .Select(pair => $"{pair.Key.Name}: expected {(Expected(pair.Key).SlotStore ? "a" : "no")} state store on the slot's object; " +
                                               $"got [{string.Join(", ", pair.Value.StateStores)}] ({Show(pair.Value.Answer)})")
@@ -102,7 +103,7 @@ public sealed class DelegateSlotMatrixTests
     public void Every_qualifying_cell_gets_its_expected_fate()
     {
         var failures = new List<string>();
-        foreach (var (cell, result) in Results.Value.OrderBy(pair => pair.Key.Name, StringComparer.Ordinal))
+        foreach (var (cell, result) in Results.OrderBy(pair => pair.Key.Name, StringComparer.Ordinal))
         {
             var expected = Expected(cell);
             if (expected.Fate is { } fate)
@@ -130,7 +131,7 @@ public sealed class DelegateSlotMatrixTests
         // A static field has one object, so the same field of another object is no static cell.
         Assert.Equal(product.Where(cell => cell is { Slot: Slot.StaticSlot, Value: StoredValue.SameFieldOtherObject }), excluded);
         Assert.Equal(product.Except(excluded).Select(cell => cell.Name).Order(StringComparer.Ordinal),
-                     Results.Value.Keys.Select(cell => cell.Name).Order(StringComparer.Ordinal));
+                     Results.Keys.Select(cell => cell.Name).Order(StringComparer.Ordinal));
     }
 
     /// <summary>Rule (b) of task 11 for one cell. Under <see cref="Channel.Direct"/>, a plain store of the handler, through a helper's

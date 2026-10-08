@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
+using ConcurrencyHunter.Core.Tests.Fixtures;
 using Microsoft.CodeAnalysis;
 using Xunit;
 using Xunit.Abstractions;
@@ -11,9 +12,9 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 
 /// <summary>The generated-entry matrix of R4-R7: one compiled fixture, one member per value-kind/action/channel cell, and whole-entry
 /// expectations written from the requirements rather than from the generator.</summary>
-public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output)
+public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCache cache) : IClassFixture<ClassCache>
 {
-    private static readonly Lazy<Matrix> Results = new(Run, LazyThreadSafetyMode.ExecutionAndPublication);
+    private Matrix Results => cache.Get("results", Run);
 
     private static readonly IReadOnlyDictionary<string, string> Wider = Listed(
         ("the heap does not carry the named value through the concrete List<object> initializer, so the fresh collection is refused", [
@@ -117,9 +118,9 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output)
     [Fact]
     public void Every_cell_has_no_unsafe_narrowing()
     {
-        var failures = Results.Value.Answers.Select(pair => (pair.Key, Comparison: Compare(pair.Key, pair.Value)))
+        var failures = Results.Answers.Select(pair => (pair.Key, Comparison: Compare(pair.Key, pair.Value)))
                               .Where(pair => pair.Comparison.IsUnsafeNarrowing)
-                              .Select(pair => $"{pair.Key.Name}: {pair.Comparison.Detail}; got {Show(pair.Key, Results.Value.Answers[pair.Key])}")
+                              .Select(pair => $"{pair.Key.Name}: {pair.Comparison.Detail}; got {Show(pair.Key, Results.Answers[pair.Key])}")
                               .Order(StringComparer.Ordinal).ToArray();
 
         Assert.True(failures.Length == 0, $"{failures.Length} unsafe narrowing(s):\n" + string.Join("\n", failures));
@@ -129,7 +130,7 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output)
     public void Every_cell_gets_its_expected_answer()
     {
         var failures = new List<string>();
-        foreach (var (cell, answer) in Results.Value.Answers.OrderBy(pair => pair.Key.Name, StringComparer.Ordinal))
+        foreach (var (cell, answer) in Results.Answers.OrderBy(pair => pair.Key.Name, StringComparer.Ordinal))
         {
             var comparison = Compare(cell, answer);
             if (Wider.TryGetValue(cell.Name, out var reason))
@@ -143,7 +144,7 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output)
                 failures.Add($"{cell.Name}: {comparison.Detail}; got {Show(cell, answer)}");
         }
 
-        foreach (var listed in Wider.Keys.Where(name => Results.Value.Answers.Keys.All(cell => cell.Name != name)))
+        foreach (var listed in Wider.Keys.Where(name => Results.Answers.Keys.All(cell => cell.Name != name)))
             failures.Add($"{listed}: listed as wider but is no cell of the matrix");
         Assert.True(failures.Count == 0, $"{failures.Count} cell(s) off the table:\n" + string.Join("\n", failures));
     }
@@ -165,12 +166,12 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output)
     [Fact]
     public void The_matrix_covers_every_axis_value()
     {
-        var classified = Results.Value.Answers.Where(pair => pair.Value.Classified is not null).Select(pair => pair.Key).ToArray();
+        var classified = Results.Answers.Where(pair => pair.Value.Classified is not null).Select(pair => pair.Key).ToArray();
         var missing = Enum.GetValues<ValueKind>().Where(value => classified.All(cell => cell.ValueKind != value)).Select(value => $"value {value}")
                           .Concat(Enum.GetValues<Action>().Where(action => classified.All(cell => cell.Action != action)).Select(action => $"action {action}"))
                           .Concat(Enum.GetValues<Channel>().Where(channel => classified.All(cell => cell.Channel != channel)).Select(channel => $"channel {channel}"))
                           .ToArray();
-        var refused = Results.Value.Answers.Where(pair => pair.Value.Classified is null)
+        var refused = Results.Answers.Where(pair => pair.Value.Classified is null)
                              .Select(pair => $"{pair.Key.Name}: {pair.Value.Reason} {pair.Value.Detail}").ToArray();
 
         Assert.True(missing.Length == 0, "No classified cell has " + string.Join(", ", missing));

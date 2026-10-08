@@ -20,7 +20,7 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// do by R3. The forms whose places are exact also meet R3's formulas over the operands themselves. The first two tables share a
 /// program that stops before pairing: its six hundred roots all write the two <c>Tally</c> fields, and pairing them made a hundred
 /// million pairs that no test reads. The third table, whose array-cell check reads a pair, is a program of its own.</summary>
-public sealed class DelegateCombinationMatrixTests
+public sealed class DelegateCombinationMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     /// <summary>The line the invocation of a cell's or a twin's result stands on.</summary>
     private const string INVOKED = "/*I*/";
@@ -29,7 +29,7 @@ public sealed class DelegateCombinationMatrixTests
 
     private const string CAPTURED_LOCAL = "a store to a captured local inside a lambda does not reach the read after the lambda ran";
 
-    private static readonly Lazy<Matrix> Results = new(Run, LazyThreadSafetyMode.ExecutionAndPublication);
+    private Matrix Results => cache.Get("results", Run);
 
     /// <summary>A form that combines or removes delegates.</summary>
     public enum Form
@@ -146,7 +146,7 @@ public sealed class DelegateCombinationMatrixTests
             "T1_CapturedLocalRemove_Known_Known", "T1_CapturedLocalRemove_Null_Known", "T1_CapturedLocalRemove_Unknown_Known"
         ]));
 
-    private static readonly ConcurrentDictionary<string, Observed> Observations = new(StringComparer.Ordinal);
+    private ConcurrentDictionary<string, Observed> Observations => cache.Get("observations", () => new ConcurrentDictionary<string, Observed>(StringComparer.Ordinal));
 
     /// <summary>A cell of any table; its name is the controller action that runs it.</summary>
     private abstract record Cell
@@ -269,7 +269,7 @@ public sealed class DelegateCombinationMatrixTests
 
     /// <summary>The expectation of a run cell or an origin cell, from R3 over what its operands' twins do.</summary>
     /// <param name="cell">The cell.</param>
-    private static Expectation Expected(Cell cell)
+    private Expectation Expected(Cell cell)
     {
         var form = FormOf(cell);
         // R3: Delegate.Combine of a spread is no combination form; it stays an opaque call, whose result the heap does not follow.
@@ -320,7 +320,7 @@ public sealed class DelegateCombinationMatrixTests
     [Fact]
     public void Combination_reads_every_array_cell()
     {
-        var run = Results.Value.Channels;
+        var run = Results.Channels;
         var cells = run.Collection.Accesses.Where(access => !access.IsConstructionLocal && access.Resource.Selector is not null &&
                                                             access.Resource.Member.Name == "_arr").ToArray();
         // R3: Delegate.Combine of an existing array reads its cells, which a write of another execution may change.
@@ -332,7 +332,7 @@ public sealed class DelegateCombinationMatrixTests
     [Fact]
     public void Every_combination_depends_on_all_its_operands()
     {
-        var run = Results.Value.Channels;
+        var run = Results.Channels;
         var failures = new List<string>();
         foreach (var channel in new[] { Channel.FieldCompound, Channel.FieldRemove, Channel.SelfRightOfCombine, Channel.SelfRightOfRemove })
         {
@@ -370,8 +370,8 @@ public sealed class DelegateCombinationMatrixTests
         // Every cell is a root of one of the two runs, and of only one; the other roots are the twins and the writer of the array cells.
         var twins = Twins().Select(twin => Twin(twin.Form, twin.Side, twin.Operand))
                            .Concat(OriginCells().Select(cell => OriginTwin(cell.Form, cell.Side, cell.Origin)));
-        var roots = Results.Value.Execution.Heap.Program.Input.Roots
-                           .Concat(Results.Value.Channels.Execution.Heap.Program.Input.Roots)
+        var roots = Results.Execution.Heap.Program.Input.Roots
+                           .Concat(Results.Channels.Execution.Heap.Program.Input.Roots)
                            .Select(root => root.Entry.Symbol)
                            .Where(symbol => symbol.StartsWith("MatrixController.", StringComparison.Ordinal))
                            .Select(symbol => symbol["MatrixController.".Length..^"()".Length])
@@ -384,7 +384,7 @@ public sealed class DelegateCombinationMatrixTests
     /// <summary>The failures of cells against their expectation over their twins, and the list of cells a <c>Known</c> twin of which
     /// writes nothing checked against <see cref="Unobservable"/>.</summary>
     /// <param name="cells">The cells.</param>
-    private static List<string> Failures(IEnumerable<Cell> cells)
+    private List<string> Failures(IEnumerable<Cell> cells)
     {
         var failures = new List<string>();
         var unobservable = new List<string>();
@@ -444,11 +444,11 @@ public sealed class DelegateCombinationMatrixTests
     /// <c>HeapSolution.UnresolvedCallTargets</c>, how many marked invocations its class has, and whether its class makes an opaque
     /// <c>Combine</c> call.</summary>
     /// <param name="name">The action, which runs the class <c>Cell_</c> of the same name.</param>
-    private static Observed Observe(string name) => Observations.GetOrAdd(name, ObserveOnce);
+    private Observed Observe(string name) => Observations.GetOrAdd(name, ObserveOnce);
 
-    private static Observed ObserveOnce(string name)
+    private Observed ObserveOnce(string name)
     {
-        var (matrix, lines) = (Results.Value, Results.Value.InvokedLines);
+        var (matrix, lines) = (Results, Results.InvokedLines);
         // The accesses of a field that can pair, construction-local accesses aside, as EngineRun.Of gives them.
         IEnumerable<Access> Of(string field) => matrix.Collection.Accesses.Where(access => access.Resource.Member.Name == field && !access.IsConstructionLocal);
         var writes = new[] { "A", "B" }.Where(field => Of(field).Any(access => IsOf(access, name) && access.Operation != AccessOperation.Read))

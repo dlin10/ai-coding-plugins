@@ -7,11 +7,9 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 
 /// <summary>What HttpClient's built-in models give the run through their tasks (R5): a new response or string, a response keeping the
 /// content or the request it was sent with, the same through <c>.Result</c>.</summary>
-public sealed class HttpClientTaskResultTests
+public sealed class HttpClientTaskResultTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     private const string PREFIX = "body:Fixture:M:Facts.";
-
-    private static readonly Lazy<HeapRun> Run = new(Analyze, LazyThreadSafetyMode.ExecutionAndPublication);
 
     [Fact]
     public void Awaited_get_gives_one_new_response()
@@ -65,13 +63,13 @@ public sealed class HttpClientTaskResultTests
 
     // ---- observing ----
 
-    private static HeapSolution Heap => Run.Value.Heap;
+    private HeapSolution Heap => cache.Get("run", Analyze).Heap;
 
     private static string Single(IReadOnlySet<string> regions) => Assert.Single(regions);
 
     /// <summary>The region, which a model made: neither a task nor an object of the source.</summary>
     /// <param name="identity">The region's identity.</param>
-    private static HeapRegion Created(string identity)
+    private HeapRegion Created(string identity)
     {
         var region = Heap.Regions[identity];
         Assert.NotEqual(HeapRegionKind.Task, region.Kind);
@@ -82,7 +80,7 @@ public sealed class HttpClientTaskResultTests
     /// <summary>The regions a local of a method of <c>Facts</c> holds.</summary>
     /// <param name="method">The method's name.</param>
     /// <param name="variable">The local's name.</param>
-    private static IReadOnlySet<string> Roles(string method, string variable) =>
+    private IReadOnlySet<string> Roles(string method, string variable) =>
         Heap.Instances.Values.Where(instance => instance.BodyId == PREFIX + method)
             .SelectMany(instance => instance.Summary.Variables.Where(value => value.SymbolKey.Contains($"|{variable}|", StringComparison.Ordinal))
                                             .SelectMany(value => Heap.Resolve(instance.Id, value.Values)))

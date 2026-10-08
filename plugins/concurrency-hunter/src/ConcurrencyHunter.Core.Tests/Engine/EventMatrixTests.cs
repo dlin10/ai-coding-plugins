@@ -17,12 +17,12 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// crosses how the event is declared with how it is subscribed and raised. The second table crosses the handler operand of two
 /// declarations with what it is, against a twin that puts the same handler into a plain delegate field of the same object; the third
 /// crosses the field-like storage's own operations pairwise in two executions.</summary>
-public sealed class EventMatrixTests
+public sealed class EventMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     /// <summary>The line the raise of a second-table cell or twin stands on.</summary>
     private const string INVOKED = "/*I*/";
 
-    private static readonly Lazy<Matrix> Results = new(Run, LazyThreadSafetyMode.ExecutionAndPublication);
+    private Matrix Results => cache.Get("results", Run);
 
     /// <summary>How the event is declared.</summary>
     public enum Declaration
@@ -208,7 +208,7 @@ public sealed class EventMatrixTests
         Assert.True(failures.Count == 0, $"{failures.Count} cell failure(s):\n" + string.Join("\n", failures));
 
         // The holder model is a project model the analyzer reads from the repository, as ProjectModelTests' are.
-        var analyzed = Results.Value.Analyzed;
+        var analyzed = Results.Analyzed;
         Assert.Equal(0, Assert.Single(analyzed.Coverage).Skips.GetValueOrDefault(CoverageCounters.MODEL_ENTRY_REJECTED));
         foreach (var cell in RunCells().Where(cell => Allowed(cell) && cell.Declaration == Declaration.LibraryHolderModel))
         {
@@ -249,7 +249,7 @@ public sealed class EventMatrixTests
     [Fact]
     public void Event_storage_operations_pair_only_with_a_plain_write()
     {
-        var run = Results.Value.Run;
+        var run = Results.Run;
         var failures = new List<string>();
         foreach (var cell in StorageCells())
         {
@@ -305,7 +305,7 @@ public sealed class EventMatrixTests
         Assert.Equal(8 * 2 * 3 + 3 * 2 + 2 * 3 + 2 * 15, expected.Count);
         Assert.Equal(expected.Order(StringComparer.Ordinal), Cells().Select(cell => cell.Name).Order(StringComparer.Ordinal));
         // Every cell and twin has its roots in the run: the first two tables' readers and workers, the third table's two actions.
-        var roots = Results.Value.Run.Execution.Heap.Program.Input.Roots.Select(root => root.Entry.Symbol).ToHashSet(StringComparer.Ordinal);
+        var roots = Results.Run.Execution.Heap.Program.Input.Roots.Select(root => root.Entry.Symbol).ToHashSet(StringComparer.Ordinal);
         var missing = Cells().Where(cell => cell is not StorageCell).Select(cell => cell.Name)
                              .Concat(OperandCells().Select(Twin))
                              .SelectMany(name => new[] { $"{name}_Controller.Read()", $"{name}_Worker.ExecuteAsync(CancellationToken)" })
@@ -317,9 +317,9 @@ public sealed class EventMatrixTests
 
     // ---- observing ----
 
-    private static IEnumerable<string> Check(RunCell cell)
+    private IEnumerable<string> Check(RunCell cell)
     {
-        var run = Results.Value.Run;
+        var run = Results.Run;
         var expected = Expected(cell);
         var increments = run.Of("Hits").Where(access => access.Operation != AccessOperation.Read && IsOf(access, cell.Name)).ToArray();
         var reads = run.Of("Hits").Where(access => access.Operation == AccessOperation.Read &&
@@ -380,9 +380,9 @@ public sealed class EventMatrixTests
     /// <summary>The methods of the calls whose heap edges run the instances holding <paramref name="accesses"/>: where the holder rule
     /// ran the held delegate, a call of a holder member without a body.</summary>
     /// <param name="accesses">The accesses.</param>
-    private static IReadOnlySet<string> CallersOf(IEnumerable<Access> accesses)
+    private IReadOnlySet<string> CallersOf(IEnumerable<Access> accesses)
     {
-        var heap = Results.Value.Run.Execution.Heap;
+        var heap = Results.Run.Execution.Heap;
         var instances = accesses.Select(access => access.InstanceId).ToHashSet(StringComparer.Ordinal);
         return heap.Heap.Edges.Where(edge => instances.Contains(edge.CalleeInstance))
                    .Select(edge => heap.Program.Result.Bodies[heap.Heap.Instances[edge.CallerInstance].BodyId].Blocks
@@ -395,9 +395,9 @@ public sealed class EventMatrixTests
     /// <summary>What the raise of a second-table cell or twin does: the operations and execution kinds of its accesses of <c>Hits</c>,
     /// whether its marked delegate call is in <c>HeapSolution.UnresolvedCallTargets</c>, and how many marked calls its source has.</summary>
     /// <param name="name">The cell or twin.</param>
-    private static (IReadOnlySet<string> Hits, bool Marked, int Invocations) ObserveRaise(string name)
+    private (IReadOnlySet<string> Hits, bool Marked, int Invocations) ObserveRaise(string name)
     {
-        var (run, lines) = (Results.Value.Run, Results.Value.InvokedLines);
+        var (run, lines) = (Results.Run, Results.InvokedLines);
         var hits = run.Of("Hits").Where(access => IsOf(access, name) && access.Root.Symbol.StartsWith($"{name}_Worker.", StringComparison.Ordinal))
                       .Select(access => $"{access.Operation}@{KindOf(access)}")
                       .ToHashSet(StringComparer.Ordinal);
@@ -412,7 +412,7 @@ public sealed class EventMatrixTests
         return (hits, marked, invocations.Length);
     }
 
-    private static ExecutionKind KindOf(Access access) => Results.Value.Run.Execution.Analysis.Execution(access.ExecutionId).Kind;
+    private ExecutionKind KindOf(Access access) => Results.Run.Execution.Analysis.Execution(access.ExecutionId).Kind;
 
     private static bool InWorker(Access access, string name) => access.Root.Symbol.StartsWith($"{name}_Worker.", StringComparison.Ordinal);
 
@@ -426,7 +426,7 @@ public sealed class EventMatrixTests
 
     private static string Show(IEnumerable<string> values) => string.Join(",", values.Order(StringComparer.Ordinal));
 
-    private static string Show(IEnumerable<Access> accesses) =>
+    private string Show(IEnumerable<Access> accesses) =>
         string.Join("; ", accesses.Select(access => $"{access.Operation}@{KindOf(access)} root={access.Root.Symbol} path=[{string.Join(" > ", access.CallPath)}]"));
 
     // ---- the fixture ----
