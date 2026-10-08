@@ -131,7 +131,7 @@ public sealed class DelegateReturnsTests
         if (IsEnumeration(form))
         {
             // The tasks an array holds keep their iterator in the array's storage, which lets it escape, as the array of its twin keeps
-            // the iterator itself (open question 24): the two answer alike. Every other row runs both.
+            // the iterator itself (SPEC TD-060b): the two answer alike. Every other row runs both.
             var failure = IteratorFailure(name, "It_" + name)?.Replace("It_", "", StringComparison.Ordinal);
             var twinFailure = IteratorFailure(name, "Tw_" + name)?.Replace("Tw_", "", StringComparison.Ordinal);
             Assert.Equal(twinFailure, failure);

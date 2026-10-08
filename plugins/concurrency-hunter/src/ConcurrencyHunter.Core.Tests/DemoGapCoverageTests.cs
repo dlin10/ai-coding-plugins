@@ -67,7 +67,7 @@ public sealed class DemoGapCoverageTests
         var web = Assert.Single(result.Coverage, coverage => coverage.ScopeId == "Demo.Web");
         var rendered = ReportRenderer.Render(ReportingTestData.CreateReport(result));
 
-        // No pair between the producer and the consumer: the order the consumer reads out is tied to nothing (open question 7).
+        // No pair between the producer and the consumer: the order the consumer reads out is tied to nothing (CONTEXT.md).
         Assert.DoesNotContain(result.Findings, finding => InCase(finding.AccessA, "ChannelHandoff") || InCase(finding.AccessB, "ChannelHandoff"));
         // The producer's unknown effect reaches the order it wrote into the channel; the consumer's read of what it took out reaches nothing.
         Assert.Contains(result.Accesses, access => access.Symbol.StartsWith($"{CASES}ChannelHandoff.Producer.", StringComparison.Ordinal) &&

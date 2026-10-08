@@ -336,7 +336,7 @@ public sealed class HeapSolution
 
     /// <summary>The regions of the solved heap, in the order the solve made them. A lookup by id also finds a region a query named after
     /// the solve, an object the solve never evaluated: it holds nothing, no region points to it, and no enumeration lists it, so every
-    /// stage after the solve sees the same heap (open question 110).</summary>
+    /// stage after the solve sees the same heap (ADR 0016).</summary>
     public IReadOnlyDictionary<string, HeapRegion> Regions { get; }
     public IReadOnlyDictionary<string, MethodInstance> Instances { get; }
     public IReadOnlyList<CallEdge> Edges { get; }
@@ -524,7 +524,7 @@ public sealed class HeapSolution
 }
 
 /// <summary>The regions of a solved heap: those the solve made, in its order, for every enumeration and count, and also those queries
-/// named after the solve, for a lookup by id (open question 110).</summary>
+/// named after the solve, for a lookup by id (ADR 0016).</summary>
 /// <param name="solved">The regions the solve made.</param>
 /// <param name="named">The regions queries named after the solve.</param>
 internal sealed class SolvedRegions(IReadOnlyDictionary<string, HeapRegion> solved, IReadOnlyDictionary<string, HeapRegion> named)
@@ -1197,7 +1197,7 @@ public static partial class WholeProgram
             }
 
             // An iterator or a library sequence escapes when a field keeps it, or keeps a delegate that captured it: whoever calls that
-            // delegate enumerates it (open question 24). The delegate itself, stored without a visible call, runs nowhere of its own. What a
+            // delegate enumerates it (SPEC TD-060b). The delegate itself, stored without a visible call, runs nowhere of its own. What a
             // library sequence or a grouping holds is what it yields, which is no field of the run's. A task's completion slot is no field
             // either: the task carries what it completes with, which escapes where the task does, as a value handed over directly would (R2).
             foreach (var (key, values) in _fields)
@@ -3747,7 +3747,7 @@ public static partial class WholeProgram
 
         /// <summary>What enumerating objects yields (R3, R5): what a library sequence or a grouping yields, what an array's or a
         /// collection's storages hold, and for any other sequence of the run's own every object it reaches of the element type, or every
-        /// one where that type says nothing (open question 27). A user iterator yields what its body's <c>yield return</c>s hand out.</summary>
+        /// one where that type says nothing (SPEC TD-034a). A user iterator yields what its body's <c>yield return</c>s hand out.</summary>
         /// <param name="sources">The sources.</param>
         /// <param name="elementTypeKey">The elementTypeKey.</param>
         private TrackedSet<string> Elements(IEnumerable<string> sources, string? elementTypeKey)

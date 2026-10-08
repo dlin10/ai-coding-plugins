@@ -2243,7 +2243,7 @@ public static class IrLowering
         }
 
         /// <summary>A method or constructor with no body at hand — none in source, or an `extern` one declared there — writes its
-        /// `out` arguments where it is called, since no body will say where (R3, open question 23).</summary>
+        /// `out` arguments where it is called, since no body will say where (R3, SPEC TD-034).</summary>
         /// <param name="method">The body-less member being called.</param>
         /// <param name="operations">The argument operations at the call site.</param>
         /// <param name="arguments">Their lowered values and output versions.</param>

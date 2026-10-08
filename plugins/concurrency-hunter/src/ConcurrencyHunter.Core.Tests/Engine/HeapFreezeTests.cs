@@ -7,7 +7,7 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 public sealed class HeapFreezeTests
 {
     // The solve evaluates nothing the lock is taken on, so it makes no region of the fresh object; the accesses stage resolves it
-    // later as the object of the lock (open question 110).
+    // later as the object of the lock (ADR 0016).
     private static readonly string FreshLock = """
         public sealed class State { public int Value; }
         public class LockController(State state) : ControllerBase

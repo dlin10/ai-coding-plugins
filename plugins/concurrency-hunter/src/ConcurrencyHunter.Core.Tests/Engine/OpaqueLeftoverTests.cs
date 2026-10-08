@@ -9,11 +9,11 @@ using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
 namespace ConcurrencyHunter.Core.Tests.Engine;
 
 /// <summary>The two leftovers of the 4b review closed in phase 5b (R7): a constructor without a body writes its <c>out</c> arguments
-/// where the object is created (open question 23), and an iterator a delegate captured escapes with the delegate a field keeps (open
-/// question 24).</summary>
+/// where the object is created (SPEC TD-034), and an iterator a delegate captured escapes with the delegate a field keeps
+/// (SPEC TD-060b).</summary>
 public sealed class OpaqueLeftoverTests
 {
-    // ---- open question 23 ----
+    // ---- a constructor without a body (SPEC TD-034) ----
 
     [Fact]
     public void Constructor_without_a_body_writes_its_out_argument_where_the_object_is_created()
@@ -43,7 +43,7 @@ public sealed class OpaqueLeftoverTests
         Assert.DoesNotContain(run.Of("Count"), access => access.Operation == AccessOperation.Write);
     }
 
-    // ---- open question 24 ----
+    // ---- an iterator a delegate in a field captured (SPEC TD-060b) ----
 
     [Fact]
     public void Iterator_captured_by_a_lambda_a_singleton_field_keeps_is_enumerated_by_an_unknown_execution()

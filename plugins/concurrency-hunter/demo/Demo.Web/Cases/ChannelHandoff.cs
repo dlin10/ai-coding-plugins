@@ -33,7 +33,7 @@ public sealed class Producer : BackgroundService
     }
 }
 
-/// <summary>Reads an order out of the channel. What the read returns is tied to nothing the analysis knows (open question 7), so the
+/// <summary>Reads an order out of the channel. What the read returns is tied to nothing the analysis knows (CONTEXT.md), so the
 /// consumer's read of it touches no resource, and there is no pair with the producer: the gap is what stands for it.</summary>
 public sealed class Consumer : BackgroundService
 {
