@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers.LibraryModels;
@@ -7,9 +9,25 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace ConcurrencyHunter.Frontend;
 
 /// <summary>Builds the program index of a process scope: every source type of its compilations and every metadata type a source
-/// type derives from or implements, their methods and fields, and the closed generic types source mentions.</summary>
+/// type derives from or implements, their methods and fields, and the closed generic types source mentions. What one compilation
+/// alone decides — the types its syntax names and the nested bodies of its methods — is computed once per compilation and reused
+/// by every index built over it: a project in several scopes, and the library of every member the model generator is asked for,
+/// is walked once.</summary>
 public static class ProgramIndexBuilder
 {
+    /// <summary>The types each compilation's syntax names, in the order its walk meets them.</summary>
+    private static readonly ConditionalWeakTable<Compilation, MentionedType[]> Mentions = new();
+
+    /// <summary>The nested body ids of each source method, under the compilation that declares it.</summary>
+    private static readonly ConditionalWeakTable<Compilation, ConcurrentDictionary<IMethodSymbol, IReadOnlyList<string>>> NestedBodies = new();
+
+    /// <summary>A type a compilation's syntax names: a generic name's type, a type argument, the type of a <c>new</c> or a
+    /// <c>typeof</c>, with what the index does with it.</summary>
+    /// <param name="Type">The type.</param>
+    /// <param name="Immutable">Whether the index checks it for an immutable type source names.</param>
+    /// <param name="Closed">Whether the index adds it as a closed generic type source mentions.</param>
+    private readonly record struct MentionedType(ITypeSymbol Type, bool Immutable, bool Closed);
+
     public static ProgramIndex Build(string scopeId, IReadOnlyList<Compilation> compilations, string rootDirectory,
                                      CancellationToken cancellationToken)
     {
@@ -51,32 +69,12 @@ public static class ProgramIndexBuilder
 
         foreach (var compilation in compilations)
         {
-            foreach (var tree in compilation.SyntaxTrees)
+            foreach (var mentioned in Mentions.GetValue(compilation, key => Mentioned(key, cancellationToken)))
             {
-                var model = compilation.GetSemanticModel(tree);
-                foreach (var node in tree.GetRoot(cancellationToken).DescendantNodes())
-                {
-                    if (node is GenericNameSyntax name)
-                    {
-                        var symbol = model.GetSymbolInfo(name, cancellationToken).Symbol;
-                        if (symbol is INamedTypeSymbol mentioned)
-                            AddClosed(mentioned, closedTypes, variantTypes);
-                        foreach (var argument in symbol switch
-                                 {
-                                     INamedTypeSymbol type => type.TypeArguments,
-                                     IMethodSymbol method => method.TypeArguments,
-                                     _ => []
-                                 })
-                        {
-                            AddImmutable(argument);
-                            AddClosed(argument, closedTypes, variantTypes);
-                        }
-                    }
-                    if (node is BaseObjectCreationExpressionSyntax creation)
-                        AddImmutable(model.GetTypeInfo(creation, cancellationToken).Type);
-                    if (node is TypeOfExpressionSyntax typeOf)
-                        AddImmutable(model.GetTypeInfo(typeOf.Type, cancellationToken).Type);
-                }
+                if (mentioned.Immutable)
+                    AddImmutable(mentioned.Type);
+                if (mentioned.Closed)
+                    AddClosed(mentioned.Type, closedTypes, variantTypes);
             }
         }
 
@@ -292,6 +290,16 @@ public static class ProgramIndexBuilder
         var tree = method.DeclaringSyntaxReferences.FirstOrDefault()?.SyntaxTree ?? method.ContainingType.DeclaringSyntaxReferences[0].SyntaxTree;
         if (CompilationOf(tree, compilations) is not { } compilation)
             return [];
+        return NestedBodies.GetValue(compilation, _ => new ConcurrentDictionary<IMethodSymbol, IReadOnlyList<string>>(SymbolEqualityComparer.Default))
+                           .GetOrAdd(method, key => NestedBodyIds(key, compilation, cancellationToken));
+    }
+
+    /// <summary>The ids of the bodies nested in a source method — its lambdas and local functions at any depth — in source order.</summary>
+    /// <param name="method">The method.</param>
+    /// <param name="compilation">The compilation that declares it.</param>
+    /// <param name="cancellationToken">Cancels the walk.</param>
+    private static IReadOnlyList<string> NestedBodyIds(IMethodSymbol method, Compilation compilation, CancellationToken cancellationToken)
+    {
         try
         {
             return IrLowering.NestedBodyIds(method, compilation, cancellationToken)
@@ -308,6 +316,44 @@ public static class ProgramIndexBuilder
 
     private static Compilation? CompilationOf(SyntaxTree tree, IReadOnlyList<Compilation> compilations) =>
         compilations.FirstOrDefault(compilation => compilation.ContainsSyntaxTree(tree));
+
+    /// <summary>The types a compilation's syntax names, in the order a walk of its trees meets them: a generic name's type, then each
+    /// of its type arguments, and the type of a <c>new</c> or a <c>typeof</c>. Built from the compilation alone, so every index over
+    /// it reads the same list.</summary>
+    /// <param name="compilation">The compilation.</param>
+    /// <param name="cancellationToken">Cancels the walk.</param>
+    private static MentionedType[] Mentioned(Compilation compilation, CancellationToken cancellationToken)
+    {
+        var mentioned = new List<MentionedType>();
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var node in tree.GetRoot(cancellationToken).DescendantNodes())
+            {
+                if (node is GenericNameSyntax name)
+                {
+                    var symbol = model.GetSymbolInfo(name, cancellationToken).Symbol;
+                    if (symbol is INamedTypeSymbol type)
+                        mentioned.Add(new MentionedType(type, Immutable: false, Closed: true));
+                    foreach (var argument in symbol switch
+                             {
+                                 INamedTypeSymbol named => named.TypeArguments,
+                                 IMethodSymbol method => method.TypeArguments,
+                                 _ => []
+                             })
+                    {
+                        mentioned.Add(new MentionedType(argument, Immutable: true, Closed: true));
+                    }
+                }
+                if (node is BaseObjectCreationExpressionSyntax creation && model.GetTypeInfo(creation, cancellationToken).Type is { } created)
+                    mentioned.Add(new MentionedType(created, Immutable: true, Closed: false));
+                if (node is TypeOfExpressionSyntax typeOf && model.GetTypeInfo(typeOf.Type, cancellationToken).Type is { } typed)
+                    mentioned.Add(new MentionedType(typed, Immutable: true, Closed: false));
+            }
+        }
+
+        return mentioned.ToArray();
+    }
 
     /// <summary>The closed generic types a source type's declaration mentions: its base types, interfaces, field types and
     /// member signatures.</summary>

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Frontend;
@@ -367,6 +368,60 @@ public sealed class ProgramIndexTests
         var initializer = index.Method("body:Fixture:M:Hub.#cctor")!;
         Assert.Equal((ProgramMethodKind.TypeInitializer, true), (initializer.Kind, initializer.HasSourceBody));
     }
+
+    [Fact]
+    public void Index_over_a_compilation_indexed_before_equals_one_over_a_fresh_compilation_of_the_same_source()
+    {
+        const string LIBRARY = """
+            using System;
+            using System.Collections.Generic;
+
+            namespace Shared
+            {
+                public sealed record Entry(string Name, int Count);
+
+                public class Store<T> where T : class
+                {
+                    private readonly Dictionary<string, List<T>> _items = new();
+
+                    public Type Kind => typeof(T);
+
+                    public void Add(string key, T item)
+                    {
+                        void Put(Func<T, T> map)
+                        {
+                            Action push = () => _items[key] = new List<T> { map(item) };
+                            push();
+                        }
+
+                        Put(value => value);
+                    }
+
+                    public string Describe() => new string('x', 3) + typeof(string).Name;
+                }
+            }
+            """;
+        const string DRIVER = "namespace Probe { public static class Run { public static int Go() { System.Func<int, int> twice = x => x * 2; return twice(1); } } }";
+        var library = Compile("Library", LIBRARY);
+        ProgramIndexBuilder.Build("scope:Fixture", [library, Compile("Warm", "namespace Probe { public static class Warm { } }")], @"C:\fixture",
+                                  CancellationToken.None);
+
+        // The second index over the library reads what the first one stored for it; the fresh compilations were never indexed.
+        var reused = ProgramIndexBuilder.Build("scope:Fixture", [library, Compile("Driver", DRIVER)], @"C:\fixture", CancellationToken.None);
+        var fresh = ProgramIndexBuilder.Build("scope:Fixture", [Compile("Library", LIBRARY), Compile("Driver", DRIVER)], @"C:\fixture",
+                                              CancellationToken.None);
+
+        Assert.Equal(Dump(fresh), Dump(reused));
+        Assert.Contains(fresh.Methods, method => method.Name == "Add" && method.NestedBodyIds.Count == 3);
+        Assert.NotEmpty(fresh.ClosedGenericTypes);
+        Assert.NotEmpty(fresh.ImmutableTypeKeys);
+    }
+
+    private static Compilation Compile(string project, string source) =>
+        FixtureSolution.CreateProjects((project, $"{project}.cs", source)).Projects.Single().GetCompilationAsync().GetAwaiter().GetResult()!;
+
+    private static string Dump(ProgramIndex index) =>
+        JsonSerializer.Serialize(new { index.Types, index.Methods, index.Fields, index.ClosedGenericTypes, index.InterfaceMappings, index.ImmutableTypeKeys });
 
     private static ProgramIndex Index(string source) => IndexAndCompilation(source).Index;
 
