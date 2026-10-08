@@ -1,7 +1,6 @@
 # Concurrency Hunter — domain language
 
-The vocabulary the server, the skill, the tool schemas and the report must use. Written during the
-interview that scoped the first version; extended as later decisions land.
+The vocabulary the server, the skill, the tool schemas and the report must use.
 
 ## Language
 
@@ -526,67 +525,62 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 
 ## Flagged ambiguities
 
-- The SPEC draft used "plugin adapter" for a program that waits for the run's terminal state and
-  cancels AI sessions. Resolved: no such program exists on any host; the **Skill** is the
-  orchestrator and the **Server** is a state machine. See `docs/adr/0001`.
-- "Sharing is decided by DI lifetime" was proposed and rejected: a lifetime is one source of evidence
-  for a region's **Ownership**, and objects that never pass through DI need the same identity. See
-  `docs/adr/0002`.
-- "High and Medium groups" in the SPEC could be read as severity or as confidence. Resolved: they are
-  **Confidence labels**; severity is impact, is assessed separately, and neither orders the report's
-  sections nor makes a narrative mandatory.
-- "Material gap" was a status condition in the draft (a material gap forced `Incomplete`). Resolved:
-  **Materiality** is a rank, `Incomplete` means a phase did not finish, and the queue of **Gap
-  packets** has no budget other than the **Deadline**.
-- Phase 1b showed a sharing key for each access (process, invocation, root scope, hosted instance).
-  Resolved: it stood in for **Ownership** before regions existed; once a region carries its ownership
-  and evidence chain, the sharing key is retired and ownership is the one account of who can reach a
-  region.
-- TD-106 in the SPEC put the execution roots into the fingerprint, and phase 2a made a finding of
-  every pair of roots reaching one pair of access sites. Resolved: a **Finding** is the pair of
-  access sites, the roots are its **Occurrences**, and the **Fingerprint** carries no root, so a
-  new caller of a shared helper neither adds a finding nor invalidates a suppression. See
-  `docs/adr/0007`.
-- Phase 1a read the whole solution as one program. Resolved: a solution may hold several
-  applications, and the unit two accesses must share is a **Process scope**. See `docs/adr/0005`.
+- "Plugin adapter" could name a program that waits for the run's terminal state and cancels AI
+  sessions. Resolved: no such program exists on any host; the **Skill** is the orchestrator and the
+  **Server** is a state machine. See `docs/adr/0001`.
+- "Sharing is decided by DI lifetime" was proposed and rejected: a lifetime is one source of
+  evidence for a region's **Ownership**, and objects that never pass through DI need the same
+  identity. See `docs/adr/0002`.
+- "High and Medium groups" in the SPEC could be read as severity or as confidence. Resolved: they
+  are **Confidence labels**; severity is impact, is assessed separately, and neither orders the
+  report's sections nor makes a narrative mandatory.
+- "Material gap" could be read as a status condition (a material gap forcing `Incomplete`).
+  Resolved: **Materiality** is a rank, `Incomplete` means a phase did not finish, and the queue of
+  **Gap packets** has no budget other than the **Deadline**.
+- A sharing key for each access (process, invocation, root scope, hosted instance) could stand in
+  for **Ownership**. Resolved: there is no sharing key; a region carries its ownership and evidence
+  chain, and ownership is the one account of who can reach a region.
+- A finding could be read as one pair of roots reaching a pair of access sites, with the roots in
+  its fingerprint. Resolved: a **Finding** is the pair of access sites, the roots are its
+  **Occurrences**, and the **Fingerprint** carries no root, so a new caller of a shared helper
+  neither adds a finding nor invalidates a suppression. See `docs/adr/0007`.
+- A solution could be read as one program. Resolved: a solution may hold several applications, and
+  the unit two accesses must share is a **Process scope**. See `docs/adr/0005`.
 - An **Opaque call** whose **Semantic gap** stays unresolved could be read as touching nothing or as
-  a write. Resolved in the phase-5 interview: it may read and may write whatever its receiver and
-  arguments reach, so on either side of a pair it conflicts like a write, and it never proves safety.
-- Whether an entity an EF Core query returns belongs to the `DbContext` that produced it. Resolved in
-  the phase-5 interview: only when entity tracking is proven for that query, and tracking that is
-  not proven does not prove the entity isolated either. Until phase 5g models tracking, EF Core is
-  opaque persistence and never yields a database verdict.
+  a write. Resolved: it may read and may write whatever its receiver and arguments reach, so on
+  either side of a pair it conflicts like a write, and it never proves safety.
+- Whether an entity an EF Core query returns belongs to the `DbContext` that produced it. Resolved:
+  only when entity tracking is proven for that query, and tracking that is not proven does not prove
+  the entity isolated either. EF Core never yields a database verdict.
 - A library object's own state — a `DbContext`'s change tracker, an `HttpClient`'s default headers —
-  could be read as a **Resource** a **Known call** reads or writes. Resolved in the phase-5a
-  interview: it is not a resource. A **Known call** is described only by what it does to its
-  arguments, so a member that changes that state is not known and stays an **Opaque call**, while
-  one that only reads it is known and touches nothing. Amended in the phase-5d run B1 interview: a
-  member whose only change to that state is keeping what it was handed — protobuf's
-  `RepeatedField<T>.Add` keeps its item — is known, and its model says so as a **Kept object**.
-  The `DbContext` and `DbSet` members are the exception the SPEC fixes as opaque persistence,
-  which is why a `DbContext` shared between executions is not seen until phase 5g.
+  could be read as a **Resource** a **Known call** reads or writes. Resolved: it is not a resource.
+  A **Known call** is described only by what it does to its arguments, so a member that changes that
+  state is not known and stays an **Opaque call**, while one that only reads it is known and touches
+  nothing. A member whose only change to that state is keeping what it was handed — protobuf's
+  `RepeatedField<T>.Add` keeps its item — is known, and its model says so as a **Kept object**. The
+  `DbContext` and `DbSet` members are the exception the SPEC fixes as opaque persistence.
 - An object handed over through a `Channel<T>` could be linked from the writer to the reader.
-  Resolved on 2026-09-23 for the first version, and restated in phase 5b: the object the reader gets
-  back is not linked to the written one, and when the written object is shared the write is a
-  **Semantic gap**, so the producer–consumer pair shows as uncertainty, never as safety. Linking the
-  two waits for the second-wave `Channel` semantics (PRD 8).
+  Resolved for the first version: the object the reader gets back is not linked to the written one,
+  and when the written object is shared the write is a **Semantic gap**, so the producer–consumer
+  pair shows as uncertainty, never as safety. Linking the two waits for the second-wave `Channel`
+  semantics (PRD 8).
 - An object of one execution handed to an **Opaque call** could be read as escaping, since unknown
-  code might keep it. Resolved in phase 5b by measurement: that reading made every per-request
-  object passed to a view, a mapper or a LINQ operator pair with itself across requests — 913 new
-  findings on eShop against 2. The call only reads such an object and leaves its **Ownership** as it
-  was; what unknown code does with it is a question for an **Inferred fact**.
-- Library semantics were a hand-written table of C# families, and a library member that takes a
-  delegate could not be known. Resolved on 2026-09-27: they are **Library models** in **Model
-  layers**, most of them generated from decompiled code, and a delegate's **Delegate fate** is one
-  of the engine's own executions. See `docs/adr/0012`.
+  code might keep it. Resolved by measurement: that reading made every per-request object passed to
+  a view, a mapper or a LINQ operator pair with itself across requests — 913 new findings on eShop
+  against 2. The call only reads such an object and leaves its **Ownership** as it was; what unknown
+  code does with it is a question for an **Inferred fact**.
+- Library semantics could be read as a hand-written table of C# families, where a library member
+  that takes a delegate cannot be known. Resolved: they are **Library models** in **Model layers**,
+  most of them generated from decompiled code, and a delegate's **Delegate fate** is one of the
+  engine's own executions. See `docs/adr/0012`.
 - Library code the analysis reads as source could be taken as a closed world, where a stored
-  delegate no root calls never runs. Resolved on 2026-09-27 by measurement: a protobuf parser's
-  factory, which the framework calls for every message, lost its finding that way with no gap and
-  no counter. The **Open-world rule** makes such a delegate `unknown-execution`.
-- The calls a **Driver** observed to run a kept delegate could be taken as the full list. Resolved on
-  2026-09-27: a circuit breaker's driver saw `Isolate` run the break callback and missed `Execute`,
-  which runs it on a failure. A **Holder** runs its delegate wherever any of its members runs.
+  delegate no root calls never runs. Resolved by measurement: a protobuf parser's factory, which the
+  framework calls for every message, lost its finding that way with no gap and no counter. The
+  **Open-world rule** makes such a delegate `unknown-execution`.
+- The calls a **Driver** observed to run a kept delegate could be taken as the full list. Resolved:
+  a circuit breaker's driver saw `Isolate` run the break callback and missed `Execute`, which runs
+  it on a failure. A **Holder** runs its delegate wherever any of its members runs.
 - "AI does not suppress deterministic findings" (PRD G6) could be read as forbidding any model from
-  a non-manual layer to remove a pair the **Unknown effect** made. Resolved on 2026-09-27: generated
-  and AI models may remove such pairs, and **Coverage** counts them per layer; no model proves
-  protection or happens-before, and a project model can override any other.
+  a non-manual layer to remove a pair the **Unknown effect** made. Resolved: generated and AI models
+  may remove such pairs, and **Coverage** counts them per layer; no model proves protection or
+  happens-before, and a project model can override any other.
