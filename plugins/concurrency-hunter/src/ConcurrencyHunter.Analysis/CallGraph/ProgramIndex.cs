@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
 using ConcurrencyHunter.Ir;
@@ -65,6 +66,7 @@ public sealed class ProgramIndex
     private readonly HashSet<string> _typeParameterKeys;
     private readonly Dictionary<string, ProgramInterfaceMapping[]> _interfaceMappingsByType;
     private readonly Dictionary<string, ProgramVariantType> _variantTypes;
+    private readonly ConcurrentDictionary<string, IReadOnlyList<IrFieldRef>?> _instanceFields = new(StringComparer.Ordinal);
 
     public ProgramIndex(string scopeId, IReadOnlyList<ProgramType> types, IReadOnlyList<ProgramMethod> methods,
                         IReadOnlyList<ProgramField> fields, IReadOnlyList<ClosedGenericType> closedGenericTypes,
@@ -108,9 +110,14 @@ public sealed class ProgramIndex
 
     /// <summary>The instance fields of an object of <paramref name="typeKey"/>, its own and those of its source base types, each
     /// named for the closed type that holds it; null when the type itself is not declared in source. A base from metadata ends
-    /// the walk: its state is a library object's, which is no resource.</summary>
+    /// the walk: its state is a library object's, which is no resource. The index never changes, so each type's list is worked
+    /// out once and shared by every caller.</summary>
     /// <param name="typeKey">The constructed type whose instance fields are requested.</param>
-    public IReadOnlyList<IrFieldRef>? InstanceFieldsOf(string typeKey)
+    public IReadOnlyList<IrFieldRef>? InstanceFieldsOf(string typeKey) => _instanceFields.GetOrAdd(typeKey, WalkInstanceFields);
+
+    /// <summary>The instance fields of an object of a type, walked from the type through its source base types.</summary>
+    /// <param name="typeKey">The constructed type whose instance fields are requested.</param>
+    private IReadOnlyList<IrFieldRef>? WalkInstanceFields(string typeKey)
     {
         var fields = new List<IrFieldRef>();
         var visited = new HashSet<string>(StringComparer.Ordinal);

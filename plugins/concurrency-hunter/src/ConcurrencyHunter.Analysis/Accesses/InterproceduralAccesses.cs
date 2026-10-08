@@ -751,6 +751,12 @@ public static partial class InterproceduralAccesses
 
         private ReturnSummaries? _returnSummaries;
 
+        /// <summary>The root every access of the execution reports, once worked out: it depends on the execution alone.</summary>
+        private AccessRoot? _root;
+
+        /// <summary>The descriptor of the root the execution starts from, once looked up for the code flow of its accesses.</summary>
+        private ExecutionRootDescriptor? _rootDescriptor;
+
         private HashSet<string>? _writtenOutsideConstruction;
         private readonly HashSet<(string Region, string Field)> _constructingFields = [];
         private Dictionary<string, int>? _iterationParameters;
@@ -1769,6 +1775,9 @@ public static partial class InterproceduralAccesses
             }
 
             var accesses = new List<Access>();
+            // An access that a path under fewer guards replaces leaves the list at the end, in one pass, keeping the order of the rest:
+            // finding and removing each one as it is replaced would cost the whole list every time.
+            var replaced = new HashSet<Access>(ReferenceEqualityComparer.Instance);
             var seen = new Dictionary<(string, int, string, AccessOperation, bool, string, string, string), List<(HashSet<string> Conditions, Access Access)>>();
             foreach (var (entry, node) in _visits)
             {
@@ -1894,7 +1903,7 @@ public static partial class InterproceduralAccesses
                             foreach (var stronger in kept.Where(other => conditionSet.IsSubsetOf(other.Conditions)).ToArray())
                             {
                                 kept.Remove(stronger);
-                                accesses.RemoveAt(accesses.FindIndex(candidate => ReferenceEquals(candidate, stronger.Access)));
+                                replaced.Add(stronger.Access);
                             }
 
                             var emitted = new Access(
@@ -1956,7 +1965,7 @@ public static partial class InterproceduralAccesses
                 }
             }
 
-            return accesses;
+            return replaced.Count == 0 ? accesses : accesses.Where(access => !replaced.Contains(access)).ToList();
 
             // The accesses of the members of the table an instance calls on a receiver no field of its body names, which depend on the
             // heap and not on the path that reached the instance.
@@ -3357,8 +3366,7 @@ public static partial class InterproceduralAccesses
             var steps = new List<CodeFlowStep>();
             var entryInstance = _heap.Instances[entry.InstanceId];
             steps.Add(execution.RootId is not null
-                ? new CodeFlowStep("root", $"{input.Scope.Roots.First(candidate => candidate.StableRootId == execution.RootId).Entry.Display} starts",
-                                   input.Scope.Roots.First(candidate => candidate.StableRootId == execution.RootId).Entry.Source)
+                ? new CodeFlowStep("root", $"{RootDescriptor().Entry.Display} starts", RootDescriptor().Entry.Source)
                 : new CodeFlowStep("root", $"{execution.Display} starts", BodySource(entryInstance.BodyId) ?? accessSource));
             if (entry.Kind is ExecutionEntryKind.Construction or ExecutionEntryKind.TypeInitializer)
             {
@@ -3399,9 +3407,16 @@ public static partial class InterproceduralAccesses
                 ? body.Blocks.SelectMany(block => block.Operations).FirstOrDefault()?.Provenance.Span
                 : null;
 
+        /// <summary>The descriptor of the root the execution starts from; the execution has one.</summary>
+        private ExecutionRootDescriptor RootDescriptor() =>
+            _rootDescriptor ??= input.Scope.Roots.First(candidate => candidate.StableRootId == execution.RootId);
+
         /// <summary>The access's root: the root of its execution tree; a construction or type-initializer execution described as one; or
-        /// <c>startup</c> for a tree startup starts.</summary>
-        private AccessRoot Root()
+        /// <c>startup</c> for a tree startup starts. It is the execution's, so it is worked out once.</summary>
+        private AccessRoot Root() => _root ??= TreeRoot();
+
+        /// <summary>The root of the execution's tree, as <see cref="Root"/> reports it.</summary>
+        private AccessRoot TreeRoot()
         {
             var top = execution.TreeRootId;
             if (top == ExecutionModel.STARTUP)
