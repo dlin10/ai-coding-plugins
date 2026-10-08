@@ -15,7 +15,7 @@
 
 | Фаза | Что сдаётся | Gate фазы |
 |---|---|---|
-| **0** | Этот документ, PRD, `CONTEXT.md`, ADR; `demo/` с expectations для фаз 1–2 | Приёмка владельца |
+| **0** | SPEC, PRD, `CONTEXT.md`, ADR; `demo/` с expectations для фаз 1–2 | Приёмка владельца |
 | **1a** | `plugins/Common` из каркаса cache-detective: `Common.Roslyn`, `Common.Mcp`, `Common.Tests`, скрипты; launcher копируется по образцу cache-detective, не разделяется; корневые build files; общая solution; cache-detective переведён на Common. Каркас `concurrency-hunter`: манифесты, launcher, `src/ConcurrencyHunter.slnx`, tools `run_start`, `run_poll`, `get_groups`, `submit_narrative`, `render_report`, Validation Service, Report Renderer, SKILL.md; анализатор умеет только статические поля и `lock` intraprocedurally; roots это временно public actions наследников `ControllerBase`, до `AspNetCoreRootProvider` в 1b; DCA1001; группы временно по правилу и ресурсу, confidence по TD-103 с path feasibility 0 | Baseline cache-detective без перезаписи снапшотов; demo даёт ожидаемый DCA1001 в трёх hosts |
 | **1b** | IR в финальной форме; providers `AspNetCore` и `Hosting` с registry и fixture; DI provider; `DiInstance`-регионы; overlap между roots; must-hold `lock` по CFG; skeleton отчёта полный | Demo фазы 1 целиком |
 | **2a** | Frontend: конструкторы, type initializers, массивы, `ref`/`out`, program index; reachable set по иерархии классов с construction triggers; summaries; совместный fixpoint с allocation-site points-to, hybrid contexts и dispatch; executions, construction intervals и ownership/escape (ADR 0006); interprocedural accesses, must-hold через вызовы, RMW и DCA1002; confidence TD-103 с wildcard resource и merged contexts; отчёт, tools, Validation Service и composing guidance на новом движке | Demo через три слоя на фазе 2 |
@@ -38,13 +38,15 @@
 | **5e** | Проверка AI-фактов без MCP: gap packets TD-035 для gaps, которые остались после моделей, Validation Service для inferred facts TD-036 и TD-037, применение принятых фактов повторным fixpoint затронутых SCC TD-038, gaps второго round от принятых фактов, `AI-Assisted`, Medium cap TD-108, fingerprint TD-109; AI-модели библиотек по члену, слой AI TD-034a, через тот же Validation Service и только от класса модели, откалиброванного на эталоне; ответы подаются in-process из рукописных файлов | Resolver и model evals на replay, accepted и rejected; demo `reflection-invoke-target`, `reflection-unresolvable-name`, `dynamic-call-target`, `memory-cache-returns-shared-object` (модель с `keeps` сделала бы его deterministic) и кейсы 5e |
 | **5f** | Протокол resolver: checkpoint `awaiting_gaps`, `get_gaps`, `submit_inferences`, `run_continue`, `run_cancel`, повтор и late responses по TD-136 и TD-140, два rounds TD-131, обязательность resolver TD-130 и `Incomplete` при его сбое, вопросы о членах библиотек в той же очереди, счётчики SPEC 10.7, правила resolver в skill | Resolver evals SPEC 12.1; TC-05, TC-09, TC-10; demo `gap-second-round`; `metrics` eShop с числом пакетов |
 | **5g** | Остаток семантики: entity tracking EF Core; диспетчеризация MediatR `Send` в обработчик из DI; `[ThreadStatic]`, `ThreadLocal`, `AsyncLocal`; non-generic и `Type`-valued регистрации, keyed services; вопросы 14, 20 и 34 | Demo `ef-core-no-db-verdict` и остальные кейсы 5g |
-| **6** | Triage: suppressions, coverage и diagnostics appendix, redaction, generated code, выбор TFM, executive summary, категории fix suggestions, README и guides | TC-11, TC-13, TC-14 |
+| **6** | Triage: suppressions, coverage и diagnostics appendix, redaction, generated code, выбор TFM, project graph из корня без solution (PRD FR-01), executive summary, категории fix suggestions, README и guides | TC-11, TC-13, TC-14; тест плагина на каталог без solution |
 | **7** | Масштаб: nopCommerce, OrchardCore, eShopOnAbp до terminal status; performance targets; ручной triage High на eShop и nopCommerce; прогон skill в трёх hosts | `metrics` по PRD 6.1; `evals/*/expected.json` |
 | **8** | По PRD 8: summary hashes входов и зависимостей, incremental cache, кэш inferred facts TD-111, вторая волна providers, `Channel`/events, server-driven AI mode, Linux | Свои PRD-правки |
 
+Фазы 0–7 строят первую версию, которую описывает SPEC. Фаза 8 — развитие по PRD 8 за пределами первой версии: её требования приходят собственными правками PRD и SPEC.
+
 План 5c, 5d и 5e начинается с чтения `docs/research/library-models.md` (раздел 4, п. 11); замеры движка для 5d — в инвентаре SPEC 9.7 и в разделе 4, п. 12.
 
-Прогон skill в хостах (SPEC 9.6) внутри фазы прогон нужен лишь когда меняется поверхность, обращённая к модели (`skills/hunt/**`, prompts, контракты MCP-инструментов, `NarrativeValidator`, схема `findings.json`), и тогда достаточно одного хоста (Claude Code) с записью digest; фаза, меняющая только движок, хосты не запускает.
+Внутри фазы прогон skill в хостах (SPEC 9.6) нужен лишь когда меняется поверхность, обращённая к модели (`skills/hunt/**`, prompts, контракты MCP-инструментов, `NarrativeValidator`, схема `findings.json`), и тогда достаточно одного хоста (Claude Code) с записью digest; фаза, меняющая только движок, хосты не запускает.
 
 Порядок последовательный; forge работает в одном working tree.
 
@@ -62,28 +64,20 @@
 
 ## 3. Временные границы
 
-Временные границы фазы 2a и фазы, которые их снимают:
+Что SPEC описывает, а код ещё не делает, и фаза, которая это снимает. Ран, снявший границу, убирает её отсюда.
 
-- Opaque calls моделировались без эффекта, а делегаты, переданные в вызовы, отличные от распознанных spawn- и timer-API, не вызывались никогда. Снято: вызов из таблицы — known call (5a); остальной opaque-вызов — `UnknownEffect` и место gap, а переданный ему делегат исполняется в unknown execution (5b); библиотеки, вызывающие пользовательский код, получают судьбу делегата в 5c (операторы LINQ, вручную) и 5d (генератор), до неё их делегаты исполняются неизвестно.
-- Virtual, interface и delegate calls без receiver object ничего не вызывали; с 5b это `UnknownEffect` и место gap `unresolved-dispatch`. С третьего рана 5b interface call, получатель которого указывает на массив или коллекцию таблицы ADR 0010, решается этим объектом (TD-070); без receiver object он по-прежнему неразрешён.
-- Element accesses не анализируются (4).
-- Locator-вызовы с неконстантным типом или с provider неизвестного происхождения не анализируются; с 5b это место gap `model-gap`, а их разрешение — resolver (5e–5f); non-generic и `Type`-valued регистрации, keyed services не анализируются (5g).
-- `[ThreadStatic]`, `ThreadLocal` и `AsyncLocal` не моделируются (5g).
-
-Временные границы подфаз 5 и подфазы, которые их снимают:
-
-- Resolver не вызывается: gaps видны в coverage и uncertainty, а обязательность resolver по TD-130 и TC-09 не действует (5f).
-- Член библиотеки без модели остаётся opaque, даже когда его код доступен декомпиляции: генератор работает только вне рана, командой `generate`, а ран не генерирует моделей, не идёт по зависимостям и не тратит бюджет генерации (TD-034b, TD-034c; 5d run B3).
+- Член библиотеки без модели остаётся opaque, даже когда его код доступен декомпиляции, и делегаты, отданные ему, исполняются в unknown execution: генератор работает только вне рана, командой `generate`, а ран не генерирует моделей, не идёт по зависимостям и не тратит бюджет генерации (TD-034b, TD-034c; 5d run B3).
+- Coverage не называет члены, для которых генерация не дала модели, число сгенерированных в ране моделей и пары, снятые слоем (TD-124; 5d run B3).
 - Судьбы `di-factory` нет: запись модели с ней отклоняется с причиной, называющей 5d, и генератор её не выводит (TD-034a; 5d run C).
 - Встроенных сгенерированных моделей популярных пакетов нет (TD-034a; 5d run C).
 - Слоя AI-моделей нет (TD-034a; 5e).
-- Coverage не называет члены, для которых генерация не дала модели, число сгенерированных в ране моделей и пары, снятые слоем (TD-124; 5d run B3).
+- Resolver не вызывается: gaps, в том числе `unresolved-dispatch` и `model-gap` locator-вызовов, видны в coverage и uncertainty, а обязательность resolver по TD-130 и TC-09 не действует (5f).
+- Non-generic и `Type`-valued регистрации и keyed services не анализируются (5g).
+- `[ThreadStatic]`, `ThreadLocal` и `AsyncLocal` не моделируются (5g).
+- Проверка точного типа (SPEC 4.10) не действует для делегата method group (включая DI factory), opaque и known calls и их читателей после solve (вопрос 58; 5g).
 - EF Core моделируется как opaque persistence без entity tracking (5g).
 - Состояние библиотечного объекта не ресурс; `DbContext`, общий для исполнений, не виден (5g).
-
-Границы, которые не снимает ни одна фаза таблицы:
-
-- Каталог без solution не разрешается в project graph из корня (PRD FR-01, SPEC 9.1): такой target даёт run со статусом `Failed` и диагностикой.
+- Каталог без solution не разрешается в project graph из корня (PRD FR-01, SPEC 9.1): такой target даёт run со статусом `Failed` и диагностикой (6).
 
 ## 4. Что уточняется в планах фаз
 
@@ -99,3 +93,4 @@
 10. Пакет вопроса AI о члене библиотеки и его валидация (5e).
 11. Материалы исследования семантики библиотек 2026-09-27 — временные: `docs/research/library-models.md` (замеры, рецепт синтеза драйверов, ловушки, семантика из исходников) и `docs/research/library-models/` (прототипы и сырые результаты). Их читают перед планом 5c, 5d и 5e и удаляют вместе, когда 5e закрыта и их содержание живёт в коде, тестах и SPEC; ссылку на них в `skills/hunt/evals/models/README.md` удаляют тогда же. Эталон `skills/hunt/evals/models/` остаётся: это model evals (SPEC 12.1).
 12. Замеры движка на CoreLib: именованные точки `start`, `scans`, `walk`, `worklist`, `final`, `bitsets`, `accesses` и `read-keys` в `skills/hunt/evals/metrics/corelib-bench.json`, воспроизводимые `build/bench-corelib.ps1` (SPEC 9.7); с точки `accesses` бенчмарк измеряет и стадию accesses (вопрос 109). Решение о генерации CoreLib остаётся вопросом 85 для 5d run B3; остатки run A3 — вопросы 107–108; куча после solve заморожена (вопрос 110).
+13. Состав project graph из корня без solution (SPEC 9.1): какие проекты в него входят и как из них строятся process scopes ADR 0005 (6).

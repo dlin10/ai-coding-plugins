@@ -45,10 +45,11 @@ architecture is SPEC §2.
 Precedence: PRD, then a later ADR, then SPEC, then SCENARIOS. PLAN, QUESTIONS and `docs/runs/` set
 no behaviour.
 
-SPEC describes the whole first version, through phase 8, and the code is partway through it. Where
-code and SPEC disagree, read PLAN first: a row of a later phase is not built yet, and its temporary
-limits name what is still missing. Report any other divergence to the user with both sides quoted,
-and leave the code and the document as they are.
+SPEC describes the whole first version, phases 0–7, and the code is partway through it. Phase 8 is
+the development PRD 8 names, outside the first version; it brings its own changes to PRD and SPEC.
+Where code and SPEC disagree, read PLAN first: a row of a later phase is not built yet, and its
+temporary limits name what is still missing. Report any other divergence to the user with both
+sides quoted, and leave the code and the document as they are.
 
 ## Requirements and process
 
