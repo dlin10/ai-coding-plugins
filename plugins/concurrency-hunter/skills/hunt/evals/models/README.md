@@ -15,7 +15,7 @@ source at eShop's version.
 
 The bar is zero unsafe narrowings — a generated fate less exposed than the gold one. The members of ASP.NET Core and EF
 Core are verified but not yet measurable in the engine fixture, which stubs those frameworks (question 95 of
-`demo/SCENARIOS.md`). How the set was built and what it measured: `docs/research/library-models.md`, until phase 5e closes.
+`docs/QUESTIONS.md`). How the set was built and what it measured: `docs/research/library-models.md`, until phase 5e closes.
 
 ## Generator evals
 
@@ -39,29 +39,29 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   and its fates equal the classified fates of the delegate-typed parameters. `ForMessage`'s carried `parser` has
   no fate in an entry: it is a non-delegate argument.
 - **Floor.** At least 14 of the 24 gold parameters classified exactly — or, while fewer are, no fewer than the `exact`
-  the snapshot recorded, each inexact parameter named with its cause in `demo/SCENARIOS.md`. The snapshot records 11:
+  the snapshot recorded, each inexact parameter named with its cause in `docs/QUESTIONS.md`. The snapshot records 11:
   a holder stands only when a trigger calls every member a caller could invoke on it, within the driver's 24, and no
   gold holder is covered (questions 99 and 101). The inexact ones are in questions 97–101.
 - **Entries.** The fate gold set is truth for fates only. Its whole answers are recorded, and the number of members
   with an entry never falls below the snapshot's `fateGoldEntries`; each member with no entry is named with its
-  model reason in `demo/SCENARIOS.md`.
+  model reason in `docs/QUESTIONS.md`.
   Run B2 records 3 entries of 18, `effectsExact` 8 of 18 (exact opaque answers), and `linqExact`
   5 of 114 `System.Linq` entries and 0 of 15 `System.Linq.Queryable` entries. A refusal can be an exact whole
   answer only when the truth requires the member to stay opaque. These counts do not make the fate gold set
   whole-entry truth.
   A recorded fate changes only by a cause of the floor rule below, every changed one named by declaration id with
-  its cause in `demo/SCENARIOS.md`. Run B2 changes no recorded fate. No recorded floor can decrease — `exact`, `fateGoldEntries`, `effectsExact`, each `linqExact` group and
+  its cause in `docs/QUESTIONS.md`. Run B2 changes no recorded fate. No recorded floor can decrease — `exact`, `fateGoldEntries`, `effectsExact`, each `linqExact` group and
   `accessorsExact`: the recording writer refuses a lower one and leaves the file's bytes as they were.
 - **Floor rule (run B2b).** A recorded answer of `members`, `effects` or `linq` may change only by one of the causes
   `not-run`, `holder-trigger`, `event-seed`, `delegate-value` or `delegate-slot`, or by `event-call` for an answer
   whose one change is its `reachedBodies` (library code it reaches subscribes to or raises an event the run now lowers
   as an accessor call or a field access); each changed answer is named by declaration id beside its cause in
-  `demo/SCENARIOS.md` — in question 90's closing row when it stays exact, in an open question otherwise. Run B2b
+  `docs/QUESTIONS.md` — in question 90's closing row when it stays exact, in an open question otherwise. Run B2b
   changes two: `AbstractValidator<T>.Validate` and `ValidateAsync` of FluentValidation reach 458 bodies instead of 457,
   through `TrackingCollection<T>.ItemAdded` (`event-call`).
   Run A4 adds the cause `completion-value`: the answer changed because the run now follows the value a task completes
   with — through `await`, `.Result`, `FromResult`, `ValueTask` and `task(…)` results — where it lost it before; each
-  such answer is named under the heading `5d run A4` in `demo/SCENARIOS.md`.
+  such answer is named in `docs/runs/5d-A4.md`.
 - **Verdict report.** When `CH_MODEL_EVALS_REPORT` names a folder, `ModelEvalTests`, `EffectsEvalTests`,
   `LinqOracleTests` and `AccessorEvalTests` write `members.json`, `effects.json`, `linq.json` and `accessors.json`
   there: one line per unit the set's recorded count counts, each with its declaration id and its verdict — `exact`,
@@ -127,7 +127,7 @@ The bar is the same: a generated model narrower than `safeModel` on any axis is 
 | `FluentValidation` | `11.5.1` | `FluentValidation` | `net8.0` |
 
 The six CoreLib members answer `corelib`, with no entry. The number of exact whole answers never falls below
-`effectsExact`; every inexact answer is named with its cause in `demo/SCENARIOS.md`.
+`effectsExact`; every inexact answer is named with its cause in `docs/QUESTIONS.md`.
 
 ## LINQ oracle
 
@@ -138,7 +138,7 @@ The six CoreLib members answer `corelib`, with no entry. The number of exact who
 
 Every whole answer is compared with the built-in entry by `EntryComparator`, with zero unsafe narrowings.
 The exact counts are reported separately for `Enumerable` and `Queryable`, and never fall below the snapshot's
-`linqExact` counts. Every inexact answer is named with its cause in `demo/SCENARIOS.md`. This oracle reads the
+`linqExact` counts. Every inexact answer is named with its cause in `docs/QUESTIONS.md`. This oracle reads the
 built-in models without changing their behaviour in a run.
 
 ## Accessors
@@ -160,4 +160,4 @@ compares every fate with the gold fate through `EntryComparator.FateIsSafe` — 
 entry. The bar is zero unsafe narrowings. Every entry passes the project reader and its member check, and no member is
 refused as an `accessor`. An answer is exact when every fate, with its holder, and the entry are; the number of exact
 answers never falls below the snapshot's `accessorsExact`, and every inexact answer is named with its cause in
-`demo/SCENARIOS.md`. Run B2b records 7 of 12.
+`docs/QUESTIONS.md`. Run B2b records 7 of 12.

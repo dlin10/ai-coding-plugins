@@ -2,7 +2,7 @@
 
 Evidence, recipes and pitfalls from the research of 2026-09-27 that produced
 [ADR 0012](../adr/0012-library-semantics-are-data-the-analysis-derives-from-decompiled-code.md). The decisions live in
-ADR 0012, SPEC TD-034a–TD-034c and the 5c–5g rows of SPEC 14.3; this file is what those do not carry: what was measured,
+ADR 0012, SPEC TD-034a–TD-034c and the 5c–5g rows of [PLAN](../PLAN.md); this file is what those do not carry: what was measured,
 how the prototypes worked, and where they went wrong. Read it before planning or implementing 5c (models and fates),
 5d (generator and drivers) or 5e (AI models).
 
@@ -75,7 +75,7 @@ Each of these was found by a wrong answer, not by design. SPEC TD-034b states th
   that variant's action.
 - **Implementation, never reference.** A reference assembly's bodies are `throw null`; decompiled, they read as "touches
   nothing". Framework references are ref packs, so the generator must find the implementation of the same version
-  (question 41 of `demo/SCENARIOS.md`).
+  (question 41 of `docs/QUESTIONS.md`).
 - **Frontier.** Polly keeps `sleepDurationProvider` as `Enumerable.Range(1, n).Select(provider)`; LINQ is metadata to
   Polly, so the provider landed in an unknown execution. Models of a library's own dependencies must exist before the
   library's are generated.
@@ -144,7 +144,7 @@ line is written per member.
 
 ## Defects the library code exposed
 
-All recorded in `demo/SCENARIOS.md`; each turns a precise model into `unknown-execution` or loses accesses:
+All recorded in `docs/QUESTIONS.md`; each turns a precise model into `unknown-execution` or loses accesses:
 
 - 36: a virtual call on `this` in a base method, receiver from a static factory, is resolved and also left unresolved —
   the leftover unknown executions around Polly's `Execute`.

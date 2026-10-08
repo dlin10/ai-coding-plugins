@@ -571,7 +571,7 @@
    "child validators: ChildValidatorAdaptor.IsValid ~4210-4226 -> validator.Validate(childContext)",
    "rules are added by RuleFor 352-358 (Rules.Add(propertyRule) 356)"
   ],
-  "note": "Closest model: {\"effects\": {\"instance\": [\"reads-deep\"]}, \"result\": \"new\", \"keeps\": {\"result\": [\"arg:instance\"]}} - narrower, because the call runs user code kept by its receiver (rules, predicates capturing services, child and custom validators, overrides on this), which TD-034a cannot express: reads-deep and writes-arg on this are refused (SCENARIOS question 80), and the rule delegates' holder is the rule builder, not the validator. Validate(ValidationContext<T>) and PreValidate are virtual, so a source override runs from inside this body-less member, which no model describes. Async rules make the sync path throw AsyncValidatorInvokedSynchronouslyException."
+  "note": "Closest model: {\"effects\": {\"instance\": [\"reads-deep\"]}, \"result\": \"new\", \"keeps\": {\"result\": [\"arg:instance\"]}} - narrower, because the call runs user code kept by its receiver (rules, predicates capturing services, child and custom validators, overrides on this), which TD-034a cannot express: reads-deep and writes-arg on this are refused (question 80 of docs/QUESTIONS.md), and the rule delegates' holder is the rule builder, not the validator. Validate(ValidationContext<T>) and PreValidate are virtual, so a source override runs from inside this body-less member, which no model describes. Async rules make the sync path throw AsyncValidatorInvokedSynchronouslyException."
  },
  {
   "n": 16,

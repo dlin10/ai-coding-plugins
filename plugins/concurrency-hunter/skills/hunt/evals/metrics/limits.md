@@ -14,7 +14,7 @@ Chosen: depth=8, contexts=16, scc=16
 
 ## Published executable size
 
-Measured after the solver joined the package in phase 4. SPEC 14.3 asks for the size to be measured, not gated, so there is no ceiling here; the number is checked against the file it describes.
+Measured after the solver joined the package in phase 4. The phase 4 gate in `docs/PLAN.md` asks for the size to be measured, not gated, so there is no ceiling here; the number is checked against the file it describes.
 
 | File | Bytes | Measured | Engine |
 |---|---|---|---|

@@ -35,7 +35,7 @@ Rejected: an event as a carrier, not a resource — a subscription that puts the
 event's storage with no access, a raise that runs everything stored. It is simpler, but it is not
 what the compiler emits, and it can never find a race on the event's own field. Rejected: lowering
 only library events, leaving the events of source code to phase 5g (question 62 of
-`demo/SCENARIOS.md`). It is cheaper, but generated models of event accessors would be empty — a
+`docs/QUESTIONS.md`). It is cheaper, but generated models of event accessors would be empty — a
 decompiled field-like event hands its handler to an accessor with no body — and user handlers would
 stay unanalysed. Rejected: the rule for event fields only. Ordinary delegate fields and locals would
 keep losing what `+=` adds, and two places would decide one question differently. Rejected: tracking

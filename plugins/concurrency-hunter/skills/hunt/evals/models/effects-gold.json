@@ -330,7 +330,7 @@
     ]
    }
   },
-  "note": "Null checks, then a new RetryPolicy keeps the sequence and the builder's predicates. The enumeration of sleepDurations and the predicate runs happen at each Execute of the policy, so they belong to the Execute members' models, which would have to read what this keeps; reads-deep on this is refused (question 80 of demo/SCENARIOS.md), so a model of Execute with only its delegate's fate is narrower there."
+  "note": "Null checks, then a new RetryPolicy keeps the sequence and the builder's predicates. The enumeration of sleepDurations and the predicate runs happen at each Execute of the policy, so they belong to the Execute members' models, which would have to read what this keeps; reads-deep on this is refused (question 80 of docs/QUESTIONS.md), so a model of Execute with only its delegate's fate is narrower there."
  },
  {
   "key": "EqualityComparerEquals",

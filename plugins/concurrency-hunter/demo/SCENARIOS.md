@@ -2,9 +2,10 @@
 
 | Поле | Значение |
 |---|---|
-| Статус | Черновик 2026-09-15; перечень кейсов demo на все фазы v1; фаза 5 разложена по подфазам 4b и 5a–5e 2026-09-23; подфазы после 5b пересмотрены 2026-09-27 в 5c–5g ([ADR 0012](../docs/adr/0012-library-semantics-are-data-the-analysis-derives-from-decompiled-code.md)) |
+| Статус | Черновик; перечень кейсов demo на все фазы v1 |
 | Ожидания | [`expected-findings.json`](expected-findings.json), формат в [SPEC 12.2](../docs/SPEC.md) |
-| Фазы | [SPEC 14.3](../docs/SPEC.md) |
+| Фазы | [`docs/PLAN.md`](../docs/PLAN.md) |
+| Вопросы | [`docs/QUESTIONS.md`](../docs/QUESTIONS.md) |
 
 Каталог говорит, какие кейсы должны появиться в `demo/` и что каждый проверяет. Он не заменяет `expected-findings.json` и не задаёт его записи: код кейса и ожидания пишутся руками в своей фазе до реализации, как требует SPEC 12.2. Вердикт в каталоге это намерение; если при написании кейса он расходится со SPEC, прав SPEC, а каталог исправляется в той же правке.
 
@@ -27,14 +28,14 @@
 | nD | Ранняя находка возможна; её прикрывает запись `notDefects`, если resource совпадёт |
 | ⚠ | Ранняя находка с другим `rule`, `operation` или resource; прикрыть нечем, см. вопрос 11 |
 
-## Фаза 1a — написаны
+## Фаза 1a
 
 | Кейс | Тип | Суть | Ожидание |
 |---|---|---|---|
 | `static-field-unlocked-read-write` | positive | Статик пишет POST, читает GET, без защиты | `/post-self`, `/post-get` DCA1001 |
 | `static-field-same-lock` | negative | Тот же статик, все accesses под одним статическим `lock` | нет |
 
-## Фаза 1b — написаны
+## Фаза 1b
 
 | Кейс | Тип | Суть | Ожидание |
 |---|---|---|---|
@@ -63,7 +64,7 @@
 
 Последние шесть строк закрывают дыры покрытия фазы 1b (DI provider, `AspNetCoreRootProvider`, process scope): они написаны первыми в фазе 2 с `phase: "1b"`; если текущий анализатор их не проходит, это дефект 1b по SPEC 12.3.
 
-## Фаза 2 — написаны
+## Фаза 2
 
 | Кейс | Тип | Суть | Ожидание |
 |---|---|---|---|
@@ -123,7 +124,7 @@
 | `instance-registration-touches-static` | negative | Конструктор экземпляра в `AddSingleton(new SeedList())` пишет статик при старте, до всех roots; action читает (TD-040, ADR 0006) | нет |
 | `factory-scoped-per-request` | negative | `AddScoped(_ => new RequestTag())`: два action пишут экземпляр своего запроса (TD-040) | нет |
 
-## Фаза 3 — написаны
+## Фаза 3
 
 Все кейсы, кроме timer-ов против action и gRPC, живут в одном `BackgroundService` (правило 4).
 
@@ -171,7 +172,7 @@
 | `maybe-null-handle` | оба | `Task? t = null; if (c) t = Task.Run(...); try { await t!; } catch { }` рядом с тем же `try`/`await` над всегда присвоенным handle | `/dropped` DCA1001; `/taken` нет | TD-067, TD-069 | — |
 | `dispose-async-configure-await` | negative | `await timer.DisposeAsync().ConfigureAwait(false)`, затем запись поля, которое пишет callback | нет | TD-061, TC-12 | — |
 
-## Фаза 4 — написаны
+## Фаза 4
 
 | Кейс | Тип | Как устроен | Ожидание | Ссылки | До фазы |
 |---|---|---|---|---|---|
