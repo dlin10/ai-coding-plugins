@@ -60,6 +60,7 @@ Keep the two apart:
   question, and says nothing like "from 5d", "until then", "closed in" or "introduced in". Two things
   only look like exceptions: `phase` and `until` of `expected-findings.json` (SPEC 12.2) are a file
   format, and the phase of a run (Run State, the deadline) is a term of the product.
+  `build/check-spec.ps1` finds what this rule forbids.
 - A behaviour that is not built yet is written in SPEC as it will be, and the gap goes to PLAN's
   temporary limits with the phase that lifts it.
 - Links run one way: PLAN, QUESTIONS, SCENARIOS and `docs/runs/` cite SPEC; SPEC cites none of
@@ -87,6 +88,9 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   disk and checks that the entries of finished phases are unchanged from `HEAD`; `-Complete` also
   requires every case of the current phase's catalog. The phase it checks is named in the script. It
   checks the file only; the analyzer's exact match against the file is `DemoExpectationTests`.
+- `build/check-spec.ps1` fails when `docs/SPEC.md` names a phase, run, question or date of the
+  development process, or links PLAN, QUESTIONS or `docs/runs/`. Run it after editing SPEC; CI does
+  not.
 - `build/package.ps1` is what CI runs (`build-concurrency-hunter.yml`). It publishes the single
   `bin/win-x64/concurrency-hunter.exe`, checks that it reports the manifests' version, and runs the
   full suite with `CONCURRENCYHUNTER_REQUIRE_E2E=1`. A host session with the plugin loaded holds that
