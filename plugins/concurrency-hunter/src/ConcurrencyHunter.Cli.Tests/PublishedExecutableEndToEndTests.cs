@@ -404,6 +404,11 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
         server.Send(new { jsonrpc = "2.0", method = "notifications/initialized" });
     }
 
+    /// <summary>Finds <c>bin/win-x64/concurrency-hunter.exe</c> above the test binaries. When it is absent and
+    /// <c>CONCURRENCYHUNTER_REQUIRE_E2E</c> is not <c>1</c>, the caller returns early and the test passes without running; when it is
+    /// present, the test exercises whatever was published last. <c>build/package.ps1</c> publishes afresh and sets the variable.</summary>
+    /// <param name="executable">The published executable, or an empty string when there is none.</param>
+    /// <returns>Whether the caller should return without testing.</returns>
     private bool SkipUnlessPublished(out string executable)
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory);

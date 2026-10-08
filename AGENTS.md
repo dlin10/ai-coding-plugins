@@ -25,6 +25,7 @@ The .NET plugins each have their own solution, and tests are run from the plugin
 
 ```bash
 dotnet test src/CacheDetective.slnx      # plugins/cache-detective
+dotnet test src/ConcurrencyHunter.slnx   # plugins/concurrency-hunter
 dotnet test src/FindFiles.slnx           # plugins/find-files
 dotnet test src/PlanForgeFlow.sln        # plugins/plan-forge-flow
 ```

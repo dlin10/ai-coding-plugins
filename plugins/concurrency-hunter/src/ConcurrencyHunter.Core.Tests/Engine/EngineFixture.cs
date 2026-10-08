@@ -96,8 +96,11 @@ public static class EngineFixture
 
         """;
 
-    /// <summary>Registers and maps controllers so controller roots exist; append the case's registrations inside
-    /// <c>Register</c> through <paramref name="registrations"/>.</summary>
+    /// <summary>A <c>Startup.Configure</c> that registers and maps controllers, so controller roots exist, followed by the case's
+    /// registrations. The startup execution walks <c>Configure</c> only when the registrations include a factory registration, such as
+    /// <c>services.AddSingleton&lt;Marker&gt;(_ =&gt; new Marker())</c>; without one an access written there is never collected, and a
+    /// test asserting it has no pair passes on nothing. Assert that the startup access exists before asserting about its pairs.</summary>
+    /// <param name="registrations">Statements appended to the body of <c>Configure</c>.</param>
     public static string Startup(string registrations = "") => $$"""
 
         public static class Startup
@@ -111,7 +114,11 @@ public static class EngineFixture
         }
         """;
 
-    /// <summary>Runs the whole engine over one source file.</summary>
+    /// <summary>Runs the engine over one source file as far as pairing. The solver never sees these pairs, so a test on them cannot
+    /// fail when the solver is wrong; a solver-sensitive test asserts on the findings of <c>PhaseOneAnalyzer.AnalyzeAsync</c>, which runs
+    /// the whole pipeline.</summary>
+    /// <param name="source">The source file of the case.</param>
+    /// <param name="limits">The analysis limits, or the defaults when null.</param>
     public static EngineRun Analyze(string source, AnalysisLimits? limits = null) => Analyze(Execute(source, limits));
 
     public static EngineRun AnalyzeScope(Solution solution, string scopeId, LibraryModels? libraryModels = null) =>
