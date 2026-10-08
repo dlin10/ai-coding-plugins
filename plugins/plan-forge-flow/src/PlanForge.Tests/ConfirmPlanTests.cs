@@ -100,11 +100,11 @@ public sealed class ConfirmPlanTests : IDisposable
 
     /// <summary>
     /// The gate settings arrive with the approval because that is when the gates are known: the
-    /// plan they belong to did not exist at <c>forge.begin</c>. A re-approval replaces them, so a
-    /// plan whose gates stopped needing a database stops carrying its connection string.
+    /// plan they belong to did not exist at <c>forge.begin</c>. Omission preserves them on re-approval;
+    /// explicit empty values clear settings the plan no longer needs.
     /// </summary>
     [Fact]
-    public async Task The_approval_records_the_gate_environment_and_the_builder_roots_and_a_re_approval_replaces_them()
+    public async Task The_approval_records_settings_and_reapproval_preserves_omitted_settings()
     {
         var ct = CancellationToken.None;
         var run = await StartRunAsync(ct);
@@ -121,8 +121,8 @@ public sealed class ConfirmPlanTests : IDisposable
         await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, Plan, true, ct);
 
         state = run.ReadState();
-        Assert.Null(state.GateEnvironment);
-        Assert.Null(state.BuilderRoots);
+        Assert.Equal("Server=.", state.GateEnvironment!["CD_TEST_SQL_CONN"]);
+        Assert.Equal([root], state.BuilderRoots);
     }
 
     [Fact]

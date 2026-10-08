@@ -2,7 +2,8 @@ using System.Text.RegularExpressions;
 
 namespace PlanForge.Acts;
 
-/// <param name="Label">`Gate` for a task's own gate, `G1`…`Gn` for a run-wide one.</param>
+/// <summary>An executable command extracted from a plan gate.</summary>
+/// <param name="Label">`Gate` for a task's own gate, `G1`…`Gn` for a run-wide one, or `Fix gate`.</param>
 /// <param name="Command">The command as written, with a fenced block's lines joined by newlines.</param>
 internal sealed record GateCommand(string Label, string Command);
 
@@ -15,6 +16,7 @@ internal sealed record GateCommand(string Label, string Command);
 internal static partial class PlanGates
 {
     /// <summary>The task's own gate: the code right after the first <c>**Gate:**</c>, or nothing.</summary>
+    /// <param name="taskText">The task text to inspect.</param>
     public static GateCommand? TaskGate(string taskText)
     {
         var label = GateLabel().Match(taskText);
@@ -26,12 +28,14 @@ internal static partial class PlanGates
     }
 
     /// <summary>Whether the task text carries a <c>**Gate:**</c> label at all, executable or not.</summary>
+    /// <param name="taskText">The task text to inspect.</param>
     public static bool HasGate(string taskText) => GateLabel().IsMatch(taskText);
 
     /// <summary>
     /// The executable entries of the plan's <c>## Gates</c> section, in order. Entries that open
     /// with prose are skipped rather than reported: they are the orchestrator's to run, as before.
     /// </summary>
+    /// <param name="plan">The complete plan text.</param>
     public static IReadOnlyList<GateCommand> RunWideGates(string plan)
     {
         var gates = new List<GateCommand>();
@@ -44,6 +48,7 @@ internal static partial class PlanGates
     }
 
     /// <summary>Whether the plan has a <c>## Gates</c> section with labelled entries, executable or not.</summary>
+    /// <param name="plan">The complete plan text.</param>
     public static bool HasRunWideGates(string plan) => RunWideEntries(plan).Any();
 
     private static IEnumerable<(string Label, string Text)> RunWideEntries(string plan)
@@ -68,6 +73,7 @@ internal static partial class PlanGates
     /// The code at the very start of <paramref name="text"/>: an inline span, or a fenced block
     /// whose lines become the command one per line. Anything else is prose.
     /// </summary>
+    /// <param name="text">The text immediately following a gate label.</param>
     private static string? LeadingCode(string text)
     {
         var trimmed = text.TrimStart();

@@ -261,12 +261,28 @@ implementation remains `done`. See [docs/adr/0027](docs/adr/0027-leave-task-gate
 
 The one thing that is *verified* rather than prevented is a task's gate. After every builder turn,
 `Acts/Gatekeeper.cs` runs the command that immediately follows `**Gate:**` in the task (or the
-executable `## Gates` entries after a fix round) on the host through `Acts/GateRunner.cs`, and a
+executable G entries after a full-mode fix, or only the Fix gate after a targeted fix) on the host through `Acts/GateRunner.cs`, and a
 non-zero exit rewrites the builder's `done` to `gate_failed` and leaves `tasksCompleted` where it
 was. Only code placed *first* after the label counts as a command — `Acts/PlanGates.cs` — because a
 gate that opens with prose and names a file in backticks would otherwise be run as that file. The
 critic never runs anything; do not change that. See
 [docs/adr/0015](docs/adr/0015-the-host-runs-the-gate.md).
+
+Optional case-sensitive gate=full|targeted belongs only to review.fix (direct or work.start),
+with full as the default; explicit gate requires fix IDs. Attempts bind mode and exact IDs, and
+retries preserve both. Targeted requires one executable Fix gate alongside real G entries under
+`## Gates`; the plan Critic checks it before approval, and new/nonterminal fixes validate it before
+decisions or jobs. Short success leaves persistent pending findings and covering attempts.
+The Orchestrator runs all G1..Gn with conditions before the next Critic (saved fullGate=beforeNextRound)
+or after code approval (final), then records successful hostVerified evidence. Both timings require
+full verification before success; a failure leaves pending unchanged and requires an Orchestrator
+choice, without automatic attribution. Stops/caps report an unfinished run with pending explicitly.
+The interview asks once before the first plan: full after each fix, or targeted/final at the end;
+explicit targeted/beforeNextRound is supported. Status supplies authoritative saved timing; later
+confirm omits fullGate until the user explicitly changes it, without changing plan text for timing.
+Unknown, empty or whitespace input is refused; damaged saved timing, including non-string JSON,
+stops state reads without mutation. Log through available log.append and start a new run; do not
+hand-edit .forge. See [docs/adr/0030](docs/adr/0030-leave-targeted-fixes-pending-until-full-host-verification.md).
 
 Everything else is observable rather than gated. There are no hooks: an orchestrator can abandon a
 run midway or edit during the interview, and working-tree drift is shown beside the plan at approval

@@ -243,10 +243,10 @@ function Test-PublishedServer([string]$Executable) {
         # the resolver chain lost it and the server refused to start describing them.
         $confirm = $tools | Where-Object { $_.name -eq 'forge.plan.confirm' } | Select-Object -First 1
         $confirmProperties = @($confirm.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('plan', 'approved', 'decisions', 'gateEnvironment', 'builderRoots')) {
+        foreach ($parameter in @('plan', 'approved', 'decisions', 'gateEnvironment', 'builderRoots', 'fullGate')) {
             if ($confirmProperties -notcontains $parameter) { throw "forge.plan.confirm schema is missing $parameter" }
         }
-        if (@($confirm.inputSchema.required) -contains 'gateEnvironment' -or @($confirm.inputSchema.required) -contains 'builderRoots') {
+        if (@($confirm.inputSchema.required) -contains 'gateEnvironment' -or @($confirm.inputSchema.required) -contains 'builderRoots' -or @($confirm.inputSchema.required) -contains 'fullGate') {
             throw 'forge.plan.confirm schema incorrectly requires the optional gate settings'
         }
         if (($confirm.inputSchema.properties.gateEnvironment | ConvertTo-Json -Compress) -notmatch 'object') {
@@ -282,7 +282,7 @@ function Test-PublishedServer([string]$Executable) {
         }
         $reviewFix = $tools | Where-Object { $_.name -eq 'forge.review.fix' } | Select-Object -First 1
         $reviewFixProperties = @($reviewFix.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('decisions', 'fixAttemptId', 'fixFindingIds', 'model', 'effort', 'vendor')) {
+        foreach ($parameter in @('decisions', 'fixAttemptId', 'fixFindingIds', 'gate', 'model', 'effort', 'vendor')) {
             if ($reviewFixProperties -notcontains $parameter) { throw "forge.review.fix schema is missing $parameter" }
         }
         foreach ($legacyParameter in @('findings', 'deferred')) {
@@ -332,16 +332,33 @@ function Test-PublishedServer([string]$Executable) {
         $optional = @{
             'forge.begin'       = @('workerTools')
             'forge.scout.select' = @('vendor', 'model', 'effort')
-            'forge.work.start' = @('model', 'effort', 'vendor', 'planDraft', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'revision', 'userGrantedRound', 'question', 'sessionMode')
+            'forge.work.start' = @('model', 'effort', 'vendor', 'planDraft', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate', 'revision', 'userGrantedRound', 'question', 'sessionMode')
             'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'decisions', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
-            'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note')
-            'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots')
+            'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')
+            'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate')
             'forge.log.append'  = @('level', 'detail')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
             # had to send them together could not correct one without restating the other.
             'forge.instructions.set' = @('criticInstructions', 'builderInstructions')
+        }
+        foreach ($tool in $tools) {
+            $properties = @($tool.inputSchema.properties.PSObject.Properties.Name)
+            if ($tool.name -notin @('forge.review.fix', 'forge.work.start') -and $properties -contains 'gate') {
+                throw "$($tool.name) incorrectly publishes gate"
+            }
+            if ($tool.name -ne 'forge.plan.confirm' -and $properties -contains 'fullGate') {
+                throw "$($tool.name) incorrectly publishes fullGate"
+            }
+        }
+        foreach ($route in @($reviewFix, $workStart)) {
+            if (($route.inputSchema.properties.gate | ConvertTo-Json -Compress) -notmatch 'string') {
+                throw "$($route.name) must publish gate as an optional string"
+            }
+        }
+        if (($confirm.inputSchema.properties.fullGate | ConvertTo-Json -Compress) -notmatch 'string') {
+            throw 'forge.plan.confirm must publish fullGate as an optional string'
         }
         foreach ($name in $optional.Keys) {
             $tool = $tools | Where-Object { $_.name -eq $name } | Select-Object -First 1

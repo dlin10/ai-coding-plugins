@@ -49,7 +49,12 @@ the gate yourself. You may run separate diagnostic checks; the server repeats th
 
 The plan's `## Gates` are separate constraints in the Builder Brief, not work for you to run.
 The Orchestrator checks them after the last task, before code review. After a review-fix turn,
-the server runs their executable commands; you still use only optional separate checks.
+the server runs their executable commands in full mode, or only the approved Fix gate in targeted
+mode; you still use only optional separate checks. Do not run an executable fix gate or its complete
+equivalent. The Orchestrator runs complete-plan verification of targeted fixes, before the next
+review or after final approval according to saved timing. Short success leaves findings pending;
+neither your completion report nor a Critic assessment establishes full verification. Gate mode
+and pending IDs are host fields, never yours to provide in the model output.
 
 ## When you fix review findings
 

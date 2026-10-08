@@ -1,5 +1,25 @@
 # Plan Forge Flow releases
 
+## 0.44.0
+
+Code-review fixes can run a short, explicit Fix gate while full plan verification is deferred to the
+Orchestrator. The interview asks once whether to keep full checks after each fix or use targeted
+checks and verify the complete plan at the end. See [issue #144](https://github.com/dlin10/ai-coding-plugins/issues/144).
+
+- `forge.review.fix` and background `review.fix` accept `gate=full|targeted`, with full as the
+  default. Targeted requires one executable `**Fix gate:**` in the approved plan; retries preserve
+  the attempt's mode and exact finding IDs.
+- `forge.plan.confirm` saves `fullGate=beforeNextRound|final`. The Orchestrator runs all full-plan
+  gates and conditions at that time. A failed full check leaves findings pending for the
+  Orchestrator to assess, without automatic attribution or reopening.
+- A passed targeted check keeps findings unresolved and pending full verification. Status, the
+  Critic projection and Flow show their covering attempts; only successful full verification
+  closes them. Final-mode review may approve while fixes are pending, but the run cannot finish
+  successfully until full verification is recorded.
+- Decision ledger v3 persists gate modes and pending findings, reads v2 without rewriting it and
+  migrates on mutation. Direct and background calls share validation, replay and retry rules;
+  invalid modes and damaged saved timing are refused without changing run state.
+
 ## 0.43.0
 
 The forge skill gives the orchestrator six checks to walk before it writes a revision of a plan, and

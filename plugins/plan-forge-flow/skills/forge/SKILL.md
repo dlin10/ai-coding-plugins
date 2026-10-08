@@ -69,15 +69,15 @@ sentences of explanation and no code.
 | `forge.plan.write` | Once per round, before the round, with the current draft. Writes it to `PLAN.md`, runs no worker, and answers in seconds with the path under `documents`. Surface that path, then run the round. |
 | `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Apply the plan decisions from the previous critique in `decisions` before the new Critic runs. **You** revise the plan and say in `revision` what changed — required from the second round on. |
 | `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders the plan as a document with the drift beside it, and records nothing. |
-| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`. |
+| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`; PLAN/state/ledger and existing approval stay unchanged. Optional case-sensitive `fullGate=beforeNextRound\|final` records full host-check timing; omission preserves it. Omitted settings persist, explicit settings replace, empty settings clear; approval clears the global gate failure, preserving attempt history. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
-| `forge.review.code` | On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
-| `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note`. |
-| `forge.status` | Before asking for approval, after a resumed run, and any time the user asks where things stand. Carries a compact ledger summary with current IDs, dispositions and active phases, the drift, job liveness, and `run.scout` with enabled/selection, current session, and last failure. |
-| `forge.work.start` | On Cursor, starts one worker act, including `scout`. `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools, and `review.fix` the same `note`; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
+| `forge.review.code` | Saved `fullGate=beforeNextRound` refuses review with pending fixes; `final` permits it and returns current `pendingFullGateFindingIds`, including []. Critic assessments do not verify them. On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
+| `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note`. Optional case-sensitive `gate=full\|targeted` defaults to full and requires fix IDs when explicit. Targeted runs only the Fix gate and leaves findings pending full host verification. Retry with the same gate, attempt and exact IDs. |
+| `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempt IDs; malformed saved timing stops state reads without mutation. Before asking for approval, after a resumed run, and any time the user asks where things stand. Carries a compact ledger summary with current IDs, dispositions and active phases, the drift, job liveness, and `run.scout` with enabled/selection, current session, and last failure. |
+| `forge.work.start` | On Cursor, starts one worker act, including `scout`. `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools, and `review.fix` the same `note` and optional `gate=full\|targeted` (only with fix IDs); retries preserve gate, attempt and exact IDs. Pending-review and Fix gate checks match direct calls; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job and reports its latest stdout activity and recognised event. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
 | `forge.work.cancel` | On Cursor, requests cancellation of one job without waiting for it to stop. Use only when the user explicitly asks, or after showing its liveness and obtaining confirmation; then poll and fetch it normally. A terminal job is a successful no-op. |
-| `forge.work.fetch` | On Cursor, fetches the terminal worker result after polling. |
+| `forge.work.fetch` | The result is a historical completion snapshot; status and a new fix replay show current pending IDs. On Cursor, fetches the terminal worker result after polling. |
 
 Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. On a Cursor client, every worker
 act — including Scout — goes through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`;
@@ -180,10 +180,10 @@ Fix execution is separate from decisions. Give each logical execution one `fixAt
 exact sorted `fixFindingIds`; the Builder receives the ledger's verbatim findings for those IDs only.
 Your `note` follows them in a section of its own, and the Flow log records it verbatim; what it
 holds is under "Fix batches and their notes".
-A cut-short turn, failed gate, timeout, or retained finding retries the same attempt ID and exact ID
-set. A different set under that attempt is refused. A completed attempt returns its saved terminal
-result without starting the Builder or gate. Decisions-only `review.fix` omits both fix fields and
-the note.
+A cut-short turn, failed gate, timeout, or retained finding retries the same attempt ID, exact ID
+set and `gate` mode. A different set or mode under that attempt is refused. A completed attempt
+returns its saved terminal result without starting the Builder or gate. Decisions-only `review.fix` omits both fix fields and
+the note and gate.
 
 Before deciding, compare every new Critic finding semantically with current IDs from the critique
 and `forge.status`. Close a redundant new ID with `duplicateOf` and a reason; do not silently merge
@@ -335,6 +335,16 @@ for each answer, whichever skill is running the interview. You are looking for t
 plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
 error paths, what existing behaviour must not change, how the result will be verified.
 
+Before the first plan, ask one verification question in the language of the conversation: full
+verification after each Builder fix turn, or only at the end of the run? Explain that the latter
+uses a meaningful short check after each fix and leaves fixes pending until all full checks pass.
+The first answer selects `gate=full; fullGate=beforeNextRound` (the default); the second selects
+`gate=targeted; fullGate=final`. No separate question about enabling targeted or choosing timing is
+required. Honor an explicit `gate=targeted; fullGate=beforeNextRound` choice too. Record the initial
+choice in the Brief, with its label in the language of the plan and the parameter values explicit.
+Pass timing on first confirm and gate on each fix; never repeat this interview between fixes.
+Without an explicit targeted choice, keep full verification.
+
 When the interview has settled the decisions, write the requirements first — the `## Requirements`
 section described below. They are the interview's own output and do not depend on who implements
 them, which is why they come before the vendor and model questions.
@@ -371,15 +381,35 @@ Every task ends with a **Gate** — the command that would show that task done �
 requirements it serves. A check that belongs to no single task goes under `## Gates` instead,
 numbered `G1` to `Gn`, each citing what it discharges: the test suite, a warnings-clean build, an
 invariant spanning the whole change. Leave that section out when the task gates already cover
-everything; a ceremonial gate is worse than none.
+everything; a ceremonial gate is worse than none. Targeted requires a `## Gates` section containing
+real numbered G entries for full verification and exactly one executable Fix gate. The plan Critic
+checks this before approval when the Brief selects targeted; confirm neither selects gate mode nor
+validates the Fix gate. A new or nonterminal targeted fix validates it before decisions or job
+creation; a terminal replay uses its saved result even if the current plan's gate changed.
+
+The Fix gate grammar is the first real, exactly spelled `## Gates` section, ending at the next
+level-1 or level-2 heading outside a fence. At least one real numbered entry is required, such as
+`1. **G1.**` (also `**G1**`, `**G1:**`, with optional punctuation after the bold label).
+Exactly one line-start `**Fix gate**` label is required, with an optional colon inside or after the
+bold text. A numbered-list prefix is allowed and the label is case-insensitive.
+A bulleted item (`-` or `*`) does not count as a Fix gate label. Examples inside
+fenced code do not count as
+labels or G entries. After whitespace, the label must lead directly to non-empty inline code or a
+closed fence of at least three backticks or tildes, closed by the same character with at least the
+opening length. A language tag is allowed. Prose first, an empty command, an unclosed fence,
+missing or duplicate labels, or no real G entry is invalid. Cite the R requirements the Fix gate
+covers after its command; runtime does not parse those references. Do not infer a union of task
+gates or silently rewrite scripts to create a short check.
 
 **The server runs the gates, so write them to be run.** After every `forge.build.next` the server
 executes the task's gate on the host — from `workspaceRoot`, in PowerShell, with the
 `gateEnvironment` you pass at approval — and its exit code, not the builder's report, decides whether
-the task counts. After every `forge.review.fix` it does the same with the `## Gates` entries. A gate
+the task counts. After a full-mode `forge.review.fix` it runs the executable G entries; after a
+targeted fix it runs only the Fix gate. The Orchestrator owns full verification in targeted mode. A gate
 is executable only when the code comes **first** after the label: `**Gate:** `dotnet test …` …`.
-Prose before the backticks makes the gate a condition — the server records it as `not executable`
-and the builder's self-report is all you have.
+Prose before the backticks makes a task gate a condition — the server records it as `not executable`
+and the Builder checks it. The Orchestrator checks full-plan conditions; a targeted Fix gate must
+be executable.
 
 **Only the server runs executable task gates**, including on retries. The act prompt communicates
 the existing parser's classification to the Builder. Do not change ownership based on a command's
@@ -387,7 +417,8 @@ cost, move a task gate to `## Gates`, or require an existing plan to be revised 
 The Builder checks condition gates itself; on `failed` or `unavailable`, you check them.
 Separate targeted Builder checks are optional, not a required build-and-test pass. The Builder
 must not reproduce its executable gate under another command, wrapper, or sequence, even when
-the gate is a single targeted test. Plan-wide gates follow the separate schedule below.
+the gate is a single targeted test. The Builder also must not run executable fix gates or their
+complete equivalent. Plan-wide gates follow the separate schedule below.
 
 Write gate commands as follows:
 
@@ -412,6 +443,7 @@ Write gate commands as follows:
 
 ```markdown
 Builder: cursor / gpt-5.3-codex / high
+Fix verification: gate=<full|targeted>; fullGate=<beforeNextRound|final>
 
 ## Requirements
 
@@ -423,6 +455,8 @@ Builder: cursor / gpt-5.3-codex / high
 ## Gates
 
 1. **G1.** `dotnet test src/X.slnx --nologo` passes. (R1, R2)
+
+**Fix gate:** `dotnet test src/X.slnx --filter "FullyQualifiedName~FooTests"` (R1; required only for gate=targeted, omit for gate=full)
 
 ## Approach
 
@@ -680,6 +714,16 @@ job, in five steps:
    fixed and `duplicateOf` for redundant IDs. The
    call refuses approval and lists every still-unresolved active plan ID. With a no answer, pass
    `approved: false` and no decisions; leave them for a later review or approved confirmation.
+   Send the interview's `fullGate` on first approval. On subsequent confirmations omit it unless
+   the user explicitly changes timing, including approval after a future plan revision. Read the
+   saved `run.fullGate` from status as authoritative; the Brief preserves the initial choice.
+   A timing-only change uses explicit reconfirm with the same plan text, never `plan.write` or a
+   rewritten Brief. It is allowed with pending fixes and does not verify them. With approved true,
+   omitted `gateEnvironment`/`builderRoots` preserve saved settings, explicit values replace them,
+   and empty values clear them. Successful confirm resets the global gate-failure brief for the
+   next Builder while preserving attempt history. Approved false leaves PLAN/state/ledger and any
+   existing approval unchanged. Both timing values are case-sensitive; empty, whitespace and
+   unknown values are refused even with approved false.
 
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole
 of what approval means here: it writes the approved plan over `PLAN.md`, flips `approved` in the run
@@ -694,7 +738,11 @@ builder's: `outcome` is `passed`, `failed` or `unavailable`, and `evidence` says
 it showed — or quotes the refusal when nothing could run. `gate` is the server's: it ran the task's
 gate command on the host after the builder's turn, and reports `outcome`, the `command`, its
 `exitCode`, the tail of its `output`, and `seconds`. The code review reads the diff, not either of
-them.
+them. Fix responses add host-owned `gateMode`: full runs executable G entries and can close its
+findings; targeted runs only the Fix gate and returns current `pendingFullGateFindingIds` for that
+attempt, including []. Short success leaves those findings unresolved and pending. Neither the
+Builder's report nor a Critic assessment verifies them. Full verification of targeted fixes follows
+the code-review schedule below at either saved timing, with hostVerified evidence for closure.
 
 If the Builder ran no checks because an executable gate belongs to the server, its verification
 is `unavailable` with that explicit reason, not `failed`. Fully implemented work is still `done`;
@@ -713,8 +761,9 @@ Read `gate.outcome` first:
   front of the builder. The Builder fixes the cause without running the gate; separate diagnostic
   checks are optional, and the server repeats the gate. Call it again. If the same gate fails twice
   more, stop and show the user the output rather than spending a fourth turn: the gate may be wrong, the environment may be missing
-  a variable, or the task may be beyond the builder. A `## Gates` failure after `forge.review.fix`
-  is the same signal with no task to withhold — the next fix carries it — so do not start the next
+  a variable, or the task may be beyond the builder. A full-mode G failure or targeted Fix gate
+  failure after `forge.review.fix` is the same signal with no task to withhold — the next fix
+  carries it — so do not start the next
   `forge.review.code` round on a `gate_failed` fix without deciding what to do about it.
 - **`not_executable`** — the gate is a condition rather than a command, or the task states none.
   Only here does the builder's `verification` decide: on `unavailable`, run the check yourself and
@@ -749,11 +798,14 @@ before it could report, so before you do anything else read the run's own accoun
   disk;
 - the attempted `fixFindingIds` remain unresolved in the decision ledger, and the Flow audit keeps
   the cut-short attempt;
-- the task was not counted and no gate ran, so nothing is verified.
+- the task was not counted and no gate ran, so this interrupted turn verifies nothing. Earlier
+  pending marks and the last completed attempt result remain intact; a first interruption has no
+  completed result to replay.
 
 Do **not** invent a fresh attempt or tell the user the work was lost before you have looked. Call the
-same act again with the same `fixAttemptId` and exact `fixFindingIds`: it resumes the same Builder
-session and links the retry to the eventual automatic gate closure. If the attempt already reached
+same act again with the same `fixAttemptId`, exact `fixFindingIds` and `gate`: it resumes the same
+Builder session and preserves the attempt's immutable binding. A full-mode successful fix can close
+findings; targeted success leaves them pending full verification. If the attempt already reached
 terminal success, the retry returns its saved result without another Builder or gate. If you need to
 know where the tree stands first, `forge.status` gives the ledger summary and drift, and `git diff`
 gives the content. Should the retry time out the same way, the work is too big for one call — split
@@ -764,7 +816,7 @@ the remaining work into a new legal attempt, or run the checks yourself and reco
 
 After the last task and before the first review round, run the plan's `## Gates` entries yourself,
 in your own environment — all of them, conditions included. The server runs the executable ones
-only after a fix round, so at this point nobody has: they are the checks no single task owned, no
+only after a full-mode fix, so at this point nobody has: they are the checks no single task owned, no
 builder ran them, and the critic must not — it judges the diff, and a build writes into the very
 tree it is reading. Record what you ran and what it showed with `forge.log.append`. A failing gate
 is not a code-review finding: stop there and decide with the user, exactly as with a task whose gate
@@ -808,6 +860,37 @@ The Builder reports each fix as a rule and its places: `rule:`, then one line pe
   call by the ID the raise returned, or leave it for the next Critic, which has to assess it. A place
   left only in a summary comes back as a Critic finding a round or two later, at a round's price.
 
+After the current round's targeted fixes, read status for the saved timing, current pending IDs and
+covering attempt IDs. With `beforeNextRound`, run all full-plan G1..Gn checks, conditions included,
+once before the next Critic. The server refuses that review while pending remains. With `final`,
+continue review with pending visible to the Critic, then run all G1..Gn after its approval. At either
+timing full verification is required before reporting a successful run. Do not rerun a successful
+full check without intervening edits: a full-mode fix's passing gate result can supply evidence for
+executable checks, while conditions must be confirmed separately.
+
+Record each full-check outcome through `forge.log.append`: command (or condition), covered attempt
+IDs and finding IDs, exit code and output tail, including failure, timeout, cancellation or inability
+to run. Only successful full verification permits a decisions-only `forge.review.fix` batch of
+`hostVerified` closures with explicit evidence covering those pending findings and attempts.
+The server trusts this host assertion. Do not close pending from short success or Critic assessment.
+
+A full-check failure leaves the fixes unverified. Choose existing findings to repair, raise a new
+finding, or repair the environment; do not automatically attribute the regression or reopen findings.
+Pass the failing command and output tail to the Builder in the new fix attempt's `note`, or the
+new raise's `what`/`reason`: the server's gate-failure summary does not contain Orchestrator checks.
+A final regression requiring code changes returns to the ordinary cycle: fix, new Critic, full
+verification. At the cap, first ask the existing question about one additional round. An
+environment-only repair repeats full verification without another Critic. If beforeNextRound is
+blocked, repair the environment, explicitly reconfirm `fullGate=final`, or consciously defer/reject
+with reasons and an honest account of unverified fixes; changing timing alone verifies nothing.
+
+If the user stops or declines another round, end the run as unfinished with explicit pending IDs
+and covered attempts; do not force checks against that stop. Approval with pending is not successful
+completion. If saved fullGate is malformed or unknown (including non-string JSON), leave the run
+unchanged, record the failure with the still-available `forge.log.append`, and begin a new run.
+Never suggest manually editing `.forge`. Auxiliary models/log/poll/cancel/fetch remain available
+without added state checks; fetch retains its historical snapshot.
+
 When the verdict settles — or the cap is reached and the user chooses to stop — the deferred
 findings go to the user with the outcome. They are real findings about real gaps; the plan is the
 only reason they were not fixed here, and they are candidates for the next run.
@@ -821,13 +904,21 @@ file or severity:
   effect of a write and the value it stores, the cheap filter and the precise check — get one turn
   that fixes half the rule and another that finds it half fixed.
 - A batch may carry several rules. Keep rules that share an owner or a subsystem together, and keep
-  apart rules whose failure should not hold the others back: every fix call runs the plan's
-  `## Gates`, so each batch costs a gate run as well as a turn. A finding whose rule no other finding
+  apart rules whose failure should not hold the others back: each batch costs a Builder turn and
+  its selected gate (all executable G entries in full, only Fix gate in targeted). A finding whose rule no other finding
   shares is a rule of its own.
 - When a fix also covers a finding outside its batch, close that finding afterwards with
   `hostVerified` and the evidence: the test, the `file:line`, the gate run. `duplicateOf` cannot do
   it, because it needs a canonical ID still in the ledger, and the gate's closure has removed the
-  batch's IDs.
+  batch's IDs in full mode. Targeted findings remain present and pending; wait for full host
+  verification before host-closing the batch or an additionally covered finding.
+
+Targeted is unsuitable without a meaningful short check or when one rule spans many classes that
+need joint regression coverage. For a separate batch, explicitly choose `gate=full` with a new
+attempt and explain why. Use the same simple exit when the Fix gate is wrong or repeatedly fails;
+never change a bound attempt's mode or silently edit the approved plan. A necessary plan change
+uses ordinary revision/review/approval, with its existing build-progress reset. Preserve `gate`,
+attempt and exact IDs on every retry; only a new legal attempt can choose another mode.
 
 The first call of every fix attempt carries a `note` that frames its batch by the rules its findings
 break. The Builder already has the findings verbatim, so do not paste them or the critique back; the
