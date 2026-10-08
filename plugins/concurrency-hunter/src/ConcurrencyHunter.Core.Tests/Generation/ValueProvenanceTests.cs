@@ -490,6 +490,76 @@ public sealed class ValueProvenanceTests
     }
 
     [Fact]
+    public void A_shared_path_is_found_exactly_when_spelling_out_every_path_finds_one()
+    {
+        var random = new Random(20261008);
+        string[] fields = ["a", "b", "c"];
+        var answers = new List<bool>();
+        for (var graph = 0; graph < 300; graph++)
+        {
+            var regions = Enumerable.Range(0, random.Next(2, 7)).Select(index => $"r{index}").ToArray();
+            var edges = regions.ToDictionary(region => region, region => (IReadOnlyList<(string Field, string Target)>)Enumerable.Range(0, random.Next(0, 4))
+                .Select(_ => (fields[random.Next(fields.Length)], regions[random.Next(regions.Length)])).ToArray());
+            var stored = regions[random.Next(regions.Length)];
+            var candidates = regions.Where(_ => random.Next(3) == 0).ToHashSet(StringComparer.Ordinal);
+
+            var shared = ValueProvenance.SharesPath(regions[0], stored, candidates, region => edges[region]);
+
+            Assert.Equal(SpelledOut(regions[0], stored, candidates, region => edges[region]), shared);
+            answers.Add(shared);
+        }
+
+        Assert.Contains(true, answers);
+        Assert.Contains(false, answers);
+    }
+
+    [Fact]
+    public void A_shared_path_through_an_object_whose_twelve_fields_point_back_at_it_is_decided_without_spelling_out_its_paths()
+    {
+        // 12^8 paths of eight fields leave the keeper; the stored object and the kept one hang off it by their own fields.
+        var loops = Enumerable.Range(0, 12).Select(index => ($"f{index}", "keeper")).ToArray();
+        var edges = new Dictionary<string, IReadOnlyList<(string Field, string Target)>>(StringComparer.Ordinal)
+        {
+            ["keeper"] = [.. loops, ("g", "stored"), ("g", "same-path"), ("h", "other-path")],
+            ["stored"] = [],
+            ["same-path"] = [],
+            ["other-path"] = []
+        };
+
+        Assert.True(ValueProvenance.SharesPath("keeper", "stored", new HashSet<string>(StringComparer.Ordinal) { "same-path" }, region => edges[region]));
+        Assert.False(ValueProvenance.SharesPath("keeper", "stored", new HashSet<string>(StringComparer.Ordinal) { "other-path" }, region => edges[region]));
+    }
+
+    /// <summary>Whether a field path from the keeper reaches both the stored region and a candidate, every path up to the keeping
+    /// depth spelled out and compared as text.</summary>
+    /// <param name="keeper">The keeper.</param>
+    /// <param name="stored">The stored region.</param>
+    /// <param name="candidates">The candidates.</param>
+    /// <param name="edges">The edges out of a region.</param>
+    private static bool SpelledOut(string keeper, string stored, IReadOnlySet<string> candidates,
+                                   Func<string, IReadOnlyList<(string Field, string Target)>> edges)
+    {
+        HashSet<string> Paths(string target)
+        {
+            var paths = new HashSet<string>(StringComparer.Ordinal);
+            var pending = new Queue<(string Region, string Path, int Depth)>([(keeper, "", 0)]);
+            while (pending.TryDequeue(out var item))
+            {
+                if (item.Region == target)
+                    paths.Add(item.Path);
+                if (item.Depth == ValueProvenance.KEEPING_PATH_DEPTH)
+                    continue;
+                foreach (var (field, next) in edges(item.Region))
+                    pending.Enqueue((next, item.Path.Length == 0 ? field : item.Path + "/" + field, item.Depth + 1));
+            }
+            return paths;
+        }
+
+        var storedPaths = Paths(stored);
+        return storedPaths.Count != 0 && candidates.SelectMany(Paths).Any(storedPaths.Contains);
+    }
+
+    [Fact]
     public void A_write_into_a_pre_existing_object_on_no_path_to_a_kept_value_gives_library_state()
     {
         var trace = Trace("public sealed class Node { public object Value; public int Count; } " +

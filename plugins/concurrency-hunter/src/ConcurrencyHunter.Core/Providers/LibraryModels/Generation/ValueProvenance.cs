@@ -39,7 +39,7 @@ public enum ValuePlace
 /// observed.</summary>
 public sealed class ValueProvenance
 {
-    private const int KEEPING_PATH_DEPTH = 8;
+    internal const int KEEPING_PATH_DEPTH = 8;
     private const string ELEMENT = PathValue.ELEMENT;
     private const string KEYS = PathValue.KEYS;
 
@@ -151,36 +151,46 @@ public sealed class ValueProvenance
             return chain.Contains(region);
         if (chain.Any(candidate => _fate.Heap.Regions.TryGetValue(candidate, out var kept) && kept.Group == stored.Group))
             return true;
-        foreach (var (keeper, keepingChain) in KeepingChain)
-        {
-            var storedPaths = Paths(keeper, region);
-            if (storedPaths.Count != 0 && keepingChain.SelectMany(candidate => Paths(keeper, candidate)).Any(storedPaths.Contains))
-                return true;
-        }
-        return false;
+        return KeepingChain.Any(pair => SharesPath(pair.Key, region, pair.Value, _fate.Reachability.Edges));
     }
 
-    /// <summary>The field paths from one region to another within the heap's bounded summary depth.</summary>
-    /// <param name="start">The path's first region.</param>
-    /// <param name="target">The path's last region.</param>
-    private IReadOnlySet<string> Paths(string start, string target)
+    /// <summary>Whether one field path from a keeper, at most <see cref="KEEPING_PATH_DEPTH"/> fields long, reaches both a region and
+    /// one of a set of regions. The two walks along a path go in step, as pairs of the objects each has reached, and a pair is
+    /// expanded once, at the depth it is first reached, where it has the most of the depth left: the paths themselves are never
+    /// spelled out, and a dense object graph, whose paths grow as its fields to the power of the depth, costs its pairs.</summary>
+    /// <param name="keeper">The keeper the paths start from.</param>
+    /// <param name="region">The region the path must reach.</param>
+    /// <param name="candidates">The regions one of which the same path must reach.</param>
+    /// <param name="edges">The edges out of a region, each with the field it goes through.</param>
+    internal static bool SharesPath(string keeper, string region, IReadOnlySet<string> candidates,
+                                    Func<string, IReadOnlyList<(string Field, string Target)>> edges)
     {
-        var paths = new HashSet<string>(StringComparer.Ordinal);
-        var pending = new Queue<(string Region, string Path, int Depth)>();
-        pending.Enqueue((start, "", 0));
-        while (pending.TryDequeue(out var item))
+        var seen = new HashSet<(string Stored, string Candidate)> { (keeper, keeper) };
+        var level = new List<(string Stored, string Candidate)> { (keeper, keeper) };
+        for (var depth = 0; level.Count != 0; depth++)
         {
-            if (item.Region == target)
-                paths.Add(item.Path);
-            if (item.Depth == KEEPING_PATH_DEPTH)
-                continue;
-            foreach (var edge in _fate.Reachability.Edges(item.Region))
+            if (level.Any(pair => pair.Stored == region && candidates.Contains(pair.Candidate)))
+                return true;
+            if (depth == KEEPING_PATH_DEPTH)
+                return false;
+            var next = new List<(string Stored, string Candidate)>();
+            foreach (var (stored, candidate) in level)
             {
-                var path = item.Path.Length == 0 ? edge.Field : item.Path + "/" + edge.Field;
-                pending.Enqueue((edge.Target, path, item.Depth + 1));
+                var candidateTargets = edges(candidate).ToLookup(edge => edge.Field, edge => edge.Target, StringComparer.Ordinal);
+                foreach (var (field, storedTarget) in edges(stored))
+                {
+                    foreach (var candidateTarget in candidateTargets[field])
+                    {
+                        if (seen.Add((storedTarget, candidateTarget)))
+                            next.Add((storedTarget, candidateTarget));
+                    }
+                }
             }
+
+            level = next;
         }
-        return paths;
+
+        return false;
     }
 
     private LibraryResult? BuildMemberResult(IReadOnlySet<string> regions)
