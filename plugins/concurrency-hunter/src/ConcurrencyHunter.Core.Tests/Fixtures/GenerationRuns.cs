@@ -10,6 +10,10 @@ internal static class GenerationRuns
 {
     public const string ASSEMBLY = "Fixture.Library";
 
+    /// <summary>How a matrix runs the generator over its cells: on at most half the cores. Without a bound the loop takes every thread
+    /// the pool adds, and the classes running beside it, which wait on Roslyn's tasks, stall behind it for a minute at a time.</summary>
+    public static readonly ParallelOptions CellParallelism = new() { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount / 2) };
+
     /// <summary>The types every fate fixture shares: a call the engine cannot follow, a holder of a delegate with a public trigger, a
     /// library static and a box with a delegate field.</summary>
     public const string PRELUDE = """

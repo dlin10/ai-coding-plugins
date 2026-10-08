@@ -656,7 +656,7 @@ public sealed class FateMatrixTests(ClassCache cache) : IClassFixture<ClassCache
         Assert.True(library.Compilation is not null, $"{library.Reason}: {string.Join(", ", library.Errors)}");
         Assert.Equal(0, library.ExternBodies);
         var answers = new ConcurrentDictionary<Cell, GeneratedAnswer>();
-        Parallel.ForEach(cells, cell =>
+        Parallel.ForEach(cells, CellParallelism, cell =>
         {
             var request = new GenerationRequest(ASSEMBLY, "1.0", MemberId(library, cell), null, null);
             answers[cell] = ModelGenerator.Trace(request, library, CancellationToken.None).Answer;

@@ -177,7 +177,7 @@ public sealed class DelegateSlotMatrixTests(ClassCache cache) : IClassFixture<Cl
         var library = Compile(Source(cells));
         Assert.True(library.Compilation is not null, $"{library.Reason}: {string.Join(", ", library.Errors)}");
         var results = new ConcurrentDictionary<Cell, CellResult>();
-        Parallel.ForEach(cells, cell =>
+        Parallel.ForEach(cells, CellParallelism, cell =>
         {
             var request = new GenerationRequest(ASSEMBLY, "1.0", MethodId(library, $"Lib.{cell.Class}", "Set"), null, null);
             var trace = ModelGenerator.Trace(request, library, CancellationToken.None);
