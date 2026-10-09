@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PlanForge.Acts;
 using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
 using PlanForge.Repo;
@@ -171,6 +172,13 @@ internal sealed class RunDirectory
     public RunState ReadState()
     {
         var json = AtomicFile.Read(System.IO.Path.Combine(Path, STATE_FILE_NAME));
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.TryGetProperty("fullGate", out var timing))
+        {
+            if (timing.ValueKind != JsonValueKind.String
+                || timing.GetString() is not FixGatePolicy.BeforeNextRound and not FixGatePolicy.Final)
+                throw new ArgumentRejectedException("saved fullGate must be exactly 'beforeNextRound' or 'final' (case-sensitive)");
+        }
         return JsonSerializer.Deserialize(json, ForgeJson.Default.RunState)
             ?? throw new RunNotFoundException(RunId);
     }
@@ -222,8 +230,16 @@ internal sealed class RunDirectory
     /// whatever panel the host has. It is never fed back to a worker, which
     /// is why builder entries can live here without shifting what the next round's critic judges.
     /// </summary>
-    public void AppendFlowCritique(string act, int round, Critique critique) =>
-        AtomicFile.Append(FlowLogPath, CritiqueEntry($"## {act} — round {round}", critique));
+    /// <param name="act">The review phase.</param>
+    /// <param name="round">The round number, or null for an empty diff that consumes no round.</param>
+    /// <param name="critique">The identified critique.</param>
+    public void AppendFlowCritique(string act, int? round, Critique critique)
+    {
+        var heading = round is null ? $"## {act} — empty diff (no round consumed)" : $"## {act} — round {round}";
+        var entry = new StringBuilder(CritiqueEntry(heading, critique));
+        if (act == "Code review") AppendPendingFullGate(entry);
+        AtomicFile.Append(FlowLogPath, entry.ToString());
+    }
 
     public void AppendFlowCritiqueRejected(string act, int round, VendorCritique? critique, string error)
     {
@@ -277,8 +293,9 @@ internal sealed class RunDirectory
     /// <param name="act">The act that applied the batch, for the entry's heading.</param>
     /// <param name="batch">The batch as the orchestrator sent it.</param>
     /// <param name="response">What the ledger did with it; a retry that changed nothing writes no entry.</param>
-    public void AppendFlowDecisionBatch(string act, OrchestratorDecisionBatch batch, DecisionBatchResponse response) =>
-        AppendFlowDecisionBatch(act, response, batch.Decisions
+    /// <param name="phase">The phase in which the decisions were applied.</param>
+    public void AppendFlowDecisionBatch(string act, OrchestratorDecisionBatch batch, DecisionBatchResponse response, LedgerPhase phase) =>
+        AppendFlowDecisionBatch(act, response, phase, batch.Decisions
             .OrderBy(decision => decision.FindingId, StringComparer.Ordinal)
             .Select(decision => $"- {decision.FindingId} {decision.Action} ({decision.By}): {decision.Reason}")
             .Concat((batch.Raises ?? []).Zip(response.Result.RaisedFindingIds ?? [])
@@ -288,8 +305,8 @@ internal sealed class RunDirectory
                     $"  **{raise.First.Severity}** {raise.First.Where} — {raise.First.What}"
                 })));
 
-    public void AppendFlowDecisionBatch(string act, DecisionBatchRequest batch, DecisionBatchResponse response) =>
-        AppendFlowDecisionBatch(act, response, batch.Decisions
+    public void AppendFlowDecisionBatch(string act, DecisionBatchRequest batch, DecisionBatchResponse response, LedgerPhase phase) =>
+        AppendFlowDecisionBatch(act, response, phase, batch.Decisions
             .Select(decision => $"- {decision.FindingId} {Name(decision.Disposition)} ({Name(decision.By)}): {decision.Reason}")
             .Concat(batch.Reopenings.Select(reopening =>
                 $"- {reopening.FindingId} reopen ({Name(reopening.By)}): {reopening.Reason}"))
@@ -302,8 +319,9 @@ internal sealed class RunDirectory
     /// </summary>
     /// <param name="act">The act that applied the batch, for the entry's heading.</param>
     /// <param name="response">What the ledger did with the batch.</param>
+    /// <param name="phase">The phase in which the decisions were applied.</param>
     /// <param name="decisions">The batch's lines, already written as the timeline shows them.</param>
-    private void AppendFlowDecisionBatch(string act, DecisionBatchResponse response, IEnumerable<string> decisions)
+    private void AppendFlowDecisionBatch(string act, DecisionBatchResponse response, LedgerPhase phase, IEnumerable<string> decisions)
     {
         if (response.Outcome == "no_op") return;
 
@@ -322,10 +340,9 @@ internal sealed class RunDirectory
             foreach (var decision in decisions)
                 entry.AppendLine(decision);
 
-        AtomicFile.Append(FlowLogPath,
-            entry.Append("closures: ").AppendLine(string.Join(", ", result.ClosedFindingIds))
-                 .AppendLine()
-                 .ToString());
+        entry.Append("closures: ").AppendLine(string.Join(", ", result.ClosedFindingIds)).AppendLine();
+        if (phase == LedgerPhase.CodeReview) AppendPendingFullGate(entry);
+        AtomicFile.Append(FlowLogPath, entry.ToString());
     }
 
     private static string Name<TEnum>(TEnum value) where TEnum : struct, Enum =>
@@ -523,7 +540,10 @@ internal sealed class RunDirectory
     /// <param name="findings">The findings the builder was given, empty for a decisions-only call.</param>
     /// <param name="note">The orchestrator's framing the builder was shown after the findings, verbatim.</param>
     /// <param name="result">The builder's result as the gates left it.</param>
-    public void AppendFlowFix(int round, string findings, string? note, BuildResult result)
+    /// <param name="fixAttemptId">The attempt whose result is recorded, absent for decisions only.</param>
+    /// <param name="fixFindingIds">The findings bound to the attempt, absent for decisions only.</param>
+    public void AppendFlowFix(int round, string findings, string? note, BuildResult result,
+                              string? fixAttemptId = null, IReadOnlyList<string>? fixFindingIds = null)
     {
         var entry = new StringBuilder().Append("## Fixes — round ").Append(round).AppendLine()
                                        .AppendLine();
@@ -538,7 +558,11 @@ internal sealed class RunDirectory
                  .AppendLine(note.TrimEnd())
                  .AppendLine();
 
+        if (fixAttemptId is not null)
+            entry.Append("fixAttemptId: ").AppendLine(fixAttemptId)
+                 .Append("fixFindingIds: ").AppendLine(string.Join(", ", fixFindingIds ?? []));
         AppendBuildResult(entry, result);
+        AppendPendingFullGate(entry);
         AtomicFile.Append(FlowLogPath, entry.ToString());
     }
 
@@ -551,7 +575,19 @@ internal sealed class RunDirectory
                                        .AppendLine("The saved terminal result was returned without starting the Builder or running a gate.")
                                        .AppendLine();
         AppendBuildResult(entry, result);
+        AppendPendingFullGate(entry);
         AtomicFile.Append(FlowLogPath, entry.ToString());
+    }
+
+    private void AppendPendingFullGate(StringBuilder entry)
+    {
+        var summary = ReadDecisionLedger().Summary;
+        entry.Append("fullGate: ").AppendLine(ReadState().FullGate);
+        entry.Append("pendingFullGateFindingIds: ").AppendLine(string.Join(", ", summary.PendingFullGateFindingIds));
+        foreach (var attempt in summary.PendingFullGateAttempts)
+            entry.Append("pendingFullGateAttempt: ").Append(attempt.FixAttemptId).Append(" — ")
+                 .AppendLine(string.Join(", ", attempt.FindingIds));
+        entry.AppendLine();
     }
 
     /// <summary>
@@ -637,6 +673,7 @@ internal sealed class RunDirectory
 
     private static void AppendBuildResult(StringBuilder entry, BuildResult result)
     {
+        if (result.GateMode is not null) entry.Append("gateMode: ").AppendLine(result.GateMode);
         entry.Append("Status: ").Append(result.Status).AppendLine()
              .AppendLine()
              .Append("Verification: ").Append(result.Verification.Outcome)
@@ -659,9 +696,11 @@ internal sealed class RunDirectory
     /// which of the two decided the task. The output travels only when the gate did not pass:
     /// that is when someone has to read it.
     /// </summary>
+    /// <param name="entry">The timeline entry receiving the gate result.</param>
+    /// <param name="gate">The host's gate result.</param>
     private static void AppendGate(StringBuilder entry, GateRun gate)
     {
-        var label = gate.Label == "Gate" ? "Gate" : "Gates " + gate.Label;
+        var label = gate.Label is "Gate" or "Fix gate" ? gate.Label : "Gates " + gate.Label;
         entry.Append(label).Append(": ").Append(gate.Outcome.Replace('_', ' ')).Append(" — ");
 
         switch (gate.Outcome)
@@ -742,6 +781,7 @@ internal sealed class RunDirectory
 /// The files each completed task reported changing, which a task's fresh session is told about.
 /// Emptied with the progress when a reopened plan restarts the tasks.
 /// </param>
+/// <param name="FullGate">When the orchestrator verifies targeted fixes: beforeNextRound or final.</param>
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -766,7 +806,8 @@ internal sealed record RunState(string RunId,
                                 ScoutState? Scout = null,
                                 int ScoutAnswers = 0,
                                 string? BuilderSessionScope = null,
-                                IReadOnlyList<TaskChange>? TaskChanges = null);
+                                IReadOnlyList<TaskChange>? TaskChanges = null,
+                                string FullGate = FixGatePolicy.BeforeNextRound);
 
 internal sealed record TaskChange(int TaskNumber, IReadOnlyList<string> FilesChanged);
 

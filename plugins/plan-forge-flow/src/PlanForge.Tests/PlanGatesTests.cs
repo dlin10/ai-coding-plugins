@@ -8,7 +8,7 @@ namespace PlanForge.Tests;
 /// the run behind docs/adr/0015 had gates that opened with prose and named test files in
 /// backticks, and running those as commands would have failed every one of them for nothing.
 /// </summary>
-public sealed class PlanGatesTests
+public sealed partial class PlanGatesTests
 {
     [Fact]
     public void The_code_right_after_the_gate_label_is_the_command()

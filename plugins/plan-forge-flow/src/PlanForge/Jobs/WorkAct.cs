@@ -42,11 +42,12 @@ internal sealed class WorkAct
         string? fixAttemptId = null,
         IReadOnlyList<string>? fixFindingIds = null,
         string? note = null,
-        ReviewScope? scope = null)
+        ReviewScope? scope = null, string? gate = null)
     {
-        ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound,
-                          question, sessionMode, decisions, fixAttemptId, fixFindingIds, note, scope);
         ArgumentNullException.ThrowIfNull(run);
+        if (act == "review.fix") run.ReadState();
+        ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound,
+                          question, sessionMode, decisions, fixAttemptId, fixFindingIds, note, scope, gate);
 
         switch (act)
         {
@@ -74,7 +75,7 @@ internal sealed class WorkAct
             case "review.fix":
                 var fixAct = new ReviewFix(_vendor, _prompts);
                 var fix = await fixAct.FixAsync(run, selection!, decisions, fixAttemptId,
-                                                fixFindingIds, ct, note).ConfigureAwait(false);
+                                                fixFindingIds, ct, note, gate).ConfigureAwait(false);
                 var fixJson = JsonSerializer.Serialize(fix, ContractJson.Default.BuildResult);
                 return SpeedWarnings.Attach(run, RaisedFindings.Attach(fixJson, fixAct.RaisedFindingIds),
                                             fixAct.SpeedWarning);
@@ -104,12 +105,14 @@ internal sealed class WorkAct
         string? fixAttemptId = null,
         IReadOnlyList<string>? fixFindingIds = null,
         string? note = null,
-        ReviewScope? scope = null)
+        ReviewScope? scope = null, string? gate = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
         if (act is not "plan.review" and not "build.next" and not "review.code" and not "review.fix" and not "scout")
             throw new ArgumentRejectedException($"unknown work act '{act}'");
+        if (gate is not null && act != "review.fix")
+            throw new ArgumentRejectedException($"gate is not used by {act}");
         if (scope is not null && act != "review.code")
             throw new ArgumentRejectedException($"excludePaths and untrackedByReference are not used by {act}");
 
@@ -172,6 +175,9 @@ internal sealed class WorkAct
                 RejectProvided(note, nameof(note), act);
                 break;
             case "review.fix":
+                FixGatePolicy.GateMode(gate);
+                if (gate is not null && (fixFindingIds is null || fixFindingIds.Count == 0))
+                    throw new ArgumentRejectedException("gate requires non-empty fixFindingIds");
                 RejectProvided(planDraft, nameof(planDraft), act);
                 RejectProvided(findings, nameof(findings), act);
                 RejectProvided(deferred, nameof(deferred), act);
@@ -220,8 +226,12 @@ internal sealed class WorkAct
 internal static class OrchestrationPreflight
 {
     internal static void Validate(RunDirectory run, string act, OrchestratorDecisionBatch? decisions,
-                                  string? fixAttemptId, IReadOnlyList<string>? fixFindingIds)
+                                  string? fixAttemptId, IReadOnlyList<string>? fixFindingIds,
+                                  string? note = null, string? gate = null)
     {
+        if (act == "review.code") CodeReview.RequireReady(run, run.ReadState());
+        if (act == "review.fix" && !run.ReadState().Approved)
+            throw new NotApprovedException(run.RunId);
         var ledger = run.ReadDecisionLedger();
         switch (act)
         {
@@ -231,23 +241,11 @@ internal static class OrchestrationPreflight
                 return;
 
             case "review.fix":
-                if (!run.ReadState().Approved)
-                    throw new NotApprovedException(run.RunId);
-                var ids = fixFindingIds is null ? [] : ledger.NormalizeFixFindingIds(fixFindingIds);
-                if (decisions is not null && ids.Count > 0
-                    && decisions.Decisions.Any(decision => ids.Contains(decision.FindingId)))
-                    throw new DecisionLedgerRequestException("a fix finding ID cannot also appear in the decision batch");
-                if (decisions?.Raises is { Count: > 0 } && ids.Count > 0)
-                    throw new DecisionLedgerRequestException(ReviewFix.RaiseWithFixRefused);
+                var (_, ids, attempt, _) = ReviewFix.ValidateRequest(run, ledger, decisions, fixAttemptId,
+                                                                     fixFindingIds, note, gate);
                 if (decisions is not null)
                     ledger.ValidateOrchestratorBatch(decisions, LedgerPhase.CodeReview);
-
-                if (ids.Count == 0) return;
-                var attempt = ledger.FindFixAttempt(fixAttemptId!);
-                if (attempt is not null && !attempt.FixFindingIds.SequenceEqual(ids, StringComparer.Ordinal))
-                    throw new DecisionLedgerRequestException($"fixAttemptId '{fixAttemptId}' was used with a different fixFindingIds set");
-                if (attempt is null || !attempt.Terminal)
-                    ledger.ValidateFixFindingIds(ids);
+                if (ids.Count > 0 && attempt is not { Terminal: true }) ledger.ValidateFixFindingIds(ids);
                 return;
 
             default:

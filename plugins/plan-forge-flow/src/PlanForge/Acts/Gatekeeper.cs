@@ -147,10 +147,21 @@ internal static class Gatekeeper
               .AppendLine()
               .AppendLine(pending)
               .AppendLine()
-              .AppendLine("The same command runs again on the host after this turn, and the work is not counted "
-                          + "until it exits 0. Do not run this gate yourself. Fix the cause; separate targeted checks are optional. "
+              .AppendLine("The selected executable gate runs on the server after this turn. Do not run this gate yourself "
+                          + "or reproduce its full equivalent. Fix the cause; separate diagnostic checks are optional. "
                           + "Report only those checks in verification, or unavailable with an explicit reason if you left "
                           + "verification to the server. Their success does not prove the gate passed.");
+    }
+
+    internal static void AppendFixRetry(StringBuilder prompt, BuildResult? lastResult, string? globalFailure)
+    {
+        if (lastResult?.Gate is { Outcome: "failed" or "timeout" } gate)
+        {
+            AppendPendingFailure(prompt, Describe(gate));
+            if (Transient(globalFailure)) AppendPendingFailure(prompt, globalFailure);
+        }
+        else
+            AppendPendingFailure(prompt, globalFailure);
     }
 
     private static string Describe(GateRun gate)

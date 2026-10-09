@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PlanForge.Acts;
 using PlanForge.Infrastructure;
 using PlanForge.Review;
 using PlanForge.Vendors;
@@ -90,6 +91,7 @@ internal sealed record DecisionLedgerSnapshot(
 /// Who put the entry into the ledger and why, when it was the orchestrator's raise rather than a
 /// critic's finding. Absent from the file otherwise, so a ledger without raises reads as before.
 /// </param>
+/// <param name="PendingFullGateAttemptId">The successful targeted attempt awaiting full host verification.</param>
 internal sealed record DecisionLedgerEntry(
     [property: JsonPropertyOrder(0)] string FindingId,
     [property: JsonPropertyOrder(1)] string Origin,
@@ -99,7 +101,9 @@ internal sealed record DecisionLedgerEntry(
     [property: JsonPropertyOrder(5)] LedgerDecisionData? Decision = null,
     [property: JsonPropertyOrder(6)] LedgerReopeningData? Reopening = null,
     [property: JsonPropertyOrder(7), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    LedgerDecisionData? Raised = null);
+    LedgerDecisionData? Raised = null,
+    [property: JsonPropertyOrder(8), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? PendingFullGateAttemptId = null);
 
 internal sealed record LedgerDecisionData(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
@@ -179,14 +183,19 @@ internal sealed record FixAttemptRecord(
     [property: JsonPropertyOrder(0)] string FixAttemptId,
     [property: JsonPropertyOrder(1)] IReadOnlyList<string> FixFindingIds,
     [property: JsonPropertyOrder(2)] BuildResult? LastResult,
-    [property: JsonPropertyOrder(3)] bool Terminal);
+    [property: JsonPropertyOrder(3)] bool Terminal,
+    [property: JsonPropertyOrder(4)] string? GateMode = null);
+
+internal sealed record PendingFullGateAttempt(string FixAttemptId, IReadOnlyList<string> FindingIds);
 
 internal sealed record LedgerSummary(
     IReadOnlyList<string> UnresolvedFindingIds,
     IReadOnlyList<string> DeferredFindingIds,
     IReadOnlyList<string> RejectedFindingIds,
     IReadOnlyList<string> PlanReviewActiveFindingIds,
-    IReadOnlyList<string> CodeReviewActiveFindingIds);
+    IReadOnlyList<string> CodeReviewActiveFindingIds,
+    IReadOnlyList<string> PendingFullGateFindingIds,
+    IReadOnlyList<PendingFullGateAttempt> PendingFullGateAttempts);
 
 internal sealed record DecisionBatchPayload(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
@@ -256,7 +265,7 @@ internal sealed record OrchestratorDecisionPayload(
 /// </summary>
 internal sealed class DecisionLedger
 {
-    private const int CURRENT_SCHEMA_VERSION = 2;
+    private const int CURRENT_SCHEMA_VERSION = 3;
     private static readonly ConcurrentDictionary<string, object> GATES = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _path;
 
@@ -319,6 +328,8 @@ internal sealed class DecisionLedger
 
             if (entry.Raised is { } raised)
                 output.Append("  raised: ").Append(DecisionMakerName(raised.By)).Append(" — ").AppendLine(raised.Reason);
+            if (entry.PendingFullGateAttemptId is { } attemptId)
+                output.Append("  pending full host verification: targeted attempt ").AppendLine(attemptId);
             if (entry.Decision is { } decision)
                 output.Append("  decision: ").Append(DecisionMakerName(decision.By)).Append(" — ").AppendLine(decision.Reason);
             if (entry.Reopening is { } reopening)
@@ -344,11 +355,20 @@ internal sealed class DecisionLedger
                 entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.PLAN_REVIEW)
                        .Select(entry => entry.FindingId).ToArray(),
                 entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.CODE_REVIEW)
-                       .Select(entry => entry.FindingId).ToArray());
+                       .Select(entry => entry.FindingId).ToArray(),
+                entries.Where(entry => entry.PendingFullGateAttemptId is not null)
+                       .Select(entry => entry.FindingId).OrderBy(id => id, StringComparer.Ordinal).ToArray(),
+                entries.Where(entry => entry.PendingFullGateAttemptId is not null)
+                       .GroupBy(entry => entry.PendingFullGateAttemptId!, StringComparer.Ordinal)
+                       .OrderBy(group => group.Key, StringComparer.Ordinal)
+                       .Select(group => new PendingFullGateAttempt(group.Key,
+                           group.Select(entry => entry.FindingId).OrderBy(id => id, StringComparer.Ordinal).ToArray()))
+                       .ToArray());
         }
     }
 
     /// <summary>Renders only the unresolved code entries named by a fix attempt.</summary>
+    /// <param name="findingIds">The finding IDs selected for this attempt.</param>
     internal string RenderFixFindings(IReadOnlyList<string> findingIds)
     {
         if (findingIds is null) throw new DecisionLedgerRequestException("fixFindingIds must not be null");
@@ -405,9 +425,12 @@ internal sealed class DecisionLedger
     }
 
     internal void RecordFixAttempt(string fixAttemptId, IReadOnlyList<string> findingIds,
-                                   BuildResult? result, bool terminal)
+                                   BuildResult? result, bool terminal, string gateMode = FixGatePolicy.Full)
     {
         RequireText(fixAttemptId, "fixAttemptId");
+        if (gateMode is not FixGatePolicy.Full and not FixGatePolicy.Targeted)
+            throw new DecisionLedgerRequestException("gateMode must be exactly 'full' or 'targeted'");
+        result = result is null ? null : result with { GateMode = null, PendingFullGateFindingIds = null };
         var ids = NormalizeFindingIds(findingIds, "fixFindingIds");
         lock (Gate())
         {
@@ -415,18 +438,62 @@ internal sealed class DecisionLedger
             var attempts = snapshot.FixAttempts?.ToList() ?? [];
             var index = attempts.FindIndex(attempt =>
                 string.Equals(attempt.FixAttemptId, fixAttemptId, StringComparison.Ordinal));
+            ValidateFixBinding(index < 0 ? null : attempts[index], ids, gateMode);
             if (index >= 0)
             {
-                if (!attempts[index].FixFindingIds.SequenceEqual(ids, StringComparer.Ordinal))
-                    throw new DecisionLedgerRequestException($"fixAttemptId '{fixAttemptId}' was used with a different fixFindingIds set");
-                attempts[index] = attempts[index] with { LastResult = result, Terminal = terminal };
+                if (attempts[index].Terminal) return;
+                attempts[index] = attempts[index] with { LastResult = result ?? attempts[index].LastResult, Terminal = terminal };
             }
             else
             {
-                attempts.Add(new FixAttemptRecord(fixAttemptId, ids, result, terminal));
+                attempts.Add(new FixAttemptRecord(fixAttemptId, ids, result, terminal, gateMode));
             }
 
-            WriteSnapshot(_path, snapshot with { FixAttempts = attempts });
+            var entries = snapshot.Entries.ToDictionary(entry => entry.FindingId, StringComparer.Ordinal);
+            if (terminal && result is not null)
+            {
+                var completion = FixGatePolicy.Completion(gateMode, result);
+                foreach (var id in ids)
+                {
+                    if (!entries.TryGetValue(id, out var entry)
+                        || entry.ActivePhase != LedgerPhaseNames.CODE_REVIEW
+                        || entry.Disposition != LedgerDisposition.Unresolved) continue;
+                    if (completion == FixCompletion.PendingFullGate)
+                        entries[id] = entry with { PendingFullGateAttemptId = fixAttemptId };
+                    else if (completion == FixCompletion.Closed)
+                        entries.Remove(id);
+                }
+            }
+            WriteSnapshot(_path, snapshot with { FixAttempts = attempts,
+                Entries = entries.Values.OrderBy(entry => FindingNumber(entry.FindingId)).ToArray() });
+        }
+    }
+
+    internal FixAttemptRecord? ValidateFixBinding(string fixAttemptId, IReadOnlyList<string> findingIds, string? gate)
+    {
+        var mode = FixGatePolicy.GateMode(gate);
+        var ids = NormalizeFindingIds(findingIds, "fixFindingIds");
+        var existing = FindFixAttempt(fixAttemptId);
+        ValidateFixBinding(existing, ids, mode);
+        return existing;
+    }
+
+    private static void ValidateFixBinding(FixAttemptRecord? existing, IReadOnlyList<string> ids, string mode)
+    {
+        if (existing is null) return;
+        if (!existing.FixFindingIds.SequenceEqual(ids, StringComparer.Ordinal))
+            throw new DecisionLedgerRequestException($"fixAttemptId '{existing.FixAttemptId}' was used with a different fixFindingIds set");
+        if (existing.GateMode != mode)
+            throw new DecisionLedgerRequestException($"fixAttemptId '{existing.FixAttemptId}' was used with a different gateMode");
+    }
+
+    internal void BeginFixAttempt(string fixAttemptId, IReadOnlyList<string> findingIds, string gateMode)
+    {
+        lock (Gate())
+        {
+            ValidateFixBinding(fixAttemptId, findingIds, gateMode);
+            ValidateFixFindingIds(findingIds);
+            RecordFixAttempt(fixAttemptId, findingIds, null, false, gateMode);
         }
     }
 
@@ -693,30 +760,7 @@ internal sealed class DecisionLedger
             ValidateLegalTransitions(snapshot, payload);
             var entries = snapshot.Entries.ToDictionary(entry => entry.FindingId, StringComparer.Ordinal);
 
-            foreach (var decision in payload.Decisions)
-            {
-                var entry = entries[decision.FindingId];
-                entries[decision.FindingId] = entry with
-                {
-                    Disposition = decision.Disposition,
-                    Decision = new LedgerDecisionData(payload.DecisionBatchId, decision.By, decision.Reason)
-                };
-            }
-
-            foreach (var reopening in payload.Reopenings)
-            {
-                var entry = entries[reopening.FindingId];
-                entries[reopening.FindingId] = entry with
-                {
-                    ActivePhase = reopening.ActivePhase,
-                    Disposition = LedgerDisposition.Unresolved,
-                    Reopening = new LedgerReopeningData(payload.DecisionBatchId, reopening.ActivePhase,
-                                                         reopening.By, reopening.Reason, reopening.Evidence)
-                };
-            }
-
-            foreach (var closure in payload.Closures)
-                entries.Remove(closure.FindingId);
+            ApplyEntries(entries, payload);
 
             var result = new DecisionBatchResult(
                 payload.DecisionBatchId,
@@ -772,7 +816,8 @@ internal sealed class DecisionLedger
             entries[decision.FindingId] = entry with
             {
                 Disposition = decision.Disposition,
-                Decision = new LedgerDecisionData(payload.DecisionBatchId, decision.By, decision.Reason)
+                Decision = new LedgerDecisionData(payload.DecisionBatchId, decision.By, decision.Reason),
+                PendingFullGateAttemptId = null
             };
         }
 
@@ -783,6 +828,7 @@ internal sealed class DecisionLedger
             {
                 ActivePhase = reopening.ActivePhase,
                 Disposition = LedgerDisposition.Unresolved,
+                PendingFullGateAttemptId = null,
                 Reopening = new LedgerReopeningData(payload.DecisionBatchId, reopening.ActivePhase,
                                                      reopening.By, reopening.Reason, reopening.Evidence)
             };
@@ -799,9 +845,33 @@ internal sealed class DecisionLedger
         try
         {
             var json = AtomicFile.Read(_path);
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.TryGetProperty("fixAttempts", out var savedAttempts) && savedAttempts.ValueKind == JsonValueKind.Array)
+                foreach (var attempt in savedAttempts.EnumerateArray())
+                    if (attempt.ValueKind == JsonValueKind.Object
+                        && attempt.TryGetProperty("lastResult", out var result) && result.ValueKind == JsonValueKind.Object
+                        && (result.TryGetProperty("gateMode", out _) || result.TryGetProperty("pendingFullGateFindingIds", out _)))
+                        throw new DecisionLedgerStateException("fix attempt LastResult must not contain host response annotations");
+            if (root.TryGetProperty("schemaVersion", out var version) && version.GetInt32() == 2)
+            {
+                foreach (var entry in root.GetProperty("entries").EnumerateArray())
+                    if (entry.TryGetProperty("pendingFullGateAttemptId", out _))
+                        throw new DecisionLedgerStateException("pendingFullGateAttemptId requires decision ledger schema version 3");
+                if (root.TryGetProperty("fixAttempts", out var attempts) && attempts.ValueKind == JsonValueKind.Array)
+                    foreach (var attempt in attempts.EnumerateArray())
+                        if (attempt.TryGetProperty("gateMode", out _))
+                            throw new DecisionLedgerStateException("gateMode requires decision ledger schema version 3");
+            }
             var snapshot = JsonSerializer.Deserialize(json, DecisionLedgerJson.Default.DecisionLedgerSnapshot)
                            ?? throw new DecisionLedgerStateException("decision ledger is null");
             snapshot = snapshot with { FixAttempts = snapshot.FixAttempts ?? [] };
+            if (snapshot.SchemaVersion == 2)
+                snapshot = snapshot with
+                {
+                    FixAttempts = snapshot.FixAttempts.Select(attempt => attempt is null ? null! :
+                        attempt with { GateMode = FixGatePolicy.Full }).ToArray()
+                };
             ValidateSnapshot(snapshot);
             return snapshot;
         }
@@ -813,7 +883,8 @@ internal sealed class DecisionLedger
         {
             throw;
         }
-        catch (Exception error) when (error is JsonException or NotSupportedException or FormatException)
+        catch (Exception error) when (error is JsonException or NotSupportedException or FormatException
+                                     or InvalidOperationException or KeyNotFoundException)
         {
             throw new DecisionLedgerStateException("decision ledger is malformed", error);
         }
@@ -821,6 +892,7 @@ internal sealed class DecisionLedger
 
     private static void WriteSnapshot(string path, DecisionLedgerSnapshot snapshot)
     {
+        snapshot = snapshot with { SchemaVersion = CURRENT_SCHEMA_VERSION };
         ValidateSnapshot(snapshot);
         var json = JsonSerializer.Serialize(snapshot, DecisionLedgerJson.Readable.DecisionLedgerSnapshot);
         AtomicFile.Write(path, json);
@@ -1079,14 +1151,18 @@ internal sealed class DecisionLedger
 
         foreach (var closure in payload.Closures)
         {
-            if (!entries.ContainsKey(closure.FindingId))
+            if (!entries.TryGetValue(closure.FindingId, out var entry))
                 throw new DecisionLedgerRequestException($"finding '{closure.FindingId}' does not exist");
+            if (closure.Kind == LedgerClosureKind.Revision)
+                RequireActiveUnresolved(entry, LedgerPhase.PlanReview, closure.FindingId);
+            if (closure.Kind == LedgerClosureKind.HostVerified)
+                RequireActiveUnresolved(entry, LedgerPhase.CodeReview, closure.FindingId);
         }
     }
 
     private static void ValidateSnapshot(DecisionLedgerSnapshot snapshot)
     {
-        if (snapshot.SchemaVersion != CURRENT_SCHEMA_VERSION)
+        if (snapshot.SchemaVersion is not 2 and not CURRENT_SCHEMA_VERSION)
             throw new DecisionLedgerStateException($"unsupported decision ledger schema version {snapshot.SchemaVersion}");
         if (snapshot.NextFindingNumber < 1)
             throw new DecisionLedgerStateException("nextFindingNumber must be positive");
@@ -1161,6 +1237,8 @@ internal sealed class DecisionLedger
             RequireText(attempt.FixAttemptId, "fixAttemptId");
             if (!attemptIds.Add(attempt.FixAttemptId))
                 throw new DecisionLedgerStateException($"duplicate fix attempt '{attempt.FixAttemptId}'");
+            if (attempt.GateMode is not FixGatePolicy.Full and not FixGatePolicy.Targeted)
+                throw new DecisionLedgerStateException("fix attempt gateMode must be exactly 'full' or 'targeted'");
             var ids = ValidateSortedFindingIds(attempt.FixFindingIds, "fixFindingIds");
             if (ids.Any(id => ValidateFindingId(id) >= snapshot.NextFindingNumber))
                 throw new DecisionLedgerStateException("fix attempt references a finding beyond nextFindingNumber");
@@ -1168,8 +1246,21 @@ internal sealed class DecisionLedger
                 ValidateFixAttemptResult(attempt.LastResult);
             if (attempt.Terminal && attempt.LastResult is null)
                 throw new DecisionLedgerStateException("terminal fix attempt needs a result");
+            if (attempt.Terminal && attempt.GateMode == FixGatePolicy.Targeted
+                && attempt.LastResult?.Gate?.Outcome != "passed")
+                throw new DecisionLedgerStateException("terminal targeted fix attempt needs a passed host gate");
             if (ids.Count == 0)
                 throw new DecisionLedgerStateException("fix attempt must contain at least one finding id");
+        }
+
+        foreach (var entry in snapshot.Entries.Where(entry => entry.PendingFullGateAttemptId is not null))
+        {
+            var attempt = snapshot.FixAttempts.FirstOrDefault(attempt => attempt.FixAttemptId == entry.PendingFullGateAttemptId);
+            if (entry.Disposition != LedgerDisposition.Unresolved || entry.ActivePhase != LedgerPhaseNames.CODE_REVIEW
+                || attempt is null || !attempt.Terminal || attempt.GateMode != FixGatePolicy.Targeted
+                || attempt.LastResult?.Gate?.Outcome != "passed"
+                || !attempt.FixFindingIds.Contains(entry.FindingId, StringComparer.Ordinal))
+                throw new DecisionLedgerStateException($"invalid pending full gate attempt for finding '{entry.FindingId}'");
         }
 
         var appliedIds = batchIds;
@@ -1219,6 +1310,8 @@ internal sealed class DecisionLedger
 
     private static void ValidateFixAttemptResult(BuildResult result)
     {
+        if (result.GateMode is not null || result.PendingFullGateFindingIds is not null)
+            throw new DecisionLedgerStateException("fix attempt LastResult must not contain host response annotations");
         RequireText(result.Status, "fix attempt result status");
         if (result.FilesChanged is null || result.Verification is null)
             throw new DecisionLedgerStateException("fix attempt result is incomplete");

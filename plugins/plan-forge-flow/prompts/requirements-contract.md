@@ -46,5 +46,26 @@ Judge the complete brief:
 - A plan carrying no `## Requirements` section leaves you nothing to judge the tasks against but
   their own internal consistency. Say so as a finding.
 
+Read the Brief's explicit gate/fullGate parameters and their meaning; no exact natural-language
+prefix is required. gate=full (the default) runs complete-plan executable gates after each fix.
+gate=targeted runs one short Fix gate and leaves fixes pending full host verification.
+fullGate=beforeNextRound runs all complete-plan G checks, including conditions, on the Orchestrator's
+host before the next Critic; final does so after code approval. Both are required before success.
+The interview's full choice means full/beforeNextRound; its end-of-run choice means targeted/final.
+Explicit targeted/beforeNextRound is supported without an additional mandatory question.
+
+For selected targeted, check the Fix gate before approving the plan. It must appear exactly once
+in the first real, exactly spelled ## Gates section, ending at the next level-1 or level-2 heading
+outside a fence, and that section must contain real numbered G entries, such as 1. **G1.**
+(**G1** and **G1:** with optional trailing punctuation also count). A line-start **Fix gate** label
+has an optional colon inside or after the bold text, is case-insensitive and may have a numbered-list
+prefix. A bulleted item (`-` or `*`) does not count as a Fix gate label. Ignore labels, G
+entries and headings inside fenced examples. After whitespace, non-empty inline code or a closed
+fenced command must immediately follow the label, without prose first. Fences use at least three
+backticks or tildes, closed by the same character with at least the opening length; a language tag
+is allowed. Missing/duplicate labels, no real G entry, empty code or an unclosed fence is a finding.
+Require R references for the short check as for full G entries; runtime does not parse R references.
+The short check must be meaningful for the planned fixes; do not derive it from a union of task gates.
+
 A finding against a requirement carries the same severities as any other and weighs the same on the
 verdict.

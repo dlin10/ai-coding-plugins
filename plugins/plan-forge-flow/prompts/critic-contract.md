@@ -42,6 +42,11 @@ and left running is killed with it. Run what you need to read in the foreground 
 never judge on the strength of a command that is still running.
 
 The projection's IDs are existing findings, not invitations to create copies.
+Findings pending full verification remain unresolved: assess them exactly like other displayed
+unresolved IDs. Their short check and covering attempts do not prove full verification, and your
+assessment (including stillPresent=false) neither closes them nor confirms full checks. With saved
+fullGate=final you may approve the code while pending remains; that approval is not successful run
+completion. The Orchestrator supplies hostVerified evidence after full checks.
 
 Return `findings`, `unresolvedAssessments`, and `reopenings` on every response, including empty
 arrays. For every displayed `unresolved` ID, return exactly one `unresolvedAssessments` item with
