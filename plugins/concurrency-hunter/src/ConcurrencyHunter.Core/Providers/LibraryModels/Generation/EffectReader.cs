@@ -213,7 +213,7 @@ public sealed class EffectReader
 
     private void ReadAccesses()
     {
-        foreach (var access in _analysis.Accesses)
+        foreach (var access in _analysis.ExecutionAccesses())
         {
             if (!_heap.Instances.TryGetValue(access.InstanceId, out var instance) || !IsLibraryBody(instance.BodyId))
                 continue;
@@ -237,7 +237,7 @@ public sealed class EffectReader
         }
     }
 
-    private void ReadLoad(MethodInstance instance, CollectedAccess access, string action)
+    private void ReadLoad(MethodInstance instance, ExecutionAccess access, string action)
     {
         if (_probeReturns.Contains(access.RegionId) || _witnessReturns.Contains(access.RegionId))
             _vocabulary = true;
@@ -250,7 +250,7 @@ public sealed class EffectReader
         }
     }
 
-    private void ReadStore(CollectedAccess access, string action) =>
+    private void ReadStore(ExecutionAccess access, string action) =>
         ReadStore(access.RegionId, access.Access.Field, access.Access.IsOnCollection && access.Access.Selector is not null, action,
                   _heap.Instances.TryGetValue(access.InstanceId, out var instance) &&
                   IsDelegateSlotStore(instance, access.Access, access.RegionId));
@@ -319,7 +319,7 @@ public sealed class EffectReader
     /// seed only when it reads that same field of that same object; a read of any other field qualifies only through probes. A read
     /// of the slot itself is checked object by object like any value: a delegate the library put there — an event initializer, a
     /// constructor's store — is no seed, so storing it back keeps the store a state store.
-    /// <see cref="ReadStore(CollectedAccess, string)"/> and <see cref="ReadUnknownDelegateStateStores"/> both ask it before
+    /// <see cref="ReadStore(ExecutionAccess, string)"/> and <see cref="ReadUnknownDelegateStateStores"/> both ask it before
     /// recording a state store.</summary>
     /// <param name="instance">The library instance that stores.</param>
     /// <param name="store">The store.</param>
@@ -378,7 +378,7 @@ public sealed class EffectReader
         if (_setupSlotValues is not null)
             return _setupSlotValues;
         _setupSlotValues = [];
-        foreach (var access in _analysis.Accesses.Where(access => access.Access.Kind == SummaryAccessKind.Store && _executions.InSetup(access.ExecutionId)))
+        foreach (var access in _analysis.Accesses.Where(access => access.Access.Kind == SummaryAccessKind.Store && access.Executions.Any(_executions.InSetup)))
         {
             if (!IsDelegateField(access.Access.Field) || !_heap.Instances.TryGetValue(access.InstanceId, out var instance))
                 continue;

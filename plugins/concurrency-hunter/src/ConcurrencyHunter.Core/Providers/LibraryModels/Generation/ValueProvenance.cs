@@ -1563,7 +1563,7 @@ public sealed class ValueProvenance
             {
                 if (!_fired.TryGetValue(access.Access.Field.Name, out var executions))
                     _fired[access.Access.Field.Name] = executions = new HashSet<string>(StringComparer.Ordinal);
-                executions.Add(access.ExecutionId);
+                executions.UnionWith(access.Executions);
             }
         }
 

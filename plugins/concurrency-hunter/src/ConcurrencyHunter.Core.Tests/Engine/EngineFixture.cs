@@ -46,8 +46,8 @@ public sealed record HeapRun(WholeProgramRun Program, HeapSolution Heap, Summary
 
 public sealed record ExecutionRun(HeapRun Heap, ExecutionAnalysis Analysis)
 {
-    public IReadOnlyList<CollectedAccess> Accesses(string field, SummaryAccessKind kind) =>
-        Analysis.Accesses.Where(access => access.Access.Field.Name == field && access.Access.Kind == kind).ToArray();
+    public IReadOnlyList<ExecutionAccess> Accesses(string field, SummaryAccessKind kind) =>
+        Analysis.ExecutionAccesses().Where(access => access.Access.Field.Name == field && access.Access.Kind == kind).ToArray();
 
     public RegionOwnership Ownership(string display) => Analysis.Ownership[Heap.Region(display).Identity];
 

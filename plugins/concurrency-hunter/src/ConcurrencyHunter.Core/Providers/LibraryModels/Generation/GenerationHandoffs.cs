@@ -95,8 +95,8 @@ public sealed class GenerationHandoffs
         {
             if (!_heap.Instances.TryGetValue(access.InstanceId, out var instance) ||
                 !instance.BodyId.StartsWith($"body:{implementation}:", StringComparison.Ordinal) ||
-                _executions.Of(access.ExecutionId).Role is DriverExecutionRole.Setup or DriverExecutionRole.Own or DriverExecutionRole.Child or
-                                                       DriverExecutionRole.Artefact)
+                access.Executions.All(execution => _executions.Of(execution).Role is DriverExecutionRole.Setup or DriverExecutionRole.Own or
+                                                                                      DriverExecutionRole.Child or DriverExecutionRole.Artefact))
             {
                 continue;
             }

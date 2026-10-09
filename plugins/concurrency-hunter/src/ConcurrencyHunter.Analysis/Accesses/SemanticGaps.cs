@@ -42,7 +42,7 @@ public static class SemanticGaps
         var results = heap.Instances.Values.ToDictionary(instance => instance.Id, instance => instance.Summary.ResultStores.ToLookup(store => store.SourceOperationId),
                                                          StringComparer.Ordinal);
         var executionRegions = (accesses?.Select(access => (access.ExecutionId, RegionId: access.Resource.CollectionId ?? access.Resource.RegionId!)) ??
-                                input.Executions.Accesses.Select(access => (access.ExecutionId, access.RegionId)))
+                                input.Executions.Accesses.SelectMany(access => access.Executions.Select(execution => (ExecutionId: execution, access.RegionId))))
                                .GroupBy(access => access.ExecutionId, StringComparer.Ordinal)
                                .ToDictionary(group => group.Key, group => group.Select(access => access.RegionId).ToHashSet(StringComparer.Ordinal),
                                              StringComparer.Ordinal);

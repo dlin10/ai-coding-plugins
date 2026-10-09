@@ -1,7 +1,6 @@
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Heap;
-using ConcurrencyHunter.Ir;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
 
@@ -52,6 +51,26 @@ public sealed class ConstructionSetTests
     }
 
     [Fact]
+    public void Executions_sharing_a_node_keep_their_own_construction_status()
+    {
+        // One merged instance of Touch runs in Registry's type initializer, where the static it writes is under construction, and in
+        // the action, where it is not: the shared node answers for each execution apart.
+        var heap = Solve("""
+            public static class Registry { public static int Count; static Registry() { Helper.Touch(); } }
+            public static class Helper { public static void Touch() => Registry.Count = 1; }
+            public class NotesController : ControllerBase { public void Post() { Helper.Touch(); } }
+            """ + Startup(), new AnalysisLimits(MaxContextsPerMethod: 0));
+        var analysis = ExecutionModel.Build(Scope(heap), heap.Heap, CancellationToken.None);
+        var touch = Assert.Single(heap.Instances("body:Fixture:M:Helper.Touch"));
+        Assert.Single(analysis.WalkNodeVisits.Keys, node => node.Instance == touch.Id);
+        var stores = analysis.ExecutionAccesses().Where(access => access.InstanceId == touch.Id && access.Access.Kind == SummaryAccessKind.Store).ToArray();
+        Assert.Contains(stores, access => access.IsConstructionLocal && analysis.Execution(access.ExecutionId).Kind == ExecutionKind.TypeInitializer);
+        Assert.DoesNotContain(stores, access => !access.IsConstructionLocal && analysis.Execution(access.ExecutionId).Kind == ExecutionKind.TypeInitializer);
+        Assert.Contains(stores, access => !access.IsConstructionLocal && analysis.Execution(access.ExecutionId).Kind == ExecutionKind.Root);
+        Assert.DoesNotContain(stores, access => access.IsConstructionLocal && analysis.Execution(access.ExecutionId).Kind == ExecutionKind.Root);
+    }
+
+    [Fact]
     public void Constructor_chain_walks_each_node_a_bounded_number_of_times()
     {
         // Merged constructor contexts make each diamond meet at one instance, with different allocation intervals.
@@ -64,35 +83,10 @@ public sealed class ConstructionSetTests
             """ + Startup(), new AnalysisLimits(MaxContextsPerMethod: 1));
         var scope = Scope(heap);
         var analysis = ExecutionModel.Build(scope, heap.Heap, CancellationToken.None);
+        // The objects under construction no longer drive the walk: each execution arrives at a shared node once.
         Assert.NotEmpty(analysis.WalkNodeVisits);
         Assert.Equal(analysis.WalkVisits, analysis.WalkNodeVisits.Values.Sum());
         Assert.All(analysis.WalkNodeVisits.Values, visits => Assert.Equal(1, visits));
-        var constructed = heap.Heap.Constructions.SelectMany(construction => construction.ConstructorInstances
-                                                                                       .Select(instance => (Instance: instance, construction.RegionId)))
-                                   .GroupBy(item => item.Instance, StringComparer.Ordinal)
-                                   .ToDictionary(group => group.Key, group => group.First().RegionId, StringComparer.Ordinal);
-        var edges = heap.Heap.ExecutionEdges.GroupBy(edge => edge.CallerInstance, StringComparer.Ordinal)
-                        .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
-        foreach (var execution in analysis.WalkNodeVisits.GroupBy(pair => pair.Key.Execution, StringComparer.Ordinal))
-        {
-            var objects = (analysis.Entries.GetValueOrDefault(execution.Key) ?? []).Where(entry => entry.IntervalObject is not null)
-                                 .Select(entry => entry.IntervalObject!).ToHashSet(StringComparer.Ordinal);
-            foreach (var node in execution.Select(pair => pair.Key))
-            {
-                var instance = heap.Heap.Instances[node.Instance];
-                foreach (var edge in edges.GetValueOrDefault(node.Instance) ?? [])
-                {
-                    if (analysis.Follow(instance, node.Segment, edge) is null)
-                        continue;
-                    if (edge.Reason == WholeProgram.CONSTRUCTION_REASON && constructed.TryGetValue(edge.CalleeInstance, out var region))
-                        objects.Add(region);
-                    else if (instance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { Kind: IrCallKind.Constructor } constructor)
-                        objects.UnionWith(constructor.Receivers.SelectMany(value => heap.Heap.Resolve(instance.Id, value))
-                                                     .Where(regionId => heap.Heap.Regions[regionId].Kind == HeapRegionKind.Allocation));
-                }
-            }
-            Assert.All(execution, node => Assert.InRange(node.Value, 1, 2 * objects.Count + 1));
-        }
     }
 
     private static ScopeProgram Scope(HeapRun heap) =>

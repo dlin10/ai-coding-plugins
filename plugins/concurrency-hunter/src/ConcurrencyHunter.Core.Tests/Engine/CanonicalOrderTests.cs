@@ -74,7 +74,7 @@ public sealed class CanonicalOrderTests
         {
             var analysis = ExecutionModel.Build(scope, heap.Heap, CancellationToken.None, mode);
             var region = heap.Region("alloc:Worker.ExecuteAsync(CancellationToken)#Note").Identity;
-            var other = analysis.Accesses.Where(access => access.RegionId == region && analysis.Execution(access.ExecutionId).Kind == ExecutionKind.Spawn)
+            var other = analysis.ExecutionAccesses().Where(access => access.RegionId == region && analysis.Execution(access.ExecutionId).Kind == ExecutionKind.Spawn)
                                 .Select(access => access.ExecutionId).Distinct().Order(StringComparer.Ordinal).First();
             Assert.Equal(OwnershipKind.Escaped, analysis.Ownership[region].Kind);
             Assert.Contains($"reached from {analysis.Execution(other).Display}.", Assert.Single(analysis.Ownership[region].Evidence), StringComparison.Ordinal);

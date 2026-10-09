@@ -69,7 +69,7 @@ internal static class GenerationRuns
     /// <param name="trace">The trace, with a run.</param>
     /// <param name="firedField">The probe's fired field.</param>
     public static IReadOnlyList<string> FiredIn(GenerationTrace trace, string firedField) =>
-        trace.Run!.Executions!.Accesses.Where(access => access.Access.Field.Name == firedField).Select(access => access.ExecutionId)
+        trace.Run!.Executions!.Accesses.Where(access => access.Access.Field.Name == firedField).SelectMany(access => access.Executions)
              .Distinct().Order(StringComparer.Ordinal).ToArray();
 
     /// <summary>The regions a static slot of the driver's <c>Keep</c> or <c>ModelDriver</c> class points to.</summary>

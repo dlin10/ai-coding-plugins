@@ -405,14 +405,13 @@ public static class UnknownCalls
                 var isRestrictedStart = regionId == start && declaringTypeKey is not null;
                 if (!visited.Add(isRestrictedStart ? $"{regionId}|{declaringTypeKey}" : regionId))
                     continue;
-                var region = heap.Regions[regionId];
-                var isCollection = InterproceduralAccesses.CollectionKindOf(heap, scope.Program, regionId).IsCollection;
+                var step = StepOf(regionId);
                 // An immutable pair still holds its key and value, which the effect reaches as it reaches a collection's.
-                if (!isCollection && region.TypeKey is { } key && scope.Program.ImmutableTypeKeys.Contains(key))
+                if (step.IsImmutable)
                     continue;
-                if (region.Kind == HeapRegionKind.Delegate)
+                if (step.Captures is { } captures)
                 {
-                    foreach (var captured in heap.DelegateCaptures(regionId))
+                    foreach (var captured in captures)
                         pending.Push(captured);
                     continue;
                 }
@@ -421,15 +420,53 @@ public static class UnknownCalls
                 var restricted = isRestrictedStart
                     ? Seen(FieldsOf(regionId), declaringTypeKey).Select(FieldSlot.Key).ToHashSet(StringComparer.Ordinal)
                     : null;
-                if (isCollection || restricted?.Count > 0 || restricted is null && (IsSourceObject(regionId) || LibraryFieldsOf(regionId).Count != 0))
+                if (step.IsCollection || restricted?.Count > 0 || restricted is null && step.HasState)
                     reached.Add(regionId);
                 // What a collection holds is in its storages, which the heap holds as it holds any field (ADR 0010, phase 5b second run).
-                foreach (var target in heap.FieldsOf(regionId).Where(slot => restricted is null || restricted.Contains(slot) || slot == PathValue.KEPT ||
-                                                                             isCollection && PathValue.IsStorage(slot))
-                                           .SelectMany(slot => heap.PointsTo(regionId, slot)))
-                    pending.Push(target);
+                foreach (var (slot, targets) in step.Slots)
+                {
+                    if (restricted is null || restricted.Contains(slot) || slot == PathValue.KEPT || step.IsCollection && PathValue.IsStorage(slot))
+                    {
+                        foreach (var target in targets)
+                            pending.Push(target);
+                    }
+                }
             }
         }
+
+        /// <summary>What a walk of reach learns at a region, asked of the heap once per region: whether it is a collection, an immutable
+        /// object or a delegate (with what it captures), whether it has state an effect reaches, and its slots with their targets.</summary>
+        /// <param name="regionId">The region.</param>
+        private RegionStep StepOf(string regionId)
+        {
+            if (_steps.TryGetValue(regionId, out var step))
+                return step;
+            var region = heap.Regions[regionId];
+            var isCollection = InterproceduralAccesses.CollectionKindOf(heap, scope.Program, regionId).IsCollection;
+            step = !isCollection && region.TypeKey is { } key && scope.Program.ImmutableTypeKeys.Contains(key)
+                ? new RegionStep(isCollection, true, null, false, [])
+                : region.Kind == HeapRegionKind.Delegate
+                    ? new RegionStep(isCollection, false, heap.DelegateCaptures(regionId).ToArray(), false, [])
+                    : new RegionStep(isCollection, false, null, IsSourceObject(regionId) || LibraryFieldsOf(regionId).Count != 0,
+                                     heap.FieldsOf(regionId).Select(slot => new SlotTargets(slot, heap.PointsTo(regionId, slot).ToArray())).ToArray());
+            _steps.Add(regionId, step);
+            return step;
+        }
+
+        private readonly Dictionary<string, RegionStep> _steps = new(StringComparer.Ordinal);
+
+        /// <summary>What a walk of reach learns at one region.</summary>
+        /// <param name="IsCollection">Whether the region is a collection ADR 0010 models.</param>
+        /// <param name="IsImmutable">Whether it is an immutable object that is no collection: the walk stops there.</param>
+        /// <param name="Captures">What a delegate captures, or null for any other region.</param>
+        /// <param name="HasState">Whether it is an object of the run's own with state, or one whose library fields the program names.</param>
+        /// <param name="Slots">Its slots, each with the regions it points to.</param>
+        private sealed record RegionStep(bool IsCollection, bool IsImmutable, string[]? Captures, bool HasState, SlotTargets[] Slots);
+
+        /// <summary>A slot of a region, with the regions it points to.</summary>
+        /// <param name="Slot">The slot.</param>
+        /// <param name="Targets">The regions it points to.</param>
+        private sealed record SlotTargets(string Slot, string[] Targets);
 
         /// <summary>Whether a region is an object of a type of the run's own with state of its own: its fields are resources.</summary>
         public bool IsSourceObject(string regionId) =>

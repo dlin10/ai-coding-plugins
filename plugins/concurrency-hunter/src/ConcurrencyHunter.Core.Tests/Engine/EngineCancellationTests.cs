@@ -60,27 +60,17 @@ public sealed class EngineCancellationTests
 
         using var cancellation = new CancellationTokenSource();
         var creates = EngineFixture.Solve("""
-            public class Box { public Box() { } public void Touch() { } }
-            public class Crate { public Crate() { } public void Touch() { } }
-            public class SampleController : ControllerBase
-            {
-                public void Post() { var box = new Box(); box.Touch(); }
-                public void Put() { var crate = new Crate(); crate.Touch(); }
-            }
+            public class Box { public int Value; public Box() { } public void Touch() { Value = 1; } }
+            public class SampleController : ControllerBase { public void Post() { var box = new Box(); box.Touch(); } }
             """ + EngineFixture.Startup());
         var heap = creates.Heap;
-        // The walk resolves receivers while it discovers an entry, before it walks any node of it, so the cut comes at the first
-        // resolution for the second action: by then the first one's nodes have been walked.
-        string? first = null;
+        // The walk resolves receivers while it discovers the entries it takes, before it walks any node of them, and what an access
+        // touches once the walk is done: the cut at the first resolution for the store in Touch reports the walk's visits.
         var observed = new HeapSolution(heap.Regions, heap.Instances, heap.Edges, heap.TypeInitializers, heap.Constructions, heap.Counters,
                                        heap.ReachableBodies, heap.LoweredNotReached, heap.NoReceiverObjects,
                                        (instance, value) =>
                                        {
-                                           var action = instance.Contains("Crate", StringComparison.Ordinal) || instance.Contains(".Put", StringComparison.Ordinal)
-                                               ? "Put"
-                                               : "Post";
-                                           first ??= action;
-                                           if (action != first)
+                                           if (instance.Contains("Box.Touch", StringComparison.Ordinal))
                                                cancellation.Cancel();
                                            return heap.Resolve(instance, value);
                                        },

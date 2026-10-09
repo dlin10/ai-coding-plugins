@@ -46,6 +46,23 @@ public sealed class WalkSchedulingTests
     }
 
     [Fact]
+    public void Executions_reaching_a_shared_node_together_arrive_in_one_visit()
+    {
+        // More roots than one word of bits holds: the walk takes every root's entry before it passes executions on, so the helper is
+        // walked once for all of them, not once per root.
+        var actions = string.Join(" ", Enumerable.Range(0, 65).Select(index => $"public void A{index}() {{ Helper.Touch(this); }}"));
+        var heap = Solve($$"""
+            public static class Helper { public static void Touch(NotesController notes) => notes.Value = 1; }
+            public class NotesController : ControllerBase { public int Value; {{actions}} }
+            """ + Startup(), new AnalysisLimits(MaxContextsPerMethod: 0));
+        var analysis = Build(heap);
+        var helper = Assert.Single(heap.Instances("body:Fixture:M:Helper.Touch(NotesController)"));
+        Assert.Equal(1, Assert.Single(analysis.WalkNodeVisits, pair => pair.Key.Instance == helper.Id).Value);
+        Assert.Equal(65, analysis.Accesses.Where(access => access.InstanceId == helper.Id).SelectMany(access => access.Executions).Distinct().Count());
+        AssertEquivalent(heap, analysis);
+    }
+
+    [Fact]
     public void Cycle_is_walked_until_its_sets_settle()
     {
         var heap = Solve("""
@@ -60,9 +77,11 @@ public sealed class WalkSchedulingTests
             """ + Startup(), new AnalysisLimits(MaxContextsPerMethod: 0));
         var analysis = Build(heap);
         var first = Assert.Single(heap.Instances("body:Fixture:M:Helper.First(Note)"));
-        Assert.Contains(analysis.WalkNodeVisits, pair => pair.Key.Instance == first.Id && pair.Value > 1);
+        // The sets that settle are the executions at each node: the one execution arrives at each node of the cycle once, and the
+        // objects under construction are worked out per object afterwards.
+        Assert.Contains(analysis.WalkNodeVisits, pair => pair.Key.Instance == first.Id);
         Assert.Equal(analysis.WalkVisits, analysis.WalkNodeVisits.Values.Sum());
-        Assert.All(analysis.WalkNodeVisits.Values, visits => Assert.InRange(visits, 1, 2 * heap.Heap.Regions.Count + 1));
+        Assert.All(analysis.WalkNodeVisits.Values, visits => Assert.Equal(1, visits));
         AssertEquivalent(heap, analysis);
     }
 
@@ -85,8 +104,10 @@ public sealed class WalkSchedulingTests
         var analysis = Build(heap);
         var helper = Assert.Single(heap.Instances("body:Fixture:M:Helper.Touch(NotesController)"));
         var deep = Assert.Single(heap.Instances("body:Fixture:M:Deep.Touch(NotesController)"));
-        Assert.Equal(2, Assert.Single(analysis.WalkNodeVisits, pair => pair.Key.Instance == helper.Id).Value);
-        Assert.Equal(2, Assert.Single(analysis.WalkNodeVisits, pair => pair.Key.Instance == deep.Id).Value);
+        // Both entries belong to the root's execution, which arrives at each node once; the second entry's object under construction
+        // is told apart per object, not by walking the nodes again.
+        Assert.Equal(1, Assert.Single(analysis.WalkNodeVisits, pair => pair.Key.Instance == helper.Id).Value);
+        Assert.Equal(1, Assert.Single(analysis.WalkNodeVisits, pair => pair.Key.Instance == deep.Id).Value);
         var stores = analysis.Accesses.Where(access => access.InstanceId == deep.Id).ToArray();
         Assert.Contains(stores, access => access.IsConstructionLocal);
         Assert.Contains(stores, access => !access.IsConstructionLocal);

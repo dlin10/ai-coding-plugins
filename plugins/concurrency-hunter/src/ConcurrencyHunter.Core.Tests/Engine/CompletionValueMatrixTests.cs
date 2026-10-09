@@ -456,9 +456,9 @@ public sealed class CompletionValueMatrixTests(ClassCache cache) : IClassFixture
             !site.StartsWith(prefix, StringComparison.Ordinal))
             return false;
         var instances = heap.Instances.Values.Where(instance => instance.BodyId == site).Select(instance => instance.Id).ToHashSet(StringComparer.Ordinal);
-        var executions = Results.Execution.Analysis.WalkNodeVisits.Keys
-                                .Where(visit => instances.Contains(visit.Instance) && visit.Segment != BodySegment.Prefix)
-                                .Select(visit => visit.Execution)
+        var executions = Results.Execution.Analysis.Visits
+                                .Where(pair => pair.Value.Any(visit => instances.Contains(visit.InstanceId) && visit.Segment != BodySegment.Prefix))
+                                .Select(pair => pair.Key)
                                 .ToHashSet(StringComparer.Ordinal);
         return executions.Count > 0 && !executions.Contains(write.ExecutionId);
     }

@@ -150,7 +150,7 @@ public static class FateClassifier
         {
             if (!fired.TryGetValue(access.Access.Field.Name, out var executions))
                 fired[access.Access.Field.Name] = executions = new HashSet<string>(StringComparer.Ordinal);
-            executions.Add(access.ExecutionId);
+            executions.UnionWith(access.Executions);
         }
 
         return fired;
@@ -204,7 +204,7 @@ public static class FateClassifier
             _callUnseen = handoffs.Unseen(DriverSynthesizer.CALL).Count != 0;
 
             // What an execution other than setup writes, and where each probe fired.
-            foreach (var access in run.Executions!.Accesses.Where(access => !_executions.InSetup(access.ExecutionId)))
+            foreach (var access in run.Executions!.Accesses.Where(access => access.Executions.Any(execution => !_executions.InSetup(execution))))
             {
                 if (access.Access.Kind is SummaryAccessKind.Store or SummaryAccessKind.UnknownEffect)
                     _written.Add(access.RegionId);
