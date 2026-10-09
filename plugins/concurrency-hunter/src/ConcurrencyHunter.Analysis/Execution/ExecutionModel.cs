@@ -117,6 +117,26 @@ public sealed record CollectedAccess(ExecutionSet Executions, string InstanceId,
 /// <param name="IsConstructionLocal">Whether the access is construction-local.</param>
 public sealed record ExecutionAccess(string ExecutionId, string InstanceId, SummaryAccess Access, string RegionId, bool IsConstructionLocal);
 
+/// <summary>Whether an object is under construction where one execution runs one operation of one instance, over every node of the
+/// walk graph for that instance whose segment runs the operation (ADR 0017).</summary>
+/// <param name="Reached">Whether the execution reaches such a node.</param>
+/// <param name="May">Whether the object is in <c>MayIn</c> at one of them: under construction there on some path.</param>
+/// <param name="NotMust">Whether the object is not in <c>MustIn</c> at one of them: outside its construction there on some path.</param>
+internal readonly record struct ConstructionStatus(bool Reached, bool May, bool NotMust);
+
+/// <summary>The construction analysis of ADR 0017, kept after the execution model is built for the readers that ask about objects
+/// the model itself did not collect accesses on.</summary>
+internal interface IConstructionStatuses
+{
+    /// <summary>Whether an object is under construction where an execution runs an operation of an instance.</summary>
+    /// <param name="execution">The execution.</param>
+    /// <param name="instance">The instance making the operation.</param>
+    /// <param name="operation">The operation.</param>
+    /// <param name="region">The object.</param>
+    /// <param name="cancellationToken">Cancels the search.</param>
+    ConstructionStatus Of(string execution, string instance, int operation, string region, CancellationToken cancellationToken);
+}
+
 /// <summary>A node of the walk graph the executions share (ADR 0017): an instance, the segment of its body it runs and the key of the
 /// site whose tail its awaited callees' tails join.</summary>
 /// <param name="Instance">The instance.</param>
@@ -188,6 +208,18 @@ public sealed class ExecutionAnalysis
 
     /// <summary>The objects under construction that their construction publishes.</summary>
     public IReadOnlySet<string> PublishedObjects { get; }
+
+    internal IConstructionStatuses? Constructions { get; init; }
+
+    /// <summary>Whether an object is under construction where an execution runs an operation of an instance (ADR 0017). Without the
+    /// analysis every object is outside its construction there.</summary>
+    /// <param name="execution">The execution.</param>
+    /// <param name="instance">The instance making the operation.</param>
+    /// <param name="operation">The operation.</param>
+    /// <param name="region">The object.</param>
+    /// <param name="cancellationToken">Cancels the search.</param>
+    internal ConstructionStatus Construction(string execution, string instance, int operation, string region, CancellationToken cancellationToken) =>
+        Constructions?.Of(execution, instance, operation, region, cancellationToken) ?? new ConstructionStatus(true, false, true);
 
     /// <summary>The executions each instance runs in; <see cref="ExecutionModel.STARTUP"/> marks startup.</summary>
     public IReadOnlyDictionary<string, IReadOnlySet<string>> InstanceExecutions { get; }
@@ -568,6 +600,7 @@ public static class ExecutionModel
             while (_pendingEntries.Count != 0);
 
             Constructions();
+            _constructionIndex = new ConstructionIndex(_nodeList, _objectIds, _ids, _segments, heap, _objectEdges, _objectSeeds, _outsideStarts, _seedsAt);
             if (_entries.ContainsKey(STARTUP))
                 Add(new ExecutionInstance(STARTUP, ExecutionKind.Startup, "host startup", AT_MOST_ONCE, null, null) { TreeRootId = STARTUP });
             CanonicalizeWalk();
@@ -607,6 +640,7 @@ public static class ExecutionModel
                 order)
             {
                 WalkVisits = WalkVisits,
+                Constructions = _constructionIndex,
                 WalkNodeVisits = _walkNodes.ToDictionary(pair => pair.Key, pair => pair.Value.Visits),
                 Visits = _visitsByExecution,
                 SpawnSiteLocations = _spawnSites,
@@ -1685,7 +1719,7 @@ public static class ExecutionModel
 
         /// <summary>Which objects' constructions reach each node, and so each object's constructor chain: the instances of the nodes its
         /// construction reaches, from an edge that starts it or an entry inside it. Readers ask only whether an object is under
-        /// construction on some path and outside it on some path, which <see cref="ConstructionExecutions"/> answers per execution.</summary>
+        /// construction on some path and outside it on some path, which <see cref="ConstructionIndex"/> answers per execution.</summary>
         private void Constructions()
         {
             var pending = new PriorityQueue<WalkNode, int>();
@@ -1819,67 +1853,130 @@ public static class ExecutionModel
         /// <summary>The entries taken at each node.</summary>
         private readonly Dictionary<WalkNode, List<TakenEntry>> _seedsAt = new(ReferenceEqualityComparer.Instance);
 
-        /// <summary>For one object, at each node asked about, the executions in which the object is under construction there on some
-        /// path (it is in <c>MayIn</c>), and those that reach the node on some path outside its construction (it is not in <c>MustIn</c>)
-        /// (ADR 0017). Every node the construction reaches is reached from one of the edges and entries that start it, so when all of them
-        /// carry the same executions, those are <c>MayIn</c> at every such node; otherwise a search back from the node collects the
-        /// starts that reach it. An execution that reaches the node and is not in <c>MayIn</c> there reaches it outside the
-        /// construction, and so does one that reaches it on a path that starts no construction from an entry outside the object. The
-        /// rest can reach it outside only if they enter the construction's nodes without starting it (<see cref="_outsideStarts"/>); for
-        /// those, a search back along the edges that do not start the construction looks for a node the construction does not reach, or
-        /// another entry of that execution. Each search stops once it has found every execution it asks about. A search that ends
-        /// without finding an execution shows that no node it passed is reached outside the construction by it, and later searches for
-        /// the same object stop at those nodes.</summary>
-        /// <param name="object">The object's number.</param>
-        /// <param name="asked">The nodes asked about, each one its construction reaches.</param>
-        /// <returns>For each node asked about, the two sets of executions, as bits.</returns>
-        private IEnumerable<ConstructionAt> ConstructionExecutions(int @object, IReadOnlyCollection<WalkNode> asked)
+        /// <summary>The per-object construction analysis of ADR 0017 over the walk graph, kept after the build for the accesses stage.
+        /// For one object at one node it gives the executions in which the object is under construction there on some path (it is in
+        /// <c>MayIn</c>), and those that reach the node on some path outside its construction (it is not in <c>MustIn</c>). Every node
+        /// the construction reaches is reached from one of the edges and entries that start it, so when all of them carry the same
+        /// executions, those are <c>MayIn</c> at every such node; otherwise a search back from the node collects the starts that reach
+        /// it. An execution that reaches the node and is not in <c>MayIn</c> there reaches it outside the construction, and so does one
+        /// that reaches it on a path that starts no construction from an entry outside the object. The rest can reach it outside only if
+        /// they enter the construction's nodes without starting it (<c>outsideStarts</c>); for those, a search back along the edges that
+        /// do not start the construction looks for a node the construction does not reach, or another entry of that execution. Each
+        /// search stops once it has found every execution it asks about. A search that ends without finding an execution shows that no
+        /// node it passed is reached outside the construction by it, and later searches for the same object stop at those nodes. The
+        /// answers are kept, and a query takes a lock, since the readers of a built model may ask from several threads.</summary>
+        /// <param name="nodes">The walk graph's nodes, by their id.</param>
+        /// <param name="objectIds">The number of each object whose construction an edge or entry starts.</param>
+        /// <param name="ids">The numbering of the execution ids.</param>
+        /// <param name="segments">The segments of async bodies, which say whether a node runs an operation.</param>
+        /// <param name="heap">The solved heap, which gives each instance's body.</param>
+        /// <param name="objectEdges">The edges that start each object's construction, by object number.</param>
+        /// <param name="objectSeeds">The executions of the entries that start inside each object, by object number.</param>
+        /// <param name="outsideStarts">For each object, the executions that may enter the nodes its construction reaches without
+        /// starting it.</param>
+        /// <param name="seedsAt">The entries taken at each node.</param>
+        private sealed class ConstructionIndex(IReadOnlyList<WalkNode> nodes, IReadOnlyDictionary<string, int> objectIds, ExecutionIds ids,
+                                               AsyncSegments segments, HeapSolution heap,
+                                               IReadOnlyDictionary<int, List<ConstructionEdge>> objectEdges,
+                                               IReadOnlyDictionary<int, List<int>> objectSeeds, IReadOnlyDictionary<int, ulong[]> outsideStarts,
+                                               IReadOnlyDictionary<WalkNode, List<TakenEntry>> seedsAt) : IConstructionStatuses
         {
-            var starts = (_objectEdges.GetValueOrDefault(@object) ?? []).Select(edge => edge.From.Executions)
-                                                                         .Concat((_objectSeeds.GetValueOrDefault(@object) ?? []).Select(execution => Bits.Of([execution])))
-                                                                         .ToArray();
-            var shared = starts.Length != 0 && starts.All(set => Bits.SameAs(set, starts[0])) ? starts[0] : null;
-            var entering = _outsideStarts.GetValueOrDefault(@object) ?? Bits.EMPTY;
-            var enteredInside = Bits.Of(_objectSeeds.GetValueOrDefault(@object) ?? []);
-            // For nodes earlier searches passed: the executions found to reach them outside the construction, and those found not to.
-            var known = new Dictionary<WalkNode, SearchFacts>(ReferenceEqualityComparer.Instance);
-            foreach (var node in asked)
+            private readonly Dictionary<string, WalkNode[]> _byInstance = nodes.GroupBy(node => node.Instance, StringComparer.Ordinal)
+                                                                               .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+            private readonly Dictionary<int, ObjectSearch> _searches = [];
+            private readonly Dictionary<(int Node, int Object), ConstructionAt> _answers = [];
+            private readonly int[] _marks = new int[nodes.Count];
+            private int _stamp;
+
+            public ConstructionStatus Of(string execution, string instance, int operation, string region, CancellationToken cancellationToken)
             {
-                CheckCancellation();
-                var may = shared ?? Back(node, node.Executions, inside: true);
+                if (!ids.TryGetNumber(execution, out var number) || !_byInstance.TryGetValue(instance, out var instanceNodes))
+                    return new ConstructionStatus(false, false, false);
+                var bodyId = heap.Instances[instance].BodyId;
+                var hasObject = objectIds.TryGetValue(region, out var @object);
+                var (reached, may, notMust) = (false, false, false);
+                lock (_searches)
+                {
+                    foreach (var node in instanceNodes)
+                    {
+                        if (!Bits.Contains(node.Executions, number) || !segments.Runs(bodyId, node.Segment, operation))
+                            continue;
+                        reached = true;
+                        if (!hasObject || !Bits.Contains(node.Objects, @object))
+                        {
+                            notMust = true;
+                            continue;
+                        }
+
+                        var answer = At(node, @object, cancellationToken);
+                        may |= Bits.Contains(answer.May, number);
+                        notMust |= Bits.Contains(answer.NotMust, number);
+                    }
+                }
+
+                return new ConstructionStatus(reached, may, notMust);
+            }
+
+            /// <summary>The two sets of executions for one object at one node its construction reaches.</summary>
+            /// <param name="node">The node.</param>
+            /// <param name="object">The object's number.</param>
+            /// <param name="cancellationToken">Cancels the search.</param>
+            internal ConstructionAt At(WalkNode node, int @object, CancellationToken cancellationToken)
+            {
+                if (_answers.TryGetValue((node.Id, @object), out var known))
+                    return known;
+                if (!_searches.TryGetValue(@object, out var search))
+                {
+                    var starts = (objectEdges.GetValueOrDefault(@object) ?? []).Select(edge => edge.From.Executions)
+                                                                                .Concat((objectSeeds.GetValueOrDefault(@object) ?? []).Select(execution => Bits.Of([execution])))
+                                                                                .ToArray();
+                    _searches.Add(@object, search = new ObjectSearch(starts.Length != 0 && starts.All(set => Bits.SameAs(set, starts[0])) ? starts[0] : null,
+                                                                     outsideStarts.GetValueOrDefault(@object) ?? Bits.EMPTY,
+                                                                     Bits.Of(objectSeeds.GetValueOrDefault(@object) ?? [])));
+                }
+
+                var may = search.Shared ?? Back(node, node.Executions, inside: true, @object, search, cancellationToken);
                 // A clean path avoids the construction, unless the execution entered inside the object.
                 var clear = new ulong[node.Executions.Length];
                 var wanted = new ulong[node.Executions.Length];
                 for (var index = 0; index < clear.Length; index++)
                 {
-                    clear[index] = (index < node.Clean.Length ? node.Clean[index] : 0) & ~(index < enteredInside.Length ? enteredInside[index] : 0);
-                    wanted[index] = (index < may.Length ? may[index] : 0) & (index < entering.Length ? entering[index] : 0) & ~clear[index];
+                    clear[index] = (index < node.Clean.Length ? node.Clean[index] : 0) &
+                                   ~(index < search.EnteredInside.Length ? search.EnteredInside[index] : 0);
+                    wanted[index] = (index < may.Length ? may[index] : 0) & (index < search.Entering.Length ? search.Entering[index] : 0) & ~clear[index];
                 }
 
-                var outside = Back(node, wanted, inside: false);
+                var outside = Back(node, wanted, inside: false, @object, search, cancellationToken);
                 var notMust = (ulong[])node.Executions.Clone();
                 for (var index = 0; index < notMust.Length; index++)
                     notMust[index] = notMust[index] & ~((index < may.Length ? may[index] : 0) & ~clear[index]) | (index < outside.Length ? outside[index] : 0);
-                yield return new ConstructionAt(node, may, notMust);
+                var answer = new ConstructionAt(node, may, notMust);
+                _answers.Add((node.Id, @object), answer);
+                return answer;
             }
 
-            // Searches back from a node among the nodes the construction reaches for the executions asked about: inside, the starts of
-            // the construction that reach it; outside, the paths to it that never start the construction.
-            ulong[] Back(WalkNode node, ulong[] wanted, bool inside)
+            /// <summary>Searches back from a node among the nodes the construction reaches for the executions asked about: inside, the
+            /// starts of the construction that reach it; outside, the paths to it that never start the construction.</summary>
+            /// <param name="node">The node to search back from.</param>
+            /// <param name="wanted">The executions asked about.</param>
+            /// <param name="inside">Whether the search looks for starts of the construction, or for paths outside it.</param>
+            /// <param name="object">The object's number.</param>
+            /// <param name="search">What earlier searches for the object learned.</param>
+            /// <param name="cancellationToken">Cancels the search.</param>
+            private ulong[] Back(WalkNode node, ulong[] wanted, bool inside, int @object, ObjectSearch search, CancellationToken cancellationToken)
             {
                 var found = Bits.EMPTY;
                 if (Bits.IsEmpty(wanted))
                     return found;
-                var marks = _constructionMarks ??= new int[_nodeList.Count];
-                var stamp = ++_constructionStamp;
-                marks[node.Id] = stamp;
+                var stamp = ++_stamp;
+                _marks[node.Id] = stamp;
                 var passed = new List<WalkNode>();
                 var pending = new Queue<WalkNode>([node]);
                 var complete = false;
                 while (pending.TryDequeue(out var current))
                 {
-                    CheckCancellation();
-                    if (!inside && known.TryGetValue(current, out var earlier))
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!inside && search.Known.TryGetValue(current, out var earlier))
                     {
                         Bits.UnionWith(ref found, earlier.Outside, wanted);
                         if (Bits.Covers(found, wanted))
@@ -1897,7 +1994,7 @@ public static class ExecutionModel
                     }
 
                     passed.Add(current);
-                    foreach (var (execution, _, interval) in _seedsAt.GetValueOrDefault(current) ?? [])
+                    foreach (var (execution, _, interval) in seedsAt.GetValueOrDefault(current) ?? [])
                     {
                         if ((interval == @object) == inside && Bits.Contains(wanted, execution))
                             Bits.Add(ref found, execution);
@@ -1909,9 +2006,9 @@ public static class ExecutionModel
                         var reached = Bits.Contains(predecessor.Objects, @object);
                         if (inside ? starting : !starting && !reached)
                             Bits.UnionWith(ref found, predecessor.Executions, wanted);
-                        else if (!starting && reached && marks[predecessor.Id] != stamp)
+                        else if (!starting && reached && _marks[predecessor.Id] != stamp)
                         {
-                            marks[predecessor.Id] = stamp;
+                            _marks[predecessor.Id] = stamp;
                             pending.Enqueue(predecessor);
                         }
                     }
@@ -1925,9 +2022,9 @@ public static class ExecutionModel
 
                 if (!inside)
                 {
-                    var (outsideBefore, neverBefore) = known.GetValueOrDefault(node) ?? new SearchFacts(Bits.EMPTY, Bits.EMPTY);
+                    var (outsideBefore, neverBefore) = search.Known.GetValueOrDefault(node) ?? new SearchFacts(Bits.EMPTY, Bits.EMPTY);
                     Bits.UnionWith(ref outsideBefore, found);
-                    known[node] = new SearchFacts(outsideBefore, neverBefore);
+                    search.Known[node] = new SearchFacts(outsideBefore, neverBefore);
                     if (!complete)
                     {
                         // The search ran out: what it did not find reaches none of the nodes it passed outside the construction.
@@ -1936,9 +2033,9 @@ public static class ExecutionModel
                             never[index] &= ~(index < found.Length ? found[index] : 0);
                         foreach (var passedNode in passed)
                         {
-                            var (outsideOf, neverOf) = known.GetValueOrDefault(passedNode) ?? new SearchFacts(Bits.EMPTY, Bits.EMPTY);
+                            var (outsideOf, neverOf) = search.Known.GetValueOrDefault(passedNode) ?? new SearchFacts(Bits.EMPTY, Bits.EMPTY);
                             Bits.UnionWith(ref neverOf, never);
-                            known[passedNode] = new SearchFacts(outsideOf, neverOf);
+                            search.Known[passedNode] = new SearchFacts(outsideOf, neverOf);
                         }
                     }
                 }
@@ -1947,9 +2044,21 @@ public static class ExecutionModel
             }
         }
 
-        /// <summary>The marks of the searches of <see cref="ConstructionExecutions"/>: a node is marked for the search whose stamp it holds.</summary>
-        private int[]? _constructionMarks;
-        private int _constructionStamp;
+        /// <summary>What the searches for one object share: the executions every start of its construction carries, when all carry the
+        /// same; the executions that may enter its nodes without starting it; those whose entry starts inside it; and what earlier
+        /// searches learned about the nodes they passed.</summary>
+        /// <param name="shared">The executions every start carries, or null when the starts differ.</param>
+        /// <param name="entering">The executions that may enter the construction's nodes without starting it.</param>
+        /// <param name="enteredInside">The executions whose entry starts inside the object.</param>
+        private sealed class ObjectSearch(ulong[]? shared, ulong[] entering, ulong[] enteredInside)
+        {
+            internal ulong[]? Shared { get; } = shared;
+            internal ulong[] Entering { get; } = entering;
+            internal ulong[] EnteredInside { get; } = enteredInside;
+            internal Dictionary<WalkNode, SearchFacts> Known { get; } = new(ReferenceEqualityComparer.Instance);
+        }
+
+        private ConstructionIndex? _constructionIndex;
 
         /// <summary>The objects whose construction publishes them: an instance of the chain stores the object, or a delegate capturing
         /// it, into a region that is neither the object nor reachable from it, returns it to a caller outside the chain, or hands a
@@ -2181,8 +2290,8 @@ public static class ExecutionModel
                 foreach (var (number, nodes) in asked)
                 {
                     CheckCancellation();
-                    foreach (var construction in ConstructionExecutions(number, nodes))
-                        _constructionStatus[(construction.Node, number)] = construction;
+                    foreach (var node in nodes)
+                        _constructionStatus[(node, number)] = _constructionIndex!.At(node, number, cancellationToken);
                 }
 
                 return _constructionStatus;

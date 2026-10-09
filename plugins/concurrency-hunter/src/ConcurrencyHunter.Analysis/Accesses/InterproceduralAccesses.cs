@@ -90,9 +90,10 @@ public sealed record InterproceduralCollection(IReadOnlyList<Access> Accesses, I
 public sealed record InterproceduralInput(ScopeProgram Scope, HeapSolution Heap, ExecutionAnalysis Executions);
 
 /// <summary>
-/// Collects every access each execution runs, breadth-first from its entries over the heap's call edges, with the construction
-/// interval each instance runs in, the locks it must hold (a must-dataflow over its incoming edges), and the loads its stores
-/// depend on across calls and capture cells, so a lost update is one read-modify-write access (R10).
+/// Collects every access each execution runs, breadth-first from its entries over the heap's call edges, with whether the object it
+/// touches is under construction there (the construction analysis of ADR 0017, ADR 0018), the locks it must hold (a must-dataflow over
+/// its incoming edges), and the loads its stores depend on across calls and capture cells, so a lost update is one read-modify-write
+/// access (R10).
 /// </summary>
 public static partial class InterproceduralAccesses
 {
@@ -178,6 +179,7 @@ public static partial class InterproceduralAccesses
                                 .Select(registration => (registration.BodyId!, registration.OperationId!.Value))
                                 .ToHashSet();
         var decided = DecidedCounts(input);
+        var accessed = accesses.Select(access => (access.BodyId, access.OperationId)).ToHashSet();
         knownBuiltIn += decided.KnownBuiltIn;
         knownProject += decided.KnownProject;
         var counters = new Dictionary<string, int>(StringComparer.Ordinal)
@@ -218,8 +220,7 @@ public static partial class InterproceduralAccesses
                                                              !reference.IsCollectionElement &&
                                                              !summary.ReferenceAccesses.Any(store => store.ReadModifyWriteOf == reference.OperationId) &&
                                                              !folded.Contains((summary.BodyId, reference.OperationId)) &&
-                                                             !accesses.Any(access => access.BodyId == summary.BodyId &&
-                                                                                     access.OperationId == reference.OperationId)) +
+                                                             !accessed.Contains((summary.BodyId, reference.OperationId))) +
                 summary.OpaqueCalls.Where(call => !call.IsKnown).Sum(call => call.Arguments.Count(argument => argument.References.Count != 0)) +
                 // A known call's arguments are no reference but for a slice handed over ready whose storage nothing proves (R3, R5).
                 summary.ArgumentEffects.Select(effect => effect.OperationId).Distinct().Count(operation => unproven.Contains((summary.BodyId, operation)))),
@@ -342,7 +343,11 @@ public static partial class InterproceduralAccesses
         return (opaque, element, knownBuiltIn, knownProject, opaqueByProject, outOfRange);
     }
 
-    private sealed record State(string Instance, string? Interval, BodySegment Segment);
+    /// <summary>What a path of the walk reaches: an instance and the segment of its body it runs. Whether an object is under construction
+    /// there is the construction analysis's to say, not the path's (ADR 0018).</summary>
+    /// <param name="Instance">The instance.</param>
+    /// <param name="Segment">The segment of its body.</param>
+    private sealed record State(string Instance, BodySegment Segment);
 
     private sealed record PathNode(State State, PathNode? Parent, CallEdge? Edge)
     {
@@ -763,8 +768,12 @@ public static partial class InterproceduralAccesses
         private Dictionary<string, CallEdge[]>? _heapCalls;
         private Dictionary<string, CallEdge[]>? _constructorCalls;
         private readonly Dictionary<HeapRegion, string> _regionKeys = new(ReferenceEqualityComparer.Instance);
-        private readonly Dictionary<MethodSummary, Dictionary<int, CallTransfer>> _callsAt = new(ReferenceEqualityComparer.Instance);
-        private readonly Dictionary<MethodInstance, string[]> _allocations = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The object or type each construction edge the walk followed builds.</summary>
+        private readonly Dictionary<CallEdge, string> _constructedBy = [];
+
+        /// <summary>Whether an object is under construction where this execution runs an operation of an instance, once asked.</summary>
+        private readonly Dictionary<ConstructionQuery, ConstructionStatus> _constructions = [];
 
         /// <summary>What the visits of each unresolved call made of it (<see cref="UnknownEffectAccesses"/>).</summary>
         private readonly Dictionary<UnknownCall, UnknownEffects> _unknownEffects = new(ReferenceEqualityComparer.Instance);
@@ -810,7 +819,7 @@ public static partial class InterproceduralAccesses
                 .Distinct(StringComparer.Ordinal);
             foreach (var creator in creators.Where(_heap.Instances.ContainsKey))
             {
-                var node = new PathNode(new State(creator, null, BodySegment.Whole), null, null);
+                var node = new PathNode(new State(creator, BodySegment.Whole), null, null);
                 var entry = new ExecutionEntry(creator, ExecutionEntryKind.UnknownEnumeration, null);
                 _visits.Add((entry, node));
                 _firstPaths.TryAdd(creator, (entry, node));
@@ -819,14 +828,14 @@ public static partial class InterproceduralAccesses
             }
         }
 
-        /// <summary>Breadth-first over the walk's edges from one entry; a state is an instance with its construction interval, visited
-        /// once per entry. A construction edge into a construction this execution runs opens the constructed object's interval, one into
-        /// a construction of another execution is not followed, and a constructor call on an allocation opens that allocation's
-        /// interval in place of the current one. The first visit of an instance, and of a body, keeps its discovery path.</summary>
+        /// <summary>Breadth-first over the walk's edges from one entry; a state is an instance with the segment of its body it runs,
+        /// reached on at most <see cref="MAX_ACCESS_PATHS"/> paths of its own per entry, and on one more that forgets where it came from
+        /// (TD-090). A construction edge into a construction of another execution is not followed. The first visit of an instance, and
+        /// of a body, keeps its discovery path.</summary>
         /// <param name="entry">The entry the walk starts from.</param>
         private void Visit(ExecutionEntry entry)
         {
-            var start = new State(entry.InstanceId, entry.IntervalObject, entry.Segment);
+            var start = new State(entry.InstanceId, entry.Segment);
             var visits = new Dictionary<State, int> { [start] = 1 };
             var pending = new Queue<PathNode>([new PathNode(start, null, null)]);
             while (pending.TryDequeue(out var node))
@@ -841,7 +850,6 @@ public static partial class InterproceduralAccesses
                 foreach (var step in graph.Of(instance))
                 {
                     var edge = step.Edge;
-                    var interval = node.State.Interval;
                     if (input.Executions.Follow(instance, node.State.Segment, edge) is not { } segment)
                         continue;
                     if (step.Constructed is not null)
@@ -852,14 +860,7 @@ public static partial class InterproceduralAccesses
                             continue;
                         }
 
-                        interval = step.Constructed;
-                    }
-                    else if (CallAt(instance, edge.OperationId) is { Kind: IrCallKind.Constructor } &&
-                             _heap.Instances.TryGetValue(edge.CalleeInstance, out var callee))
-                    {
-                        var created = Allocations(callee);
-                        if (created.Length != 0 && (interval is null || !created.Contains(interval)))
-                            interval = created[0];
+                        _constructedBy.TryAdd(edge, step.Constructed);
                     }
 
                     // A step the walk took before has its edge recorded already: an instance's steps are one object each, with
@@ -871,7 +872,7 @@ public static partial class InterproceduralAccesses
                         calls.Add(edge);
                     }
 
-                    var next = new State(edge.CalleeInstance, interval, segment);
+                    var next = new State(edge.CalleeInstance, segment);
                     if (OnPath(node, next))
                         continue;
                     var count = visits.GetValueOrDefault(next);
@@ -891,32 +892,6 @@ public static partial class InterproceduralAccesses
 
         private const int MAX_ACCESS_PATHS = 16;
 
-        /// <summary>The first call of an instance's body at an operation, as a scan of its calls in order finds it.</summary>
-        /// <param name="instance">The instance whose summary holds the calls.</param>
-        /// <param name="operationId">The call operation.</param>
-        private CallTransfer? CallAt(MethodInstance instance, int operationId)
-        {
-            if (!_callsAt.TryGetValue(instance.Summary, out var calls))
-            {
-                calls = new Dictionary<int, CallTransfer>();
-                foreach (var call in instance.Summary.Calls)
-                    calls.TryAdd(call.OperationId, call);
-                _callsAt.Add(instance.Summary, calls);
-            }
-
-            return calls.GetValueOrDefault(operationId);
-        }
-
-        /// <summary>The allocations among an instance's receivers in id order: what a constructor call on it may build.</summary>
-        /// <param name="callee">The constructor's instance.</param>
-        private string[] Allocations(MethodInstance callee)
-        {
-            if (!_allocations.TryGetValue(callee, out var created))
-                _allocations.Add(callee, created = callee.Receivers.Where(region => _heap.Regions[region].Kind == HeapRegionKind.Allocation)
-                                                                  .Order(StringComparer.Ordinal).ToArray());
-            return created;
-        }
-
         private static bool OnPath(PathNode node, State state)
         {
             for (var step = node; step is not null; step = step.Parent)
@@ -926,6 +901,40 @@ public static partial class InterproceduralAccesses
             }
 
             return false;
+        }
+
+        /// <summary>One question to the construction analysis: an object, at an operation of an instance.</summary>
+        /// <param name="Instance">The instance making the operation.</param>
+        /// <param name="Operation">The operation.</param>
+        /// <param name="Region">The object.</param>
+        private sealed record ConstructionQuery(string Instance, int Operation, string Region);
+
+        /// <summary>Whether an object is under construction where this execution runs an operation of an instance (ADR 0017, ADR 0018).</summary>
+        /// <param name="instance">The instance making the operation.</param>
+        /// <param name="operationId">The operation.</param>
+        /// <param name="regionId">The object.</param>
+        private ConstructionStatus Construction(MethodInstance instance, int operationId, string regionId)
+        {
+            var query = new ConstructionQuery(instance.Id, operationId, regionId);
+            if (!_constructions.TryGetValue(query, out var status))
+                _constructions.Add(query, status = input.Executions.Construction(execution.Id, instance.Id, operationId, regionId, cancellationToken));
+            return status;
+        }
+
+        /// <summary>The ways an access on a region is construction-local where this execution runs it: local where the region is under
+        /// construction on some path and its construction does not publish it, not local where it is outside its construction on some
+        /// path, where the execution's own walk reaches what the construction analysis does not, or where its construction publishes it.</summary>
+        /// <param name="instance">The instance making the access.</param>
+        /// <param name="operationId">The access's operation.</param>
+        /// <param name="regionId">The region it touches.</param>
+        private IEnumerable<bool> Localities(MethodInstance instance, int operationId, string regionId)
+        {
+            var status = Construction(instance, operationId, regionId);
+            var published = input.Executions.PublishedObjects.Contains(regionId);
+            if (status.May && !published)
+                yield return true;
+            if (status.NotMust || !status.Reached || published)
+                yield return false;
         }
 
         /// <summary>The member symbols of a body's discovery path in this execution, consecutive duplicates (a lambda in its member)
@@ -1602,7 +1611,7 @@ public static partial class InterproceduralAccesses
                         foreach (var edge in ExecutionCalls(instance.Id, returned.OperationId))
                         {
                             var callee = _heap.Instances[edge.CalleeInstance];
-                            var calleeNode = new PathNode(new State(callee.Id, node.State.Interval, node.State.Segment), node, edge);
+                            var calleeNode = new PathNode(new State(callee.Id, node.State.Segment), node, edge);
                             foreach (var resolved in Descend(returned.OperationId, callee, calleeNode, ReturnKind.Collection))
                                 yield return resolved.Cell is { } cell
                                     ? resolved with { Cell = UnknownCell(cell) with { IsOnCollection = true } }
@@ -1615,7 +1624,7 @@ public static partial class InterproceduralAccesses
                         foreach (var edge in ExecutionCalls(instance.Id, reference.OperationId))
                         {
                             var callee = _heap.Instances[edge.CalleeInstance];
-                            var calleeNode = new PathNode(new State(callee.Id, node.State.Interval, node.State.Segment), node, edge);
+                            var calleeNode = new PathNode(new State(callee.Id, node.State.Segment), node, edge);
                             foreach (var resolved in Descend(reference.OperationId, callee, calleeNode, ReturnKind.Reference))
                                 yield return receiverFromCall && resolved.Cell is { IsOnCollection: true } cell
                                     ? resolved with { Cell = UnknownCell(cell, keepTerm: true) }
@@ -1650,7 +1659,7 @@ public static partial class InterproceduralAccesses
                                 while (ownerNode.Parent is { } parent && ownerNode.State.Instance != owner.Id)
                                     ownerNode = parent;
                                 if (ownerNode.State.Instance != owner.Id)
-                                    ownerNode = new PathNode(new State(owner.Id, node.State.Interval, node.State.Segment), calleeNode, null);
+                                    ownerNode = new PathNode(new State(owner.Id, node.State.Segment), calleeNode, null);
                                 yield return new ResolvedReference(cell.Cell, owner, ownerNode);
                                 break;
                             case ReturnUnproven:
@@ -1685,6 +1694,23 @@ public static partial class InterproceduralAccesses
         /// so that its resources are worked out once; one made anew for the visit is worked out again.</param>
         private readonly record struct VisitAccess(SummaryAccess Access, MethodInstance Source, PathNode SourceNode, bool IsReference,
                                                    bool IsStable);
+
+        /// <summary>What the emission tells accesses apart by, besides their guards.</summary>
+        /// <param name="BodyId">The body making the access.</param>
+        /// <param name="Operation">The access's operation.</param>
+        /// <param name="Resource">The identity of the resource it touches.</param>
+        /// <param name="Kind">What it does to the resource.</param>
+        /// <param name="Local">Whether it is construction-local.</param>
+        /// <param name="Held">The protections it holds.</param>
+        /// <param name="Root">The root its call path starts at.</param>
+        /// <param name="Term">The expression naming its cell.</param>
+        private sealed record EmittedKey(string BodyId, int Operation, string Resource, AccessOperation Kind, bool Local, string Held, string Root,
+                                         string Term);
+
+        /// <summary>An access the emission keeps for its key, with the numbers of its guards' keys, as bits.</summary>
+        /// <param name="Conditions">The numbers of its guards' keys.</param>
+        /// <param name="Access">The access.</param>
+        private sealed record KeptAccess(ulong[] Conditions, Access Access);
 
         private IReadOnlyList<Access> Emit()
         {
@@ -1778,7 +1804,7 @@ public static partial class InterproceduralAccesses
             // An access that a path under fewer guards replaces leaves the list at the end, in one pass, keeping the order of the rest:
             // finding and removing each one as it is replaced would cost the whole list every time.
             var replaced = new HashSet<Access>(ReferenceEqualityComparer.Instance);
-            var seen = new Dictionary<(string, int, string, AccessOperation, bool, string, string, string), List<(HashSet<string> Conditions, Access Access)>>();
+            var seen = new Dictionary<EmittedKey, List<KeptAccess>>();
             foreach (var (entry, node) in _visits)
             {
                 CheckCancellation();
@@ -1873,10 +1899,9 @@ public static partial class InterproceduralAccesses
                         // guards for both would let them decide a pair the other path is part of (R1, R8). A path under every guard
                         // of another and more adds nothing, since each pair it may be part of the other may be part of too.
                         guards ??= Conditions(instance, access, node);
-                        var (conditions, conditionSet) = guards;
+                        var (conditions, conditionKeys) = guards;
                         var termKey = term?.ToString() ?? "";
                         var regionId = isReference ? resource.CollectionId ?? resource.RegionId! : resource.RegionId!;
-                        var local = node.State.Interval == regionId && !input.Executions.PublishedObjects.Contains(regionId);
                         // Contexts of one body that hold the same protection give one access; a context holding less stays, so the pair
                         // an occurrence keeps can be the least protected one (R5).
                         // A write through a reference that reads it first spans that read, which stands in this very body, and every
@@ -1892,18 +1917,22 @@ public static partial class InterproceduralAccesses
                         var region = _heap.Regions[regionId];
                         var ownership = input.Executions.Ownership.GetValueOrDefault(regionId);
                         var resourceIdentity = ReferenceEquals(resource, original) ? identity : resource.Identity;
-                        // A construction triggered by several roots gives one access per root, so each root pair is an occurrence (R5).
-                        foreach (var (callPath, pathRoot) in CallPaths(instance.BodyId))
+                        // An access may be construction-local on one path and not on another (ADR 0018), and a construction triggered by
+                        // several roots gives one access per root, so each root pair is an occurrence (R5).
+                        foreach (var (local, (callPath, pathRoot)) in Localities(instance, access.OperationId, regionId)
+                                                                          .SelectMany(local => CallPaths(instance.BodyId).Select(path => (local, path))))
                         {
-                            var key = (instance.BodyId, access.OperationId, resourceIdentity, operation, local, heldKey, pathRoot.RootId, termKey);
+                            var key = new EmittedKey(instance.BodyId, access.OperationId, resourceIdentity, operation, local, heldKey, pathRoot.RootId, termKey);
                             if (!seen.TryGetValue(key, out var kept))
                                 seen[key] = kept = [];
-                            if (kept.Any(other => other.Conditions.IsSubsetOf(conditionSet)))
+                            if (kept.Exists(other => Bits.Covers(conditionKeys, other.Conditions)))
                                 continue;
-                            foreach (var stronger in kept.Where(other => conditionSet.IsSubsetOf(other.Conditions)).ToArray())
+                            for (var index = kept.Count - 1; index >= 0; index--)
                             {
-                                kept.Remove(stronger);
-                                replaced.Add(stronger.Access);
+                                if (!Bits.Covers(kept[index].Conditions, conditionKeys))
+                                    continue;
+                                replaced.Add(kept[index].Access);
+                                kept.RemoveAt(index);
                             }
 
                             var emitted = new Access(
@@ -1958,7 +1987,7 @@ public static partial class InterproceduralAccesses
                                                             : Array.Empty<GapCheck>())
                                                 .ToArray()
                             };
-                            kept.Add((conditionSet, emitted));
+                            kept.Add(new KeptAccess(conditionKeys, emitted));
                             accesses.Add(emitted);
                         }
                     }
@@ -2881,7 +2910,7 @@ public static partial class InterproceduralAccesses
             if (_visitGuards is not { } visit || !ReferenceEquals(visit.Node, node))
             {
                 var path = PathGuards(node);
-                _visitGuards = visit = new VisitGuards(node, new Guards(path, path.Select(ConditionKey).ToHashSet(StringComparer.Ordinal)));
+                _visitGuards = visit = new VisitGuards(node, new Guards(path, Bits.Of(path.Select(ConditionNumber))));
             }
 
             var guards = visit.Path;
@@ -2890,8 +2919,9 @@ public static partial class InterproceduralAccesses
                 var conditions = new List<PathPredicate>(own.Count + visit.Path.Conditions.Count);
                 conditions.AddRange(own);
                 conditions.AddRange(visit.Path.Conditions);
-                var keys = new HashSet<string>(visit.Path.Keys, StringComparer.Ordinal);
-                keys.UnionWith(own.Select(ConditionKey));
+                var keys = (ulong[])visit.Path.Keys.Clone();
+                foreach (var condition in own)
+                    Bits.Add(ref keys, ConditionNumber(condition));
                 guards = new Guards(conditions, keys);
             }
 
@@ -2899,10 +2929,22 @@ public static partial class InterproceduralAccesses
             return guards;
         }
 
-        /// <summary>The guards that hold where an access runs, each with its <see cref="ConditionKey"/>.</summary>
+        /// <summary>The guards that hold where an access runs, with the numbers of their <see cref="ConditionKey"/>s.</summary>
         /// <param name="Conditions">The guards, the access's own first.</param>
-        /// <param name="Keys">The keys of the guards, by which the emission tells two paths of one body apart.</param>
-        private sealed record Guards(IReadOnlyList<PathPredicate> Conditions, HashSet<string> Keys);
+        /// <param name="Keys">The numbers of the keys of the guards, as bits, by which the emission tells two paths of one body apart.</param>
+        private sealed record Guards(IReadOnlyList<PathPredicate> Conditions, ulong[] Keys);
+
+        /// <summary>The number of a guard's <see cref="ConditionKey"/> in this collector, given the first time it is met.</summary>
+        /// <param name="condition">The guard.</param>
+        private int ConditionNumber(PathPredicate condition)
+        {
+            var key = ConditionKey(condition);
+            if (!_conditionNumbers.TryGetValue(key, out var number))
+                _conditionNumbers.Add(key, number = _conditionNumbers.Count);
+            return number;
+        }
+
+        private readonly Dictionary<string, int> _conditionNumbers = new(StringComparer.Ordinal);
 
         /// <summary>The guards of one visit (<see cref="Conditions"/>): those of the calls its path came through, and all the guards of each
         /// list of an access's own guards met there.</summary>
@@ -2977,7 +3019,7 @@ public static partial class InterproceduralAccesses
                 var subject = condition switch
                 {
                     { Relation: PathRelation.Unsupported } => "",
-                    { SubjectLoad: { } load } when Canonical(instance, load, node) is { } canonical => canonical,
+                    { SubjectLoad: { } load } when Canonical(instance, load) is { } canonical => canonical,
                     { SubjectLoad: { } load } => Local(instance, $"{instance.BodyId}#{load}"),
                     { SubjectValue: { } value } => Local(instance, $"{instance.BodyId}:{value}"),
                     _ => ""
@@ -3055,7 +3097,7 @@ public static partial class InterproceduralAccesses
             {
                 if (depth < MAX_ARGUMENT_DEPTH && ConstructedField(instance, load, node, depth) is { } constructed)
                     return constructed;
-                return variable with { Identity = Canonical(instance, load, node) ?? Local(instance, variable.Identity) };
+                return variable with { Identity = Canonical(instance, load) ?? Local(instance, variable.Identity) };
             }
 
             if (depth < MAX_ARGUMENT_DEPTH &&
@@ -3126,12 +3168,12 @@ public static partial class InterproceduralAccesses
                                                           edge.Reason != ITERATOR_ENUMERATION)
                                            .ToArray();
                 if (calls is [var call])
-                    return new PathNode(new State(creatorId, node.State.Interval, node.State.Segment), step, call);
+                    return new PathNode(new State(creatorId, node.State.Segment), step, call);
                 if (calls.Length > 1)
                     break;
             }
 
-            return new PathNode(new State(creatorId, node.State.Interval, node.State.Segment), null, null);
+            return new PathNode(new State(creatorId, node.State.Segment), null, null);
         }
 
         private ValueTerm? ConstructedField(MethodInstance instance, int loadId, PathNode node, int depth)
@@ -3205,11 +3247,11 @@ public static partial class InterproceduralAccesses
             {
                 foreach (var sliceEdge in HeapCalls(parent.State.Instance).Where(edge => producer.Contains(edge.OperationId)))
                 {
-                    var sliceNode = new PathNode(new State(sliceEdge.CalleeInstance, node.State.Interval, node.State.Segment), parent, sliceEdge);
+                    var sliceNode = new PathNode(new State(sliceEdge.CalleeInstance, node.State.Segment), parent, sliceEdge);
                     foreach (var constructorEdge in HeapCalls(sliceEdge.CalleeInstance).Where(edge => _heap.Instances[edge.CalleeInstance].Receivers.Contains(region) &&
                                                                                                        IsConstructor(_heap.Instances[edge.CalleeInstance].BodyId)))
                         yield return (_heap.Instances[constructorEdge.CalleeInstance],
-                                      new PathNode(new State(constructorEdge.CalleeInstance, node.State.Interval, node.State.Segment),
+                                      new PathNode(new State(constructorEdge.CalleeInstance, node.State.Segment),
                                                    sliceNode, constructorEdge));
                 }
                 yield break;
@@ -3217,9 +3259,9 @@ public static partial class InterproceduralAccesses
 
             foreach (var edge in ConstructorCalls(region))
             {
-                var callerNode = new PathNode(new State(edge.CallerInstance, node.State.Interval, node.State.Segment), null, null);
+                var callerNode = new PathNode(new State(edge.CallerInstance, node.State.Segment), null, null);
                 yield return (_heap.Instances[edge.CalleeInstance],
-                              new PathNode(new State(edge.CalleeInstance, node.State.Interval, node.State.Segment), callerNode, edge));
+                              new PathNode(new State(edge.CalleeInstance, node.State.Segment), callerNode, edge));
             }
         }
 
@@ -3246,11 +3288,11 @@ public static partial class InterproceduralAccesses
 
         private static string Local(string instanceId, string value) => $"local|{instanceId}|{value}";
 
-        /// <summary>The identity of the value a field load reads, when every execution that reads it reads the same one.</summary>
+        /// <summary>The identity of the value a field load reads, when every execution that reads it reads the same one: never while its
+        /// object may be under construction there.</summary>
         /// <param name="instance">The instance making the load.</param>
         /// <param name="loadOperationId">The load operation.</param>
-        /// <param name="node">The visit, whose construction interval tells a read during construction.</param>
-        private string? Canonical(MethodInstance instance, int loadOperationId, PathNode node)
+        private string? Canonical(MethodInstance instance, int loadOperationId)
         {
             if (instance.Summary.Accesses.FirstOrDefault(candidate => candidate.OperationId == loadOperationId &&
                                                                       candidate.Kind == SummaryAccessKind.Load) is not { } load ||
@@ -3262,8 +3304,8 @@ public static partial class InterproceduralAccesses
             var resources = Resources(instance, load);
             if (resources.Count != 1 || resources[0].RegionId is not { } regionId)
                 return null;
-            // A read while the object is still being built sees a field the construction has not finished writing.
-            if (node.State.Interval == regionId)
+            // A read while the object may still be being built sees a field the construction has not finished writing.
+            if (Construction(instance, loadOperationId, regionId).May)
                 return null;
 
             return _heap.Regions[regionId].Kind == HeapRegionKind.Static || input.Executions.IsSingleObject(regionId)
@@ -3383,7 +3425,7 @@ public static partial class InterproceduralAccesses
                 var caller = _heap.Instances[step.Edge!.CallerInstance];
                 var callee = _heap.Instances[step.Edge.CalleeInstance];
                 var calleeSymbol = input.Scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var calleeBody) ? calleeBody.MethodSymbol : callee.BodyId;
-                if (step.Edge.Reason == WholeProgram.CONSTRUCTION_REASON && step.State.Interval is { } constructed)
+                if (step.Edge.Reason == WholeProgram.CONSTRUCTION_REASON && _constructedBy.TryGetValue(step.Edge, out var constructed))
                 {
                     var subject = _heap.Regions.TryGetValue(constructed, out var constructedRegion) ? constructedRegion.Display : constructed;
                     steps.Add(new CodeFlowStep("construction", $"constructs {subject} in {calleeSymbol}",

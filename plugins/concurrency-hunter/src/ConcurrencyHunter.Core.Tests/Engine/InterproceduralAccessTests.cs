@@ -54,6 +54,24 @@ public sealed class InterproceduralAccessTests
     }
 
     [Fact]
+    public void Write_to_an_object_from_a_construction_it_starts_is_construction_local()
+    {
+        // The part is built while its owner still is: the owner's construction encloses the part's, so the write is local to it,
+        // however deep the constructions it starts go (ADR 0018).
+        var run = Analyze("""
+            public sealed class Owner { public int Value; public Owner() { new Part(this); } }
+            public sealed class Part { public Part(Owner owner) { owner.Value = 1; } }
+            public class OwnerController(Owner owner) : ControllerBase { public void Post() => owner.Value = 2; }
+            """ + Startup("services.AddSingleton<Owner>();"));
+
+        var inPart = run.Accesses("Value").Where(access => access.BodyId.Contains("Part.#ctor", StringComparison.Ordinal)).ToArray();
+        Assert.NotEmpty(inPart);
+        Assert.All(inPart, access => Assert.True(access.IsConstructionLocal));
+        Assert.DoesNotContain(run.PairsOn("Value"), pair => inPart.Contains(pair.First) || inPart.Contains(pair.Second));
+        Assert.Contains(run.Accesses("Value"), access => !access.IsConstructionLocal && access.BodyId.Contains("OwnerController.Post", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Lock_in_the_caller_protects_the_callee_access()
     {
         var run = Analyze("""
