@@ -433,6 +433,21 @@ ConcurrencyHunter.Core.Tests.Engine.BenchmarkWatchdogTests.Heap_and_executions_e
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkWatchdogTests.Low_available_commit_cuts_with_reason_memory_in_any_step	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkWatchdogTests.Peak_working_set_belongs_to_its_scope_window	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkWatchdogTests.Steps_before_the_heap_have_no_deadline	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Continuation_without_a_body_touches_its_state	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Lambda_work_calling_a_member_without_a_body_keeps_its_effect_in_the_spawn	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Library_method_group_on_a_library_object_touches_the_array_it_is_handed	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Lock_held_where_the_work_starts_does_not_protect_the_work	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Method_group_without_a_body_handed_to_an_opaque_call_touches_its_receiver_in_an_unknown_execution	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Object_the_caller_creates_and_reads_after_the_spawn_is_shared_with_the_work	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Parallel_body_without_a_body_touches_the_local_value_its_local_init_returns	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Parallel_local_finally_without_a_body_touches_what_local_init_and_the_body_return	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Queued_static_method_group_without_a_body_touches_its_state	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Synchronous_call_of_a_library_method_group_touches_what_it_is_handed	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Task_run_of_a_method_group_without_a_body_touches_its_receiver_in_the_spawn	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Thread_started_on_a_method_without_a_body_touches_its_receiver	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Timer_callback_without_a_body_touches_its_state	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Work_item_of_two_types_runs_the_one_with_a_body_and_touches_the_other	Passed
+ConcurrencyHunter.Core.Tests.Engine.BodylessWorkTests.Work_item_whose_execute_has_no_body_touches_the_item	Passed
 ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.A_call_site_guard_binds_the_index_of_a_parameter_array	Passed
 ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.A_call_site_guard_binds_the_index_of_a_reference_into_a_parameter_array	Passed
 ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.A_call_site_guard_binds_the_value_passed_to_a_helper	Passed
@@ -3173,6 +3188,193 @@ ConcurrencyHunter.Core.Tests.Engine.ConstructionSetTests.Constructor_chain_walks
 ConcurrencyHunter.Core.Tests.Engine.ConstructionSetTests.Executions_sharing_a_node_keep_their_own_construction_status	Passed
 ConcurrencyHunter.Core.Tests.Engine.ConstructionSetTests.Two_construction_sets_reaching_one_helper_keep_both_alternatives	Passed
 ConcurrencyHunter.Core.Tests.Engine.CoreLibBenchmarkTests.CoreLib_benchmark_records_a_point	Skipped
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Box((S?)new S()).ToString();", helper: "", reached: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Box(1); Later();", helper: "static void Later() => Outer(new S()).ToString(); "···, reached: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Box(1).ToString(); Ignore(new S());", helper: "", reached: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Box(1).ToString(); Other(new S());", helper: "static void Other<T>(T x) { }", reached: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Func<S, object> box = Box<S>; box(default).ToStrin"···, helper: "", reached: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "GC.KeepAlive(unused); new Holder<int>().Get(1).ToS"···, helper: "static Holder<S> unused;", reached: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Holder<S> unused = null!; GC.KeepAlive(unused); ne"···, helper: "", reached: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "IHolder<S> holder = new Holder<S>(); holder.Get(de"···, helper: "", reached: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "new Container<int>.Nested<S>().Get(default).ToStri"···, helper: "", reached: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "new Container<S>.Nested<int>().Get(default).ToStri"···, helper: "", reached: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "new Holder<S>().Get(default).ToString();", helper: "", reached: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "new Holder<S>().Shadow(1).ToString();", helper: "", reached: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Observe(null!); new Holder<int>().Get(1).ToString("···, helper: "static void Observe(Holder<S> unused) => GC.KeepAl"···, reached: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Outer(new S()).ToString();", helper: "static object Outer<T>(T x) => Box(x);", reached: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Select(1, new S()).ToString();", helper: "static object Select<T, U>(T x, U y) => x!;", reached: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Boxed_parameter_only_admits_its_bindings(operation: "Select(new S(), 1).ToString();", helper: "static object Select<T, U>(T x, U y) => x!;", reached: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Constructor, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Constructor, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Constructor, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInstance, making: Constructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInstance, making: Constructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInstance, making: DerivedConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInstance, making: DerivedConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInstance, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: Boxed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: Boxed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: Boxed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: Boxed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: Constructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: Constructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: Constructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: Constructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: DerivedConstructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: DerivedConstructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: DerivedConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: DerivedConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: LeftOutMixed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: RootConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateInterface, making: RootConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateStatic, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateStatic, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateStatic, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: Boxed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: Boxed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: Boxed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: Boxed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: Constructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: Constructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: Constructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: Constructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: DerivedConstructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: DerivedConstructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: DerivedConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: DerivedConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: LeftOutMixed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: RootConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: DelegateVirtual, making: RootConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Instance, making: Constructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Instance, making: Constructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Instance, making: DerivedConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Instance, making: DerivedConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Instance, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Boxed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Boxed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Boxed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Boxed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Constructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Constructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Constructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Constructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: DerivedConstructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: DerivedConstructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: DerivedConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: DerivedConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: LeftOutMixed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: RootConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: RootConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Unboxed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Interface, making: Unboxed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Property, making: Constructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Property, making: Constructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Property, making: DerivedConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Property, making: DerivedConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Property, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: Boxed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: Boxed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: Boxed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: Boxed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: Constructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: Constructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: Constructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: Constructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: DerivedConstructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: DerivedConstructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: DerivedConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: DerivedConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: LeftOutMixed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: RootConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnDelegate, making: RootConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: Boxed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: Boxed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: Boxed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: Boxed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: Constructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: Constructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: Constructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: Constructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: DerivedConstructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: DerivedConstructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: DerivedConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: DerivedConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: LeftOutMixed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: RootConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: SpawnMethod, making: RootConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Static, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Static, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Static, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: StaticField, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: StaticField, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: StaticField, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Boxed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Boxed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Boxed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Boxed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Constructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Constructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Constructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Constructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: DerivedConstructed, timing: After, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: DerivedConstructed, timing: After, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: DerivedConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: DerivedConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: LeftOut, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: LeftOutMixed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: NeverConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: NeverConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: RootConstructed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: RootConstructed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Unboxed, timing: Before, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Cell_gets_its_expected_answer(operation: Virtual, making: Unboxed, timing: Before, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Dispatched_generic_boxing_binds_implementation_parameters(receiverType: "Base", later: False, explicitImplementation: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Dispatched_generic_boxing_binds_implementation_parameters(receiverType: "Base", later: True, explicitImplementation: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Dispatched_generic_boxing_binds_implementation_parameters(receiverType: "IConvert", later: False, explicitImplementation: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Dispatched_generic_boxing_binds_implementation_parameters(receiverType: "IConvert", later: False, explicitImplementation: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Dispatched_generic_boxing_binds_implementation_parameters(receiverType: "IConvert", later: True, explicitImplementation: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Dispatched_generic_boxing_binds_implementation_parameters(receiverType: "IConvert", later: True, explicitImplementation: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Every_cell_has_a_row_and_an_expected_answer	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Every_value_of_every_axis_occurs_in_some_row	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Factory_receiver_preserves_each_opaque_implementation(mixed: False, throughDelegate: False, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Factory_receiver_preserves_each_opaque_implementation(mixed: False, throughDelegate: False, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Factory_receiver_preserves_each_opaque_implementation(mixed: False, throughDelegate: True, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Factory_receiver_preserves_each_opaque_implementation(mixed: False, throughDelegate: True, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Factory_receiver_preserves_each_opaque_implementation(mixed: True, throughDelegate: False, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Factory_receiver_preserves_each_opaque_implementation(mixed: True, throughDelegate: False, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Factory_receiver_preserves_each_opaque_implementation(mixed: True, throughDelegate: True, mode: ClassHierarchy)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Factory_receiver_preserves_each_opaque_implementation(mixed: True, throughDelegate: True, mode: ConstructedTypes)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_argument_without_boxing_does_not_admit_value_overrides(mode: ClassHierarchy, reached: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_argument_without_boxing_does_not_admit_value_overrides(mode: ConstructedTypes, reached: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_boxing_is_independent_of_argument_discovery_order(boxFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_boxing_is_independent_of_argument_discovery_order(boxFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_boxing_reaches_value_overrides(operation: "((object)(S?)new S()).ToString();", helper: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_boxing_reaches_value_overrides(operation: "Bind((S?)new S())(); Observe(null!);", helper: "static Func<string> Bind<T>(T? value) where T : st"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_boxing_reaches_value_overrides(operation: "Bind(new S())();", helper: "static Func<string> Bind<T>(T value) where T : str"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_boxing_reaches_value_overrides(operation: "Box((S?)new S()).ToString();", helper: "static object Box<T>(T? value) where T : struct =>"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_boxing_reaches_value_overrides(operation: "Box(new S()).ToString();", helper: "static object Box<T>(T value) where T : struct => "···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_boxing_reaches_value_overrides(operation: "Box<S>.Bind(new S())();", helper: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Generic_boxing_reaches_value_overrides(operation: "Box<S>.Run(new S()).ToString();", helper: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Left_out_factory_override_never_runs_the_base_factory(mode: ClassHierarchy, runs: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Left_out_factory_override_never_runs_the_base_factory(mode: ConstructedTypes, runs: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.No_cell_narrows_unsafely	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Nonvirtual_delegate_uses_its_bound_member(virtualCall: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.CoreLibGenerationSetMatrixTests.Nonvirtual_delegate_uses_its_bound_member(virtualCall: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.DeconstructionCallTests.Deconstruction_assignment_calls_a_source_Deconstruct	Passed
 ConcurrencyHunter.Core.Tests.Engine.DeconstructionCallTests.Deconstruction_into_existing_variables_calls_a_source_Deconstruct	Passed
 ConcurrencyHunter.Core.Tests.Engine.DeconstructionCallTests.Foreach_deconstruction_calls_a_source_Deconstruct	Passed
@@ -4441,6 +4643,7 @@ ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Field_like_event_storage_i
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Fields_carry_static_and_readonly_flags	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Generic_type_and_its_methods_are_keyed_on_the_original_definition	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Implicit_type_initializer_exists_only_for_static_initializers	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Index_over_a_compilation_indexed_before_equals_one_over_a_fresh_compilation_of_the_same_source	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Inherited_instance_field_type_key_is_substituted_through_a_generic_base	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Instance_fields_carry_their_type_keys_in_walk_order	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Interface_member_resolves_to_the_override_of_its_implementation	Passed
@@ -5567,6 +5770,11 @@ ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_f
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "return await Forms.Models.Invoke(() => flag ? x : "···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "return await Forms.Models.PassTaskTask(Task.FromRe"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "var tasks = new[] { Task.FromResult(flag ? x : Ext"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.Claimed_CoreLib_member_names_its_recognizer	Skipped
+ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.Every_ConstructorInvoker_Invoke_overload_returns_an_answer	Skipped
+ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.Every_CoreLib_body_lowers_without_an_escaping_exception	Skipped
+ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.No_generation_reaches_a_System_SR_body	Skipped
+ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.Unclaimed_members_are_classified_within_the_closure_bound	Skipped
 ConcurrencyHunter.Core.Tests.Generation.DelegateReturnObservationMatrixTests.Async_call_task_is_observed_as_its_synchronous_twin_wherever_it_travels(name: "Known/Collection/Await")	Passed
 ConcurrencyHunter.Core.Tests.Generation.DelegateReturnObservationMatrixTests.Async_call_task_is_observed_as_its_synchronous_twin_wherever_it_travels(name: "Known/Collection/Result")	Passed
 ConcurrencyHunter.Core.Tests.Generation.DelegateReturnObservationMatrixTests.Async_call_task_is_observed_as_its_synchronous_twin_wherever_it_travels(name: "Known/Direct/Await")	Passed
@@ -7013,7 +7221,7 @@ ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.No_such_assem
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.NUGET_PACKAGES_is_honoured	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Oscillating_dependencies_are_skipped_and_named_and_never_taken_at_a_version_a_range_refuses	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Package_id_makes_a_package_member	Passed
-ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.System_Private_CoreLib_is_answered_corelib_without_being_read(name: "system.private.corelib")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.System_Private_CoreLib_is_answered_corelib_without_being_read(name: "System.Private.CoreLib")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.The_installed_runtime_s_framework_member_is_compiled_against_its_own_shared_framework	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.The_platform_chosen_is_named_also_when_no_assembly_is_found	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Without_a_package_id_the_member_is_the_framework_s_even_beside_a_package_of_its_name	Passed
@@ -7352,6 +7560,13 @@ ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Missing_folder_walks_
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Nearest_folder_holding_the_directory_wins	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Solution_folder_itself_counts	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Solution_folder_when_outside_git	Passed
+ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_class_reached_again_through_a_struct_field_stops_there	Passed
+ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_container_a_neighbour_left_behind_is_recorded_again_below_a_struct_field(container: "Leaf[]")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_container_a_neighbour_left_behind_is_recorded_again_below_a_struct_field(container: "List<Leaf>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_cycle_through_two_nested_structs_stops_at_the_class	Passed
+ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_growing_generic_cycle_through_an_array_stops_past_16_levels_and_records_the_field_that_leads_there	Passed
+ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_shrinking_generic_path_is_recorded_in_full	Passed
+ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_struct_argument_whose_class_holds_the_struct_again_stops_at_the_class	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_collection_outside_the_table_is_unseeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_dictionary_field_gets_a_seed_value	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_dictionary_key_gets_a_seed_when_it_can_hold_a_user_object	Passed
@@ -7484,6 +7699,17 @@ ConcurrencyHunter.Core.Tests.Providers.WitnessTests.An_interface_stub_member_is_
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.An_unbuildable_property_return_stays_an_unknown_call(declaration: "public abstract class User { public abstract Hidde"···, type: "Lib.User")	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.An_unbuildable_property_return_stays_an_unknown_call(declaration: "public interface IUser { Hidden Value { get; } }", type: "Lib.IUser")	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.An_unbuildable_seed_is_left_unseeded_without_refusing_the_driver	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.ByReference_implicit_constructor_runs_no_initializer	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.ByReference_primary_constructor_stores_its_ref_field	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.Constructor_binding_a_ref_parameter_to_a_ref_field_lowers	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.Implicit_constructor_beside_a_primary_one_reading_a_parameter_runs_no_initializer	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.Implicit_constructor_beside_a_primary_one_reading_a_ref_parameter_runs_no_initializer	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.Implicit_constructor_beside_an_explicit_one_runs_no_initializer	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.Implicit_constructor_of_a_class_keeps_its_initializers	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.Implicit_constructor_of_a_record_struct_runs_no_initializer	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.Ref_field_bound_to_a_ref_parameter_then_read_lowers	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.Ref_local_bound_to_a_ref_parameter_lowers	Passed
+ConcurrencyHunter.Core.Tests.RefParameterLoweringTests.Ref_parameter_rebound_then_read_lowers	Passed
 ConcurrencyHunter.Core.Tests.ReportingSelectorTests.A_cell_nothing_proves_still_names_itself_in_the_resource_text	Passed
 ConcurrencyHunter.Core.Tests.ReportingSelectorTests.A_proven_index_names_its_cell_in_the_resource_text	Passed
 ConcurrencyHunter.Core.Tests.ReportingSelectorTests.A_proven_key_names_its_cell_in_the_resource_text	Passed

@@ -123,15 +123,18 @@ public static partial class InterproceduralAccesses
                                        .GroupBy(call => call.Instance.Id, StringComparer.Ordinal)
                                        .ToDictionary(group => group.Key, group => (IReadOnlyList<UnknownCall>)group.ToArray(), StringComparer.Ordinal);
         var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
+        var workHosts = WorkHosts(input, unknownCalls);
         var collected = 0;
         try
         {
             foreach (var execution in input.Executions.Executions)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                // The unknown enumeration of a library sequence enumerates it even where no body of its own runs there (R5).
+                // The unknown enumeration of a library sequence enumerates it even where no body of its own runs there (R5), and an
+                // execution running work without a body makes its unresolved call though it runs no body (question 145).
                 if (input.Executions.Entries.TryGetValue(execution.Id, out var entries) ||
-                    execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject))
+                    execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject) ||
+                    workHosts.Contains(execution.Id))
                 {
                     var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, origins, unknownCalls, reach,
                                                            cancellationToken);
@@ -154,6 +157,20 @@ public static partial class InterproceduralAccesses
 
         // The gaps are the same calls now; their materiality counts what the unknown executions of their delegates touched (R4).
         return new InterproceduralCollection(accesses, Coverage(input, accesses, unproven, folded, SemanticGaps.Find(input, accesses)));
+    }
+
+    /// <summary>The executions running work without a body: those whose work sites start one, and the unknown execution of a handed
+    /// delegate without a body (question 145).</summary>
+    /// <param name="input">The scope, its solved heap and its executions.</param>
+    /// <param name="unknownCalls">The unresolved calls, by the instance making them.</param>
+    private static HashSet<string> WorkHosts(InterproceduralInput input, IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls)
+    {
+        var work = unknownCalls.Values.SelectMany(calls => calls).Where(call => call.Work is not null).ToArray();
+        var sites = work.Where(call => call.Work!.Kind != UnresolvedWorkKind.Handoff).Select(call => (call.Instance.Id, call.OperationId)).ToHashSet();
+        return input.Executions.WorkSites.Where(pair => pair.Value.Overlaps(sites)).Select(pair => pair.Key)
+                    .Concat(work.Where(call => call.Work!.Kind == UnresolvedWorkKind.Handoff)
+                                .Select(call => ExecutionModel.UnknownDelegateCallId(call.Work!.DelegateRegion!)))
+                    .ToHashSet(StringComparer.Ordinal);
     }
 
     private static InterproceduralCoverage Coverage(InterproceduralInput input, IReadOnlyList<Access> accesses,
@@ -798,6 +815,10 @@ public static partial class InterproceduralAccesses
         /// effects (R5); every one makes the unresolved dispatches of its delegates there (R3). A host runs nothing of its body.</summary>
         private readonly Dictionary<PathNode, bool> _hosts = [];
 
+        /// <summary>The visits among <see cref="_hosts"/> that host work without a body this execution runs: the instance that started it,
+        /// whose locks at the starting operation do not hold over the work (question 145).</summary>
+        private readonly HashSet<PathNode> _workHosts = [];
+
         private void CheckCancellation() => cancellationToken.ThrowIfCancellationRequested();
 
         internal IReadOnlyList<Access> Collect()
@@ -805,6 +826,7 @@ public static partial class InterproceduralAccesses
             foreach (var entry in entries)
                 Visit(entry);
             HostSequenceEnumeration();
+            HostWork();
             SolveLocks();
             SolveDependencies();
             return Emit();
@@ -827,6 +849,41 @@ public static partial class InterproceduralAccesses
                 _hosts[node] = creator == escaped.CreatorInstance;
             }
         }
+
+        /// <summary>Hosts the work without a body this execution runs: a visit of each instance that started such work, which runs nothing
+        /// of its body here and makes the work's unresolved call (question 145).</summary>
+        private void HostWork()
+        {
+            var starters = unknownCalls.Values.SelectMany(calls => calls).Where(call => call.Work is not null && Hosts(call))
+                                       .Select(call => call.Instance.Id).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            foreach (var starter in starters.Where(_heap.Instances.ContainsKey))
+            {
+                CheckCancellation();
+                var node = new PathNode(new State(starter, BodySegment.Whole), null, null);
+                var entry = new ExecutionEntry(starter, execution.Kind == ExecutionKind.UnknownDelegateCall
+                                                            ? ExecutionEntryKind.UnknownDelegateCall
+                                                            : ExecutionEntryKind.Spawn, null);
+                _visits.Add((entry, node));
+                _firstPaths.TryAdd(starter, (entry, node));
+                _bodyPaths.TryAdd(_heap.Instances[starter].BodyId, (entry, node));
+                _hosts[node] = false;
+                _workHosts.Add(node);
+            }
+        }
+
+        /// <summary>Whether this execution makes an unresolved call that is not made where it stands: the unknown enumeration of the
+        /// sequence the call names (R5), or the execution running the work without a body the call is (question 145).</summary>
+        /// <param name="call">The unresolved call.</param>
+        private bool Hosts(UnknownCall call) =>
+            call.EnumeratedSequence is { } sequence
+                ? sequence == execution.Subject
+                : call.Work switch
+                {
+                    null => false,
+                    { Kind: UnresolvedWorkKind.Handoff, DelegateRegion: var region } =>
+                        execution.Kind == ExecutionKind.UnknownDelegateCall && region == execution.Subject,
+                    _ => input.Executions.WorkSites.TryGetValue(execution.Id, out var sites) && sites.Contains((call.Instance.Id, call.OperationId))
+                };
 
         /// <summary>Breadth-first over the walk's edges from one entry; a state is an instance with the segment of its body it runs,
         /// reached on at most <see cref="MAX_ACCESS_PATHS"/> paths of its own per entry, and on one more that forgets where it came from
@@ -1858,8 +1915,9 @@ public static partial class InterproceduralAccesses
                 // An unresolved call's unknown effect is a read and a write of every field it reaches, made where the call stands (R1).
                 var unknownEffects = (unknownCalls.GetValueOrDefault(instance.Id) ?? [])
                                      .Where(call => hosted
-                                                        ? call.EnumeratedSequence == execution.Subject
-                                                        : call.EnumeratedSequence is null && input.Executions.Runs(instance.BodyId, node.State.Segment, call.OperationId))
+                                                        ? Hosts(call)
+                                                        : call.EnumeratedSequence is null && call.Work is null &&
+                                                          input.Executions.Runs(instance.BodyId, node.State.Segment, call.OperationId))
                                      .SelectMany(call => UnknownEffectAccesses(call, instance, node))
                                      .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: true))
                                      .ToArray();
@@ -1908,8 +1966,11 @@ public static partial class InterproceduralAccesses
                         // other read that feeds it; only a section held over all of them protects it (R2).
                         if (!pathLocks.Known)
                             pathLocks = (true, EnumerationPathLocks(node));
-                        var held = HeldOverSpan(instance.Id, access.OperationId, operation, pathLocks.Locks,
-                                                isReference && access.ReadModifyWriteOf is int read ? [(instance.Id, read), .. sources ?? []] : sources);
+                        // Work without a body runs after its starter goes on: what the starter holds where it starts it holds nothing over it.
+                        var held = _workHosts.Contains(node)
+                            ? []
+                            : HeldOverSpan(instance.Id, access.OperationId, operation, pathLocks.Locks,
+                                           isReference && access.ReadModifyWriteOf is int read ? [(instance.Id, read), .. sources ?? []] : sources);
                         // Which object is held is not the whole protection: one context may hold it for reading and another for
                         // writing, or hold it over a suspension that keeps nobody out, and those are not one access (R5).
                         var heldKey = string.Join("|", held.Select(info => $"{info.Display}/{info.Primitive}/{info.Mode}/{info.IsExclusive}")

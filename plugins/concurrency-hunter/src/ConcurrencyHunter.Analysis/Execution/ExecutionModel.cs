@@ -256,6 +256,11 @@ public sealed class ExecutionAnalysis
     public IReadOnlyDictionary<string, IReadOnlyList<TimerCallbackSite>> TimerCallbackSites { get; init; } =
         new Dictionary<string, IReadOnlyList<TimerCallbackSite>>();
 
+    /// <summary>The work sites each spawn's or timer's execution runs the work of, by the instance and operation starting it: where an
+    /// unresolved call that is such work is made (question 145).</summary>
+    internal IReadOnlyDictionary<string, IReadOnlySet<(string Instance, int Operation)>> WorkSites { get; init; } =
+        new Dictionary<string, IReadOnlySet<(string, int)>>();
+
     /// <summary>Whether a region is provably one object per process, as a lock identity.</summary>
     /// <param name="regionId">The region.</param>
     public bool IsSingleObject(string regionId) => _singleObjects.Contains(regionId);
@@ -466,6 +471,7 @@ public static class ExecutionModel
         private readonly TimerSteps _timerSteps = new(heap);
         private readonly HashSet<TimerCallbackSite> _subscriptions = [];
         private readonly Dictionary<string, List<TimerCallbackSite>> _timerSites = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HashSet<(string Instance, int Operation)>> _workSites = new(StringComparer.Ordinal);
         private readonly Dictionary<(string BodyId, int OperationId), TimerKind> _timerKinds = [];
         private readonly Dictionary<string, HappensBefore.Flow> _flows = new(StringComparer.Ordinal);
         private readonly Dictionary<string, string> _childKeys = new(StringComparer.Ordinal);
@@ -499,6 +505,9 @@ public static class ExecutionModel
                 CheckCancellation();
                 _delegateDisplays.Add(group.Key, group.Select(item => DelegateName(item.Callee)).Order(StringComparer.Ordinal).First());
             }
+            // A handed delegate whose target has no body is named by its member (question 145).
+            foreach (var work in BodylessHandoffs.OrderBy(work => work.Site.Callee, StringComparer.Ordinal))
+                _delegateDisplays.TryAdd(work.Site.DelegateRegion!, work.Site.Callee);
             AssignRegionExecutions();
             var startupTypeInitializers = StartupTypeInitializers();
 
@@ -536,7 +545,9 @@ public static class ExecutionModel
 
             // A delegate an unresolved call was handed runs whenever that call likes: one execution per delegate, which nothing orders
             // but the end of startup when only executions after startup hand it over, and which holds no lock on entry (R3, ADR 0011).
-            foreach (var handoff in heap.DelegateHandoffs.Where(handoff => handoff.Callees.Count != 0))
+            // One whose target has no body runs there too, as the unresolved call it is (question 145).
+            var bodyless = BodylessHandoffs.Select(work => work.Site.DelegateRegion!).ToHashSet(StringComparer.Ordinal);
+            foreach (var handoff in heap.DelegateHandoffs.Where(handoff => handoff.Callees.Count != 0 || bodyless.Contains(handoff.RegionId)))
             {
                 CheckCancellation();
                 var id = Add(new ExecutionInstance(UnknownDelegateCallId(handoff.RegionId), ExecutionKind.UnknownDelegateCall,
@@ -645,7 +656,8 @@ public static class ExecutionModel
                 Visits = _visitsByExecution,
                 SpawnSiteLocations = _spawnSites,
                 TimerSites = timerSites,
-                TimerCallbackSites = _timerSites.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<TimerCallbackSite>)pair.Value, StringComparer.Ordinal)
+                TimerCallbackSites = _timerSites.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<TimerCallbackSite>)pair.Value, StringComparer.Ordinal),
+                WorkSites = _workSites.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<(string, int)>)pair.Value, StringComparer.Ordinal)
             };
         }
 
@@ -800,6 +812,7 @@ public static class ExecutionModel
                                 new SpawnOrigin(api, symbol, instance.BodyId, site.OperationId, false),
                                 site.Kind is IrSpawnKind.ParallelFor or IrSpawnKind.ParallelForEach or IrSpawnKind.ParallelForEachAsync or IrSpawnKind.Unrecognized);
             _anchors.Add(new SpawnAnchor(parent, instance.Id, site.OperationId, child, SpawnAnchorKind.Spawn));
+            WorkSite(child, instance.Id, site.OperationId);
             var awaitsTask = instance.Summary.Spawns.Any(spawn => spawn.OperationId == site.OperationId && spawn.AwaitsWorkTask);
             foreach (var callee in site.Callees)
             {
@@ -870,11 +883,23 @@ public static class ExecutionModel
                 _timerSites.Add(child, sites = []);
             if (!sites.Contains(site))
                 sites.Add(site);
+            WorkSite(child, site.CallerInstance, site.OperationId);
             foreach (var callee in site.Callees)
             {
                 CheckCancellation();
                 EnterWork(child, callee, awaitsTask: false);
             }
+        }
+
+        /// <summary>Records that a spawn's or timer's execution runs the work of a site, where its work without a body is made (question 145).</summary>
+        /// <param name="execution">The execution running the work.</param>
+        /// <param name="instance">The instance starting the work.</param>
+        /// <param name="operation">The spawn or timer operation.</param>
+        private void WorkSite(string execution, string instance, int operation)
+        {
+            if (!_workSites.TryGetValue(execution, out var sites))
+                _workSites.Add(execution, sites = []);
+            sites.Add((instance, operation));
         }
 
         /// <summary>Enters spawned work: whole, or, for async work its spawn does not wait for, its prefix here and its tail in a child
@@ -2126,6 +2151,36 @@ public static class ExecutionModel
 
         private ILookup<string, UnknownCall>? _unknownCalls;
 
+        /// <summary>The handed delegates whose target has no body (question 145).</summary>
+        private IEnumerable<UnresolvedWork> BodylessHandoffs => heap.UnresolvedWork.Where(work => work.Site.Kind == UnresolvedWorkKind.Handoff);
+
+        /// <summary>For each region the unknown effect of work without a body reaches, the executions that touch it so: the execution
+        /// running a spawn's or a timer's work, and the unknown execution of a handed delegate, which <see cref="Ownership"/> attributes to
+        /// where it was handed over (question 145, R3).</summary>
+        private Dictionary<string, HashSet<string>> WorkReach()
+        {
+            var hosts = _workSites.SelectMany(pair => pair.Value.Select(site => (Site: site, Execution: pair.Key)))
+                                  .ToLookup(item => item.Site, item => item.Execution);
+            var reach = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            foreach (var call in UnknownCallsByInstance.SelectMany(calls => calls).Where(call => call.Work is not null))
+            {
+                CheckCancellation();
+                string[] executions = call.Work!.Kind == UnresolvedWorkKind.Handoff
+                    ? _executions.ContainsKey(UnknownDelegateCallId(call.Work.DelegateRegion!)) ? [UnknownDelegateCallId(call.Work.DelegateRegion!)] : []
+                    : hosts[(call.Instance.Id, call.OperationId)].ToArray();
+                if (executions.Length == 0)
+                    continue;
+                foreach (var region in ReachOf(call))
+                {
+                    if (!reach.TryGetValue(region, out var reached))
+                        reach.Add(region, reached = new HashSet<string>(StringComparer.Ordinal));
+                    reached.UnionWith(executions);
+                }
+            }
+
+            return reach;
+        }
+
         /// <summary>The regions an unresolved call's unknown effect and delegates reach, worked out once per call.</summary>
         /// <param name="call">The call.</param>
         private IReadOnlySet<string> ReachOf(UnknownCall call)
@@ -2379,8 +2434,12 @@ public static class ExecutionModel
                 return attributed.Count != 0 ? attributed : given;
             }
 
+            // Work without a body touches what its unknown effect reaches in the execution running it, as a body would (question 145).
             var accessExecutions = accesses.GroupBy(access => access.RegionId, StringComparer.Ordinal)
-                                           .ToDictionary(group => group.Key, group => Attributed(Union(group.Select(access => access.Executions))),
+                                           .Select(group => (Region: group.Key, Executions: (IEnumerable<string>)Union(group.Select(access => access.Executions))))
+                                           .Concat(WorkReach().Select(pair => (Region: pair.Key, Executions: (IEnumerable<string>)pair.Value)))
+                                           .GroupBy(item => item.Region, StringComparer.Ordinal)
+                                           .ToDictionary(group => group.Key, group => Attributed(group.SelectMany(item => item.Executions)),
                                                          StringComparer.Ordinal);
 
             var sharedRoots = SharedRoots().ToArray();

@@ -4,6 +4,7 @@ using Demo.Web.Cases.AwaitedResultShared;
 using Demo.Web.Cases.TaskRunResultShared;
 using Demo.Web.Cases.CompletionSourceHandoff;
 using Demo.Web.Cases.AwaitedFreshResult;
+using Demo.Web.Cases.SpawnBodylessWork;
 // Only a list of calls: every registration, endpoint and startup write lives in its case file, so no
 // two cases share a line here that the analysis could mistake for shared state.
 using Demo.Web.Cases.ActionSelfOverlap;
@@ -382,7 +383,8 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddAwaitedResultShared()
                 .AddTaskRunResultShared()
                 .AddCompletionSourceHandoff()
-                .AddAwaitedFreshResult();
+                .AddAwaitedFreshResult()
+                .AddSpawnBodylessWork();
 
 var app = builder.Build();
 

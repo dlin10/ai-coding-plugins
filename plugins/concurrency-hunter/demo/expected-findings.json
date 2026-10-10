@@ -2409,6 +2409,17 @@
         { "symbol": "Demo.Web.Cases.CompletionSourceHandoff.TallyController.Post()", "operation": "read-modify-write" },
         { "symbol": "Demo.Web.Cases.CompletionSourceHandoff.TallyController.Post()", "operation": "read-modify-write" }
       ]
+    },
+    {
+      "id": "spawn-bodyless-work",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.SpawnBodylessWork.NoiseBuffer@Singleton", "accessPath": ["Bytes", "[0]"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SpawnBodylessWork.NoiseController.Get()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.SpawnBodylessWork.NoiseRefresher.ExecuteAsync(CancellationToken)", "operation": "unknown-effect" }
+      ]
     }
   ],
   "notDefects": [

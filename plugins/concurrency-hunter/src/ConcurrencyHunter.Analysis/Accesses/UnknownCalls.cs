@@ -17,7 +17,18 @@ public sealed record UnknownCall(MethodInstance Instance, int OperationId, strin
     /// <summary>The escaped library sequence whose unknown enumeration makes this call, an unresolved iterator delegate of it or of a
     /// sequence it enumerates; null for a call made where it stands (R3, R5).</summary>
     public string? EnumeratedSequence { get; init; }
+
+    /// <summary>The work this call is when the engine starts it itself — a spawn's work, a timer's callback, a delegate handed to an
+    /// unresolved call — and it resolves to a member without a body: the call is made in the execution running that work, not where
+    /// <see cref="OperationId"/> stands; null for a call made where it stands (question 145).</summary>
+    public UnknownWork? Work { get; init; }
 }
+
+/// <summary>Where an unresolved call that is work runs: the execution of a spawn's work or a timer's callback at its site, or the unknown
+/// execution of the handed delegate <see cref="DelegateRegion"/>.</summary>
+/// <param name="Kind">Where the work runs.</param>
+/// <param name="DelegateRegion">The delegate region handed over, for a handoff; null otherwise.</param>
+public sealed record UnknownWork(UnresolvedWorkKind Kind, string? DelegateRegion);
 
 /// <summary>The unresolved calls of a scope and what their unknown effects reach (R1). A call a recognizer of phases 1-4 models is not
 /// unresolved: a member of a type one owns or a framework slice, a collection member, a DI registration or scope call, or a <c>Map*</c>
@@ -203,6 +214,35 @@ public static class UnknownCalls
                                                             Provenance = operation.Provenance,
                                                             Conditions = operation.Conditions
                                                         }));
+        }
+
+        // Work the engine starts itself that resolves to a member without a body is an unresolved dispatch of that member, made in the
+        // execution running the work: it sees its receivers through the type declaring the member and what it is handed whole (question 145).
+        foreach (var work in heap.UnresolvedWork)
+        {
+            if (!heap.Instances.TryGetValue(work.Site.Instance, out var starter))
+                continue;
+            IReadOnlyList<CallArgument> handed = work.Inputs.Count == 0
+                ? []
+                : [new CallArgument(-1, work.Inputs.Select(region => (AbstractValue)new RegionValue(region)).ToHashSet())];
+            var provenance = work.Site.Kind switch
+            {
+                UnresolvedWorkKind.Spawn => starter.Summary.Spawns.FirstOrDefault(spawn => spawn.OperationId == work.Site.OperationId)?.Provenance,
+                UnresolvedWorkKind.Timer => starter.Summary.Timers.FirstOrDefault(timer => timer.OperationId == work.Site.OperationId)?.Provenance,
+                _ => starter.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == work.Site.OperationId)?.Provenance ??
+                     starter.Summary.Calls.FirstOrDefault(call => call.OperationId == work.Site.OperationId)?.Provenance
+            };
+            calls.AddRange(work.Receivers.GroupBy(receiver => receiver.DeclaringTypeKey)
+                               .Select(group => (Receivers: (IReadOnlySet<AbstractValue>)group.Select(receiver => (AbstractValue)new RegionValue(receiver.Region))
+                                                                                                 .ToHashSet(),
+                                                 DeclaringTypeKey: group.Key))
+                               .DefaultIfEmpty((new HashSet<AbstractValue>(), null))
+                               .Select(group => new UnknownCall(starter, work.Site.OperationId, work.Site.Callee, SemanticGapKinds.UNRESOLVED_DISPATCH,
+                                                                group.Receivers, group.DeclaringTypeKey, handed, [])
+                               {
+                                   Provenance = provenance,
+                                   Work = new UnknownWork(work.Site.Kind, work.Site.DelegateRegion)
+                               }));
         }
 
         // An escaped library sequence is enumerated by an unknown execution as well, and there each iterator delegate no body resolves,

@@ -153,19 +153,12 @@ public sealed class CoreLibGenerationSetMatrixTests
     /// <param name="Opaque">Whether the operation's resolution into the callee is an opaque call, which touches each of its channels from
     /// where the operation stands.</param>
     /// <param name="Unseen">Whether the operation is a spawn whose work resolves into a member without a body: no body of the type runs,
-    /// the work's object gets no effect, and a task the spawn returns completes unseen.</param>
+    /// and a task the spawn returns completes unseen; the work's object gets the unknown effect in the spawn's execution.</param>
     /// <param name="Reason">The requirements the expectation follows.</param>
     private sealed record Expectation(bool Reached, bool Bound, bool OtherBound, bool Opaque, bool Unseen, string Reason);
 
     /// <summary>The cells whose outcome is known to be wider than the requirements ask: none.</summary>
     private static readonly Cell[] KnownWider = [];
-
-    /// <summary>The cells with a known gap: a spawn's work resolved into a member without a body makes its task complete unseen and has no
-    /// other effect (R3's exception, the gap R8 records).</summary>
-    private static readonly Cell[] KnownGap =
-        (from operation in new[] { Operation.SpawnDelegate, Operation.SpawnMethod }
-         from making in new[] { Making.LeftOut, Making.LeftOutMixed }
-         select new Cell(operation, making, Timing.Before, Mode.ConstructedTypes)).ToArray();
 
     /// <summary>The programs of the rows, by source: a class-hierarchy row and its constructed-types twin share one compilation.</summary>
     private static readonly ConcurrentDictionary<string, Lazy<Solution>> Programs = new(StringComparer.Ordinal);
@@ -247,19 +240,19 @@ public sealed class CoreLibGenerationSetMatrixTests
 
         switch (making)
         {
-            // R2, R3's exception: no body of a left-out type is reached, and a spawn's work resolved into it, a work without a body, makes
-            // its task complete unseen and has no other effect.
+            // R2, R3, question 145: no body of a left-out type is reached, and a spawn's work resolved into it, a work without a body, is
+            // an opaque call in the spawn's execution; its task still completes unseen.
             case Making.LeftOut when IsSpawn(operation):
-                return new(Reached: false, Bound: false, OtherBound: false, Opaque: false, Unseen: true, "R2, R3 (exception)");
+                return new(Reached: false, Bound: false, OtherBound: false, Opaque: true, Unseen: true, "R2, R3, question 145");
             // R2, R3: the left-out type's initializer is neither reached nor activated.
             case Making.LeftOut when operation == Operation.StaticField:
                 return new(Reached: false, Bound: false, OtherBound: false, Opaque: false, Unseen: false, "R2, R3");
             // R2, R3: a call resolved into a member without a body is an opaque call.
             case Making.LeftOut:
                 return new(Reached: false, Bound: false, OtherBound: false, Opaque: true, Unseen: false, "R2, R3");
-            // R1, R3's exception: the in-set work runs, and the left-out one is a work without a body.
+            // R1, R3, question 145: the in-set work runs, and the left-out one is a work without a body, opaque in the spawn's execution.
             case Making.LeftOutMixed when IsSpawn(operation):
-                return new(Reached: false, Bound: false, OtherBound: true, Opaque: false, Unseen: true, "R1, R3 (exception)");
+                return new(Reached: false, Bound: false, OtherBound: true, Opaque: true, Unseen: true, "R1, R3, question 145");
             // R1, R3: the in-set receiver's implementation is reached and bound, and the left-out receiver's resolution is opaque.
             case Making.LeftOutMixed:
                 return new(Reached: false, Bound: false, OtherBound: true, Opaque: true, Unseen: false, "R1, R3");
@@ -693,8 +686,10 @@ public sealed class CoreLibGenerationSetMatrixTests
             var channels = OpaqueChannels(cell);
             if (channels.HasFlag(Channel.Argument))
                 Check(Unknown("Count"), "the opaque call has no unknown effect on its argument");
+            // A spawn's work without a body touches it in the spawn's execution, not where the spawn stands (question 145).
             if (channels.HasFlag(Channel.Receiver))
-                Check(Unknown("Value", access => InRegionOf(access, callee)), $"the opaque call has no unknown effect on its {callee} receiver");
+                Check(Unknown("Value", access => InRegionOf(access, callee) && (!IsSpawn(cell.Operation) || KindOf(access) == ExecutionKind.Spawn)),
+                      $"the opaque call has no unknown effect on its {callee} receiver{(IsSpawn(cell.Operation) ? " in the spawn" : "")}");
             if (channels.HasFlag(Channel.Out))
                 Check(Writes("Out", "Worker."), "the out argument is not written where the operation stands");
             if (channels.HasFlag(Channel.Lambda))
@@ -715,7 +710,6 @@ public sealed class CoreLibGenerationSetMatrixTests
         if (expected.Unseen)
         {
             Check(!accesses.Any(access => access.Symbol.StartsWith($"{LEFT_OUT}.", StringComparison.Ordinal)), "a body of the left-out type runs");
-            Check(!Unknown("Value", access => InRegionOf(access, LEFT_OUT)), "the work's object gets an effect");
             if (cell.Operation == Operation.SpawnDelegate)
                 Check(run.Heap.TaskCompleters.Values.Any(completers => completers.Any(completer => completer.Kind == TaskCompleterKind.Unseen)),
                       "the spawn's task does not complete unseen");
@@ -739,18 +733,13 @@ public sealed class CoreLibGenerationSetMatrixTests
     // ---- the facts ----
 
     [Fact]
-    public void No_cell_outside_the_known_gap_narrows_unsafely()
+    public void No_cell_narrows_unsafely()
     {
         Assert.Empty(KnownWider);
-        var cells = Cells().ToArray();
-        Assert.All(KnownGap, cell => Assert.Contains(cell, cells));
-        foreach (var cell in cells.Where(HasReceiverObject))
+        foreach (var cell in Cells().Where(HasReceiverObject))
         {
             var expected = Expected(cell);
-            if (KnownGap.Contains(cell))
-                Assert.True(expected is { Bound: false, Opaque: false, Unseen: true }, $"{cell} is listed as a gap but is not one");
-            else
-                Assert.True(expected.Bound || expected.Opaque, $"{cell} binds its callee nowhere and is not opaque");
+            Assert.True(expected.Bound || expected.Opaque, $"{cell} binds its callee nowhere and is not opaque");
         }
     }
 

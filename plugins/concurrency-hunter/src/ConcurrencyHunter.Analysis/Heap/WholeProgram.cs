@@ -187,6 +187,34 @@ public sealed record AsyncSpawnSite(string CallerInstance, int OperationId, IrSp
 /// <param name="Callees">The instances running its target.</param>
 public sealed record DelegateHandoff(string RegionId, IReadOnlyList<(string CallerInstance, int OperationId)> Sites, IReadOnlyList<string> Callees);
 
+/// <summary>Where work the engine starts itself runs: the execution of a spawn's work, of a timer's callback, or the unknown execution of
+/// a delegate handed to an unresolved call.</summary>
+public enum UnresolvedWorkKind
+{
+    Spawn,
+    Timer,
+    Handoff
+}
+
+/// <summary>One work site whose work resolves to a member without a body: the instance and operation that start it, where it runs, the
+/// delegate region of a handoff, and the member's display.</summary>
+/// <param name="Instance">The instance starting the work.</param>
+/// <param name="OperationId">The spawn, timer or handing operation.</param>
+/// <param name="Kind">Where the work runs.</param>
+/// <param name="DelegateRegion">The delegate region handed over, for a handoff; null otherwise.</param>
+/// <param name="Callee">The display of the member without a body.</param>
+public readonly record struct UnresolvedWorkSite(string Instance, int OperationId, UnresolvedWorkKind Kind, string? DelegateRegion, string Callee);
+
+/// <summary>Work the engine starts itself — a spawn's work, a timer's callback, a delegate handed to an unresolved call — that resolves,
+/// for a receiver object or for a method group, to a member without a body: an unresolved dispatch of that member in the execution running
+/// the work, seeing its receivers through the type declaring the member and what the work is handed whole (question 145).</summary>
+/// <param name="Site">The work site.</param>
+/// <param name="Receivers">The receiver objects the work resolves to no body on, each with the type of the run's own declaring the member;
+/// empty for a static method group.</param>
+/// <param name="Inputs">What the work is handed: a spawn's state, a continuation's antecedent, a parallel loop's local values, a timer's
+/// state.</param>
+public sealed record UnresolvedWork(UnresolvedWorkSite Site, IReadOnlySet<(string Region, string? DeclaringTypeKey)> Receivers, IReadOnlySet<string> Inputs);
+
 /// <summary>A library sequence a known call returned, or one a value of its model created, or a grouping (R5). The call that created it,
 /// its deferred effects being that call's in its summary where it is the call's result; the sources its enumeration enumerates; what it
 /// yields and, for a grouping, its key; and the instances an unknown enumeration of it runs.</summary>
@@ -444,6 +472,10 @@ public sealed class HeapSolution
     /// <summary>For each known call a fated delegate of which is an unresolved dispatch, the objects those delegates are handed (R1, R3).</summary>
     public IReadOnlyDictionary<(string Instance, int Operation), IReadOnlySet<string>> UnresolvedFateInputs { get; init; } =
         new Dictionary<(string, int), IReadOnlySet<string>>();
+
+    /// <summary>The work sites whose work resolves to a member without a body, each an unresolved dispatch in the execution running the
+    /// work (question 145).</summary>
+    public IReadOnlyList<UnresolvedWork> UnresolvedWork { get; init; } = [];
 
     /// <summary>The delegates handed to unresolved calls, each run in an unknown execution of its own (R3), by region; and those a
     /// known call runs in one by its model's <c>unknown-execution</c> fate.</summary>
@@ -1310,6 +1342,13 @@ public static partial class WholeProgram
                 UnresolvedFactoryInputs = _rebuilding.UnresolvedFactoryInputs.ToTrackedMap(pair => pair.Key, pair => (IReadOnlySet<IrFactoryInput>)pair.Value.ToTrackedSet()),
                 UnresolvedFateInputs = _rebuilding.UnresolvedFateInputs.ToTrackedMap(pair => pair.Key,
                                                                                      pair => (IReadOnlySet<string>)pair.Value.ToTrackedSet(StringComparer.Ordinal)),
+                UnresolvedWork = _rebuilding.UnresolvedWorkReceivers.Keys
+                                            .OrderBy(site => site.Instance, StringComparer.Ordinal).ThenBy(site => site.OperationId)
+                                            .ThenBy(site => site.Kind).ThenBy(site => site.DelegateRegion, StringComparer.Ordinal)
+                                            .ThenBy(site => site.Callee, StringComparer.Ordinal)
+                                            .Select(site => new UnresolvedWork(site, _rebuilding.UnresolvedWorkReceivers[site].ToTrackedSet(),
+                                                                               _rebuilding.UnresolvedWorkInputs[site].ToTrackedSet(StringComparer.Ordinal)))
+                                            .ToArray(),
                 Holders = _held.Keys.ToTrackedSet(StringComparer.Ordinal),
                 LibrarySequences = librarySequences,
                 StartupDelegates = _rebuilding.StartupDelegates.OrderBy(item => item.Caller, StringComparer.Ordinal).ThenBy(item => item.Operation)
@@ -2278,9 +2317,14 @@ public static partial class WholeProgram
             // A work value the heap cannot follow, a delegate that runs no body it has, or a work that resolves no callee is code the
             // analysis does not see in full: what the spawn's task completes with is then unknown as well.
             var unseen = false;
-            var callees = works.Select(regions => spawn.WorkMethod is { } workMethod
-                                                      ? WorkItemCallees(regions, workMethod)
-                                                      : regions.SelectMany(WorkCallees).ToTrackedList())
+            // A work resolving to a member without a body, for a receiver or a method group, is work the analysis cannot read: the
+            // works of each role, with that member and the receivers it runs no body on (question 145).
+            var bodyless = new List<BodylessWork>();
+            var callees = works.Select((regions, index) => spawn.WorkMethod is { } workMethod
+                                                               ? WorkItemCallees(regions, workMethod,
+                                                                                 (member, item, declaring) => bodyless.Add(new BodylessWork(index, member.DisplaySymbol,
+                                                                                                                                            [(item, declaring)])))
+                                                               : regions.SelectMany(region => WorkCallees(region, index)).ToTrackedList())
                                .ToArray();
             if (handle is not null && site.Tail is null &&
                 (spawn.Kind is IrSpawnKind.StartNew or IrSpawnKind.ContinueWith || spawn is { Kind: IrSpawnKind.TaskRun, AwaitsWorkTask: false }) &&
@@ -2347,34 +2391,76 @@ public static partial class WholeProgram
                 }
             }
 
-            TrackedList<InstanceState> WorkCallees(string region)
+            // Work without a body sees what its role is handed, as the work with one is bound it above.
+            foreach (var (index, callee, receivers) in bodyless)
             {
-                if (_delegates.TryGetValue(region, out var work) &&
-                    DelegateCallees(caller, spawn.OperationId, work, () => unseen = true) is { Count: > 0 } resolved)
+                CheckCancellation();
+                var role = localValues is null ? SpawnRole.Work : index switch { 0 => SpawnRole.LocalInit, 1 => SpawnRole.Work, _ => SpawnRole.LocalFinally };
+                IEnumerable<string> inputs = spawn.Kind switch
                 {
-                    return resolved;
+                    IrSpawnKind.ContinueWith => Eval(caller, spawn.Antecedent!.Values).Concat(state),
+                    IrSpawnKind.StartNew or IrSpawnKind.QueueUserWorkItem or IrSpawnKind.UnsafeQueueUserWorkItem or IrSpawnKind.ThreadStart => state,
+                    _ => []
+                };
+                if (localValues is not null && role != SpawnRole.LocalInit)
+                    inputs = inputs.Concat(localValues);
+                RecordUnresolvedWork(caller, spawn.OperationId, UnresolvedWorkKind.Spawn, null, callee, receivers, inputs);
+            }
+
+            TrackedList<InstanceState> WorkCallees(string region, int index)
+            {
+                if (!_delegates.TryGetValue(region, out var work))
+                {
+                    unseen = true;
+                    return [];
                 }
 
-                unseen = true;
-                return [];
+                var resolved = DelegateCallees(caller, spawn.OperationId, work, () => unseen = true);
+                if (UnresolvedReceivers(work, resolved.Count != 0) is { } unresolved)
+                    bodyless.Add(new BodylessWork(index, WorkCallee(work.Target), unresolved));
+                if (resolved.Count == 0)
+                    unseen = true;
+                return resolved;
             }
         }
 
         private bool IsAsyncBody(string bodyId) =>
             _scope.Reachable.Bodies.TryGetValue(bodyId, out var body) && body is { IsAsync: true, IsAsyncIterator: false };
 
-        /// <summary>The <c>Execute()</c> implementations a work item region runs, with the region as receiver.</summary>
+        /// <summary>A spawn's work that resolves to a member without a body: the index of its role's works, the member's display, and the
+        /// receivers it runs no body on, each with the type of the run's own declaring the member (question 145).</summary>
+        /// <param name="Index">The index of the role's works in the spawn.</param>
+        /// <param name="Callee">The display of the member without a body.</param>
+        /// <param name="Receivers">The receivers it runs no body on; empty for a static method group.</param>
+        private sealed record BodylessWork(int Index, string Callee, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> Receivers);
+
+        /// <summary>The <c>Execute()</c> implementations a work item region runs, with the region as receiver. An item that runs one
+        /// without a body is reported, with that implementation and the type declaring it, as a dispatch would be (R1, question 145).</summary>
         /// <param name="items">The items.</param>
         /// <param name="workMethod">The workMethod.</param>
-        private TrackedList<InstanceState> WorkItemCallees(IEnumerable<string> items, string workMethod)
+        /// <param name="unresolved">Called for each item that runs an implementation without a body, with the implementation (or the work
+        /// method, where none is found), the item and the type of the run's own declaring the implementation.</param>
+        private TrackedList<InstanceState> WorkItemCallees(IEnumerable<string> items, string workMethod, Action<ProgramMethod, string, string?> unresolved)
         {
             var callees = new TrackedList<InstanceState>();
             if (ReachableSet.WorkMethodId(_program, workMethod) is not { } methodId)
                 return callees;
+            var method = _program.Method(methodId);
             foreach (var item in items)
             {
                 CheckCancellation();
-                callees.AddRange(DispatchCallees(item, methodId, []).Callees);
+                var (dispatched, resolved) = DispatchCallees(item, methodId, []);
+                callees.AddRange(resolved);
+                if (method is null)
+                    continue;
+                var leftOut = ImplementationsWithoutBody(item, method, null, false);
+                foreach (var implementation in leftOut)
+                    unresolved(implementation, item, implementation.ContainingTypeKey);
+                if (!dispatched && leftOut.Count == 0)
+                {
+                    var implementation = _regions[item].TypeKey is { } type ? _program.Implementation(type, methodId, null) : null;
+                    unresolved(implementation ?? method, item, implementation?.ContainingTypeKey);
+                }
             }
             return callees;
         }
@@ -2390,7 +2476,8 @@ public static partial class WholeProgram
             foreach (var region in Eval(caller, timer.Callback!.Values).Where(_delegates.ContainsKey))
             {
                 CheckCancellation();
-                foreach (var callee in DelegateCallees(caller, timer.OperationId, _delegates[region], () => { }))
+                var callees = DelegateCallees(caller, timer.OperationId, _delegates[region], () => { });
+                foreach (var callee in callees)
                 {
                     CheckCancellation();
                     if (timer.Action == IrTimerAction.Create)
@@ -2399,6 +2486,10 @@ public static partial class WholeProgram
                     if (site.Callees.Add((callee.Id, SpawnRole.Work)))
                         _changes++;
                 }
+                // A callback without a body is work the analysis cannot read, in the callback's execution (question 145).
+                if (UnresolvedReceivers(_delegates[region], callees.Count != 0) is { } unresolved)
+                    RecordUnresolvedWork(caller, timer.OperationId, UnresolvedWorkKind.Timer, null, WorkCallee(_delegates[region].Target), unresolved,
+                                         timer.Action == IrTimerAction.Create ? state : []);
             }
         }
 
@@ -2944,12 +3035,16 @@ public static partial class WholeProgram
                 if (!_rebuilding.Handoffs.TryGetValue(region, out var handoff))
                     _rebuilding.Handoffs.Add(region, handoff = ([], new TrackedSet<string>(StringComparer.Ordinal)));
                 handoff.Sites.Add((caller.Id, operationId));
-                foreach (var callee in DelegateCallees(caller, operationId, _delegates[region], () => { }))
+                var callees = DelegateCallees(caller, operationId, _delegates[region], () => { });
+                foreach (var callee in callees)
                 {
                     CheckCancellation();
                     Add(callee.Requests, caller.Requests);
                     handoff.Callees.Add(callee.Id);
                 }
+                // A method group without a body runs, in the delegate's unknown execution, a member the analysis cannot read (question 145).
+                if (UnresolvedReceivers(_delegates[region], callees.Count != 0) is { } unresolved)
+                    RecordUnresolvedWork(caller, operationId, UnresolvedWorkKind.Handoff, region, WorkCallee(_delegates[region].Target), unresolved, []);
             }
         }
 
@@ -4511,6 +4606,42 @@ public static partial class WholeProgram
             EscapeHolders(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
         }
 
+        /// <summary>Records work the engine starts itself that resolves to a member without a body: an unresolved dispatch of that member
+        /// in the execution running the work, which sees its receivers through the type declaring the member and what it is handed whole
+        /// (question 145). Work that sees nothing is not recorded. The delegates it is handed run in an unknown execution of their own, as an
+        /// unresolved call's do (R3).</summary>
+        /// <param name="caller">The instance starting the work.</param>
+        /// <param name="operationId">The spawn, timer or handing operation.</param>
+        /// <param name="kind">Where the work runs.</param>
+        /// <param name="delegateRegion">The delegate region handed over, for a handoff; null otherwise.</param>
+        /// <param name="callee">The display of the member without a body.</param>
+        /// <param name="receivers">The receivers it runs no body on, each with the type of the run's own declaring the member.</param>
+        /// <param name="inputs">What the work is handed.</param>
+        private void RecordUnresolvedWork(InstanceState caller, int operationId, UnresolvedWorkKind kind, string? delegateRegion, string callee,
+                                          IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers, IEnumerable<string> inputs)
+        {
+            var handed = inputs.Distinct(StringComparer.Ordinal).ToArray();
+            if (receivers.Count == 0 && handed.Length == 0)
+                return;
+            var site = new UnresolvedWorkSite(caller.Id, operationId, kind, delegateRegion, callee);
+            if (!_rebuilding.UnresolvedWorkReceivers.TryGetValue(site, out var known))
+                _rebuilding.UnresolvedWorkReceivers.Add(site, known = []);
+            known.UnionWith(receivers);
+            if (!_rebuilding.UnresolvedWorkInputs.TryGetValue(site, out var given))
+                _rebuilding.UnresolvedWorkInputs.Add(site, given = new TrackedSet<string>(StringComparer.Ordinal));
+            given.UnionWith(handed);
+            var values = handed.Select(region => (AbstractValue)new RegionValue(region)).ToArray();
+            Handoff(caller, operationId, values);
+            EscapeHolders(caller, operationId, values);
+        }
+
+        /// <summary>How work names the member it runs: its display, or, for a member from metadata the index does not know, its
+        /// documentation id without the body prefix.</summary>
+        /// <param name="target">The member a delegate or a work item names.</param>
+        private string WorkCallee(string target) =>
+            _program.Method(target)?.DisplaySymbol ??
+            (target.IndexOf(":M:", StringComparison.Ordinal) is var member and >= 0 ? target[(member + ":M:".Length)..] : target);
+
         /// <summary>The instances running a delegate's target for an operation of <paramref name="caller"/>; <paramref name="noReceiver"/>
         /// runs when an instance method has no receiver to run on.</summary>
         /// <param name="operationId">The operationId.</param>
@@ -5011,8 +5142,11 @@ public static partial class WholeProgram
             // A delegate a query names keeps no state: the solve recorded nothing it captures.
             if (Querying)
                 return identity;
+            // A target the index does not know is a lambda or local function of the program, or a member from metadata, which has no body
+            // the heap has: an unresolved call wherever the delegate runs (R1, question 145).
+            var isNestedBody = method is null && (_memberOfNestedBody.ContainsKey(created.Target) || _scope.Reachable.Bodies.ContainsKey(created.Target));
             _delegates[identity] = new DelegateState(
-                created.Target, method is null,
+                created.Target, isNestedBody,
                 transfer?.TargetContainingTypeKey is { } containing ? ProgramIndex.Substitute(containing, instance.Substitution) : null,
                 (transfer?.TargetMethodTypeArgumentKeys ?? []).Select(key => ProgramIndex.Substitute(key, instance.Substitution)).ToArray(),
                 instance.Substitution, transfer?.IsNonVirtual == true);

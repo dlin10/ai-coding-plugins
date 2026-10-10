@@ -168,6 +168,8 @@ public static partial class WholeProgram
             internal TrackedMap<(string Instance, int Operation), TrackedSet<(string Region, string? DeclaringTypeKey)>> UnresolvedReceivers { get; } = [];
             internal TrackedMap<(string Instance, int Operation), TrackedSet<IrFactoryInput>> UnresolvedFactoryInputs { get; } = [];
             internal TrackedMap<(string Instance, int Operation), TrackedSet<string>> UnresolvedFateInputs { get; } = [];
+            internal TrackedMap<UnresolvedWorkSite, TrackedSet<(string Region, string? DeclaringTypeKey)>> UnresolvedWorkReceivers { get; } = [];
+            internal TrackedMap<UnresolvedWorkSite, TrackedSet<string>> UnresolvedWorkInputs { get; } = [];
             internal TrackedMap<string, (TrackedSet<(string Caller, int Operation)> Sites, TrackedSet<string> Callees)> Handoffs { get; } = new(StringComparer.Ordinal);
             internal TrackedSet<(string Caller, int Operation, string Region, string Callee)> StartupDelegates { get; } = [];
             internal TrackedSet<(string Instance, int Operation, string Region)> IteratorEnumerations { get; } = [];
@@ -183,6 +185,8 @@ public static partial class WholeProgram
                 Merge(UnresolvedReceivers, other.UnresolvedReceivers);
                 Merge(UnresolvedFactoryInputs, other.UnresolvedFactoryInputs);
                 Merge(UnresolvedFateInputs, other.UnresolvedFateInputs);
+                Merge(UnresolvedWorkReceivers, other.UnresolvedWorkReceivers);
+                Merge(UnresolvedWorkInputs, other.UnresolvedWorkInputs);
                 StartupDelegates.UnionWith(other.StartupDelegates);
                 IteratorEnumerations.UnionWith(other.IteratorEnumerations);
                 DelegateSites.UnionWith(other.DelegateSites);
@@ -211,7 +215,8 @@ public static partial class WholeProgram
             internal bool Same(RebuiltState other) =>
                 NoReceiver.SequenceEqual(other.NoReceiver) && UnresolvedDispatches.SequenceEqual(other.UnresolvedDispatches) &&
                 SameMap(UnresolvedReceivers, other.UnresolvedReceivers) && SameMap(UnresolvedFactoryInputs, other.UnresolvedFactoryInputs) &&
-                SameMap(UnresolvedFateInputs, other.UnresolvedFateInputs) && StartupDelegates.SequenceEqual(other.StartupDelegates) &&
+                SameMap(UnresolvedFateInputs, other.UnresolvedFateInputs) && SameMap(UnresolvedWorkReceivers, other.UnresolvedWorkReceivers) &&
+                SameMap(UnresolvedWorkInputs, other.UnresolvedWorkInputs) && StartupDelegates.SequenceEqual(other.StartupDelegates) &&
                 IteratorEnumerations.SequenceEqual(other.IteratorEnumerations) && DelegateSites.SequenceEqual(other.DelegateSites) &&
                 DelegateRuns.SequenceEqual(other.DelegateRuns) && UnseenDelegates.SequenceEqual(other.UnseenDelegates) &&
                 FateRuns.SequenceEqual(other.FateRuns) && Handoffs.Keys.SequenceEqual(other.Handoffs.Keys) &&

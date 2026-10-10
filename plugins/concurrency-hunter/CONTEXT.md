@@ -277,7 +277,9 @@ effects are unknown, which is not the same as none. A call through an interface 
 array or a modelled collection is decided by the object its receiver points to: it is a call of the
 member that object's type implements it with — for an explicit implementation, the public member it
 stands for — and it is opaque only when that member is. Only a receiver the heap knows no object for
-leaves it undecided.
+leaves it undecided. Work the analysis starts itself — a spawn's work, a timer's callback, a delegate
+handed to an opaque call — that resolves to such a method is an opaque call too, made in the execution
+that runs the work rather than where the work is started.
 _Avoid_: external call, library call (a library method a model describes is not opaque), unknown call
 
 **Unknown effect**:
