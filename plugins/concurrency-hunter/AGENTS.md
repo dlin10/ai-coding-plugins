@@ -84,7 +84,8 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   `build/test-baseline.txt` records as Passed is missing, skipped or failed — a plain `dotnet test`
   stays green through a skip. `-Record` rewrites the baseline from a green run; afterwards
   `build/check-baseline-rerecord.ps1` compares the rewrite with `HEAD` and refuses a lost case that
-  is not recognisably a rename. `-KeepResults <dir>` keeps each test project's trx.
+  is not recognisably a rename or another row of the same theory. `-KeepResults <dir>` keeps each
+  test project's trx.
 - `build/check-demo-expectations.ps1` checks `demo/expected-findings.json` against the case files on
   disk and checks that the entries of finished phases are unchanged from `HEAD`; `-Complete` also
   requires every case of the current phase's catalog. The phase it checks is named in the script. It
