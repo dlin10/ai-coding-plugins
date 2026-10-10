@@ -2231,11 +2231,12 @@ public static partial class InterproceduralAccesses
                     continue;
                 var fields = _heap.Regions[regionId].TypeKey is { } key ? input.Scope.Program.InstanceFieldsOf(key) : null;
                 // An object of the run's own also has the state its library bases give it, as far as the program names it (R1).
-                if (unknownEffect && fields is not null)
-                    fields = reach.FieldsOf(regionId);
+                var receiverType = depth == 0 && holder is null && objects.Contains(regionId) ? declaringTypeKey : null;
+                if (unknownEffect && (fields is not null || receiverType is not null))
+                    fields = reach.FieldsOf(regionId, receiverType);
                 // Through the receiver of a member only the declaring type's state and its bases' is seen (R1).
-                if (fields is not null && depth == 0 && holder is null && objects.Contains(regionId))
-                    fields = reach.Seen(fields, declaringTypeKey);
+                if (fields is not null && receiverType is not null)
+                    fields = reach.Seen(fields, receiverType);
                 foreach (var kept in _heap.PointsTo(regionId, PathValue.KEPT))
                     pending.Enqueue((kept, depth + 1, null));
                 if (CollectionKind(regionId).IsCollection)

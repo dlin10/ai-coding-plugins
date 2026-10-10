@@ -30,7 +30,8 @@ public static class GenerationReasons
     /// <summary>The member's own body did not compile and was made <c>extern</c>.</summary>
     public const string BODY_DOES_NOT_COMPILE = "body-does-not-compile";
 
-    /// <summary>A recognizer of the engine claims a method of the implementation assembly by name, outside the models.</summary>
+    /// <summary>A recognizer of the engine claims a method of the implementation assembly by name, outside the models;
+    /// for <c>System.Private.CoreLib</c> only, it must claim the requested member itself.</summary>
     public const string ENGINE_RECOGNIZED = "engine-recognized";
 
     /// <summary>The driver's reachable set reached more bodies than the generator's bound.</summary>

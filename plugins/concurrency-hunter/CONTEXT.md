@@ -108,7 +108,10 @@ _Avoid_: initialization (field initializers are part of a construction, not a se
 **Reachable set**:
 The method bodies a run analyzes: everything the call graph reaches from an execution root or a
 spawn site; a body outside it cannot execute in the process and is neither lowered nor counted
-against coverage.
+against coverage. When the **Model generator** analyses `System.Private.CoreLib`, the set is
+narrower: a virtual or interface call reaches only the overrides of types the run constructs or
+boxes, and the bodies of its resource-string type `System.SR` are never entered. A body outside
+that set may still run, so a call into one is an **Opaque call**.
 _Avoid_: scope, analyzed code, hot code
 
 **Process scope**:

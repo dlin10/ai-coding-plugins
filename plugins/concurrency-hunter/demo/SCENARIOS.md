@@ -339,6 +339,7 @@ Resolver в 5b не вызывается: gaps видны в coverage и uncerta
 | `async-local-flow` | оба | `AsyncLocal<Counter>`: action кладёт новый объект и делает `Hits++`; вариант, где action запускает `Task.Run` с `Hits++` и делает `Hits++` сам до `await` задачи | `/per-request` нет: значение течёт только в своё исполнение; `/flows-to-child` DCA1002: дочерняя задача получает тот же объект и пересекается с родителем до join | TD-065, вопрос 8 | nD / — |
 | `keyed-singleton-services` | оба | `AddKeyedSingleton<Counter>` с ключами `"a"`, `"b"` и `"c"`; worker-ы с `[FromKeyedServices]` делают `Value++`: два с ключами `"a"` и `"b"`, два с ключом `"c"` | `/distinct-keys` нет; `/same-key` DCA1002 | TD-040, TD-121, вопрос 20 | nD / — |
 | `type-valued-registration` | positive | `AddSingleton(typeof(IStats), typeof(Stats))`; два worker-а получают `IStats` и делают `Hits++` | DCA1002 | TD-040, TD-121 | ⚠ |
+| `spawn-bodyless-work` | positive | Worker делает spawn method group члена без тела и модели, меняющего свой объект; action читает тот же разделяемый объект | DCA1001 action × порождённое исполнение; сейчас false negative: работа не даёт эффекта, задача завершается unseen. Кейс и запись в expected-findings не добавлены | TD-034, SPEC 12.3, вопрос 145 | ⚠ |
 
 ## Фаза 6 — Triage
 

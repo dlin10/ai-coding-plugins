@@ -8,9 +8,41 @@ namespace ConcurrencyHunter.CallGraph;
 
 /// <summary>What the reachable set is built over. <see cref="Members"/> lowers a member by its body id and returns its body
 /// with every nested body, or nothing when it has no source body; the set asks for each member at most once.</summary>
+/// <param name="Program">The scope's types and members.</param>
+/// <param name="Roots">The execution roots.</param>
+/// <param name="DiIndex">The dependency injection registrations.</param>
+/// <param name="InjectionBindings">The constructor injection bindings.</param>
+/// <param name="Members">The member lowering function.</param>
 public sealed record ReachabilityInput(ProgramIndex Program, IReadOnlyList<ExecutionRootDescriptor> Roots, DiIndex DiIndex,
                                        IReadOnlyList<TypeInjectionBindings> InjectionBindings,
-                                       Func<string, IReadOnlyList<IrBody>> Members);
+                                       Func<string, IReadOnlyList<IrBody>> Members)
+{
+    /// <summary>How a call that dispatches reaches its targets, and the types whose bodies the set never enters.</summary>
+    public ReachabilityRules Rules { get; init; } = ReachabilityRules.ClassHierarchy;
+}
+
+/// <summary>How a call that dispatches — a virtual or interface call, a delegate created on a virtual or interface method, a
+/// spawn's work — reaches the overrides it may run.</summary>
+public enum DispatchRule
+{
+    /// <summary>Every override the class hierarchy offers.</summary>
+    ClassHierarchy,
+
+    /// <summary>Only the overrides of a type the run constructs, or a type derived from it, and of a value type once a reached body
+    /// boxes it; an override whose type is constructed later is reached then (ADR 0019).</summary>
+    ConstructedTypes
+}
+
+/// <summary>The rules the reachable set is built by: class-hierarchy dispatch and no type left out for every run but the generation
+/// of <c>System.Private.CoreLib</c> (ADR 0019).</summary>
+/// <param name="Dispatch">How a call that dispatches reaches its targets.</param>
+/// <param name="LeftOutTypeKeys">The definition keys of the types no body of which is ever in the set, whatever reaches for it: a call
+/// whose every target is one of their members has no target.</param>
+public sealed record ReachabilityRules(DispatchRule Dispatch, IReadOnlySet<string> LeftOutTypeKeys)
+{
+    /// <summary>Class-hierarchy dispatch with no type left out.</summary>
+    public static ReachabilityRules ClassHierarchy { get; } = new(DispatchRule.ClassHierarchy, new HashSet<string>(StringComparer.Ordinal));
+}
 
 public enum ConstructionKind
 {
@@ -65,19 +97,38 @@ public sealed record OpaqueCall(int OperationId, string Callee, IReadOnlyList<in
 /// <summary>A factory or instance registration: its region has no construction body.</summary>
 public sealed record UnanalysedRegistration(string RegionId, DiRegistration Registration);
 
-/// <summary>The class-hierarchy superset of what a scope can run. <see cref="ReachedBodies"/> maps each body a call, delegate,
+/// <summary>What a scope can run under class-hierarchy or constructed-types dispatch. <see cref="ReachedBodies"/> maps each body a call, delegate,
 /// root or construction reaches to that reason; <see cref="Bodies"/> holds every lowered body of the members in the set.</summary>
+/// <param name="Members">The reached members and their nested bodies.</param>
+/// <param name="ReachedBodies">The first reason each body was reached.</param>
+/// <param name="Bodies">The lowered bodies in the set.</param>
+/// <param name="Constructions">The constructions the set starts.</param>
+/// <param name="TypeInitializers">The candidate type initializers and their triggers.</param>
+/// <param name="Unreached">The members not reached.</param>
+/// <param name="OpaqueCalls">The opaque calls in each body.</param>
+/// <param name="UnanalysedRegistrations">The registrations without construction bodies.</param>
 public sealed record ReachableSetResult(IReadOnlyList<ReachedMember> Members, IReadOnlyDictionary<string, string> ReachedBodies,
                                         IReadOnlyDictionary<string, IrBody> Bodies, IReadOnlyList<Construction> Constructions,
                                         IReadOnlyList<TypeInitializerCandidate> TypeInitializers, IReadOnlyList<UnreachedMember> Unreached,
                                         IReadOnlyDictionary<string, IReadOnlyList<OpaqueCall>> OpaqueCalls,
-                                        IReadOnlyList<UnanalysedRegistration> UnanalysedRegistrations);
+                                        IReadOnlyList<UnanalysedRegistration> UnanalysedRegistrations)
+{
+    /// <summary>How the set's calls that dispatch reached their targets.</summary>
+    public DispatchRule Dispatch { get; init; } = DispatchRule.ClassHierarchy;
+
+    /// <summary>Whether a member has a body in this run, which the lowering's, the summaries' and the heap's callees are decided by:
+    /// a source body under class-hierarchy dispatch, and a body among <see cref="Bodies"/> under constructed types, so a member the
+    /// set left out or never reached is one without a body, as a member without a source body is (ADR 0019).</summary>
+    /// <param name="method">The member.</param>
+    public bool HasBody(ProgramMethod method) =>
+        Dispatch == DispatchRule.ClassHierarchy ? method.HasSourceBody : Bodies.ContainsKey(method.MethodId);
+}
 
 /// <summary>
 /// Builds the reachable set from the roots: their entry bodies, the constructions they trigger with the DI services those
-/// constructors take (transitively), and every body a reached body calls, dispatches to by class-hierarchy analysis,
-/// or invokes through a compatible delegate. A construction reached from a hosted service's constructor chain is a
-/// startup construction; a singleton or root-scope region startup reaches is built once, at startup.
+/// constructors take (transitively), and every body a reached body calls, dispatches to by the input's
+/// <see cref="DispatchRule"/>, or invokes through a compatible delegate. A construction reached from a hosted service's
+/// constructor chain is a startup construction; a singleton or root-scope region startup reaches is built once, at startup.
 /// </summary>
 public static class ReachableSet
 {
@@ -195,11 +246,28 @@ public static class ReachableSet
         private readonly Dictionary<string, List<(string Type, string Reason)>> _delegateInvocations = new(StringComparer.Ordinal);
         private readonly HashSet<string> _typeParameterNames;
         private readonly Dictionary<string, string> _sourceDelegateTypeKeys;
+        private readonly HashSet<string> _leftOutMembers;
+        private readonly Dictionary<string, string[]> _valueTypeKeys;
+        private readonly Dictionary<string, ProgramType[]> _typesByDisplayShape;
+        private readonly Dictionary<(string Owner, int Ordinal), HashSet<string>> _parameterBindings = new();
+        private readonly Dictionary<(string Owner, int Ordinal), HashSet<(string Owner, int Ordinal)>> _parameterEdges = new();
+        private readonly HashSet<(string Owner, int Ordinal)> _boxedParameters = new();
+        private readonly HashSet<string> _instantiated = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _constructedTypes = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<(string Target, Action<string> Reach)>> _waiting = new(StringComparer.Ordinal);
 
         internal Walker(ReachabilityInput input)
         {
             _input = input;
             _program = input.Program;
+            _leftOutMembers = _program.Methods.Where(method => IsLeftOutType(method.ContainingTypeKey))
+                                      .Select(method => method.MethodId)
+                                      .ToHashSet(StringComparer.Ordinal);
+            _valueTypeKeys = _program.Types.Where(type => type.IsValueType)
+                                     .GroupBy(type => Shape(type.DisplayName), StringComparer.Ordinal)
+                                     .ToDictionary(group => group.Key, group => group.Select(type => type.TypeKey).ToArray(), StringComparer.Ordinal);
+            _typesByDisplayShape = _program.Types.GroupBy(type => Shape(type.DisplayName), StringComparer.Ordinal)
+                                          .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
             _typeParameterNames = _program.Types.SelectMany(type => type.TypeParameterKeys)
                                           .Concat(_program.Methods.SelectMany(method => method.TypeParameterKeys))
                                           .Select(key => key[(key.IndexOf(':') + 1)..])
@@ -303,7 +371,10 @@ public static class ReachableSet
                                           unreached,
                                           _opaqueCalls.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<OpaqueCall>)pair.Value.ToArray(),
                                                                     StringComparer.Ordinal),
-                                          unanalysed);
+                                          unanalysed)
+            {
+                Dispatch = _input.Rules.Dispatch
+            };
         }
 
         private IReadOnlyList<string> NestedIds(string memberId, IReadOnlyList<IrBody> bodies) =>
@@ -352,6 +423,8 @@ public static class ReachableSet
                 return;
             }
 
+            if (_program.Type(typeKey) is not { IsValueType: true })
+                Instantiate(typeKey);
             var construction = new ConstructionState(id, kind, typeKey, regionId);
             construction.Triggers.Add(trigger);
             _constructions.Add(id, construction);
@@ -379,7 +452,7 @@ public static class ReachableSet
 
         private void ReachBody(string bodyId, string reason)
         {
-            if (_reachedBodies.ContainsKey(bodyId))
+            if (_reachedBodies.ContainsKey(bodyId) || _leftOutMembers.Contains(_memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId))
                 return;
 
             var memberId = _memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId;
@@ -414,6 +487,8 @@ public static class ReachableSet
             foreach (var operation in operations)
             {
                 var reason = $"call:{bodyId}:{operation.Id}";
+                if (_input.Rules.Dispatch == DispatchRule.ConstructedTypes)
+                    Instantiate(operation, values, bodyId);
                 switch (operation)
                 {
                     case IrLoadFieldOperation { Field.IsStatic: true } load:
@@ -438,7 +513,8 @@ public static class ReachableSet
                         break;
                     case IrCallOperation { TargetMethodId: { } targetId } call:
                     {
-                        var targets = Targets(targetId, call.CallKind is IrCallKind.Virtual or IrCallKind.Interface);
+                        var dispatched = call.CallKind is IrCallKind.Virtual or IrCallKind.Interface;
+                        var targets = Targets(targetId, dispatched);
                         if (targets.Count == 0)
                         {
                             RecordOpaque(bodyId, call, definitions, work.GetValueOrDefault(call.Id) ?? []);
@@ -488,8 +564,7 @@ public static class ReachableSet
                                                         .Select(value => DelegateCreation(value, definitions)).OfType<IrCreateDelegateOperation>())
                                 ReachDelegateTargets(untyped, reason);
                         }
-                        foreach (var target in targets)
-                            ReachBody(target.MethodId, reason);
+                        ReachTargets(targets, dispatched, target => ReachBody(target, reason));
                         if (call.CallKind is IrCallKind.Static or IrCallKind.Constructor && _program.Method(targetId) is { } method)
                             Reference(method.ContainingTypeKey, bodyId);
                         break;
@@ -526,10 +601,7 @@ public static class ReachableSet
             if (method is not null)
             {
                 if (WorkMethodId(_program, method) is { } methodId)
-                {
-                    foreach (var target in Targets(methodId, virtualDispatch: true))
-                        ReachBody(target.MethodId, reason);
-                }
+                    ReachTargets(Targets(methodId, virtualDispatch: true), virtualDispatch: true, target => ReachBody(target, reason));
 
                 return;
             }
@@ -542,34 +614,41 @@ public static class ReachableSet
 
         private void AddDelegateCreation(string type, IrCreateDelegateOperation create, string bodyId)
         {
-            var targets = new List<string>();
             if (create.TargetBodyId is { } nested)
             {
-                targets.Add(nested);
+                AddDelegateTarget(type, nested);
             }
             else if (create.TargetMethodId is { } methodId && _program.Method(methodId) is { } method &&
                      (DelegateTypeKey(type) is not { } delegateTypeKey || _program.IsDelegateCompatible(delegateTypeKey, methodId)))
             {
                 var virtualDispatch = !create.IsNonVirtual && (method.IsVirtual || method.IsAbstract || method.IsOverride ||
                                                                _program.Type(method.ContainingTypeKey)?.IsInterface == true);
-                targets.AddRange(Targets(methodId, virtualDispatch).Select(target => target.MethodId));
+                var targets = Targets(methodId, virtualDispatch);
                 if (method.IsStatic)
                     Reference(method.ContainingTypeKey, bodyId);
+                ReachTargets(targets, virtualDispatch, target => AddDelegateTarget(type, target));
             }
+        }
 
+        /// <summary>Makes a body a target of the delegates created as <paramref name="type"/>, reached at once when an invocation of
+        /// a matching delegate type is already known.</summary>
+        /// <param name="type">The created delegate's type.</param>
+        /// <param name="target">The body the delegate runs.</param>
+        private void AddDelegateTarget(string type, string target)
+        {
             var shape = Shape(type);
             if (!_delegateTargets.TryGetValue(shape, out var known))
                 _delegateTargets.Add(shape, known = []);
-            foreach (var target in targets.Where(target => !known.Contains((type, target))))
-            {
-                known.Add((type, target));
-                var invocation = (_delegateInvocations.GetValueOrDefault(shape) ?? [])
-                                 .Where(candidate => Invokes(candidate.Type, type))
-                                 .Select(candidate => candidate.Reason)
-                                 .FirstOrDefault();
-                if (invocation is not null)
-                    ReachBody(target, invocation);
-            }
+            if (known.Contains((type, target)))
+                return;
+
+            known.Add((type, target));
+            var invocation = (_delegateInvocations.GetValueOrDefault(shape) ?? [])
+                             .Where(candidate => Invokes(candidate.Type, type))
+                             .Select(candidate => candidate.Reason)
+                             .FirstOrDefault();
+            if (invocation is not null)
+                ReachBody(target, invocation);
         }
 
         private void AddDelegateInvocation(string type, string reason)
@@ -597,7 +676,10 @@ public static class ReachableSet
         private string? DelegateTypeKey(string type) => _sourceDelegateTypeKeys.GetValueOrDefault(Shape(type));
 
         /// <summary>The source bodies a call of <paramref name="methodId"/> may run: every source override or implementation under
-        /// virtual dispatch, and the method itself when it has a body.</summary>
+        /// virtual dispatch, and the method itself when it has a body, but never a member of a left-out type. A call this leaves
+        /// nothing has no target; one whose targets wait for their types to be constructed still has them.</summary>
+        /// <param name="methodId">The method the call, delegate or work names.</param>
+        /// <param name="virtualDispatch">Whether the call dispatches.</param>
         private IReadOnlyList<ProgramMethod> Targets(string methodId, bool virtualDispatch)
         {
             var targets = new List<ProgramMethod>();
@@ -605,8 +687,205 @@ public static class ReachableSet
                 targets.Add(self);
             if (virtualDispatch)
                 targets.AddRange(_dispatchTargets.GetValueOrDefault(methodId)?.Where(target => target.HasSourceBody) ?? []);
+            targets.RemoveAll(target => _leftOutMembers.Contains(target.MethodId));
             return targets;
         }
+
+        /// <summary>Reaches the targets of a call. Under <see cref="DispatchRule.ConstructedTypes"/> a target of a call that dispatches
+        /// is reached only once its declaring type, or a type derived from it, is constructed; until then it waits, with what the place
+        /// that asked does on reaching it, and is reached when that type is (ADR 0019).</summary>
+        /// <param name="targets">The targets <see cref="Targets"/> gave.</param>
+        /// <param name="virtualDispatch">Whether the call dispatches.</param>
+        /// <param name="reach">What reaching a target does at the place that asked.</param>
+        private void ReachTargets(IReadOnlyList<ProgramMethod> targets, bool virtualDispatch, Action<string> reach)
+        {
+            foreach (var target in targets)
+            {
+                var declaringType = _program.Type(target.ContainingTypeKey)?.TypeKey ?? target.ContainingTypeKey;
+                if (!virtualDispatch || _input.Rules.Dispatch == DispatchRule.ClassHierarchy || _constructedTypes.Contains(declaringType))
+                {
+                    reach(target.MethodId);
+                    continue;
+                }
+
+                if (!_waiting.TryGetValue(declaringType, out var waiting))
+                    _waiting.Add(declaringType, waiting = []);
+                waiting.Add((target.MethodId, reach));
+            }
+        }
+
+        /// <summary>Records what an operation constructs under <see cref="DispatchRule.ConstructedTypes"/>: the type a constructor call
+        /// creates, unless it is a value type, and the value type a boxing conversion boxes or a delegate created on a value's method
+        /// binds, which boxes it with no conversion lowered. Boxing a type parameter admits only value types bound to that
+        /// owner's parameter, including bindings and parameter-to-parameter edges discovered after the boxing.</summary>
+        /// <param name="operation">The operation of a reached body.</param>
+        /// <param name="values">The body's values by id.</param>
+        /// <param name="bodyId">The reached body whose method and containing types own its type parameters.</param>
+        private void Instantiate(IrOperation operation, IReadOnlyDictionary<int, IrValue> values, string bodyId)
+        {
+            if (_input.Rules.Dispatch != DispatchRule.ConstructedTypes)
+                return;
+
+            var owner = _program.Method(_memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId);
+            var (methodId, containingType, arguments) = operation switch
+            {
+                IrCallOperation call => (call.TargetMethodId, call.TargetContainingTypeKey, call.TargetMethodTypeArgumentKeys),
+                IrCreateDelegateOperation creation => (creation.TargetMethodId, creation.TargetContainingTypeKey, creation.TargetMethodTypeArgumentKeys),
+                _ => (null, null, (IReadOnlyList<string>)[])
+            };
+            if (methodId is not null && _program.Method(methodId) is { } method)
+            {
+                var dispatch = operation is IrCallOperation { CallKind: IrCallKind.Virtual or IrCallKind.Interface } ||
+                               operation is IrCreateDelegateOperation { IsNonVirtual: false } &&
+                               (method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true);
+                // Bind even targets still waiting for construction: their parameter edges must also receive later bindings.
+                foreach (var target in Targets(methodId, dispatch).Prepend(method).DistinctBy(target => target.MethodId))
+                    for (var ordinal = 0; ordinal < Math.Min(arguments.Count, target.TypeParameterKeys.Count); ordinal++)
+                        Bind((target.MethodId, ordinal), arguments[ordinal]);
+            }
+            if (containingType is not null)
+                SeeType(containingType);
+
+            switch (operation)
+            {
+                case IrCallOperation { CallKind: IrCallKind.Constructor } call
+                    when (call.TargetContainingTypeKey ?? (call.TargetMethodId is { } id ? _program.Method(id)?.ContainingTypeKey : null)) is { } typeKey &&
+                         _program.Type(typeKey) is not { IsValueType: true }:
+                    Instantiate(typeKey);
+                    break;
+                case IrConvertOperation { ConversionKind: IrConversionKind.Boxing } boxing when values.TryGetValue(boxing.OperandValue, out var boxed):
+                    Box(boxed.Type);
+                    break;
+                case IrCreateDelegateOperation { ReceiverValue: int receiver } when values.TryGetValue(receiver, out var bound):
+                    Box(bound.Type);
+                    break;
+            }
+
+            void SeeType(string key)
+            {
+                var typeArguments = ProgramIndex.Shape(key).Arguments;
+                var types = _program.Type(key) is { } type ? [type] : _typesByDisplayShape.GetValueOrDefault(Shape(key)) ?? [];
+                foreach (var definition in types)
+                    for (var ordinal = 0; ordinal < Math.Min(typeArguments.Count, definition.TypeParameterKeys.Count); ordinal++)
+                        Bind(TypeParameter(definition, ordinal), typeArguments[ordinal]);
+                foreach (var argument in typeArguments)
+                    SeeType(argument);
+            }
+
+            void Bind((string Owner, int Ordinal) parameter, string key)
+            {
+                key = UnwrapNullable(key);
+                if (Parameter(key, owner) is { } source)
+                {
+                    if (!_parameterEdges.TryGetValue(source, out var edges))
+                        _parameterEdges[source] = edges = [];
+                    if (edges.Add(parameter))
+                        foreach (var binding in (_parameterBindings.GetValueOrDefault(source) ?? []).ToArray())
+                            BindValue(parameter, binding);
+                }
+                else
+                {
+                    var candidates = _program.Type(key) is { IsValueType: true } type
+                        ? [type.TypeKey] : _valueTypeKeys.GetValueOrDefault(Shape(key)) ?? [];
+                    foreach (var candidate in candidates)
+                        BindValue(parameter, candidate);
+                }
+            }
+
+            void Box(string type)
+            {
+                type = type.TrimEnd('?');
+                if (Parameter(type, owner) is { } parameter)
+                {
+                    _boxedParameters.Add(parameter);
+                    foreach (var argument in _parameterBindings.GetValueOrDefault(parameter) ?? [])
+                        Instantiate(argument);
+                }
+                else
+                {
+                    foreach (var key in _valueTypeKeys.GetValueOrDefault(Shape(type)) ?? [])
+                        Instantiate(key);
+                }
+            }
+        }
+
+        private static string UnwrapNullable(string key)
+        {
+            key = key.Trim().TrimEnd('?');
+            var (shape, arguments) = ProgramIndex.Shape(key);
+            return arguments.Count == 1 && (shape == "System.Nullable<1>" || shape.EndsWith(":System.Nullable<1>", StringComparison.Ordinal))
+                ? arguments[0] : key;
+        }
+
+        private (string Owner, int Ordinal)? Parameter(string key, ProgramMethod? method)
+        {
+            if (method is null)
+                return null;
+            var name = key[(key.IndexOf(':') + 1)..];
+            for (var ordinal = 0; ordinal < method.TypeParameterKeys.Count; ordinal++)
+                if (Name(method.TypeParameterKeys[ordinal]) == name)
+                    return (method.MethodId, ordinal);
+            if (_program.Type(method.ContainingTypeKey) is { } type)
+                for (var ordinal = type.TypeParameterKeys.Count - 1; ordinal >= 0; ordinal--)
+                    if (Name(type.TypeParameterKeys[ordinal]) == name)
+                        return TypeParameter(type, ordinal);
+            return null;
+
+            static string Name(string parameter) => parameter[(parameter.IndexOf(':') + 1)..];
+        }
+
+        private (string Owner, int Ordinal) TypeParameter(ProgramType type, int ordinal)
+        {
+            var depth = 0;
+            for (var index = type.TypeKey.Length - 1; index >= 0; index--)
+            {
+                var character = type.TypeKey[index];
+                if (character == '>') depth++;
+                else if (character == '<') depth--;
+                else if (character == '.' && depth == 0 && _program.Type(type.TypeKey[..index]) is { } outer)
+                    return ordinal < outer.TypeParameterKeys.Count
+                        ? TypeParameter(outer, ordinal) : (type.TypeKey, ordinal - outer.TypeParameterKeys.Count);
+            }
+            return (type.TypeKey, ordinal);
+        }
+
+        private void BindValue((string Owner, int Ordinal) parameter, string typeKey)
+        {
+            var pending = new Queue<(string Owner, int Ordinal)>();
+            pending.Enqueue(parameter);
+            while (pending.TryDequeue(out var current))
+            {
+                if (!_parameterBindings.TryGetValue(current, out var bindings))
+                    _parameterBindings[current] = bindings = new(StringComparer.Ordinal);
+                if (!bindings.Add(typeKey))
+                    continue;
+                if (_boxedParameters.Contains(current))
+                    Instantiate(typeKey);
+                foreach (var target in _parameterEdges.GetValueOrDefault(current) ?? [])
+                    pending.Enqueue(target);
+            }
+        }
+
+        /// <summary>Records a type as constructed: it and every type it derives from or implements now have their overrides reached,
+        /// and the targets waiting for any of them are reached.</summary>
+        /// <param name="typeKey">The constructed or boxed type.</param>
+        private void Instantiate(string typeKey)
+        {
+            if (_input.Rules.Dispatch != DispatchRule.ConstructedTypes || !_instantiated.Add(typeKey))
+                return;
+
+            foreach (var supertype in _program.Supertypes(typeKey))
+            {
+                var definition = _program.Type(supertype)?.TypeKey ?? supertype;
+                if (!_constructedTypes.Add(definition) || !_waiting.Remove(definition, out var waiting))
+                    continue;
+                foreach (var (target, reach) in waiting)
+                    reach(target);
+            }
+        }
+
+        private bool IsLeftOutType(string typeKey) =>
+            _input.Rules.LeftOutTypeKeys.Contains(_program.Type(typeKey)?.TypeKey ?? typeKey);
 
         private void RecordOpaque(string bodyId, IrCallOperation call, IReadOnlyDictionary<int, IrOperation> definitions, IReadOnlySet<int> work)
         {
@@ -702,8 +981,7 @@ public static class ReachableSet
                 return;
             var virtualDispatch = !creation.IsNonVirtual &&
                                   (method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true);
-            foreach (var target in Targets(methodId, virtualDispatch))
-                ReachBody(target.MethodId, reason);
+            ReachTargets(Targets(methodId, virtualDispatch), virtualDispatch, target => ReachBody(target, reason));
         }
 
         /// <summary>A locator call with a constant type constructs what it resolves: the bound registration, or every supported
@@ -789,8 +1067,12 @@ public static class ReachableSet
             return candidate;
         }
 
+        /// <summary>The type initializer of a type, null when it has none with a source body or the type is left out.</summary>
+        /// <param name="typeKey">The type.</param>
         private ProgramMethod? TypeInitializer(string typeKey) =>
-            _program.MethodsOf(typeKey).FirstOrDefault(method => method is { Kind: ProgramMethodKind.TypeInitializer, HasSourceBody: true });
+            IsLeftOutType(typeKey)
+                ? null
+                : _program.MethodsOf(typeKey).FirstOrDefault(method => method is { Kind: ProgramMethodKind.TypeInitializer, HasSourceBody: true });
 
         /// <summary>A delegate type's name with each type-argument list reduced to its arity: a delegate of <c>Func&lt;T&gt;</c>
         /// created in generic code is invoked as <c>Func&lt;Order&gt;</c>.</summary>

@@ -12,7 +12,9 @@ namespace ConcurrencyHunter.Heap;
 /// <param name="bodies">The lowered bodies by id, which summaries are built from.</param>
 /// <param name="program">The program index the summaries are built against.</param>
 /// <param name="limits">The limits the summaries are built under.</param>
-public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, ProgramIndex program, AnalysisLimits limits)
+/// <param name="reachable">The reachable set that decides whether a callee has a body in the run; <c>null</c> for its source body.</param>
+public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, ProgramIndex program, AnalysisLimits limits,
+                                 ReachableSetResult? reachable = null)
 {
     private readonly Dictionary<string, MethodSummary> _summaries = new(StringComparer.Ordinal);
 
@@ -20,6 +22,11 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
 
     /// <summary>The limits the summaries are built under, which the accesses expanded from them keep too.</summary>
     public AnalysisLimits Limits => limits;
+
+    /// <summary>Whether a member has a body in the run (<see cref="ReachableSetResult.HasBody"/>), its source body without a reachable
+    /// set.</summary>
+    /// <param name="method">The member.</param>
+    public bool HasBody(ProgramMethod method) => reachable?.HasBody(method) ?? method.HasSourceBody;
 
     public bool IsBuilt(string bodyId) => _summaries.ContainsKey(bodyId);
 
@@ -29,7 +36,7 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
             return summary;
         if (!bodies.TryGetValue(bodyId, out var body))
             return null;
-        summary = MethodSummaryBuilder.Build(body, program, limits, bodies.GetValueOrDefault);
+        summary = MethodSummaryBuilder.Build(body, program, limits, bodies.GetValueOrDefault, reachable);
         _summaries.Add(bodyId, summary);
         return summary;
     }
@@ -1738,7 +1745,8 @@ public static partial class WholeProgram
             foreach (var receiver in target.CapturedReceivers.ToArray())
             {
                 CheckCancellation();
-                var implementation = _regions[receiver].TypeKey is { } typeKey && _program.Implementation(typeKey, method.MethodId, target.ContainingTypeKey) is { HasSourceBody: true } found
+                var implementation = _regions[receiver].TypeKey is { } typeKey && _program.Implementation(typeKey, method.MethodId, target.ContainingTypeKey) is { } found &&
+                                     found.HasSourceBody
                     ? found
                     : method;
                 if (Instance(implementation.MethodId, $"{region}|{receiver}", ReceiverSubstitution(_regions[receiver], implementation, target.MethodTypeArguments),
@@ -2960,13 +2968,47 @@ public static partial class WholeProgram
                 Bind(caller, call, callee, "delegate");
             }
             // A method group whose target runs no body the analysis has is as unresolved as a call of that target (R1).
-            if (callees.Count == 0 && !state.IsNestedBody)
-            {
-                var declaring = _program.Method(state.Target)?.ContainingTypeKey;
-                Unresolved(caller, call, state.CapturedReceivers.Select(receiver => (receiver, declaring)).ToArray());
-            }
+            if (UnresolvedReceivers(state, callees.Count != 0) is { } unresolved)
+                Unresolved(caller, call, unresolved);
 
             return callees;
+        }
+
+        /// <summary>The receivers a method-group delegate leaves unresolved where it runs, each with the type its unknown effect sees it
+        /// through (R1): when it runs no body, every captured receiver; when it runs some, only the receivers whose implementation of the
+        /// target is a member with a source body the run has no body of (ADR 0019). Such a receiver is seen through the type declaring
+        /// that implementation, any other through the target's. Null when nothing is unresolved, or the delegate is a nested body.</summary>
+        /// <param name="state">The delegate.</param>
+        /// <param name="ran">Whether the delegate runs some body.</param>
+        private (string Region, string? DeclaringTypeKey)[]? UnresolvedReceivers(DelegateState state, bool ran)
+        {
+            if (state.IsNestedBody)
+                return null;
+            var target = _program.Method(state.Target);
+            var receivers = new List<(string Region, string? DeclaringTypeKey)>();
+            foreach (var receiver in state.CapturedReceivers)
+            {
+                var implementations = target is null ? [] : ImplementationsWithoutBody(receiver, target, state.ContainingTypeKey, state.IsNonVirtual);
+                receivers.AddRange(implementations.Select(implementation => (receiver, (string?)implementation.ContainingTypeKey)));
+                if (!ran && implementations.Count == 0)
+                    receivers.Add((receiver, target?.ContainingTypeKey));
+            }
+            return ran && receivers.Count == 0 ? null : receivers.ToArray();
+        }
+
+        /// <summary>The implementations a receiver runs for a method that have source bodies but no bodies in the run (ADR 0019).
+        /// Empty under class-hierarchy dispatch, where every source body is one.</summary>
+        /// <param name="receiver">The receiver region.</param>
+        /// <param name="method">The method a delegate or a call names.</param>
+        /// <param name="containingTypeKey">The type the method is named on.</param>
+        /// <param name="isNonVirtual">Whether the delegate binds the named member without virtual dispatch.</param>
+        private IReadOnlyList<ProgramMethod> ImplementationsWithoutBody(string receiver, ProgramMethod method, string? containingTypeKey, bool isNonVirtual)
+        {
+            IEnumerable<ProgramMethod?> implementations = isNonVirtual ? [method] :
+                ReceiverTypes(receiver).Select(type => _program.Implementation(type, method.MethodId, containingTypeKey));
+            return implementations.OfType<ProgramMethod>()
+                                  .Where(implementation => implementation.HasSourceBody && !_scope.Reachable.HasBody(implementation))
+                                  .DistinctBy(implementation => implementation.MethodId).ToArray();
         }
 
         /// <summary>
@@ -3201,10 +3243,8 @@ public static partial class WholeProgram
                     CheckCancellation();
                     var state = _delegates[region];
                     var callees = runs[fate.ParameterOrdinal].Where(run => run.Region == region).Select(run => run.Callee).ToArray();
-                    if (callees.Length == 0 && !state.IsNestedBody)
+                    if (UnresolvedReceivers(state, callees.Length != 0) is { } receivers)
                     {
-                        var declaring = _program.Method(state.Target)?.ContainingTypeKey;
-                        var receivers = state.CapturedReceivers.Select(receiver => (receiver, declaring)).ToArray();
                         if (sequence is not null && fate.Kind == IrFateKind.Iterator)
                             sequence.Unresolved[(fate.ParameterOrdinal, region)] = (call.Callee, inputs, receivers);
                         else
@@ -4300,11 +4340,8 @@ public static partial class WholeProgram
 
                 var state = _delegates[region];
                 var callees = DelegateCallees(caller, operationId, state, () => NoReceiver(caller, invocation));
-                if (callees.Count == 0 && !state.IsNestedBody)
-                {
-                    var declaring = _program.Method(state.Target)?.ContainingTypeKey;
-                    UnresolvedFate(caller, invocation, state.CapturedReceivers.Select(receiver => (receiver, declaring)).ToArray());
-                }
+                if (UnresolvedReceivers(state, callees.Count != 0) is { } unresolved)
+                    UnresolvedFate(caller, invocation, unresolved);
 
                 foreach (var instance in callees)
                 {
@@ -4556,6 +4593,15 @@ public static partial class WholeProgram
                 return;
             }
 
+            var leftOut = _program.Method(methodId) is { } method
+                ? ImplementationsWithoutBody(receiver, method, interfaceTypeKey, false) : [];
+            if (leftOut.Count != 0)
+            {
+                NoReceiver(caller, call);
+                Unresolved(caller, call, leftOut.Select(implementation => (receiver, (string?)implementation.ContainingTypeKey)).ToArray());
+                return;
+            }
+
             // A receiver whose type has no implementation with a body runs one the analysis cannot read: however many other types do,
             // the call is unresolved for this one (R1), unless it is an object the call decides as a member of the table (ADR 0010,
             // amendment of the phase 5b third run).
@@ -4583,6 +4629,13 @@ public static partial class WholeProgram
         private string? ObjectKind(string regionId, string? interfaceMethod = null) =>
             CollectionObjects.KindOf(_regions[regionId], _program, _scope.Summaries, interfaceMethod);
 
+        /// <summary>The types a receiver runs as: a registration's constructed types, or the ordinary region's type.</summary>
+        /// <param name="receiver">The receiver region.</param>
+        private IReadOnlyCollection<string> ReceiverTypes(string receiver) =>
+            _registrations.ContainsKey(receiver)
+                ? _regionTypes.GetValueOrDefault(receiver)?.Order(StringComparer.Ordinal).ToArray() ?? []
+                : _regions[receiver].TypeKey is { } type ? [type] : [];
+
         /// <summary>The source implementations a receiver region runs for a call of <paramref name="methodId"/>, and whether any of its
         /// types has one.</summary>
         /// <param name="receiver">The receiver.</param>
@@ -4592,17 +4645,12 @@ public static partial class WholeProgram
         private (bool Dispatched, TrackedList<InstanceState> Callees) DispatchCallees(string receiver, string methodId, IReadOnlyList<string> typeArguments,
                                                                              string? interfaceTypeKey = null)
         {
-            var region = _regions[receiver];
-            // A factory or instance registration's region dispatches on the types its factory or instance created, if any.
-            IReadOnlyCollection<string> types = _registrations.ContainsKey(receiver)
-                ? _regionTypes.GetValueOrDefault(receiver)?.Order(StringComparer.Ordinal).ToArray() ?? []
-                : region.TypeKey is null ? [] : [region.TypeKey];
             var dispatched = false;
             var callees = new TrackedList<InstanceState>();
-            foreach (var type in types)
+            foreach (var type in ReceiverTypes(receiver))
             {
                 CheckCancellation();
-                if (_program.Implementation(type, methodId, interfaceTypeKey) is not { HasSourceBody: true } implementation)
+                if (_program.Implementation(type, methodId, interfaceTypeKey) is not { } implementation || !_scope.Reachable.HasBody(implementation))
                     continue;
                 dispatched = true;
                 if (Instance(implementation.MethodId, receiver + TypeArgumentText(typeArguments),
@@ -4766,7 +4814,7 @@ public static partial class WholeProgram
         private void ActivateTypeInitializer(string typeKey, InstanceState? triggerInstance, string? triggerRegion)
         {
             if (_program.Type(typeKey) is not { } type ||
-                _program.MethodsOf(type.TypeKey).FirstOrDefault(method => method is { Kind: ProgramMethodKind.TypeInitializer, HasSourceBody: true }) is not { } initializer ||
+                _program.MethodsOf(type.TypeKey).FirstOrDefault(method => method.Kind == ProgramMethodKind.TypeInitializer && _scope.Reachable.HasBody(method)) is not { } initializer ||
                 triggerInstance?.BodyId == initializer.MethodId)
             {
                 return;

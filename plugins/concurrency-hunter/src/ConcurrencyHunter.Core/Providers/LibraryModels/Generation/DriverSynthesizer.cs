@@ -124,6 +124,7 @@ public static class DriverSynthesizer
     private const int ARGUMENT_DEPTH = 2;
     private const int STATIC_DEPTH = 2;
     private const int INLINE_DEPTH = 1;
+    private const int TYPE_NESTING = 16;
     private const int DETAILS_SHOWN = 3;
 
     private static readonly Dictionary<string, string> BinaryOperators = new(StringComparer.Ordinal)
@@ -414,6 +415,10 @@ public static class DriverSynthesizer
         private readonly List<string> _setup = [];
         private readonly List<(string Path, string Statement)> _seedStatements = [];
         private readonly SortedDictionary<string, ISymbol> _unseeded = new(StringComparer.Ordinal);
+
+        /// <summary>The types the unseeded-path walk is below: entered by <see cref="RecordBelow"/> or <see cref="RecordStruct"/> and
+        /// not yet left.</summary>
+        private readonly List<ITypeSymbol> _below = [];
         private readonly Dictionary<ITypeSymbol, string> _seedTypes = new(SymbolEqualityComparer.Default);
         private readonly List<ITypeSymbol> _seedTypeKeys = [];
         private readonly Dictionary<string, string> _classes = new(StringComparer.Ordinal);
@@ -786,7 +791,7 @@ public static class DriverSynthesizer
             type = Substitute(type);
             if (SeedableFields.Struct(type))
             {
-                RecordStruct(type, path);
+                RecordStruct(type, path, null);
                 return;
             }
             if (type is IArrayTypeSymbol array)
@@ -829,7 +834,7 @@ public static class DriverSynthesizer
             }
             if (SeedableFields.Struct(type))
             {
-                RecordStruct(type, path);
+                RecordStruct(type, path, field);
                 return;
             }
             if (type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
@@ -1186,24 +1191,36 @@ public static class DriverSynthesizer
             return true;
         }
 
-        private void RecordStruct(ITypeSymbol type, string path)
+        /// <summary>Records the unseeded reference storage inside a struct, and below it.</summary>
+        /// <param name="type">The struct's type.</param>
+        /// <param name="path">The path of the storage that holds the struct.</param>
+        /// <param name="field">The field that leads to the struct, or <c>null</c> for an argument or the receiver.</param>
+        private void RecordStruct(ITypeSymbol type, string path, ISymbol? field)
         {
-            if (type is not INamedTypeSymbol named)
+            if (type is not INamedTypeSymbol named || Bounded(type, path, field))
                 return;
-            foreach (var field in named.GetMembers().OfType<IFieldSymbol>().Where(field => !field.IsStatic))
+            _below.Add(type);
+            try
             {
-                var storage = field.AssociatedSymbol ?? field;
-                var fieldPath = path + "/" + Id(storage);
-                if (SeedableFields.Struct(field.Type))
-                    RecordStruct(field.Type, fieldPath);
-                else if (SeedableFields.Seed(field.Type) || SeedableFields.Path(field.Type) ||
-                         field.Type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
-                    RecordUnseeded(fieldPath, storage, field.Type);
-            }
+                foreach (var member in named.GetMembers().OfType<IFieldSymbol>().Where(member => !member.IsStatic))
+                {
+                    var storage = member.AssociatedSymbol ?? member;
+                    var fieldPath = path + "/" + Id(storage);
+                    if (SeedableFields.Struct(member.Type))
+                        RecordStruct(member.Type, fieldPath, storage);
+                    else if (SeedableFields.Seed(member.Type) || SeedableFields.Path(member.Type) ||
+                             member.Type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
+                        RecordUnseeded(fieldPath, storage, member.Type);
+                }
 
-            // No backing field of a field-like event is listed among the struct's members: the event names its storage.
-            foreach (var @event in named.GetMembers().OfType<IEventSymbol>().Where(@event => !@event.IsStatic && FieldLikeEvents.Is(@event)))
-                RecordUnseeded(path + "/" + Id(@event), @event, @event.Type);
+                // No backing field of a field-like event is listed among the struct's members: the event names its storage.
+                foreach (var @event in named.GetMembers().OfType<IEventSymbol>().Where(@event => !@event.IsStatic && FieldLikeEvents.Is(@event)))
+                    RecordUnseeded(path + "/" + Id(@event), @event, @event.Type);
+            }
+            finally
+            {
+                _below.RemoveAt(_below.Count - 1);
+            }
         }
 
         private void RecordUnseeded(string path, ISymbol field, ITypeSymbol type)
@@ -1211,40 +1228,76 @@ public static class DriverSynthesizer
             if (SeedableFields.Seed(type) || type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
                 AddUnseeded(path, field);
             if (SeedableFields.Struct(type))
-                RecordStruct(type, path);
+                RecordStruct(type, path, field);
             else if (SeedableFields.Path(type))
-                RecordBelow(type, path, new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default));
+                RecordBelow(type, path, field, new HashSet<ITypeSymbol>(_below, SymbolEqualityComparer.Default));
         }
 
-        private void RecordBelow(ITypeSymbol type, string path, HashSet<ITypeSymbol> seen)
+        /// <summary>Records the unseeded storage below a field of a path type; a path stops at a type it is already below.</summary>
+        /// <param name="type">The type the field holds: a class, an array or a collection.</param>
+        /// <param name="path">The field's path.</param>
+        /// <param name="field">The field that leads to <paramref name="type"/>.</param>
+        /// <param name="seen">The types this walk stops at: the types it started below, and those its branches entered.</param>
+        private void RecordBelow(ITypeSymbol type, string path, ISymbol field, HashSet<ITypeSymbol> seen)
         {
             type = Substitute(type);
-            if (!seen.Add(type))
+            if (Bounded(type, path, field) || !seen.Add(type))
                 return;
-            if (type is IArrayTypeSymbol array)
+            _below.Add(type);
+            try
             {
-                RecordBelow(array.ElementType, path, seen);
-                return;
+                if (type is IArrayTypeSymbol array)
+                {
+                    RecordBelow(array.ElementType, path, field, seen);
+                    return;
+                }
+                if (type is INamedTypeSymbol collectionType && SeedableFields.Collection(collectionType) is { } collection)
+                {
+                    foreach (var axis in collection.Axes.Where(SeedableFields.Path))
+                        RecordBelow(axis, path, field, seen);
+                    return;
+                }
+                if (type is not INamedTypeSymbol named)
+                    return;
+                foreach (var member in SeedMembers(named, isStatic: false))
+                {
+                    var nested = path + "/" + Id(member);
+                    if (SeedableFields.Seed(MemberType(member)) || MemberType(member) is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
+                        AddUnseeded(nested, member);
+                    else if (SeedableFields.Struct(MemberType(member)))
+                        RecordStruct(MemberType(member), nested, member);
+                    else if (SeedableFields.Path(MemberType(member)))
+                        RecordBelow(MemberType(member), nested, member, seen);
+                }
+                seen.Remove(type);
             }
-            if (type is INamedTypeSymbol collectionType && SeedableFields.Collection(collectionType) is { } collection)
+            finally
             {
-                foreach (var axis in collection.Axes.Where(SeedableFields.Path))
-                    RecordBelow(axis, path, seen);
-                return;
+                _below.RemoveAt(_below.Count - 1);
             }
-            if (type is not INamedTypeSymbol named)
-                return;
-            foreach (var field in SeedMembers(named, isStatic: false))
+        }
+
+        /// <summary>Whether the unseeded-path walk stops at <paramref name="type"/> because its type arguments nest more than
+        /// <see cref="TYPE_NESTING"/> levels deep, an array counting as a level; the field that leads to it is then recorded and
+        /// nothing below.</summary>
+        /// <param name="type">The type the walk is given.</param>
+        /// <param name="path">The path of the field that leads to it.</param>
+        /// <param name="field">The field that leads to it, or <c>null</c> for an argument or the receiver.</param>
+        private bool Bounded(ITypeSymbol type, string path, ISymbol? field)
+        {
+            if (!NestsDeeper(type, TYPE_NESTING))
+                return false;
+            if (field is not null)
+                AddUnseeded(path, field);
+            return true;
+
+            static bool NestsDeeper(ITypeSymbol type, int levels) => levels < 0 || type switch
             {
-                var nested = path + "/" + Id(field);
-                if (SeedableFields.Seed(MemberType(field)) || MemberType(field) is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
-                    AddUnseeded(nested, field);
-                else if (SeedableFields.Struct(MemberType(field)))
-                    RecordStruct(MemberType(field), nested);
-                else if (SeedableFields.Path(MemberType(field)))
-                    RecordBelow(MemberType(field), nested, seen);
-            }
-            seen.Remove(type);
+                IArrayTypeSymbol array => NestsDeeper(array.ElementType, levels - 1),
+                INamedTypeSymbol named => named.TypeArguments.Any(argument => NestsDeeper(argument, levels - 1)) ||
+                                          named.ContainingType is { } outer && NestsDeeper(outer, levels),
+                _ => false
+            };
         }
 
         private void AddUnseeded(string path, ISymbol member) => _unseeded.TryAdd(path, member);

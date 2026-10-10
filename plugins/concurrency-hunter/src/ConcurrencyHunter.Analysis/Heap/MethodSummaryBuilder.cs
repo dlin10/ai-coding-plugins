@@ -27,11 +27,16 @@ public static class MethodSummaryBuilder
     /// <param name="index">The program index the body's calls, methods and types are resolved against.</param>
     /// <param name="limits">The analysis limits, such as the maximum access path depth.</param>
     /// <param name="bodies">Resolves a nested body id to its body, or <see langword="null"/> when none are at hand.</param>
-    public static MethodSummary Build(IrBody body, ProgramIndex index, AnalysisLimits limits, Func<string, IrBody?>? bodies = null) =>
-        new Builder(body, index, limits, bodies).Build();
+    /// <param name="reachable">The reachable set that decides whether a callee has a body in the run
+    /// (<see cref="ReachableSetResult.HasBody"/>); <see langword="null"/> for its source body.</param>
+    public static MethodSummary Build(IrBody body, ProgramIndex index, AnalysisLimits limits, Func<string, IrBody?>? bodies = null,
+                                      ReachableSetResult? reachable = null) =>
+        new Builder(body, index, limits, bodies, reachable).Build();
 
     /// <summary>The method ids a virtual or interface call could run a source body for: every source-bodied method, and every method
-    /// such a method overrides or implements, directly or through the methods it overrides.</summary>
+    /// such a method overrides or implements, directly or through the methods it overrides. A source body the run has not is still
+    /// one: the heap decides each receiver of such a call, and sees one whose implementation has no body in the run through the type
+    /// declaring that implementation (ADR 0019).</summary>
     /// <param name="index">The program whose methods are scanned; the result is cached per index.</param>
     private static HashSet<string> DispatchedWithBody(ProgramIndex index) =>
         DISPATCHED_WITH_BODY.GetValue(index, program =>
@@ -65,6 +70,7 @@ public static class MethodSummaryBuilder
         private readonly ProgramIndex _index;
         private readonly AnalysisLimits _limits;
         private readonly Func<string, IrBody?>? _bodies;
+        private readonly ReachableSetResult? _reachable;
         private readonly IrOperation[] _operations;
         private readonly Dictionary<int, IrValue> _values;
         private readonly Dictionary<int, IrOperation> _definitions = [];
@@ -99,12 +105,13 @@ public static class MethodSummaryBuilder
         private Dictionary<int, int>? _blockOf;
         private Dictionary<int, HashSet<int>>? _dominators;
 
-        internal Builder(IrBody body, ProgramIndex index, AnalysisLimits limits, Func<string, IrBody?>? bodies)
+        internal Builder(IrBody body, ProgramIndex index, AnalysisLimits limits, Func<string, IrBody?>? bodies, ReachableSetResult? reachable)
         {
             _body = body;
             _index = index;
             _limits = limits;
             _bodies = bodies;
+            _reachable = reachable;
             _operations = body.Blocks.SelectMany(block => block.Operations).ToArray();
             _workValues = ReachableSet.WorkOfCalls(_operations);
             _values = body.Values.ToDictionary(value => value.Id);
@@ -2715,7 +2722,7 @@ public static class MethodSummaryBuilder
                 return false;
             if (_index.Method(methodId) is not { } method)
                 return true;
-            if (method.HasSourceBody)
+            if (_reachable?.HasBody(method) ?? method.HasSourceBody)
                 return false;
             return call.CallKind is not (IrCallKind.Virtual or IrCallKind.Interface) || !DispatchedWithBody(_index).Contains(methodId);
         }

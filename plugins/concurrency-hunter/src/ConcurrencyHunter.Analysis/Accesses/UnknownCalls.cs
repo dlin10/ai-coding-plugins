@@ -316,9 +316,13 @@ public static class UnknownCalls
         private readonly Lazy<IReadOnlyDictionary<string, IReadOnlyList<IrFieldRef>>> _libraryFields = new(() => LibraryFields(scope, heap));
 
         /// <summary>The fields of an object an unknown effect may see: those its type of the run's own declares, and the fields of types
-        /// from metadata the program names on it (R1).</summary>
-        public IReadOnlyList<IrFieldRef> FieldsOf(string regionId) =>
-            [.. (heap.Regions[regionId].TypeKey is { } key ? scope.Program.InstanceFieldsOf(key) : null) ?? [], .. LibraryFieldsOf(regionId)];
+        /// from metadata the program names on it (R1). A restricted receiver is seen through its recorded declaring type,
+        /// including when a DI region is labelled with the service interface.</summary>
+        /// <param name="regionId">The receiver or argument region.</param>
+        /// <param name="declaringTypeKey">The declaring type through which a receiver is seen, or null for an unrestricted object.</param>
+        public IReadOnlyList<IrFieldRef> FieldsOf(string regionId, string? declaringTypeKey = null) =>
+            [.. ((declaringTypeKey ?? heap.Regions[regionId].TypeKey) is { } key ? scope.Program.InstanceFieldsOf(key) : null) ?? [],
+             .. LibraryFieldsOf(regionId)];
 
         /// <summary>The values an unknown effect starts from: the receivers it may see, and every argument, an array created for the
         /// call by its elements. Through a receiver of a member a type of the run's own declares, only that type's state and its bases'
@@ -418,7 +422,7 @@ public static class UnknownCalls
 
                 // A receiver is seen only through the state of the type declaring the member, and only where the walk starts.
                 var restricted = isRestrictedStart
-                    ? Seen(FieldsOf(regionId), declaringTypeKey).Select(FieldSlot.Key).ToHashSet(StringComparer.Ordinal)
+                    ? Seen(FieldsOf(regionId, declaringTypeKey), declaringTypeKey).Select(FieldSlot.Key).ToHashSet(StringComparer.Ordinal)
                     : null;
                 if (step.IsCollection || restricted?.Count > 0 || restricted is null && step.HasState)
                     reached.Add(regionId);

@@ -77,16 +77,21 @@ public static class ScopePipeline
     /// <param name="registry">The root providers, run in their registration order.</param>
     /// <param name="models">The library models lowering resolves known calls against.</param>
     /// <param name="limits">The summary and heap limits.</param>
-    /// <param name="loweringCache">The lowered methods of the whole analysis, keyed by compilation, body id and models.</param>
+    /// <param name="loweringCache">The lowered methods of the whole analysis, keyed by compilation, body id and models. A cache lives for
+    /// one analysis or one member's generation, every run of which passes the same <paramref name="reachability"/>, so the key carries
+    /// no left-out types.</param>
     /// <param name="reachableBodyLimit">The most bodies the reachable set may reach before the run stops after reachability;
     /// <c>null</c> for no limit.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
     /// <param name="stepStarted">Notified before a step starts, so a caller can set its deadline or cancel before it runs.</param>
+    /// <param name="reachability">The rules the reachable set is built by; <c>null</c> for class-hierarchy dispatch with no type
+    /// left out.</param>
     public static ScopeRun Run(string scopeId, IReadOnlyList<Compilation> compilations,
                                IReadOnlyList<(Compilation Compilation, string? ProjectFilePath)> projectFiles, string rootDirectory,
                                ProviderRegistry registry, LibraryModels models, AnalysisLimits limits,
                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> loweringCache,
-                               int? reachableBodyLimit, CancellationToken cancellationToken, Action<ScopeStep>? stepStarted = null)
+                               int? reachableBodyLimit, CancellationToken cancellationToken, Action<ScopeStep>? stepStarted = null,
+                               ReachabilityRules? reachability = null)
     {
         var step = new Stopwatch();
         var lowering = new Stopwatch();
@@ -161,7 +166,9 @@ public static class ScopePipeline
             Begin(ScopeStep.ReachableSet);
             var metadataSupertypes = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
             var loweringDiagnostics = new List<string>();
-            var lower = Members(compilations, rootDirectory, models, loweringCache, metadataSupertypes, loweringDiagnostics, cancellationToken);
+            var rules = reachability ?? ReachabilityRules.ClassHierarchy;
+            var lower = Members(compilations, rootDirectory, models, rules.LeftOutTypeKeys, loweringCache, metadataSupertypes, loweringDiagnostics,
+                                cancellationToken);
             IReadOnlyList<IrBody> TimedMembers(string bodyId)
             {
                 lowering.Start();
@@ -175,7 +182,10 @@ public static class ScopePipeline
                 }
             }
 
-            var reachable = ReachableSet.Build(new ReachabilityInput(program, roots, index, bindings, TimedMembers));
+            var reachable = ReachableSet.Build(new ReachabilityInput(program, roots, index, bindings, TimedMembers)
+            {
+                Rules = rules
+            });
             var reachableSet = Complete() - lowering.Elapsed;
             completed[ScopeStep.ReachableSet] = reachableSet;
             completed[ScopeStep.Lowering] = lowering.Elapsed;
@@ -190,7 +200,7 @@ public static class ScopePipeline
             }
 
             Begin(ScopeStep.SummariesAndFixpoint);
-            var summaries = new SummaryCache(reachable.Bodies, program, limits);
+            var summaries = new SummaryCache(reachable.Bodies, program, limits, reachable);
             var scopeProgram = new ScopeProgram(scopeId, roots, reachable, summaries, program, index, bindings)
             {
                 MetadataSupertypes = metadataSupertypes
@@ -239,12 +249,13 @@ public static class ScopePipeline
     /// <param name="compilations">The scope's compilations, in order.</param>
     /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
     /// <param name="models">The library models lowering resolves known calls against.</param>
+    /// <param name="leftOutTypeKeys">The types the reachable set leaves out, whose members lowering treats as members without a body.</param>
     /// <param name="lowered">The lowered methods of the whole analysis.</param>
     /// <param name="metadataSupertypes">Receives the supertypes of the metadata types the lowered methods name.</param>
     /// <param name="diagnostics">Receives one diagnostic per member whose lowering failed.</param>
     /// <param name="cancellationToken">Cancels the lowering.</param>
     private static Func<string, IReadOnlyList<IrBody>> Members(IReadOnlyList<Compilation> compilations, string rootDirectory,
-                                                               LibraryModels models,
+                                                               LibraryModels models, IReadOnlySet<string> leftOutTypeKeys,
                                                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
                                                                Dictionary<string, IReadOnlySet<string>> metadataSupertypes,
                                                                List<string> diagnostics, CancellationToken cancellationToken)
@@ -266,7 +277,7 @@ public static class ScopePipeline
                 try
                 {
                     loweredMethod = IrLowering.Lower(member.Method, member.Compilation, rootDirectory, cancellationToken,
-                                                     models);
+                                                     models, leftOutTypeKeys);
                 }
                 catch (Exception error) when (error is ArgumentException or InvalidOperationException)
                 {

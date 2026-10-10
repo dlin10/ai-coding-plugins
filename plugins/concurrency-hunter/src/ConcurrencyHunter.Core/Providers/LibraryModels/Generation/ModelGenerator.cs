@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using Microsoft.CodeAnalysis;
@@ -154,7 +155,12 @@ public static class ModelGenerator
             return facts.Refused(GenerationReasons.MEMBER_NOT_FOUND, $"{compilation.AssemblyName} declares no {facts.Request.MemberId}");
         if (DriverSynthesizer.IsAccessor(member))
             return facts.Refused(GenerationReasons.ACCESSOR, DriverSynthesizer.AccessorDetail(member));
-        if (EngineClaims.FirstIn(compilation.Assembly) is { } claim)
+        var corelib = compilation.AssemblyName == "System.Private.CoreLib";
+        var claim = corelib
+            ? member is IMethodSymbol method && EngineClaims.Of(method) is { } recognizer
+                ? new EngineClaim(facts.Request.MemberId, recognizer) : null
+            : EngineClaims.FirstIn(compilation.Assembly);
+        if (claim is not null)
             return facts.Refused(GenerationReasons.ENGINE_RECOGNIZED, $"{claim.Method} is claimed by the {claim.Recognizer} recognizer");
 
         var synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields, cancellationToken);
@@ -167,9 +173,12 @@ public static class ModelGenerator
         models ??= ModelsOutside(compilation.AssemblyName!);
         var loadedStatics = new HashSet<(string Type, string Name)>();
         var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
+        var reachability = corelib
+            ? new ReachabilityRules(DispatchRule.ConstructedTypes, new HashSet<string>(StringComparer.Ordinal) { "System.Private.CoreLib:System.SR" })
+            : null;
         ScopeRun Pipeline(bool triggers) =>
             ScopePipeline.Run(SCOPE_ID, [compilation, driver.Compilation], [], Path.GetTempPath(), new ProviderRegistry([new DriverRootProvider(triggers)]),
-                              models, AnalysisLimits.Default, lowered, CLOSURE_BOUND, cancellationToken);
+                              models, AnalysisLimits.Default, lowered, CLOSURE_BOUND, cancellationToken, reachability: reachability);
 
         ScopeRun run;
         // The lowering cache is shared by the runs, so a dropped body is reported only by the run that first lowered it.

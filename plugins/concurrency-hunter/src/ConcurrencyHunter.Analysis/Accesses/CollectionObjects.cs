@@ -54,7 +54,8 @@ public static class CollectionObjects
     /// <param name="interfaceMethod">The interface member being called, or null when no call is in question.</param>
     public static string? KindOf(HeapRegion region, ProgramIndex program, SummaryCache summaries, string? interfaceMethod = null)
     {
-        if (interfaceMethod is not null && region.TypeKey is { } typeKey && program.Implementation(typeKey, interfaceMethod) is { HasSourceBody: true })
+        if (interfaceMethod is not null && region.TypeKey is { } typeKey && program.Implementation(typeKey, interfaceMethod) is { } implementation &&
+            summaries.HasBody(implementation))
             return null;
 
         var visited = new HashSet<string>(StringComparer.Ordinal);

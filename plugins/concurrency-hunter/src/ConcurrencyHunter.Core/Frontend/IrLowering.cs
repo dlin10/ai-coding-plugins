@@ -39,8 +39,18 @@ public static class IrLowering
                                         CancellationToken cancellationToken) =>
         Lower(method, compilation, rootDirectory, cancellationToken, LibraryModels.BuiltIn);
 
+    /// <summary>Lowers a member with a source body as <see cref="Lower(IMethodSymbol, Compilation, string, CancellationToken)"/> does,
+    /// resolving known calls against <paramref name="libraryModels"/>.</summary>
+    /// <param name="method">The member to lower.</param>
+    /// <param name="compilation">The compilation the member is declared in.</param>
+    /// <param name="rootDirectory">The root directory source locations are made relative to.</param>
+    /// <param name="cancellationToken">Cancels the lowering.</param>
+    /// <param name="libraryModels">The library models known calls are resolved against.</param>
+    /// <param name="leftOutTypeKeys">The definition keys of the types the run's reachable set leaves out: a call of one of their members
+    /// is lowered as a call of a member without a body (ADR 0019); <c>null</c> for none.</param>
     public static IrLoweredMethod Lower(IMethodSymbol method, Compilation compilation, string rootDirectory,
-                                        CancellationToken cancellationToken, LibraryModels libraryModels)
+                                        CancellationToken cancellationToken, LibraryModels libraryModels,
+                                        IReadOnlySet<string>? leftOutTypeKeys = null)
     {
         var plan = Plan(method, compilation, cancellationToken);
         var nestedIds = new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default);
@@ -54,7 +64,10 @@ public static class IrLowering
         }
 
         var context = new LoweringContext(plan.BodyId, new SiteOrdinals(plan.Roots, compilation, cancellationToken), rootDirectory,
-                                          compilation, cancellationToken, libraryModels);
+                                          compilation, cancellationToken, libraryModels)
+        {
+            LeftOutTypeKeys = leftOutTypeKeys ?? new HashSet<string>(StringComparer.Ordinal)
+        };
         var ownerSymbol = SymbolNames.Method(method);
         var body = new BodyLowerer(method, plan.Segments, plan.BodyId, ownerSymbol, !method.IsStatic, nestedIds, context).Lower();
         var nestedBodies = new List<IrBody>();
@@ -381,7 +394,10 @@ public static class IrLowering
                 break;
             case MethodKind.Constructor when declaration is null && method.IsImplicitlyDeclared && method.Parameters.Length == 0 &&
                                             FirstDeclaration(type, cancellationToken) is { } typeDeclaration:
-                AddInitializers(false);
+                // A struct that declares a constructor, a primary one among them, makes `new S()` its default value: the
+                // implicit constructor runs no initializer, which may read a parameter of the constructor declared.
+                if (type.InstanceConstructors.All(constructor => constructor.IsImplicitlyDeclared))
+                    AddInitializers(false);
                 AddImplicitBaseCall(typeDeclaration);
                 break;
             case MethodKind.StaticConstructor when type.DeclaringSyntaxReferences.Length != 0:
@@ -404,7 +420,7 @@ public static class IrLowering
                 break;
         }
 
-        // Only an implicit struct constructor without initializers has an empty body.
+        // Only an implicit struct constructor that runs no initializer has an empty body.
         if (segments.Count == 0 && method.MethodKind != MethodKind.Constructor)
             throw new ArgumentException("The method has no source body.", nameof(method));
         return new MemberPlan(RootBodyId(method), segments, roots);
@@ -482,6 +498,14 @@ public static class IrLowering
                                           Compilation Compilation, CancellationToken CancellationToken, LibraryModels LibraryModels)
     {
         internal Dictionary<string, IReadOnlySet<string>> MetadataSupertypes { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The definition keys of the types the run's reachable set leaves out, whose members have no body in the run.</summary>
+        internal IReadOnlySet<string> LeftOutTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>Whether a member is one of a left-out type's, which has no body in the run whatever its source says.</summary>
+        /// <param name="method">The member.</param>
+        internal bool IsLeftOut(IMethodSymbol method) =>
+            LeftOutTypeKeys.Count != 0 && method.ContainingType is { } type && LeftOutTypeKeys.Contains(SymbolNames.TypeKey(type.OriginalDefinition));
 
         internal void RecordMetadataSupertypes(ITypeSymbol? type)
         {
@@ -2242,14 +2266,14 @@ public static class IrLowering
                 ? result : LowerReferenceLoad(result, invocation);
         }
 
-        /// <summary>A method or constructor with no body at hand — none in source, or an `extern` one declared there — writes its
-        /// `out` arguments where it is called, since no body will say where (R3, SPEC TD-034).</summary>
+        /// <summary>A method or constructor with no body at hand — none in source, an `extern` one declared there, or one of a type the
+        /// run leaves out (ADR 0019) — writes its `out` arguments where it is called, since no body will say where (R3, SPEC TD-034).</summary>
         /// <param name="method">The body-less member being called.</param>
         /// <param name="operations">The argument operations at the call site.</param>
         /// <param name="arguments">Their lowered values and output versions.</param>
         private void WriteOpaqueOuts(IMethodSymbol method, IEnumerable<IArgumentOperation> operations, LoweredArguments arguments)
         {
-            if (method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern)
+            if (method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern && !_context.IsLeftOut(method))
                 return;
 
             var model = _context.LibraryModels.Find(method);
