@@ -59,7 +59,9 @@ if ($results.Count -eq 0) {
     exit 1
 }
 
-$current = @{}
+# Keyed by the exact name: a hashtable ignores case, so two theory rows whose arguments differ only in case
+# would share one entry, and the baseline could not notice one of them vanishing or being skipped.
+$current = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
 foreach ($file in $results) {
     $document = [xml](Get-Content -LiteralPath $file.FullName -Raw)
     foreach ($result in $document.TestRun.Results.UnitTestResult) {

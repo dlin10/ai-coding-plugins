@@ -101,8 +101,9 @@ if ($gitExit -ne 0) {
 
 $committed = Get-PassedNames $committedLines
 $working = Get-PassedNames (Get-Content $workingPath -Encoding UTF8)
-$lost = @($committed | Where-Object { $working -notcontains $_ } | Sort-Object)
-$gained = @($working | Where-Object { $committed -notcontains $_ } | Sort-Object)
+# Compared by the exact name, as the baseline records it: theory rows whose arguments differ only in case are two cases.
+$lost = @($committed | Where-Object { $working -cnotcontains $_ } | Sort-Object)
+$gained = @($working | Where-Object { $committed -cnotcontains $_ } | Sort-Object)
 
 $problems = [Collections.Generic.List[string]]::new()
 $pairings = [Collections.Generic.List[string]]::new()
