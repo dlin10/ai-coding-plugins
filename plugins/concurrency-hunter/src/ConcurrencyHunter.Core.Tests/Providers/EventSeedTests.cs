@@ -101,11 +101,12 @@ public sealed class EventSeedTests
                              "public static class Api { public static void Read(Options options, Action done) { options.Child ??= new Child(); options.Child.Raise(); done(); } }",
                              "M:Lib.Api.Read(Lib.Options,System.Action)");
 
-        // The subscription is written; it reaches no object setup made, so its path is unseeded.
+        // The subscription is written; it reaches no object setup made, so its path is unseeded. The handler raised on the argument's
+        // object is the argument's code, which refuses first.
         Assert.Contains(trace.Driver!.SeedStatements, seed => seed.Path == PATH);
         var effects = Effects(trace);
         Assert.Contains(PATH, effects.UnreachedSeeds);
-        Assert.Equal(GenerationReasons.INCOMPLETE, effects.Reason);
+        Assert.Contains(effects.Causes, cause => cause.Reason == GenerationReasons.INCOMPLETE);
     }
 
     [Fact]

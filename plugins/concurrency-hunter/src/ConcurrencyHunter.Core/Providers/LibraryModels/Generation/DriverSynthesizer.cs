@@ -101,6 +101,15 @@ public static class DriverSynthesizer
     /// <summary>The static class whose object fields record what witness bodies receive.</summary>
     public const string WITNESSED_TYPE = "Witnessed";
 
+    /// <summary>The prefix of the <see cref="WITNESSED_TYPE"/> fields a witness stores what it receives into when the member it stands
+    /// for is code the analysis does not see: any member but those of <see cref="READ_WITNESS_FIELD"/>.</summary>
+    public const string WITNESS_FIELD = "W";
+
+    /// <summary>The prefix of the <see cref="WITNESSED_TYPE"/> fields a witness stores what it receives into when the analysis takes the
+    /// member it stands for to read what it gets, as deep read takes user code it does not run (SPEC TD-034b): a getter, <c>ToString</c>,
+    /// <c>Equals</c>, <c>GetHashCode</c> or a member of comparison.</summary>
+    public const string READ_WITNESS_FIELD = "R";
+
     /// <summary>The generic static class whose field supplies witness bodies' by-reference returns.</summary>
     public const string WITNESSED_REF_TYPE = "WitnessedRef";
 
@@ -402,6 +411,14 @@ public static class DriverSynthesizer
     private sealed class Writer(CSharpCompilation library, IMethodSymbol member, IReadOnlySet<string> openedFields,
                                 IReadOnlySet<(string Type, string Name)> loadedStatics)
     {
+        /// <summary>The types whose members compare what they get, which the analysis takes to read it, as it takes <c>Equals</c>.</summary>
+        private static readonly HashSet<string> ComparisonTypes = new(
+        [
+            "System.IComparable", "System.IComparable`1", "System.IEquatable`1", "System.Collections.IComparer", "System.Collections.IEqualityComparer",
+            "System.Collections.Generic.IComparer`1", "System.Collections.Generic.IEqualityComparer`1", "System.Collections.Generic.Comparer`1",
+            "System.Collections.Generic.EqualityComparer`1"
+        ], StringComparer.Ordinal);
+
         private readonly IReadOnlySet<string> _openedFields = openedFields;
         private readonly Dictionary<ITypeParameterSymbol, string> _probeTypes = new(SymbolEqualityComparer.Default);
         private readonly Dictionary<ITypeParameterSymbol, ITypeSymbol> _choices = new(SymbolEqualityComparer.Default);
@@ -427,7 +444,7 @@ public static class DriverSynthesizer
         private List<IMethodSymbol>? _producers;
         private int _intermediates;
         private int _lambdaParameters;
-        private int _witnessed;
+        private readonly List<string> _witnessFields = [];
         private int _seedContainers;
         private bool _staticsSeeded;
         private INamedTypeSymbol? _receiver;
@@ -602,8 +619,8 @@ public static class DriverSynthesizer
             foreach (var field in _keep)
                 text.Append("    ").Append(field).Append('\n');
             text.Append("}\n\npublic static class ").Append(WITNESSED_TYPE).Append("\n{\n");
-            for (var index = 0; index < _witnessed; index++)
-                text.Append("    public static object W").Append(index).Append(";\n");
+            foreach (var field in _witnessFields)
+                text.Append("    public static object ").Append(field).Append(";\n");
             text.Append("}\n\npublic static class ").Append(WITNESSED_REF_TYPE).Append("<T>\n{\n    public static T Value;\n}\n");
             foreach (var type in _types)
                 text.Append('\n').Append(type);
@@ -2073,17 +2090,25 @@ public static class DriverSynthesizer
                 return null;
             }
 
+            var snapshot = Snapshot();
             var result = WitnessReturn(method.ReturnsVoid, Substitute(returnType), returnsByRef, returnsByRefReadonly);
             if (!method.ReturnsVoid && result is null)
                 return null;
-            var statements = new List<string> { WitnessStore("this") };
+            var field = ReadsByConvention(method) ? READ_WITNESS_FIELD : WITNESS_FIELD;
+            var statements = new List<string> { WitnessStore("this", field) };
             foreach (var (parameter, index) in method.Parameters.Select((parameter, index) => (parameter, index)))
             {
                 var name = parameterName(index);
-                if (parameter.RefKind == RefKind.Out)
-                    statements.Add($"{name} = default!;");
+                if (parameter.RefKind != RefKind.Out)
+                    statements.Add(WitnessStore(name, field));
+                // What the member gives back through out is the witness's, as what it returns is (TD-034b).
+                else if (WitnessValue(parameter.Type) is { } value)
+                    statements.Add($"{name} = {value};");
                 else
-                    statements.Add(WitnessStore(name));
+                {
+                    Rollback(snapshot, "Witness");
+                    return null;
+                }
             }
 
             if (result is not null)
@@ -2160,7 +2185,24 @@ public static class DriverSynthesizer
             return SeedClassValue(type);
         }
 
-        private string WitnessStore(string value) => $"{WITNESSED_TYPE}.W{_witnessed++} = {value};";
+        /// <summary>A witness's store of what it received into a new field of <see cref="WITNESSED_TYPE"/>.</summary>
+        /// <param name="value">What it received.</param>
+        /// <param name="prefix"><see cref="WITNESS_FIELD"/>, or <see cref="READ_WITNESS_FIELD"/> for a member the analysis takes to read.</param>
+        private string WitnessStore(string value, string prefix = WITNESS_FIELD)
+        {
+            var field = prefix + _witnessFields.Count;
+            _witnessFields.Add(field);
+            return $"{WITNESSED_TYPE}.{field} = {value};";
+        }
+
+        /// <summary>Whether the analysis takes the member a witness stands for to read what it gets, as deep read takes user code it does
+        /// not run (TD-034b): a getter, <c>ToString</c>, <c>Equals</c>, <c>GetHashCode</c>, or a member of comparison.</summary>
+        /// <param name="method">The member, or its accessor, as the base or the interface declares it.</param>
+        private static bool ReadsByConvention(IMethodSymbol method) =>
+            method.MethodKind == MethodKind.PropertyGet ||
+            method is { Name: nameof(ToString) or nameof(GetHashCode), Parameters.Length: 0 } ||
+            method is { Name: nameof(Equals), Parameters: [{ Type.SpecialType: SpecialType.System_Object }] } ||
+            ComparisonTypes.Contains($"{method.ContainingType.ContainingNamespace.ToDisplayString()}.{method.ContainingType.MetadataName}");
 
         private static string TypeParameters(IMethodSymbol method) =>
             method.IsGenericMethod ? "<" + string.Join(", ", method.TypeParameters.Select(parameter => Escape(parameter.Name))) + ">" : "";

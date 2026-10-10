@@ -106,6 +106,11 @@ public static class ModelCauses
     /// the member's own call and its children.</summary>
     public const string PROBE_ACCESSED_ELSEWHERE = "probe-accessed-elsewhere";
 
+    /// <summary><c>unknown-touch</c>: outside setup the member called a member of an object an argument reaches that a witness stands
+    /// for — code the analysis does not see, such as a <c>Dictionary</c>, a <c>MemoryStream</c> or a user class —, other than a getter,
+    /// <c>ToString</c>, <c>Equals</c>, <c>GetHashCode</c> or a member of comparison, which it takes to read what they get.</summary>
+    public const string ARGUMENT_MEMBER_UNSEEN = "argument-member-unseen";
+
     /// <summary><c>incomplete</c>: the member read a field setup could not seed or did not reach.</summary>
     public const string UNSEEDED_READ = "unseeded-read";
 

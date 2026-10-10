@@ -6283,6 +6283,18 @@ ConcurrencyHunter.Core.Tests.Generation.GeneratedEntryMatrixTests.The_matrix_cov
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_case_met_again_formats_its_evidence_once	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_case_of_a_later_reason_is_named_beside_the_first	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_load_of_an_unseeded_field_names_the_field	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_an_argument_called_through_a_witness_names_the_member(types: "public abstract class Converter { public abstract "···, id: "M:Lib.Api.Run(Lib.Options,System.Action)", member: "Convert")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_an_argument_called_through_a_witness_names_the_member(types: "public interface IStore { bool Has(object key); vo"···, id: "M:Lib.Api.TryPut(Lib.IStore,System.Object,System.O"···, member: "IStore")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_an_argument_called_through_a_witness_names_the_member(types: "public sealed class Options { public Action<object"···, id: "M:Lib.Api.Run(Lib.Options,Lib.Value)", member: "Invoke")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_an_argument_called_through_a_witness_names_the_member(types: "public static class Api { public static void Fill("···, id: "M:Lib.Api.Fill(System.IO.Stream,System.Byte[])", member: "Write")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static bool Less<T>(T a, T b) where T : ICo"···, id: "M:Lib.Api.Less``1(``0,``0)", read: "b")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Hash(IEqualityComparer<Node> co"···, id: "M:Lib.Api.Hash(System.Collections.Generic.IEqualit"···, read: "node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Hash(Node node) { _ = node.GetH"···, id: "M:Lib.Api.Hash(Lib.Node)", read: "node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Log(Node node, Action done) { _"···, id: "M:Lib.Api.Log(Lib.Node,System.Action)", read: "node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Look(Node node, Action done) { "···, id: "M:Lib.Api.Look(Lib.Node,System.Action)", read: "node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Order(IComparer<Node> comparer,"···, id: "M:Lib.Api.Order(System.Collections.Generic.ICompar"···, read: "a")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Same(Node node, Node other) { _"···, id: "M:Lib.Api.Same(Lib.Node,Lib.Node)", read: "other")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Same<T>(T a, T b) where T : IEq"···, id: "M:Lib.Api.Same``1(``0,``0)", read: "b")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_with_a_model_names_no_cause	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_given_to_an_operation_the_lowering_does_not_express_names_the_operation(member: "public static object Pair(Node node, Action done) "···, id: "M:Lib.Api.Pair(Lib.Node,System.Action)", kind: "Tuple")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_given_to_an_operation_the_lowering_does_not_express_names_the_operation(member: "public static string Describe(Node node, Action do"···, id: "M:Lib.Api.Describe(Lib.Node,System.Action)", kind: "Interpolation")	Passed
@@ -6292,6 +6304,7 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_what_a_us
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_store_into_a_library_static_names_the_store	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_operation_the_lowering_does_not_express_that_no_probe_reaches_leaves_the_model	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.Library_state_is_not_looked_for_once_unknown_touch_is_found	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_a_witness_gives_back_through_out_is_no_longer_lost	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.A_call_instance_used_in_setup_and_the_call_files_values_in_both_sets	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.A_call_on_a_parameter_a_caller_binds_to_an_unknown_calls_result_hands_its_argument(body: "Helper(DateTime.Now.Ticks == 0 ? Extern.Make() : n"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.A_call_on_a_parameter_a_caller_binds_to_an_unknown_calls_result_hands_its_argument(body: "Helper(Extern.Make(), p);")	Passed
@@ -7699,12 +7712,14 @@ ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_delegate_seed_with_an_unbu
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_driver_events_add_accessor_stores_its_delegate	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_driver_events_remove_accessor_stores_its_delegate	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_generic_interface_method_stores_its_value_as_object_and_compiles	Passed
+ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_getter_witness_stores_into_read_fields	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_member_returning_a_class_no_seed_can_derive_from_stays_extern	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_member_returning_a_method_type_parameter_stays_extern	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_member_returning_a_seed_whose_constructor_cannot_be_built_stays_extern	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_member_with_a_pointer_parameter_stays_extern	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_member_with_a_ref_like_parameter_stays_extern	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_member_with_a_ref_like_return_stays_extern	Passed
+ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_member_with_an_out_parameter_no_recipe_builds_stays_extern	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_parameterless_delegate_seed_witnesses_its_own_object	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_parameterless_seed_member_stores_this	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_probe_class_override_stores_this_and_its_parameter_as_objects	Passed
@@ -7717,8 +7732,13 @@ ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_ref_return_uses_a_Witnesse
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_sealed_library_class_return_uses_the_recipe	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_Sub_argument_object_has_the_probe_object_role	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_Task_of_string_return_is_completed_with_a_string	Passed
+ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_witness_of_a_member_the_analysis_takes_to_read_stores_into_read_fields(name: "Equals")	Passed
+ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_witness_of_a_member_the_analysis_takes_to_read_stores_into_read_fields(name: "GetHashCode")	Passed
+ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_witness_of_a_member_the_analysis_takes_to_read_stores_into_read_fields(name: "ToString")	Passed
+ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_witness_of_any_other_member_stores_into_witness_fields	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.A_witness_receipt_widens_without_making_Witnessed_a_holder	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.An_interface_stub_member_is_a_witness	Passed
+ConcurrencyHunter.Core.Tests.Providers.WitnessTests.An_out_parameter_gets_a_witness_value_built_by_the_recipe	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.An_unbuildable_property_return_stays_an_unknown_call(declaration: "public abstract class User { public abstract Hidde"···, type: "Lib.User")	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.An_unbuildable_property_return_stays_an_unknown_call(declaration: "public interface IUser { Hidden Value { get; } }", type: "Lib.IUser")	Passed
 ConcurrencyHunter.Core.Tests.Providers.WitnessTests.An_unbuildable_seed_is_left_unseeded_without_refusing_the_driver	Passed

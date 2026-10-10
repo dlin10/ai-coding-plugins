@@ -212,10 +212,26 @@ public sealed class EffectReader
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_IN_UNSUPPORTED_OPERATION, Handed(given));
         if (_handoffs.ForeignAccesses.FirstOrDefault(_unknownSensitive.Contains) is { } accessed)
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_ACCESSED_ELSEWHERE, accessed);
+        if (UnseenArgumentMember() is { } member)
+            _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.ARGUMENT_MEMBER_UNSEEN, member);
         if (_handoffs.HandedOutsideSetup.FirstOrDefault(_witnessReturns.Contains) is { } witnessHanded)
             _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_VALUE_HANDED, Handed(witnessHanded));
         if (_handoffs.ForeignAccesses.FirstOrDefault(_witnessReturns.Contains) is { } witnessAccessed)
             _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_VALUE_ACCESSED_ELSEWHERE, witnessAccessed);
+    }
+
+    /// <summary>The first member of an object an argument reaches that a witness stood for outside setup, other than one the analysis
+    /// takes to read, in words: the argument and the witness's body. It is the argument's code, which the analysis does not see, however
+    /// it is called — a member of the argument itself, of a seed in its field, or a seeded delegate's invoke. The receiver's own members
+    /// a witness stands for are not looked at: what they receive stays a deep read.</summary>
+    private string? UnseenArgumentMember()
+    {
+        foreach (var (instanceId, receivers) in _handoffs.UnseenMembersOutsideSetup)
+        {
+            if (_inputs.FirstOrDefault(input => !input.IsReceiver && receivers.Any(input.Reached.Contains)) is { } argument)
+                return $"{argument.Name}: {_heap.Instances[instanceId].BodyId}";
+        }
+        return null;
     }
 
     /// <summary>A region handed outside setup, in words: with the callee and the place of the first call that handed it — or, for a

@@ -1,5 +1,6 @@
 using System.Reflection;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Xunit;
 
@@ -56,6 +57,60 @@ public sealed class GenerationCauseTests
 
         Assert.NotNull(answer.Model);
         Assert.Empty(answer.Causes);
+    }
+
+    [Theory]
+    [InlineData("public interface IStore { bool Has(object key); void Put(object key, object value); } public static class Api { " +
+                "public static bool TryPut(IStore store, object key, object value) { if (store.Has(key)) return false; store.Put(key, value); return true; } }",
+                "M:Lib.Api.TryPut(Lib.IStore,System.Object,System.Object)", "IStore")]
+    [InlineData("public static class Api { public static void Fill(System.IO.Stream stream, byte[] data) => stream.Write(data, 0, data.Length); }",
+                "M:Lib.Api.Fill(System.IO.Stream,System.Byte[])", "Write")]
+    [InlineData("public abstract class Converter { public abstract void Convert(); } public sealed class Options { public Converter Converter; } " +
+                "public static class Api { public static void Run(Options options, Action done) { options.Converter.Convert(); done(); } }",
+                "M:Lib.Api.Run(Lib.Options,System.Action)", "Convert")]
+    [InlineData("public sealed class Options { public Action<object> Use; } public sealed class Value { } " +
+                "public static class Api { public static void Run(Options options, Value value) => options.Use(value); }",
+                "M:Lib.Api.Run(Lib.Options,Lib.Value)", "Invoke")]
+    public void A_member_of_an_argument_called_through_a_witness_names_the_member(string types, string id, string member)
+    {
+        // The witness stands for code the analysis does not see: a Dictionary, a MemoryStream or a user class may write what it gets.
+        var answer = Answer(types, id);
+
+        Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+        Assert.Contains(member, Cause(answer, ModelCauses.ARGUMENT_MEMBER_UNSEEN).Detail);
+    }
+
+    [Theory]
+    [InlineData("public static void Log(Node node, Action done) { _ = node.ToString(); done(); }", "M:Lib.Api.Log(Lib.Node,System.Action)", "node")]
+    [InlineData("public static void Same(Node node, Node other) { _ = node.Equals(other); }", "M:Lib.Api.Same(Lib.Node,Lib.Node)", "other")]
+    [InlineData("public static void Hash(Node node) { _ = node.GetHashCode(); }", "M:Lib.Api.Hash(Lib.Node)", "node")]
+    [InlineData("public static void Look(Node node, Action done) { _ = node.Name; done(); }", "M:Lib.Api.Look(Lib.Node,System.Action)", "node")]
+    [InlineData("public static void Order(IComparer<Node> comparer, Node a, Node b) { _ = comparer.Compare(a, b); }",
+                "M:Lib.Api.Order(System.Collections.Generic.IComparer{Lib.Node},Lib.Node,Lib.Node)", "a")]
+    [InlineData("public static bool Less<T>(T a, T b) where T : IComparable<T> => a.CompareTo(b) < 0;", "M:Lib.Api.Less``1(``0,``0)", "b")]
+    [InlineData("public static void Same<T>(T a, T b) where T : IEquatable<T> { _ = a.Equals(b); }", "M:Lib.Api.Same``1(``0,``0)", "b")]
+    [InlineData("public static void Hash(IEqualityComparer<Node> comparer, Node node) { _ = comparer.GetHashCode(node); }",
+                "M:Lib.Api.Hash(System.Collections.Generic.IEqualityComparer{Lib.Node},Lib.Node)", "node")]
+    public void A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(string member, string id, string read)
+    {
+        // A getter, ToString, Equals, GetHashCode and a member of comparison read what they get, as deep read takes user code to. The
+        // members return no witness value, which is no object a result could name.
+        var answer = Answer($"public abstract class Node {{ public abstract string Name {{ get; }} }} public static class Api {{ {member} }}", id);
+
+        Assert.True(answer.Model is not null, string.Join("; ", answer.Causes));
+        Assert.Contains(LibraryEffect.DeepReadOf(read), answer.Model.Effects);
+    }
+
+    [Fact]
+    public void What_a_witness_gives_back_through_out_is_no_longer_lost()
+    {
+        // The receiver's own TryNext may give back any item: the model may not say the result is only the fallback.
+        var answer = Answer("public sealed class Item { } public abstract class Source { public abstract bool TryNext(out Item item); " +
+                            "public Item NextOr(Item fallback) => TryNext(out var item) ? item : fallback; }",
+                            "M:Lib.Source.NextOr(Lib.Item)");
+
+        Assert.Null(answer.Model);
+        Assert.Equal(ModelReasons.VOCABULARY, answer.ModelReason);
     }
 
     [Fact]

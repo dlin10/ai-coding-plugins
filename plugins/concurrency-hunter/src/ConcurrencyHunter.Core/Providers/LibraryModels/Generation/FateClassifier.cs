@@ -166,7 +166,7 @@ public static class FateClassifier
         private static readonly string KeepResult = HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "R");
         private static readonly string ReceiverOfCall = DriverSlot($"Recv_{DriverSynthesizer.CALL_VARIANT}");
         private static readonly string Inputs = DriverSlot("In_");
-        private static readonly string Witnessed = HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.WITNESSED_TYPE, "W");
+        private static readonly string Witnessed = HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.WITNESSED_TYPE, "");
         private static readonly string WitnessedRefs = HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.WITNESSED_REF_TYPE, "Value");
 
         private readonly Driver _driver;

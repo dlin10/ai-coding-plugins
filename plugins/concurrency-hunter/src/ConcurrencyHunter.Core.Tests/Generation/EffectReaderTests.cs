@@ -362,8 +362,8 @@ public sealed class EffectReaderTests
     [Fact]
     public void An_object_a_seed_member_returned_and_handed_to_extern_gives_vocabulary()
     {
-        var reader = Read("public abstract class Converter { public abstract object Get(); } public sealed class Options { public Converter Converter; } " +
-                          "public static class Api { public static void Run(Options options, Action done) { Sink.Take(options.Converter.Get()); done(); } }",
+        var reader = Read("public abstract class Converter { public abstract object Value { get; } } public sealed class Options { public Converter Converter; } " +
+                          "public static class Api { public static void Run(Options options, Action done) { Sink.Take(options.Converter.Value); done(); } }",
                           "M:Lib.Api.Run(Lib.Options,System.Action)");
 
         Assert.Equal(GenerationReasons.VOCABULARY, reader.Reason);
@@ -428,8 +428,9 @@ public sealed class EffectReaderTests
     [Fact]
     public void A_library_store_through_a_witness_ref_return_gives_vocabulary()
     {
-        var reader = Read("public abstract class Provider { public abstract ref object Get(); } public static class Api { public static void Write(Provider provider, Action done) { provider.Get() = new object(); done(); } }",
-                          "M:Lib.Api.Write(Lib.Provider,System.Action)");
+        // The receiver's own member, which no argument brought.
+        var reader = Read("public abstract class Provider { public abstract ref object Get(); public void Write(Action done) { Get() = new object(); done(); } }",
+                          "M:Lib.Provider.Write(System.Action)");
 
         Assert.Equal(GenerationReasons.VOCABULARY, reader.Reason);
     }
@@ -488,7 +489,12 @@ public sealed class EffectReaderTests
                           $"public static void Run(Options options, Action done) {{ {expression}.ToString(); done(); }} }}",
                           "M:Lib.Api.Run(Lib.Options,System.Action)");
 
-        Assert.Equal(reason, trace.Answer.ModelReason);
+        // A user enumerable seed in the argument is the argument's code: enumerating it refuses first, and the case of what it yielded
+        // stays named.
+        if (reason is null)
+            Assert.Null(trace.Answer.ModelReason);
+        else
+            Assert.Contains(trace.Answer.Causes, cause => cause.Reason == reason);
         var heap = trace.Run!.Heap!;
         var reachability = new HeapReachability(heap);
         var children = heap.Regions.Values.Where(region => region.TypeKey == $"{ASSEMBLY}:Lib.Child").ToArray();
@@ -537,8 +543,8 @@ public sealed class EffectReaderTests
     [Fact]
     public void Touching_a_probe_object_returned_by_a_witness_gives_vocabulary()
     {
-        var trace = Trace("public abstract class Node { public object Value; } public interface IUser<T> { T Make(); } " +
-                          "public static class Api { public static void Run<T>(IUser<T> user) where T : Node { _ = user.Make().Value; } }",
+        var trace = Trace("public abstract class Node { public object Value; } public interface IUser<T> { T Made { get; } } " +
+                          "public static class Api { public static void Run<T>(IUser<T> user) where T : Node { _ = user.Made.Value; } }",
                           "M:Lib.Api.Run``1(Lib.IUser{``0})");
 
         Assert.Null(trace.Answer.Model);
@@ -719,14 +725,15 @@ public sealed class EffectReaderTests
         var reader = Read($"public interface IUser {{ {type} Make(); }} public static class Api {{ public static void Run(IUser user) {{ {body} }} }}",
                           "M:Lib.Api.Run(Lib.IUser)");
 
-        Assert.Equal(GenerationReasons.VOCABULARY, reader.Reason);
+        // Make is the argument's code, which refuses first; what it returned is a case of its own, still named.
+        Assert.Contains(reader.Causes, cause => cause.Reason == GenerationReasons.VOCABULARY);
     }
 
     [Fact]
     public void An_object_of_a_probe_class_a_witness_returned_handed_to_an_extern_method_gives_vocabulary_not_unknown_touch()
     {
-        var reader = Read("public abstract class Node { } public interface IUser<T> { T Make(); } " +
-                          "public static class Api { public static void Run<T>(IUser<T> user) where T : Node { Sink.Take(user.Make()); } }",
+        var reader = Read("public abstract class Node { } public interface IUser<T> { T Made { get; } } " +
+                          "public static class Api { public static void Run<T>(IUser<T> user) where T : Node { Sink.Take(user.Made); } }",
                           "M:Lib.Api.Run``1(Lib.IUser{``0})");
 
         Assert.Equal(GenerationReasons.VOCABULARY, reader.Reason);

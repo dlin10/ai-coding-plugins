@@ -42,6 +42,9 @@ public sealed class WitnessTests
                 public virtual Hidden HiddenResult() => null;
                 public virtual Unbuildable UnbuildableResult() => null;
                 public virtual T GenericResult<T>() => default;
+                public virtual bool TryTake(out Ready item) { item = null; return false; }
+                public virtual bool TryHidden(out Hidden item) { item = null; return false; }
+                public virtual string Label => "";
                 public virtual void Ping() { }
             }
 
@@ -161,6 +164,51 @@ public sealed class WitnessTests
     }
 
     [Fact]
+    public void An_out_parameter_gets_a_witness_value_built_by_the_recipe()
+    {
+        var source = Body(Type(BaseDriver.Value, "Probe_value"), "TryTake");
+
+        Assert.Contains("p0 = new global::Lib.Ready(\"s\");", source);
+        Assert.DoesNotContain("default!", source);
+    }
+
+    [Fact]
+    public void A_member_with_an_out_parameter_no_recipe_builds_stays_extern()
+    {
+        Assert.True(Method(Type(BaseDriver.Value, "Probe_value"), "TryHidden").IsExtern);
+    }
+
+    [Theory]
+    [InlineData("ToString")]
+    [InlineData("Equals")]
+    [InlineData("GetHashCode")]
+    public void A_witness_of_a_member_the_analysis_takes_to_read_stores_into_read_fields(string name)
+    {
+        var source = Body(Type(BaseDriver.Value, "Probe_value"), name);
+
+        Assert.Contains($"{DriverSynthesizer.WITNESSED_TYPE}.{DriverSynthesizer.READ_WITNESS_FIELD}", source);
+        Assert.DoesNotContain($"{DriverSynthesizer.WITNESSED_TYPE}.{DriverSynthesizer.WITNESS_FIELD}", source);
+    }
+
+    [Fact]
+    public void A_getter_witness_stores_into_read_fields()
+    {
+        var getter = Type(BaseDriver.Value, "Probe_value").GetMembers("Label").OfType<IPropertySymbol>().Single().GetMethod!;
+        var source = ((AccessorDeclarationSyntax)getter.DeclaringSyntaxReferences.Single().GetSyntax()).ToString();
+
+        Assert.Contains($"{DriverSynthesizer.WITNESSED_TYPE}.{DriverSynthesizer.READ_WITNESS_FIELD}", source);
+    }
+
+    [Fact]
+    public void A_witness_of_any_other_member_stores_into_witness_fields()
+    {
+        var source = Body(Type(BaseDriver.Value, "Probe_value"), "Put");
+
+        Assert.Contains($"{DriverSynthesizer.WITNESSED_TYPE}.{DriverSynthesizer.WITNESS_FIELD}", source);
+        Assert.DoesNotContain($"{DriverSynthesizer.WITNESSED_TYPE}.{DriverSynthesizer.READ_WITNESS_FIELD}", source);
+    }
+
+    [Fact]
     public void A_member_with_a_ref_like_parameter_stays_extern()
     {
         Assert.True(Method(Type(BaseDriver.Value, "Probe_value"), "SpanParameter").IsExtern);
@@ -229,7 +277,8 @@ public sealed class WitnessTests
                           "public sealed class Value { } public static class Api { public static void Run(Options options, Value value) => options.Use(value); }",
                           "M:Lib.Api.Run(Lib.Options,Lib.Value)");
 
-        Assert.NotNull(trace.Answer.Model);
+        // The seed is the argument's code, which the analysis does not see: the member gets no model, though the receipt is read.
+        Assert.Equal(GenerationReasons.UNKNOWN_TOUCH, trace.Answer.ModelReason);
         Assert.True(new EffectReader(trace.Driver!, trace.Run!).HasEffect("value", EffectReader.READS_DEEP));
         Assert.True(new EffectReader(trace.Driver!, trace.Run!).HasEffect("options", EffectReader.READS_DEEP));
     }
@@ -250,7 +299,7 @@ public sealed class WitnessTests
         var trace = Trace("public sealed class Options { public Action Run; } " +
                           "public static class Api { public static void Run(Options options) => options.Run(); }", "M:Lib.Api.Run(Lib.Options)");
 
-        Assert.NotNull(trace.Answer.Model);
+        Assert.Equal(GenerationReasons.UNKNOWN_TOUCH, trace.Answer.ModelReason);
         Assert.True(new EffectReader(trace.Driver!, trace.Run!).HasEffect("options", EffectReader.READS_DEEP));
     }
 

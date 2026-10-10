@@ -110,7 +110,7 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
             public class Item { public object Value; }
             public sealed class Leaf { public int Value; }
             public sealed class Box { public object Value; }
-            public interface IConv { bool Ready(); Item Make(); }
+            public interface IConv { bool Ready { get; } Item Made { get; } }
             public sealed class Lib { public IConv Conv; public object Kept; }
 
         """;
@@ -572,7 +572,8 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
         ValueKind.Element => "var value = items[0];",
         ValueKind.LibraryArg => "var value = lib;",
         ValueKind.Seed => "var value = lib.Conv;",
-        ValueKind.WitnessResult => "var value = lib.Conv.Make();",
+        // Getters, which read what they get: a seed's other members are the argument's code, which refuses first.
+        ValueKind.WitnessResult => "var value = lib.Conv.Made;",
         ValueKind.DelegateResult => "var value = g();",
         ValueKind.Fresh => "var value = new Leaf();",
         ValueKind.FreshHoldingProbe => "var value = new Box { Value = p };",
@@ -583,7 +584,7 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
     private static string Read(ValueKind kind) => kind switch
     {
         ValueKind.LibraryArg => "_ = value.Conv;",
-        ValueKind.Seed => "_ = value.Ready();",
+        ValueKind.Seed => "_ = value.Ready;",
         _ => "_ = value.Value;"
     };
 

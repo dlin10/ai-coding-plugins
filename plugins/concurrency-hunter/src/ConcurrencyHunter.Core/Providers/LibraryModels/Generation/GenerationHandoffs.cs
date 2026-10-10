@@ -24,6 +24,7 @@ public sealed class GenerationHandoffs
     private readonly HashSet<(string Instance, int Operation)> _unsupported = [];
     private readonly HashSet<string> _witnessedInSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _witnessedOutsideSetup = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlySet<string>> _unseenMembersOutsideSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _foreignAccesses = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Instance, int Operation), IReadOnlySet<string>> _outsideByCall = [];
     private readonly Dictionary<string, IReadOnlyList<string>> _unseen = new(StringComparer.Ordinal);
@@ -100,7 +101,8 @@ public sealed class GenerationHandoffs
         foreach (var instance in _heap.Instances.Values.Where(IsWitness))
         {
             var receipts = Close(instance.Receivers.Concat(instance.Parameters.Values.SelectMany(values => values)));
-            FileWitness(instance.Id, receipts);
+            if (FileWitness(instance.Id, receipts) && !ReadsByConvention(instance))
+                _unseenMembersOutsideSetup[instance.Id] = instance.Receivers.ToHashSet(StringComparer.Ordinal);
         }
 
         var implementation = driver.Member.ContainingAssembly.Name;
@@ -147,6 +149,10 @@ public sealed class GenerationHandoffs
 
     /// <summary>Regions received by witness instances that ran outside setup.</summary>
     public IReadOnlySet<string> WitnessedOutsideSetup => _witnessedOutsideSetup;
+
+    /// <summary>For each witness instance that ran outside setup standing for a member the analysis does not see — any but those
+    /// <see cref="DriverSynthesizer.READ_WITNESS_FIELD"/> names —, the objects it ran on.</summary>
+    public IReadOnlyDictionary<string, IReadOnlySet<string>> UnseenMembersOutsideSetup => _unseenMembersOutsideSetup;
 
     /// <summary>Regions a library body loaded or stored in an execution outside setup, the call, enumeration and escape artefact.</summary>
     public IReadOnlySet<string> ForeignAccesses => _foreignAccesses;
@@ -208,15 +214,21 @@ public sealed class GenerationHandoffs
         }
     }
 
-    private void FileWitness(string instanceId, IReadOnlySet<string> regions)
+    /// <summary>Files what a witness instance received by when it ran.</summary>
+    /// <param name="instanceId">The witness instance.</param>
+    /// <param name="regions">What it received, closed under heap reachability.</param>
+    /// <returns>Whether it ran outside setup.</returns>
+    private bool FileWitness(string instanceId, IReadOnlySet<string> regions)
     {
         var executions = ExecutionsOf(instanceId);
         if (executions.Count != 0 && executions.All(_executions.IsArtefact))
-            return;
+            return false;
         if (executions.Any(_executions.InSetup))
             _witnessedInSetup.UnionWith(regions);
-        if (executions.Any(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution)))
-            _witnessedOutsideSetup.UnionWith(regions);
+        if (!executions.Any(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution)))
+            return false;
+        _witnessedOutsideSetup.UnionWith(regions);
+        return true;
     }
 
     private IReadOnlySet<string> ExecutionsOf(string instanceId) =>
@@ -263,7 +275,15 @@ public sealed class GenerationHandoffs
     /// <param name="callee">The called member's display.</param>
     internal static bool IsTransparentIntrinsic(string callee) => string.Equals(callee, UNSAFE_OBJECT_CAST, StringComparison.Ordinal);
 
-    private static bool IsWitness(MethodInstance instance) =>
-        instance.Summary.Stores.Any(store => store.Field is { IsStatic: true, Assembly: DriverSynthesizer.ASSEMBLY,
-                                                              ContainingTypeId: DriverSynthesizer.WITNESSED_TYPE });
+    private static bool IsWitness(MethodInstance instance) => instance.Summary.Stores.Any(store => IsWitnessField(store.Field));
+
+    /// <summary>Whether a witness stands for a member the analysis takes to read what it gets: it stores only into fields
+    /// <see cref="DriverSynthesizer.READ_WITNESS_FIELD"/> names.</summary>
+    /// <param name="instance">The witness instance.</param>
+    private static bool ReadsByConvention(MethodInstance instance) =>
+        instance.Summary.Stores.Where(store => IsWitnessField(store.Field))
+                .All(store => store.Field.Name.StartsWith(DriverSynthesizer.READ_WITNESS_FIELD, StringComparison.Ordinal));
+
+    private static bool IsWitnessField(IrFieldRef field) =>
+        field is { IsStatic: true, Assembly: DriverSynthesizer.ASSEMBLY, ContainingTypeId: DriverSynthesizer.WITNESSED_TYPE };
 }
