@@ -54,7 +54,7 @@ public sealed class ValueProvenance
     private readonly Dictionary<string, IReadOnlyList<LibraryValue>> _symbolicOutputs = new(StringComparer.Ordinal);
     private readonly List<RawInput> _rawInputs = [];
     private readonly Dictionary<string, HashSet<string>> _holderTriggers = new(StringComparer.Ordinal);
-    private bool _vocabulary;
+    private readonly GenerationCauses _causes = new();
 
     /// <summary>Reads value provenance from the fate run and, for holder inputs only, its confirmation run.</summary>
     /// <param name="driver">The driver.</param>
@@ -73,11 +73,17 @@ public sealed class ValueProvenance
         _fate = new RunContext(driver, run);
         _confirmation = confirmation is null ? null : new RunContext(driver, confirmation);
 
-        if (_fate.CallInstances().Any(instance => run.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) &&
-            body.Blocks.SelectMany(block => block.Operations).OfType<IrUnknownOperation>().Any(UnobservedStore)))
-            _vocabulary = true;
-        if (CarriedProbeFired())
-            _vocabulary = true;
+        foreach (var instance in _fate.CallInstances())
+        {
+            if (run.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) &&
+                body.Blocks.SelectMany(block => block.Operations).OfType<IrUnknownOperation>().FirstOrDefault(UnobservedStore) is { } store)
+            {
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.UNSUPPORTED_STORE, $"in {instance.BodyId} at line {store.Provenance.Span.StartLine}");
+                break;
+            }
+        }
+        if (CarriedProbeFired() is { } carrier)
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.CARRIED_PROBE_FIRED, carrier);
 
         var rawResult = ResultRegions();
         var rawOutputs = OutputRegions();
@@ -103,7 +109,9 @@ public sealed class ValueProvenance
         HolderTriggers = BuildHolderTriggers();
         KeepingChain = _keepingChain.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                     .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-        Reason = _vocabulary || _fate.Unobserved || _confirmation is { Unobserved: true } ? GenerationReasons.VOCABULARY : null;
+        _causes.Add(new[] { _fate.Unobserved, _confirmation?.Unobserved }.OfType<GenerationCause>());
+        Causes = _causes.All;
+        Reason = _causes.Reason;
     }
 
     /// <summary>What the member returns; <c>null</c> for a constructor, a void-like result or an unnameable result.</summary>
@@ -129,6 +137,9 @@ public sealed class ValueProvenance
 
     /// <summary><c>vocabulary</c> when an observed object has no name; otherwise <c>null</c>.</summary>
     public string? Reason { get; }
+
+    /// <summary>Every case found that gives that reason, one per code, sorted by code.</summary>
+    public IReadOnlyList<GenerationCause> Causes { get; }
 
     /// <summary>The name of a region in the fate run at one entry place, or <c>null</c> when the vocabulary has none.</summary>
     /// <param name="region">The observed region.</param>
@@ -216,7 +227,7 @@ public sealed class ValueProvenance
                 return existing;
             if (regions.Count == 0 && type.ContainingAssembly?.Name == DriverSynthesizer.ASSEMBLY)
             {
-                _vocabulary = true;
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RESULT_UNRESOLVED, $"the completion value, a {type.Name}, is no object");
                 return null;
             }
             var completion = ResultOf(regions, type, ValuePlace.WholeResult, ValuePlace.ResultValue, _fate, DriverSynthesizer.CALL);
@@ -228,13 +239,14 @@ public sealed class ValueProvenance
             return new LibraryResult(LibraryResultKind.OneOf, symbolic);
         if (regions.Count == 0 && type.ContainingAssembly?.Name == DriverSynthesizer.ASSEMBLY)
         {
-            _vocabulary = true;
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RESULT_UNRESOLVED, $"the result, a {type.Name}, is no object");
             return null;
         }
         if (regions.Count == 0 &&
-            _fate.MemberInstances(DriverSynthesizer.CALL).Any(instance => instance.Summary.Returns.Any(returned => returned.Values.Count != 0)))
+            _fate.MemberInstances(DriverSynthesizer.CALL).FirstOrDefault(instance => instance.Summary.Returns.Any(returned => returned.Values.Count != 0)) is
+            { } returning)
         {
-            _vocabulary = true;
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RESULT_UNRESOLVED, $"what {returning.BodyId} returns is no object");
             return null;
         }
         return ResultOf(regions, type, ValuePlace.WholeResult, ValuePlace.ResultValue, _fate, DriverSynthesizer.CALL);
@@ -388,7 +400,7 @@ public sealed class ValueProvenance
                 else if (result.Kind == LibraryResultKind.OneOf)
                     result = new LibraryResult(LibraryResultKind.OneOf, Order(result.Values.Concat(symbolic)));
                 else
-                    _vocabulary = true;
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.OUTPUT_FORMS_MIXED, $"{parameter}: {result.Kind} and named arguments");
             }
             if (result is not null)
                 outputs[parameter] = result;
@@ -448,7 +460,8 @@ public sealed class ValueProvenance
 
         if (regions.Count != 1)
         {
-            _vocabulary = true;
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RESULT_SEVERAL_OBJECTS,
+                        $"{wholePlace}: {regions.Count} objects, {regions.First(region => context.RootNames(region).Count == 0)} unnamed");
             return null;
         }
 
@@ -478,7 +491,7 @@ public sealed class ValueProvenance
         if (Name(region, wholePlace, context, new HashSet<string>(StringComparer.Ordinal) { expectedAction }) is NewValue)
             return new LibraryResult(LibraryResultKind.New, []);
 
-        _vocabulary = true;
+        _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RESULT_UNNAMED, $"{wholePlace}: {region}");
         return null;
     }
 
@@ -527,7 +540,7 @@ public sealed class ValueProvenance
                     continue;
                 _keepingChain.Remove(carrier);
                 _symbolicKeeps.Remove(carrier);
-                _vocabulary = true;
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.COMPLETION_KEEPER, $"{parameter.Name}: {carrier}");
             }
         }
     }
@@ -568,7 +581,7 @@ public sealed class ValueProvenance
                 if (state.Written)
                 {
                     if (name == FateClassifier.RESULT && roots.Any(root => root is ThisValue))
-                        _vocabulary = true;
+                        _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RESULT_KEEPS_RECEIVER, $"{keeper} keeps {state.Region}");
                     else
                         kept.Add(state.Region);
                     ends.Add(state.Region);
@@ -582,7 +595,7 @@ public sealed class ValueProvenance
                 {
                     kept.Add(state.Region);
                     ends.Add(state.Region);
-                    _vocabulary = true;
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.KEPT_USER_OBJECT, $"{name}: {state.Region}");
                 }
                 continue;
             }
@@ -590,7 +603,7 @@ public sealed class ValueProvenance
             if (_fate.Allocations.Of(state.Region).Kind == AllocationKind.Unknown)
             {
                 if (state.Written)
-                    _vocabulary = true;
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.KEPT_UNKNOWN_OBJECT, $"{name}: {state.Region}");
                 continue;
             }
             foreach (var target in _fate.DirectStores(state.Region))
@@ -698,7 +711,7 @@ public sealed class ValueProvenance
     {
         var observed = context.ObserveValues(instance, values, producers, out var unobserved);
         if (unobserved)
-            _vocabulary = true;
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.VALUE_UNOBSERVED, $"in {instance.BodyId}");
         return observed;
     }
 
@@ -734,7 +747,7 @@ public sealed class ValueProvenance
         {
             if (parameter is null)
             {
-                _vocabulary = true;
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.OUTPUT_UNOBSERVED, $"{_driver.Member.Parameters[ordinal].Name} in {instance.BodyId}");
                 continue;
             }
             foreach (var value in parameter.Values)
@@ -828,23 +841,24 @@ public sealed class ValueProvenance
                     continue;
                 regions.UnionWith(context.InputRegions(field, expectedActions, out var unobserved));
                 if (CanHoldObject(type) && unobserved)
-                    _vocabulary = true;
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.DELEGATE_INPUT_UNOBSERVED, $"{parameter} input {index} through {field}");
             }
             _rawInputs.Add(new RawInput(parameter, index, regions, context, expectedActions));
         }
     }
 
-    private bool CarriedProbeFired()
+    /// <summary>The first non-delegate parameter whose carried probe delegate ran in the member's call, or <c>null</c>.</summary>
+    private string? CarriedProbeFired()
     {
         foreach (var parameter in _driver.Parameters.Where(parameter => parameter.Kind != ParameterKind.Delegate))
         {
             foreach (var probe in parameter.Probes.Where(probe => probe.Variant == DriverSynthesizer.CALL_VARIANT))
             {
                 if (_fate.FiredExecutions(probe).Any(execution => _fate.Executions.InTree(execution, DriverSynthesizer.CALL)))
-                    return true;
+                    return parameter.Name;
             }
         }
-        return false;
+        return null;
     }
 
     private LibraryValue? Name(string region, ValuePlace place, RunContext context, IReadOnlySet<string>? expectedActions)
@@ -854,14 +868,14 @@ public sealed class ValueProvenance
             return names[0];
         if (names.Count > 1)
         {
-            _vocabulary = true;
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.VALUE_SEVERAL_NAMES, $"{place}: {region} has {names.Count} names");
             return null;
         }
 
         if (place is not (ValuePlace.WholeResult or ValuePlace.WholeOutput or ValuePlace.WholeDelegateInput) ||
             !OnlyObservation(region, place, context) || !FreshGraph(region, place, context, expectedActions))
         {
-            _vocabulary = true;
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.VALUE_UNNAMED, $"{place}: {region}");
             return null;
         }
         return new NewValue();
@@ -886,7 +900,7 @@ public sealed class ValueProvenance
                 continue;
             }
             if (markMissing)
-                _vocabulary = true;
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.VALUE_UNNAMED, $"{place}: {region}");
         }
         return Order(values);
     }
@@ -908,7 +922,7 @@ public sealed class ValueProvenance
                 continue;
             context.DirectStores(reached, expectedActions);
             context.DirectElementStores(reached, expectedActions);
-            if (context.Unobserved || context.IsProbeDelegate(reached))
+            if (context.Unobserved is not null || context.IsProbeDelegate(reached))
                 return false;
             if (context.RootNames(reached).Count != 0)
                 return false;
@@ -1130,7 +1144,9 @@ public sealed class ValueProvenance
         public DriverExecutions Executions { get; }
         public Allocations Allocations { get; }
         public IReadOnlySet<WrittenEdge> Written { get; }
-        public bool Unobserved { get; private set; }
+
+        /// <summary>The first value this run observed that may come from somewhere the analysis does not follow, or <c>null</c>.</summary>
+        public GenerationCause? Unobserved { get; private set; }
 
         public IReadOnlySet<string> StaticTargets(string type, string field)
         {
@@ -1364,7 +1380,11 @@ public sealed class ValueProvenance
                     foreach (var target in access.Targets)
                     {
                         arrays.UnionWith(ReferenceArrays(Heap, instance, target, out var unobserved));
-                        Unobserved |= unobserved;
+                        if (unobserved)
+                        {
+                            Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
+                                                               $"no proven place in {instance.BodyId}#{access.OperationId}");
+                        }
                     }
                     if (!arrays.Contains(@object))
                         continue;
@@ -1384,7 +1404,10 @@ public sealed class ValueProvenance
                         foreach (var parameter in transfers)
                             values.UnionWith(ObserveValues(instance, parameter.Values, ValueOrigin.None, out _));
                         if (transfers.Length == 0)
-                            Unobserved = true;
+                        {
+                            Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
+                                                               $"no proven value in {instance.BodyId}#{access.OperationId}");
+                        }
                     }
                 }
             }
@@ -1461,7 +1484,8 @@ public sealed class ValueProvenance
         {
             var alternatives = values.Distinct().ToArray();
             unobserved = Observation.HasUnobservedValues(instance, alternatives, producers);
-            Unobserved |= unobserved;
+            if (unobserved)
+                Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.VALUE_UNOBSERVED, $"in {instance.BodyId}");
             return alternatives.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
         }
 

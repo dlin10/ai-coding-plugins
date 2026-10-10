@@ -47,7 +47,7 @@ public sealed record GenerationRecord(GenerationImplementation? Implementation, 
                                       IReadOnlyDictionary<string, IReadOnlyList<string>> HolderTriggers, int ReachedBodies, double Seconds);
 
 /// <summary>The generator's answer for one member (G-6): its classifications and whole model entry, or why either is absent.</summary>
-/// <param name="SchemaVersion">The answer's schema version, <c>2</c>.</param>
+/// <param name="SchemaVersion">The answer's schema version, <c>3</c>.</param>
 /// <param name="Member">The declaration id asked for.</param>
 /// <param name="Assembly">The assembly as asked for.</param>
 /// <param name="Classified">The fates by parameter name, or <c>null</c> when nothing was classified.</param>
@@ -60,6 +60,10 @@ public sealed record GeneratedAnswer(int SchemaVersion, string Member, Generatio
 {
     /// <summary>Why, in words, for a reason: the claiming recognizer, the errors that made the library unusable, the stopped count.</summary>
     public string Detail { get; init; } = "";
+
+    /// <summary>Every case the generation found against the model entry, one per code, sorted by code; empty when the member has a
+    /// model or was not classified. <see cref="ModelReason"/> is the first reason in check order among them.</summary>
+    public IReadOnlyList<GenerationCause> Causes { get; init; } = [];
 }
 
 /// <summary>An answer with the driver and the engine run behind it, for tests.</summary>
@@ -80,7 +84,7 @@ internal sealed record GenerationTrace(GeneratedAnswer Answer, Driver? Driver, S
 /// project models, writes no file and makes no network call.</summary>
 public static class ModelGenerator
 {
-    private const int SCHEMA_VERSION = 2;
+    private const int SCHEMA_VERSION = 3;
     private const int CLOSURE_BOUND = 1500;
     private const string SCOPE_ID = "model-generator";
 
@@ -260,37 +264,51 @@ public static class ModelGenerator
         facts.Unseeded = driver.Unseeded.Concat(effects.UnreachedSeeds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         facts.HolderTriggers = values.HolderTriggers;
 
-        var modelReason = effects.Reason is GenerationReasons.UNKNOWN_TOUCH or GenerationReasons.INCOMPLETE ? effects.Reason
-            : HasLibraryState(effects, values) ? ModelReasons.LIBRARY_STATE
-            : effects.Reason == GenerationReasons.VOCABULARY || values.Reason == GenerationReasons.VOCABULARY ? ModelReasons.VOCABULARY
-            : null;
+        // The answer names every case found, and the model reason is the first in check order. The library-state check walks the
+        // keeping paths of each state store, so it is looked for only while no earlier reason is found, and only to its first case.
+        var causes = new GenerationCauses();
+        causes.Add(effects.Causes);
+        causes.Add(values.Causes);
+        if (!causes.Has(ModelReasons.UNKNOWN_TOUCH) && !causes.Has(ModelReasons.INCOMPLETE) &&
+            effects.StateStores.FirstOrDefault(store => !values.IsInKeepingChain(store.Region)) is { } state)
+        {
+            causes.Add(ModelReasons.LIBRARY_STATE, ModelCauses.LIBRARY_STATE_STORE, $"{state.Region} in {string.Join(" and ", state.Roots)}");
+        }
+        var built = BuildModel(driver.Member, classified, effects, values, causes);
+        var modelReason = causes.Reason;
         var detail = "";
         LibraryModel? model = null;
         if (modelReason is null)
         {
-            var built = BuildModel(driver.Member, classified, effects, values, out modelReason);
-            if (modelReason is null)
+            var files = ProjectModelFiles.Read("generated.json", ModelEntryWriter.File(built));
+            detail = files.Rejections.FirstOrDefault()?.Reason ??
+                     (files.Entries.Count == 1 ? ProjectModelResolver.EntryRejection(files.Entries[0], driver.Member, compilation) :
+                      $"the generated file contains {files.Entries.Count} entries") ?? "";
+            if (detail.Length == 0)
+                model = built;
+            else
             {
-                var files = ProjectModelFiles.Read("generated.json", ModelEntryWriter.File(built!));
-                detail = files.Rejections.FirstOrDefault()?.Reason ??
-                         (files.Entries.Count == 1 ? ProjectModelResolver.EntryRejection(files.Entries[0], driver.Member, compilation) :
-                          $"the generated file contains {files.Entries.Count} entries") ?? "";
-                if (detail.Length == 0)
-                    model = built;
-                else
-                    modelReason = ModelReasons.VOCABULARY;
+                causes.Add(ModelReasons.VOCABULARY, ModelCauses.ENTRY_REJECTED, detail);
+                modelReason = ModelReasons.VOCABULARY;
             }
         }
 
-        return new GenerationTrace(facts.Answer(classified, null, detail, model, modelReason), driver, run)
+        return new GenerationTrace(facts.Answer(classified, null, detail, model, modelReason, causes.All), driver, run)
         {
             Confirmation = confirmation,
             StateStores = effects.StateStores
         };
     }
 
-    private static LibraryModel? BuildModel(IMethodSymbol member, IReadOnlyDictionary<string, ClassifiedFate> classified, EffectReader reader,
-                                            ValueProvenance values, out string? reason)
+    /// <summary>The model entry the readers describe, without the effects the vocabulary cannot name; each of those is recorded as a
+    /// cause, and an entry built with one is not the member's model.</summary>
+    /// <param name="member">The generated member.</param>
+    /// <param name="classified">The classified fates by parameter name.</param>
+    /// <param name="reader">The effects read from the run.</param>
+    /// <param name="values">The values named in the run.</param>
+    /// <param name="causes">Where the cases the vocabulary cannot name are recorded.</param>
+    private static LibraryModel BuildModel(IMethodSymbol member, IReadOnlyDictionary<string, ClassifiedFate> classified, EffectReader reader,
+                                           ValueProvenance values, GenerationCauses causes)
     {
         var fates = member.Parameters.Where(parameter => TypeShape.Of(parameter.Type) == TypeShapeKind.Delegate &&
                                                         classified.ContainsKey(parameter.Name))
@@ -306,10 +324,7 @@ public static class ModelGenerator
                 if (parameter == FateClassifier.THIS && effect.Kind != EffectReader.WRITES_CELLS)
                 {
                     if (effect.ReadsSeed)
-                    {
-                        reason = ModelReasons.VOCABULARY;
-                        return null;
-                    }
+                        causes.Add(ModelReasons.VOCABULARY, ModelCauses.RECEIVER_SEED_READ, $"{effect.Kind} of this");
                     continue;
                 }
                 if (effect.Kind == EffectReader.READS_DEEP && EnumerationReadIsNamed(parameter, effect, fates, values))
@@ -317,8 +332,8 @@ public static class ModelGenerator
                 if (effect.Roots.Contains(DriverSynthesizer.ENUMERATE, StringComparer.Ordinal) &&
                     values.Result?.Leaf.Kind != LibraryResultKind.Sequence)
                 {
-                    reason = ModelReasons.VOCABULARY;
-                    return null;
+                    causes.Add(ModelReasons.VOCABULARY, ModelCauses.ENUMERATION_WITHOUT_SEQUENCE, $"{effect.Kind} of {parameter}");
+                    continue;
                 }
                 effects.Add(new LibraryEffect(effect.Kind switch
                 {
@@ -332,7 +347,6 @@ public static class ModelGenerator
 
         var version = member.ContainingAssembly.Identity.Version;
         var maximum = new Version(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision) + 1);
-        reason = null;
         return new LibraryModel(member.GetDocumentationCommentId()!,
                                 [new SupportedAssemblyVersion(member.ContainingAssembly.Identity.Name, version, maximum)], effects)
         {
@@ -361,9 +375,6 @@ public static class ModelGenerator
             null => null,
             _ => throw new UnreachableException($"Unknown holder {classified.Holder}.")
         }, inputs.GetValueOrDefault(parameter));
-
-    private static bool HasLibraryState(EffectReader effects, ValueProvenance values)
-        => effects.StateStores.Any(store => !values.IsInKeepingChain(store.Region));
 
     private static bool EnumerationReadIsNamed(string parameter, GeneratedEffect effect, IReadOnlyList<LibraryFate> fates,
                                                ValueProvenance values)
@@ -429,13 +440,14 @@ public static class ModelGenerator
             new(Answer(null, reason, detail, null, null), driver, run);
 
         public GeneratedAnswer Answer(IReadOnlyDictionary<string, ClassifiedFate>? classified, string? reason, string detail, LibraryModel? model,
-                                      string? modelReason) =>
+                                      string? modelReason, IReadOnlyList<GenerationCause>? causes = null) =>
             new(SCHEMA_VERSION, Request.MemberId, new GenerationAssembly(Request.AssemblyName, Request.Version, Request.PackageId), classified, reason,
                 model, modelReason,
                 new GenerationRecord(Implementation, Framework, MissingDependencies, ExternBodies, DefaultedValues, Refusals, SetupWidened, Seeds,
                                      Unseeded, HolderTriggers, ReachedBodies, Math.Round(_clock.Elapsed.TotalSeconds, 1)))
             {
-                Detail = detail
+                Detail = detail,
+                Causes = model is null ? causes ?? [] : []
             };
     }
 }

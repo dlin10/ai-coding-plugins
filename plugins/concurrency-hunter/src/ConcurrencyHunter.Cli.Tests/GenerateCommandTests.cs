@@ -189,6 +189,7 @@ public sealed class GenerateCommandTests : IDisposable
         // On .NET 10 All reads its source through TryGetSpan(source, out span), and an element of that span has no name.
         Assert.Equal(GenerationReasons.VOCABULARY, root.GetProperty("modelReason").GetString());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("model").ValueKind);
+        Assert.NotEqual(0, root.GetProperty("causes").GetArrayLength());
     }
 
     [Fact]
@@ -202,6 +203,7 @@ public sealed class GenerateCommandTests : IDisposable
         var root = document.RootElement;
         Assert.Equal(LONG_COUNT, root.GetProperty("member").GetString());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("modelReason").ValueKind);
+        Assert.Equal(0, root.GetProperty("causes").GetArrayLength());
         var modelFile = Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"models\":[" + root.GetProperty("model").GetRawText() + "]}");
         var models = ProjectModelFiles.Read("generated.json", modelFile);
         Assert.Empty(models.Rejections);

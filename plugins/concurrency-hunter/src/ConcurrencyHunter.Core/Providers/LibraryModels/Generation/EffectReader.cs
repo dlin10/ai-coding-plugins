@@ -52,9 +52,7 @@ public sealed class EffectReader
     private readonly HashSet<string> _witnessObjects = new(StringComparer.Ordinal);
     private readonly HashSet<string> _receiverSeedObjects = new(StringComparer.Ordinal);
     private readonly HashSet<ISymbol> _unreachedFields = new(SymbolEqualityComparer.Default);
-    private bool _unknownTouch;
-    private bool _incomplete;
-    private bool _vocabulary;
+    private readonly GenerationCauses _causes = new();
 
     /// <summary>Reads one completed driver run.</summary>
     /// <param name="driver">The driver.</param>
@@ -94,10 +92,8 @@ public sealed class EffectReader
                                         StringComparer.Ordinal);
         StateStores = _stateStores.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                   .Select(pair => new StateStore(pair.Key, OrderRoots(pair.Value))).ToArray();
-        Reason = _unknownTouch ? GenerationReasons.UNKNOWN_TOUCH
-            : _incomplete ? GenerationReasons.INCOMPLETE
-            : _vocabulary ? GenerationReasons.VOCABULARY
-            : null;
+        Causes = _causes.All;
+        Reason = _causes.Reason;
     }
 
     /// <summary>The effects by parameter name; the receiver is named <c>this</c>.</summary>
@@ -108,6 +104,9 @@ public sealed class EffectReader
 
     /// <summary>The first applicable model reason: <c>unknown-touch</c>, <c>incomplete</c>, <c>vocabulary</c>, or <c>null</c>.</summary>
     public string? Reason { get; }
+
+    /// <summary>Every case found that gives one of those reasons, one per code, sorted by code.</summary>
+    public IReadOnlyList<GenerationCause> Causes { get; }
 
     /// <summary>The seed paths whose assignment base the solved setup heap did not resolve to an object.</summary>
     public IReadOnlyList<string> UnreachedSeeds { get; private set; } = [];
@@ -205,10 +204,32 @@ public sealed class EffectReader
 
     private void ReadReasonsFromHandoffs()
     {
-        if (_handoffs.HandedOutsideSetup.Any(_unknownSensitive.Contains) || _handoffs.ForeignAccesses.Any(_unknownSensitive.Contains))
-            _unknownTouch = true;
-        if (_handoffs.HandedOutsideSetup.Any(_witnessReturns.Contains) || _handoffs.ForeignAccesses.Any(_witnessReturns.Contains))
-            _vocabulary = true;
+        if (_handoffs.HandedOutsideSetup.FirstOrDefault(_unknownSensitive.Contains) is { } handed)
+            _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_HANDED_TO_UNSEEN, Handed(handed));
+        if (_handoffs.ForeignAccesses.FirstOrDefault(_unknownSensitive.Contains) is { } accessed)
+            _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_ACCESSED_ELSEWHERE, accessed);
+        if (_handoffs.HandedOutsideSetup.FirstOrDefault(_witnessReturns.Contains) is { } witnessHanded)
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_VALUE_HANDED, Handed(witnessHanded));
+        if (_handoffs.ForeignAccesses.FirstOrDefault(_witnessReturns.Contains) is { } witnessAccessed)
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_VALUE_ACCESSED_ELSEWHERE, witnessAccessed);
+    }
+
+    /// <summary>A region handed outside setup, in words: with the callee and the place of the first call that handed it, or alone
+    /// when it was handed with a delegate rather than by one call.</summary>
+    /// <param name="region">The region handed.</param>
+    private string Handed(string region)
+    {
+        foreach (var ((instanceId, operation), regions) in _handoffs.HandoffsOutsideSetup)
+        {
+            if (!regions.Contains(region))
+                continue;
+            if (!_heap.Instances.TryGetValue(instanceId, out var instance))
+                return $"{region} by {instanceId}#{operation}";
+            var callee = instance.Summary.Calls.FirstOrDefault(call => call.OperationId == operation)?.Callee ??
+                         instance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == operation)?.Callee ?? "a call";
+            return $"{region} to {callee} in {instance.BodyId}#{operation}";
+        }
+        return region;
     }
 
     private void ReadAccesses()
@@ -218,7 +239,7 @@ public sealed class EffectReader
             if (!_heap.Instances.TryGetValue(access.InstanceId, out var instance) || !IsLibraryBody(instance.BodyId))
                 continue;
             if (access.Access.Kind == SummaryAccessKind.Load && OutsideSetup(access.ExecutionId) && MatchesUnseeded(access.Access.Field))
-                _incomplete = true;
+                _causes.Add(GenerationReasons.INCOMPLETE, ModelCauses.UNSEEDED_READ, $"{FieldSlot.Key(access.Access.Field)} in {instance.BodyId}");
             if (ActionOf(access.ExecutionId) is not { } action)
                 continue;
 
@@ -226,7 +247,7 @@ public sealed class EffectReader
                 continue;
             if (IsWitnessRef(access.Access.Field))
             {
-                _vocabulary = true;
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_REFERENCE, $"{FieldSlot.Key(access.Access.Field)} in {instance.BodyId}");
                 continue;
             }
 
@@ -240,7 +261,10 @@ public sealed class EffectReader
     private void ReadLoad(MethodInstance instance, ExecutionAccess access, string action)
     {
         if (_probeReturns.Contains(access.RegionId) || _witnessReturns.Contains(access.RegionId))
-            _vocabulary = true;
+        {
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.CALLBACK_VALUE_READ,
+                        $"{FieldSlot.Key(access.Access.Field)} of {access.RegionId} in {instance.BodyId}");
+        }
 
         var enumeration = IsEnumerationRead(instance, access.Access.OperationId);
         foreach (var input in Inputs(action))
@@ -265,7 +289,7 @@ public sealed class EffectReader
     {
         if (_probeReturns.Contains(region) || _witnessReturns.Contains(region))
         {
-            _vocabulary = true;
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.CALLBACK_VALUE_WRITTEN, $"{FieldSlot.Key(field)} of {region}");
             return;
         }
 
@@ -283,7 +307,7 @@ public sealed class EffectReader
             }
             if (input.IsCollection && input.Roots.Contains(region))
             {
-                _vocabulary = true;
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.COLLECTION_ARGUMENT_STORE, $"{input.Name}: {FieldSlot.Key(field)}");
                 handled = true;
                 continue;
             }
@@ -294,7 +318,7 @@ public sealed class EffectReader
                     if (input.IsReceiver)
                         AddStateStore(region, action);
                     else
-                        _vocabulary = true;
+                        _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.ARGUMENT_GRAPH_WRITE, $"{input.Name}: {FieldSlot.Key(field)} of {region}");
                     handled = true;
                 }
                 continue;
@@ -418,7 +442,7 @@ public sealed class EffectReader
             return;
         if (CanHoldUserObject(field.Type))
         {
-            _vocabulary = true;
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.STRUCT_FIELD_OBJECT, $"{FieldSlot.Key(access.Field)} in {instance.BodyId}");
             return;
         }
         foreach (var owner in owners)
@@ -510,9 +534,9 @@ public sealed class EffectReader
             // A load of an unseeded member counts in every execution outside setup — an unknown or startup execution the call caused
             // included — whatever object it is on (task 6).
             if (executions.Any(OutsideSetup) &&
-                instance.Summary.Accesses.Any(access => access.Kind == SummaryAccessKind.Load && MatchesUnseeded(access.Field)))
+                instance.Summary.Accesses.FirstOrDefault(access => access.Kind == SummaryAccessKind.Load && MatchesUnseeded(access.Field)) is { } unseeded)
             {
-                _incomplete = true;
+                _causes.Add(GenerationReasons.INCOMPLETE, ModelCauses.UNSEEDED_READ, $"{FieldSlot.Key(unseeded.Field)} in {instance.BodyId}");
             }
             var actions = executions.Select(ActionOf).Where(action => action is not null).Cast<string>().Distinct(StringComparer.Ordinal).ToArray();
             foreach (var action in actions)
@@ -528,8 +552,8 @@ public sealed class EffectReader
                     var inputs = Inputs(action).Where(input => input.Reached.Contains(region)).ToArray();
                     if (inputs.Any(input => input.IsArray && input.Roots.Contains(region)))
                         continue;
-                    if (inputs.Any(input => !input.IsReceiver))
-                        _vocabulary = true;
+                    if (inputs.FirstOrDefault(input => !input.IsReceiver) is { } argument)
+                        _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.ARGUMENT_GRAPH_CELLS, $"{argument.Name}: {region} in {instance.BodyId}");
                     else if ((inputs.Any(input => input.IsReceiver) || _allocations.Of(region).Kind == AllocationKind.LibraryBefore) &&
                              !_allocations.CreatedByCall(region))
                         AddStateStore(region, action);
@@ -572,7 +596,10 @@ public sealed class EffectReader
                         AddStateStore(region, action);
                 }
                 if (unobserved)
-                    _vocabulary = true;
+                {
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.UNPROVEN_REFERENCE_STORE,
+                                $"in {instance.BodyId}, reached by a delegate handed off");
+                }
             }
         }
     }
@@ -600,18 +627,19 @@ public sealed class EffectReader
         {
             var arrays = ValueProvenance.ReferenceArrays(_heap, instance, target, out var unobserved);
             if (unobserved && access.Kind == SummaryAccessKind.Store)
-                _vocabulary = true;
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.UNPROVEN_REFERENCE_STORE, $"in {instance.BodyId}#{access.OperationId}");
             foreach (var input in Inputs(action).Where(input => input.IsArray && input.Roots.Any(arrays.Contains)))
                 AddEffect(input.Name, access.Kind == SummaryAccessKind.Store ? WRITES_CELLS : READS_DEEP, action, enumeration: false,
                           input.Roots.Where(arrays.Contains));
             switch (target)
             {
                 case ReferenceParameter parameter when access.Kind == SummaryAccessKind.Store && Parameter(parameter.Ordinal) is
-                { IsStruct: true, RefKind: RefKind.Ref or RefKind.Out or RefKind.In }:
-                    _vocabulary = true;
+                { IsStruct: true, RefKind: RefKind.Ref or RefKind.Out or RefKind.In } written:
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.STRUCT_REFERENCE_WRITE,
+                                $"{written.Name} in {instance.BodyId}#{access.OperationId}");
                     break;
                 case var reference when ReferencesWitness(instance, reference, []):
-                    _vocabulary = true;
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_REFERENCE, $"in {instance.BodyId}#{access.OperationId}");
                     break;
             }
         }
@@ -621,8 +649,11 @@ public sealed class EffectReader
     {
         var regions = effect.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
         // A library call's read or write of what a user delegate or a witness returned is no form of the vocabulary, as a field's is (R4).
-        if (regions.Any(region => _probeReturns.Contains(region) || _witnessReturns.Contains(region)))
-            _vocabulary = true;
+        if (regions.FirstOrDefault(region => _probeReturns.Contains(region) || _witnessReturns.Contains(region)) is { } returned)
+        {
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.CALLBACK_VALUE_IN_LIBRARY_CALL,
+                        $"{effect.Kind} of {returned} by {instance.BodyId}#{effect.OperationId}");
+        }
         var inputs = Inputs(action).Where(input => input.Reached.Any(regions.Contains)).ToArray();
         if (inputs.Length == 0)
             return;
@@ -637,7 +668,10 @@ public sealed class EffectReader
                 if (reads)
                     AddEffect(input.Name, READS_DEEP, action, enumeration, regions.Where(input.Reached.Contains));
                 if (writes)
-                    _vocabulary = true;
+                {
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.ENUMERATION_WRITE,
+                                $"{input.Name}: {effect.Member!.Member} by {instance.BodyId}#{effect.OperationId}");
+                }
             }
             return;
         }
@@ -653,7 +687,8 @@ public sealed class EffectReader
                     AddEffect(input.Name, WRITES_ARGUMENT, action, enumeration: false, []);
                     break;
                 case IrLibraryEffectKind.WriteArgument:
-                    _vocabulary = true;
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.ARGUMENT_GRAPH_WRITE,
+                                $"{input.Name}: {effect.Kind} by {instance.BodyId}#{effect.OperationId}");
                     break;
                 case IrLibraryEffectKind.WriteCells when input.IsArray:
                     AddEffect(input.Name, WRITES_CELLS, action, enumeration: false, []);
@@ -670,7 +705,7 @@ public sealed class EffectReader
         foreach (var input in matching)
         {
             if (input.IsReceiver || input.RefKind is RefKind.Ref or RefKind.Out or RefKind.In)
-                _vocabulary = true;
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.STRUCT_STORAGE_WRITE, $"{input.Name}: {FieldSlot.Key(field)}");
         }
         return true;
     }

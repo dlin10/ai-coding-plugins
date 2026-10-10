@@ -98,6 +98,11 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   exe open, and the publish fails with access denied until its MCP server stops.
 - `build/bench-corelib.ps1 -Label <name>` appends one CoreLib engine measurement to
   `skills/hunt/evals/metrics/corelib-bench.json`; its log goes to `scratch/`.
+- `build/generate-corelib.ps1` generates every public member of the installed
+  `System.Private.CoreLib` 8.0 with `tools/ConcurrencyHunter.CoreLibGeneration` (about two hours)
+  and compares the snapshot with `skills/hunt/evals/models/corelib-generation.tsv`. `-Members <file>`
+  generates and compares only the declaration ids listed; the same `-Out` resumes a run cut short.
+  `<out>/answers.jsonl` keeps every answer with the words of its causes.
 - `skills/hunt/evals/run-hosts.ps1 [-Hosts claude-code,codex,cursor]` runs the hunt skill headless on
   the demo and writes `skills/hunt/evals/<host>/run.json`. It first mirrors `bin` into the installed
   Codex plugin cache; robocopy exit 8 there means a `concurrency-hunter.exe` started from that cache
@@ -151,6 +156,12 @@ the unified diff. There is no record mode. To rewrite one:
    what the test builds.
 3. Write it with `[IO.File]::WriteAllText`, with no trailing newline, as the committed files have
    none.
+
+`skills/hunt/evals/models/corelib-generation.tsv` is the generator's snapshot of CoreLib: a header
+naming the implementation it read, then one line per public member with its outcome, the codes of
+its causes and its model entry. No test reads it; `build/generate-corelib.ps1` compares a run with
+it and `-Record` rewrites it, only from a run over every member with no `timeout` or `threw` line.
+A different implementation in the header explains differences the generator did not make.
 
 Account for every number that moved before re-recording. A green eShop snapshot proves that every
 eShop finding's identity is unchanged, but no eShop pair is skipped as `ordered`: a change to the

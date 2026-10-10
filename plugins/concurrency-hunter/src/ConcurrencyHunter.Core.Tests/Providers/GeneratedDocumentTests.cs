@@ -12,7 +12,8 @@ public sealed class GeneratedDocumentTests
     private const string JOIN = "M:System.String.Join(System.String,System.String[])";
     private const string MVID = "5c8d0b6e-7a4f-4b1e-9f2a-3d6c1e8b0a47";
 
-    private static readonly string[] TOP_LEVEL = ["schemaVersion", "member", "assembly", "classified", "reason", "model", "modelReason", "generation"];
+    private static readonly string[] TOP_LEVEL =
+        ["schemaVersion", "member", "assembly", "classified", "reason", "detail", "model", "modelReason", "causes", "generation"];
 
     private static readonly string[] GENERATION =
     [
@@ -22,17 +23,17 @@ public sealed class GeneratedDocumentTests
 
     // G-6's two examples, their "…" filled.
     private const string FIRST_EXAMPLE =
-        "{\"schemaVersion\":2,\"member\":\"" + ALL + "\",\"assembly\":{\"name\":\"System.Linq\",\"version\":\"10.0\",\"package\":null}," +
-        "\"classified\":{\"predicate\":{\"fate\":\"invoke-now\",\"holder\":null}},\"reason\":null,\"model\":null,\"modelReason\":null," +
-        "\"generation\":{\"implementation\":" +
+        "{\"schemaVersion\":3,\"member\":\"" + ALL + "\",\"assembly\":{\"name\":\"System.Linq\",\"version\":\"10.0\",\"package\":null}," +
+        "\"classified\":{\"predicate\":{\"fate\":\"invoke-now\",\"holder\":null}},\"reason\":null,\"detail\":\"\",\"model\":null,\"modelReason\":null," +
+        "\"causes\":[],\"generation\":{\"implementation\":" +
         "{\"path\":\"C:\\\\Program Files\\\\dotnet\\\\shared\\\\Microsoft.NETCore.App\\\\10.0.0\\\\System.Linq.dll\",\"assemblyVersion\":\"10.0.0.0\"," +
         "\"fileVersion\":\"10.0.25.52411\",\"mvid\":\"" + MVID + "\"},\"framework\":\"net10.0\",\"missingDependencies\":[],\"externBodies\":3," +
         "\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[],\"seeds\":0,\"unseeded\":[],\"holderTriggers\":{}," +
         "\"reachedBodies\":41,\"seconds\":2.3}}\n";
 
     private const string SECOND_EXAMPLE =
-        "{\"schemaVersion\":2,\"member\":\"" + JOIN + "\",\"assembly\":{\"name\":\"System.Private.CoreLib\",\"version\":\"8.0\",\"package\":null}," +
-        "\"classified\":null,\"reason\":\"corelib\",\"model\":null,\"modelReason\":null,\"generation\":{\"implementation\":null," +
+        "{\"schemaVersion\":3,\"member\":\"" + JOIN + "\",\"assembly\":{\"name\":\"System.Private.CoreLib\",\"version\":\"8.0\",\"package\":null}," +
+        "\"classified\":null,\"reason\":\"corelib\",\"detail\":\"\",\"model\":null,\"modelReason\":null,\"causes\":[],\"generation\":{\"implementation\":null," +
         "\"framework\":null,\"missingDependencies\":[],\"externBodies\":0,\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[]," +
         "\"seeds\":0,\"unseeded\":[],\"holderTriggers\":{},\"reachedBodies\":0,\"seconds\":0.0}}\n";
 
@@ -43,7 +44,7 @@ public sealed class GeneratedDocumentTests
         var root = document.RootElement;
 
         Assert.Equal(TOP_LEVEL, Names(root));
-        Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(JsonValueKind.String, root.GetProperty("member").ValueKind);
         var assembly = root.GetProperty("assembly");
         Assert.Equal(["name", "version", "package"], Names(assembly));
@@ -55,7 +56,10 @@ public sealed class GeneratedDocumentTests
         Assert.Equal(JsonValueKind.Null, classified.GetProperty("onRetry").GetProperty("holder").ValueKind);
         Assert.Equal(JsonValueKind.Null, root.GetProperty("reason").ValueKind);
         Assert.Equal(JsonValueKind.Null, root.GetProperty("model").ValueKind);
-        Assert.Equal(JsonValueKind.Null, root.GetProperty("modelReason").ValueKind);
+        Assert.Equal(ModelReasons.UNKNOWN_TOUCH, root.GetProperty("modelReason").GetString());
+        Assert.Equal("", root.GetProperty("detail").GetString());
+        Assert.Equal(["probe-handed-to-unseen: alloc:p to M:Lib.Sink.Take in body:Polly#3", "unseeded-read: Polly:Lib.Context.Value in body:Polly"],
+                     Strings(root.GetProperty("causes")));
 
         var generation = root.GetProperty("generation");
         Assert.Equal(GENERATION, Names(generation));
@@ -79,13 +83,19 @@ public sealed class GeneratedDocumentTests
     public void Answer_with_a_reason_has_every_property_typed_as_G6_says()
     {
         var answer = Example(JOIN, new GenerationAssembly("Polly", "7.2.3", "Polly"), null, GenerationReasons.CLOSURE_BOUND,
-                             Record(new GenerationImplementation("p", "7.0.0.0", "7.2.3.0", MVID), "net8.0", reachedBodies: 1501, seconds: 1.04));
+                             Record(new GenerationImplementation("p", "7.0.0.0", "7.2.3.0", MVID), "net8.0", reachedBodies: 1501, seconds: 1.04)) with
+        {
+            Detail = "the reachable set reached 1501 bodies, over 1500"
+        };
         using var document = JsonDocument.Parse(GeneratedDocument.Write(answer));
         var root = document.RootElement;
 
         Assert.Equal(TOP_LEVEL, Names(root));
         Assert.Equal(JsonValueKind.Null, root.GetProperty("classified").ValueKind);
         Assert.Equal("closure-bound", root.GetProperty("reason").GetString());
+        Assert.Equal("the reachable set reached 1501 bodies, over 1500", root.GetProperty("detail").GetString());
+        Assert.Equal(JsonValueKind.Array, root.GetProperty("causes").ValueKind);
+        Assert.Equal(0, root.GetProperty("causes").GetArrayLength());
         var generation = root.GetProperty("generation");
         Assert.Equal(GENERATION, Names(generation));
         Assert.Equal(JsonValueKind.Object, generation.GetProperty("implementation").ValueKind);
@@ -179,11 +189,19 @@ public sealed class GeneratedDocumentTests
                                      new SortedDictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
                                      {
                                          ["onRetry"] = ["M:Polly.Result.Fire"]
-                                     }, 152, 12.0));
+                                     }, 152, 12.0)) with
+        {
+            ModelReason = ModelReasons.UNKNOWN_TOUCH,
+            Causes =
+            [
+                new GenerationCause(ModelReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_HANDED_TO_UNSEEN, "alloc:p to M:Lib.Sink.Take in body:Polly#3"),
+                new GenerationCause(ModelReasons.INCOMPLETE, ModelCauses.UNSEEDED_READ, "Polly:Lib.Context.Value in body:Polly")
+            ]
+        };
 
     private static GeneratedAnswer Example(string member, GenerationAssembly assembly, IReadOnlyDictionary<string, ClassifiedFate>? classified, string? reason,
                                            GenerationRecord record) =>
-        new(2, member, assembly, classified, reason, null, null, record);
+        new(3, member, assembly, classified, reason, null, null, record);
 
     private static GenerationRecord Record(GenerationImplementation? implementation, string? framework, int externBodies = 0, int reachedBodies = 0,
                                            double seconds = 0) =>

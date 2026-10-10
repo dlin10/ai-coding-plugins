@@ -20,6 +20,7 @@
     <Project Path="concurrency-hunter/src/ConcurrencyHunter.Core.Tests/ConcurrencyHunter.Core.Tests.csproj" />
     <Project Path="concurrency-hunter/src/ConcurrencyHunter.Cli/ConcurrencyHunter.Cli.csproj" />
     <Project Path="concurrency-hunter/src/ConcurrencyHunter.Cli.Tests/ConcurrencyHunter.Cli.Tests.csproj" />
+    <Project Path="concurrency-hunter/tools/ConcurrencyHunter.CoreLibGeneration/ConcurrencyHunter.CoreLibGeneration.csproj" />
   </Folder>
   <Folder Name="/plan-forge-flow/">
     <Project Path="plan-forge-flow/src/PlanForge/PlanForge.csproj" />

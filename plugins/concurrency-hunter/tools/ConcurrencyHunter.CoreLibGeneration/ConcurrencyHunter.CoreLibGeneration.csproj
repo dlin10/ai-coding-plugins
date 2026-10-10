@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A developer's tool, never published: generates every public member of the installed System.Private.CoreLib and compares the
+       snapshot with the committed one. build/generate-corelib.ps1 drives it. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ConcurrencyHunter.CoreLibGeneration</RootNamespace>
+    <!-- Generations run side by side and each allocates a whole engine run; the workstation collector stalls them. -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ConcurrencyHunter.Core\ConcurrencyHunter.Core.csproj" />
+  </ItemGroup>
+
+</Project>

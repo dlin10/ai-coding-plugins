@@ -8,4 +8,5 @@
   <Project Path="ConcurrencyHunter.Cli/ConcurrencyHunter.Cli.csproj" />
   <Project Path="ConcurrencyHunter.Core.Tests/ConcurrencyHunter.Core.Tests.csproj" />
   <Project Path="ConcurrencyHunter.Core/ConcurrencyHunter.Core.csproj" />
+  <Project Path="../tools/ConcurrencyHunter.CoreLibGeneration/ConcurrencyHunter.CoreLibGeneration.csproj" />
 </Solution>

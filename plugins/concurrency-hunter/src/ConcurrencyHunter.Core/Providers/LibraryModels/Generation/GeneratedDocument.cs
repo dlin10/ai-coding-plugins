@@ -38,6 +38,7 @@ public static class GeneratedDocument
             else
                 json.WriteNull("classified");
             json.WriteString("reason", answer.Reason);
+            json.WriteString("detail", answer.Detail);
             if (answer.Model is { } model)
             {
                 json.WritePropertyName("model");
@@ -46,6 +47,7 @@ public static class GeneratedDocument
             else
                 json.WriteNull("model");
             json.WriteString("modelReason", answer.ModelReason);
+            WriteStrings(json, "causes", answer.Causes.Select(cause => cause.ToString()));
             WriteGeneration(json, answer.Generation);
             json.WriteEndObject();
         }
