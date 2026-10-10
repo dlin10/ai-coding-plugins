@@ -181,6 +181,8 @@ public static class MethodSummaryBuilder
         private int? DefiningCall(int value) =>
             _definitions.TryGetValue(value, out var definition) && definition is IrCallOperation call && call.ResultValue == value ? call.Id : null;
 
+        private const string UNSUPPORTED = "unsupported";
+
         internal MethodSummary Build()
         {
             Solve();
@@ -206,6 +208,7 @@ public static class MethodSummaryBuilder
             // The standing member effects among them, by the call each stands for.
             var standingEffects = new Dictionary<int, int>();
             var dynamicOperations = new List<SummaryDynamicOperation>();
+            var unsupportedOperations = new List<SummaryUnsupportedOperation>();
             var capturedStores = new List<CapturedStore>();
             foreach (var operation in _operations)
             {
@@ -412,6 +415,10 @@ public static class MethodSummaryBuilder
                             Conditions = Conditions(dynamic.Id)
                         });
                         break;
+                    case IrUnknownOperation { Reason: UNSUPPORTED } unsupported
+                        when Final(unsupported.OperandValues.SelectMany(operand => _points[operand]), delegates) is { Count: > 0 } given:
+                        unsupportedOperations.Add(new SummaryUnsupportedOperation(unsupported.Id, unsupported.OperationKind, given));
+                        break;
                     case IrAssignOperation assign when _values[assign.TargetValue].SymbolKey is { } key && _capturedKeys.Contains(key):
                         capturedStores.Add(new CapturedStore(assign.Id, key, Final(Points(assign.SourceValue), delegates), Dependencies(assign.SourceValue))
                         {
@@ -580,6 +587,7 @@ public static class MethodSummaryBuilder
                                             .ToArray(),
                 Timers = _operations.OfType<IrTimerOperation>().Select(timer => Timer(timer, delegates)).ToArray(),
                 DynamicOperations = dynamicOperations,
+                UnsupportedOperations = unsupportedOperations,
                 ResultStores = ResultStores(delegates),
                 ReferenceStores = ReferenceStores(delegates),
                 ReferenceElementStores = ReferenceElementStores(delegates)

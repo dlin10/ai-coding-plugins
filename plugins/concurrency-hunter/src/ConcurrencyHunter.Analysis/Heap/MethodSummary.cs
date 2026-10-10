@@ -707,6 +707,14 @@ public sealed record SummaryDynamicOperation(int OperationId, string Callee, IRe
     public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
 }
 
+/// <summary>An operation the lowering does not express (an <see cref="IrUnknownOperation"/> with reason <c>unsupported</c> and no
+/// <see cref="IrUnknownOperation.DynamicCallee"/>), with the objects its operands may be: where they go from there the analysis does not
+/// see. The engine reads none of it; the model generator counts the operation as code it cannot follow (TD-034b).</summary>
+/// <param name="OperationId">The operation.</param>
+/// <param name="OperationKind">The kind Roslyn gives the operation, such as <c>Tuple</c> or <c>Interpolation</c>.</param>
+/// <param name="Values">The objects its operands may be.</param>
+public sealed record SummaryUnsupportedOperation(int OperationId, string OperationKind, IReadOnlySet<AbstractValue> Values);
+
 /// <summary>A write of the result of the call or <c>dynamic</c> operation <see cref="SourceOperationId"/> into a field or a cell of
 /// <see cref="Targets"/>, or into the static field <see cref="StaticField"/>: what makes an unresolved call a semantic gap when those
 /// are not owned (R4).</summary>
@@ -1003,6 +1011,9 @@ public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> A
     public IReadOnlyList<SummaryTaskOperation> TaskOperations { get; init; } = [];
     public IReadOnlyList<SummaryTimer> Timers { get; init; } = [];
     public IReadOnlyList<SummaryDynamicOperation> DynamicOperations { get; init; } = [];
+
+    /// <summary>The operations of the body the lowering does not express whose operands may be some object.</summary>
+    public IReadOnlyList<SummaryUnsupportedOperation> UnsupportedOperations { get; init; } = [];
     public IReadOnlyList<SummaryResultStore> ResultStores { get; init; } = [];
 
     /// <summary>The stores through a reference into a field of named objects, such as <c>ref var r = ref x.F; r = v;</c>: what a later read of

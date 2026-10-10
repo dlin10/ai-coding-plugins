@@ -204,8 +204,12 @@ public sealed class EffectReader
 
     private void ReadReasonsFromHandoffs()
     {
-        if (_handoffs.HandedOutsideSetup.FirstOrDefault(_unknownSensitive.Contains) is { } handed)
+        var onlyUnsupported = _handoffs.HandedOnlyToUnsupportedOutsideSetup;
+        if (_handoffs.HandedOutsideSetup.FirstOrDefault(region => _unknownSensitive.Contains(region) && !onlyUnsupported.Contains(region)) is { } handed)
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_HANDED_TO_UNSEEN, Handed(handed));
+        // A probe only operations the lowering does not express were given is a case of its own: their lowering lifts it.
+        if (onlyUnsupported.FirstOrDefault(_unknownSensitive.Contains) is { } given)
+            _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_IN_UNSUPPORTED_OPERATION, Handed(given));
         if (_handoffs.ForeignAccesses.FirstOrDefault(_unknownSensitive.Contains) is { } accessed)
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_ACCESSED_ELSEWHERE, accessed);
         if (_handoffs.HandedOutsideSetup.FirstOrDefault(_witnessReturns.Contains) is { } witnessHanded)
@@ -214,17 +218,24 @@ public sealed class EffectReader
             _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_VALUE_ACCESSED_ELSEWHERE, witnessAccessed);
     }
 
-    /// <summary>A region handed outside setup, in words: with the callee and the place of the first call that handed it, or alone
-    /// when it was handed with a delegate rather than by one call.</summary>
+    /// <summary>A region handed outside setup, in words: with the callee and the place of the first call that handed it — or, for a
+    /// region only operations the lowering does not express were handed, the kind and place of the first of them —, or alone when it was
+    /// handed with a delegate rather than by one call.</summary>
     /// <param name="region">The region handed.</param>
     private string Handed(string region)
     {
+        var unsupported = _handoffs.HandedOnlyToUnsupportedOutsideSetup.Contains(region);
         foreach (var ((instanceId, operation), regions) in _handoffs.HandoffsOutsideSetup)
         {
             if (!regions.Contains(region))
                 continue;
             if (!_heap.Instances.TryGetValue(instanceId, out var instance))
                 return $"{region} by {instanceId}#{operation}";
+            var kind = instance.Summary.UnsupportedOperations.FirstOrDefault(given => given.OperationId == operation)?.OperationKind;
+            if ((kind is not null) != unsupported)
+                continue;
+            if (kind is not null)
+                return $"{region} to unsupported {kind} in {instance.BodyId}#{operation}";
             var callee = instance.Summary.Calls.FirstOrDefault(call => call.OperationId == operation)?.Callee ??
                          instance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == operation)?.Callee ?? "a call";
             return $"{region} to {callee} in {instance.BodyId}#{operation}";

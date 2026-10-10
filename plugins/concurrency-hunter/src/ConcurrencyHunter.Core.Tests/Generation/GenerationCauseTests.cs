@@ -23,6 +23,41 @@ public sealed class GenerationCauseTests
         Assert.Contains("Lib.Sink.Take", Cause(answer, ModelCauses.PROBE_HANDED_TO_UNSEEN).Detail);
     }
 
+    [Theory]
+    [InlineData("public static string Describe(Node node, Action done) { done(); return $\"node {node}\"; }", "M:Lib.Api.Describe(Lib.Node,System.Action)",
+                "Interpolation")]
+    [InlineData("public static object Pair(Node node, Action done) { done(); return (node, 1); }", "M:Lib.Api.Pair(Lib.Node,System.Action)", "Tuple")]
+    public void A_probe_given_to_an_operation_the_lowering_does_not_express_names_the_operation(string member, string id, string kind)
+    {
+        // An interpolation runs node.ToString(), user code on the probe; a tuple keeps the probe where the heap does not see it.
+        var answer = Answer($"public abstract class Node {{ }} public static class Api {{ {member} }}", id);
+
+        Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+        Assert.Contains(kind, Cause(answer, ModelCauses.PROBE_IN_UNSUPPORTED_OPERATION).Detail);
+        Assert.DoesNotContain(answer.Causes, cause => cause.Code == ModelCauses.PROBE_HANDED_TO_UNSEEN);
+    }
+
+    [Fact]
+    public void A_probe_handed_to_an_extern_method_and_an_unsupported_operation_names_only_the_call()
+    {
+        // The lowering of the tuple would not lift the refusal: the extern call still sees the probe.
+        var answer = Answer("public abstract class Node { } public static class Api { public static object Pair(Node node, Action done) { Sink.Take(node); return (node, 1); } }",
+                            "M:Lib.Api.Pair(Lib.Node,System.Action)");
+
+        Cause(answer, ModelCauses.PROBE_HANDED_TO_UNSEEN);
+        Assert.DoesNotContain(answer.Causes, cause => cause.Code == ModelCauses.PROBE_IN_UNSUPPORTED_OPERATION);
+    }
+
+    [Fact]
+    public void An_operation_the_lowering_does_not_express_that_no_probe_reaches_leaves_the_model()
+    {
+        var answer = Answer("public static class Api { public static string Describe(int count, Action done) { done(); return $\"count {count}\"; } }",
+                            "M:Lib.Api.Describe(System.Int32,System.Action)");
+
+        Assert.NotNull(answer.Model);
+        Assert.Empty(answer.Causes);
+    }
+
     [Fact]
     public void A_load_of_an_unseeded_field_names_the_field()
     {

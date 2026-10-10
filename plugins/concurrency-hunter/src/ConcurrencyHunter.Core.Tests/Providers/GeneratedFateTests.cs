@@ -140,6 +140,16 @@ public sealed class GeneratedFateTests
     }
 
     [Fact]
+    public void Fired_during_the_call_and_put_in_a_tuple_it_returns_is_unknown_execution()
+    {
+        // The lowering does not express a tuple literal: what the boxed tuple keeps is unseen, so the delegate is handed to code the
+        // analysis cannot follow.
+        var trace = Trace("public static class Api { public static object Pair(Action a) { a(); return (a, 1); } }", "M:Lib.Api.Pair(System.Action)");
+
+        Assert.Equal(Unknown, FateOf(trace, "a"));
+    }
+
+    [Fact]
     public void Fired_only_in_an_unknown_execution_is_unknown_execution()
     {
         var trace = Trace("public static class Api { public static void Run(Action a) { Sink.Take(a); } }", "M:Lib.Api.Run(System.Action)");

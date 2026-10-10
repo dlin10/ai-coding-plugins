@@ -98,6 +98,10 @@ public static class ModelCauses
     /// not follow.</summary>
     public const string PROBE_HANDED_TO_UNSEEN = "probe-handed-to-unseen";
 
+    /// <summary><c>unknown-touch</c>: a probe, or a value reachable from one, was given outside setup to an operation the lowering does
+    /// not express, and to no call the analysis does not follow. The lowering of that operation lifts the case.</summary>
+    public const string PROBE_IN_UNSUPPORTED_OPERATION = "probe-in-unsupported-operation";
+
     /// <summary><c>unknown-touch</c>: a library body read or wrote a probe, or a value reachable from one, in an execution other than
     /// the member's own call and its children.</summary>
     public const string PROBE_ACCESSED_ELSEWHERE = "probe-accessed-elsewhere";

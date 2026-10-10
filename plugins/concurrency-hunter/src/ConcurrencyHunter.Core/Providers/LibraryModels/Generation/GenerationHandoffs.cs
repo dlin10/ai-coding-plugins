@@ -6,8 +6,8 @@ using ConcurrencyHunter.Ir;
 
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 
-/// <summary>What a driver run handed to code the analysis cannot follow, to executions outside the member call, or to witness
-/// bodies. Every source is closed under <see cref="HeapReachability"/>.</summary>
+/// <summary>What a driver run handed to code the analysis cannot follow — a call it does not follow or an operation the lowering does not
+/// express —, to executions outside the member call, or to witness bodies. Every source is closed under <see cref="HeapReachability"/>.</summary>
 public sealed class GenerationHandoffs
 {
     private const string UNSAFE_OBJECT_CAST = "System.Runtime.CompilerServices.Unsafe.As<T>(object)";
@@ -20,6 +20,8 @@ public sealed class GenerationHandoffs
     private readonly HeapReachability _reachability;
     private readonly HashSet<string> _inSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _outsideSetup = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _outsideSetupBeyondUnsupported = new(StringComparer.Ordinal);
+    private readonly HashSet<(string Instance, int Operation)> _unsupported = [];
     private readonly HashSet<string> _witnessedInSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _witnessedOutsideSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _foreignAccesses = new(StringComparer.Ordinal);
@@ -68,6 +70,17 @@ public sealed class GenerationHandoffs
                               .SelectMany(value => _heap.Resolve(instance.Id, value)));
         }
 
+        // What an operation the lowering does not express is given goes where the analysis does not see, as an argument of a call it
+        // does not follow does.
+        foreach (var instance in _heap.Instances.Values)
+        {
+            foreach (var operation in instance.Summary.UnsupportedOperations)
+            {
+                _unsupported.Add((instance.Id, operation.OperationId));
+                AddCall((instance.Id, operation.OperationId), operation.Values.SelectMany(value => _heap.Resolve(instance.Id, value)));
+            }
+        }
+
         foreach (var (site, regions) in calls)
             File(site, regions, keepCall: true);
 
@@ -106,6 +119,7 @@ public sealed class GenerationHandoffs
 
         foreach (var action in new[] { DriverSynthesizer.CALL, DriverSynthesizer.ENUMERATE })
             _unseen[action] = UnseenIn(run, action);
+        HandedOnlyToUnsupportedOutsideSetup = _outsideSetup.Where(region => !_outsideSetupBeyondUnsupported.Contains(region)).ToHashSet(StringComparer.Ordinal);
 
         void AddCall((string Instance, int Operation) site, IEnumerable<string> regions)
         {
@@ -114,14 +128,19 @@ public sealed class GenerationHandoffs
         }
     }
 
-    /// <summary>Regions handed by a call instance that ran in setup.</summary>
+    /// <summary>Regions handed by a call instance, or an operation the lowering does not express, that ran in setup.</summary>
     public IReadOnlySet<string> HandedInSetup => _inSetup;
 
-    /// <summary>Regions handed by a call instance that ran outside setup.</summary>
+    /// <summary>Regions handed by a call instance, or an operation the lowering does not express, that ran outside setup.</summary>
     public IReadOnlySet<string> HandedOutsideSetup => _outsideSetup;
 
-    /// <summary>For each call instance outside setup, the regions that call alone handed, closed under heap reachability.</summary>
+    /// <summary>For each call instance, or operation the lowering does not express, outside setup, the regions that site alone handed,
+    /// closed under heap reachability.</summary>
     public IReadOnlyDictionary<(string Instance, int Operation), IReadOnlySet<string>> HandoffsOutsideSetup => _outsideByCall;
+
+    /// <summary>The regions of <see cref="HandedOutsideSetup"/> that only operations the lowering does not express were handed: no call,
+    /// delegate handoff or startup delegate handed them. Lowering those operations is what would make them seen.</summary>
+    public IReadOnlySet<string> HandedOnlyToUnsupportedOutsideSetup { get; }
 
     /// <summary>Regions received by witness instances that ran in setup.</summary>
     public IReadOnlySet<string> WitnessedInSetup => _witnessedInSetup;
@@ -182,6 +201,8 @@ public sealed class GenerationHandoffs
         if (executions.Any(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution)))
         {
             _outsideSetup.UnionWith(regions);
+            if (!_unsupported.Contains(site))
+                _outsideSetupBeyondUnsupported.UnionWith(regions);
             if (keepCall)
                 _outsideByCall[site] = regions;
         }

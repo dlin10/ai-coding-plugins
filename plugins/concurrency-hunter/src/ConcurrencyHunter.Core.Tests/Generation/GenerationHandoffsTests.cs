@@ -53,7 +53,30 @@ public sealed class GenerationHandoffsTests
         Assert.All(Slot(trace, DriverSynthesizer.DRIVER_TYPE, "Arg_n_Call"), region => Assert.Contains(region, handoffs.HandedOutsideSetup));
     }
 
-    private const string SINKS = "public interface ISink { void Accept(object p); } public sealed class LibSink : ISink { public object Last; public void Accept(object p) { Last = p; } } " +
+    [Fact]
+    public void What_an_operation_the_lowering_does_not_express_is_given_is_handed()
+    {
+        var (trace, handoffs) = Run("public abstract class Node { public object Next; } public static class Api { public static object Pair(Node n, Action a) => (n, 1); }",
+                                    "M:Lib.Api.Pair(Lib.Node,System.Action)");
+        var root = Assert.Single(Slot(trace, DriverSynthesizer.DRIVER_TYPE, "Arg_n_Call"));
+
+        Assert.All(new HeapReachability(trace.Run!.Heap!).From([root]), region => Assert.Contains(region, handoffs.HandedOutsideSetup));
+        Assert.Contains(handoffs.HandoffsOutsideSetup.Values, regions => regions.Contains(root));
+        Assert.Contains(root, handoffs.HandedOnlyToUnsupportedOutsideSetup);
+    }
+
+    [Fact]
+    public void A_value_handed_to_an_unknown_call_too_is_not_handed_only_to_an_unsupported_operation()
+    {
+        var (trace, handoffs) = Run("public abstract class Node { } public static class Api { public static object Pair(Node n, Action a) { Sink.Take(n); return (n, 1); } }",
+                                    "M:Lib.Api.Pair(Lib.Node,System.Action)");
+        var root = Assert.Single(Slot(trace, DriverSynthesizer.DRIVER_TYPE, "Arg_n_Call"));
+
+        Assert.Contains(root, handoffs.HandedOutsideSetup);
+        Assert.DoesNotContain(root, handoffs.HandedOnlyToUnsupportedOutsideSetup);
+    }
+
+    private const string SINKS ="public interface ISink { void Accept(object p); } public sealed class LibSink : ISink { public object Last; public void Accept(object p) { Last = p; } } " +
                                 "public static class Extern { public static extern ISink Make(); } ";
 
     [Theory]
