@@ -367,6 +367,24 @@ public sealed class GeneratedEntryTests
         Assert.Equal("arg:p", Assert.Single(Assert.Single(Assert.Single(answer.Model!.Fates).Inputs!)).Canonical);
     }
 
+    [Fact]
+    public void A_probe_passed_through_a_libraries_own_Unsafe_As_is_not_handed_and_keeps_its_name()
+    {
+        // CoreLib declares Unsafe itself, As a placeholder that only throws; without its body it is the cast every other library sees.
+        var answer = TraceOf(PRELUDE + """
+                public static class Api { public static void Run(object p, Action<object> take) => take(System.Runtime.CompilerServices.Unsafe.As<object>(p)); }
+            }
+
+            namespace System.Runtime.CompilerServices
+            {
+                public static class Unsafe { public static T As<T>(object o) where T : class { throw new PlatformNotSupportedException(); } }
+            }
+            """, "M:Lib.Api.Run(System.Object,System.Action{System.Object})").Answer;
+
+        AssertPassesReader(answer);
+        Assert.Equal("arg:p", Assert.Single(Assert.Single(Assert.Single(answer.Model!.Fates).Inputs!)).Canonical);
+    }
+
     [Theory]
     [InlineData("Helper(Extern.Make(), p);")]
     [InlineData("Helper(DateTime.Now.Ticks == 0 ? Extern.Make() : new LibSink(), p);")]

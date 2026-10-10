@@ -29,7 +29,8 @@ public static class GenerationReasons
     /// <summary>The member takes no delegate and no holding value that carries probes.</summary>
     public const string NOT_A_CANDIDATE = "not-a-candidate";
 
-    /// <summary>The member's own body did not compile and was made <c>extern</c>.</summary>
+    /// <summary>The member's own body did not compile, or is not the code the runtime runs (a member of <c>Unsafe</c>), and was made
+    /// <c>extern</c>.</summary>
     public const string BODY_DOES_NOT_COMPILE = "body-does-not-compile";
 
     /// <summary>A recognizer of the engine claims a method of the implementation assembly by name, outside the models;

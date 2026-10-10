@@ -137,6 +137,38 @@ public sealed class LibraryCompilationTests
     }
 
     [Fact]
+    public void Every_member_of_Unsafe_becomes_extern_and_a_type_of_its_name_elsewhere_keeps_its_bodies()
+    {
+        // CoreLib's bodies of Unsafe are placeholders the runtime replaces, or IL the decompiler renders as a call to the member itself.
+        var result = CompileSource("""
+            using System;
+
+            namespace System.Runtime.CompilerServices
+            {
+                public static class Unsafe
+                {
+                    public static unsafe void* AsPointer<T>(ref T value) { throw new PlatformNotSupportedException(); }
+                    public static unsafe T Read<T>(void* source) => Read<T>(source);
+                    public static extern T As<T>(object o) where T : class;
+                }
+            }
+
+            namespace Lib
+            {
+                public static class Unsafe { public static object Same(object value) => value; }
+            }
+            """);
+
+        Assert.Null(result.Reason);
+        Assert.True(Method(result, "System.Runtime.CompilerServices.Unsafe", "AsPointer").IsExtern);
+        Assert.True(Method(result, "System.Runtime.CompilerServices.Unsafe", "Read").IsExtern);
+        Assert.False(Method(result, "Lib.Unsafe", "Same").IsExtern);
+        Assert.Equal(["M:System.Runtime.CompilerServices.Unsafe.AsPointer``1(``0@)", "M:System.Runtime.CompilerServices.Unsafe.Read``1(System.Void*)"],
+                     result.ExternMembers);
+        Assert.Equal(2, result.ExternBodies);
+    }
+
+    [Fact]
     public void An_async_method_in_error_loses_async()
     {
         var result = CompileSource("""

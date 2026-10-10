@@ -45,6 +45,11 @@ public static class LibraryCompilation
 {
     private const int REWRITE_ROUNDS = 3;
 
+    /// <summary>The type whose decompiled bodies are not the code that runs: CoreLib's are placeholders the runtime replaces, which
+    /// throw <c>PlatformNotSupportedException</c>, and IL that C# cannot write (<c>ldobj</c>, <c>stobj</c>) the decompiler renders
+    /// as calls to the member itself.</summary>
+    private const string UNSAFE = "T:System.Runtime.CompilerServices.Unsafe";
+
     /// <summary>Declaration-level codes measured as decompiler artefacts that bind nothing wrongly: a field-like event beside its
     /// backing field, <c>==</c> without the <c>!=</c> a trimmer removed, module attributes.</summary>
     internal static readonly HashSet<string> BenignDeclarationErrors = new(["CS0102", "CS0216", "CS8335"], StringComparer.Ordinal);
@@ -156,8 +161,9 @@ public static class LibraryCompilation
         return CompileTrees(assemblyName, module.Trees, references, cancellationToken, selectedMembers);
     }
 
-    /// <summary>Compiles decompiled trees as a library named as the assembly, unsafe code allowed, nullable disabled, then rewrites
-    /// every member whose body has an error as <c>extern</c> and recompiles, at most three times. A declaration-level error other
+    /// <summary>Compiles decompiled trees as a library named as the assembly, unsafe code allowed, nullable disabled, makes every
+    /// member of a type <see cref="HasNoBodies"/> names <c>extern</c>, then rewrites every member whose body has an error as
+    /// <c>extern</c> and recompiles, at most three times. A declaration-level error other
     /// than the benign ones, a body still in error after the last rewrite, or an error the rewrite leaves makes the library
     /// unusable.</summary>
     /// <param name="assemblyName">The assembly name.</param>
@@ -217,6 +223,26 @@ public static class LibraryCompilation
             }
         }
 
+        // Unsafe has no body, as in every library that references it from metadata.
+        foreach (var tree in compilation.SyntaxTrees.ToArray())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var root = tree.GetRoot(cancellationToken);
+            var types = root.DescendantNodes(node => node is CompilationUnitSyntax or BaseNamespaceDeclarationSyntax).OfType<TypeDeclarationSyntax>()
+                            .Where(type => type.Identifier.ValueText == "Unsafe").ToArray();
+            if (types.Length == 0)
+                continue;
+            var model = compilation.GetSemanticModel(tree);
+            var members = types.Where(type => model.GetDeclaredSymbol(type, cancellationToken) is { } symbol && HasNoBodies(symbol))
+                               .SelectMany(type => type.Members).Where(member => member.DescendantNodesAndSelf().Any(IsBody)).ToHashSet();
+            if (members.Count == 0)
+                continue;
+            var (rewritten, removed) = Rewrite(root, members, new HashSet<(TypeDeclarationSyntax, bool)>(), model, externMembers, cancellationToken);
+            externBodies += removed;
+            compilation = compilation.ReplaceSyntaxTree(tree, CSharpSyntaxTree.ParseText(rewritten.ToFullString(), (CSharpParseOptions)tree.Options,
+                                                                                           tree.FilePath, cancellationToken: cancellationToken));
+        }
+
         for (var round = 0; ; round++)
         {
             var targets = new Targets();
@@ -251,6 +277,11 @@ public static class LibraryCompilation
             }
         }
     }
+
+    /// <summary>Whether the compilation makes every member of a type <c>extern</c>, because its decompiled bodies are not the code
+    /// that runs: <c>System.Runtime.CompilerServices.Unsafe</c>.</summary>
+    /// <param name="type">The type.</param>
+    internal static bool HasNoBodies(INamedTypeSymbol type) => type.GetDocumentationCommentId() == UNSAFE;
 
     private static bool Selected(MemberDeclarationSyntax member, SemanticModel model, IReadOnlySet<string> selection,
                                  CancellationToken cancellationToken)

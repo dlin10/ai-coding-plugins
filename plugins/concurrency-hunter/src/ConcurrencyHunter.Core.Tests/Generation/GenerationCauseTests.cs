@@ -50,6 +50,39 @@ public sealed class GenerationCauseTests
     }
 
     [Fact]
+    public void An_address_handed_to_Unsafe_goes_to_unseen_code()
+    {
+        // ComWrappers.GetOrRegisterObjectForComInstance: the address of a local holding the wrapper becomes a pointer in CoreLib's
+        // Unsafe.AsPointer, whose body only throws until the runtime replaces it; the external call writes the result and keeps the
+        // wrapper through the pointer.
+        var answer = AnswerOf(GenerationRuns.PRELUDE + """
+                public ref struct Handle {
+                    private unsafe void* _ptr;
+                    private unsafe Handle(void* p) { _ptr = p; }
+                    public static unsafe Handle Create<T>(ref T o) where T : class => new Handle(System.Runtime.CompilerServices.Unsafe.AsPointer(ref o));
+                }
+                public sealed class Registry {
+                    public object GetOrRegister(IntPtr com, object wrapper) { if (!TryGet(this, com, wrapper, out var ret)) throw new ArgumentNullException(); return ret; }
+                    private static bool TryGet(Registry impl, IntPtr com, object wrapperMaybe, out object retValue) {
+                        object o = wrapperMaybe;
+                        retValue = null;
+                        return Native(Handle.Create(ref impl), com, Handle.Create(ref o), Handle.Create(ref retValue)) != 0;
+                    }
+                    private static extern int Native(Handle impl, IntPtr com, Handle wrapper, Handle ret);
+                }
+            }
+
+            namespace System.Runtime.CompilerServices
+            {
+                public static class Unsafe { public static unsafe void* AsPointer<T>(ref T value) { throw new PlatformNotSupportedException(); } }
+            }
+            """, "M:Lib.Registry.GetOrRegister(System.IntPtr,System.Object)");
+
+        Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+        Assert.Contains("Unsafe.AsPointer", Cause(answer, ModelCauses.PROBE_HANDED_TO_UNSEEN).Detail);
+    }
+
+    [Fact]
     public void An_operation_the_lowering_does_not_express_that_no_probe_reaches_leaves_the_model()
     {
         var answer = Answer("public static class Api { public static string Describe(int count, Action done) { done(); return $\"count {count}\"; } }",
@@ -199,9 +232,15 @@ public sealed class GenerationCauseTests
     /// check order among them.</summary>
     /// <param name="types">Declarations inside namespace <c>Lib</c>.</param>
     /// <param name="memberId">The member's declaration id.</param>
-    private static GeneratedAnswer Answer(string types, string memberId)
+    private static GeneratedAnswer Answer(string types, string memberId) => AnswerOf(GenerationRuns.PRELUDE + types + "\n}\n", memberId);
+
+    /// <summary>The answer for one member of a fixture library of exactly <paramref name="source"/>, checked as
+    /// <see cref="Answer"/> checks it.</summary>
+    /// <param name="source">The library's source.</param>
+    /// <param name="memberId">The member's declaration id.</param>
+    private static GeneratedAnswer AnswerOf(string source, string memberId)
     {
-        var answer = GenerationRuns.Trace(types, memberId).Answer;
+        var answer = GenerationRuns.TraceOf(source, memberId).Answer;
         Assert.All(answer.Causes, cause => Assert.Contains(cause.Code, CODES));
         Assert.Equal(answer.Causes.Select(cause => cause.Code).Order(StringComparer.Ordinal).Distinct(), answer.Causes.Select(cause => cause.Code));
         Assert.Equal(ModelReasons.Ordered.FirstOrDefault(reason => answer.Causes.Any(cause => cause.Reason == reason)), answer.ModelReason);

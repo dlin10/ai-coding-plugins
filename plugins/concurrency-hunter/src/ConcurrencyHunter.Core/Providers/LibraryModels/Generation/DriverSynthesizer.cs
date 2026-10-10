@@ -212,7 +212,12 @@ public static class DriverSynthesizer
         }
 
         if (externMembers.Contains(Id(definition)))
-            return new DriverSynthesis(null, GenerationReasons.BODY_DOES_NOT_COMPILE, $"the body of {Id(definition)} did not compile and was made extern");
+        {
+            return new DriverSynthesis(null, GenerationReasons.BODY_DOES_NOT_COMPILE,
+                                       LibraryCompilation.HasNoBodies(definition.ContainingType)
+                                           ? $"the body of {Id(definition)} is not the code the runtime runs and was made extern"
+                                           : $"the body of {Id(definition)} did not compile and was made extern");
+        }
         if (writer.Failures.Count > 0)
             return new DriverSynthesis(null, GenerationReasons.DRIVER_NOT_SYNTHESIZED, string.Join("; ", writer.Failures.Distinct().Take(DETAILS_SHOWN)));
 

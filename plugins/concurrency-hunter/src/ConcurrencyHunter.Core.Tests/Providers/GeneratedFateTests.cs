@@ -971,6 +971,27 @@ public sealed class GeneratedFateTests
     }
 
     [Fact]
+    public void A_member_of_Unsafe_is_body_does_not_compile()
+    {
+        // CoreLib's placeholder only throws; run as it reads, it gave run A7 a model of no effects for a member that writes memory.
+        var trace = TraceOf("""
+            using System;
+
+            namespace System.Runtime.CompilerServices
+            {
+                public static class Unsafe
+                {
+                    public static void WriteUnaligned<T>(ref byte destination, T value) { typeof(T).ToString(); throw new PlatformNotSupportedException(); }
+                }
+            }
+            """, "M:System.Runtime.CompilerServices.Unsafe.WriteUnaligned``1(System.Byte@,``0)");
+
+        Assert.Null(trace.Answer.Classified);
+        Assert.Equal(GenerationReasons.BODY_DOES_NOT_COMPILE, trace.Answer.Reason);
+        Assert.Contains("not the code the runtime runs", trace.Answer.Detail);
+    }
+
+    [Fact]
     public void The_closure_bound_stops_a_driver_that_reaches_too_many_bodies()
     {
         var trace = Trace(Chain(1501, "static void C{0}() {{ }}"), "M:Lib.Api.Run(System.Action)");
