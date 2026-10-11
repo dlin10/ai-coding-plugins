@@ -88,6 +88,49 @@ public sealed class ValueProvenanceTests
     }
 
     [Theory]
+    [InlineData("x ??= p; return x;", "[arg:p,arg:x]")]
+    [InlineData("object y = null; y ??= p; return y;", "[arg:p]")]
+    [InlineData("object y = x; y = p ?? x; return y;", "[arg:p,arg:x]")]
+    public void An_assignment_through_a_capture_of_its_local_names_what_it_assigns(string body, string result)
+    {
+        // Roslyn writes `x ??= p`, and `y = p ?? x` to a local assigned before, through a capture it takes of the local first, which the
+        // lowering once left unexpressed: the model named only what the local held before (question 68).
+        var answer = Trace($"public static class Api {{ public static object Run(object x, object p) {{ {body} }} }}",
+                           "M:Lib.Api.Run(System.Object,System.Object)").Answer;
+
+        Assert.True(answer.Model is not null, string.Join("; ", answer.Causes));
+        Assert.Equal(result, answer.Model.Result?.ToString());
+    }
+
+    [Theory]
+    [InlineData("object held = null; Action write = () => held = p; write(); return held;", "[arg:p]")]
+    [InlineData("object held = null; void Write() => held = p; Write(); return held;", "[arg:p]")]
+    [InlineData("object held = q; Action write = () => held = p; Invoke(write); return held;", "[arg:p,arg:q]")]
+    [InlineData("object held = q; Action write = () => held = p; write(); held = q; return held;", "[arg:q]")]
+    [InlineData("object held = q; Action write = () => held = p; var before = held; write(); return before;", "[arg:q]")]
+    public void A_captured_variable_its_owner_reads_after_a_nested_body_may_have_run_holds_what_the_body_assigned(string body, string result)
+    {
+        // The owner reads the variable's cell after a call that may run the body; before that, and after it assigns the variable itself,
+        // its own version (question 153).
+        var answer = Trace("public static class Api { private static void Invoke(Action action) => action(); " +
+                           $"public static object Run(object p, object q) {{ {body} }} }}", "M:Lib.Api.Run(System.Object,System.Object)").Answer;
+
+        Assert.True(answer.Model is not null, string.Join("; ", answer.Causes));
+        Assert.Equal(result, answer.Model.Result?.ToString());
+    }
+
+    [Fact]
+    public void A_returned_variable_a_nested_body_writes_that_names_no_value_is_refused()
+    {
+        // The variable may hold what the body assigned, and nothing it holds has a name (question 153).
+        var answer = Trace("public static class Api { public static object Run(object p) { object held = null; Action write = () => held = p; return held; } }",
+                           "M:Lib.Api.Run(System.Object)").Answer;
+
+        Assert.Null(answer.Model);
+        Assert.Contains(answer.Causes, cause => cause.Code == ModelCauses.RESULT_UNRESOLVED && cause.Detail.Contains("held", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("Action<Wrap> take", "take(new Wrap(this));", "System.Action{Lib.Wrap}")]
     [InlineData("object p, out Wrap result", "result = new Wrap(this);", "System.Object,Lib.Wrap@")]
     public void A_fresh_wrapper_reaching_the_constructed_receiver_is_not_new(string parameters, string body, string id)

@@ -68,6 +68,7 @@ public static class IrPrinter
                                                 $"method={OptionalText(create.TargetMethod)} " +
                                                 $"receiver={OptionalValue(create.ReceiverValue)}"),
         IrCaptureOperation capture => F($"capture {Value(capture.Value)} body={Text(capture.TargetBodyId)}"),
+        IrLoadCapturedOperation load => F($"load-captured {Value(load.ResultValue)} variable={Text(load.SymbolKey)}"),
         IrEscapeOperation escape => F($"escape {Value(escape.Value)} destination={Text(escape.Destination)}"),
         IrReturnOperation @return => F($"return {OptionalValue(@return.Value)}"),
         IrAwaitOperation awaitOperation => F($"await {Value(awaitOperation.AwaitableValue)} " +

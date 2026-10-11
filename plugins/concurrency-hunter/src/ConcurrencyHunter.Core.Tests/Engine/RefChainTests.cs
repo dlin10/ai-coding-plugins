@@ -73,6 +73,52 @@ public sealed class RefChainTests
         Assert.Contains(Writes(run), access => access.Resource.Member.Name == "Other");
     }
 
+    [Theory]
+    [InlineData("public static void F(ref int a, ref int b, int n) { a = 1; if (n > 0) F(ref b, ref a, n - 1); }")]
+    [InlineData("public static void F(ref int a, ref int b, int n) { if (n == 0) a = 1; else F(ref b, ref a, n - 1); }")]
+    [InlineData("public static void F(ref int a, ref int b, int n) { if (n == 0) a++; else G(ref b, ref a, n - 1); } " +
+                "public static void G(ref int a, ref int b, int n) => F(ref a, ref b, n);")]
+    [InlineData("public static void F(ref int a, ref int b, int n) { W(ref a); if (n > 0) F(ref b, ref a, n - 1); } " +
+                "public static void W(ref int x) => x = 1;")]
+    [InlineData("public void F(ref int a, ref int b, int n) { if (n == 0) W(ref a); else F(ref b, ref a, n - 1); } " +
+                "public void W(ref int x) => x = 1;", "_state.F(ref _state.Cell, ref _state.Other, _state.Depth);")]
+    [InlineData("public static void F(ref int a, ref int b, ref int c, int n) { if (n == 0) a = 1; else F(ref b, ref c, ref a, n - 1); }",
+                "int z = 0; State.F(ref _state.Cell, ref z, ref _state.Other, _state.Depth);")]
+    public void Recursive_ref_forwarding_that_swaps_its_arguments_reaches_every_location(string members, string? call = null)
+    {
+        // A recursive call that swaps its ref arguments binds them anew, and the walk enters the instance again for each binding it
+        // has not had on the path; entering it once per path missed what the deeper binding writes (question 107).
+        var run = Run(call ?? "State.F(ref _state.Cell, ref _state.Other, _state.Depth);", members, "_state.Cell = 2; _state.Other = 2;");
+
+        Assert.Contains(Writes(run), access => access.Resource.Member.Name == "Cell");
+        Assert.Contains(Writes(run), access => access.Resource.Member.Name == "Other");
+        Assert.Contains(run.Pairs.Pairs, pair => pair.Resource.Member.Name == "Other");
+    }
+
+    [Fact]
+    public void Recursive_ref_forwarding_that_swaps_two_cells_reaches_both_cells()
+    {
+        var run = Run("_state.F(ref _state.Slots[0], ref _state.Slots[1], _state.Depth);",
+                      "public void F(ref int a, ref int b, int n) { if (n == 0) a = 1; else F(ref b, ref a, n - 1); }", "_state.Slots[1] = 2;");
+
+        Assert.Contains(Cells(run), access => access.Resource.Selector == ElementSelector.Exact(0));
+        Assert.Contains(Cells(run), access => access.Resource.Selector == ElementSelector.Exact(1));
+        Assert.Contains(run.Pairs.Pairs, pair => pair.Resource.Member.Name == "Slots");
+    }
+
+    [Fact]
+    public void Recursive_call_that_swaps_the_arrays_it_got_by_value_reaches_both_arrays()
+    {
+        // A cell of a collection the body got by value is bound through the caller's argument as a ref is (question 107).
+        var run = Run("_state.F(_state.Slots, _state.Second, _state.Depth);",
+                      "public int[] Second = new int[4]; public void F(int[] a, int[] b, int n) { if (n == 0) a[0] = 1; else F(b, a, n - 1); }",
+                      "_state.Second[0] = 2;");
+
+        Assert.Contains(Writes(run), access => access.Resource.Member.Name == "Slots");
+        Assert.Contains(Writes(run), access => access.Resource.Member.Name == "Second");
+        Assert.Contains(run.Pairs.Pairs, pair => pair.Resource.Member.Name == "Second");
+    }
+
     [Fact]
     public void Recursive_ref_return_of_a_cell_indexed_by_its_depth_is_the_unknown_cell()
     {

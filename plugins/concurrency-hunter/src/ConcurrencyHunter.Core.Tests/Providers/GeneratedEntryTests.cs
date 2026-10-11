@@ -11,7 +11,7 @@ public sealed class GeneratedEntryTests
     [Theory]
     [InlineData("Set(ref cells[0], p);", "private static void Set(ref object cell, object value) => cell = value;", "arg:p")]
     [InlineData("Forward(ref cells[0], p);", "private static void Forward(ref object cell, object value) => Set(ref cell, value); private static void Set(ref object cell, object value) => cell = value;", "arg:p")]
-    [InlineData("cells[0] = Choice.Value ? p : q;", "", "vocabulary")]
+    [InlineData("cells[0] = Choice.Value ? p : q;", "", "arg:p,arg:q")]
     [InlineData("Set(ref cells[0], Choice.Value ? p : q);", "private static void Set(ref object cell, object value) => cell = value;", "arg:p,arg:q")]
     [InlineData("cells[0] = p;", "", "arg:p")]
     [InlineData("Alias(ref cells[0]) = p;", "private static ref object Alias(ref object cell) => ref cell;", "arg:p")]

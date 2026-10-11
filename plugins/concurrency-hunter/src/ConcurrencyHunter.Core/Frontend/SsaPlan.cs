@@ -42,6 +42,11 @@ internal sealed class SsaPlan
 
     internal IReadOnlyList<SsaVariable> Variables => _variables;
     internal IReadOnlyList<SsaVariable> CapturedVariables => _variables.Where(variable => variable.IsOuterCapture).ToArray();
+
+    /// <summary>The variables of an enclosing body this one captures and assigns.</summary>
+    internal IReadOnlyList<SsaVariable> AssignedCaptures =>
+        CapturedVariables.Where(variable => _definitions.Values.Any(definitions => definitions.Any(definition => definition.Variable == variable)))
+                         .ToArray();
     internal SsaDefaultToken Default { get; } = new();
     internal SsaExceptionalToken Exceptional { get; } = new();
 
@@ -319,6 +324,13 @@ internal sealed class SsaPlan
         if (TryTargetVariable(target, out var variable))
         {
             AddDefinition(blockOrdinal, variable);
+            return;
+        }
+
+        // `x ??= value` assigns the local or parameter its target's capture took (question 68).
+        if (target is IFlowCaptureReferenceOperation capture && _capturedVariables.TryGetValue(capture.Id, out var captured))
+        {
+            AddDefinition(blockOrdinal, captured);
             return;
         }
 

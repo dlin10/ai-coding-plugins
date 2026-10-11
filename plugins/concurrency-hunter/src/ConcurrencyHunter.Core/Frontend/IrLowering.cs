@@ -609,6 +609,22 @@ public static class IrLowering
 
         /// <summary>The sections already left in the block being lowered, so that one is never left twice.</summary>
         private readonly HashSet<LockStatementSyntax> _closedHere = [];
+
+        /// <summary>The variables of this body a nested body assigns: a read of one where that body may have run since this body last
+        /// assigned it reads the variable's capture cell (question 153).</summary>
+        private readonly HashSet<ISymbol> _nestedAssigned = new(SymbolEqualityComparer.Default);
+
+        /// <summary>Those of <see cref="_nestedAssigned"/> a nested body may have assigned since this body last did, where the lowering
+        /// of the current block stands, and those it may have anywhere in the block.</summary>
+        private readonly HashSet<ISymbol> _reassigned = new(SymbolEqualityComparer.Default);
+        private readonly HashSet<ISymbol> _reassignedAnywhere = new(SymbolEqualityComparer.Default);
+
+        /// <summary>How many operations of the current block <see cref="_reassigned"/> accounts for.</summary>
+        private int _accountedOperations;
+
+        /// <summary>For each block of the current graph lowered, what <see cref="_reassigned"/> is where it ends and what it is anywhere
+        /// in it.</summary>
+        private readonly Dictionary<int, (HashSet<ISymbol> AtExit, HashSet<ISymbol> Anywhere)> _reassignedIn = [];
         private ControlFlowGraph _graph = null!;
         private EffectiveFlowGraph _flowGraph = null!;
         private SsaPlan _ssaPlan = null!;
@@ -942,6 +958,25 @@ public static class IrLowering
             _offset = offset;
             _capturedTargets.Clear();
             _capturedLongForms.Clear();
+            _nestedAssigned.Clear();
+            _nestedAssigned.UnionWith(NestedAssigned(_graph).Where(symbol => _ssaPlan.TryGetVariable(symbol, out var variable) && !variable.IsOuterCapture));
+            _reassignedIn.Clear();
+        }
+
+        /// <summary>The variables of enclosing bodies that the lambdas and local functions of a graph assign, at any depth.</summary>
+        /// <param name="graph">The graph whose nested functions are searched.</param>
+        private IEnumerable<ISymbol> NestedAssigned(ControlFlowGraph graph)
+        {
+            var nested = graph.LocalFunctions.Select(local => (Function: local, Graph: graph.GetLocalFunctionControlFlowGraph(local, _cancellationToken)))
+                              .Concat(AnonymousFunctions(graph).Select(anonymous => (Function: anonymous.Symbol,
+                                                                                    Graph: graph.GetAnonymousFunctionControlFlowGraph(anonymous, _cancellationToken))));
+            foreach (var (function, body) in nested)
+            {
+                foreach (var variable in SsaPlan.Create(function, body, EffectiveFlowGraph.Create(body)).AssignedCaptures)
+                    yield return variable.Symbol!;
+                foreach (var symbol in NestedAssigned(body))
+                    yield return symbol;
+            }
         }
 
         private void AddInitialValues()
@@ -1024,6 +1059,15 @@ public static class IrLowering
                 }
             }
 
+            _reassigned.Clear();
+            _reassignedAnywhere.Clear();
+            _accountedOperations = _operations.Count;
+            if (_nestedAssigned.Count != 0)
+            {
+                _reassigned.UnionWith(ReassignedAtEntry(block.Ordinal));
+                _reassignedAnywhere.UnionWith(_reassigned);
+            }
+
             LowerOperations(block);
 
             var byRefReturn = _method.ReturnsByRef || _method.ReturnsByRefReadonly;
@@ -1041,6 +1085,13 @@ public static class IrLowering
                 {
                     IsByRef = byRefReturn
                 });
+            }
+
+            if (_nestedAssigned.Count != 0)
+            {
+                AccountOperations();
+                _reassignedIn[block.Ordinal] = (new HashSet<ISymbol>(_reassigned, SymbolEqualityComparer.Default),
+                                                new HashSet<ISymbol>(_reassignedAnywhere, SymbolEqualityComparer.Default));
             }
 
             var predecessors = block.Predecessors.Select(predecessor => predecessor.Source.Ordinal + _offset).ToArray();
@@ -1283,7 +1334,7 @@ public static class IrLowering
                 IParameterReferenceOperation parameter => parameter.Parameter.RefKind == RefKind.None
                     ? LowerParameter(parameter) : LowerReferencedParameter(parameter),
                 ILocalReferenceOperation local => local.Local.RefKind == RefKind.None
-                    ? GetSymbolValue(local.Local) : LowerReferenceLoad(GetSymbolValue(local.Local), local),
+                    ? ReadSymbol(local.Local, local) : LowerReferenceLoad(GetSymbolValue(local.Local), local),
                 IInstanceReferenceOperation instance => instance.ReferenceKind == InstanceReferenceKind.PatternInput
                     ? _patternInputValue ?? Unknown(instance, "unsupported")
                     : _receiverValue ?? Unknown(operation, "unsupported"),
@@ -1313,6 +1364,9 @@ public static class IrLowering
                 // A default value task is complete with its result's default, which is no object, as a default of that type would be (R1).
                 IDefaultValueOperation { Type.IsValueType: true } value when Bcl.IsTask(value.Type, withValueTask: true) =>
                     Constant(value, null, "default-value-task"),
+                // A lambda no delegate creation stands over is an expression tree's: data a library may compile and run, so what the
+                // lambda captures is handed to the operation the lowering leaves it (question 68).
+                IFlowAnonymousFunctionOperation quoted => Unknown(quoted, "unsupported", QuotedCaptures(quoted)),
                 _ when operation.ConstantValue.HasValue => Constant(operation, "constant"),
                 _ => LowerUnsupported(operation)
             };
@@ -1443,7 +1497,7 @@ public static class IrLowering
             };
             if (symbol is not null)
             {
-                var left = GetSymbolValue(symbol);
+                var left = ReadSymbol(symbol, target);
                 var right = LowerValue(compound.Value);
                 var result = CompoundResult(compound, left, right);
                 StoreSymbol(symbol, result, compound, "compound-assignment");
@@ -1597,7 +1651,7 @@ public static class IrLowering
                 if (symbol is null)
                     return Unknown(increment, "unsupported", target.ChildOperations.Select(LowerValue).ToArray());
 
-                var loadedValue = GetSymbolValue(symbol);
+                var loadedValue = ReadSymbol(symbol, target);
                 var oneValue = Constant(increment, 1, "increment");
                 var computedValue = AddTemporary(increment.Type);
                 var operation = increment.Kind == OperationKind.Decrement ? "Subtract" : "Add";
@@ -1835,6 +1889,10 @@ public static class IrLowering
                 }
                 case IFlowCaptureReferenceOperation capture when _capturedTargets.TryGetValue(capture.Id, out var captured):
                     return LowerStore(captured, value, source, transformation);
+                // `x ??= value` writes its target through the capture Roslyn took of it, as a long form writes it (R1, question 68).
+                case IFlowCaptureReferenceOperation capture when _capturedLongForms.TryGetValue(capture.Id, out var write):
+                    write(value, source, transformation);
+                    return value;
                 case ILocalReferenceOperation local:
                     if (local.Local.RefKind != RefKind.None)
                     {
@@ -1879,6 +1937,11 @@ public static class IrLowering
         {
             if (!_ssaPlan.TryGetVariable(symbol, out var variable))
                 throw new InvalidOperationException($"No SSA variable was planned for '{symbol.Name}'.");
+            if (_nestedAssigned.Contains(symbol))
+            {
+                AccountOperations();
+                _reassigned.Remove(symbol);
+            }
             var targetValue = ResolveToken(NextDefinition(variable));
             SetCurrent(variable, targetValue);
             _operations.Add(new IrAssignOperation(
@@ -2086,7 +2149,7 @@ public static class IrLowering
         private int LowerParameter(IParameterReferenceOperation parameter)
         {
             if (!IsPrimaryConstructorParameter(parameter.Parameter))
-                return GetSymbolValue(parameter.Parameter);
+                return ReadSymbol(parameter.Parameter, parameter);
 
             var location = GetPrimaryConstructorParameterLocation(parameter.Parameter);
             var result = AddTemporary(parameter.Type);
@@ -3582,6 +3645,21 @@ public static class IrLowering
             return result;
         }
 
+        /// <summary>The values an expression tree's lambda captures: each variable of this body it names, as it stands here, and the
+        /// receiver when the lambda names the instance.</summary>
+        /// <param name="quoted">The expression tree's lambda.</param>
+        private int[] QuotedCaptures(IFlowAnonymousFunctionOperation quoted)
+        {
+            var graph = _graph.GetAnonymousFunctionControlFlowGraph(quoted, _cancellationToken);
+            var captured = SsaPlan.Create(quoted.Symbol, graph, EffectiveFlowGraph.Create(graph)).CapturedVariables
+                                  .Where(variable => _ssaPlan.TryGetVariable(variable.Symbol!, out _))
+                                  .Select(variable => ReadSymbol(variable.Symbol!, quoted));
+            var namesInstance = graph.Blocks.SelectMany(block => block.Operations.Append(block.BranchValue).OfType<IOperation>())
+                                     .SelectMany(operation => operation.DescendantsAndSelf())
+                                     .Any(operation => operation is IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ContainingTypeInstance });
+            return [.. captured, .. namesInstance && _receiverValue is int receiver ? [receiver] : Array.Empty<int>()];
+        }
+
         /// <summary>The keys of the variables the body of <paramref name="function"/> captures, in the order its capture
         /// operations name them.</summary>
         /// <param name="function">The lambda or local function whose captures are listed.</param>
@@ -3733,6 +3811,53 @@ public static class IrLowering
             var value = ResolveToken(_ssaPlan.Entry(_currentBlockOrdinal, variable));
             SetCurrent(variable, value);
             return value;
+        }
+
+        /// <summary>A read of a local or a parameter: its current version, or, for one a nested body assigns where that body may have run
+        /// since this body last assigned it, whatever its capture cell holds (question 153).</summary>
+        /// <param name="symbol">The local or parameter read.</param>
+        /// <param name="read">The operation reading it.</param>
+        private int ReadSymbol(ISymbol symbol, IOperation read)
+        {
+            var value = GetSymbolValue(symbol);
+            if (!_nestedAssigned.Contains(symbol))
+                return value;
+            AccountOperations();
+            if (!_reassigned.Contains(symbol) || !_ssaPlan.TryGetVariable(symbol, out var variable))
+                return value;
+            var loaded = AddValue(IrValueKind.Temporary, variable.Type, variable.Name, 0);
+            _operations.Add(new IrLoadCapturedOperation(NextOperation(), loaded, KeyOf(variable)!, Provenance(read, "load-captured")));
+            return loaded;
+        }
+
+        /// <summary>Brings <see cref="_reassigned"/> up to the operations the current block has so far: one that may run code — a call,
+        /// an await, a yield, a spawn, a join or an operation the lowering leaves unexpressed — may run a nested body.</summary>
+        private void AccountOperations()
+        {
+            for (; _accountedOperations < _operations.Count; _accountedOperations++)
+            {
+                if (_operations[_accountedOperations] is IrCallOperation or IrAwaitOperation or IrYieldOperation or IrSpawnOperation or
+                    IrJoinOperation or IrWhenAllOperation or IrThreadWorkOperation or IrTimerOperation or IrUnknownOperation)
+                {
+                    _reassigned.UnionWith(_nestedAssigned);
+                    _reassignedAnywhere.UnionWith(_nestedAssigned);
+                }
+            }
+        }
+
+        /// <summary>The variables a nested body may have assigned where a block starts: what it may have where each predecessor ends, or
+        /// anywhere in it for an exceptional edge; every one of them across an edge from a block not lowered yet, which closes a loop.</summary>
+        /// <param name="blockOrdinal">The block's ordinal in the current graph.</param>
+        private IEnumerable<ISymbol> ReassignedAtEntry(int blockOrdinal)
+        {
+            var reassigned = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+            foreach (var edge in _flowGraph.Predecessors(blockOrdinal))
+            {
+                if (!_reassignedIn.TryGetValue(edge.Source, out var source))
+                    return _nestedAssigned;
+                reassigned.UnionWith(edge.Kind == IrEdgeKind.Exceptional ? source.Anywhere : source.AtExit);
+            }
+            return reassigned;
         }
 
         private SsaDefinitionToken NextDefinition(SsaVariable variable)

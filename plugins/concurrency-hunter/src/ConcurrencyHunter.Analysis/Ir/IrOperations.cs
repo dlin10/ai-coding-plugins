@@ -649,6 +649,19 @@ public sealed record IrCaptureOperation(int Id, int Value, string TargetBodyId, 
     public string? SymbolKey { get; init; }
 }
 
+/// <summary>A read, by the body that owns it, of a variable a nested body assigns, where that body may have run since the owner last
+/// assigned it: the value is whatever the variable's capture cell holds, the owner's own versions among it (question 153).</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The value read.</param>
+/// <param name="SymbolKey">The key of the variable read.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
+public sealed record IrLoadCapturedOperation(int Id, int ResultValue, string SymbolKey, IrProvenance Provenance)
+    : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [ResultValue];
+    public override IReadOnlyList<int> Operands => [];
+}
+
 public sealed record IrEscapeOperation(int Id, int Value, string Destination, IrProvenance Provenance)
     : IrOperation(Id, Provenance)
 {

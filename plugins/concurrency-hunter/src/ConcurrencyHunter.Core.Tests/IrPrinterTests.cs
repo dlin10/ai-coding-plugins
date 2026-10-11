@@ -52,6 +52,7 @@ public sealed class IrPrinterTests
             new IrStoreReferenceOperation(nextOperation++, 0, 1, null, Provenance),
             new IrCreateDelegateOperation(nextOperation++, nextValue++, "body:target", null, 3, Provenance),
             new IrCaptureOperation(nextOperation++, 0, "body:target", Provenance),
+            new IrLoadCapturedOperation(nextOperation++, nextValue++, "local:held", Provenance),
             new IrEscapeOperation(nextOperation++, 3, "return", Provenance),
             new IrReturnOperation(nextOperation++, 0, Provenance),
             new IrAwaitOperation(nextOperation++, nextValue++, 0, Provenance),
@@ -90,7 +91,7 @@ public sealed class IrPrinterTests
                  {
                      "assign", "phi", "allocate", "load-field", "store-field", "load-element",
                      "store-element", "address-field", "address-element", "load-reference", "store-reference",
-                     "create-delegate", "capture", "escape", "return", "await", "yield",
+                     "create-delegate", "capture", "load-captured", "escape", "return", "await", "yield",
                      "spawn", "thread-work", "join", "when-all", "unwrap", "task", "timer", "acquire", "release", "atomic", "compute", "combine-delegates", "remove-delegates", "compare", "convert", "unknown"
                  })
         {

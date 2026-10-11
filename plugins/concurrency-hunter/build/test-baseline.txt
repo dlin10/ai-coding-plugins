@@ -4628,6 +4628,7 @@ ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Abstract_call_reaches_only_the
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Access_path_of_the_base_and_the_field_together_decides_the_wildcard	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Captured_local_reaches_the_lambda_body_through_a_delegate_stored_in_a_singleton	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Cha_only_override_without_an_instance_is_never_summarized	Passed
+ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Coalesce_assignment_to_a_local_holds_what_it_assigns	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Constructor_parameter_of_a_closed_generic_resolves_its_substituted_service	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Controller_construction_alone_activates_its_type_initializer	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Controller_injected_field_points_through_its_receiver_region_and_a_cha_only_override_is_lowered_not_reached	Passed
@@ -4650,6 +4651,8 @@ ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Interface_property_write_reach
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Lambda_and_its_creating_method_write_one_capture_cell	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Local_function_uses_the_capture_cell_of_its_method	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Lock_object_aliased_through_a_second_field_is_one_region	Passed
+ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Method_reads_the_capture_cell_of_a_variable_its_local_function_assigns_after_calling_it(statements: "holder.Seen = current; Replace();", seen: "alloc:FindController.Post()#object")	Passed
+ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Method_reads_the_capture_cell_of_a_variable_its_local_function_assigns_after_calling_it(statements: "Replace(); holder.Seen = current;", seen: "alloc:FindController.Post()#System.Collections.Gen"···)	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Minimal_api_service_parameter_and_from_services_parameter_point_to_singleton_regions	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.One_method_on_two_receivers_keeps_two_instantiations	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.One_object_stored_in_two_fields_is_one_region	Passed
@@ -4879,7 +4882,12 @@ ConcurrencyHunter.Core.Tests.Engine.RefCallTargetTests.Unsafe_Add_over_a_ref_loc
 ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Constant_shift_outside_a_cycle_keeps_the_index_exact	Passed
 ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Field_path_past_the_depth_limit_still_collapses_to_a_wildcard	Passed
 ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Mutual_ref_return_recursion_terminates	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Recursive_call_that_swaps_the_arrays_it_got_by_value_reaches_both_arrays	Passed
 ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Recursive_ref_forwarding_terminates	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Recursive_ref_forwarding_that_swaps_its_arguments_reaches_every_location(members: "public static void F(ref int a, ref int b, int n) "···, call: null)	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Recursive_ref_forwarding_that_swaps_its_arguments_reaches_every_location(members: "public static void F(ref int a, ref int b, ref int"···, call: "int z = 0; State.F(ref _state.Cell, ref z, ref _st"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Recursive_ref_forwarding_that_swaps_its_arguments_reaches_every_location(members: "public void F(ref int a, ref int b, int n) { if (n"···, call: "_state.F(ref _state.Cell, ref _state.Other, _state"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Recursive_ref_forwarding_that_swaps_two_cells_reaches_both_cells	Passed
 ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Recursive_ref_return_of_a_cell_indexed_by_its_depth_is_the_unknown_cell	Passed
 ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Recursive_ref_return_of_a_constant_cell_keeps_its_index	Passed
 ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Recursive_ref_return_of_a_constant_element_of_a_parameter_array_keeps_its_index	Passed
@@ -6412,6 +6420,11 @@ ConcurrencyHunter.Core.Tests.Generation.UnsafeNarrowingTests.The_carried_parser_
 ConcurrencyHunter.Core.Tests.Generation.UnsafeNarrowingTests.The_gold_fate_itself_is_safe_and_exact	Passed
 ConcurrencyHunter.Core.Tests.Generation.UnsafeNarrowingTests.The_gold_file_gives_the_evals_18_members_24_parameters_and_five_holder_kinds	Passed
 ConcurrencyHunter.Core.Tests.Generation.UnsafeNarrowingTests.Unknown_execution_is_safe_against_every_gold_fate	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_captured_variable_its_owner_reads_after_a_nested_body_may_have_run_holds_what_the_body_assigned(body: "object held = null; Action write = () => held = p;"···, result: "[arg:p]")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_captured_variable_its_owner_reads_after_a_nested_body_may_have_run_holds_what_the_body_assigned(body: "object held = null; void Write() => held = p; Writ"···, result: "[arg:p]")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_captured_variable_its_owner_reads_after_a_nested_body_may_have_run_holds_what_the_body_assigned(body: "object held = q; Action write = () => held = p; In"···, result: "[arg:p,arg:q]")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_captured_variable_its_owner_reads_after_a_nested_body_may_have_run_holds_what_the_body_assigned(body: "object held = q; Action write = () => held = p; va"···, result: "[arg:q]")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_captured_variable_its_owner_reads_after_a_nested_body_may_have_run_holds_what_the_body_assigned(body: "object held = q; Action write = () => held = p; wr"···, result: "[arg:q]")	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_carried_probe_fired_in_task_run_has_vocabulary_reason	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_constructor_created_object_is_named_this	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_constructor_keeps_its_argument_on_this_and_has_no_result	Passed
@@ -6465,6 +6478,7 @@ ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_ref_store_through
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_ref_store_through_source_helpers_is_an_output(body: "Assign(value, ref result);", helpers: "private static void Assign(object value, ref objec"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_ref_store_through_source_helpers_is_an_output(body: "Forward(ref result, value);", helpers: "private static void Forward(ref object target, obj"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_whose_allocation_site_also_ran_in_setup_has_vocabulary_reason	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_returned_variable_a_nested_body_writes_that_names_no_value_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_sealed_library_receiver_can_be_a_keeper	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_seeded_storage_array_keeps_only_the_item_the_call_adds	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_setup_built_array_element_forwarded_through_an_out_identity_cast_keeps_its_name(type: "Item", id: "Lib.Item")	Passed
@@ -6483,6 +6497,9 @@ ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_write_into_a_pre_
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.An_argument_forwarded_through_an_out_identity_cast_keeps_its_name_in_a_delegate_input	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.An_argument_returned_is_arg	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.An_argument_the_call_writes_into_an_arrays_cell_is_not_an_element_of_that_array	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.An_assignment_through_a_capture_of_its_local_names_what_it_assigns(body: "object y = null; y ??= p; return y;", result: "[arg:p]")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.An_assignment_through_a_capture_of_its_local_names_what_it_assigns(body: "object y = x; y = p ?? x; return y;", result: "[arg:p,arg:x]")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.An_assignment_through_a_capture_of_its_local_names_what_it_assigns(body: "x ??= p; return x;", result: "[arg:p,arg:x]")	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.An_awaited_result_that_would_need_a_name_is_named_as_its_synchronous_twins_inside_task	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.An_element_of_a_span_a_helper_hands_out_through_an_out_parameter_has_vocabulary_reason	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.An_element_of_an_element_of_a_nested_list_argument_is_named_recursively	Passed
@@ -6530,17 +6547,27 @@ ConcurrencyHunter.Core.Tests.IrConstructionTests.Primary_constructor_stores_capt
 ConcurrencyHunter.Core.Tests.IrConstructionTests.Ref_parameter_final_value_is_readable_at_return	Passed
 ConcurrencyHunter.Core.Tests.IrConstructionTests.This_chaining_skips_initializers	Passed
 ConcurrencyHunter.Core.Tests.IrConstructionTests.Type_initializer_body_comes_from_static_initializers_only	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Assignment_to_a_local_Roslyn_takes_before_its_value_defines_it(source: "class C { object M(object a, object b, bool f) { o"···)	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Assignment_to_a_local_Roslyn_takes_before_its_value_defines_it(source: "class C { object M(object? a, object b) { object x"···)	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Assignment_to_a_local_Roslyn_takes_before_its_value_defines_it(source: "class T { public int P; } class C { object M(T a) "···)	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Automatic_property_is_a_field_but_computed_property_is_accessor_calls	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Await_is_recorded	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Base_call_into_a_source_body_runs_exactly_the_nearest_base_implementation	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Base_method_group_delegate_runs_exactly_the_nearest_base_implementation	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Base_ref_indexer_as_a_reference_runs_exactly_the_nearest_base_accessor	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Boxing_conversion_is_recorded	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Coalesce_assignment_to_a_cell_or_a_reference_writes_it(source: "class C { void M(object?[] a, object p) { a[0] ??="···)	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Coalesce_assignment_to_a_cell_or_a_reference_writes_it(source: "class C { void M(ref object? x, object p) { x ??= "···)	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Coalesce_assignment_to_a_cell_or_a_reference_writes_it(source: "using System.Collections.Generic; class C { void M"···)	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Coalesce_assignment_to_a_local_or_parameter_defines_it(source: "class C { object M(object p) { object? x = null; x"···)	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Coalesce_assignment_to_a_local_or_parameter_defines_it(source: "class C { object M(object? x, object p) { x ??= p;"···)	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Coalesce_assignment_to_a_local_or_parameter_defines_it(source: "using System; class C { Action? M(Action? x, objec"···)	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Compound_field_assignment_is_one_read_modify_write	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Deconstruction_declaring_locals_from_a_tuple_parameter_defines_both	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Deconstruction_from_a_tuple_local_stores_every_target	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Deconstruction_into_nested_tuple_targets_stores_every_target	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Deconstruction_stores_targets_left_to_right	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Expression_lambda_hands_what_it_captures_to_the_operation_it_stays	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Field_increment_is_one_read_modify_write	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Field_keyword_in_a_custom_accessor_stays_an_accessor_call	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Field_passed_to_an_in_parameter_without_keyword_is_address_taken	Passed
@@ -6551,6 +6578,7 @@ ConcurrencyHunter.Core.Tests.IrLoweringTests.Method_without_a_source_body_throws
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Nameof_is_a_constant	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Null_tests_lower_as_null_comparisons	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Object_creation_is_allocate_then_constructor_call	Passed
+ConcurrencyHunter.Core.Tests.IrLoweringTests.Owner_reads_the_cell_of_a_variable_a_nested_body_writes_only_where_the_body_may_have_run	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Primary_constructor_parameter_used_by_a_method_is_a_receiver_field	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Provenance_is_relative_slash_separated_and_one_based	Passed
 ConcurrencyHunter.Core.Tests.IrLoweringTests.Ref_field_argument_is_address_taken_without_a_load_or_store	Passed
@@ -7124,7 +7152,7 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.An_unknown_return_alt
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.An_unknown_return_alternative_refuses_the_whole_entry(body: "return Choice.Value ? p : Unknown.Make();")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.An_unknown_value_linked_into_a_written_receiver_has_library_state	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.Array_cell_stores_are_complete_or_refused_when_the_operation_is_unresolved(body: "Alias(ref cells[0]) = p;", helpers: "private static ref object Alias(ref object cell) ="···, expected: "arg:p")	Passed
-ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.Array_cell_stores_are_complete_or_refused_when_the_operation_is_unresolved(body: "cells[0] = Choice.Value ? p : q;", helpers: "", expected: "vocabulary")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.Array_cell_stores_are_complete_or_refused_when_the_operation_is_unresolved(body: "cells[0] = Choice.Value ? p : q;", helpers: "", expected: "arg:p,arg:q")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.Array_cell_stores_are_complete_or_refused_when_the_operation_is_unresolved(body: "cells[0] = p;", helpers: "", expected: "arg:p")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.Array_cell_stores_are_complete_or_refused_when_the_operation_is_unresolved(body: "Forward(ref cells[0], p);", helpers: "private static void Forward(ref object cell, objec"···, expected: "arg:p")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.Array_cell_stores_are_complete_or_refused_when_the_operation_is_unresolved(body: "if (Choice.Value) cells[0] = p; else cells[0] = q;", helpers: "", expected: "arg:p,arg:q")	Passed

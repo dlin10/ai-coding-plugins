@@ -27,8 +27,6 @@ public sealed class DelegateCombinationMatrixTests(ClassCache cache) : IClassFix
 
     private const string REF_LOCAL = "a store through a ref local does not reach the later read through it";
 
-    private const string CAPTURED_LOCAL = "a store to a captured local inside a lambda does not reach the read after the lambda ran";
-
     private Matrix Results => cache.Get("results", Run);
 
     /// <summary>A form that combines or removes delegates.</summary>
@@ -140,10 +138,6 @@ public sealed class DelegateCombinationMatrixTests(ClassCache cache) : IClassFix
             "T1_RefLocalCompound_Null_Known", "T1_RefLocalCompound_Unknown_Known",
             "T1_RefLocalRemove_Known_Known", "T1_RefLocalRemove_Known_Null", "T1_RefLocalRemove_Known_Unknown",
             "T1_RefLocalRemove_Null_Known", "T1_RefLocalRemove_Unknown_Known"
-        ]),
-        (CAPTURED_LOCAL, [
-            "T1_CapturedLocalCompound_Known_Known", "T1_CapturedLocalCompound_Null_Known", "T1_CapturedLocalCompound_Unknown_Known",
-            "T1_CapturedLocalRemove_Known_Known", "T1_CapturedLocalRemove_Null_Known", "T1_CapturedLocalRemove_Unknown_Known"
         ]));
 
     private ConcurrentDictionary<string, Observed> Observations => cache.Get("observations", () => new ConcurrentDictionary<string, Observed>(StringComparer.Ordinal));

@@ -514,6 +514,46 @@ public sealed class PointsToTests
         Assert.Contains("alloc:HookController.Post()#object", cell);
     }
 
+    [Theory]
+    [InlineData("Replace(); holder.Seen = current;", "alloc:FindController.Post()#System.Collections.Generic.List<int>")]
+    [InlineData("holder.Seen = current; Replace();", "alloc:FindController.Post()#object")]
+    public void Method_reads_the_capture_cell_of_a_variable_its_local_function_assigns_after_calling_it(string statements, string seen)
+    {
+        // The method's own version of `current` is the object; after the call that may run Replace, it reads the cell (question 153).
+        var run = Solve($$"""
+            public sealed class Holder { public object? Seen; }
+            public class FindController : ControllerBase
+            {
+                public void Post()
+                {
+                    var holder = new Holder();
+                    object current = new object();
+                    {{statements}}
+                    void Replace() { current = new System.Collections.Generic.List<int>(); }
+                }
+            }
+            """ + Startup());
+
+        Assert.Contains(seen, run.Targets(run.Region("alloc:FindController.Post()#Holder"), "Seen"));
+        if (seen.EndsWith("#object", StringComparison.Ordinal))
+            Assert.DoesNotContain("alloc:FindController.Post()#System.Collections.Generic.List<int>", run.Targets(run.Region("alloc:FindController.Post()#Holder"), "Seen"));
+    }
+
+    [Fact]
+    public void Coalesce_assignment_to_a_local_holds_what_it_assigns()
+    {
+        // `current ??= new object()` writes the local through the capture Roslyn took of it (question 68).
+        var run = Solve("""
+            public sealed class Holder { public object? Seen; }
+            public class CoalesceController : ControllerBase
+            {
+                public void Post() { var holder = new Holder(); object? current = null; current ??= new object(); holder.Seen = current; }
+            }
+            """ + Startup());
+
+        Assert.Equal(["alloc:CoalesceController.Post()#object"], run.Targets(run.Region("alloc:CoalesceController.Post()#Holder"), "Seen"));
+    }
+
     [Fact]
     public void Scc_budget_merges_a_mutually_recursive_pair_without_changing_its_facts()
     {

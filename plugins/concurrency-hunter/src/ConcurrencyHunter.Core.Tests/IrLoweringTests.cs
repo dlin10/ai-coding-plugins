@@ -429,6 +429,83 @@ public sealed class IrLoweringTests
         Assert.Contains(Operations<IrUnknownOperation>(body), operation => operation.Reason == "unsupported");
     }
 
+    [Theory]
+    [InlineData("class C { object M(object? x, object p) { x ??= p; return x; } }")]
+    [InlineData("class C { object M(object p) { object? x = null; x ??= p; return x; } }")]
+    [InlineData("using System; class C { Action? M(Action? x, object p) { x ??= () => p.GetHashCode(); return x; } }")]
+    public async Task Coalesce_assignment_to_a_local_or_parameter_defines_it(string source)
+    {
+        // Roslyn writes `x ??= p` through the capture it took of x: the write is x's own, merged where the null test joins (question 68).
+        var body = await Lower(source);
+        var assigned = Assert.Single(Operations<IrAssignOperation>(body), assign => Name(body, assign.TargetValue) == "x" &&
+                                                                                   assign.Provenance.SyntaxKind == "CoalesceAssignmentExpression").TargetValue;
+        var returned = Assert.Single(Operations<IrReturnOperation>(body)).Value;
+
+        Assert.Contains(Assert.Single(Operations<IrPhiOperation>(body), phi => phi.TargetValue == returned).Inputs, input => input.Value == assigned);
+        Assert.DoesNotContain(Operations<IrUnknownOperation>(body), operation => operation.Reason == "unsupported");
+        Assert.Empty(IrValidator.Validate(body));
+    }
+
+    [Theory]
+    [InlineData("class C { object M(object a, object b, bool f) { object x = a; x = f ? a : b; return x; } }")]
+    [InlineData("class C { object M(object? a, object b) { object x = b; x = a ?? b; return x; } }")]
+    [InlineData("class T { public int P; } class C { object M(T a) { object x = a; x = new T { P = 1 }; return x; } }")]
+    public async Task Assignment_to_a_local_Roslyn_takes_before_its_value_defines_it(string source)
+    {
+        // A value that branches or initializes an object makes Roslyn take the target first, through a capture; the write is still
+        // the local's own (question 68).
+        var body = await Lower(source);
+        var assigned = Assert.Single(Operations<IrAssignOperation>(body), assign => Name(body, assign.TargetValue) == "x" &&
+                                                                                   assign.Provenance.SyntaxKind == "SimpleAssignmentExpression").TargetValue;
+
+        Assert.Equal(assigned, Assert.Single(Operations<IrReturnOperation>(body)).Value);
+        Assert.DoesNotContain(Operations<IrUnknownOperation>(body), operation => operation.Reason == "unsupported");
+        Assert.Empty(IrValidator.Validate(body));
+    }
+
+    [Theory]
+    [InlineData("class C { void M(object?[] a, object p) { a[0] ??= p; } }")]
+    [InlineData("class C { void M(ref object? x, object p) { x ??= p; } }")]
+    [InlineData("using System.Collections.Generic; class C { void M(List<object?> a, object p) { a[0] ??= p; } }")]
+    public async Task Coalesce_assignment_to_a_cell_or_a_reference_writes_it(string source)
+    {
+        var body = await Lower(source);
+        var p = Assert.Single(body.Values, value => value.Name == "p").Id;
+
+        Assert.Contains(Operations(body), operation => operation is IrStoreElementOperation { Value: var stored } && stored == p ||
+                                                       operation is IrStoreReferenceOperation { Value: var referenced } && referenced == p ||
+                                                       operation is IrCallOperation { ArgumentValues: var arguments } && arguments.Contains(p));
+        Assert.DoesNotContain(Operations<IrUnknownOperation>(body), operation => operation.Reason == "unsupported");
+        Assert.Empty(IrValidator.Validate(body));
+    }
+
+    [Fact]
+    public async Task Expression_lambda_hands_what_it_captures_to_the_operation_it_stays()
+    {
+        // An expression tree is data a library may compile and run: what its lambda captures is handed to it (question 68).
+        var body = await Lower("using System; using System.Linq.Expressions; " +
+                               "class C { int f; object M(object p) { Expression<Func<int>> e = () => p.GetHashCode() + f; return e; } }");
+        var quoted = Assert.Single(Operations<IrUnknownOperation>(body), operation => operation.OperationKind == "FlowAnonymousFunction");
+
+        Assert.Contains(Assert.Single(body.Values, value => value.Name == "p").Id, quoted.OperandValues);
+        Assert.Contains(Assert.Single(body.Values, value => value.Kind == IrValueKind.Receiver).Id, quoted.OperandValues);
+    }
+
+    [Fact]
+    public async Task Owner_reads_the_cell_of_a_variable_a_nested_body_writes_only_where_the_body_may_have_run()
+    {
+        // A read before any call sees the owner's own version; one after a call that may run the lambda reads the cell (question 153).
+        var body = await Lower("using System; class C { object M(object p, object q) { object held = q; Action write = () => held = p; " +
+                               "var before = held; write(); var after = held; held = q; var assigned = held; return before ?? after ?? assigned; } }");
+        var loads = Operations<IrLoadCapturedOperation>(body);
+
+        var load = Assert.Single(loads);
+        Assert.Equal(Assert.Single(Operations<IrAssignOperation>(body), assign => Name(body, assign.TargetValue) == "after").SourceValue, load.ResultValue);
+        Assert.Equal(Assert.Single(body.Values, value => value.Name == "held" && value.SsaVersion == 1).Id,
+                     Assert.Single(Operations<IrAssignOperation>(body), assign => Name(body, assign.TargetValue) == "before").SourceValue);
+        Assert.Empty(IrValidator.Validate(body));
+    }
+
     [Fact]
     public async Task Method_without_a_source_body_throws()
     {
@@ -450,6 +527,8 @@ public sealed class IrLoweringTests
 
     private static IrOperation[] Operations(IrBody body) =>
         body.Blocks.SelectMany(block => block.Operations).ToArray();
+
+    private static string Name(IrBody body, int value) => body.Values.Single(candidate => candidate.Id == value).Name;
 
     private static T[] Operations<T>(IrBody body) where T : IrOperation =>
         Operations(body).OfType<T>().ToArray();

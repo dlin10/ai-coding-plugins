@@ -237,6 +237,12 @@ public sealed class ValueProvenance
         }
         if (regions.Count == 0 && SymbolicReturnNames() is { Count: > 0 } symbolic)
             return new LibraryResult(LibraryResultKind.OneOf, symbolic);
+        if (regions.Count == 0 && !type.IsValueType && ReturnedNestedAssigned() is { } variable)
+        {
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RESULT_UNRESOLVED,
+                        $"what {variable.BodyId} returns is {variable.Name}, which a nested body assigns, and none of it names an object");
+            return null;
+        }
         if (regions.Count == 0 && type.ContainingAssembly?.Name == DriverSynthesizer.ASSEMBLY)
         {
             _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RESULT_UNRESOLVED, $"the result, a {type.Name}, is no object");
@@ -277,6 +283,60 @@ public sealed class ValueProvenance
             tasks = tasks.SelectMany(_fate.Heap.Completion).ToHashSet(StringComparer.Ordinal);
         }
         return null;
+    }
+
+    /// <summary>A variable the member returns that a nested body of it assigns: the member may return a version it read before that body
+    /// ran, which names nothing the body put there (question 153). Null when it returns no such variable.</summary>
+    private (string BodyId, string Name)? ReturnedNestedAssigned()
+    {
+        var bodies = _fate.Run.Reachable.Bodies;
+        foreach (var body in _fate.MemberInstances(DriverSynthesizer.CALL).Select(instance => bodies.GetValueOrDefault(instance.BodyId)).OfType<IrBody>().Distinct())
+        {
+            var nested = bodies.Values.Where(other => other.BodyId.StartsWith(body.BodyId + "#", StringComparison.Ordinal)).ToArray();
+            if (nested.Length == 0)
+                continue;
+            var values = body.Values.ToDictionary(value => value.Id);
+            var definitions = body.Blocks.SelectMany(block => block.Operations)
+                                  .SelectMany(operation => operation.DefinedValues.Select(value => (Value: value, Operation: operation)))
+                                  .ToDictionary(pair => pair.Value, pair => pair.Operation);
+            var pending = new Stack<int>(body.Blocks.SelectMany(block => block.Operations).OfType<IrReturnOperation>()
+                                             .Select(returned => returned.Value).OfType<int>());
+            var seen = new HashSet<int>();
+            while (pending.TryPop(out var current))
+            {
+                if (!seen.Add(current))
+                    continue;
+                var definition = definitions.GetValueOrDefault(current);
+                var key = (definition as IrLoadCapturedOperation)?.SymbolKey ?? values[current].SymbolKey;
+                if (key is not null && nested.Any(other => AssignsVariable(other, key)))
+                    return (body.BodyId, values[current].Name);
+                switch (definition)
+                {
+                    case IrAssignOperation assign:
+                        pending.Push(assign.SourceValue);
+                        break;
+                    case IrConvertOperation convert:
+                        pending.Push(convert.OperandValue);
+                        break;
+                    case IrPhiOperation phi:
+                        foreach (var input in phi.Inputs)
+                            pending.Push(input.Value);
+                        break;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Whether a body assigns a version of a variable.</summary>
+    /// <param name="body">The body.</param>
+    /// <param name="key">The variable's key.</param>
+    private static bool AssignsVariable(IrBody body, string key)
+    {
+        var versions = body.Values.Where(value => value.SymbolKey == key).Select(value => value.Id).ToHashSet();
+        return versions.Count != 0 && body.Blocks.SelectMany(block => block.Operations)
+                                          .Any(operation => operation is IrAssignOperation or IrCombineDelegatesOperation &&
+                                                            operation.DefinedValues.Any(versions.Contains));
     }
 
     private ITypeSymbol? ObservedResultType() =>

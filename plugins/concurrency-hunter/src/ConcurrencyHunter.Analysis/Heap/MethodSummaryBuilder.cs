@@ -1259,6 +1259,10 @@ public static class MethodSummaryBuilder
 
                 switch (definition)
                 {
+                    // An owner's read of its variable's capture cell holds what it or a nested body put there (question 153).
+                    case IrLoadCapturedOperation load:
+                        captured.Add(load.SymbolKey);
+                        break;
                     case IrLoadElementOperation load:
                         elements.Add(_points[load.ReceiverValue].ToHashSet());
                         break;
@@ -1425,7 +1429,7 @@ public static class MethodSummaryBuilder
                 if (!visited.Add(current))
                     continue;
                 var irValue = _values[current];
-                if (irValue.Kind == IrValueKind.Receiver || irValue.SymbolKey is { } key && _capturedKeys.Contains(key) ||
+                if (irValue.Kind == IrValueKind.Receiver || CapturedKey(irValue) is not null ||
                     _parameterOrdinals.ContainsKey(current) || !_definitions.TryGetValue(current, out var definition))
                 {
                     return false;
@@ -1526,7 +1530,7 @@ public static class MethodSummaryBuilder
         private bool OnlyCompletes(int created, IReadOnlyList<IrTaskOperation> operations)
         {
             var aliases = _definitions.Keys.Where(value => Origin(value) == created).Append(created).ToHashSet();
-            if (aliases.Any(alias => _values[alias].SymbolKey is { } key && _capturedKeys.Contains(key)))
+            if (aliases.Any(alias => CapturedKey(_values[alias]) is not null))
                 return false;
             var calls = operations.Select(operation => operation.CallOperationId).ToHashSet();
             return _operations.Where(operation => operation.Operands.Any(aliases.Contains)).All(operation => operation switch
@@ -1622,7 +1626,7 @@ public static class MethodSummaryBuilder
         {
             if (value.Kind == IrValueKind.Receiver)
                 return [];
-            if (value.SymbolKey is { } key && _capturedKeys.Contains(key))
+            if (CapturedKey(value) is not null)
                 return [UnknownSource.Captured];
             if (_parameterOrdinals.ContainsKey(value.Id))
                 return [UnknownSource.Parameter];
@@ -1659,7 +1663,7 @@ public static class MethodSummaryBuilder
         /// <param name="value">The value.</param>
         private HashSet<int> EvaluateSourceCalls(IrValue value)
         {
-            if (value.Kind == IrValueKind.Receiver || (value.SymbolKey is { } key && _capturedKeys.Contains(key)) ||
+            if (value.Kind == IrValueKind.Receiver || CapturedKey(value) is not null ||
                 _parameterOrdinals.ContainsKey(value.Id) || !_definitions.TryGetValue(value.Id, out var definition))
             {
                 return [];
@@ -1686,7 +1690,7 @@ public static class MethodSummaryBuilder
         /// <param name="value">The value.</param>
         private HashSet<int> EvaluateCompletions(IrValue value)
         {
-            if (value.Kind == IrValueKind.Receiver || (value.SymbolKey is { } key && _capturedKeys.Contains(key)) ||
+            if (value.Kind == IrValueKind.Receiver || CapturedKey(value) is not null ||
                 _parameterOrdinals.ContainsKey(value.Id) || !_definitions.TryGetValue(value.Id, out var definition))
             {
                 return [];
@@ -1726,7 +1730,7 @@ public static class MethodSummaryBuilder
         /// <param name="value">The value.</param>
         private HashSet<(int Call, int Depth)> EvaluateCompletedCalls(IrValue value)
         {
-            if (value.Kind == IrValueKind.Receiver || (value.SymbolKey is { } key && _capturedKeys.Contains(key)) ||
+            if (value.Kind == IrValueKind.Receiver || CapturedKey(value) is not null ||
                 _parameterOrdinals.ContainsKey(value.Id) || !_definitions.TryGetValue(value.Id, out var definition))
             {
                 return [];
@@ -1766,11 +1770,18 @@ public static class MethodSummaryBuilder
              type.StartsWith("System.Runtime.CompilerServices.ConfiguredTaskAwaitable<", StringComparison.Ordinal) ||
              type.StartsWith("System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable<", StringComparison.Ordinal));
 
+        /// <summary>The key of the captured variable a value reads: a version of a variable of an enclosing body, or an owner's read of
+        /// its own variable's capture cell (question 153); null for every other value.</summary>
+        /// <param name="value">The value.</param>
+        private string? CapturedKey(IrValue value) =>
+            value.SymbolKey is { } key && _capturedKeys.Contains(key) ? key
+            : _definitions.GetValueOrDefault(value.Id) is IrLoadCapturedOperation load ? load.SymbolKey : null;
+
         private HashSet<AbstractValue> EvaluatePoints(IrValue value)
         {
             if (value.Kind == IrValueKind.Receiver)
                 return [ThisValue.Instance];
-            if (value.SymbolKey is { } key && _capturedKeys.Contains(key))
+            if (CapturedKey(value) is { } key)
                 return [new CapturedValue(key)];
             if (_parameterOrdinals.TryGetValue(value.Id, out var ordinal))
                 return [new ParameterValue(ordinal)];
@@ -1849,7 +1860,7 @@ public static class MethodSummaryBuilder
 
         private HashSet<ValueDependency> EvaluateDependencies(IrValue value)
         {
-            if (value.SymbolKey is { } key && _capturedKeys.Contains(key))
+            if (CapturedKey(value) is { } key)
                 return [new CapturedDependency(key)];
             if (_parameterOrdinals.TryGetValue(value.Id, out var ordinal))
                 return [new ParameterDependency(ordinal)];

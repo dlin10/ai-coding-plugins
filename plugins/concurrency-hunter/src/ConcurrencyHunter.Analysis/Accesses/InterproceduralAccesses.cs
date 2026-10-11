@@ -757,6 +757,9 @@ public static partial class InterproceduralAccesses
         private readonly Dictionary<string, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>> _lockStates = new(StringComparer.Ordinal);
         private readonly Dictionary<PathNode, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>?> _enumerationPathLocks = [];
 
+        /// <summary>What each visit's caller hands it by reference or as a collection (<see cref="Binding"/>).</summary>
+        private readonly Dictionary<PathNode, string?> _bindings = [];
+
         /// <summary>The guards of the visit <see cref="Conditions"/> was last asked about.</summary>
         private VisitGuards? _visitGuards;
         private readonly Dictionary<string, LockInfo> _locks = new(StringComparer.Ordinal);
@@ -930,7 +933,7 @@ public static partial class InterproceduralAccesses
                     }
 
                     var next = new State(edge.CalleeInstance, segment);
-                    if (OnPath(node, next))
+                    if (OnPath(node, next) && !Rebinds(node, edge, next))
                         continue;
                     var count = visits.GetValueOrDefault(next);
                     if (count < MAX_ACCESS_PATHS)
@@ -958,6 +961,86 @@ public static partial class InterproceduralAccesses
             }
 
             return false;
+        }
+
+        /// <summary>Whether a call into a state already on the path hands it places no visit of that state on the path was handed: a
+        /// recursive call that swaps its ref arguments, or the collections it got by value, binds its references anew, and the accesses
+        /// it makes through them are found only on a visit of its own (question 107). There are finitely many such bindings, so the
+        /// path ends.</summary>
+        /// <param name="node">The visit making the call.</param>
+        /// <param name="edge">The call.</param>
+        /// <param name="next">The state it enters.</param>
+        private bool Rebinds(PathNode node, CallEdge edge, State next)
+        {
+            if (Binding(new PathNode(next, node, edge)) is not { } binding)
+                return false;
+            for (var step = node; step is not null; step = step.Parent)
+            {
+                if (step.State == next && Binding(step) == binding)
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>What a visit's caller hands it by reference or as a collection, each place named in the frame the path resolves it
+        /// in, as text; null for a visit handed none, or with no caller on its path.</summary>
+        /// <param name="node">The visit.</param>
+        private string? Binding(PathNode node)
+        {
+            if (_bindings.TryGetValue(node, out var known))
+                return known;
+            string? binding = null;
+            if (BindingCall(node) is { } bound)
+            {
+                var places = bound.Call.Arguments
+                                  .SelectMany(argument => Places(argument.References, bound.Instance, bound.Node)
+                                                         .Concat(argument.Collection is { } collection
+                                                                     ? Places([collection.Collection], bound.Instance, bound.Node)
+                                                                         .Select(place => $"{place}+{collection.Shift}:{collection.Length}")
+                                                                     : [])
+                                                         .Select(place => $"{argument.ParameterOrdinal}={place}"))
+                                  .Order(StringComparer.Ordinal)
+                                  .ToArray();
+                binding = places.Length == 0 ? null : string.Join(";", places);
+            }
+            _bindings.Add(node, binding);
+            return binding;
+        }
+
+        /// <summary>The places references name, followed up the path through the parameters they come in by; a place a call hands back
+        /// is named by the call, never resolved here.</summary>
+        /// <param name="targets">The references.</param>
+        /// <param name="instance">The instance whose frame names them.</param>
+        /// <param name="node">Its visit.</param>
+        private IEnumerable<string> Places(IEnumerable<ReferenceTarget> targets, MethodInstance instance, PathNode node)
+        {
+            foreach (var target in targets)
+            {
+                switch (target)
+                {
+                    case ReferenceCell cell:
+                        var bases = cell.Bases.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct().Order(StringComparer.Ordinal);
+                        yield return $"{FieldSlot.Key(cell.Field)}@{string.Join(",", bases)}[{cell.Selector?.Text}]";
+                        break;
+                    case ReferenceParameter parameter when BindingCall(node) is { } bound:
+                        foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
+                        foreach (var place in Places(argument.References, bound.Instance, bound.Node))
+                            yield return place;
+                        break;
+                    case ReferenceParameterElement element when BindingCall(node) is { } bound:
+                        foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == element.Ordinal))
+                        {
+                            if (argument.Collection is not { } collection)
+                                continue;
+                            foreach (var place in Places([collection.Collection], bound.Instance, bound.Node))
+                                yield return $"{place}+{collection.Shift}:{collection.Length}{element.Selector.Text}";
+                        }
+                        break;
+                    default:
+                        yield return $"{instance.Id}:{target}";
+                        break;
+                }
+            }
         }
 
         /// <summary>One question to the construction analysis: an object, at an operation of an instance.</summary>
