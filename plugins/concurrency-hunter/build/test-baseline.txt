@@ -6221,11 +6221,11 @@ ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.Allocations_created_by
 ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_argument_whose_seeded_member_is_called_gives_reads_deep	Passed
 ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_array_cell_write_gives_writes_cells	Passed
 ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_array_cell_write_is_not_a_state_store	Passed
-ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_extern_call_handed_a_seed_and_its_argument_gives_reads_deep	Passed
+ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_extern_call_handed_a_seed_and_its_argument_touches_the_argument	Passed
 ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_object_a_seed_member_returned_and_handed_to_extern_gives_vocabulary	Passed
 ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_object_of_a_probe_class_a_witness_returned_handed_to_an_extern_method_gives_vocabulary_not_unknown_touch	Passed
-ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_unknown_call_handed_a_delegate_seed_and_its_argument_reads_the_argument_deep(type: "Action<object>")	Passed
-ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_unknown_call_handed_a_delegate_seed_and_its_argument_reads_the_argument_deep(type: "Func<object, object>")	Passed
+ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_unknown_call_handed_a_delegate_seed_and_its_argument_touches_the_argument(type: "Action<object>")	Passed
+ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_unknown_call_handed_a_delegate_seed_and_its_argument_touches_the_argument(type: "Func<object, object>")	Passed
 ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_unreached_seed_of_a_field_or_auto_property_the_member_later_loads_gives_incomplete(child: "public class ChildBase { public virtual Value Valu"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_unreached_seed_of_a_field_or_auto_property_the_member_later_loads_gives_incomplete(child: "public sealed class Child { public Value Value { g"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.EffectReaderTests.An_unreached_seed_of_a_field_or_auto_property_the_member_later_loads_gives_incomplete(child: "public sealed class Child { public Value Value; }")	Passed
@@ -6396,7 +6396,15 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "void Local() { a[0] = 1; } Local();", written: "a")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_address_handed_to_Unsafe_goes_to_unseen_code	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_equality_member_of_what_the_receiver_holds_has_no_name_to_run_on	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_immutable_input_handed_to_a_bodyless_call_leaves_the_model	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_input_given_to_an_operation_the_lowering_does_not_express_is_touched_though_it_is_no_probe	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_input_handed_to_a_bodyless_call_is_touched_though_it_is_no_probe(member: "public static void BumpElement(int[] counts, Actio"···, id: "M:Lib.Api.BumpElement(System.Int32[],System.Action"···, callee: "Lib.Raw.Bump")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_input_handed_to_a_bodyless_call_is_touched_though_it_is_no_probe(member: "public static void Give(int[] counts, Action done)"···, id: "M:Lib.Api.Give(System.Int32[],System.Action)", callee: "Lib.Sink.Take")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_input_handed_to_a_bodyless_call_is_touched_though_it_is_no_probe(member: "public static void GiveField(Slot slot, Action don"···, id: "M:Lib.Api.GiveField(Lib.Slot,System.Action)", callee: "Lib.Sink.Take")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_input_handed_to_a_bodyless_call_is_touched_though_it_is_no_probe(member: "public static void GiveSlot(Slot slot, Action done"···, id: "M:Lib.Api.GiveSlot(Lib.Slot,System.Action)", callee: "Lib.Sink.Take")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_operation_the_lowering_does_not_express_that_no_probe_reaches_leaves_the_model	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.GetType_touches_nothing_of_the_object_it_runs_on(types: "public sealed class Comparer { public override int"···, id: "M:Lib.Comparer.GetHashCode")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.GetType_touches_nothing_of_the_object_it_runs_on(types: "public static class Api { public static string Nam"···, id: "M:Lib.Api.Name(Lib.Node,System.Action)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.Library_state_is_not_looked_for_once_unknown_touch_is_found	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_a_witness_gives_back_through_out_is_no_longer_lost	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_is_read_through_a_reference_a_bodyless_call_returns_is_unobserved(member: "public static Mem2 Reinterpret(Mem m) => Raw.As<Me"···, id: "M:Lib.Api.Reinterpret(Lib.Mem)")	Passed
@@ -7171,10 +7179,10 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_probe_handed_to_an_
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_probe_passed_through_a_libraries_own_Unsafe_As_is_not_handed_and_keeps_its_name	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_probe_passed_through_Unsafe_As_is_not_handed_and_keeps_its_name	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_read_from_a_delegate_return_has_vocabulary_model_reason	Passed
-ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_field_holding_an_object_its_constructor_made_handed_to_an_extern_method_keeps_its_entry	Passed
-ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_handed_to_an_extern_method_is_a_deep_read_of_this	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_field_holding_an_object_its_constructor_made_handed_to_an_extern_method_touches_the_receiver	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_handed_to_an_extern_method_touches_the_receiver	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_left_alone_by_a_setter_that_reads_its_value_keeps_its_entry	Passed
-ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_reached_through_a_field_of_the_receiver_handed_to_an_extern_method_is_a_deep_read_of_this	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_reached_through_a_field_of_the_receiver_handed_to_an_extern_method_touches_the_receiver	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_read_below_a_field_the_setter_then_stores_its_value_into_is_a_deep_read_of_this	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_whose_ToString_the_member_calls_is_a_deep_read_of_this	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_seed_statement_that_reaches_no_object_is_listed_as_unseeded	Passed

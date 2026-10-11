@@ -41,6 +41,7 @@ public sealed class EffectReader
     private readonly ExecutionAnalysis _analysis;
     private readonly DriverExecutions _executions;
     private readonly HeapReachability _reachability;
+    private readonly IReadOnlySet<string> _immutableTypeKeys;
     private readonly Allocations _allocations;
     private readonly GenerationHandoffs _handoffs;
     private readonly ValueObservation _observation;
@@ -53,6 +54,7 @@ public sealed class EffectReader
     private readonly HashSet<string> _probeReturns = new(StringComparer.Ordinal);
     private readonly HashSet<string> _witnessReturns = new(StringComparer.Ordinal);
     private readonly HashSet<string> _unknownSensitive = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _inputSensitive = new(StringComparer.Ordinal);
     private readonly HashSet<string> _witnessObjects = new(StringComparer.Ordinal);
     private readonly HashSet<string> _receiverUserObjects = new(StringComparer.Ordinal);
     private readonly HashSet<ISymbol> _unreachedFields = new(SymbolEqualityComparer.Default);
@@ -72,6 +74,7 @@ public sealed class EffectReader
         _heap = run.Heap!;
         _analysis = run.Executions!;
         _reachability = new HeapReachability(_heap);
+        _immutableTypeKeys = run.ScopeProgram!.Program.ImmutableTypeKeys;
         var result = _reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "R"));
         _executions = new DriverExecutions(driver, _analysis, _reachability.From(result is null ? [] : _reachability.Targets(result)));
         _allocations = new Allocations(driver, _heap, _analysis, _executions, _reachability);
@@ -161,11 +164,14 @@ public sealed class EffectReader
     private void BuildSpecialObjects()
     {
         var probeStarts = new HashSet<string>(StringComparer.Ordinal);
+        var inputStarts = new HashSet<string>(StringComparer.Ordinal);
         foreach (var region in _heap.Regions.Keys)
         {
             var origin = Origin(region);
             if (IsProbeObject(region) || origin.Role == DriverRole.ProbeDelegate)
                 probeStarts.Add(region);
+            if (origin.Role is DriverRole.ArgumentValue or DriverRole.Seed or DriverRole.OutInitialValue)
+                inputStarts.Add(region);
             if (origin.Role == DriverRole.ProbeLambdaReturn)
             {
                 probeStarts.Add(region);
@@ -178,6 +184,11 @@ public sealed class EffectReader
         }
 
         _unknownSensitive.UnionWith(_reachability.From(probeStarts));
+        // What code the analysis does not see may write in an argument, the receiver, a seed or what setup built into them, as it may in
+        // a probe, and no model can say whether it did: only an immutable object is safe in its hands (question 161). An access the
+        // analysis does see — in another execution, or in the body of a delegate the code was handed — is judged by what it does.
+        _inputSensitive.UnionWith(_reachability.From(inputStarts)
+                                                .Where(region => _heap.Regions[region].TypeKey is not { } type || !_immutableTypeKeys.Contains(type)));
         BuildReceiverUserObjects();
         CloseInPlace(_probeReturns);
         CloseInPlace(_witnessReturns);
@@ -216,10 +227,15 @@ public sealed class EffectReader
     private void ReadReasonsFromHandoffs()
     {
         var onlyUnsupported = _handoffs.HandedOnlyToUnsupportedOutsideSetup;
-        if (_handoffs.HandedOutsideSetup.FirstOrDefault(region => _unknownSensitive.Contains(region) && !onlyUnsupported.Contains(region)) is { } handed)
+        var onlyUnsupportedDirectly = _handoffs.HandedOnlyToUnsupportedOutsideSetupDirectly;
+        if ((_handoffs.HandedOutsideSetup.FirstOrDefault(region => _unknownSensitive.Contains(region) && !onlyUnsupported.Contains(region)) ??
+             _handoffs.HandedOutsideSetupDirectly.FirstOrDefault(region => _inputSensitive.Contains(region) && !onlyUnsupportedDirectly.Contains(region)))
+            is { } handed)
+        {
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_HANDED_TO_UNSEEN, Handed(handed));
+        }
         // A probe only operations the lowering does not express were given is a case of its own: their lowering lifts it.
-        if (onlyUnsupported.FirstOrDefault(_unknownSensitive.Contains) is { } given)
+        if ((onlyUnsupported.FirstOrDefault(_unknownSensitive.Contains) ?? onlyUnsupportedDirectly.FirstOrDefault(_inputSensitive.Contains)) is { } given)
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_IN_UNSUPPORTED_OPERATION, Handed(given));
         if (_handoffs.ForeignAccesses.FirstOrDefault(_unknownSensitive.Contains) is { } accessed)
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_ACCESSED_ELSEWHERE, accessed);

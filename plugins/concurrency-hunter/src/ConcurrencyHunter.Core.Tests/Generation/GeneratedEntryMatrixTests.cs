@@ -251,7 +251,7 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
             case Action.HandToDelegate:
                 return Input(expected, cell.ValueKind, value, LibraryFateKind.InvokeNow);
             case Action.HandToExtern:
-                return Extern(expected, cell.ValueKind);
+                return Extern(cell.ValueKind);
             default:
                 throw new InvalidOperationException($"Action {cell.Action} is not a call action.");
         }
@@ -290,11 +290,7 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
                 ValueKind.Seed => ModelReasons.VOCABULARY,
                 _ => InputNamed(expected, value!, FateFor(cell.Channel))
             },
-            Action.HandToExtern => cell.ValueKind switch
-            {
-                ValueKind.Seed => AddEffect(expected, LibraryEffect.DeepReadOf("lib")),
-                _ => ModelReasons.UNKNOWN_TOUCH
-            },
+            Action.HandToExtern => ModelReasons.UNKNOWN_TOUCH,
             Action.ReturnInSequence => cell.ValueKind switch
             {
                 ValueKind.Probe => null,
@@ -306,7 +302,8 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
     }
 
     /// <summary>R6-R7 for an unknown execution: captured probes make the whole member unknown-touch; a receiver write that keeps
-    /// nothing is library-state; and the seed's witness can only establish a deep read of <c>lib</c>.</summary>
+    /// nothing is library-state; the seed's witness can only establish a deep read of <c>lib</c>; and the seed handed to code the
+    /// analysis does not see may be written there.</summary>
     /// <param name="cell">The unknown-execution cell.</param>
     /// <param name="expected">The answer being built.</param>
     private static string? ExpectedUnknownExecution(Cell cell, ExpectedModel expected)
@@ -315,7 +312,8 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
             return ModelReasons.UNKNOWN_TOUCH;
         return cell.Action switch
         {
-            Action.Read or Action.HandToExtern => AddEffect(expected, LibraryEffect.DeepReadOf("lib")),
+            Action.Read => AddEffect(expected, LibraryEffect.DeepReadOf("lib")),
+            Action.HandToExtern => ModelReasons.UNKNOWN_TOUCH,
             Action.KeepOnSealedReceiver => ModelReasons.LIBRARY_STATE,
             Action.StoreInArrayArg or Action.HandToDelegate => ModelReasons.UNKNOWN_TOUCH,
             _ => throw new InvalidOperationException($"Action {cell.Action} is not an unknown-execution action.")
@@ -393,10 +391,12 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
         return null;
     }
 
-    private static string? Extern(ExpectedModel expected, ValueKind kind) => kind switch
+    // Code the analysis does not see may write what it is handed: any input, and what setup built into one, is touched there; only an
+    // object the call itself made is not (question 161).
+    private static string? Extern(ValueKind kind) => kind switch
     {
-        ValueKind.Probe or ValueKind.Element or ValueKind.DelegateResult or ValueKind.FreshHoldingProbe => ModelReasons.UNKNOWN_TOUCH,
-        ValueKind.LibraryArg or ValueKind.Seed => AddEffect(expected, LibraryEffect.DeepReadOf("lib")),
+        ValueKind.Probe or ValueKind.Element or ValueKind.DelegateResult or ValueKind.FreshHoldingProbe or ValueKind.LibraryArg or ValueKind.Seed or
+            ValueKind.PreExisting => ModelReasons.UNKNOWN_TOUCH,
         ValueKind.WitnessResult => ModelReasons.VOCABULARY,
         _ => null
     };

@@ -11,6 +11,7 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 public sealed class GenerationHandoffs
 {
     private const string UNSAFE_OBJECT_CAST = "System.Runtime.CompilerServices.Unsafe.As<T>(object)";
+    private const string OBJECT_GET_TYPE = "object.GetType()";
     private const string LOWERING = "lowering: ";
     private const string UNSUPPORTED = "unsupported";
 
@@ -21,6 +22,8 @@ public sealed class GenerationHandoffs
     private readonly HashSet<string> _inSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _outsideSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _outsideSetupBeyondUnsupported = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _outsideSetupDirectly = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _outsideSetupBeyondUnsupportedDirectly = new(StringComparer.Ordinal);
     private readonly HashSet<(string Instance, int Operation)> _unsupported = [];
     private readonly HashSet<string> _witnessedInSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _witnessedOutsideSetup = new(StringComparer.Ordinal);
@@ -44,6 +47,7 @@ public sealed class GenerationHandoffs
         _reachability = reachability;
 
         var calls = new Dictionary<(string Instance, int Operation), IReadOnlySet<string>>();
+        var direct = new Dictionary<(string Instance, int Operation), IReadOnlySet<string>>();
         var unknownCalls = UnfollowedCalls(run);
         foreach (var call in unknownCalls)
         {
@@ -71,8 +75,9 @@ public sealed class GenerationHandoffs
                 continue;
             }
 
-            AddCall(site, call.Receivers.Concat(call.Arguments.SelectMany(argument => argument.Values))
-                              .SelectMany(value => _heap.Resolve(instance.Id, value)));
+            // The body the heap does not have runs on an object it does not name; a receiver it does name goes to the body it resolves.
+            var arguments = call.Arguments.SelectMany(argument => argument.Values).SelectMany(value => _heap.Resolve(instance.Id, value)).ToArray();
+            AddCall(site, call.Receivers.SelectMany(value => _heap.Resolve(instance.Id, value)).Concat(arguments), arguments);
         }
 
         // What an operation the lowering does not express is given goes where the analysis does not see, as an argument of a call it
@@ -87,19 +92,21 @@ public sealed class GenerationHandoffs
         }
 
         foreach (var (site, regions) in calls)
-            File(site, regions, keepCall: true);
+            File(site, regions, direct[site], keepCall: true);
 
         foreach (var handoff in _heap.DelegateHandoffs)
         {
-            var inputs = Close(new[] { handoff.RegionId }.Concat(handoff.Callees.SelectMany(Receipts)));
+            var handed = new[] { handoff.RegionId }.Concat(handoff.Callees.SelectMany(Receipts)).ToArray();
+            var inputs = Close(handed);
+            var directInputs = _reachability.From(handed, captures: false);
             foreach (var site in handoff.Sites)
-                File((site.CallerInstance, site.OperationId), inputs, keepCall: false);
+                File((site.CallerInstance, site.OperationId), inputs, directInputs, keepCall: false);
         }
 
         foreach (var handoff in _heap.StartupDelegates)
         {
-            var inputs = Close(new[] { handoff.RegionId }.Concat(Receipts(handoff.CalleeInstance)));
-            File((handoff.CallerInstance, handoff.OperationId), inputs, keepCall: false);
+            var handed = new[] { handoff.RegionId }.Concat(Receipts(handoff.CalleeInstance)).ToArray();
+            File((handoff.CallerInstance, handoff.OperationId), Close(handed), _reachability.From(handed, captures: false), keepCall: false);
         }
 
         foreach (var instance in _heap.Instances.Values.Where(IsWitness))
@@ -132,11 +139,15 @@ public sealed class GenerationHandoffs
         foreach (var action in new[] { DriverSynthesizer.CALL, DriverSynthesizer.ENUMERATE })
             _unseen[action] = UnseenIn(run, action);
         HandedOnlyToUnsupportedOutsideSetup = _outsideSetup.Where(region => !_outsideSetupBeyondUnsupported.Contains(region)).ToHashSet(StringComparer.Ordinal);
+        HandedOnlyToUnsupportedOutsideSetupDirectly = _outsideSetupDirectly.Where(region => !_outsideSetupBeyondUnsupportedDirectly.Contains(region))
+                                                                           .ToHashSet(StringComparer.Ordinal);
 
-        void AddCall((string Instance, int Operation) site, IEnumerable<string> regions)
+        void AddCall((string Instance, int Operation) site, IEnumerable<string> regions, IEnumerable<string>? directly = null)
         {
-            var together = calls.TryGetValue(site, out var existing) ? existing.Concat(regions) : regions;
-            calls[site] = Close(together);
+            var handed = regions.ToArray();
+            var reached = directly?.ToArray() ?? handed;
+            calls[site] = Close(calls.TryGetValue(site, out var existing) ? existing.Concat(handed) : handed);
+            direct[site] = _reachability.From(direct.TryGetValue(site, out var existingDirect) ? existingDirect.Concat(reached) : reached, captures: false);
         }
     }
 
@@ -153,6 +164,14 @@ public sealed class GenerationHandoffs
     /// <summary>The regions of <see cref="HandedOutsideSetup"/> that only operations the lowering does not express were handed: no call,
     /// delegate handoff or startup delegate handed them. Lowering those operations is what would make them seen.</summary>
     public IReadOnlySet<string> HandedOnlyToUnsupportedOutsideSetup { get; }
+
+    /// <summary>The regions of <see cref="HandedOutsideSetup"/> reached from what was handed without entering what a delegate captures:
+    /// code that holds a delegate can only run its body, which the analysis sees and judges by what it does.</summary>
+    public IReadOnlySet<string> HandedOutsideSetupDirectly => _outsideSetupDirectly;
+
+    /// <summary>The regions of <see cref="HandedOutsideSetupDirectly"/> that only operations the lowering does not express were
+    /// handed.</summary>
+    public IReadOnlySet<string> HandedOnlyToUnsupportedOutsideSetupDirectly { get; }
 
     /// <summary>Regions received by witness instances that ran in setup.</summary>
     public IReadOnlySet<string> WitnessedInSetup => _witnessedInSetup;
@@ -207,7 +226,12 @@ public sealed class GenerationHandoffs
         return instance.Parameters.Values.SelectMany(values => values);
     }
 
-    private void File((string Instance, int Operation) site, IReadOnlySet<string> regions, bool keepCall)
+    /// <summary>Files what one site handed by when it ran.</summary>
+    /// <param name="site">The call instance or operation.</param>
+    /// <param name="regions">What it handed, closed under heap reachability.</param>
+    /// <param name="directly">What it handed, closed without entering what a delegate captures.</param>
+    /// <param name="keepCall">Whether the site's own set is kept in <see cref="HandoffsOutsideSetup"/>.</param>
+    private void File((string Instance, int Operation) site, IReadOnlySet<string> regions, IReadOnlySet<string> directly, bool keepCall)
     {
         var executions = ExecutionsOf(site.Instance);
         if (executions.Count != 0 && executions.All(_executions.IsArtefact))
@@ -217,8 +241,12 @@ public sealed class GenerationHandoffs
         if (executions.Any(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution)))
         {
             _outsideSetup.UnionWith(regions);
+            _outsideSetupDirectly.UnionWith(directly);
             if (!_unsupported.Contains(site))
+            {
                 _outsideSetupBeyondUnsupported.UnionWith(regions);
+                _outsideSetupBeyondUnsupportedDirectly.UnionWith(directly);
+            }
             if (keepCall)
                 _outsideByCall[site] = regions;
         }
@@ -279,11 +307,16 @@ public sealed class GenerationHandoffs
     /// <summary>The engine's unresolved calls, excluding runtime identity casts that do not hand a value to unknown code.</summary>
     /// <param name="run">The completed generator run.</param>
     internal static IReadOnlyList<UnknownCall> UnfollowedCalls(ScopeRun run) =>
-        UnknownCalls.Of(run.ScopeProgram!, run.Heap!).Where(call => !IsTransparentIntrinsic(call.Callee)).ToArray();
+        UnknownCalls.Of(run.ScopeProgram!, run.Heap!).Where(call => !IsTransparentIntrinsic(call.Callee) && !TouchesNothing(call.Callee)).ToArray();
 
     /// <summary>Whether a runtime call preserves its argument's identity rather than handing it to unknown code.</summary>
     /// <param name="callee">The called member's display.</param>
     internal static bool IsTransparentIntrinsic(string callee) => string.Equals(callee, UNSAFE_OBJECT_CAST, StringComparison.Ordinal);
+
+    /// <summary>Whether a runtime call with no body reads nothing of the object it runs on but its type, which never changes:
+    /// <c>object.GetType()</c>. What it returns is still no object the heap names.</summary>
+    /// <param name="callee">The called member's display.</param>
+    private static bool TouchesNothing(string callee) => string.Equals(callee, OBJECT_GET_TYPE, StringComparison.Ordinal);
 
     private static bool IsWitness(MethodInstance instance) => instance.Summary.Stores.Any(store => IsWitnessField(store.Field));
 

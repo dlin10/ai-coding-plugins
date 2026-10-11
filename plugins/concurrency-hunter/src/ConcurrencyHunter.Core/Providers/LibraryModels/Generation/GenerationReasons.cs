@@ -96,11 +96,12 @@ public sealed record GenerationCause(string Reason, string Code, string Detail)
 public static class ModelCauses
 {
     /// <summary><c>unknown-touch</c>: a probe, or a value reachable from one, was handed outside setup to a call the analysis does
-    /// not follow.</summary>
+    /// not follow; or so was an input — an argument, the receiver, a seed or what setup built into one — of a type that is not
+    /// immutable.</summary>
     public const string PROBE_HANDED_TO_UNSEEN = "probe-handed-to-unseen";
 
-    /// <summary><c>unknown-touch</c>: a probe, or a value reachable from one, was given outside setup to an operation the lowering does
-    /// not express, and to no call the analysis does not follow. The lowering of that operation lifts the case.</summary>
+    /// <summary><c>unknown-touch</c>: a probe, or a value reachable from one, or a mutable input, was given outside setup to an operation
+    /// the lowering does not express, and to no call the analysis does not follow. The lowering of that operation lifts the case.</summary>
     public const string PROBE_IN_UNSUPPORTED_OPERATION = "probe-in-unsupported-operation";
 
     /// <summary><c>unknown-touch</c>: a library body read or wrote a probe, or a value reachable from one, in an execution other than

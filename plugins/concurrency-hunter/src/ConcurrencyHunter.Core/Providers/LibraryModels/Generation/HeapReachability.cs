@@ -121,7 +121,9 @@ public sealed class HeapReachability
 
     /// <summary>Every object reachable from some objects, those objects included.</summary>
     /// <param name="regions">The objects.</param>
-    public IReadOnlySet<string> From(IEnumerable<string> regions)
+    /// <param name="captures">Whether a delegate reaches what it captures; without, a delegate is the end of its path: code holding it
+    /// can run its body, which the analysis sees, and reach its captures no other way.</param>
+    public IReadOnlySet<string> From(IEnumerable<string> regions, bool captures = true)
     {
         var reached = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Stack<string>(regions.Where(_heap.Regions.ContainsKey));
@@ -129,8 +131,11 @@ public sealed class HeapReachability
         {
             if (!reached.Add(region))
                 continue;
-            foreach (var (_, target) in Edges(region))
-                pending.Push(target);
+            foreach (var (field, target) in Edges(region))
+            {
+                if (captures || field != CAPTURE)
+                    pending.Push(target);
+            }
         }
 
         return reached;

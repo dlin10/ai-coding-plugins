@@ -210,10 +210,11 @@ public sealed class GenerationCauseTests
         Assert.DoesNotContain(answer.Causes, cause => cause.Code == ModelCauses.PROBE_ACCESSED_ELSEWHERE);
     }
 
-    private const string RAW = "public abstract class Node { public Node Next; } " +
+    private const string RAW = "public abstract class Node { public Node Next; } public sealed class Slot { public Node Node; } " +
                                "public struct Mem { public object O; } public struct Mem2 { public object O; } " +
                                "public static class Raw { public static extern ref TTo As<TFrom, TTo>(ref TFrom source); " +
-                               "public static extern ref Node At(ref Node start); public static extern void Touch(ref Node slot); } ";
+                               "public static extern ref Node At(ref Node start); public static extern void Touch(ref Node slot); " +
+                               "public static extern void Bump(ref int count); } ";
 
     [Theory]
     [InlineData("public static Mem2 Reinterpret(Mem m) => Raw.As<Mem, Mem2>(ref m);", "M:Lib.Api.Reinterpret(Lib.Mem)")]
@@ -241,6 +242,64 @@ public sealed class GenerationCauseTests
 
         Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
         Assert.Contains("Lib.Raw.Touch", Cause(answer, ModelCauses.PROBE_HANDED_TO_UNSEEN).Detail);
+    }
+
+    [Theory]
+    [InlineData("public static void Give(int[] counts, Action done) { Sink.Take(counts); done(); }", "M:Lib.Api.Give(System.Int32[],System.Action)",
+                "Lib.Sink.Take")]
+    [InlineData("public static void BumpElement(int[] counts, Action done) { Raw.Bump(ref counts[0]); done(); }",
+                "M:Lib.Api.BumpElement(System.Int32[],System.Action)", "Lib.Raw.Bump")]
+    [InlineData("public static void GiveField(Slot slot, Action done) { Sink.Take(slot.Node); done(); }",
+                "M:Lib.Api.GiveField(Lib.Slot,System.Action)", "Lib.Sink.Take")]
+    [InlineData("public static void GiveSlot(Slot slot, Action done) { Sink.Take(slot); done(); }", "M:Lib.Api.GiveSlot(Lib.Slot,System.Action)",
+                "Lib.Sink.Take")]
+    public void An_input_handed_to_a_bodyless_call_is_touched_though_it_is_no_probe(string member, string id, string callee)
+    {
+        // Marshal.Copy writes the user's byte[] where the analysis does not look: an argument, the receiver, a seed and what setup
+        // built into them are the user's objects as much as a probe is (question 161).
+        var answer = Answer(RAW + $"public static class Api {{ {member} }}", id);
+
+        Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+        Assert.Contains(callee, Cause(answer, ModelCauses.PROBE_HANDED_TO_UNSEEN).Detail);
+    }
+
+    [Fact]
+    public void An_input_given_to_an_operation_the_lowering_does_not_express_is_touched_though_it_is_no_probe()
+    {
+        // Task.WhenAny(p) builds its params span with a collection expression, which the lowering does not express: what it does with
+        // the task is not seen (question 161).
+        var answer = Answer("public static class Api { public static Task<Task<Box>> Any(Task<Box> p) => Task.WhenAny(p); }",
+                            "M:Lib.Api.Any(System.Threading.Tasks.Task{Lib.Box})");
+
+        Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+        Assert.Contains("CollectionExpression", Cause(answer, ModelCauses.PROBE_IN_UNSUPPORTED_OPERATION).Detail);
+    }
+
+    [Theory]
+    [InlineData("public sealed class Comparer { public override int GetHashCode() => GetType().GetHashCode(); }", "M:Lib.Comparer.GetHashCode")]
+    [InlineData("public static class Api { public static string Name(Node node, Action done) { var type = node.GetType(); done(); return type.Name; } }",
+                "M:Lib.Api.Name(Lib.Node,System.Action)")]
+    public void GetType_touches_nothing_of_the_object_it_runs_on(string types, string id)
+    {
+        // Generating CoreLib, object.GetType() is a member of the library itself, extern and without a model; it reads only the
+        // object's type, which never changes (question 161).
+        var library = GenerationRuns.Compile(GenerationRuns.PRELUDE + RAW + types + "\n}\n");
+        var models = new LibraryModels(LibraryModels.BuiltIn.Members.Where(model => !model.Id.StartsWith("M:System.Object.GetType", StringComparison.Ordinal)),
+                                       LibraryModels.BuiltIn.ImmutableTypes);
+        var answer = ModelGenerator.Trace(new GenerationRequest(GenerationRuns.ASSEMBLY, "1.0", id, null, null), library, CancellationToken.None, models)
+                                   .Answer;
+
+        Assert.True(answer.Model is not null, string.Join("; ", answer.Causes));
+    }
+
+    [Fact]
+    public void An_immutable_input_handed_to_a_bodyless_call_leaves_the_model()
+    {
+        // No code can write a Version, a Type or a string: reflection hands RuntimeType objects to calls with no body throughout.
+        var answer = Answer(RAW + "public static class Api { public static void Log(Version version, Action done) { Sink.Take(version); done(); } }",
+                            "M:Lib.Api.Log(System.Version,System.Action)");
+
+        Assert.True(answer.Model is not null, string.Join("; ", answer.Causes));
     }
 
     [Fact]

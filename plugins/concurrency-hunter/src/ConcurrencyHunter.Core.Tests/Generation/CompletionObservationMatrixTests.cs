@@ -134,8 +134,9 @@ public sealed class CompletionObservationMatrixTests
             Producer.Unwrap => ("", cell.Visibility
                                         ? "(flag ? Task.FromResult(Task.FromResult(x)) : Externals.MakeTaskTask()).Unwrap()"
                                         : $"Task.FromResult(Task.FromResult({value})).Unwrap()"),
-            Producer.WhenAllElement => ("", $"Task.WhenAll({wrapped})"),
-            Producer.WhenAny => ("", $"Task.WhenAny({wrapped})"),
+            // An explicit array: a params span is built by a collection expression, which the lowering does not express.
+            Producer.WhenAllElement => ("", $"Task.WhenAll(new[] {{ {wrapped} }})"),
+            Producer.WhenAny => ("", $"Task.WhenAny(new[] {{ {wrapped} }})"),
             Producer.ProjectModel => ("", $"Dependency.Tasks.Pass({value})"),
             _ => throw new ArgumentOutOfRangeException(nameof(cell), cell, null)
         };

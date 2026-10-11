@@ -103,15 +103,15 @@ public sealed class EffectReaderTests
     }
 
     [Fact]
-    public void An_extern_call_handed_a_seed_and_its_argument_gives_reads_deep()
+    public void An_extern_call_handed_a_seed_and_its_argument_touches_the_argument()
     {
+        // The extern may write the argument or the seed it holds as well as read them (question 161).
         var reader = Read("public static class External { public static extern void Pair(object first, object second); } " +
                           "public abstract class Converter { } public sealed class Options { public Converter Converter; } " +
                           "public static class Api { public static void Run(Options options, Action done) { External.Pair(options.Converter, options); done(); } }",
                           "M:Lib.Api.Run(Lib.Options,System.Action)");
 
-        Assert.True(reader.HasEffect("options", EffectReader.READS_DEEP));
-        Assert.NotEqual(GenerationReasons.UNKNOWN_TOUCH, reader.Reason);
+        Assert.Equal(GenerationReasons.UNKNOWN_TOUCH, reader.Reason);
     }
 
     [Fact]
@@ -508,15 +508,16 @@ public sealed class EffectReaderTests
     [Theory]
     [InlineData("Action<object>")]
     [InlineData("Func<object, object>")]
-    public void An_unknown_call_handed_a_delegate_seed_and_its_argument_reads_the_argument_deep(string type)
+    public void An_unknown_call_handed_a_delegate_seed_and_its_argument_touches_the_argument(string type)
     {
+        // The call may write what it is handed, the argument's own fields included, and no model can say whether it did (question 161).
         var trace = Trace($"public sealed class Options {{ public {type} Callback; }} " +
                           "public static class External { public static extern void Pair(object a, object b); } " +
                           "public static class Api { public static void Run(Options options) => External.Pair(options.Callback, options); }",
                           "M:Lib.Api.Run(Lib.Options)");
 
-        Assert.NotNull(trace.Answer.Model);
-        Assert.True(new EffectReader(trace.Driver!, trace.Run!).HasEffect("options", EffectReader.READS_DEEP));
+        Assert.Null(trace.Answer.Model);
+        Assert.Equal(GenerationReasons.UNKNOWN_TOUCH, new EffectReader(trace.Driver!, trace.Run!).Reason);
     }
 
     [Fact]

@@ -447,16 +447,15 @@ public sealed class GeneratedEntryTests
     }
 
     [Fact]
-    public void A_receiver_seed_handed_to_an_extern_method_is_a_deep_read_of_this()
+    public void A_receiver_seed_handed_to_an_extern_method_touches_the_receiver()
     {
-        // The seed stands for a user object a program stored in the receiver; unseen code touching it is a read of it, as of an
-        // argument's seed (question 80).
+        // The seed stands for a user object a program stored in the receiver; unseen code may write it as well as read it, as an
+        // argument's seed (question 161).
         var answer = Answer("public class Item { public object Value; } " +
                             "public sealed class Host { private Item _item; public void Run(object p) { Sink.Take(_item); } }",
                             "M:Lib.Host.Run(System.Object)");
 
-        AssertPassesReader(answer);
-        Assert.Contains(LibraryEffect.DeepReadOf("this"), answer.Model!.Effects);
+        AssertNoModel(answer, ModelReasons.UNKNOWN_TOUCH);
     }
 
     [Fact]
@@ -471,14 +470,13 @@ public sealed class GeneratedEntryTests
     }
 
     [Fact]
-    public void A_receiver_seed_reached_through_a_field_of_the_receiver_handed_to_an_extern_method_is_a_deep_read_of_this()
+    public void A_receiver_seed_reached_through_a_field_of_the_receiver_handed_to_an_extern_method_touches_the_receiver()
     {
         var answer = Answer("public class Item { public object Value; } public sealed class Slot { public Item Item; } " +
                             "public sealed class Host { private Slot _slot = new Slot(); public void Run(object p) { Sink.Take(_slot); } }",
                             "M:Lib.Host.Run(System.Object)");
 
-        AssertPassesReader(answer);
-        Assert.Contains(LibraryEffect.DeepReadOf("this"), answer.Model!.Effects);
+        AssertNoModel(answer, ModelReasons.UNKNOWN_TOUCH);
     }
 
     [Fact]
@@ -507,14 +505,15 @@ public sealed class GeneratedEntryTests
     }
 
     [Fact]
-    public void A_receiver_field_holding_an_object_its_constructor_made_handed_to_an_extern_method_keeps_its_entry()
+    public void A_receiver_field_holding_an_object_its_constructor_made_handed_to_an_extern_method_touches_the_receiver()
     {
-        // No seed is read: the object handed out is the library's own, so the receiver read stays the library's own state.
+        // No seed is in it, but the object handed out is the receiver's own state, which the extern may write: a write the analysis
+        // sees there is library-state (question 161).
         var answer = Answer("public sealed class Leaf { public int Value; } " +
                             "public sealed class Host { private readonly Leaf _leaf = new Leaf(); public void Run(object p) { Sink.Take(_leaf); } }",
                             "M:Lib.Host.Run(System.Object)");
 
-        AssertPassesReader(answer);
+        AssertNoModel(answer, ModelReasons.UNKNOWN_TOUCH);
     }
 
     [Theory]
@@ -537,7 +536,7 @@ public sealed class GeneratedEntryTests
                 "M:Lib.Api.WrapTwice(System.Threading.Tasks.Task{Lib.Box})", "task(task([arg:p]))")]
     [InlineData("public static async Task<Task<Box>> WrapAsync(Task<Box> p) { await Task.Yield(); return p; }",
                 "M:Lib.Api.WrapAsync(System.Threading.Tasks.Task{Lib.Box})", "task([arg:p])")]
-    [InlineData("public static Task<Task<Box>> Any(Task<Box> p) => Task.WhenAny(p);",
+    [InlineData("public static Task<Task<Box>> Any(Task<Box> p) => Task.WhenAny(new[] { p });",
                 "M:Lib.Api.Any(System.Threading.Tasks.Task{Lib.Box})", "task([arg:p])")]
     public void A_task_result_is_named_through_the_task_argument_it_returns_or_completes_with(string member, string id, string expected)
     {

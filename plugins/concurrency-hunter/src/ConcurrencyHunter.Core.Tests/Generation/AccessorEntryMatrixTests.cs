@@ -184,12 +184,12 @@ public sealed class AccessorEntryMatrixTests(ClassCache cache) : IClassFixture<C
                 Act.HandToExtern => ModelReasons.UNKNOWN_TOUCH,
                 _ => null
             },
-            // R5, R6: the field a getter returns is a seed, which has no name in an entry; handing that seed to unseen code is a read
-            // of what the receiver holds, a deep read of `this` (question 80).
+            // R5, R6: the field a getter returns is a seed, which has no name in an entry; unseen code handed that seed may write it as
+            // well as read it (question 161).
             AccessorKind.Getter => cell.Act switch
             {
                 Act.ReturnField => ModelReasons.VOCABULARY,
-                Act.HandToExtern => AddEffect(expected, LibraryEffect.DeepReadOf("this")),
+                Act.HandToExtern => ModelReasons.UNKNOWN_TOUCH,
                 _ => null
             },
             _ => cell.Value == ValueKind.Item ? ExpectedItemSetter(cell, expected) : ExpectedHandler(cell, expected)
