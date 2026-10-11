@@ -2143,7 +2143,7 @@ public static partial class WholeProgram
                 CheckCancellation();
                 RunFactories(instance, call);
             }
-            foreach (var call in summary.OpaqueCalls.Where(call => call is { IsKnown: true, Library: { Fates.Count: > 0 } or { Result: not null } or { Stores.Count: > 0 } or { Outputs.Count: > 0 } or { Keeps.Count: > 0 } }))
+            foreach (var call in summary.OpaqueCalls.Where(call => call is { IsKnown: true, Library: { Fates.Count: > 0 } or { Result: not null } or { Stores.Count: > 0 } or { Outputs.Count: > 0 } or { Keeps.Count: > 0 } or { Calls.Count: > 0 } }))
             {
                 CheckCancellation();
                 RunFates(instance, call);
@@ -3379,6 +3379,29 @@ public static partial class WholeProgram
                 }
             }
 
+            // The members the call runs on the user's objects run as a call of each at the site would, on every object the model
+            // names whose type implements one in the source; any other type runs nothing the analysis has, which the call's deep read
+            // stands for.
+            foreach (var (model, index) in library.Calls.Select((model, index) => (model, index)))
+            {
+                CheckCancellation();
+                var inputs = model.Inputs.Select((input, ordinal) => new CallArgument(ordinal, input.SelectMany((value, position) =>
+                                                                                                   ModelValues(caller, call, value, returns,
+                                                                                                               $"call{index}.{ordinal}.{position}"))
+                                                                                               .Select(region => (AbstractValue)new RegionValue(region))
+                                                                                               .ToTrackedSet()))
+                                         .ToArray();
+                foreach (var receiver in ModelValues(caller, call, model.On, returns, $"call{index}.on").ToArray())
+                {
+                    foreach (var methodId in model.MethodIds)
+                    {
+                        CheckCancellation();
+                        foreach (var callee in DispatchCallees(receiver, methodId, []).Callees)
+                            RunModelCall(caller, call.OperationId, inputs, callee);
+                    }
+                }
+            }
+
             if (library.Result is { } result)
                 ModelResult(caller, call, result, returns, sequence, new ResultDestination(null, library.ResultTypeKey));
             foreach (var output in library.Outputs.OrderBy(output => output.Key))
@@ -3544,8 +3567,15 @@ public static partial class WholeProgram
         private TrackedSet<string> KeeperTargets(InstanceState caller, SummaryOpaqueCall call, int ordinal, bool read)
         {
             var targets = ordinal == IrLibraryCall.RESULT ? ResultObjects(caller, call) : Eval(caller, ArgumentOf(call, ordinal));
-            if (ordinal != IrLibraryCall.RESULT && (_keptFallbacks.Contains((caller.Id, call.OperationId, ordinal)) || read && targets.Count == 0))
+            // A keeper argument that may also be an object the heap does not name keeps into, and reads, the type store as well as the
+            // objects it names: another keeper with no object reads what was kept into that object there (question 79).
+            var unfollowed = call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == ordinal) is { } keeper &&
+                             Unfollowed(caller, keeper.UnknownSources, keeper.SourceCalls, keeper.Completions);
+            if (ordinal != IrLibraryCall.RESULT &&
+                (_keptFallbacks.Contains((caller.Id, call.OperationId, ordinal)) || unfollowed || read && targets.Count == 0))
+            {
                 targets.Add(KeeperStore(call, ordinal));
+            }
             return targets;
         }
 
@@ -3571,6 +3601,23 @@ public static partial class WholeProgram
         /// <param name="inputs">The arguments the delegate is handed.</param>
         private static CallTransfer Invocation(SummaryOpaqueCall call, IrLibraryFate fate, IReadOnlyList<CallArgument> inputs) =>
             new(call.OperationId, call.Callee, IrCallKind.Delegate, ArgumentOf(call, fate.ParameterOrdinal), inputs, []);
+
+        /// <summary>A member a known call runs on a user's object runs as a call of it at the site would, in the caller's execution and
+        /// under its locks, each parameter handed its input's values; what it returns is no part of what the call returns.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="operationId">The known call's operation.</param>
+        /// <param name="inputs">The values each parameter of the member is handed.</param>
+        /// <param name="callee">The instance of the member's implementation on the object.</param>
+        private void RunModelCall(InstanceState caller, int operationId, IReadOnlyList<CallArgument> inputs, InstanceState callee)
+        {
+            foreach (var input in inputs)
+            {
+                CheckCancellation();
+                Add(Parameter(callee, input.ParameterOrdinal), Eval(caller, input.Values));
+            }
+            Add(callee.Requests, caller.Requests);
+            AddEdge((caller.Id, operationId, callee.Id, "points-to"));
+        }
 
         /// <summary>An <c>invoke-now</c> delegate runs as a call of it at the site would, in the caller's execution and under its locks;
         /// what it returns is no part of what the call returns unless the model's result says so.</summary>

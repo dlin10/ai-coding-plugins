@@ -94,7 +94,7 @@
         "semantic-gap": 19,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 5,
+        "unproven-reference": 41,
         "unresolved-locator": 1,
         "unsupported-operation": 48,
         "wildcard-access": 0
@@ -152,7 +152,7 @@
         "semantic-gap": 12,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 11,
+        "unproven-reference": 59,
         "unresolved-locator": 6,
         "unsupported-operation": 141,
         "wildcard-access": 0
@@ -203,7 +203,7 @@
         "semantic-gap": 7,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 10,
+        "unproven-reference": 157,
         "unresolved-locator": 2,
         "unsupported-operation": 104,
         "wildcard-access": 1
@@ -249,7 +249,7 @@
         "semantic-gap": 11,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 3,
+        "unproven-reference": 7,
         "unresolved-locator": 0,
         "unsupported-operation": 30,
         "wildcard-access": 1
@@ -292,14 +292,14 @@
         "model-entry-rejected": 0,
         "no-receiver-object": 22,
         "opaque-by-project": 0,
-        "opaque-call": 155,
+        "opaque-call": 156,
         "out-of-range-call": 0,
         "reachable-bodies": 99,
         "scc-budget-exceeded": 0,
         "semantic-gap": 10,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 7,
+        "unproven-reference": 43,
         "unresolved-locator": 6,
         "unsupported-operation": 53,
         "wildcard-access": 0
@@ -348,7 +348,7 @@
         "semantic-gap": 6,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 2,
+        "unproven-reference": 12,
         "unresolved-locator": 0,
         "unsupported-operation": 17,
         "wildcard-access": 0
@@ -393,7 +393,7 @@
         "semantic-gap": 9,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 3,
+        "unproven-reference": 25,
         "unresolved-locator": 0,
         "unsupported-operation": 17,
         "wildcard-access": 0
@@ -441,7 +441,7 @@
         "semantic-gap": 2,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 2,
+        "unproven-reference": 27,
         "unresolved-locator": 0,
         "unsupported-operation": 21,
         "wildcard-access": 0
@@ -482,7 +482,7 @@
         "semantic-gap": 11,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 3,
+        "unproven-reference": 7,
         "unresolved-locator": 0,
         "unsupported-operation": 30,
         "wildcard-access": 1
@@ -532,7 +532,7 @@
         "semantic-gap": 1,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 3,
+        "unproven-reference": 24,
         "unresolved-locator": 0,
         "unsupported-operation": 33,
         "wildcard-access": 1
@@ -572,7 +572,7 @@
         "semantic-gap": 3,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 1,
+        "unproven-reference": 12,
         "unresolved-locator": 0,
         "unsupported-operation": 5,
         "wildcard-access": 0
@@ -614,7 +614,7 @@
         "semantic-gap": 1,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 2,
+        "unproven-reference": 27,
         "unresolved-locator": 0,
         "unsupported-operation": 27,
         "wildcard-access": 0
@@ -654,7 +654,7 @@
         "semantic-gap": 1,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 0,
+        "unproven-reference": 7,
         "unresolved-locator": 0,
         "unsupported-operation": 0,
         "wildcard-access": 0
@@ -694,7 +694,7 @@
         "semantic-gap": 4,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 2,
+        "unproven-reference": 12,
         "unresolved-locator": 3,
         "unsupported-operation": 23,
         "wildcard-access": 1

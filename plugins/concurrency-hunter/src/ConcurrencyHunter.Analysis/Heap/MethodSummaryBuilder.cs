@@ -2134,7 +2134,9 @@ public static class MethodSummaryBuilder
                 IrAssignOperation assign => References(assign.SourceValue, depth + 1),
                 IrPhiOperation phi => Alternatives(phi.Inputs.Select(input => References(input.Value, depth + 1)).ToArray()),
                 IrConvertOperation convert => References(convert.OperandValue, depth + 1),
-                IrCallOperation call when call.ResultValue == value && !IsOpaque(call) => [new ReferenceCall(call.Id)],
+                // A reference a call with no body returns points where nothing says (`Unsafe.As<TFrom, TTo>(ref …)`): a place
+                // nothing proves, counted rather than read as no reference at all (R3).
+                IrCallOperation call when call.ResultValue == value => IsOpaque(call) ? [ReferenceUnproven.Instance] : [new ReferenceCall(call.Id)],
                 _ => []
             };
         }

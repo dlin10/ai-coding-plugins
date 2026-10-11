@@ -14,10 +14,10 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 /// <param name="Roots"><c>V_Call</c> and/or <c>V_Enum</c>.</param>
 /// <param name="EnumerationRoots">The roots in which a <c>reads-deep</c> access was an enumeration read.</param>
 /// <param name="NonEnumerationRoots">The roots in which an access was not an enumeration read.</param>
-/// <param name="ReadsSeed">Whether a <c>reads-deep</c> of the receiver read a seed setup placed in it, standing for a user object a
-/// program stored there, or an object reachable from one.</param>
+/// <param name="ReadsUserObject">Whether a <c>reads-deep</c> of the receiver read a user object it holds — a seed setup placed in it,
+/// standing for a user object a program stored there, or a probe its construction was given — or an object reachable from one.</param>
 public sealed record GeneratedEffect(string Kind, IReadOnlyList<string> Roots, IReadOnlyList<string> EnumerationRoots,
-                                     IReadOnlyList<string> NonEnumerationRoots, bool ReadsSeed);
+                                     IReadOnlyList<string> NonEnumerationRoots, bool ReadsUserObject);
 
 /// <summary>A pre-existing library region the member stored into, with the roots in whose trees it did so.</summary>
 /// <param name="Region">The stored-into region.</param>
@@ -54,7 +54,7 @@ public sealed class EffectReader
     private readonly HashSet<string> _witnessReturns = new(StringComparer.Ordinal);
     private readonly HashSet<string> _unknownSensitive = new(StringComparer.Ordinal);
     private readonly HashSet<string> _witnessObjects = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _receiverSeedObjects = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _receiverUserObjects = new(StringComparer.Ordinal);
     private readonly HashSet<ISymbol> _unreachedFields = new(SymbolEqualityComparer.Default);
     private readonly GenerationCauses _causes = new();
 
@@ -178,33 +178,40 @@ public sealed class EffectReader
         }
 
         _unknownSensitive.UnionWith(_reachability.From(probeStarts));
-        BuildReceiverSeedObjects();
+        BuildReceiverUserObjects();
         CloseInPlace(_probeReturns);
         CloseInPlace(_witnessReturns);
     }
 
-    /// <summary>The seeds setup placed in the receiver and every object below them: found from the receiver's roots without ever
-    /// entering a probe or an argument's own object. A seed of an argument the member kept on the receiver is reached only through
+    /// <summary>The user objects the receiver holds — a seed setup placed in it, a probe its construction was given — and every object
+    /// below them: found from the receiver's roots without ever entering an argument's own object. The receiver itself is the library's
+    /// object, even as the driver's subclass. A probe or seed of an argument the member kept on the receiver is reached only through
     /// that argument, whose own effect the entry names. An object an argument also reaches stays the receiver's when a path from the
     /// receiver reaches it without the argument: the heap, which does not follow order, puts a seed setup stored below the receiver
     /// into the argument kept there too, and the read of it is still a read of what the receiver held (R9).</summary>
-    private void BuildReceiverSeedObjects()
+    private void BuildReceiverUserObjects()
     {
         var arguments = _inputs.Where(input => !input.IsReceiver).SelectMany(input => input.Roots).ToHashSet(StringComparer.Ordinal);
-        var pending = new Stack<(string Region, bool BelowSeed)>(_inputs.Where(input => input.IsReceiver).SelectMany(input => input.Roots)
+        var pending = new Stack<(string Region, bool BelowUser)>(_inputs.Where(input => input.IsReceiver).SelectMany(input => input.Roots)
                                                                          .Select(root => (root, false)));
         var seen = new HashSet<(string, bool)>();
         while (pending.TryPop(out var current))
         {
-            if (arguments.Contains(current.Region) || IsProbeObject(current.Region) || !seen.Add(current))
+            if (arguments.Contains(current.Region) || !seen.Add(current))
                 continue;
-            var belowSeed = current.BelowSeed || Origin(current.Region).Role == DriverRole.Seed;
-            if (belowSeed)
-                _receiverSeedObjects.Add(current.Region);
+            var belowUser = current.BelowUser || Origin(current.Region).Role == DriverRole.Seed || IsUserProbe(current.Region);
+            if (belowUser)
+                _receiverUserObjects.Add(current.Region);
             foreach (var (_, target) in _reachability.Edges(current.Region))
-                pending.Push((target, belowSeed));
+                pending.Push((target, belowUser));
         }
     }
+
+    /// <summary>Whether a region is an instance of a probe class, a user object; the driver's subclass of a library type is not.</summary>
+    /// <param name="region">The region.</param>
+    private bool IsUserProbe(string region) =>
+        IsProbeObject(region) && _heap.Regions.TryGetValue(region, out var held) &&
+        held.TypeKey?.StartsWith($"{DriverSynthesizer.ASSEMBLY}:Probe_", StringComparison.Ordinal) == true;
 
     private void ReadReasonsFromHandoffs()
     {
@@ -216,26 +223,28 @@ public sealed class EffectReader
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_IN_UNSUPPORTED_OPERATION, Handed(given));
         if (_handoffs.ForeignAccesses.FirstOrDefault(_unknownSensitive.Contains) is { } accessed)
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_ACCESSED_ELSEWHERE, accessed);
-        if (UnseenArgumentMember() is { } member)
-            _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.ARGUMENT_MEMBER_UNSEEN, member);
+        ReadUnseenMembers();
         if (_handoffs.HandedOutsideSetup.FirstOrDefault(_witnessReturns.Contains) is { } witnessHanded)
             _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_VALUE_HANDED, Handed(witnessHanded));
         if (_handoffs.ForeignAccesses.FirstOrDefault(_witnessReturns.Contains) is { } witnessAccessed)
             _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_VALUE_ACCESSED_ELSEWHERE, witnessAccessed);
     }
 
-    /// <summary>The first member of an object an argument reaches that a witness stood for outside setup, other than one the analysis
-    /// takes to read, in words: the argument and the witness's body. It is the argument's code, which the analysis does not see, however
-    /// it is called — a member of the argument itself, of a seed in its field, or a seeded delegate's invoke. The receiver's own members
-    /// a witness stands for are not looked at: what they receive stays a deep read.</summary>
-    private string? UnseenArgumentMember()
+    /// <summary>Records the first member of an object an argument reaches, and the first of an object the receiver reaches, that a
+    /// witness stood for outside setup, other than one the analysis takes to read, in words: the input and the witness's body. It is
+    /// code the analysis does not see, however it is called — a member of the argument itself, of a seed in its field, or a seeded
+    /// delegate's invoke; for the receiver, an override of the driver's subclass, which stands for a user override and for the
+    /// library's own body alike, or a seed's member. An object both reach is the argument's.</summary>
+    private void ReadUnseenMembers()
     {
         foreach (var (instanceId, receivers) in _handoffs.UnseenMembersOutsideSetup)
         {
-            if (_inputs.FirstOrDefault(input => !input.IsReceiver && receivers.Any(input.Reached.Contains)) is { } argument)
-                return $"{argument.Name}: {_heap.Instances[instanceId].BodyId}";
+            var input = _inputs.FirstOrDefault(input => !input.IsReceiver && receivers.Any(input.Reached.Contains)) ??
+                        _inputs.FirstOrDefault(input => input.IsReceiver && receivers.Any(input.Reached.Contains));
+            if (input is not null)
+                _causes.Add(GenerationReasons.UNKNOWN_TOUCH, input.IsReceiver ? ModelCauses.RECEIVER_MEMBER_UNSEEN : ModelCauses.ARGUMENT_MEMBER_UNSEEN,
+                            $"{input.Name}: {_heap.Instances[instanceId].BodyId}");
         }
-        return null;
     }
 
     /// <summary>A region handed outside setup, in words: with the callee and the place of the first call that handed it — or, for a
@@ -872,7 +881,7 @@ public sealed class EffectReader
         _unreachedFields.Concat(_driver.UnseededMembers).Any(member => Matches(field, member));
 
     /// <summary>Records one effect on an argument, and for a <c>reads-deep</c> of the receiver whether the objects it read include a
-    /// seed setup placed in the receiver or an object reachable from one — the one place that answers it for every read.</summary>
+    /// user object the receiver holds or an object reachable from one — the one place that answers it for every read.</summary>
     /// <param name="parameter">The parameter name, or <c>this</c>.</param>
     /// <param name="kind"><c>reads-deep</c>, <c>writes-arg</c> or <c>writes-cells</c>.</param>
     /// <param name="root"><c>V_Call</c> or <c>V_Enum</c>.</param>
@@ -883,8 +892,8 @@ public sealed class EffectReader
         var key = (parameter, kind);
         if (!_effects.TryGetValue(key, out var observation))
             _effects[key] = observation = new Observation();
-        if (kind == READS_DEEP && parameter == FateClassifier.THIS && read.Any(_receiverSeedObjects.Contains))
-            observation.ReadsSeed = true;
+        if (kind == READS_DEEP && parameter == FateClassifier.THIS && read.Any(_receiverUserObjects.Contains))
+            observation.ReadsUserObject = true;
         observation.Roots.Add(root);
         if (enumeration)
             observation.EnumerationRoots.Add(root);
@@ -1023,9 +1032,9 @@ public sealed class EffectReader
         public HashSet<string> Roots { get; } = new(StringComparer.Ordinal);
         public HashSet<string> EnumerationRoots { get; } = new(StringComparer.Ordinal);
         public HashSet<string> NonEnumerationRoots { get; } = new(StringComparer.Ordinal);
-        public bool ReadsSeed { get; set; }
+        public bool ReadsUserObject { get; set; }
 
         public GeneratedEffect ToEffect(string kind) =>
-            new(kind, OrderRoots(Roots), OrderRoots(EnumerationRoots), OrderRoots(NonEnumerationRoots), ReadsSeed);
+            new(kind, OrderRoots(Roots), OrderRoots(EnumerationRoots), OrderRoots(NonEnumerationRoots), ReadsUserObject);
     }
 }

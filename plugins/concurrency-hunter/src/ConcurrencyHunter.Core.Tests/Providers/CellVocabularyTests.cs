@@ -31,7 +31,18 @@ public sealed class CellVocabularyTests
         Refused("Plain", """ "effects":{},"result":"[this]" """, "this needs an instance");
 
     [Fact]
-    public void Reads_deep_on_this_is_refused() => Refused("Self", """ "effects":{"this":["reads-deep"]} """, "this");
+    public void Reads_deep_on_this_is_accepted()
+    {
+        // ValueTuple<…>.GetHashCode runs GetHashCode of what the receiver holds (question 80).
+        var (models, rejections) = Resolve(Entry("Self", """ "effects":{"this":["reads-deep"]} """));
+
+        Assert.Empty(rejections);
+        Assert.Contains(LibraryEffect.DeepReadOf("this"), Assert.Single(models.Members, member => member.Id == Id("Self")).Effects);
+    }
+
+    [Fact]
+    public void Reads_deep_on_this_of_a_static_member_is_refused() =>
+        Refused("Plain", """ "effects":{"this":["reads-deep"]} """, "this needs an instance");
 
     [Fact]
     public void Writes_arg_on_this_is_refused() => Refused("Self", """ "effects":{"this":["writes-arg"]} """, "this");
@@ -70,6 +81,40 @@ public sealed class CellVocabularyTests
             Assert.Empty(rejections);
         else
             Assert.Contains("does not convert to Vocabulary.Base", Assert.Single(rejections).Reason);
+    }
+
+    [Theory]
+    [InlineData("Plain", """ "effects":{"value":["reads-deep"]},"calls":[{"member":"GetHashCode","on":"arg:value"}] """)]
+    [InlineData("Fill", """ "effects":{},"calls":[{"member":"Equals","on":"elements(arg:array)","inputs":[["arg:value"]]}] """)]
+    [InlineData("Self", """ "effects":{},"calls":[{"member":"CompareTo","on":"this","inputs":[["this"]]}] """)]
+    public void Calls_of_a_listed_member_with_its_inputs_are_accepted(string member, string decision)
+    {
+        // A known call runs the user's equality, hash and ordering members where it stands (question 47).
+        var (models, rejections) = Resolve(Entry(member, decision));
+
+        Assert.Empty(rejections);
+        Assert.Single(Assert.Single(models.Members, model => model.Id == Id(member)).Calls);
+    }
+
+    [Theory]
+    [InlineData("Plain", """ "effects":{},"calls":[{"member":"ToString","on":"arg:value"}] """, "needs a member of")]
+    [InlineData("Plain", """ "effects":{},"calls":[{"member":"Equals","on":"arg:value"}] """, "takes 1 or 2 inputs, not 0")]
+    [InlineData("Plain", """ "effects":{},"calls":[{"member":"GetHashCode"}] """, "needs the objects it is on")]
+    [InlineData("Plain", """ "effects":{},"calls":[{"member":"GetHashCode","on":"new"}] """, "new is not allowed")]
+    [InlineData("Plain", """ "effects":{},"calls":[{"member":"GetHashCode","on":"sequence(arg:value)"}] """, "builds")]
+    [InlineData("Plain", """ "effects":{},"calls":[{"member":"GetHashCode","on":"arg:missing"}] """, "names no parameter")]
+    [InlineData("Plain", """ "effects":{},"calls":[{"member":"GetHashCode","on":"this"}] """, "this needs an instance")]
+    [InlineData("Plain", """ "effects":{},"calls":[{"member":"GetHashCode","on":"arg:value","extra":1}] """, "unknown property")]
+    public void Calls_breaking_a_rule_are_refused(string member, string decision, string reason) => Refused(member, decision, reason);
+
+    [Fact]
+    public void Entries_differing_only_in_calls_disagree()
+    {
+        var (models, rejections) = Resolve(Entry("Plain", """ "effects":{},"calls":[{"member":"GetHashCode","on":"arg:value"}] """),
+                                           Entry("Plain", """ "effects":{},"calls":[{"member":"Equals","on":"arg:value","inputs":[["arg:value"]]}] """));
+
+        Assert.Equal(2, rejections.Count);
+        Assert.True(Assert.Single(models.Members, model => model.Id == Id("Plain")).DeclaredOpaque);
     }
 
     private static void Refused(string member, string decision, string reason)

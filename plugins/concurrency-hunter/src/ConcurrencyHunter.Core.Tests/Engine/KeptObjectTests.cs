@@ -61,6 +61,22 @@ public sealed class KeptObjectTests
     }
 
     [Fact]
+    public void Keeper_known_on_one_path_and_unknown_on_another_keeps_into_the_type_store_too()
+    {
+        // The cache may be an object the analysis does not name, which a keeper without objects elsewhere reads through the type
+        // store (question 79): keeping into the known object alone lost the value.
+        var run = Run("ICache cache = _state.Count > 0 ? new Cache() : Lib.UnknownCache(); Lib.Set(cache, new Item()); Lib.Get<Item>(_state.Empty).Hits = 1;");
+        Assert.Contains(run.Of("Hits"), access => access.Operation == AccessOperation.Write);
+    }
+
+    [Fact]
+    public void Keeper_known_on_one_path_and_unknown_on_another_reads_the_type_store_too()
+    {
+        var run = Run("Lib.Set(_state.Empty, new Item()); ICache cache = _state.Count > 0 ? new Cache() : Lib.UnknownCache(); Lib.Get<Item>(cache).Hits = 1;");
+        Assert.Contains(run.Of("Hits"), access => access.Operation == AccessOperation.Write);
+    }
+
+    [Fact]
     public void Empty_keepers_of_one_wave_all_go_to_the_type_store()
     {
         var run = Run("Lib.Set(_state.Empty, new Cache()); var second = Lib.Get<ICache>(_state.Empty); Lib.Set(second, new Item());");
@@ -101,6 +117,15 @@ public sealed class KeptObjectTests
     public void Deep_read_of_a_keeper_reads_kept_objects()
     {
         var run = Run("Lib.Set(_state.Cache, new Item()); Lib.Read(_state.Cache);");
+        Assert.Contains(run.Of("Hits"), access => access.Operation == AccessOperation.Read);
+        Assert.DoesNotContain(run.Collection.Accesses, access => access.Resource.AccessPath.Contains("[kept]"));
+    }
+
+    [Fact]
+    public void Deep_read_of_the_receiver_reads_kept_objects()
+    {
+        // ValueTuple<…>.GetHashCode reads what the receiver holds, as a deep read of an argument does (question 80).
+        var run = Run("Lib.Set(_state.Cache, new Item()); _ = _state.Cache.Hash();");
         Assert.Contains(run.Of("Hits"), access => access.Operation == AccessOperation.Read);
         Assert.DoesNotContain(run.Collection.Accesses, access => access.Resource.AccessPath.Contains("[kept]"));
     }
@@ -223,6 +248,7 @@ internal static class KeptFixture
           {"member":"M:Kept.Lib.MakeString``1(``0)","effects":{},"keeps":{"result":["arg:value"]},"result":"new"},
           {"member":"M:Kept.Lib.Make``1(``0)","effects":{},"keeps":{"result":["arg:value"]},"result":"new"},
           {"member":"M:Kept.Lib.Read(Kept.ICache)","effects":{"cache":["reads-deep"]}},
+          {"member":"M:Kept.Cache.Hash","effects":{"this":["reads-deep"]}},
           {"member":"M:Kept.Lib.Elements``1(Kept.ICache)","effects":{},"result":"collection(elements(kept:cache))"},
           {"member":"M:Kept.Lib.Hold(System.Action)","effects":{},"fates":{"action":{"fate":"holder","holder":"result","inputs":[]}}}
         ]}
@@ -240,7 +266,7 @@ internal static class KeptFixture
             public interface ICache<T> : ICache { }
             public class Cache<T> : Cache, ICache<T> { }
             public interface IOther { }
-            public class Cache : ICache, IOther { }
+            public class Cache : ICache, IOther { public int Hash() => 0; }
             public class Holder { }
             public static class Lib
             {
@@ -259,6 +285,7 @@ internal static class KeptFixture
                 public static Holder Hold(Action action) => null!;
                 public static void Touch(object value) { }
                 public static object Unknown() => null!;
+                public static ICache UnknownCache() => null!;
             }
             """)], StubAssemblies.PlatformWithout([]), new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         using var bytes = new MemoryStream();

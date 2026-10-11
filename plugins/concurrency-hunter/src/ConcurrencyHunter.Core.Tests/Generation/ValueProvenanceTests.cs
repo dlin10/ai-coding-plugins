@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Fixtures.GenerationRuns;
@@ -128,6 +129,30 @@ public sealed class ValueProvenanceTests
 
         Assert.Null(answer.Model);
         Assert.Contains(answer.Causes, cause => cause.Code == ModelCauses.RESULT_UNRESOLVED && cause.Detail.Contains("held", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("public static int Hash(Node node) => node.GetHashCode();", "M:Lib.Api.Hash(Lib.Node)", "node")]
+    [InlineData("public static bool Same(Node node, Node other) => node.Equals(other);", "M:Lib.Api.Same(Lib.Node,Lib.Node)", "other")]
+    [InlineData("public static string Show(Node node) => node.ToString();", "M:Lib.Api.Show(Lib.Node)", "node")]
+    [InlineData("public static int Size(Node node) => node.Size;", "M:Lib.Api.Size(Lib.Node)", "node")]
+    [InlineData("public static int Count(List<Node> nodes) => nodes.Count;", "M:Lib.Api.Count(System.Collections.Generic.List{Lib.Node})", null)]
+    [InlineData("public static bool Has(List<Node> nodes, Node node) => nodes.Contains(node);",
+                "M:Lib.Api.Has(System.Collections.Generic.List{Lib.Node},Lib.Node)", "nodes")]
+    [InlineData("public static Task<int> HashNow(Node node) => Task.FromResult(node.GetHashCode());", "M:Lib.Api.HashNow(Lib.Node)", "node")]
+    [InlineData("public static async Task<int> HashLater(Node node) { await Task.Yield(); return node.GetHashCode(); }", "M:Lib.Api.HashLater(Lib.Node)", "node")]
+    [InlineData("public static bool TryHash(Node node, out int hash) { hash = node.GetHashCode(); return true; }",
+                "M:Lib.Api.TryHash(Lib.Node,System.Int32@)", "node")]
+    public void A_result_of_a_type_that_holds_no_object_needs_no_name(string member, string id, string? read)
+    {
+        // What node.GetHashCode() or list.Count returns is no object, so the result has nothing to name: the member has a model
+        // without one (question 152).
+        var answer = Trace($"public abstract class Node {{ public abstract int Size {{ get; }} }} public static class Api {{ {member} }}", id).Answer;
+
+        Assert.True(answer.Model is not null, string.Join("; ", answer.Causes));
+        Assert.Null(answer.Model.Result);
+        if (read is not null)
+            Assert.Contains(LibraryEffect.DeepReadOf(read), answer.Model.Effects);
     }
 
     [Theory]

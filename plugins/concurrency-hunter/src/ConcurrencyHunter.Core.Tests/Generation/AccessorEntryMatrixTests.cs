@@ -185,8 +185,13 @@ public sealed class AccessorEntryMatrixTests(ClassCache cache) : IClassFixture<C
                 _ => null
             },
             // R5, R6: the field a getter returns is a seed, which has no name in an entry; handing that seed to unseen code is a read
-            // of what the receiver holds, which `this` cannot carry (R9's fix of this task).
-            AccessorKind.Getter => cell.Act is Act.ReturnField or Act.HandToExtern ? ModelReasons.VOCABULARY : null,
+            // of what the receiver holds, a deep read of `this` (question 80).
+            AccessorKind.Getter => cell.Act switch
+            {
+                Act.ReturnField => ModelReasons.VOCABULARY,
+                Act.HandToExtern => AddEffect(expected, LibraryEffect.DeepReadOf("this")),
+                _ => null
+            },
             _ => cell.Value == ValueKind.Item ? ExpectedItemSetter(cell, expected) : ExpectedHandler(cell, expected)
         };
         return reason is null ? EntryTruth.Entry(expected.Build()) : EntryTruth.NoEntry(reason);

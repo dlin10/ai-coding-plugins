@@ -1543,6 +1543,8 @@ public static class IrLowering
             var provenance = Provenance(compound, "compound-assignment");
             if (DelegateCombination.Of(compound) is { } combination)
                 return CombineDelegates(combination.Removes, [loaded, right], compound.Type, provenance);
+            if (SourceOperator(compound.OperatorMethod) is { } method)
+                return OperatorCall(compound, method, [loaded, right]);
 
             var result = AddTemporary(compound.Type);
             _operations.Add(new IrComputeOperation(NextOperation(), result, compound.OperatorKind.ToString(), [loaded, right], provenance));
@@ -1602,12 +1604,8 @@ public static class IrLowering
                 var address = LowerAddress(increment.Target);
                 var refLoaded = LowerReferenceLoad(address, increment.Target);
                 var refLoadId = ((IrLoadReferenceOperation)_operations[^1]).Id;
-                var refOne = Constant(increment, 1, "increment");
-                var refResult = AddTemporary(increment.Type);
+                var refResult = Incremented(increment, refLoaded);
                 var refProvenance = Provenance(increment, "increment");
-                _operations.Add(new IrComputeOperation(NextOperation(), refResult,
-                                                      increment.Kind == OperationKind.Decrement ? "Subtract" : "Add",
-                                                      [refLoaded, refOne], refProvenance));
                 _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, refResult, refLoadId, refProvenance));
                 return increment.IsPostfix ? refLoaded : refResult;
             }
@@ -1624,26 +1622,14 @@ public static class IrLowering
                 if (symbol is null && DynamicTarget(target) is { } dynamicTarget)
                 {
                     var dynamicLoaded = Unknown(target, "unsupported", dynamicTarget.Operands, dynamicTarget.Get);
-                    var dynamicOne = Constant(increment, 1, "increment");
-                    var dynamicResult = AddTemporary(increment.Type);
-                    _operations.Add(new IrComputeOperation(NextOperation(), dynamicResult,
-                                                          increment.Kind == OperationKind.Decrement ? "Subtract" : "Add",
-                                                          [dynamicLoaded, dynamicOne], Provenance(increment, "increment")));
+                    var dynamicResult = Incremented(increment, dynamicLoaded);
                     Unknown(increment, "unsupported", [.. dynamicTarget.Operands, dynamicResult], dynamicTarget.Set);
                     return increment.IsPostfix ? dynamicLoaded : dynamicResult;
                 }
 
                 if (symbol is null && IsLongFormTarget(target))
                 {
-                    var (read, written) = LowerLongForm(target, increment, "increment", longFormLoaded =>
-                    {
-                        var longFormOne = Constant(increment, 1, "increment");
-                        var longFormResult = AddTemporary(increment.Type);
-                        _operations.Add(new IrComputeOperation(NextOperation(), longFormResult,
-                                                              increment.Kind == OperationKind.Decrement ? "Subtract" : "Add",
-                                                              [longFormLoaded, longFormOne], Provenance(increment, "increment")));
-                        return longFormResult;
-                    });
+                    var (read, written) = LowerLongForm(target, increment, "increment", longFormLoaded => Incremented(increment, longFormLoaded));
                     return increment.IsPostfix ? read : written;
                 }
 
@@ -1652,12 +1638,7 @@ public static class IrLowering
                     return Unknown(increment, "unsupported", target.ChildOperations.Select(LowerValue).ToArray());
 
                 var loadedValue = ReadSymbol(symbol, target);
-                var oneValue = Constant(increment, 1, "increment");
-                var computedValue = AddTemporary(increment.Type);
-                var operation = increment.Kind == OperationKind.Decrement ? "Subtract" : "Add";
-                _operations.Add(new IrComputeOperation(
-                    NextOperation(), computedValue, operation, [loadedValue, oneValue],
-                    Provenance(increment, "increment")));
+                var computedValue = Incremented(increment, loadedValue);
                 StoreSymbol(symbol, computedValue, increment, "increment");
                 return increment.IsPostfix ? loadedValue : computedValue;
             }
@@ -1667,14 +1648,26 @@ public static class IrLowering
             var loadId = NextOperation();
             _operations.Add(new IrLoadFieldOperation(loadId, loaded, location.Receiver, location.Field, provenance));
             MarkVolatile(location.Field, loadId, IrAtomicEffect.Read, provenance);
-            var one = Constant(increment, 1, "increment");
-            var result = AddTemporary(increment.Type);
-            var @operator = increment.Kind == OperationKind.Decrement ? "Subtract" : "Add";
-            _operations.Add(new IrComputeOperation(NextOperation(), result, @operator, [loaded, one], provenance));
+            var result = Incremented(increment, loaded);
             var storeId = NextOperation();
             _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, result, loadId, provenance));
             MarkVolatile(location.Field, storeId, IrAtomicEffect.Write, provenance);
             return increment.IsPostfix ? loaded : result;
+        }
+
+        /// <summary>The value an increment or a decrement computes from the value it read: the call of the operator the source declares,
+        /// or the arithmetic.</summary>
+        /// <param name="increment">The increment or decrement.</param>
+        /// <param name="loaded">The value read from its target.</param>
+        private int Incremented(IIncrementOrDecrementOperation increment, int loaded)
+        {
+            if (SourceOperator(increment.OperatorMethod) is { } method)
+                return OperatorCall(increment, method, [loaded]);
+            var one = Constant(increment, 1, "increment");
+            var result = AddTemporary(increment.Type);
+            _operations.Add(new IrComputeOperation(NextOperation(), result, increment.Kind == OperationKind.Decrement ? "Subtract" : "Add",
+                                                   [loaded, one], Provenance(increment, "increment")));
+            return result;
         }
 
         /// <summary>Whether a compound target is one <see cref="LowerLongForm"/> lowers: an array element of any rank, or a property the
@@ -2688,6 +2681,9 @@ public static class IrLowering
                     var target = effect.ParameterOrdinal == IrLibraryCall.RECEIVER ? call.ReceiverValue : ArgumentValue(arguments, effect.ParameterOrdinal);
                     return effect with { Arguments = target is int array ? [new IrLibraryArgument(array, false)] : [] };
                 }
+                // A deep read of the receiver reads what the receiver holds, as one of an argument does (question 80).
+                if (effect.ParameterOrdinal == IrLibraryCall.RECEIVER)
+                    return effect with { Arguments = call.ReceiverValue is int receiver ? [new IrLibraryArgument(receiver, false)] : [] };
                 var argument = argumentOperations.FirstOrDefault(candidate => candidate.Parameter?.Ordinal == effect.ParameterOrdinal);
                 var parameter = argument?.Parameter ??
                                 (effect.ParameterOrdinal >= 0 && effect.ParameterOrdinal < method.Parameters.Length ? method.Parameters[effect.ParameterOrdinal] : null);
@@ -2832,7 +2828,7 @@ public static class IrLowering
                 // A call through an interface is decided by the object its receiver points to, which only the heap knows: it carries
                 // what it is on each kind of object (ADR 0010, amendment of the phase 5b third run).
                 Implementations = collection is null && nestedId is null ? Collections.ImplementationsOf(method, _context.Compilation, _context.LibraryModels) : [],
-                Library = nestedId is null ? LibraryCalls.Of(method, _context.LibraryModels) : null,
+                Library = nestedId is null ? LibraryCalls.Of(method, _context.LibraryModels, _context.Compilation) : null,
                 IsGroupingKey = nestedId is null && method.Name == "get_Key" && Bcl.TypeName(method.ContainingType) == "System.Linq.IGrouping`2",
                 IsRecognized = nestedId is null && IsRecognized(method),
                 TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
@@ -3272,6 +3268,8 @@ public static class IrLowering
             var right = LowerValue(binary.RightOperand);
             if (DelegateCombination.Of(binary) is { } combination)
                 return CombineDelegates(combination.Removes, [left, right], binary.Type, Provenance(binary, "binary"));
+            if (SourceOperator(binary.OperatorMethod) is { } method)
+                return OperatorCall(binary, method, [left, right]);
 
             var result = AddTemporary(binary.Type);
             if (binary.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals)
@@ -3359,9 +3357,28 @@ public static class IrLowering
             _ => false
         };
 
+        /// <summary>An operator the source declares, whose body the call to it runs; <c>null</c> for a built-in operator or one only
+        /// metadata declares, which the lowering keeps as the comparison or computation it is.</summary>
+        /// <param name="method">The operator method Roslyn names, or <c>null</c>.</param>
+        private static IMethodSymbol? SourceOperator(IMethodSymbol? method) =>
+            method is { MethodKind: MethodKind.UserDefinedOperator or MethodKind.Conversion } && method.Locations.Any(location => location.IsInSource)
+                ? method
+                : null;
+
+        /// <summary>A user-defined operator as the static call of its method it is (question 157): <c>a == b</c> on a type that declares
+        /// the operator runs its body, as a conversion, a compound assignment and an increment through one do.</summary>
+        /// <param name="source">The operation that applies the operator.</param>
+        /// <param name="method">The operator method.</param>
+        /// <param name="operands">The operand values in parameter order.</param>
+        private int OperatorCall(IOperation source, IMethodSymbol method, IReadOnlyList<int> operands) =>
+            AddCall(source, method, null, new LoweredArguments(operands, operands.Select((_, ordinal) => ordinal).ToArray(), new Dictionary<int, int>()),
+                    method.ReturnType);
+
         private int LowerUnary(IUnaryOperation unary)
         {
             var operand = LowerValue(unary.Operand);
+            if (SourceOperator(unary.OperatorMethod) is { } method)
+                return OperatorCall(unary, method, [operand]);
             var result = AddTemporary(unary.Type);
             _operations.Add(new IrComputeOperation(
                 NextOperation(), result, unary.OperatorKind.ToString(), [operand], Provenance(unary, "unary")));
@@ -3579,6 +3596,8 @@ public static class IrLowering
         private int LowerConversion(IConversionOperation conversion)
         {
             var operand = LowerValue(conversion.Operand);
+            if (SourceOperator(conversion.OperatorMethod) is { } method)
+                return OperatorCall(conversion, method, [operand]);
             var result = AddTemporary(conversion.Type);
             var classified = Microsoft.CodeAnalysis.CSharp.CSharpExtensions.GetConversion(conversion);
             var kind = classified.IsIdentity ? IrConversionKind.Identity
@@ -4039,6 +4058,10 @@ public static class IrLowering
                 return IrCallKind.Static;
             if (method.ContainingType.TypeKind == TypeKind.Interface)
                 return IrCallKind.Interface;
+            // Nothing derives from a struct, so the override a struct declares (GetHashCode, Equals, ToString) is the member the call
+            // runs, on a value that may have no object for a dispatch to find.
+            if (method.ContainingType.IsValueType)
+                return IrCallKind.Instance;
             if (method.IsVirtual || method.IsAbstract || method.IsOverride)
                 return IrCallKind.Virtual;
             return IrCallKind.Instance;
@@ -4797,7 +4820,7 @@ public static class IrLowering
                 var direct = compilation.GetSpecialType(SpecialType.System_Array).GetMembers(method.Name).OfType<IMethodSymbol>()
                     .Single(candidate => method.Name == "Clear" ? candidate.Parameters.Length == 1 :
                         candidate.Parameters.Length == 2 && candidate.Parameters[1].Type.SpecialType == SpecialType.System_Int32);
-                if (LibraryCalls.Of(direct, libraryModels) is not { } library)
+                if (LibraryCalls.Of(direct, libraryModels, compilation) is not { } library)
                     return null;
                 return new IrImplementation("", new IrCollectionCall(SymbolNames.Method(direct), IrCollectionEffect.None, IrCollectionEffect.None, null, false))
                 {
@@ -4827,7 +4850,7 @@ public static class IrLowering
     /// bound to the ordinal of the parameter it names; a member of this compilation is never the library's.</summary>
     private static class LibraryCalls
     {
-        internal static IrLibraryCall? Of(IMethodSymbol method, LibraryModels libraryModels)
+        internal static IrLibraryCall? Of(IMethodSymbol method, LibraryModels libraryModels, Compilation compilation)
         {
             var definition = (method.ReducedFrom ?? method).OriginalDefinition;
             if (LibraryModels.IsDeclaredInRun(definition) ||
@@ -4873,12 +4896,17 @@ public static class IrLowering
                                      match.DeclaredOpaque)
             {
                 Fates = fates,
+                Calls = match.Calls.Select(call => new IrModelCall(CalledMethods(call.Member, call.Inputs.Count, compilation), Value(typed, call.On),
+                                                                   call.Inputs.Select(input => (IReadOnlyList<IrModelValue>)input.Select(value => Value(typed, value)).ToArray())
+                                                                       .ToArray()))
+                                   .ToArray(),
                 Keeps = match.Keeps.ToDictionary(keep => KeeperOrdinal(typed, keep.Key),
                                                  keep => (IReadOnlyList<IrModelValue>)keep.Value.Select(value => Value(typed, value)).ToArray()),
                 KeeperTypeKeys = match.Keeps.Keys.Where(name => name != "result")
                     .Concat(match.Fates.SelectMany(fate => fate.Inputs ?? []).SelectMany(input => input).Concat(match.Result?.Leaf.Values ?? [])
                                  .Concat(match.Stores.Values.SelectMany(values => values)).Concat(match.Outputs.Values.SelectMany(output => output.Values))
-                                 .Concat(match.Keeps.Values.SelectMany(values => values)).SelectMany(Keepers))
+                                 .Concat(match.Keeps.Values.SelectMany(values => values))
+                                 .Concat(match.Calls.SelectMany(call => call.Inputs.SelectMany(input => input).Prepend(call.On))).SelectMany(Keepers))
                     .Distinct(StringComparer.Ordinal).ToDictionary(name => KeeperOrdinal(typed, name), name =>
                         SymbolNames.TypeKey((name == "this" ? typed.ContainingType : Parameter(typed, name).Type).OriginalDefinition)),
                 Stores = match.Stores.ToDictionary(store => store.Key == "this" ? IrLibraryCall.RECEIVER : Parameter(typed, store.Key).Ordinal,
@@ -4895,6 +4923,30 @@ public static class IrLowering
                                                                              ? TaskTypes.Depth(method.ReturnType) : 0))),
                 ReturnTaskDepth = method.MethodKind == MethodKind.Constructor || method.ReturnsVoid ? 0 : TaskTypes.Depth(method.ReturnType)
             };
+        }
+
+        /// <summary>The framework members a model's call of <paramref name="member"/> with <paramref name="count"/> parameters runs:
+        /// an object's own <c>Equals</c>, <c>GetHashCode</c> and its <c>IEquatable&lt;T&gt;</c> and <c>IComparable</c> members, or a
+        /// comparer's members, as the compilation declares them.</summary>
+        /// <param name="member">The member's name.</param>
+        /// <param name="count">How many parameters it takes.</param>
+        /// <param name="compilation">The compilation declaring the framework types.</param>
+        private static IReadOnlyList<string> CalledMethods(string member, int count, Compilation compilation)
+        {
+            var types = (member, count) switch
+            {
+                ("Equals", 1) => [compilation.GetSpecialType(SpecialType.System_Object), compilation.GetTypeByMetadataName("System.IEquatable`1")],
+                ("Equals", 2) or ("GetHashCode", 1) => [compilation.GetTypeByMetadataName("System.Collections.IEqualityComparer"),
+                                                        compilation.GetTypeByMetadataName("System.Collections.Generic.IEqualityComparer`1")],
+                ("GetHashCode", 0) => [compilation.GetSpecialType(SpecialType.System_Object)],
+                ("CompareTo", 1) => [compilation.GetTypeByMetadataName("System.IComparable"), compilation.GetTypeByMetadataName("System.IComparable`1")],
+                ("Compare", 2) => [compilation.GetTypeByMetadataName("System.Collections.IComparer"),
+                                   compilation.GetTypeByMetadataName("System.Collections.Generic.IComparer`1")],
+                _ => new INamedTypeSymbol?[] { }
+            };
+            return types.OfType<INamedTypeSymbol>()
+                        .SelectMany(type => type.GetMembers(member).OfType<IMethodSymbol>().Where(method => !method.IsStatic && method.Parameters.Length == count))
+                        .Select(method => RootBodyId(method.OriginalDefinition)).ToArray();
         }
 
         /// <summary>What <paramref name="depth"/> levels of tasks around a type complete with.</summary>

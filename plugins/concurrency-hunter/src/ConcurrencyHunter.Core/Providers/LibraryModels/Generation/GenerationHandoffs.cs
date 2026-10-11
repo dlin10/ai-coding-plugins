@@ -48,7 +48,11 @@ public sealed class GenerationHandoffs
         foreach (var call in unknownCalls)
         {
             var values = call.Receivers.Concat(call.Arguments.SelectMany(argument => argument.Values)).Concat(call.Delegates);
-            AddCall((call.Instance.Id, call.OperationId), values.SelectMany(value => _heap.Resolve(call.Instance.Id, value)));
+            // A reference argument hands the cell or field it names, which the call may read and write as it may any storage of an
+            // object handed to it: the object that storage lies in is handed (question 160).
+            var storage = call.Arguments.SelectMany(argument => argument.References)
+                              .SelectMany(target => ValueProvenance.ReferenceStorage(_heap, call.Instance, target, out _));
+            AddCall((call.Instance.Id, call.OperationId), values.SelectMany(value => _heap.Resolve(call.Instance.Id, value)).Concat(storage));
         }
 
         var observation = new ValueObservation(driver, run, unknownCalls.Select(call => (call.Instance.Id, call.OperationId)).ToHashSet());
@@ -108,10 +112,16 @@ public sealed class GenerationHandoffs
         var implementation = driver.Member.ContainingAssembly.Name;
         foreach (var access in _analysis.Accesses)
         {
+            // A type initializer runs before any program code could put anything into its type's statics: what it reads or writes there
+            // is the library's own start, never a value setup's seed stands for (question 158).
+            var initializedStatic = _heap.Regions.TryGetValue(access.RegionId, out var accessed) && accessed.Kind == HeapRegionKind.Static
+                ? $"type-initializer:{accessed.TypeKey}"
+                : null;
             if (!_heap.Instances.TryGetValue(access.InstanceId, out var instance) ||
                 !instance.BodyId.StartsWith($"body:{implementation}:", StringComparison.Ordinal) ||
                 access.Executions.All(execution => _executions.Of(execution).Role is DriverExecutionRole.Setup or DriverExecutionRole.Own or
-                                                                                      DriverExecutionRole.Child or DriverExecutionRole.Artefact))
+                                                                                      DriverExecutionRole.Child or DriverExecutionRole.Artefact ||
+                                                   execution == initializedStatic))
             {
                 continue;
             }
@@ -276,6 +286,11 @@ public sealed class GenerationHandoffs
     internal static bool IsTransparentIntrinsic(string callee) => string.Equals(callee, UNSAFE_OBJECT_CAST, StringComparison.Ordinal);
 
     private static bool IsWitness(MethodInstance instance) => instance.Summary.Stores.Any(store => IsWitnessField(store.Field));
+
+    /// <summary>Whether an instance is a witness of a member the analysis takes to read what it gets — a getter, <c>ToString</c>, or
+    /// a member of equality, hash or ordering, which a model's <c>calls</c> runs.</summary>
+    /// <param name="instance">The instance.</param>
+    public static bool IsConventionWitness(MethodInstance instance) => IsWitness(instance) && ReadsByConvention(instance);
 
     /// <summary>Whether a witness stands for a member the analysis takes to read what it gets: it stores only into fields
     /// <see cref="DriverSynthesizer.READ_WITNESS_FIELD"/> names.</summary>

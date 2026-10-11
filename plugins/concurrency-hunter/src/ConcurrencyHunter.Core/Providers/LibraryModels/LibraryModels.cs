@@ -45,6 +45,7 @@ public sealed record LibraryModel(string Id, IReadOnlyList<SupportedAssemblyVers
     public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Keeps { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
     public IReadOnlyDictionary<string, LibraryResult> Outputs { get; init; } = new Dictionary<string, LibraryResult>();
     public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Stores { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
+    public IReadOnlyList<LibraryMemberCall> Calls { get; init; } = [];
 }
 
 /// <summary>A type every one of whose members is known without effect when it takes only immutable arguments (R2). With
@@ -82,6 +83,7 @@ public sealed record LibraryMatch(LibraryMatchKind Kind, string MemberId, IReadO
     public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Keeps { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
     public IReadOnlyDictionary<string, LibraryResult> Outputs { get; init; } = new Dictionary<string, LibraryResult>();
     public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Stores { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
+    public IReadOnlyList<LibraryMemberCall> Calls { get; init; } = [];
 }
 
 /// <summary>The built-in library models of TD-034a: known calls by exact member identity, assembly name and version range,
@@ -333,7 +335,7 @@ public sealed class LibraryModels
 
     private static LibraryMatch? Match(LibraryModel model, IAssemblySymbol? assembly, string id) =>
         Match(RangeOf(model.Assemblies, assembly), assembly, id, model.Effects, model.Layer, model.DeclaredOpaque) is { } match
-            ? match with { Result = model.Result, Fates = model.Fates, Stores = model.Stores, Outputs = model.Outputs, Keeps = model.Keeps }
+            ? match with { Result = model.Result, Fates = model.Fates, Stores = model.Stores, Outputs = model.Outputs, Keeps = model.Keeps, Calls = model.Calls }
             : null;
 
     private static LibraryMatch? Match(SupportedAssemblyVersion? range, IAssemblySymbol? assembly, string id,

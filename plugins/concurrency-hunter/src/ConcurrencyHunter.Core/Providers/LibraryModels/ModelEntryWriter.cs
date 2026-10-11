@@ -63,6 +63,18 @@ internal static class ModelEntryWriter
         if (model.Keeps.Count != 0)
             entry["keeps"] = Values(model.Keeps.OrderBy(pair => pair.Key, StringComparer.Ordinal), pair => pair.Key,
                                      pair => pair.Value.Select(value => value.Canonical));
+        if (model.Calls.Count != 0)
+        {
+            var calls = new JsonArray();
+            foreach (var call in model.Calls.DistinctBy(call => call.Canonical).OrderBy(call => call.Canonical, StringComparer.Ordinal))
+            {
+                var value = new JsonObject { ["member"] = call.Member, ["on"] = call.On.Canonical };
+                if (call.Inputs.Count != 0)
+                    value["inputs"] = new JsonArray(call.Inputs.Select(input => TextArray(input.Select(item => item.Canonical))).ToArray());
+                calls.Add(value);
+            }
+            entry["calls"] = calls;
+        }
         return entry;
     }
 

@@ -15,7 +15,7 @@
       },
       "reason": null,
       "model": null,
-      "modelReason": "unknown-touch",
+      "modelReason": "incomplete",
       "reachedBodies": 49
     },
     {
@@ -342,8 +342,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "8.0.0.0",
+          "maximumExclusive": "8.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 342
     },
     {
@@ -494,7 +514,7 @@
       "classified": {},
       "reason": null,
       "model": null,
-      "modelReason": "unknown-touch",
+      "modelReason": "vocabulary",
       "reachedBodies": 21
     },
     {
@@ -703,8 +723,22 @@
       },
       "classified": {},
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {
+          "source": [
+            "reads-deep"
+          ]
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 518
     },
     {
@@ -953,8 +987,22 @@
       },
       "classified": {},
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {
+          "source": [
+            "reads-deep"
+          ]
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 388
     },
     {
@@ -2262,8 +2310,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -2280,8 +2348,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -2298,8 +2386,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -2316,8 +2424,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -2334,8 +2462,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -2352,8 +2500,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -2370,8 +2538,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int32}})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -2388,8 +2576,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -2406,8 +2614,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -2424,8 +2652,28 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})",
+        "assemblies": [
+          "System.Linq"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "selector": {
+            "fate": "invoke-now",
+            "inputs": [
+              [
+                "elements(arg:source)"
+              ]
+            ]
+          }
+        }
+      },
+      "modelReason": null,
       "reachedBodies": 392
     },
     {
@@ -3348,10 +3596,10 @@
     }
   ],
   "exact": 11,
-  "fateGoldEntries": 3,
+  "fateGoldEntries": 4,
   "effectsExact": 8,
   "linqExact": {
-    "System.Linq": 5,
+    "System.Linq": 17,
     "System.Linq.Queryable": 0
   },
   "accessorsExact": 7

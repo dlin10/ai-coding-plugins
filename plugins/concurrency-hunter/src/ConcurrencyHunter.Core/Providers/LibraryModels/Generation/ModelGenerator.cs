@@ -224,6 +224,9 @@ public static class ModelGenerator
         var body = IrLowering.RootBodyId(driver.Member);
         if (run.LoweringDiagnostics.FirstOrDefault(diagnostic => diagnostic.StartsWith($"lowering: {body}:", StringComparison.Ordinal)) is { } own)
             return facts.Refused(GenerationReasons.ANALYSIS_FAILED, own, driver, run);
+        // What the run shows is the member's only when the call ran its body: a receiver a factory made may dispatch to an override.
+        if (!RanMember(driver, run, body))
+            return facts.Refused(GenerationReasons.ANALYSIS_FAILED, $"the call never reached {body}", driver, run);
 
         FateClassification classification;
         try
@@ -300,6 +303,18 @@ public static class ModelGenerator
         };
     }
 
+    /// <summary>Whether the member's own body ran in the tree of the driver's call or enumeration.</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="run">The completed run.</param>
+    /// <param name="body">The member's body id.</param>
+    private static bool RanMember(Driver driver, ScopeRun run, string body)
+    {
+        var executions = new DriverExecutions(driver, run.Executions!, new HashSet<string>(StringComparer.Ordinal));
+        return run.Heap!.Instances.Values.Any(instance => instance.BodyId == body &&
+            (run.Executions!.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
+               .Any(execution => executions.InTree(execution, DriverSynthesizer.CALL) || executions.InTree(execution, DriverSynthesizer.ENUMERATE)));
+    }
+
     /// <summary>The model entry the readers describe, without the effects the vocabulary cannot name; each of those is recorded as a
     /// cause, and an entry built with one is not the member's model.</summary>
     /// <param name="member">The generated member.</param>
@@ -319,14 +334,16 @@ public static class ModelGenerator
         {
             foreach (var effect in observed)
             {
-                // TD-034a lets `this` carry only writes-cells. A read of the receiver that reaches a seed — a user object a program
-                // stored there — is a real effect the vocabulary cannot name; every other receiver effect is the library's own state.
-                if (parameter == FateClassifier.THIS && effect.Kind != EffectReader.WRITES_CELLS)
+                // The receiver's own state is the library's: only what it holds of the user's — a seed, a probe its construction was
+                // given — is an effect on this. A read of it is a deep read of this; a write has no form, since writes-arg on this would
+                // name the receiver's own fields.
+                if (parameter == FateClassifier.THIS && effect.Kind == EffectReader.WRITES_ARGUMENT)
                 {
-                    if (effect.ReadsSeed)
-                        causes.Add(ModelReasons.VOCABULARY, ModelCauses.RECEIVER_SEED_READ, $"{effect.Kind} of this");
+                    causes.Add(ModelReasons.VOCABULARY, ModelCauses.RECEIVER_OBJECT_WRITE, "writes-arg of this");
                     continue;
                 }
+                if (parameter == FateClassifier.THIS && effect.Kind == EffectReader.READS_DEEP && !effect.ReadsUserObject)
+                    continue;
                 if (effect.Kind == EffectReader.READS_DEEP && EnumerationReadIsNamed(parameter, effect, fates, values))
                     continue;
                 if (effect.Roots.Contains(DriverSynthesizer.ENUMERATE, StringComparer.Ordinal) &&
@@ -354,7 +371,8 @@ public static class ModelGenerator
             Fates = fates,
             Keeps = values.Keeps,
             Outputs = values.Outputs,
-            Stores = values.Stores
+            Stores = values.Stores,
+            Calls = values.Calls
         };
     }
 

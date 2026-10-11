@@ -50,6 +50,7 @@ internal static class BuiltInModelReader
                 }
                 var (result, fates, stores, outputs, keeps) = LibraryVocabulary.Entry(entry.Result, (entry.Fates ?? []).Select(fate =>
                     new RawFate(fate.Key, fate.Value.Fate, fate.Value.Holder, fate.Value.Inputs)).ToArray(), effects, entry.Stores, entry.Outputs, entry.Keeps);
+                var calls = LibraryVocabulary.Calls((entry.Calls ?? []).Select(call => new RawCall(call.Member, call.On, call.Inputs)).ToArray(), fates);
                 members.Add(new LibraryModel(entry.Member, assemblies.Select(name => new SupportedAssemblyVersion(name, version.Value.Minimum,
                                                                                                           version.Value.Maximum)).ToArray(), effects)
                 {
@@ -57,7 +58,8 @@ internal static class BuiltInModelReader
                     Fates = fates,
                     Stores = stores,
                     Outputs = outputs,
-                    Keeps = keeps
+                    Keeps = keeps,
+                    Calls = calls
                 });
             }
             var types = new List<ImmutableLibraryType>();
@@ -154,7 +156,17 @@ internal sealed class ModelEntry
     public Dictionary<string, string>? Outputs { get; set; }
     public string? Result { get; set; }
     public Dictionary<string, ModelFateEntry>? Fates { get; set; }
+    public ModelCallEntry[]? Calls { get; set; }
     public bool? Opaque { get; set; }
+    public string? Note { get; set; }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed class ModelCallEntry
+{
+    public string? Member { get; set; }
+    public string? On { get; set; }
+    public string[][]? Inputs { get; set; }
     public string? Note { get; set; }
 }
 

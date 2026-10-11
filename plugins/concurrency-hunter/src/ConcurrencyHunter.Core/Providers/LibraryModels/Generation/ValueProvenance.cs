@@ -31,7 +31,10 @@ public enum ValuePlace
     Store,
 
     /// <summary>The complete value handed to one delegate parameter.</summary>
-    WholeDelegateInput
+    WholeDelegateInput,
+
+    /// <summary>The objects a call's member runs on, or the value one of its parameters is handed.</summary>
+    CallValue
 }
 
 /// <summary>Names every object observed by a generated model entry and derives its result, keeps, outputs, stores and delegate
@@ -106,6 +109,7 @@ public sealed class ValueProvenance
         Outputs = BuildOutputs(rawOutputs);
         Stores = BuildStores(rawStores);
         Inputs = BuildInputs();
+        Calls = BuildCalls();
         HolderTriggers = BuildHolderTriggers();
         KeepingChain = _keepingChain.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                     .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
@@ -128,6 +132,10 @@ public sealed class ValueProvenance
 
     /// <summary>For each classified fate, the values handed to each parameter of its probe delegate.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<IReadOnlyList<LibraryValue>>> Inputs { get; }
+
+    /// <summary>The members of the user's objects the call runs: each equality, hash or ordering member a witness stood for in the
+    /// call's tree, on the objects it ran on, with what each of its parameters got.</summary>
+    public IReadOnlyList<LibraryMemberCall> Calls { get; }
 
     /// <summary>For each holder fate, the declaration ids of the holder members whose trigger fired its probe.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<string>> HolderTriggers { get; }
@@ -235,6 +243,9 @@ public sealed class ValueProvenance
                 completion = new LibraryResult(LibraryResultKind.Task, [], completion);
             return completion;
         }
+        // What a member of a type that holds no object returns — node.GetHashCode(), list.Count, ToString() — names nothing.
+        if (!CanHoldObject(type))
+            return null;
         if (regions.Count == 0 && SymbolicReturnNames() is { Count: > 0 } symbolic)
             return new LibraryResult(LibraryResultKind.OneOf, symbolic);
         if (regions.Count == 0 && !type.IsValueType && ReturnedNestedAssigned() is { } variable)
@@ -498,6 +509,63 @@ public sealed class ValueProvenance
             inputs[group.Key] = parameters;
         }
         return inputs;
+    }
+
+    /// <summary>The calls of the user's equality, hash and ordering members: a witness of one that ran in the call's tree, named by the
+    /// objects it ran on and what each parameter got. One that ran only where the result is enumerated has no form, since a call's
+    /// members run at the call.</summary>
+    private IReadOnlyList<LibraryMemberCall> BuildCalls()
+    {
+        var calls = new List<LibraryMemberCall>();
+        var expected = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.CALL };
+        foreach (var instance in _fate.Heap.Instances.Values.Where(GenerationHandoffs.IsConventionWitness))
+        {
+            if (CalledMember(instance.BodyId) is not var (member, count))
+                continue;
+            var executions = _fate.Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal);
+            if (!executions.Any(execution => _fate.Executions.InTree(execution, DriverSynthesizer.CALL)))
+            {
+                if (executions.Any(execution => _fate.Executions.InTree(execution, DriverSynthesizer.ENUMERATE)))
+                    _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.CALL_AT_ENUMERATION, $"{member} in {instance.BodyId}");
+                continue;
+            }
+
+            Observe(instance.Receivers, $"call:{member}");
+            var inputs = new IReadOnlyList<LibraryValue>[count];
+            for (var ordinal = 0; ordinal < count; ordinal++)
+            {
+                var handed = instance.Parameters.GetValueOrDefault(ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
+                Observe(handed, $"call:{member}:{ordinal}");
+                inputs[ordinal] = Names(handed, ValuePlace.CallValue, _fate, expected);
+            }
+            foreach (var on in Names(instance.Receivers, ValuePlace.CallValue, _fate, expected))
+                calls.Add(new LibraryMemberCall(member, on, inputs));
+        }
+        return calls.DistinctBy(call => call.Canonical).OrderBy(call => call.Canonical, StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>The equality, hash or ordering member a witness body stands for, by name and parameter count, or <c>null</c> for any other
+    /// member the analysis takes to read: a getter or <c>ToString</c>.</summary>
+    /// <param name="bodyId">The witness's body.</param>
+    private (string Member, int Count)? CalledMember(string bodyId)
+    {
+        if (_fate.Run.Program.Method(bodyId) is not { } method)
+            return null;
+        // An explicit implementation is named by the interface member it implements: System#IComparable{Probe_T}#CompareTo.
+        var name = method.ImplementedInterfaceMethodIds.FirstOrDefault() is { } implemented ? MemberName(implemented) : method.Name;
+        return LibraryMemberCall.Members.TryGetValue(name, out var counts) && counts.Contains(method.Parameters.Count)
+            ? (name, method.Parameters.Count)
+            : null;
+    }
+
+    /// <summary>The simple name of the member a method id names: <c>CompareTo</c> of
+    /// <c>body:System.Private.CoreLib:M:System.IComparable`1.CompareTo(`0)</c>.</summary>
+    /// <param name="methodId">The method id.</param>
+    private static string MemberName(string methodId)
+    {
+        var id = methodId[methodId.IndexOf(":M:", StringComparison.Ordinal)..];
+        var end = id.IndexOf('(') is var open and >= 0 ? open : id.Length;
+        return id[(id.LastIndexOf('.', end - 1) + 1)..end];
     }
 
     private IReadOnlyDictionary<string, IReadOnlyList<string>> BuildHolderTriggers()

@@ -428,11 +428,12 @@ public sealed class EffectReaderTests
     [Fact]
     public void A_library_store_through_a_witness_ref_return_gives_vocabulary()
     {
-        // The receiver's own member, which no argument brought.
+        // The receiver's own member, which no argument brought. Calling it is code the analysis does not see, which refuses first.
         var reader = Read("public abstract class Provider { public abstract ref object Get(); public void Write(Action done) { Get() = new object(); done(); } }",
                           "M:Lib.Provider.Write(System.Action)");
 
-        Assert.Equal(GenerationReasons.VOCABULARY, reader.Reason);
+        Assert.Equal(GenerationReasons.UNKNOWN_TOUCH, reader.Reason);
+        Assert.Contains(reader.Causes, cause => cause.Code == ModelCauses.WITNESS_REFERENCE);
     }
 
     [Fact]

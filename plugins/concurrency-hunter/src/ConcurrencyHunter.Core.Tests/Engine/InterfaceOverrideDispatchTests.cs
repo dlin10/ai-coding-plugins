@@ -20,6 +20,52 @@ public sealed class InterfaceOverrideDispatchTests
         Runs(result, "Derived.M", "Base.M");
     }
 
+    [Theory]
+    [InlineData("public override int GetHashCode() { Marks.Derived++; return 1; }", "_ = value.GetHashCode();", "Value.GetHashCode")]
+    [InlineData("public override string ToString() { Marks.Derived++; return \"v\"; }", "_ = value.ToString();", "Value.ToString")]
+    [InlineData("public override bool Equals(object other) { Marks.Derived++; return false; }", "_ = value.Equals(null);", "Value.Equals")]
+    public async Task A_structs_own_override_runs_without_dispatch(string member, string call, string body)
+    {
+        // A struct value has no object a dispatch could find, and nothing derives from a struct: the member it declares is the one
+        // the call runs, as Roslyn names it, wherever the value came from. Without an object it runs as any member of a struct does,
+        // without a receiver.
+        foreach (var source in new[] { "var value = new Value();", "var value = Store.Value;", "var value = Store.Box.Value;", "var value = Store.Get();" })
+        {
+            var result = await Run($"public struct Value {{ public int Field; {member} }} public sealed class Holder {{ public Value Value; }} " +
+                                   "public static class Store { public static Value Value; public static Holder Box = new Holder(); " +
+                                   "public static Value Get() => Value; }", $"{source} {call}");
+
+            Runs(result, body);
+        }
+    }
+
+    [Theory]
+    [InlineData("struct", "_ = value == Store.Value;", "op_Equality")]
+    [InlineData("struct", "_ = value != Store.Value;", "op_Inequality")]
+    [InlineData("class", "_ = value == Store.Value;", "op_Equality")]
+    [InlineData("class", "_ = value == null;", "op_Equality")]
+    [InlineData("class", "_ = -value;", "op_UnaryNegation")]
+    [InlineData("class", "int number = value;", "op_Implicit")]
+    [InlineData("class", "value += Store.Value;", "op_Addition")]
+    [InlineData("class", "value++;", "op_Increment")]
+    [InlineData("class", "Store.Value++;", "op_Increment")]
+    public async Task A_user_defined_operator_runs_as_a_call_of_its_method(string kind, string use, string body)
+    {
+        // `a == b` on a type that declares the operator calls it: lowered as a comparison, its body ran nowhere, and neither did a
+        // conversion's, a compound assignment's or an increment's (question 157).
+        var result = await Run($"public {kind} Value {{ public int Field; " +
+                               "public static bool operator ==(Value a, Value b) { Marks.Derived++; return true; } " +
+                               "public static bool operator !=(Value a, Value b) { Marks.Derived++; return false; } " +
+                               "public static Value operator -(Value a) { Marks.Derived++; return a; } " +
+                               "public static Value operator +(Value a, Value b) { Marks.Derived++; return a; } " +
+                               "public static Value operator ++(Value a) { Marks.Derived++; return a; } " +
+                               "public static implicit operator int(Value a) { Marks.Derived++; return 0; } " +
+                               "public override bool Equals(object o) => false; public override int GetHashCode() => 0; } " +
+                               "public static class Store { public static Value Value; }", $"var value = Store.Value; {use}");
+
+        Runs(result, $"Value.{body}");
+    }
+
     [Fact]
     public async Task Override_of_an_abstract_implementing_method_runs_without_a_gap()
     {

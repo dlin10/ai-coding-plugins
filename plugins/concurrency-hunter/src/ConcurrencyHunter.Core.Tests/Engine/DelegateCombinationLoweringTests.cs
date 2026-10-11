@@ -229,7 +229,7 @@ public sealed class DelegateCombinationLoweringTests
     }
 
     [Fact]
-    public async Task User_defined_add_returning_a_delegate_and_its_compound_form_stay_computes()
+    public async Task User_defined_add_returning_a_delegate_and_its_compound_form_are_calls_of_the_operator()
     {
         var body = await Lower("""
             using System;
@@ -250,13 +250,14 @@ public sealed class DelegateCombinationLoweringTests
             }
             """);
 
-        // The two user-defined additions stay computes; only the predefined `first + local` is a combination.
-        Assert.Equal(["Add", "Add"], Operations<IrComputeOperation>(body).Select(compute => compute.Operator));
+        // The two user-defined additions are calls of the operator (question 157); only the predefined `first + local` is a combination.
+        Assert.Equal(2, Operations<IrCallOperation>(body).Count(call => call.TargetMethodId?.Contains("op_Addition", StringComparison.Ordinal) == true));
+        Assert.Empty(Operations<IrComputeOperation>(body));
         Assert.Single(Operations<IrCombineDelegatesOperation>(body));
     }
 
     [Fact]
-    public async Task User_defined_subtract_returning_a_delegate_and_its_compound_form_stay_computes()
+    public async Task User_defined_subtract_returning_a_delegate_and_its_compound_form_are_calls_of_the_operator()
     {
         var body = await Lower("""
             using System;
@@ -277,7 +278,7 @@ public sealed class DelegateCombinationLoweringTests
             """);
 
         Assert.Empty(Operations<IrCombineDelegatesOperation>(body));
-        Assert.Equal(["Subtract", "Subtract"], Operations<IrComputeOperation>(body).Select(compute => compute.Operator));
+        Assert.Equal(2, Operations<IrCallOperation>(body).Count(call => call.TargetMethodId?.Contains("op_Subtraction", StringComparison.Ordinal) == true));
     }
 
     [Fact]

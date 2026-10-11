@@ -3458,8 +3458,8 @@ ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationLoweringTests.Local_compo
 ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationLoweringTests.Remove_of_two_delegates_is_a_removal_with_source_first	Passed
 ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationLoweringTests.Remove_with_named_arguments_in_reverse_order_keeps_source_as_its_first_operand	Passed
 ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationLoweringTests.RemoveAll_of_two_delegates_is_a_removal	Passed
-ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationLoweringTests.User_defined_add_returning_a_delegate_and_its_compound_form_stay_computes	Passed
-ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationLoweringTests.User_defined_subtract_returning_a_delegate_and_its_compound_form_stay_computes	Passed
+ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationLoweringTests.User_defined_add_returning_a_delegate_and_its_compound_form_are_calls_of_the_operator	Passed
+ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationLoweringTests.User_defined_subtract_returning_a_delegate_and_its_compound_form_are_calls_of_the_operator	Passed
 ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationMatrixTests.Combination_reads_every_array_cell	Passed
 ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationMatrixTests.Every_cell_runs_the_expected_delegates	Passed
 ConcurrencyHunter.Core.Tests.Engine.DelegateCombinationMatrixTests.Every_combination_depends_on_all_its_operands	Passed
@@ -4064,6 +4064,18 @@ ConcurrencyHunter.Core.Tests.Engine.InterfaceCollectionCallTests.Source_type_rei
 ConcurrencyHunter.Core.Tests.Engine.InterfaceCollectionCallTests.TryGetValue_through_IDictionary_hands_out_the_value	Passed
 ConcurrencyHunter.Core.Tests.Engine.InterfaceCollectionCallTests.Values_through_IDictionary_of_a_Dictionary_is_its_live_view_alone	Passed
 ConcurrencyHunter.Core.Tests.Engine.InterfaceMemberCoverageTests.Every_interface_member_of_a_table_type_or_an_array_is_decided_or_named_opaque	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_structs_own_override_runs_without_dispatch(member: "public override bool Equals(object other) { Marks."···, call: "_ = value.Equals(null);", body: "Value.Equals")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_structs_own_override_runs_without_dispatch(member: "public override int GetHashCode() { Marks.Derived+"···, call: "_ = value.GetHashCode();", body: "Value.GetHashCode")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_structs_own_override_runs_without_dispatch(member: "public override string ToString() { Marks.Derived+"···, call: "_ = value.ToString();", body: "Value.ToString")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_user_defined_operator_runs_as_a_call_of_its_method(kind: "class", use: "_ = -value;", body: "op_UnaryNegation")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_user_defined_operator_runs_as_a_call_of_its_method(kind: "class", use: "_ = value == null;", body: "op_Equality")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_user_defined_operator_runs_as_a_call_of_its_method(kind: "class", use: "_ = value == Store.Value;", body: "op_Equality")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_user_defined_operator_runs_as_a_call_of_its_method(kind: "class", use: "int number = value;", body: "op_Implicit")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_user_defined_operator_runs_as_a_call_of_its_method(kind: "class", use: "Store.Value++;", body: "op_Increment")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_user_defined_operator_runs_as_a_call_of_its_method(kind: "class", use: "value += Store.Value;", body: "op_Addition")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_user_defined_operator_runs_as_a_call_of_its_method(kind: "class", use: "value++;", body: "op_Increment")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_user_defined_operator_runs_as_a_call_of_its_method(kind: "struct", use: "_ = value != Store.Value;", body: "op_Inequality")	Passed
+ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.A_user_defined_operator_runs_as_a_call_of_its_method(kind: "struct", use: "_ = value == Store.Value;", body: "op_Equality")	Passed
 ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.Contravariant_interface_call_reaches_its_implementation	Passed
 ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.Covariant_interface_call_reaches_its_implementation	Passed
 ConcurrencyHunter.Core.Tests.Engine.InterfaceOverrideDispatchTests.Di_bound_interface_reaches_the_override	Passed
@@ -4163,10 +4175,13 @@ ConcurrencyHunter.Core.Tests.Engine.IteratorExecutionTests.Semaphore_held_at_yie
 ConcurrencyHunter.Core.Tests.Engine.IteratorExecutionTests.Unknown_enumeration_of_shared_project_stays_inside_each_process_scope	Passed
 ConcurrencyHunter.Core.Tests.Engine.IteratorExecutionTests.Unknown_enumeration_overlaps_itself	Passed
 ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Deep_read_of_a_keeper_reads_kept_objects	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Deep_read_of_the_receiver_reads_kept_objects	Passed
 ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Empty_keepers_of_one_wave_all_go_to_the_type_store	Passed
 ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Escape_through_a_keeper_names_the_keeping_call	Passed
 ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Holder_kept_by_a_keeper_handed_to_a_call_without_a_body_adds_an_unknown_execution	Passed
 ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keeper_is_not_a_delegate_holder	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keeper_known_on_one_path_and_unknown_on_another_keeps_into_the_type_store_too	Passed
+ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keeper_known_on_one_path_and_unknown_on_another_reads_the_type_store_too	Passed
 ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keeper_whose_object_arrives_during_propagation_keeps_into_it_and_not_into_the_type_store	Passed
 ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keepers_without_an_object_share_one_store_per_type	Passed
 ConcurrencyHunter.Core.Tests.Engine.KeptObjectTests.Keeps_act_at_the_call_even_with_a_sequence_result	Passed
@@ -4345,6 +4360,11 @@ ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Static_store_and_load_are
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Store_under_a_condition_on_the_read_with_an_independent_value_has_no_dependency	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Store_under_a_lock_carries_the_lock_values	Passed
 ConcurrencyHunter.Core.Tests.Engine.MethodSummaryTests.Thirteen_segment_path_collapses_to_a_wildcard_at_the_default_limit_only	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCallTests.A_call_the_model_does_not_name_runs_no_member	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCallTests.A_type_without_the_member_runs_nothing_and_leaves_no_gap	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCallTests.A_users_CompareTo_of_IComparable_of_T_runs	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCallTests.A_users_Equals_writes_the_other_object_its_input_names	Passed
+ConcurrencyHunter.Core.Tests.Engine.ModelCallTests.A_users_GetHashCode_the_call_runs_writes_where_the_call_stands	Passed
 ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_hides_the_same_calls_read_of_those_cells	Passed
 ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_is_never_atomic	Passed
 ConcurrencyHunter.Core.Tests.Engine.ModelCellWriteTests.Cell_write_keeps_what_the_cells_hold	Passed
@@ -6326,11 +6346,23 @@ ConcurrencyHunter.Core.Tests.Generation.GeneratedEntryMatrixTests.Every_listed_r
 ConcurrencyHunter.Core.Tests.Generation.GeneratedEntryMatrixTests.The_matrix_covers_every_axis_value	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_case_met_again_formats_its_evidence_once	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_case_of_a_later_reason_is_named_beside_the_first	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_getter_of_the_receiver_the_analysis_takes_to_read_keeps_the_model_through_a_witness	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_getter_or_ToString_a_witness_stood_for_is_no_call(member: "public static void Log(Node node, Action done) { _"···, id: "M:Lib.Api.Log(Lib.Node,System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_getter_or_ToString_a_witness_stood_for_is_no_call(member: "public static void Look(Node node, Action done) { "···, id: "M:Lib.Api.Look(Lib.Node,System.Action)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_load_of_an_unseeded_field_names_the_field	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_an_argument_called_through_a_witness_names_the_member(types: "public abstract class Converter { public abstract "···, id: "M:Lib.Api.Run(Lib.Options,System.Action)", member: "Convert")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_an_argument_called_through_a_witness_names_the_member(types: "public interface IStore { bool Has(object key); vo"···, id: "M:Lib.Api.TryPut(Lib.IStore,System.Object,System.O"···, member: "IStore")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_an_argument_called_through_a_witness_names_the_member(types: "public sealed class Options { public Action<object"···, id: "M:Lib.Api.Run(Lib.Options,Lib.Value)", member: "Invoke")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_an_argument_called_through_a_witness_names_the_member(types: "public static class Api { public static void Fill("···, id: "M:Lib.Api.Fill(System.IO.Stream,System.Byte[])", member: "Write")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_equality_hash_or_ordering_a_witness_stood_for_is_a_call(member: "public static bool Less<T>(T a, T b) where T : ICo"···, id: "M:Lib.Api.Less``1(``0,``0)", call: "CompareTo(arg:a|arg:b)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_equality_hash_or_ordering_a_witness_stood_for_is_a_call(member: "public static void Hash(IEqualityComparer<Node> co"···, id: "M:Lib.Api.Hash(System.Collections.Generic.IEqualit"···, call: "GetHashCode(arg:comparer|arg:node)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_equality_hash_or_ordering_a_witness_stood_for_is_a_call(member: "public static void Hash(Node node) { _ = node.GetH"···, id: "M:Lib.Api.Hash(Lib.Node)", call: "GetHashCode(arg:node|)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_equality_hash_or_ordering_a_witness_stood_for_is_a_call(member: "public static void Order(IComparer<Node> comparer,"···, id: "M:Lib.Api.Order(System.Collections.Generic.ICompar"···, call: "Compare(arg:comparer|arg:a|arg:b)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_equality_hash_or_ordering_a_witness_stood_for_is_a_call(member: "public static void Same(Node node, Node other) { _"···, id: "M:Lib.Api.Same(Lib.Node,Lib.Node)", call: "Equals(arg:node|arg:other)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_equality_hash_or_ordering_a_witness_stood_for_is_a_call(member: "public static void Same<T>(T a, T b) where T : IEq"···, id: "M:Lib.Api.Same``1(``0,``0)", call: "Equals(arg:a|arg:b)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_the_receiver_called_through_a_witness_names_the_member(types: "public abstract class Target { public abstract voi"···, id: "M:Lib.Writer.Write(System.Object)", member: "Put")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_the_receiver_called_through_a_witness_names_the_member(types: "public class Handle { private object _state = new "···, id: "M:Lib.Handle.Close", member: "Dispose")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_of_the_receiver_called_through_a_witness_names_the_member(types: "public class Reader { public virtual int Read(char"···, id: "M:Lib.Reader.Fill(System.Char[])", member: "Read")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static bool Less<T>(T a, T b) where T : ICo"···, id: "M:Lib.Api.Less``1(``0,``0)", read: "b")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Hash(IEqualityComparer<Node> co"···, id: "M:Lib.Api.Hash(System.Collections.Generic.IEqualit"···, read: "node")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Hash(Node node) { _ = node.GetH"···, id: "M:Lib.Api.Hash(Lib.Node)", read: "node")	Passed
@@ -6339,13 +6371,22 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analys
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Order(IComparer<Node> comparer,"···, id: "M:Lib.Api.Order(System.Collections.Generic.ICompar"···, read: "a")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Same(Node node, Node other) { _"···, id: "M:Lib.Api.Same(Lib.Node,Lib.Node)", read: "other")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_the_analysis_takes_to_read_keeps_the_model_through_a_witness(member: "public static void Same<T>(T a, T b) where T : IEq"···, id: "M:Lib.Api.Same``1(``0,``0)", read: "b")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_whose_body_the_call_never_reached_has_no_answer	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_member_with_a_model_names_no_cause	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_given_to_an_operation_the_lowering_does_not_express_names_the_operation(member: "public static object Pair(Node node, Action done) "···, id: "M:Lib.Api.Pair(Lib.Node,System.Action)", kind: "Tuple")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_given_to_an_operation_the_lowering_does_not_express_names_the_operation(member: "public static string Describe(Node node, Action do"···, id: "M:Lib.Api.Describe(Lib.Node,System.Action)", kind: "Interpolation")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_handed_to_an_extern_method_and_an_unsupported_operation_names_only_the_call	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_handed_to_an_extern_method_names_the_call	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_the_receivers_own_state_names_no_effect	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_what_a_user_delegate_returned_names_the_field	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_what_the_receiver_holds_is_a_deep_read_of_this(types: "public abstract class Part { public abstract strin"···, id: "M:Lib.Cell.Describe")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_what_the_receiver_holds_is_a_deep_read_of_this(types: "public abstract class Part { public abstract strin"···, id: "M:Lib.Frame.Describe")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_what_the_receiver_holds_is_a_deep_read_of_this(types: "public sealed class Cell<T> { public T Value; publ"···, id: "M:Lib.Cell`1.ToString")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_reference_to_an_inputs_storage_handed_to_a_bodyless_call_hands_the_object_the_storage_lies_in(member: "public static void TouchElement(Node[] nodes, Acti"···, id: "M:Lib.Api.TouchElement(Lib.Node[],System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_reference_to_an_inputs_storage_handed_to_a_bodyless_call_hands_the_object_the_storage_lies_in(member: "public static void TouchField(Node node, Action do"···, id: "M:Lib.Api.TouchField(Lib.Node,System.Action)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_store_into_a_library_static_names_the_store	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_struct_receivers_own_override_runs_in_the_call	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_initializer_assigning_its_own_seeded_static_touches_no_user_object	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "Action set = () => a[0] = 1; set();", written: "a")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "Id(a)[0] = 1;", written: "a")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "var all = new[] { a }; all[0][0] = 1;", written: "a")	Passed
@@ -6354,9 +6395,12 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "var r = Choice.Value ? a : b; r[0] = 1;", written: "a,b")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "void Local() { a[0] = 1; } Local();", written: "a")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_address_handed_to_Unsafe_goes_to_unseen_code	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_equality_member_of_what_the_receiver_holds_has_no_name_to_run_on	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_operation_the_lowering_does_not_express_that_no_probe_reaches_leaves_the_model	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.Library_state_is_not_looked_for_once_unknown_touch_is_found	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_a_witness_gives_back_through_out_is_no_longer_lost	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_is_read_through_a_reference_a_bodyless_call_returns_is_unobserved(member: "public static Mem2 Reinterpret(Mem m) => Raw.As<Me"···, id: "M:Lib.Api.Reinterpret(Lib.Mem)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_is_read_through_a_reference_a_bodyless_call_returns_is_unobserved(member: "public static Node Element(Node[] nodes) => Raw.At"···, id: "M:Lib.Api.Element(Lib.Node[])")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.A_call_instance_used_in_setup_and_the_call_files_values_in_both_sets	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.A_call_on_a_parameter_a_caller_binds_to_an_unknown_calls_result_hands_its_argument(body: "Helper(DateTime.Now.Ticks == 0 ? Extern.Make() : n"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.A_call_on_a_parameter_a_caller_binds_to_an_unknown_calls_result_hands_its_argument(body: "Helper(Extern.Make(), p);")	Passed
@@ -6477,6 +6521,15 @@ ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_ref_store_through
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_ref_store_through_source_helpers_is_an_output(body: "Assign(ref result, value);", helpers: "private static void Assign(ref object target, obje"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_ref_store_through_source_helpers_is_an_output(body: "Assign(value, ref result);", helpers: "private static void Assign(object value, ref objec"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_ref_store_through_source_helpers_is_an_output(body: "Forward(ref result, value);", helpers: "private static void Forward(ref object target, obj"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_of_a_type_that_holds_no_object_needs_no_name(member: "public static async Task<int> HashLater(Node node)"···, id: "M:Lib.Api.HashLater(Lib.Node)", read: "node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_of_a_type_that_holds_no_object_needs_no_name(member: "public static bool Has(List<Node> nodes, Node node"···, id: "M:Lib.Api.Has(System.Collections.Generic.List{Lib."···, read: "nodes")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_of_a_type_that_holds_no_object_needs_no_name(member: "public static bool Same(Node node, Node other) => "···, id: "M:Lib.Api.Same(Lib.Node,Lib.Node)", read: "other")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_of_a_type_that_holds_no_object_needs_no_name(member: "public static bool TryHash(Node node, out int hash"···, id: "M:Lib.Api.TryHash(Lib.Node,System.Int32@)", read: "node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_of_a_type_that_holds_no_object_needs_no_name(member: "public static int Count(List<Node> nodes) => nodes"···, id: "M:Lib.Api.Count(System.Collections.Generic.List{Li"···, read: null)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_of_a_type_that_holds_no_object_needs_no_name(member: "public static int Hash(Node node) => node.GetHashC"···, id: "M:Lib.Api.Hash(Lib.Node)", read: "node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_of_a_type_that_holds_no_object_needs_no_name(member: "public static int Size(Node node) => node.Size;", id: "M:Lib.Api.Size(Lib.Node)", read: "node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_of_a_type_that_holds_no_object_needs_no_name(member: "public static string Show(Node node) => node.ToStr"···, id: "M:Lib.Api.Show(Lib.Node)", read: "node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_of_a_type_that_holds_no_object_needs_no_name(member: "public static Task<int> HashNow(Node node) => Task"···, id: "M:Lib.Api.HashNow(Lib.Node)", read: "node")	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_result_whose_allocation_site_also_ran_in_setup_has_vocabulary_reason	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_returned_variable_a_nested_body_writes_that_names_no_value_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_sealed_library_receiver_can_be_a_keeper	Passed
@@ -6877,6 +6930,18 @@ ConcurrencyHunter.Core.Tests.Providers.CandidacyTests.Property_event_and_accesso
 ConcurrencyHunter.Core.Tests.Providers.CandidacyTests.Property_event_and_accessor_ids_are_accessor(id: "M:Lib.Box.set_Value(System.Object)")	Passed
 ConcurrencyHunter.Core.Tests.Providers.CandidacyTests.Property_event_and_accessor_ids_are_accessor(id: "P:Lib.Box.Value")	Passed
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Built_in_entry_with_writes_cells_and_stores_loads	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_breaking_a_rule_are_refused(member: "Plain", decision: " \"effects\":{},\"calls\":[{\"member\":\"Equals\","···, reason: "takes 1 or 2 inputs, not 0")	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_breaking_a_rule_are_refused(member: "Plain", decision: " \"effects\":{},\"calls\":[{\"member\":\"GetHashCo"···, reason: "builds")	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_breaking_a_rule_are_refused(member: "Plain", decision: " \"effects\":{},\"calls\":[{\"member\":\"GetHashCo"···, reason: "names no parameter")	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_breaking_a_rule_are_refused(member: "Plain", decision: " \"effects\":{},\"calls\":[{\"member\":\"GetHashCo"···, reason: "needs the objects it is on")	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_breaking_a_rule_are_refused(member: "Plain", decision: " \"effects\":{},\"calls\":[{\"member\":\"GetHashCo"···, reason: "new is not allowed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_breaking_a_rule_are_refused(member: "Plain", decision: " \"effects\":{},\"calls\":[{\"member\":\"GetHashCo"···, reason: "this needs an instance")	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_breaking_a_rule_are_refused(member: "Plain", decision: " \"effects\":{},\"calls\":[{\"member\":\"GetHashCo"···, reason: "unknown property")	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_breaking_a_rule_are_refused(member: "Plain", decision: " \"effects\":{},\"calls\":[{\"member\":\"ToString\"···, reason: "needs a member of")	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_of_a_listed_member_with_its_inputs_are_accepted(member: "Fill", decision: " \"effects\":{},\"calls\":[{\"member\":\"Equals\","···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_of_a_listed_member_with_its_inputs_are_accepted(member: "Plain", decision: " \"effects\":{\"value\":[\"reads-deep\"]},\"calls\"···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Calls_of_a_listed_member_with_its_inputs_are_accepted(member: "Self", decision: " \"effects\":{},\"calls\":[{\"member\":\"CompareTo"···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Entries_differing_only_in_calls_disagree	Passed
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Entries_differing_only_in_stores_disagree	Passed
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Dictionary", result: "dictionary(arg:key,sequence(arg:a,arg:b))", accepted: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Dictionary", result: "dictionary(arg:key,sequence(arg:b,arg:a))", accepted: True)	Passed
@@ -6884,7 +6949,8 @@ ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_c
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Sequence", result: "[sequence(arg:a,arg:bad)]", accepted: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Sequence", result: "[sequence(arg:b,arg:a)]", accepted: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Every_typed_leaf_is_checked_whatever_its_order(member: "Sequence", result: "[sequence(arg:bad,arg:a)]", accepted: False)	Passed
-ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Reads_deep_on_this_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Reads_deep_on_this_is_accepted	Passed
+ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Reads_deep_on_this_of_a_static_member_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Stored_value_that_does_not_convert_to_the_element_type_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.Stores_without_writes_cells_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.CellVocabularyTests.This_on_a_static_member_is_refused	Passed
@@ -7106,11 +7172,11 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_probe_passed_throug
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_probe_passed_through_Unsafe_As_is_not_handed_and_keeps_its_name	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_read_from_a_delegate_return_has_vocabulary_model_reason	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_field_holding_an_object_its_constructor_made_handed_to_an_extern_method_keeps_its_entry	Passed
-ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_handed_to_an_extern_method_has_vocabulary_reason	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_handed_to_an_extern_method_is_a_deep_read_of_this	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_left_alone_by_a_setter_that_reads_its_value_keeps_its_entry	Passed
-ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_reached_through_a_field_of_the_receiver_handed_to_an_extern_method_has_vocabulary_reason	Passed
-ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_read_below_a_field_the_setter_then_stores_its_value_into_has_vocabulary_reason	Passed
-ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_whose_ToString_the_member_calls_has_vocabulary_reason	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_reached_through_a_field_of_the_receiver_handed_to_an_extern_method_is_a_deep_read_of_this	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_read_below_a_field_the_setter_then_stores_its_value_into_is_a_deep_read_of_this	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_receiver_seed_whose_ToString_the_member_calls_is_a_deep_read_of_this	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_seed_statement_that_reaches_no_object_is_listed_as_unseeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_store_below_a_carrier_argument_has_vocabulary_reason(store: "p.Inner.Slot = d;")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_store_below_a_carrier_argument_has_vocabulary_reason(store: "p.Items[0] = d;")	Passed
@@ -7458,6 +7524,7 @@ ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.Operator_semantics(row: "
 ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.Operator_semantics(row: "Where, SkipWhile, TakeWhile, DistinctBy, OrderBy, "···, members: "Where SkipWhile TakeWhile DistinctBy OrderBy Order"···, inputs: "*:[E(source)]", result: "sequence(E(source))", effects: "")	Passed
 ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.Operator_semantics(row: "Zip(first, second, resultSelector)", members: "Zip(first,second,resultSelector)", inputs: "resultSelector:[E(first)][E(second)]", result: "sequence(returns:resultSelector)", effects: "")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.A_complete_entry_has_the_expected_bytes	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Calls_have_one_order_whatever_order_they_are_built_in_and_round_trip	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Dictionary_and_grouping_positions_remain_distinct(first: "[grouping(arg:items,arg:output)]", second: "[grouping(arg:output,arg:items)]")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Dictionary_and_grouping_positions_remain_distinct(first: "dictionary(arg:items,arg:output)", second: "dictionary(arg:output,arg:items)")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Entry_and_fate_properties_have_the_fixed_order	Passed

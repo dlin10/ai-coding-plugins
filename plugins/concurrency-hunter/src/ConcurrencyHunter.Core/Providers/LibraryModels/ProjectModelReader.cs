@@ -13,6 +13,7 @@ internal sealed record ProjectModelEntry(string Path, int Position, string Membe
     public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Keeps { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
     public IReadOnlyDictionary<string, LibraryResult> Outputs { get; init; } = new Dictionary<string, LibraryResult>();
     public IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Stores { get; init; } = new Dictionary<string, IReadOnlyList<LibraryValue>>();
+    public IReadOnlyList<LibraryMemberCall> Calls { get; init; } = [];
 }
 
 internal sealed record ModelRejection(string Path, string? Entry, string Reason)
@@ -175,7 +176,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
     private static ProjectModelEntry ParseEntry(JsonElement entry, string path, int position, IReadOnlyList<string>? defaults,
                                                 (Version Minimum, Version Maximum)? defaultVersions)
     {
-        Properties(entry, ["member", "assemblies", "versions", "effects", "result", "fates", "stores", "outputs", "keeps", "opaque", "note"]);
+        Properties(entry, ["member", "assemblies", "versions", "effects", "result", "fates", "stores", "outputs", "keeps", "calls", "opaque", "note"]);
         if (!entry.TryGetProperty("member", out var memberValue) || memberValue.ValueKind != JsonValueKind.String ||
             memberValue.GetString() is not { } member ||
             !BuiltInModelReader.IsMemberId(member) && !IsPattern(member))
@@ -223,8 +224,9 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
         var hasStores = entry.TryGetProperty("stores", out var storesValue);
         var hasOutputs = entry.TryGetProperty("outputs", out var outputsValue);
         var hasKeeps = entry.TryGetProperty("keeps", out var keepsValue);
-        if (hasOpaque && (hasResult || hasFates || hasStores || hasOutputs || hasKeeps))
-            throw new FormatException("result, fates, stores, outputs and keeps go only with effects.");
+        var hasCalls = entry.TryGetProperty("calls", out var callsValue);
+        if (hasOpaque && (hasResult || hasFates || hasStores || hasOutputs || hasKeeps || hasCalls))
+            throw new FormatException("result, fates, stores, outputs, keeps and calls go only with effects.");
         if (hasResult && resultValue.ValueKind != JsonValueKind.String)
             throw new FormatException("result must be a string.");
         var fates = new List<RawFate>();
@@ -271,14 +273,42 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
             }
         }
         var (result, parsedFates, stores, outputs, keeps) = LibraryVocabulary.Entry(hasResult ? resultValue.GetString() : null, fates, effects, rawStores, rawOutputs, rawKeeps);
+        var calls = hasCalls ? LibraryVocabulary.Calls(Calls(callsValue), parsedFates) : [];
         return new ProjectModelEntry(path, position, member, assemblies, versions, effects, hasOpaque)
         {
             Result = result,
             Fates = parsedFates,
             Stores = stores,
             Outputs = outputs,
-            Keeps = keeps
+            Keeps = keeps,
+            Calls = calls
         };
+    }
+
+    private static IReadOnlyList<RawCall> Calls(JsonElement calls)
+    {
+        if (calls.ValueKind != JsonValueKind.Array)
+            throw new FormatException("calls must be an array of objects.");
+        return calls.EnumerateArray().Select(call =>
+        {
+            Properties(call, ["member", "on", "inputs", "note"]);
+            string? Text(string name) => !call.TryGetProperty(name, out var value) ? null :
+                                         value.ValueKind == JsonValueKind.String ? value.GetString() :
+                                         throw new FormatException($"a call's {name} must be a string.");
+            Text("note");
+            IReadOnlyList<IReadOnlyList<string>>? inputs = null;
+            if (call.TryGetProperty("inputs", out var inputsValue))
+            {
+                if (inputsValue.ValueKind != JsonValueKind.Array ||
+                    inputsValue.EnumerateArray().Any(input => input.ValueKind != JsonValueKind.Array ||
+                                                              input.EnumerateArray().Any(value => value.ValueKind != JsonValueKind.String)))
+                    throw new FormatException("a call's inputs must be an array of arrays of strings.");
+                inputs = inputsValue.EnumerateArray().Select(input => (IReadOnlyList<string>)input.EnumerateArray()
+                                                                                                     .Select(value => value.GetString()!).ToArray())
+                                    .ToArray();
+            }
+            return new RawCall(Text("member"), Text("on"), inputs);
+        }).ToArray();
     }
 
     private static RawFate Fate(JsonProperty fate)

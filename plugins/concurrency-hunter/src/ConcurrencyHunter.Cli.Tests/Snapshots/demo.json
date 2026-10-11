@@ -290,7 +290,7 @@
         "solver-sat": 16,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
-        "unproven-reference": 13,
+        "unproven-reference": 168,
         "unresolved-locator": 2,
         "unsupported-operation": 17,
         "wildcard-access": 8
@@ -340,7 +340,7 @@
         "semantic-gap": 0,
         "solver-available": 1,
         "unanalysed-registration": 0,
-        "unproven-reference": 0,
+        "unproven-reference": 2,
         "unresolved-locator": 0,
         "unsupported-operation": 0,
         "wildcard-access": 0

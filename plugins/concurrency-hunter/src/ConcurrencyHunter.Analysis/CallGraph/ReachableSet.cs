@@ -548,6 +548,10 @@ public static class ReachableSet
                                     else if (values.TryGetValue(handed, out var handedValue))
                                         AddDelegateInvocation(handedValue.Type, $"delegate:{bodyId}:{call.Id}");
                                 }
+
+                                // The members a known call runs on the user's objects are reached as a call of each would reach them.
+                                foreach (var methodId in library.Calls.SelectMany(model => model.MethodIds).Distinct(StringComparer.Ordinal))
+                                    ReachTargets(Targets(methodId, true), true, target => ReachBody(target, reason));
                             }
                         }
 

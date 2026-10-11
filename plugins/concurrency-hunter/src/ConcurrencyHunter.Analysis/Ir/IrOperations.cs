@@ -345,6 +345,9 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     /// <summary>Where each delegate the call receives runs and what it is handed (ADR 0012).</summary>
     public IReadOnlyList<IrLibraryFate> Fates { get; init; } = [];
 
+    /// <summary>The members of the user's objects the call runs where it stands: their equality, hash and ordering members.</summary>
+    public IReadOnlyList<IrModelCall> Calls { get; init; } = [];
+
     /// <summary>What the call returns, null where the model says nothing: the result is then linked to nothing.</summary>
     public IrLibraryResult? Result { get; init; }
 
@@ -450,7 +453,10 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
 
     public IEnumerable<IrModelValue> Values() => Fates.SelectMany(fate => fate.Inputs).SelectMany(input => input)
                                                       .Concat(Result?.Leaf.Values ?? []).Concat(Stores.Values.SelectMany(values => values))
-                                                      .Concat(Outputs.Values.SelectMany(output => output.Values)).Concat(Keeps.Values.SelectMany(values => values));
+                                                      .Concat(Outputs.Values.SelectMany(output => output.Values)).Concat(Keeps.Values.SelectMany(values => values))
+                                                      .Concat(CallValues());
+
+    private IEnumerable<IrModelValue> CallValues() => Calls.SelectMany(call => call.Inputs.SelectMany(input => input).Prepend(call.On));
 
     /// <summary>The kept sources enumerated once at the selected moment.</summary>
     /// <param name="deferred">Whether the sources belong to the result sequence's enumeration.</param>
@@ -467,6 +473,7 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
              .Concat((Result?.Leaf.Kind == IrResultKind.Sequence) == deferred ? (Result?.Leaf.Values ?? []).SelectMany(value => Enumerated(value, intoSequences: false)) : [])
              .Concat(deferred ? [] : Keeps.Values.SelectMany(values => values).SelectMany(value => Enumerated(value, intoSequences: true)))
              .Concat(deferred ? [] : Stores.Values.SelectMany(values => values).SelectMany(value => Enumerated(value, intoSequences: true)))
+             .Concat(deferred ? [] : CallValues().SelectMany(value => Enumerated(value, intoSequences: true)))
              .Concat(deferred ? [] : Outputs.Values.Where(output => output.Kind != IrResultKind.Sequence)
                                            .SelectMany(output => output.Values).SelectMany(value => Enumerated(value, intoSequences: true)));
 
@@ -505,6 +512,14 @@ public enum IrHolderKind { Result, This }
 /// <param name="Holder">What holds the delegate for a <see cref="IrFateKind.Holder"/> fate, otherwise null.</param>
 /// <param name="Inputs">The values each parameter of the delegate's <c>Invoke</c> is handed.</param>
 public sealed record IrLibraryFate(int ParameterOrdinal, IrFateKind Kind, IrHolderKind? Holder, IReadOnlyList<IReadOnlyList<IrModelValue>> Inputs);
+
+/// <summary>A member a known call runs on the objects <see cref="On"/> names, in the caller's execution: each method of
+/// <see cref="MethodIds"/>, dispatched on those objects, runs where a source type implements it, its parameters handed the values of
+/// <see cref="Inputs"/>; a type with no such implementation runs nothing the analysis has, which the call's deep read stands for.</summary>
+/// <param name="MethodIds">The framework members the call runs: an object's or a comparer's member of one name and parameter count.</param>
+/// <param name="On">The objects whose member runs.</param>
+/// <param name="Inputs">The values each parameter of the member is handed.</param>
+public sealed record IrModelCall(IReadOnlyList<string> MethodIds, IrModelValue On, IReadOnlyList<IReadOnlyList<IrModelValue>> Inputs);
 
 /// <summary>A value of a library model, with the parameters it names by ordinal: a set of objects a delegate is handed or the call
 /// returns.</summary>

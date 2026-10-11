@@ -141,6 +141,34 @@ public sealed class ModelEntryWriterTests
     public void Dictionary_and_grouping_positions_remain_distinct(string first, string second) =>
         Assert.NotEqual(ModelEntryWriter.File(WithResultAndOutput(first)), ModelEntryWriter.File(WithResultAndOutput(second)));
 
+    [Fact]
+    public void Calls_have_one_order_whatever_order_they_are_built_in_and_round_trip()
+    {
+        var model = WithCalls(reverse: false);
+        var files = ProjectModelFiles.Read("model.json", ModelEntryWriter.File(model));
+
+        Assert.Equal(ModelEntryWriter.File(model), ModelEntryWriter.File(WithCalls(reverse: true)));
+        Assert.Empty(files.Rejections);
+        Assert.True(LibraryVocabulary.AlikeCalls(model.Calls, Assert.Single(files.Entries).Calls));
+    }
+
+    /// <summary>Builds a model whose calls and inputs are listed in one order or the reverse.</summary>
+    /// <param name="reverse">Whether to list them in reverse.</param>
+    private static LibraryModel WithCalls(bool reverse)
+    {
+        LibraryValue items = new ArgumentValue("items");
+        LibraryValue output = new ArgumentValue("output");
+        IReadOnlyList<LibraryMemberCall> calls =
+        [
+            new("GetHashCode", items, []),
+            new("Equals", items, [reverse ? [output, items] : [items, output]])
+        ];
+        return new LibraryModel(MEMBER, [new("A", new Version(1, 0, 0, 0), new Version(2, 0, 0, 0))], [])
+        {
+            Calls = reverse ? calls.Reverse().ToArray() : calls
+        };
+    }
+
     /// <summary>Builds a model with the same nested result in both observable destinations.</summary>
     /// <param name="text">The result text.</param>
     private static LibraryModel WithResultAndOutput(string text) => new(MEMBER, [new("A", new Version(1, 0, 0, 0), new Version(2, 0, 0, 0))], [])

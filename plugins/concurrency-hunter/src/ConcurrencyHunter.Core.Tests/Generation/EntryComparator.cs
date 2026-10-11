@@ -45,7 +45,8 @@ internal static class EntryComparator
         var exact = unsafeDifference is null && SameEffects(actual.Effects, expected.Effects) &&
                     LibraryVocabulary.Alike(actual.Result, actual.Fates, expected.Result, expected.Fates,
                                             actual.Stores, expected.Stores, actual.Outputs, expected.Outputs,
-                                            actual.Keeps, expected.Keeps);
+                                            actual.Keeps, expected.Keeps) &&
+                    LibraryVocabulary.AlikeCalls(actual.Calls, expected.Calls);
         return new EntryComparison(unsafeDifference is not null, exact,
                                    unsafeDifference ?? (exact ? "entries are canonically equal" : "the generated entry is wider"));
     }
@@ -60,6 +61,11 @@ internal static class EntryComparator
             return "missing kept value " + missingKeep;
         if (MissingValues(actual.Stores, expected.Stores) is { } missingStore)
             return "missing stored value " + missingStore;
+        // A member the truth runs on the user's objects that the answer does not run hides what it does.
+        if (expected.Calls.FirstOrDefault(call => !actual.Calls.Any(candidate => candidate.Member == call.Member && Covers(candidate.On, call.On) &&
+                                                                                 candidate.Inputs.Count == call.Inputs.Count &&
+                                                                                 candidate.Inputs.Zip(call.Inputs).All(pair => Covers(pair.First, pair.Second)))) is { } missingCall)
+            return $"missing call of {missingCall.Member} on {missingCall.On}";
 
         if (expected.Result is { } expectedResult)
         {

@@ -112,6 +112,11 @@ public static class ModelCauses
     /// <c>ToString</c>, <c>Equals</c>, <c>GetHashCode</c> or a member of comparison, which it takes to read what they get.</summary>
     public const string ARGUMENT_MEMBER_UNSEEN = "argument-member-unseen";
 
+    /// <summary><c>unknown-touch</c>: outside setup the member called a member of the receiver, or of an object the receiver reaches,
+    /// that a witness stands for — an override of the receiver's subclass, which stands for both a user override and the library's own
+    /// body, or a seed's member —, other than one the analysis takes to read, as for an argument.</summary>
+    public const string RECEIVER_MEMBER_UNSEEN = "receiver-member-unseen";
+
     /// <summary><c>incomplete</c>: the member read a field setup could not seed or did not reach.</summary>
     public const string UNSEEDED_READ = "unseeded-read";
 
@@ -161,6 +166,10 @@ public static class ModelCauses
 
     /// <summary><c>vocabulary</c>: the member stored through a reference whose place is not proven.</summary>
     public const string UNPROVEN_REFERENCE_STORE = "unproven-reference-store";
+
+    /// <summary><c>vocabulary</c>: enumerating the result ran a user's equality, hash or ordering member, which a model's
+    /// <c>calls</c> runs only at the call.</summary>
+    public const string CALL_AT_ENUMERATION = "call-at-enumeration";
 
     /// <summary><c>vocabulary</c>: a known library call that enumerates an argument also writes it.</summary>
     public const string ENUMERATION_WRITE = "enumeration-write";
@@ -213,8 +222,9 @@ public static class ModelCauses
     /// <summary><c>vocabulary</c>: a store through a reference into an array cell has no proven place or value.</summary>
     public const string REFERENCE_VALUE_UNOBSERVED = "reference-value-unobserved";
 
-    /// <summary><c>vocabulary</c>: a read of the receiver reached a seed, a user object a program stored there.</summary>
-    public const string RECEIVER_SEED_READ = "receiver-seed-read";
+    /// <summary><c>vocabulary</c>: the member wrote a field of an object the receiver is or holds that is not the library's own
+    /// state; <c>writes-arg</c> on <c>this</c> would name the receiver's own fields.</summary>
+    public const string RECEIVER_OBJECT_WRITE = "receiver-object-write";
 
     /// <summary><c>vocabulary</c>: enumerating the result read an argument, and the result is no sequence that names it.</summary>
     public const string ENUMERATION_WITHOUT_SEQUENCE = "enumeration-without-sequence";

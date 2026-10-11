@@ -447,46 +447,51 @@ public sealed class GeneratedEntryTests
     }
 
     [Fact]
-    public void A_receiver_seed_handed_to_an_extern_method_has_vocabulary_reason()
+    public void A_receiver_seed_handed_to_an_extern_method_is_a_deep_read_of_this()
     {
-        // The seed stands for a user object a program stored in the receiver; unseen code touching it is a read `this` cannot carry.
+        // The seed stands for a user object a program stored in the receiver; unseen code touching it is a read of it, as of an
+        // argument's seed (question 80).
         var answer = Answer("public class Item { public object Value; } " +
                             "public sealed class Host { private Item _item; public void Run(object p) { Sink.Take(_item); } }",
                             "M:Lib.Host.Run(System.Object)");
 
-        AssertNoModel(answer, ModelReasons.VOCABULARY);
+        AssertPassesReader(answer);
+        Assert.Contains(LibraryEffect.DeepReadOf("this"), answer.Model!.Effects);
     }
 
     [Fact]
-    public void A_receiver_seed_whose_ToString_the_member_calls_has_vocabulary_reason()
+    public void A_receiver_seed_whose_ToString_the_member_calls_is_a_deep_read_of_this()
     {
         var answer = Answer("public class Item { public object Value; } " +
                             "public sealed class Host { private Item _item; public void Run(object p) { _ = _item.ToString(); } }",
                             "M:Lib.Host.Run(System.Object)");
 
-        AssertNoModel(answer, ModelReasons.VOCABULARY);
+        AssertPassesReader(answer);
+        Assert.Contains(LibraryEffect.DeepReadOf("this"), answer.Model!.Effects);
     }
 
     [Fact]
-    public void A_receiver_seed_reached_through_a_field_of_the_receiver_handed_to_an_extern_method_has_vocabulary_reason()
+    public void A_receiver_seed_reached_through_a_field_of_the_receiver_handed_to_an_extern_method_is_a_deep_read_of_this()
     {
         var answer = Answer("public class Item { public object Value; } public sealed class Slot { public Item Item; } " +
                             "public sealed class Host { private Slot _slot = new Slot(); public void Run(object p) { Sink.Take(_slot); } }",
                             "M:Lib.Host.Run(System.Object)");
 
-        AssertNoModel(answer, ModelReasons.VOCABULARY);
+        AssertPassesReader(answer);
+        Assert.Contains(LibraryEffect.DeepReadOf("this"), answer.Model!.Effects);
     }
 
     [Fact]
-    public void A_receiver_seed_read_below_a_field_the_setter_then_stores_its_value_into_has_vocabulary_reason()
+    public void A_receiver_seed_read_below_a_field_the_setter_then_stores_its_value_into_is_a_deep_read_of_this()
     {
         // The heap does not follow order: the seed's Child setup stored lands in the kept value too, so an argument reaches it; the
-        // read of the previously held object's Child is still a read of a user object `this` cannot carry.
+        // read of the previously held object's Child is still a read of a user object the receiver held.
         var answer = Answer("public class Item { public object Child; } " +
                             "public sealed class Host { private Item _item; public Item P { set { _item.Child.ToString(); _item = value; } } }",
                             "M:Lib.Host.set_P(Lib.Item)");
 
-        AssertNoModel(answer, ModelReasons.VOCABULARY);
+        AssertPassesReader(answer);
+        Assert.Contains(LibraryEffect.DeepReadOf("this"), answer.Model!.Effects);
     }
 
     [Fact]

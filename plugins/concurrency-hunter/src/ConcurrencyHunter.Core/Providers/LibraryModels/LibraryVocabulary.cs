@@ -168,6 +168,34 @@ public sealed record LibraryResult(LibraryResultKind Kind, IReadOnlyList<Library
         string.Join(',', values.Select(value => value.Canonical).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
 }
 
+/// <summary>A member a known call runs on the objects a value names — an object's <c>Equals</c>, <c>GetHashCode</c> or
+/// <c>CompareTo</c>, a comparer's <c>Compare</c>, <c>Equals</c> or <c>GetHashCode</c> — with the values each of its parameters gets
+/// (question 47).</summary>
+/// <param name="Member">The member's name.</param>
+/// <param name="On">The objects whose member runs.</param>
+/// <param name="Inputs">The values each parameter of the member gets, one array per parameter.</param>
+public sealed record LibraryMemberCall(string Member, LibraryValue On, IReadOnlyList<IReadOnlyList<LibraryValue>> Inputs)
+{
+    /// <summary>The members a call may run, by name, with the parameter counts each may have: <c>Equals</c> of an object takes one,
+    /// a comparer's two; <c>GetHashCode</c> of an object none, a comparer's one.</summary>
+    public static readonly IReadOnlyDictionary<string, IReadOnlyList<int>> Members = new Dictionary<string, IReadOnlyList<int>>(StringComparer.Ordinal)
+    {
+        ["Equals"] = [1, 2],
+        ["GetHashCode"] = [0, 1],
+        ["CompareTo"] = [1],
+        ["Compare"] = [2]
+    };
+
+    /// <summary>The text two calls that mean the same share, whatever order their inputs list values in.</summary>
+    internal string Canonical => $"{Member}({On.Canonical}|{string.Join('|', Inputs.Select(LibraryResult.Set))})";
+}
+
+/// <summary>A call as a model file writes it, before the entry step reads it.</summary>
+/// <param name="Member">The member's name, or null when absent.</param>
+/// <param name="On">The value text naming the objects, or null when absent.</param>
+/// <param name="Inputs">The value texts each parameter gets, or null when absent.</param>
+internal sealed record RawCall(string? Member, string? On, IReadOnlyList<IReadOnlyList<string>>? Inputs);
+
 /// <summary>A fate as a model file writes it, before the entry step reads it.</summary>
 /// <param name="Parameter">The delegate parameter's name.</param>
 /// <param name="Fate">The fate's text, or null when absent.</param>
@@ -249,8 +277,9 @@ internal static class LibraryVocabulary
 
         foreach (var effect in effects)
         {
-            if (effect.Parameter == "this" && effect.Kind != LibraryEffectKind.WriteCells)
-                throw new FormatException("this is a target only of writes-cells.");
+            // The receiver's own fields are library state, so writes-arg on this would describe what a model may not change.
+            if (effect.Parameter == "this" && effect.Kind == LibraryEffectKind.WriteArgument)
+                throw new FormatException("this is a target only of reads-deep and writes-cells.");
         }
         var stores = new Dictionary<string, IReadOnlyList<LibraryValue>>(StringComparer.Ordinal);
         foreach (var (target, texts) in rawStores ?? new Dictionary<string, string[]>())
@@ -400,6 +429,62 @@ internal static class LibraryVocabulary
         }
     }
 
+    /// <summary>The entry step for an entry's calls: a member of the closed list with as many inputs as one of its parameter counts,
+    /// every value parsing and placed as the values of <c>stores</c> and <c>keeps</c> are — <c>returns:D</c> only of an
+    /// <c>invoke-now</c> fate, no <c>new</c>, <c>holder-arg:N</c> or <c>kept:result</c> — and naming no object the call builds.</summary>
+    /// <param name="raw">The calls as the file writes them.</param>
+    /// <param name="fates">The entry's fates.</param>
+    internal static IReadOnlyList<LibraryMemberCall> Calls(IReadOnlyList<RawCall> raw, IReadOnlyList<LibraryFate> fates)
+    {
+        var byParameter = fates.ToDictionary(fate => fate.Parameter, StringComparer.Ordinal);
+        var calls = new List<LibraryMemberCall>();
+        foreach (var call in raw)
+        {
+            if (call.Member is null || !LibraryMemberCall.Members.TryGetValue(call.Member, out var counts))
+                throw new FormatException($"a call needs a member of {string.Join(", ", LibraryMemberCall.Members.Keys)}; '{call.Member}' is none.");
+            var inputs = call.Inputs ?? [];
+            if (!counts.Contains(inputs.Count))
+                throw new FormatException($"a call of {call.Member} takes {string.Join(" or ", counts)} inputs, not {inputs.Count}.");
+            var on = Value(call.On ?? throw new FormatException($"a call of {call.Member} needs the objects it is on."));
+            calls.Add(new LibraryMemberCall(call.Member, on, inputs.Select(input => (IReadOnlyList<LibraryValue>)input.Select(Value).ToArray()).ToArray()));
+        }
+        return calls;
+
+        LibraryValue Value(string text)
+        {
+            var value = LibraryValue.Parse(text) ?? throw new FormatException($"call value '{text}' does not parse.");
+            if (value is SequenceValue or GroupingValue)
+                throw new FormatException($"{value} is an object the call builds, which runs no user member.");
+            Place(value, byParameter, into: null, result: null, "calls", whole: true);
+            return value;
+        }
+    }
+
+    /// <summary>The member step for an entry's calls on the member's original definition, or null when they fit it: every value names
+    /// what the member has, as the values of the other forms do.</summary>
+    /// <param name="calls">The entry's calls.</param>
+    /// <param name="method">The member's original definition.</param>
+    /// <param name="compilation">The compilation that checks conversions.</param>
+    internal static string? MemberCalls(IReadOnlyList<LibraryMemberCall> calls, IMethodSymbol method, Compilation compilation)
+    {
+        try
+        {
+            new MemberCheck(null, [], method, compilation, [], new Dictionary<string, IReadOnlyList<LibraryValue>>(),
+                            new Dictionary<string, LibraryResult>(), new Dictionary<string, IReadOnlyList<LibraryValue>>()).Calls(calls);
+            return null;
+        }
+        catch (Refusal refusal)
+        {
+            return refusal.Message;
+        }
+    }
+
+    /// <summary>Whether two entries' calls say the same, whatever order they and their inputs are written in.</summary>
+    /// <param name="a">The first entry's calls.</param>
+    /// <param name="b">The second entry's calls.</param>
+    internal static bool AlikeCalls(IReadOnlyList<LibraryMemberCall> a, IReadOnlyList<LibraryMemberCall> b) =>
+        a.Select(call => call.Canonical).ToHashSet(StringComparer.Ordinal).SetEquals(b.Select(call => call.Canonical));
+
     /// <summary>The member step on the member's original definition, or null when the entry fits it.</summary>
     /// <param name="result">The entry's result.</param>
     /// <param name="fates">The entry's fates.</param>
@@ -474,6 +559,18 @@ internal static class LibraryVocabulary
                                     IReadOnlyList<LibraryEffect> effects, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> stores,
                                     IReadOnlyDictionary<string, LibraryResult> outputs, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> keeps)
     {
+        /// <summary>Checks that every value of the calls names what the member has.</summary>
+        /// <param name="calls">The entry's calls.</param>
+        internal void Calls(IReadOnlyList<LibraryMemberCall> calls)
+        {
+            foreach (var call in calls)
+            {
+                _ = TypeOf(call.On);
+                foreach (var value in call.Inputs.SelectMany(input => input))
+                    _ = TypeOf(value);
+            }
+        }
+
         internal void Run()
         {
             if (HolderResultRefusal(result, fates) is { } holderRefusal)
