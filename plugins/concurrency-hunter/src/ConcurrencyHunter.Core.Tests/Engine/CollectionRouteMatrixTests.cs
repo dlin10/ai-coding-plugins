@@ -323,8 +323,29 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
             cases.Add(new Case(arrayCase.Name, boxType, make, "", new Way("array", "Field", Body("Field", Direct("Box", "0"))), ways));
         }
 
+        // An element of an array the body does not read from a field is that element of each array the heap says the value is, named by
+        // the field holding it (question 34): every route of R3 makes what the same code on the field makes.
+        foreach (var (name, boxType, make, statement) in DirectElementCases)
+        {
+            string Line(string receiver, string index) =>
+                $"{MARK} {statement.Replace("{R}", receiver, StringComparison.Ordinal).Replace("{I}", index, StringComparison.Ordinal)}";
+            cases.Add(new Case(name, boxType, make, "", new Way("array", "Field", Body("Field", Line("Box", "0"))),
+                               ReceiverWays("", "", boxType, Line).Select(route => route with { OwnFields = false }).ToList()));
+        }
+
         return cases.ToDictionary(@case => @case.Name, StringComparer.Ordinal);
     }
+
+    /// <summary>A direct element access of each rank, read, written and read then written, over a receiver <c>{R}</c> and an index
+    /// <c>{I}</c>: its name, the array type the singleton holds in <c>Box</c>, how that array is made, and the statement.</summary>
+    private static readonly (string Name, string BoxType, string Make, string Statement)[] DirectElementCases =
+    [
+        ("Item[] element read", "Item[]", "new Item[] { new Item() }", "({R}[{I}] as Item)!.Hits = 1;"),
+        ("Item[] element write", "Item[]", "new Item[] { new Item() }", "{R}[{I}] = First;"),
+        ("int[] element read-modify-write", "int[]", "new int[4]", "{R}[{I}] = {R}[{I}] + 1;"),
+        ("int[,] element read", "int[,]", "new int[2, 2]", "_ = {R}[{I}, 1];"),
+        ("int[,] element write", "int[,]", "new int[2, 2]", "{R}[{I}, 1] = 1;")
+    ];
 
     /// <summary>The routes of R3 a receiver takes to its statement, <paramref name="line"/> written over a receiver and an index: a local,
     /// a parameter — which takes the index as a parameter of its own too — a helper's result, a cell of another collection, a merge, a
@@ -1053,7 +1074,8 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
     }
 
     /// <summary>Every member case runs every route of R3 and, by the name and the number of arguments alone, every interface of its
-    /// receiver's type the map decides it through; an array case every interface of the array that has its member.</summary>
+    /// receiver's type the map decides it through; an array case every interface of the array that has its member; a direct element
+    /// access every route.</summary>
     [Fact]
     public void Every_member_case_runs_every_route_its_receiver_allows()
     {
@@ -1090,6 +1112,10 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
                                                                 $"{arrayCase.Name} has no row {route} through {label}"));
             }
         }
+
+        // A direct element access runs every route of R3.
+        foreach (var (name, _, _, _) in DirectElementCases)
+            Assert.All(ReceiverRoutes, route => Assert.Contains(Cases.Value[name].Ways, way => way.Label == route));
     }
 
     // ---- running and comparing ----

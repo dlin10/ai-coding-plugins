@@ -456,10 +456,11 @@ public sealed class ReferenceAccessTests
         var run = AnalyzeCase("_state.Window()[0] = 1;", "_state.Data[0] = 2;",
                               "public int[] Data = new int[8]; public int[] Window() => Data;");
 
+        // The heap says which array the call returned, so the index names its cell as on the field (question 34).
         Assert.Single(run.Pairs.Pairs, pair => AcrossWorkers(pair) && pair.Resource.Member.Name == "Data");
         Assert.Contains(run.Collection.Accesses, access => access.Symbol.Contains("FirstWorker", StringComparison.Ordinal) &&
                                                         access.Resource.Member.Name == "Data" &&
-                                                        access.Resource.Selector == ConcurrencyHunter.Analysis.ElementSelector.Unknown);
+                                                        access.Resource.Selector == ConcurrencyHunter.Analysis.ElementSelector.Exact(0));
     }
 
     [Fact]
@@ -478,6 +479,19 @@ public sealed class ReferenceAccessTests
 
         Assert.Empty(run.Pairs.Pairs);
         Assert.Equal(0, run.Counter(ConcurrencyHunter.Accesses.CoverageCounters.UNPROVEN_REFERENCE));
+    }
+
+    [Fact]
+    public void Cells_an_array_gets_before_its_body_publishes_it_are_no_access()
+    {
+        // The array this body allocated is no field's yet while it is filled: an initializer of thousands of cells makes no access,
+        // as before question 34, though the field the body then stores it into holds it.
+        var run = AnalyzeCase("_state.Reset();", "_state.Slots[0] = 2;",
+                              "public void Reset() { var made = new int[3]; made[0] = 1; made[1] = 2; Slots = made; }");
+
+        Assert.Contains(run.Collection.Accesses, access => access.Symbol.Contains("Reset", StringComparison.Ordinal) && access.Resource.Member.Name == "Slots");
+        Assert.DoesNotContain(run.Collection.Accesses, access => access.Symbol.Contains("Reset", StringComparison.Ordinal) &&
+                                                              access.Resource.Member.Name == "Slots" && access.Resource.Selector is not null);
     }
 
     private const string WindowMembers ="public Window WindowData = new(new int[8]); " +

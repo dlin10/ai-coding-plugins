@@ -2180,6 +2180,20 @@ ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_an
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "HashSet.TryGetValue", way: "merge")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "HashSet.TryGetValue", way: "parameter")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "HashSet.TryGetValue", way: "static field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element read", way: "capture")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element read", way: "cell of another collection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element read", way: "helper result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element read", way: "local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element read", way: "merge")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element read", way: "parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element read", way: "static field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element write", way: "capture")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element write", way: "cell of another collection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element write", way: "helper result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element write", way: "local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element write", way: "merge")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element write", way: "parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,] element write", way: "static field")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,].Add", way: "capture through IList")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,].Add", way: "cell of another collection through IList")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,].Add", way: "helper result through IList")	Passed
@@ -2284,6 +2298,27 @@ ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_an
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,].set_Item", way: "merge through IList")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,].set_Item", way: "parameter through IList")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[,].set_Item", way: "static field through IList")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[] element read-modify-write", way: "capture")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[] element read-modify-write", way: "cell of another collection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[] element read-modify-write", way: "helper result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[] element read-modify-write", way: "local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[] element read-modify-write", way: "merge")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[] element read-modify-write", way: "parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "int[] element read-modify-write", way: "static field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element read", way: "capture")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element read", way: "cell of another collection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element read", way: "helper result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element read", way: "local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element read", way: "merge")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element read", way: "parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element read", way: "static field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element write", way: "capture")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element write", way: "cell of another collection")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element write", way: "helper result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element write", way: "local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element write", way: "merge")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element write", way: "parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[] element write", way: "static field")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[].Add", way: "capture through ICollection<Item>")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[].Add", way: "capture through IList")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionRouteMatrixTests.Member_reached_any_way_makes_what_it_makes_on_the_field(name: "Item[].Add", way: "cell of another collection through ICollection<Ite"···)	Passed
@@ -4863,6 +4898,7 @@ ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Ref_returned_through_an_interm
 ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Ref_returned_through_nine_calls_reaches_its_field	Passed
 ConcurrencyHunter.Core.Tests.Engine.RefChainTests.Widened_cell_drops_its_term_and_its_pair_stays	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReferenceAccessTests.Cell_of_a_fresh_collection_a_call_returns_is_no_resource	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReferenceAccessTests.Cells_an_array_gets_before_its_body_publishes_it_are_no_access	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReferenceAccessTests.Conditional_ref_local_reaches_each_proven_target	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReferenceAccessTests.Conditional_ref_return_reaches_each_proven_target	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReferenceAccessTests.Conditional_ref_with_an_unproven_alternative_counts_it	Passed
@@ -6302,6 +6338,13 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_handed_to_a
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_handed_to_an_extern_method_names_the_call	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_what_a_user_delegate_returned_names_the_field	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_store_into_a_library_static_names_the_store	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "Action set = () => a[0] = 1; set();", written: "a")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "Id(a)[0] = 1;", written: "a")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "var all = new[] { a }; all[0][0] = 1;", written: "a")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "var box = new Box2 { Cells = a }; var r = box.Cell"···, written: "a")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "var r = Choice.Value ? a : b; ((IList<int>)r)[0] ="···, written: "a,b")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "var r = Choice.Value ? a : b; r[0] = 1;", written: "a,b")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "void Local() { a[0] = 1; } Local();", written: "a")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_address_handed_to_Unsafe_goes_to_unseen_code	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_operation_the_lowering_does_not_express_that_no_probe_reaches_leaves_the_model	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.Library_state_is_not_looked_for_once_unknown_touch_is_found	Passed

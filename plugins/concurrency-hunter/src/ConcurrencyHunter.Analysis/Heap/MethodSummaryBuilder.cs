@@ -283,24 +283,28 @@ public static class MethodSummaryBuilder
                                                          Final(Points(loadElement.ResultValue), delegates)));
                         break;
                     case IrStoreElementOperation element:
-                        if (((ReferenceTarget?)ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) ??
-                             CallCollection(element.ReceiverValue)) is { } storeCollection)
+                        if (ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } storeCollection)
                             referenceAccesses.Add(new SummaryReferenceAccess(element.Id, SummaryAccessKind.Store, [storeCollection],
                                                                              element.Provenance, locks, Dependencies(element.Value))
                             {
                                 IsCollectionElement = true
                             });
+                        else if (!IsFresh(Slice(element.ReceiverValue).Array))
+                            argumentEffects.Add(StandingElement(element.Id, element.ReceiverValue, element.IndexValues, element.NamesOneCell, ELEMENT_WRITE,
+                                                                element.Provenance, locks, delegates, Dependencies(element.Value)));
                         elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Store, Final(Points(element.ReceiverValue), delegates),
                                                          Final(Points(element.Value), delegates)) { Producers = Producers(element.Value) });
                         break;
                     case IrLoadElementOperation element:
-                        if (((ReferenceTarget?)ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) ??
-                             CallCollection(element.ReceiverValue)) is { } loadCollection)
+                        if (ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } loadCollection)
                             referenceAccesses.Add(new SummaryReferenceAccess(element.Id, SummaryAccessKind.Load, [loadCollection],
                                                                              element.Provenance, locks, new HashSet<ValueDependency>())
                             {
                                 IsCollectionElement = true
                             });
+                        else if (!IsFresh(Slice(element.ReceiverValue).Array))
+                            argumentEffects.Add(StandingElement(element.Id, element.ReceiverValue, element.IndexValues, element.NamesOneCell, ELEMENT_READ,
+                                                                element.Provenance, locks, delegates, new HashSet<ValueDependency>()));
                         elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Load, Final(Points(element.ReceiverValue), delegates),
                                                          Final(Points(element.ResultValue), delegates)));
                         break;
@@ -618,38 +622,48 @@ public static class MethodSummaryBuilder
             foreach (var operation in _operations)
             {
                 if (operation is IrCallOperation original)
-                foreach (var (modelCall, receiverKinds) in LibraryModelCalls(original))
                 {
-                    var model = modelCall.Library!;
-                    if (!model.InRange || model.DeclaredOpaque)
-                        continue;
-                    foreach (var store in model.Stores)
+                    foreach (var (modelCall, receiverKinds) in LibraryModelCalls(original))
                     {
-                        var target = store.Key == IrLibraryCall.RECEIVER ? modelCall.ReceiverValue : modelCall.ArgumentAt(store.Key);
-                        foreach (var source in ValueOrigin.Union(store.Value.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
-                            stores.Add(new SummaryResultStore(source, Final(Points(target), delegates), null)
-                            {
-                                Receivers = Final(Points(original.ReceiverValue), delegates),
-                                ReceiverKinds = receiverKinds,
-                                InterfaceMethod = receiverKinds is null ? null : InterfaceMethodOf(original)
-                            });
-                    }
-                    foreach (var keep in model.Keeps)
-                    foreach (var source in ValueOrigin.Union(keep.Value.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
-                        stores.Add(new SummaryResultStore(source, new HashSet<AbstractValue> { new LibraryKeeperValue(modelCall.Id, keep.Key) }, null));
-                    foreach (var output in model.Outputs)
-                    {
-                        if (modelCall.ArgumentAt(output.Key) is not int argument)
+                        var model = modelCall.Library!;
+                        if (!model.InRange || model.DeclaredOpaque)
                             continue;
-                        foreach (var reference in References(argument))
-                        foreach (var source in ValueOrigin.Union(output.Value.Values.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
-                            stores.Add(new SummaryResultStore(source, new HashSet<AbstractValue> { new ReferenceLocationValue(reference, Read: false) }, null));
+                        foreach (var store in model.Stores)
+                        {
+                            var target = store.Key == IrLibraryCall.RECEIVER ? modelCall.ReceiverValue : modelCall.ArgumentAt(store.Key);
+                            foreach (var source in ValueOrigin.Union(store.Value.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
+                                stores.Add(new SummaryResultStore(source, Final(Points(target), delegates), null)
+                                {
+                                    Receivers = Final(Points(original.ReceiverValue), delegates),
+                                    ReceiverKinds = receiverKinds,
+                                    InterfaceMethod = receiverKinds is null ? null : InterfaceMethodOf(original)
+                                });
+                        }
+
+                        foreach (var keep in model.Keeps)
+                        {
+                            foreach (var source in ValueOrigin.Union(keep.Value.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
+                                stores.Add(new SummaryResultStore(source, new HashSet<AbstractValue> { new LibraryKeeperValue(modelCall.Id, keep.Key) }, null));
+                        }
+
+                        foreach (var output in model.Outputs)
+                        {
+                            if (modelCall.ArgumentAt(output.Key) is not int argument)
+                                continue;
+                            foreach (var reference in References(argument))
+                            {
+                                foreach (var source in ValueOrigin.Union(output.Value.Values.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
+                                    stores.Add(new SummaryResultStore(source, new HashSet<AbstractValue> { new ReferenceLocationValue(reference, Read: false) },
+                                                                      null));
+                            }
+                        }
                     }
                 }
+
                 (int Value, int? Target, IrFieldRef? Field, IReadOnlySet<string>? Kinds)[] written = operation switch
                 {
                     IrStoreFieldOperation store => [(store.Value, store.ReceiverValue, store.Field.IsStatic ? store.Field : null, null)],
-                    IrStoreElementOperation element => [(element.Value, (int?)element.ReceiverValue, (IrFieldRef?)null, null)],
+                    IrStoreElementOperation element => [(element.Value, element.ReceiverValue, null, null)],
                     IrCallOperation call when call.Collection is not null || call.Implementations.Count != 0 =>
                         call.ArgumentValues.Select((value, position) => (value, call.ReceiverValue, (IrFieldRef?)null, HoldingKinds(
                                                    call, position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position)))
@@ -657,6 +671,7 @@ public static class MethodSummaryBuilder
                             .ToArray(),
                     _ => []
                 };
+
                 foreach (var (value, target, field, kinds) in written)
                 {
                     foreach (var source in Producers(value).Calls)
@@ -840,17 +855,22 @@ public static class MethodSummaryBuilder
 
             var receivers = Final(Points(collection), delegates);
             foreach (var (modelCall, kinds) in LibraryModelCalls(call).Where(item => item.Kinds is not null))
-            foreach (var keep in modelCall.Library!.Keeps)
-                yield return new ElementTransfer(call.Id, ElementOperationKind.Store,
-                    new HashSet<AbstractValue> { new LibraryKeeperValue(call.Id, keep.Key) },
-                    new HashSet<AbstractValue> { new LibraryKeepingValue(call.Id, keep.Key) })
+            {
+                foreach (var keep in modelCall.Library!.Keeps)
                 {
-                    Slot = PathValue.KEPT,
-                    IsCollection = true,
-                    Producers = ValueOrigin.Union(keep.Value.Select(value => ModelOrigin(modelCall, value, delegates))),
-                    ArrayKinds = keep.Key == IrLibraryCall.RECEIVER ? kinds : null,
-                    InterfaceMethod = method
-                };
+                    yield return new ElementTransfer(call.Id, ElementOperationKind.Store,
+                                                     new HashSet<AbstractValue> { new LibraryKeeperValue(call.Id, keep.Key) },
+                                                     new HashSet<AbstractValue> { new LibraryKeepingValue(call.Id, keep.Key) })
+                    {
+                        Slot = PathValue.KEPT,
+                        IsCollection = true,
+                        Producers = ValueOrigin.Union(keep.Value.Select(value => ModelOrigin(modelCall, value, delegates))),
+                        ArrayKinds = keep.Key == IrLibraryCall.RECEIVER ? kinds : null,
+                        InterfaceMethod = method
+                    };
+                }
+            }
+
             foreach (var (implementation, kinds) in ImplementationGroups(call))
             {
                 var member = implementation.Member;
@@ -2014,6 +2034,44 @@ public static class MethodSummaryBuilder
             var selector = oneCell ? Selector(indices[0]) : ElementSelector.Unknown;
             return new ReferenceParameterElement(ordinal, selector.InSlice(slice.Shift, slice.Length),
                                                  oneCell ? Shifted(Term(indices[0]), slice.Shift) : null);
+        }
+
+        /// <summary>An element read of an array, as the member of the table an interface call on the array is.</summary>
+        private static readonly IrCollectionCall ELEMENT_READ = new($"{ARRAY_MEMBER}get_Item", IrCollectionEffect.None, IrCollectionEffect.Read, 0, false);
+
+        /// <summary>An element write of an array, as the member of the table an interface call on the array is.</summary>
+        private static readonly IrCollectionCall ELEMENT_WRITE = new($"{ARRAY_MEMBER}set_Item", IrCollectionEffect.None, IrCollectionEffect.Write, 0, false);
+
+        /// <summary>The element access of an array no field of this body names and no parameter brings — a merge, a cell of another
+        /// collection, a capture, a helper's result: an access on each array the heap says the value is, named by the field holding it,
+        /// with the cell its index names, as the same access through an interface makes (TD-070, question 34). A write carries what its
+        /// value depends on, which makes it the read-modify-write the same code on the field is. An array this body allocated itself
+        /// gets none, as before: an initializer writes thousands of cells of an array only this body has yet.</summary>
+        /// <param name="operation">The element operation.</param>
+        /// <param name="receiver">The array value the operation is on.</param>
+        /// <param name="indices">The index values of the operation.</param>
+        /// <param name="namesOneCell">Whether the indices name one cell; otherwise which cell stays unknown.</param>
+        /// <param name="member">The element read or write.</param>
+        /// <param name="provenance">Where the operation is in source.</param>
+        /// <param name="locks">The locks held at the operation.</param>
+        /// <param name="delegates">The final delegate creations used to resolve the arrays.</param>
+        /// <param name="dependencies">What a written value depends on; empty for a read.</param>
+        private SummaryArgumentEffect StandingElement(int operation, int receiver, IReadOnlyList<int> indices, bool namesOneCell, IrCollectionCall member,
+                                                      IrProvenance provenance, IReadOnlyList<HeldLockValue> locks,
+                                                      IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates,
+                                                      IReadOnlySet<ValueDependency> dependencies)
+        {
+            var slice = Slice(receiver);
+            var oneCell = indices.Count == 1 && namesOneCell;
+            return new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, operation, Final(Points(slice.Array), delegates), null, false, provenance, locks)
+            {
+                Member = member,
+                MemberSelector = (oneCell ? Selector(indices[0]) : ElementSelector.Unknown).InSlice(slice.Shift, slice.Length),
+                MemberSelectorTerm = oneCell ? Shifted(Term(indices[0]), slice.Shift) : null,
+                MemberSelectorParameter = oneCell ? ParameterOf(indices[0]).Ordinal : null,
+                MemberSelectorWidth = oneCell ? ParameterOf(indices[0]).Width : null,
+                MemberValueDependencies = dependencies
+            };
         }
 
         /// <summary>The collection an element operation is on when a call with a body returned it: which cell of it is left

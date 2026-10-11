@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
@@ -30,6 +31,9 @@ public sealed class EffectReader
     public const string READS_DEEP = "reads-deep";
     public const string WRITES_ARGUMENT = "writes-arg";
     public const string WRITES_CELLS = "writes-cells";
+
+    /// <summary>The element write of an array as a member of the table names it, directly or through an interface.</summary>
+    private const string ARRAY_ELEMENT_WRITE = "System.Array.set_Item";
 
     private readonly Driver _driver;
     private readonly IReadOnlyDictionary<string, IrBody> _runBodies;
@@ -528,8 +532,10 @@ public sealed class EffectReader
 
     /// <summary>The arrays a library instance's cell stores write into, directly or through a reference into a cell.</summary>
     /// <param name="instance">The library instance that stores.</param>
-    private IReadOnlySet<string> CellStoreTargets(MethodInstance instance) =>
-        instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores).Where(store => store.Kind == ElementOperationKind.Store)
+    /// <param name="slot">The storage the stores write, such as the cells; null for every storage, a dictionary's keys among them.</param>
+    private IReadOnlySet<string> CellStoreTargets(MethodInstance instance, string? slot = null) =>
+        instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores)
+                .Where(store => store.Kind == ElementOperationKind.Store && (slot is null || store.Slot == slot))
                 .SelectMany(store => store.Arrays).SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Every object a library instance's own stores write into, whatever the kind of store: a field store, a cell store,
@@ -574,11 +580,22 @@ public sealed class EffectReader
                         ReadStructFieldStore(instance, access, action);
                 }
 
+                var cells = CellStoreTargets(instance, PathValue.ELEMENT);
                 foreach (var region in CellStoreTargets(instance))
                 {
                     var inputs = Inputs(action).Where(input => input.Reached.Contains(region)).ToArray();
-                    if (inputs.Any(input => input.IsArray && input.Roots.Contains(region)))
+                    var arrays = inputs.Where(input => input.IsArray && input.Roots.Contains(region)).ToArray();
+                    if (arrays.Length != 0)
+                    {
+                        // A store into the cells of an array argument writes its cells, whatever way the array came to the store: a merge,
+                        // a capture, a cell of another collection, a helper's result (question 34).
+                        if (cells.Contains(region))
+                        {
+                            foreach (var array in arrays)
+                                AddEffect(array.Name, WRITES_CELLS, action, enumeration: false, []);
+                        }
                         continue;
+                    }
                     if (inputs.FirstOrDefault(input => !input.IsReceiver) is { } argument)
                         _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.ARGUMENT_GRAPH_CELLS, $"{argument.Name}: {region} in {instance.BodyId}");
                     else if ((inputs.Any(input => input.IsReceiver) || _allocations.Of(region).Kind == AllocationKind.LibraryBefore) &&
@@ -689,7 +706,9 @@ public sealed class EffectReader
         {
             var enumeration = effect.Member is null || IsEnumeratingMember(effect.Member.Member);
             var reads = effect.Member is null || Reads(effect.Member.Structure) || Reads(effect.Member.Element);
-            var writes = effect.Member is not null && (Writes(effect.Member.Structure) || Writes(effect.Member.Element));
+            // An element write of an array is the store into its cells, which writes them as the same store on the array directly does.
+            var writes = effect.Member is not null && (Writes(effect.Member.Structure) || Writes(effect.Member.Element)) &&
+                         !WritesArrayCellsOnly(effect, regions);
             foreach (var input in inputs)
             {
                 if (reads)
@@ -723,6 +742,17 @@ public sealed class EffectReader
             }
         }
     }
+
+    /// <summary>Whether a member of the table is, on every object it may be, the element write of an array and nothing else: its own
+    /// member, or for a call through an interface the member each object's kind decides it as.</summary>
+    /// <param name="effect">The member's effect.</param>
+    /// <param name="regions">The objects it may be on.</param>
+    private bool WritesArrayCellsOnly(SummaryArgumentEffect effect, IReadOnlySet<string> regions) =>
+        regions.Count != 0 && regions.All(region =>
+            (effect.Implementations.Count == 0
+                ? effect.Member
+                : CollectionObjects.Decision(effect.Implementations, CollectionObjects.KindOfType(_heap.Regions[region].TypeKey))?.Member) is
+            { Member: ARRAY_ELEMENT_WRITE, Structure: IrCollectionEffect.None });
 
     private bool StructStorageStore(IrFieldRef field, string action)
     {

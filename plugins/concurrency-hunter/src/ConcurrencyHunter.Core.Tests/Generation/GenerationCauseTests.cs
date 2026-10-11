@@ -82,6 +82,26 @@ public sealed class GenerationCauseTests
         Assert.Contains("Unsafe.AsPointer", Cause(answer, ModelCauses.PROBE_HANDED_TO_UNSEEN).Detail);
     }
 
+    [Theory]
+    [InlineData("var r = Choice.Value ? a : b; r[0] = 1;", "a,b")]
+    [InlineData("void Local() { a[0] = 1; } Local();", "a")]
+    [InlineData("Action set = () => a[0] = 1; set();", "a")]
+    [InlineData("var box = new Box2 { Cells = a }; var r = box.Cells; r[0] = 1;", "a")]
+    [InlineData("var all = new[] { a }; all[0][0] = 1;", "a")]
+    [InlineData("Id(a)[0] = 1;", "a")]
+    [InlineData("var r = Choice.Value ? a : b; ((IList<int>)r)[0] = 1;", "a,b")]
+    public void A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(string body, string written)
+    {
+        // A value of no object leaves the cells holding nothing the heap names, so only the access says the cells were written
+        // (question 34).
+        var answer = Answer("public static class Choice { public static bool Value; } public sealed class Box2 { public int[] Cells; } " +
+                            $"public static class Api {{ public static void Run(int[] a, int[] b, Action done) {{ {body} done(); }} " +
+                            "private static int[] Id(int[] x) => x; }", "M:Lib.Api.Run(System.Int32[],System.Int32[],System.Action)");
+
+        Assert.True(answer.Model is not null, string.Join("; ", answer.Causes));
+        Assert.Equal(written.Split(',').Select(LibraryEffect.WriteCellsOf).ToHashSet(), answer.Model.Effects.ToHashSet());
+    }
+
     [Fact]
     public void An_operation_the_lowering_does_not_express_that_no_probe_reaches_leaves_the_model()
     {

@@ -29,9 +29,6 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
         ("the keeping chain does not project arg:p through the fresh Box linked into the pre-existing keeper", [
             "FreshHoldingProbe/KeepOnSealedReceiver/Call", "FreshHoldingProbe/KeepOnSubReceiver/Call",
             "FreshHoldingProbe/KeepOnLibraryArg/Call"
-        ]),
-        ("the child execution's array store loses the captured probe's argument provenance", [
-            "Probe/StoreInArrayArg/TaskRun"
         ]));
 
     /// <summary>The kind and R5 name of the value the member observes.</summary>
