@@ -40,8 +40,6 @@ public sealed class CompletionProducerFormTests
     [InlineData("return await Forms.Models.Invoke(() => x);", "return Forms.Models.InvokeSync(() => x);")]
     [InlineData("var k = new Forms.Keeper(); Forms.Models.Keep(k, x); return await Forms.Models.Kept<Box>(k);",
                 "var k = new Forms.Keeper(); Forms.Models.Keep(k, x); return Forms.Models.KeptSync<Box>(k);")]
-    [InlineData("var k = new Forms.Keeper(); Forms.Models.Keep(k, flag ? x : Externals.MakeBox()); return await Forms.Models.Kept<Box>(k);",
-                "var k = new Forms.Keeper(); Forms.Models.Keep(k, flag ? x : Externals.MakeBox()); return Forms.Models.KeptSync<Box>(k);")]
     public void A_producer_form_generates_its_synchronous_twins_result(string cell, string twin)
     {
         var expected = Generate($"public static Box Run(Box x, bool flag) {{ {twin} }}").Answer.Model?.Result?.ToString();
@@ -53,15 +51,15 @@ public sealed class CompletionProducerFormTests
                                                    $"({trace.Answer.Reason ?? trace.Answer.ModelReason}: {trace.Answer.Detail})");
     }
 
-    /// <summary>Where the walk stops: the same forms handed an unseen value name no result with the input. A keeper is not among them:
-    /// its synchronous twin <c>[kept:k]</c> names what the keeper's storage holds whatever else was kept, and the cell gives the twin's
-    /// answer (<see cref="A_producer_form_generates_its_synchronous_twins_result"/>).</summary>
+    /// <summary>Where the walk stops: the same forms handed an unseen value name no result with the input. A keeper is among them: what
+    /// its storage holds is what was kept there, an unseen value as well (question 137).</summary>
     /// <param name="cell">The cell's statements, ending in the return of the awaited value.</param>
     [Theory]
     [InlineData("var tasks = new[] { Task.FromResult(flag ? x : Externals.MakeBox()) }; return (await Task.WhenAll(tasks))[0];")]
     [InlineData("var tasks = new[] { Task.FromResult(flag ? x : Externals.MakeBox()) }; return await await Task.WhenAny(tasks);")]
     [InlineData("return await Forms.Models.PassTaskTask(Task.FromResult(Task.FromResult(flag ? x : Externals.MakeBox())));")]
     [InlineData("return await Forms.Models.Invoke(() => flag ? x : Externals.MakeBox());")]
+    [InlineData("var k = new Forms.Keeper(); Forms.Models.Keep(k, flag ? x : Externals.MakeBox()); return await Forms.Models.Kept<Box>(k);")]
     public void A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(string cell)
     {
         var trace = Generate($"public static async Task<Box> Run(Box x, bool flag) {{ {cell} }}");

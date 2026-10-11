@@ -215,11 +215,11 @@ public sealed class DelegateReturnObservationMatrixTests
     public void Fate_input_reaches_the_callback_as_its_synchronous_twins_argument(string name)
     {
         var cell = InputCells().Single(candidate => candidate.ToString() == name);
-        // The twin reads an argument or a completion value as the value itself; an element, a kept value or a field it reads as the
-        // synchronous code reads it, which this sweep compares against and does not judge.
+        // The twin reads an argument or a completion value as the value itself, which names x; an element, a kept value or a field it
+        // reads as the synchronous code reads it. Whatever may be opaque, storage it was written into as well, names no x (question 137).
         var plain = cell is { Callback: Callback.Identity, Input: Input.Argument or Input.Completion };
         AssertTwin(name, CellSource(cell), TwinSource(cell), plain && cell.Returned == Returned.Known ? "[arg:x]" : null,
-                   unseen: plain && cell.Returned != Returned.Known);
+                   unseen: cell.Returned != Returned.Known);
     }
 
     /// <summary>The value the input stands for, as an expression of the member's <c>x</c> and <c>flag</c>.</summary>

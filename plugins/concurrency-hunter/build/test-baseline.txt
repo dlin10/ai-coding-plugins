@@ -5762,13 +5762,13 @@ ConcurrencyHunter.Core.Tests.Generation.CompletionObservationMatrixTests.The_mat
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_generates_its_synchronous_twins_result(cell: "return await Forms.Models.Invoke(() => x);", twin: "return Forms.Models.InvokeSync(() => x);")	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_generates_its_synchronous_twins_result(cell: "return await Forms.Models.PassTask(Task.FromResult"···, twin: "return Forms.Models.PassSync(x);")	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_generates_its_synchronous_twins_result(cell: "return await Forms.Models.PassTaskTask(Task.FromRe"···, twin: "return Forms.Models.PassSync(x);")	Passed
-ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_generates_its_synchronous_twins_result(cell: "var k = new Forms.Keeper(); Forms.Models.Keep(k, f"···, twin: "var k = new Forms.Keeper(); Forms.Models.Keep(k, f"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_generates_its_synchronous_twins_result(cell: "var k = new Forms.Keeper(); Forms.Models.Keep(k, x"···, twin: "var k = new Forms.Keeper(); Forms.Models.Keep(k, x"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_generates_its_synchronous_twins_result(cell: "var tasks = new List<Task<Box>> { Task.FromResult("···, twin: "var items = new[] { x }; return items[0];")	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_generates_its_synchronous_twins_result(cell: "var tasks = new[] { Task.FromResult(x) }; return ("···, twin: "var items = new[] { x }; return items[0];")	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_generates_its_synchronous_twins_result(cell: "var tasks = new[] { Task.FromResult(x) }; return a"···, twin: "var items = new[] { x }; return items[0];")	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "return await Forms.Models.Invoke(() => flag ? x : "···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "return await Forms.Models.PassTaskTask(Task.FromRe"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "var k = new Forms.Keeper(); Forms.Models.Keep(k, f"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "var tasks = new[] { Task.FromResult(flag ? x : Ext"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.Claimed_CoreLib_member_names_its_recognizer	Skipped
 ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.Every_ConstructorInvoker_Invoke_overload_returns_an_answer	Skipped
@@ -6403,6 +6403,14 @@ ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_library_argument_
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_library_typed_argument_keeps_the_other_argument	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_new_list_of_the_sources_elements_is_a_collection	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_new_result_and_a_new_input_that_share_no_object_are_both_new	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_read_of_storage_an_unknown_alternative_was_written_into_names_no_argument(body: "object held = Choice.Value ? p : Unknown.Make(); F"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_read_of_storage_an_unknown_alternative_was_written_into_names_no_argument(body: "Shelf.Value = Choice.Value ? p : Unknown.Make(); r"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_read_of_storage_an_unknown_alternative_was_written_into_names_no_argument(body: "var cells = new object[] { Choice.Value ? p : Unkn"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_read_of_storage_an_unknown_alternative_was_written_into_names_no_argument(body: "var list = new List<object> { Choice.Value ? p : U"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_read_of_storage_an_unknown_alternative_was_written_into_names_no_argument(body: "var slot = new Slot(); slot.Value = Choice.Value ?"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_read_of_storage_only_arguments_were_written_into_names_them(body: "var cells = new object[] { Choice.Value ? p : q };"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_read_of_storage_only_arguments_were_written_into_names_them(body: "var list = new List<object> { Choice.Value ? p : q"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_read_of_storage_only_arguments_were_written_into_names_them(body: "var slot = new Slot(); slot.Value = Choice.Value ?"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_receiver_keeps_nothing_through_a_seeded_field_the_call_did_not_write	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_receiver_that_keeps_a_seed_has_vocabulary_reason	Passed
 ConcurrencyHunter.Core.Tests.Generation.ValueProvenanceTests.A_recipe_built_library_argument_returned_is_arg	Passed

@@ -7,6 +7,8 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 /// <summary>The names of every value a generated entry observes, and the entry facts derived from those names.</summary>
 public sealed class ValueProvenanceTests
 {
+    private const string STORAGE = "public static class Choice { public static bool Value; } public static class Unknown { public static extern object Make(); } " +
+                                   "public sealed class Slot { public object Value; } public static class Shelf { public static object Value; } ";
 
     [Fact]
     public void A_fresh_graph_with_an_unknown_scalar_field_can_be_new()
@@ -54,6 +56,35 @@ public sealed class ValueProvenanceTests
 
         Assert.Equal(GenerationReasons.VOCABULARY, Read(trace).Reason);
         Assert.Null(trace.Answer.Model);
+    }
+
+    [Theory]
+    [InlineData("var slot = new Slot(); slot.Value = Choice.Value ? p : Unknown.Make(); return slot.Value;")]
+    [InlineData("var cells = new object[] { Choice.Value ? p : Unknown.Make() }; return cells[0];")]
+    [InlineData("var list = new List<object> { Choice.Value ? p : Unknown.Make() }; return list[0];")]
+    [InlineData("Shelf.Value = Choice.Value ? p : Unknown.Make(); return Shelf.Value;")]
+    [InlineData("object held = Choice.Value ? p : Unknown.Make(); Func<object> read = () => held; return read();")]
+    public void A_read_of_storage_an_unknown_alternative_was_written_into_names_no_argument(string body)
+    {
+        // The heap keeps only the objects it names: the storage holds p alone, and the opaque alternative is seen only in the write.
+        var answer = Trace(STORAGE + $"public static class Api {{ public static object Run(object p, object q) {{ {body} }} }}",
+                           "M:Lib.Api.Run(System.Object,System.Object)").Answer;
+
+        Assert.Null(answer.Model);
+        Assert.Contains(answer.Causes, cause => cause.Code == ModelCauses.VALUE_UNOBSERVED);
+    }
+
+    [Theory]
+    [InlineData("var slot = new Slot(); slot.Value = Choice.Value ? p : q; return slot.Value;")]
+    [InlineData("var cells = new object[] { Choice.Value ? p : q }; return cells[0];")]
+    [InlineData("var list = new List<object> { Choice.Value ? p : q }; return list[0];")]
+    public void A_read_of_storage_only_arguments_were_written_into_names_them(string body)
+    {
+        var answer = Trace(STORAGE + $"public static class Api {{ public static object Run(object p, object q) {{ {body} }} }}",
+                           "M:Lib.Api.Run(System.Object,System.Object)").Answer;
+
+        Assert.True(answer.Model is not null, string.Join("; ", answer.Causes));
+        Assert.Equal("[arg:p,arg:q]", answer.Model.Result?.ToString());
     }
 
     [Theory]

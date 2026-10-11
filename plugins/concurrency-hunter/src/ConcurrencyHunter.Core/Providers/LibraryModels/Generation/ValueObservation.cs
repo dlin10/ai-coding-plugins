@@ -20,6 +20,9 @@ internal sealed class ValueObservation
     /// <summary>The task regions whose completion the current walk is reading: a task met again on its own path adds nothing.</summary>
     private readonly HashSet<string> _walking = new(StringComparer.Ordinal);
 
+    /// <summary>The run's writes into storage by slot, built on first use (<see cref="Writes"/>).</summary>
+    private ILookup<string, StorageWrite>? _writes;
+
     /// <summary>Reads observation from one completed generator run.</summary>
     /// <param name="driver">The driver.</param>
     /// <param name="run">The completed run.</param>
@@ -146,8 +149,21 @@ internal sealed class ValueObservation
                     return callees.Any(callee => callee.Summary.RefParameters.Where(parameter => parameter.Ordinal == reference.Ordinal)
                                                      .SelectMany(parameter => parameter.Values).Any(returned => HasUnobserved(callee, returned, seen)));
             }
-            if (value is PathValue path && HasUnobserved(instance, path.Base, seen))
+            if (value is PathValue path && (HasUnobserved(instance, path.Base, seen) || HasUnobservedWrite(instance, path, seen)))
                 return true;
+            if (value is CapturedValue captured && HasUnobservedWriteInto(instance.CellOwners, captured.ToString(), seen))
+                return true;
+            if (value is StaticFieldValue field &&
+                HasUnobservedWriteInto(new HashSet<string>(StringComparer.Ordinal) { _heap.StaticRegionOf(instance.Id, field.Field) },
+                                       FieldSlot.Key(field.Field), seen))
+            {
+                return true;
+            }
+            // What a known call keeps or stores is what its model names there.
+            if (value is LibraryKeepingValue keeping)
+                return HasUnobservedLibraryWrite(instance, keeping.OperationId, library => library.Keeps.GetValueOrDefault(keeping.KeeperOrdinal), seen);
+            if (value is LibraryStoredValue stored)
+                return HasUnobservedLibraryWrite(instance, stored.OperationId, library => library.Stores.GetValueOrDefault(stored.TargetOrdinal), seen);
             return Resolve(instance, value).Count == 0 &&
                 !(IsMemberEntry(instance) && (value is ConcurrencyHunter.Heap.ThisValue || value is PathValue { Base: ParameterValue }));
         }
@@ -156,6 +172,110 @@ internal sealed class ValueObservation
             seen.Remove((instance.Id, value));
         }
     }
+
+    /// <summary>Whether something written into a slot a storage read reads may be an object the heap does not name: the heap keeps only
+    /// the objects it names, so a slot written <c>flag ? x : opaque</c> reads as <c>x</c> alone (question 137). Every slot along the
+    /// path is judged, on the objects the read reaches there; a wildcard reads every slot of every object its base reaches.</summary>
+    /// <param name="instance">The instance expressing the read.</param>
+    /// <param name="path">The storage read.</param>
+    /// <param name="seen">Alternatives already visited on this path.</param>
+    private bool HasUnobservedWrite(MethodInstance instance, PathValue path, HashSet<(string Instance, AbstractValue Value)> seen)
+    {
+        var holders = Resolve(instance, path.Base);
+        foreach (var segment in path.Segments)
+        {
+            if (holders.Count == 0)
+                return false;
+            if (segment == PathValue.WILDCARD)
+                return HasUnobservedWriteInto(Reached(holders), null, seen);
+            if (HasUnobservedWriteInto(holders, segment, seen))
+                return true;
+            holders = holders.SelectMany(region => _heap.PointsTo(region, segment)).ToHashSet(StringComparer.Ordinal);
+        }
+        return false;
+    }
+
+    /// <summary>Whether a write into a slot of some objects may write an object the heap does not name.</summary>
+    /// <param name="holders">The objects whose slot is read.</param>
+    /// <param name="slot">The slot, or null for every slot.</param>
+    /// <param name="seen">Alternatives already visited on this path.</param>
+    private bool HasUnobservedWriteInto(IReadOnlySet<string> holders, string? slot, HashSet<(string Instance, AbstractValue Value)> seen) =>
+        (slot is null ? Writes.SelectMany(writes => writes) : Writes[slot]).Any(write =>
+            write.Holders.Overlaps(holders) && HasUnobservedValues(write.Instance, write.Values, write.Producers, seen));
+
+    /// <summary>Whether what a known call keeps or stores may be an object the heap does not name: what its model names there, observed as
+    /// the call's model values are.</summary>
+    /// <param name="instance">The instance making the call.</param>
+    /// <param name="operation">The call's operation.</param>
+    /// <param name="values">What the model names there, given the call's model.</param>
+    /// <param name="seen">Alternatives already visited on this path.</param>
+    private bool HasUnobservedLibraryWrite(MethodInstance instance, int operation, Func<IrLibraryCall, IReadOnlyList<IrModelValue>?> values,
+                                           HashSet<(string Instance, AbstractValue Value)> seen) =>
+        instance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == operation && call.Library is not null) is not { } call ||
+        values(call.Library!) is not { } named || named.Any(value => HasUnobservedModelValue(instance, call, value, seen));
+
+    /// <summary>Every write into storage the run makes, by the slot it writes: a field store, static or not, and an element or collection
+    /// store, what a known call keeps or stores among them, each also through a reference; and a captured variable's cell, by its
+    /// <see cref="CapturedValue"/>, held by the instances owning the cell. A store an interface call makes out of other storage writes
+    /// what that storage holds.</summary>
+    private ILookup<string, StorageWrite> Writes => _writes ??= StorageWrites().ToLookup(write => write.Slot, write => write.Write, StringComparer.Ordinal);
+
+    private IEnumerable<(string Slot, StorageWrite Write)> StorageWrites()
+    {
+        foreach (var instance in _heap.Instances.Values)
+        {
+            var summary = instance.Summary;
+            foreach (var store in summary.Stores.Concat(summary.ReferenceStores))
+            {
+                var holders = store.Field.IsStatic
+                    ? new HashSet<string>(StringComparer.Ordinal) { _heap.StaticRegionOf(instance.Id, store.Field) }
+                    : Regions(instance, store.Bases);
+                yield return (FieldSlot.Key(store.Field), new StorageWrite(instance, holders, store.Values, store.Producers));
+            }
+
+            foreach (var element in summary.Elements.Where(element => element.Kind == ElementOperationKind.Store).Concat(summary.ReferenceElementStores))
+            {
+                var values = element.Values.Concat(element.FromSlot is { } from ? element.Arrays.Select(array => new PathValue(array, [from])) : [])
+                                    .Concat(element is { ViewOf: { } viewed, CopiedFrom: { } sources } ? sources.Select(source => new PathValue(source, [viewed])) : [])
+                                    .ToHashSet();
+                yield return (element.Slot, new StorageWrite(instance, Regions(instance, element.Arrays), values, element.Producers));
+            }
+
+            // A captured variable's cell belongs to the instances owning it; every version of the variable, and what a nested body
+            // assigns to it, goes there.
+            foreach (var variable in summary.Variables)
+                yield return (new CapturedValue(variable.SymbolKey).ToString(), new StorageWrite(instance, instance.CellOwners, variable.Values, variable.Producers));
+            foreach (var store in summary.CapturedStores)
+                yield return (new CapturedValue(store.SymbolKey).ToString(), new StorageWrite(instance, instance.CellOwners, store.Values, store.Producers));
+        }
+    }
+
+    private IReadOnlySet<string> Regions(MethodInstance instance, IEnumerable<AbstractValue> values) =>
+        values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>The objects some regions reach through any slot, the regions among them.</summary>
+    /// <param name="regions">The regions to start from.</param>
+    private HashSet<string> Reached(IReadOnlySet<string> regions)
+    {
+        var reached = regions.ToHashSet(StringComparer.Ordinal);
+        var pending = new Queue<string>(reached);
+        while (pending.TryDequeue(out var region))
+        {
+            foreach (var next in _heap.FieldsOf(region).SelectMany(slot => _heap.PointsTo(region, slot)))
+            {
+                if (reached.Add(next))
+                    pending.Enqueue(next);
+            }
+        }
+        return reached;
+    }
+
+    /// <summary>A write into a slot of some objects.</summary>
+    /// <param name="Instance">The instance making the write.</param>
+    /// <param name="Holders">The objects whose slot it writes; for a captured variable, the instances owning its cell.</param>
+    /// <param name="Values">What it writes, as the instance's values.</param>
+    /// <param name="Producers">The origins of what it writes, preserved through copies and merges.</param>
+    private sealed record StorageWrite(MethodInstance Instance, IReadOnlySet<string> Holders, IReadOnlySet<AbstractValue> Values, ValueOrigin Producers);
 
     /// <summary>Whether the tasks some values name may be, or may complete with, an object the heap does not name: the values themselves,
     /// or what completed any task region they resolve to.</summary>
@@ -247,7 +367,8 @@ internal sealed class ValueObservation
     /// <summary>Whether a value a known call's model names may be an object the heap does not name: an argument or the receiver as
     /// itself, a <c>completion(…)</c> as the tasks its source names (<see cref="HasUnobservedModelTasks"/>), what one run of the delegate a
     /// <c>returns:</c> names gives back as the engine answers it (<see cref="HasUnobservedReturns"/>), what a keeper keeps as the keeper's
-    /// storage, a new object or sequence as what it is built of.</summary>
+    /// storage, the elements of a collection as the collection and what was written into its element storage, a new object or sequence
+    /// as what it is built of.</summary>
     /// <param name="instance">The instance making the call.</param>
     /// <param name="call">The known call.</param>
     /// <param name="value">The model value.</param>
@@ -262,7 +383,8 @@ internal sealed class ValueObservation
         IrModelCompletion completion => HasUnobservedModelTasks(instance, call, completion.Source, seen),
         IrModelReturns returned => HasUnobservedReturns(instance, call, returned, seen),
         IrModelKept kept => HasUnobserved(instance, Kept(call, kept), seen),
-        IrModelElements elements => HasUnobservedModelValue(instance, call, elements.Source, seen),
+        IrModelElements elements => HasUnobservedModelValue(instance, call, elements.Source, seen) ||
+                                    HasUnobservedWriteInto(ModelRegions(instance, call, elements.Source), PathValue.ELEMENT, seen),
         IrModelSequence sequence => sequence.Values.Any(item => HasUnobservedModelValue(instance, call, item, seen)),
         IrModelGrouping grouping => HasUnobservedModelValue(instance, call, grouping.Key, seen) ||
                                     HasUnobservedModelValue(instance, call, grouping.Values, seen),
