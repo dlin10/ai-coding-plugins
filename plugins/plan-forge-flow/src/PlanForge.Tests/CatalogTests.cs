@@ -105,6 +105,61 @@ public sealed class CatalogTests : IDisposable
         Assert.Equal(2, vendor.Probes);
     }
 
+    /// <summary>
+    /// A degraded probe is not cached either: the sandbox that kept codex's Critic and Scout from
+    /// starting a shell can be repaired mid-session. See docs/adr/0031.
+    /// </summary>
+    [Fact]
+    public async Task A_degraded_probe_is_served_and_retried_on_the_next_request()
+    {
+        var run = NewRun("degraded");
+        var vendor = new CatalogVendor("codex", available: true, new VendorCatalog([], CatalogSource.Live))
+        {
+            Degraded = "codex doctor reports the last sandbox setup failed (helper_unknown_error)"
+        };
+        var cache = new CatalogCache((_, _) => vendor, new ShellHealth());
+
+        var first = JsonNode.Parse(await ForgeTools.Models(cache, SessionRoots.None, _workspace, run.RunId,
+                                                           CancellationToken.None, "codex"))!["vendors"]![0]!;
+        vendor.Degraded = null;
+        var second = JsonNode.Parse(await ForgeTools.Models(cache, SessionRoots.None, _workspace, run.RunId,
+                                                            CancellationToken.None, "codex"))!["vendors"]![0]!;
+
+        Assert.True(first["available"]!.GetValue<bool>());
+        Assert.Equal("codex doctor reports the last sandbox setup failed (helper_unknown_error)",
+                     first["degraded"]!.GetValue<string>());
+        Assert.Null(second["degraded"]);
+        Assert.Equal(2, vendor.Probes);
+    }
+
+    /// <summary>
+    /// A cached healthy probe says nothing about a sandbox that broke after it, so what a Worker's own
+    /// commands showed stands in for it, until a later sandboxed Worker starts a command.
+    /// </summary>
+    [Fact]
+    public async Task A_worker_without_a_shell_degrades_a_cached_probe_until_a_worker_starts_a_command()
+    {
+        var health = new ShellHealth();
+        var vendor = new CatalogVendor("codex", available: true, new VendorCatalog([], CatalogSource.Live));
+        var cache = new CatalogCache((id, _) => id is "codex"
+            ? vendor
+            : new CatalogVendor(id!, available: true, new VendorCatalog([], CatalogSource.Resolved)), health);
+
+        var before = await cache.GetAsync("codex", _workspace, CancellationToken.None);
+        health.Failed("codex", "codex could not start a shell for the Scout at 18:20");
+        var during = await cache.GetAsync("codex", _workspace, CancellationToken.None);
+        var other = await cache.GetAsync("claude", _workspace, CancellationToken.None);
+        health.Started("codex");
+        var after = await cache.GetAsync("codex", _workspace, CancellationToken.None);
+
+        Assert.Null(before.Degraded);
+        Assert.Equal("codex could not start a shell for the Scout at 18:20", during.Degraded);
+        Assert.True(during.Available);
+        Assert.Null(other.Degraded);
+        Assert.Null(after.Degraded);
+        Assert.Equal(1, vendor.Probes);
+    }
+
     private RunDirectory NewRun(string runId)
     {
         var run = RunDirectory.Create(_workspace, runId);
@@ -117,6 +172,7 @@ public sealed class CatalogTests : IDisposable
     {
         public int Probes;
         public bool Available = available;
+        public string? Degraded;
 
         public string Id => id;
         public VendorCatalog Catalog { get; private set; } = new([], catalog.Source);
@@ -125,7 +181,7 @@ public sealed class CatalogTests : IDisposable
         {
             Probes++;
             if (Available) Catalog = catalog;
-            return Task.FromResult(new VendorReadiness(Available, detail));
+            return Task.FromResult(new VendorReadiness(Available, detail, Degraded));
         }
 
         public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken,

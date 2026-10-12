@@ -104,7 +104,7 @@ internal sealed class ForgeTools
     /// <param name="runId">The run to read.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     /// <param name="vendor">The vendor to return, or <see langword="null"/> for every vendor.</param>
-    [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — source `live` where the vendor publishes a list (codex, cursor), `resolved` for claude, whose remembered aliases the CLI turned into the model ids they stand for (displayName). A vendor with available:false is not usable; tell the user why and do not offer it. `fastEfforts` lists the efforts a model is offered at with the vendor's Fast tier, `fastHint` what the vendor says it costs, and `fastUnavailable` why the account will not serve it; offer Fast only where fastEfforts holds the effort and fastUnavailable is null.")]
+    [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — source `live` where the vendor publishes a list (codex, cursor), `resolved` for claude, whose remembered aliases the CLI turned into the model ids they stand for (displayName). A vendor with available:false is not usable; tell the user why and do not offer it. `degraded`, when set, says why the vendor's Critic and Scout cannot start a shell in their read-only sandbox, while its Builder is unaffected; tell the user and do not offer that vendor for Critic or Scout. `fastEfforts` lists the efforts a model is offered at with the vendor's Fast tier, `fastHint` what the vendor says it costs, and `fastUnavailable` why the account will not serve it; offer Fast only where fastEfforts holds the effort and fastUnavailable is null.")]
     public static async Task<string> Models(CatalogCache catalogs,
                                             SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -133,7 +133,8 @@ internal sealed class ForgeTools
                 .. report.Catalog.Models.Select(model => new CatalogModel(model.Id, model.DisplayName,
                     model.Description, model.Efforts, model.DefaultEffort, model.IsDefault,
                     model.FastEfforts, model.FastHint, model.FastUnavailable))
-            ]);
+            ],
+            report.Degraded);
 
     [McpServerTool(Name = "forge.scout.select"), Description("Records the lazy Scout decision for this run. Pass enabled:false with no vendor, model or effort to continue without Scout; pass enabled:true with a vendor and model to select it. The vendor id is checked now, while model and effort are stored exactly for the Vendor CLI to interpret. Repeating a healthy choice keeps its session anchor; changing it or selecting after a failure starts the next Scout call fresh.")]
     public static async Task<string> SelectScout(CatalogCache catalogs,
@@ -1124,12 +1125,22 @@ internal sealed record WorkFetchResult(string JobId, string Act, string State, s
 
 internal sealed record ModelsResult(IReadOnlyList<VendorCatalogResult> Vendors);
 
+/// <summary>One vendor's entry in the <c>forge.models</c> answer.</summary>
+/// <param name="Vendor">The vendor id.</param>
 /// <param name="Source">"live" when the vendor reported the list itself, "resolved" when it resolved aliases this repo remembers.</param>
+/// <param name="Available">Whether the vendor can do the work at all; one that cannot is not offered.</param>
+/// <param name="Detail">The catalogue's size and any warnings, or why the vendor is unavailable.</param>
+/// <param name="Models">The models the vendor advertises, newest first.</param>
+/// <param name="Degraded">
+/// Why the vendor's Critic and Scout cannot start a shell in their read-only sandbox, or null; the
+/// Builder is unaffected. See docs/adr/0031.
+/// </param>
 internal sealed record VendorCatalogResult(string Vendor,
                                            string Source,
                                            bool Available,
                                            string Detail,
-                                           IReadOnlyList<CatalogModel> Models);
+                                           IReadOnlyList<CatalogModel> Models,
+                                           string? Degraded);
 
 /// <param name="FastEfforts">The efforts this model is offered at with a Fast tier; empty when it has none.</param>
 /// <param name="FastHint">The vendor's own word on what Fast costs, where it gives one.</param>

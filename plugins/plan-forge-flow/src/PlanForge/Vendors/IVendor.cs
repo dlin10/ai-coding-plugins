@@ -86,7 +86,14 @@ internal sealed record RoleSpec(VendorRole Role,
 /// </summary>
 internal sealed record Selection(string Model, string? Effort, bool Fast = false);
 
-internal sealed record VendorReadiness(bool Available, string Detail);
+/// <summary>What a vendor's probe found.</summary>
+/// <param name="Available">Whether the vendor can do the work at all.</param>
+/// <param name="Detail">The catalogue's size and any warnings, or why the vendor is unavailable.</param>
+/// <param name="Degraded">
+/// Why the vendor's sandboxed Workers — Critic and Scout — may not start a shell, or null when the
+/// probe found nothing to say so. The Builder is unaffected. See docs/adr/0031.
+/// </param>
+internal sealed record VendorReadiness(bool Available, string Detail, string? Degraded = null);
 
 /// <param name="Source">Where the catalogue came from. The interview tells the user which kind it is offering.</param>
 internal sealed record VendorCatalog(IReadOnlyList<VendorModel> Models, CatalogSource Source);
@@ -152,9 +159,29 @@ internal sealed record VendorEvent(VendorEventKind Kind,
 /// </summary>
 internal sealed record VendorSchema<T>(string Json, JsonTypeInfo<T> TypeInfo);
 
-internal sealed class VendorException(string message, int? exitCode = null, Exception? inner = null)
+internal class VendorException(string message, int? exitCode = null, Exception? inner = null)
     : Exception(message, inner)
 {
     /// <summary>Set when the failure is a nonzero exit; absent for a launch failure, timeout or output cap.</summary>
     public int? ExitCode { get; } = exitCode;
+}
+
+/// <summary>
+/// A Worker tried commands and the vendor started none of them, so whatever it answered was written
+/// without reading anything through its shell, and the act does not use it. See docs/adr/0031.
+/// </summary>
+/// <param name="diagnosis">What the Worker tried and what the vendor said, quoted.</param>
+/// <param name="remedy">What has to change before a retry can succeed.</param>
+/// <param name="errorCode">
+/// The vendor's error code when it is a bare identifier, such as <c>helper_unknown_error</c>: the one
+/// part of the vendor's words a Scout failure may carry.
+/// </param>
+internal sealed class NoShellException(string diagnosis, string remedy, string? errorCode)
+    : VendorException($"{diagnosis} {remedy}")
+{
+    /// <summary>What the Worker tried and what the vendor said; <c>forge.models</c> repeats it as <c>degraded</c>.</summary>
+    public string Diagnosis { get; } = diagnosis;
+
+    /// <summary>The vendor's error code when it is a bare identifier; null otherwise.</summary>
+    public string? ErrorCode { get; } = errorCode;
 }

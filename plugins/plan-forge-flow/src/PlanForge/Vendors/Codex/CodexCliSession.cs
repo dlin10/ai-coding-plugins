@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Threading.Channels;
 using PlanForge.Diagnostics;
@@ -18,6 +19,7 @@ internal sealed class CodexCliSession : IVendorSession
     private readonly Selection _selection;
     private readonly string? _workingDirectory;
     private readonly IReadOnlyList<string> _grantedServers;
+    private readonly ShellHealth _shellHealth;
     private readonly Channel<VendorEvent> _events = Channel.CreateUnbounded<VendorEvent>();
 
     // Set on the first run so a resumable role's later calls resume the same thread.
@@ -29,22 +31,31 @@ internal sealed class CodexCliSession : IVendorSession
     private JsonElement? _terminalUsage;
     private string? _attemptSessionId;
 
+    // Per run: the commands codex started, the ones it could not, and what it said about the first
+    // of those. A run that tried commands and started none read nothing through its shell.
+    private int _commandsStarted;
+    private int _commandsUnstarted;
+    private string? _launchFailure;
+
     /// <param name="role">The worker role and its contract.</param>
     /// <param name="selection">The selected model and effort.</param>
     /// <param name="workingDirectory">The workspace the worker runs in.</param>
     /// <param name="resumeToken">The builder or Scout thread to resume, when one exists.</param>
     /// <param name="grantedServers">The MCP servers this worker may call unasked, as codex lists them.</param>
+    /// <param name="shellHealth">Where a sandboxed run's shell outcome is recorded; the process-wide one when null.</param>
     public CodexCliSession(RoleSpec role,
                            Selection selection,
                            string? workingDirectory,
                            string? resumeToken = null,
-                           IReadOnlyList<string>? grantedServers = null)
+                           IReadOnlyList<string>? grantedServers = null,
+                           ShellHealth? shellHealth = null)
     {
         _role = role;
         _selection = selection;
         _workingDirectory = workingDirectory;
         _sessionId = resumeToken;
         _grantedServers = grantedServers ?? [];
+        _shellHealth = shellHealth ?? ShellHealth.Process;
     }
 
     public IAsyncEnumerable<VendorEvent> Events => _events.Reader.ReadAllAsync();
@@ -62,6 +73,9 @@ internal sealed class CodexCliSession : IVendorSession
         _turnFailed = false;
         _terminalUsage = null;
         _attemptSessionId = null;
+        _commandsStarted = 0;
+        _commandsUnstarted = 0;
+        _launchFailure = null;
         var resumeToken = _sessionId;
         var command = CodexLaunch.Command;
         var directory = Path.Combine(Path.GetTempPath(), "planforge-codex", Guid.NewGuid().ToString("N"));
@@ -93,10 +107,18 @@ internal sealed class CodexCliSession : IVendorSession
                     using (document) Observe(document.RootElement, attempt);
                 }
 
+                var noShell = JudgeShell(() => CodexSandbox.LastSetupError());
+
                 if (_turnFailed)
                 {
                     attempt.Failed();
                     throw new VendorException(NoResultMessage);
+                }
+
+                if (noShell is not null)
+                {
+                    attempt.Failed();
+                    throw noShell;
                 }
 
                 if (!File.Exists(resultPath))
@@ -148,6 +170,41 @@ internal sealed class CodexCliSession : IVendorSession
     internal string NoResultMessage => _lastFailure is { Length: > 0 }
         ? $"codex wrote no result: {_lastFailure}"
         : "codex wrote no result";
+
+    /// <summary>
+    /// The failure to report when the run tried commands and codex started none of them, or null
+    /// when it started one or tried none. A codex Worker reads the repository through its shell, so
+    /// such a run answered blind — in run 20261012-163837-6fc7b1 every Critic and Scout did, behind a
+    /// sandbox setup that failed before each command. A sandboxed run's outcome is recorded in
+    /// <see cref="ShellHealth"/> whatever else becomes of the turn, since a usage limit after a
+    /// started command still proves the sandbox works. Internal so the tests can drive it after
+    /// <see cref="Observe(JsonElement)"/>.
+    /// </summary>
+    /// <param name="setupError">
+    /// Reads what codex's sandbox log last recorded against its setup; called only for a sandboxed
+    /// role that failed, since a Builder runs outside the sandbox.
+    /// </param>
+    internal NoShellException? JudgeShell(Func<string?> setupError)
+    {
+        var sandboxed = _role.Role is not VendorRole.Builder;
+        if (_commandsStarted > 0 || _launchFailure is null)
+        {
+            if (sandboxed && _commandsStarted > 0) _shellHealth.Started("codex");
+            return null;
+        }
+
+        var setup = sandboxed ? setupError() : null;
+        var at = DateTimeOffset.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        var diagnosis = $"codex could not start a shell for the {_role.Role} at {at}, so its answer was not used: "
+                        + $"none of the {_commandsUnstarted} command(s) it tried started — \"{_launchFailure}\""
+                        + (setup is null ? "." : $"; codex's sandbox log last recorded \"{setup}\".");
+        var remedy = sandboxed
+            ? "Retry once codex can start a sandboxed command; `codex doctor --json` reports the sandbox setup under sandbox.helpers."
+            : "Retry once codex can start a command.";
+
+        if (sandboxed) _shellHealth.Failed("codex", diagnosis);
+        return new NoShellException(diagnosis, remedy, CodexSandbox.ErrorCode(_launchFailure));
+    }
 
     public ValueTask DisposeAsync()
     {
@@ -307,6 +364,15 @@ internal sealed class CodexCliSession : IVendorSession
                 {
                     attempt?.ToolCompleted(TryRead(completedItem, "id", out var itemId) && itemId.ValueKind is JsonValueKind.String
                         ? itemId.GetString() : null);
+                    if (CodexSandbox.IsLaunchFailure(completedItem, out var launchFailure))
+                    {
+                        _commandsUnstarted++;
+                        _launchFailure ??= launchFailure;
+                    }
+                    else
+                    {
+                        _commandsStarted++;
+                    }
                     _events.Writer.Emit("codex",
                         new VendorEvent(VendorEventKind.ToolResult, "command_execution", CommandExecutionDetail(completedItem)));
                 }
