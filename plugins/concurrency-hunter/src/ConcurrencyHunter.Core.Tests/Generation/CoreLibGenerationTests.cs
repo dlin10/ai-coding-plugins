@@ -29,6 +29,30 @@ public sealed class CoreLibGenerationTests
     }
 
     [Fact]
+    public void Public_members_are_read_as_the_library_declares_them_before_the_opening_with_the_accessors_of_its_events()
+    {
+        var library = GenerationRuns.Compile("""
+            namespace Lib
+            {
+                public class A
+                {
+                    public static object Shared { get; } = new object();
+                    public object Hidden { get; private set; }
+                    public event System.Action Changed;
+                    public event System.Action Explicit { add { } remove { } }
+                }
+            }
+            """);
+        // The opening gave the get-only seed auto-property a setter and made the private setter public: neither is the library's.
+        Assert.Contains("P:Lib.A.Shared", library.OpenedFields);
+        Assert.Contains("P:Lib.A.Hidden", library.OpenedFields);
+
+        Assert.Equal(["M:Lib.A.#ctor", "M:Lib.A.add_Changed(System.Action)", "M:Lib.A.add_Explicit(System.Action)", "M:Lib.A.get_Hidden",
+                      "M:Lib.A.get_Shared", "M:Lib.A.remove_Changed(System.Action)", "M:Lib.A.remove_Explicit(System.Action)"],
+                     CoreLibGeneration.PublicMembers(library.Compilation!));
+    }
+
+    [Fact]
     public void A_row_names_the_outcome_the_cause_codes_and_the_model_and_reads_back()
     {
         var model = GenerationSnapshotRow.Of(GenerationRuns.Trace("public static class Api { public static void Run(Action done) { done(); } }",

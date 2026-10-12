@@ -81,7 +81,14 @@ Rejected: hand-written families, the phase 5a format. They do not scale and they
 delegates without a vocabulary that is itself execution semantics. Rejected: an IL frontend of our
 own. It is a second frontend to keep equivalent with the first, and it must rebuild what the
 decompiler already reconstructs — lambdas, closures, `async` state machines — before it can answer
-the one question it is good at, which is where a delegate goes. Rejected: analysing library bodies
+the one question it is good at, which is where a delegate goes. Rejected: a library's published sources
+in place of its decompiled code. They are built with conditional compilation, generated code and
+internal attributes, and the assembly installed is another build, whose MVID the model is bound to;
+tying the two together is work the decompiled code never needs. And decompilation does not cost what
+the sources would buy: `System.Linq` 8.0.31 leaves 5 of 853 bodies `extern`, `System.Security.Claims`
+0 of 125, Polly 7.2.3 0 of 978, Google.Protobuf 3.21.9 1 of 2,623 and `System.Private.CoreLib` 8.0.31
+155 of 30,736, the bodies of `Unsafe`, which the runtime replaces anyway, among them, and no model eval's
+inexact fate comes from decompilation. Rejected: analysing library bodies
 as source inside every run. One Polly call grew the reachable bodies from 7 to about 150, and a
 stored delegate that only the framework invokes silently stopped running: the protobuf parser
 factory lost its finding with no gap and no counter. Rejected: models written by AI from the

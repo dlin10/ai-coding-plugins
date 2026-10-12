@@ -149,12 +149,14 @@ public static class DriverSynthesizer
         ["op_UnaryPlus"] = "+", ["op_UnaryNegation"] = "-", ["op_LogicalNot"] = "!", ["op_OnesComplement"] = "~"
     };
 
-    /// <summary>The library's own member with a declaration id, or <c>null</c>.</summary>
+    /// <summary>The library's own member with a declaration id, or <c>null</c>: in an opened copy, one the library declares before the
+    /// opening, so a setter the opening gave a get-only auto-property is not found.</summary>
     /// <param name="library">The library compilation.</param>
     /// <param name="memberId">The declaration id.</param>
     public static ISymbol? FindMember(CSharpCompilation library, string memberId) =>
         DocumentationCommentId.GetSymbolsForDeclarationId(memberId, library)
-                              .FirstOrDefault(symbol => SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, library.Assembly));
+                              .FirstOrDefault(symbol => SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, library.Assembly) &&
+                                                        Original(library, symbol) is not null);
 
     /// <summary>The driver of one member, or the first reason of G-6's order that applies from the member's kind on:
     /// <c>accessor</c> for a property or an event, <c>driver-not-synthesized</c> for any other kind the generator does not take (a
@@ -277,13 +279,15 @@ public static class DriverSynthesizer
 
     /// <summary>Whether a caller could call a member before <see cref="LibraryFieldOpening"/> opened the copy: the member, of any
     /// kind, and each of its containing types are public as the unopened compilation declares them. The opening makes the private
-    /// members and nested types it opens <c>internal</c>, and strips the modifier of a seed auto-property's accessor, which makes that
-    /// accessor public in the copy.</summary>
+    /// members and nested types it opens <c>internal</c>, strips the modifier of a seed auto-property's accessor, which makes that
+    /// accessor public in the copy, and gives a get-only seed auto-property a setter, which only the copy declares.</summary>
     /// <param name="library">The library compilation, opened or not.</param>
     /// <param name="member">The member or type, in that compilation or another assembly.</param>
     internal static bool OriginalAccessibility(CSharpCompilation library, ISymbol member)
     {
-        for (var current = Original(library, member); current is not null; current = current.ContainingType)
+        if (Original(library, member) is not { } original)
+            return false;
+        for (var current = original; current is not null; current = current.ContainingType)
         {
             if (current.DeclaredAccessibility != Accessibility.Public)
                 return false;
@@ -292,17 +296,17 @@ public static class DriverSynthesizer
         return true;
     }
 
-    /// <summary>The symbol with the same declaration id in the unopened compilation; a symbol of another assembly, or one the
-    /// unopened compilation does not resolve, is its own.</summary>
+    /// <summary>The symbol with the same declaration id in the unopened compilation, or <c>null</c> for a symbol of the library only
+    /// the opened copy declares; a symbol of another assembly, or one without a declaration id, is its own.</summary>
     /// <param name="library">The library compilation, opened or not.</param>
     /// <param name="symbol">The symbol.</param>
-    private static ISymbol Original(CSharpCompilation library, ISymbol symbol)
+    private static ISymbol? Original(CSharpCompilation library, ISymbol symbol)
     {
         var definition = symbol.OriginalDefinition;
         if (!SymbolEqualityComparer.Default.Equals(definition.ContainingAssembly, library.Assembly) || definition.GetDocumentationCommentId() is not { } id)
             return definition;
         var unopened = LibraryFieldOpening.Unopened(library);
-        return ReferenceEquals(unopened, library) ? definition : FindMember(unopened, id) ?? definition;
+        return ReferenceEquals(unopened, library) ? definition : FindMember(unopened, id);
     }
 
     private static IReadOnlyList<DriverSeedStatement> SeedOperations(CSharpCompilation compilation, SyntaxTree tree,

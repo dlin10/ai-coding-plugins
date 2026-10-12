@@ -30,7 +30,7 @@ public sealed class AccessorDriverTests
                 public static int Total => 1;
             }
 
-            public sealed class Seeded { public object Hidden { get; private set; } public object Frozen { get; init; } }
+            public sealed class Seeded { public object Hidden { get; private set; } public object Frozen { get; init; } public object Fixed { get; } }
             public sealed class Outer { private sealed class Inner { public object Value { get; set; } } }
             public class Virtual { public virtual event Action Changed; }
             public class Overriding : Virtual { public override event Action Changed; }
@@ -115,6 +115,25 @@ public sealed class AccessorDriverTests
         Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
         Assert.Contains("is not public", synthesis.Detail);
         Assert.Contains(holder.Triggers, trigger => trigger.Member == "M:Lib.Seeded.get_Hidden");
+        Assert.DoesNotContain(holder.Triggers, trigger => trigger.Member == SETTER);
+        Assert.DoesNotContain(holder.Uncovered[FateClassifier.RESULT], why => why.StartsWith(SETTER, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_setter_only_the_opening_declares_is_member_not_found_and_no_trigger()
+    {
+        const string SETTER = "M:Lib.Seeded.set_Fixed(System.Object)";
+        // The opening gave the get-only seed auto-property a setter for seeding: only the copy declares it.
+        Assert.Contains("P:Lib.Seeded.Fixed", Library.Value.OpenedFields);
+        Assert.Contains(DocumentationCommentId.GetSymbolsForDeclarationId(SETTER, Library.Value.Compilation!),
+                        symbol => SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, Library.Value.Compilation!.Assembly));
+
+        var answer = ModelGenerator.Trace(new GenerationRequest("Fixture.Library", "1.0", SETTER, null, null), Library.Value, CancellationToken.None).Answer;
+        var holder = Assert.IsType<Driver>(Synthesize("M:Lib.Api.MakeSeeded(System.Action)").Driver);
+
+        Assert.Equal(GenerationReasons.MEMBER_NOT_FOUND, answer.Reason);
+        Assert.Null(DriverSynthesizer.FindMember(Library.Value.Compilation!, SETTER));
+        Assert.Contains(holder.Triggers, trigger => trigger.Member == "M:Lib.Seeded.get_Fixed");
         Assert.DoesNotContain(holder.Triggers, trigger => trigger.Member == SETTER);
         Assert.DoesNotContain(holder.Uncovered[FateClassifier.RESULT], why => why.StartsWith(SETTER, StringComparison.Ordinal));
     }

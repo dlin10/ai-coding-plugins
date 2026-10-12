@@ -1,6 +1,7 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 
@@ -73,15 +74,15 @@ internal sealed record GenerationSnapshot(string Implementation, IReadOnlyList<G
 /// <summary>The generation of every public member of <c>System.Private.CoreLib</c>, and the comparison of two of its snapshots.</summary>
 internal static class CoreLibGeneration
 {
-    /// <summary>The declaration ids of the methods a caller outside the assembly could call by the compilation's declarations, sorted:
-    /// the method and every type around it public, protected or protected internal. The compilation of an opened copy declares what
-    /// the copy opened as well.</summary>
-    /// <param name="compilation">The library compilation.</param>
-    public static IReadOnlyList<string> PublicMembers(Compilation compilation)
+    /// <summary>The declaration ids of the methods a caller outside the assembly could call, sorted: the method and every type around
+    /// it public, protected or protected internal as the library declares them, so an opened copy is read as it was before the
+    /// opening. The accessors of properties and events are methods like any other.</summary>
+    /// <param name="compilation">The library compilation, opened or not.</param>
+    public static IReadOnlyList<string> PublicMembers(CSharpCompilation compilation)
     {
         var ids = new SortedSet<string>(StringComparer.Ordinal);
         var pending = new Stack<INamespaceOrTypeSymbol>();
-        pending.Push(compilation.Assembly.GlobalNamespace);
+        pending.Push(LibraryFieldOpening.Unopened(compilation).Assembly.GlobalNamespace);
         while (pending.TryPop(out var current))
         {
             foreach (var member in current.GetMembers())
