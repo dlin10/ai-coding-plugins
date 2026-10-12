@@ -67,7 +67,7 @@ internal static class StreamingProcess
     /// 33916817192 had `git rev-parse HEAD` exit 0 with its one line never delivered, so a baseline
     /// was captured with an empty head. Too long rebuilds the wait a spawned server imposes — the
     /// twenty-minute timeout over a critique delivered in two that ending the stream on the exit
-    /// was written to fix, and which <c>DiagnosticLogTests</c> holds to ten seconds. Five sits
+    /// was written to fix, and which <c>DiagnosticLogTests</c> holds to twenty seconds. Five sits
     /// between: several times any ordinary scheduling delay, and inside that guard. What makes the
     /// choice survivable rather than lucky is that <see cref="NextLineAsync"/> logs the expiry, so
     /// the next machine slow enough to lose a line says so instead of returning a short stream.
