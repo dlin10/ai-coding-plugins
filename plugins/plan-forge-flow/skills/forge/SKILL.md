@@ -34,9 +34,9 @@ a time: first the one the others depend on, and the next only once that one is a
 answer can change or remove the questions behind it. This overrides the `grilling` rule to ask the
 whole frontier in one round: a delegated interview skill supplies the questions, never their
 batching. You make two batches unasked, one per worker role, both described under "Choosing the
-vendor and model": the critic's vendor, model-and-effort, Fast and instruction questions share one
-call, and the builder's another. Their options come from the catalogue you fetch before the first
-of them, each naming what it depends on, and answers that do not fit together get one follow-up
+vendor and model": once the role's vendor is answered, its model-and-effort, Fast and instruction
+questions share one call, the critic's first. Their options come from the chosen vendor's
+catalogue, each naming what it depends on, and answers that do not fit together get one follow-up
 question. Explain each question of a batch before the call. If the user asks for questions in a
 batch, batch them as they asked.
 
@@ -1029,22 +1029,24 @@ This happens at the end of Act 1, after the last interview question and before t
 draft — the depth rule above reads the builder's selection.
 
 Critic/Builder selection remains at most six questions total: two Vendor questions, two
-model/effort questions, and one Fast question for each role whose choice offers it. Ask them in two
-calls, one per role, the critic's first: each call carries that role's vendor, model-and-effort,
-Fast and instruction questions, in the order of the steps below — four questions at most. A single
-just-in-time Scout selection round is additional; there is no numeric cap on the domain interview.
+model/effort questions, and one Fast question for each role whose choice offers it. Ask them role
+by role, the critic's first: the vendor question alone, then one call carrying that role's
+model-and-effort, Fast and instruction questions, in the order of the steps below — three questions
+at most. The vendor question never shares a call with the model-and-effort question: the questions
+in a call cannot see each other's answers, so the model options would have to span every vendor,
+and a user who chose one vendor would be offered another's models. A single just-in-time Scout
+selection round is additional; there is no numeric cap on the domain interview.
 The combinations come from the server, not from your own knowledge. Call `forge.models` (no
 `vendor` argument) again immediately before the Critic/Builder Vendor question: successful probes
 return from `CatalogCache` immediately, while previously unavailable probes rerun so a repaired
 CLI or sign-in can re-enter the choices. Do not claim that the catalogue is called only once. Build
-both calls from that one answer: it holds every available vendor's models, efforts and Fast tiers,
+every call from that one answer: it holds every available vendor's models, efforts and Fast tiers,
 which is what lets one call carry questions that would otherwise wait on each other's answers.
 
 The questions in a call cannot see each other's answers, so every option says what it depends on:
-a model-and-effort pair names its vendor, and the Fast question names the pairs that offer it. When
-the answers do not fit together — a pair from a vendor the user did not choose, a free-text model
-the chosen vendor's catalogue does not list, Fast for a pair that has none — ask one follow-up
-question about the part that does not fit before that role's selection is used.
+the Fast question names the pairs that offer it. When the answers do not fit together — a
+free-text model the chosen vendor's catalogue does not list, Fast for a pair that has none — ask
+one follow-up question about the part that does not fit before that role's selection is used.
 
 1. The vendor question offers only vendors the catalogue reports `available: true`. Never offer a
    vendor with `available: false`; its `detail` names the cause — a missing CLI, a sign-in — so
@@ -1060,12 +1062,11 @@ question about the part that does not fit before that role's selection is used.
      cursor, or the host you are running in is Cursor. Tell the user both workers will run through
      `cursor-agent`, put both roles on the `cursor` vendor, and draw step 2's pairs from its
      catalogue alone.
-2. The model-and-effort question requests a valid combination, drawn from the catalogue in the
-   tool's order — it is already newest first. Offer three concrete model-plus-effort pairs, your
-   recommendation first, among them the vendor's own pick where it names one (`isDefault`,
-   `defaultEffort`), and say which that is; always leave free text open. While the call also asks
-   for the vendor, draw the pairs from the vendors it offers, your recommended vendor's first, and
-   name each pair's vendor in its label.
+2. The model-and-effort question requests a valid combination for that role's chosen vendor, drawn
+   from that vendor's catalogue in the tool's order — it is already newest first. Offer three
+   concrete model-plus-effort pairs, your recommendation first, among them the vendor's own pick
+   where it names one (`isDefault`, `defaultEffort`), and say which that is; always leave free text
+   open. Never offer a pair from a vendor the user did not choose for that role.
    Say what kind of list you are offering: `source: "live"` came from the vendor CLI just now;
    `source: "resolved"` (claude) is a list of aliases this repo remembers, each one turned by the
    CLI into the model it currently stands for — so name that model beside the alias, because

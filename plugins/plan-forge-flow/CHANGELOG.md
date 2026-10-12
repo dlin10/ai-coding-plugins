@@ -1,5 +1,13 @@
 # Plan Forge Flow releases
 
+## 0.44.1
+
+- The forge skill asks each worker role's vendor question on its own, and only then the call with
+  that role's model-and-effort, Fast and instruction questions, the critic's first. The
+  model-and-effort options come from the chosen vendor's catalogue alone. Asked in one call with
+  the vendor, they had to span every vendor, so a user who chose codex was still offered Claude
+  models.
+
 ## 0.44.0
 
 Code-review fixes can run a short, explicit Fix gate while full plan verification is deferred to the
