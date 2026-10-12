@@ -413,16 +413,11 @@
         "fileVersion": "8.0.3126.42015",
         "mvid": "742bdb9f-0b11-4c54-853a-5770c9beaf55"
       },
-      "classified": {
-        "match": {
-          "fate": "unknown-execution",
-          "holder": null
-        }
-      },
-      "reason": null,
+      "classified": null,
+      "reason": "overridable",
       "model": null,
-      "modelReason": "unknown-touch",
-      "reachedBodies": 141
+      "modelReason": null,
+      "reachedBodies": 0
     }
   ],
   "effects": [
@@ -3279,26 +3274,11 @@
         "fileVersion": "10.0.1226.42308",
         "mvid": "e7714447-a3cb-4c79-bce6-6e7374c9f249"
       },
-      "classified": {},
-      "reason": null,
-      "model": {
-        "member": "M:System.ComponentModel.Component.set_Site(System.ComponentModel.ISite)",
-        "assemblies": [
-          "System.ComponentModel.Primitives"
-        ],
-        "versions": {
-          "minimum": "10.0.0.0",
-          "maximumExclusive": "10.0.0.1"
-        },
-        "effects": {},
-        "keeps": {
-          "this": [
-            "arg:value"
-          ]
-        }
-      },
+      "classified": null,
+      "reason": "overridable",
+      "model": null,
       "modelReason": null,
-      "reachedBodies": 13
+      "reachedBodies": 0
     },
     {
       "member": "M:System.Console.add_CancelKeyPress(System.ConsoleCancelEventHandler)",
@@ -3493,7 +3473,7 @@
       "bodies": 166,
       "externBodies": 0,
       "members": 1,
-      "driversSynthesized": 1
+      "driversSynthesized": 0
     },
     {
       "assembly": "System.Console",
@@ -3574,7 +3554,7 @@
       "bodies": 125,
       "externBodies": 0,
       "members": 1,
-      "driversSynthesized": 1
+      "driversSynthesized": 0
     },
     {
       "assembly": "System.Text.Json",
@@ -3602,5 +3582,5 @@
     "System.Linq": 17,
     "System.Linq.Queryable": 0
   },
-  "accessorsExact": 7
+  "accessorsExact": 6
 }

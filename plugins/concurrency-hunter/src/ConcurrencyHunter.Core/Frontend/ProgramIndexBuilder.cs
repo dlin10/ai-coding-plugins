@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers.LibraryModels;
+using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
@@ -179,7 +180,8 @@ public static class ProgramIndexBuilder
             TypeArguments(type).Select(SymbolNames.TypeKey).ToArray())
         {
             IsSource = source is not null,
-            InstanceFields = source is null ? [] : InstanceFields(type, source, cancellationToken)
+            InstanceFields = source is null ? [] : InstanceFields(type, source, cancellationToken),
+            IsVisibleOutside = Derivation.IsVisible(type)
         };
 
     /// <summary>The instance fields a source type declares, named as accesses name them: its fields, the backing fields of its

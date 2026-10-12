@@ -42,6 +42,11 @@ public sealed record ReachabilityRules(DispatchRule Dispatch, IReadOnlySet<strin
 {
     /// <summary>Class-hierarchy dispatch with no type left out.</summary>
     public static ReachabilityRules ClassHierarchy { get; } = new(DispatchRule.ClassHierarchy, new HashSet<string>(StringComparer.Ordinal));
+
+    /// <summary>The assemblies whose objects stand for an object of any type a program could declare — the model generator's driver,
+    /// whose probes, subclasses and seeds stand for the user's objects —, so a type test narrows them only to a sealed type, a value
+    /// type or a type another assembly cannot name, which they are not (Open-world rule). Empty for every run but a generation.</summary>
+    public IReadOnlySet<string> OpenWorldAssemblies { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
 public enum ConstructionKind
@@ -115,6 +120,9 @@ public sealed record ReachableSetResult(IReadOnlyList<ReachedMember> Members, IR
 {
     /// <summary>How the set's calls that dispatch reached their targets.</summary>
     public DispatchRule Dispatch { get; init; } = DispatchRule.ClassHierarchy;
+
+    /// <summary>The assemblies whose objects stand for an object of any type (<see cref="ReachabilityRules.OpenWorldAssemblies"/>).</summary>
+    public IReadOnlySet<string> OpenWorldAssemblies { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 
     /// <summary>Whether a member has a body in this run, which the lowering's, the summaries' and the heap's callees are decided by:
     /// a source body under class-hierarchy dispatch, and a body among <see cref="Bodies"/> under constructed types, so a member the
@@ -373,7 +381,8 @@ public static class ReachableSet
                                                                     StringComparer.Ordinal),
                                           unanalysed)
             {
-                Dispatch = _input.Rules.Dispatch
+                Dispatch = _input.Rules.Dispatch,
+                OpenWorldAssemblies = _input.Rules.OpenWorldAssemblies
             };
         }
 

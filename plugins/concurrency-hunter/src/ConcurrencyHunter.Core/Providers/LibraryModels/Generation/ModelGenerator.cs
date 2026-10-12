@@ -167,9 +167,17 @@ public static class ModelGenerator
         if (claim is not null)
             return facts.Refused(GenerationReasons.ENGINE_RECOGNIZED, $"{claim.Method} is claimed by the {claim.Recognizer} recognizer");
 
-        var synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields, cancellationToken);
+        var synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields, cancellationToken,
+                                                     library.ReplacedMembers);
         if (synthesis.Driver is not { } driver)
             return facts.Refused(synthesis.Reason!, synthesis.Detail);
+        if (Overridable(driver.Member))
+        {
+            return facts.Refused(GenerationReasons.OVERRIDABLE,
+                                 $"{facts.Request.MemberId} is {(driver.Member.IsOverride ? "an override not sealed" : "virtual")} in " +
+                                 $"{driver.Member.ContainingType.ToDisplayString()}, which is not sealed: a call may run another type's override, " +
+                                 "which the driver does not analyse");
+        }
         facts.DefaultedValues = driver.DefaultedValues;
         facts.Seeds = driver.SeedStatements.Count;
         facts.Unseeded = driver.Unseeded;
@@ -177,9 +185,10 @@ public static class ModelGenerator
         models ??= ModelsOutside(compilation.AssemblyName!);
         var loadedStatics = new HashSet<(string Type, string Name)>();
         var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
-        var reachability = corelib
+        // The driver's probes, subclasses and seeds stand for the user's objects, of whatever type they are.
+        var reachability = (corelib
             ? new ReachabilityRules(DispatchRule.ConstructedTypes, new HashSet<string>(StringComparer.Ordinal) { "System.Private.CoreLib:System.SR" })
-            : null;
+            : ReachabilityRules.ClassHierarchy) with { OpenWorldAssemblies = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY } };
         ScopeRun Pipeline(bool triggers) =>
             ScopePipeline.Run(SCOPE_ID, [compilation, driver.Compilation], [], Path.GetTempPath(), new ProviderRegistry([new DriverRootProvider(triggers)]),
                               models, AnalysisLimits.Default, lowered, CLOSURE_BOUND, cancellationToken, reachability: reachability);
@@ -200,7 +209,7 @@ public static class ModelGenerator
                 if (run.Stopped || loadedStatics.Count == previousCount)
                     break;
                 synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields, loadedStatics,
-                                                         cancellationToken);
+                                                         cancellationToken, library.ReplacedMembers);
                 if (synthesis.Driver is not { } seededDriver)
                     return facts.Refused(synthesis.Reason!, synthesis.Detail);
                 driver = seededDriver;
@@ -302,6 +311,12 @@ public static class ModelGenerator
             StateStores = effects.StateStores
         };
     }
+
+    /// <summary>Whether a call may dispatch away from a member: it is virtual, or an override not sealed, in a type not sealed, so another
+    /// type's override may run where a call names it, and a model is applied by the member a call names.</summary>
+    /// <param name="member">The member.</param>
+    private static bool Overridable(IMethodSymbol member) =>
+        (member.IsVirtual || member.IsOverride && !member.IsSealed) && !member.ContainingType.IsSealed;
 
     /// <summary>Whether the member's own body ran in the tree of the driver's call or enumeration.</summary>
     /// <param name="driver">The driver.</param>

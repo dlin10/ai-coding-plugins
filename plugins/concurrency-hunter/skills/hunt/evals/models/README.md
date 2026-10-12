@@ -51,7 +51,10 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   whole-entry truth.
   A recorded fate changes only by a cause of the floor rule below, every changed one named by declaration id with
   its cause in `docs/QUESTIONS.md`. Run B2 changes no recorded fate. No recorded floor can decrease — `exact`, `fateGoldEntries`, `effectsExact`, each `linqExact` group and
-  `accessorsExact`: the recording writer refuses a lower one and leaves the file's bytes as they were.
+  `accessorsExact`: the recording writer refuses a lower one and leaves the file's bytes as they were, save by the answers the
+  generator now refuses as `overridable` (a model is applied by the member a call names, so a member a call may dispatch away
+  from has none). CoreLib prerequisites step 10 lowers `accessorsExact` 7 → 6 so: `Component.set_Site` is virtual; and
+  `ClaimsPrincipal.FindFirst`, virtual too, answers `overridable` instead of an inexact `unknown-execution`.
 - **Floor rule (run B2b).** A recorded answer of `members`, `effects` or `linq` may change only by one of the causes
   `not-run`, `holder-trigger`, `event-seed`, `delegate-value` or `delegate-slot`, or by `event-call` for an answer
   whose one change is its `reachedBodies` (library code it reaches subscribes to or raises an event the run now lowers
@@ -59,6 +62,8 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   `docs/QUESTIONS.md` — in question 90's closing row when it stays exact, in an open question otherwise. Run B2b
   changes two: `AbstractValidator<T>.Validate` and `ValidateAsync` of FluentValidation reach 458 bodies instead of 457,
   through `TrackingCollection<T>.ItemAdded` (`event-call`).
+  CoreLib prerequisites step 10 adds the cause `overridable` for an answer of any set, `accessors` included: the generator
+  refuses a member a call may dispatch away from; question 163 names both changed answers.
   Run A4 adds the cause `completion-value`: the answer changed because the run now follows the value a task completes
   with — through `await`, `.Result`, `FromResult`, `ValueTask` and `task(…)` results — where it lost it before; each
   such answer is named in `docs/runs/5d-A4.md`.
@@ -160,4 +165,5 @@ compares every fate with the gold fate through `EntryComparator.FateIsSafe` — 
 entry. The bar is zero unsafe narrowings. Every entry passes the project reader and its member check, and no member is
 refused as an `accessor`. An answer is exact when every fate, with its holder, and the entry are; the number of exact
 answers never falls below the snapshot's `accessorsExact`, and every inexact answer is named with its cause in
-`docs/QUESTIONS.md`. Run B2b records 7 of 12.
+`docs/QUESTIONS.md`. Run B2b records 7 of 12; CoreLib prerequisites step 10 records 6, `Component.set_Site` being
+`overridable` (question 163).

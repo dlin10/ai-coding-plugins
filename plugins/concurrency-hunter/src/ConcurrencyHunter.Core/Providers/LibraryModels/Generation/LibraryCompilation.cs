@@ -30,7 +30,12 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 /// <c>decompiler: &lt;type&gt;: …</c>; empty when it is usable.</param>
 public sealed record LibraryCompilationResult(CSharpCompilation? Compilation, string? Reason, int Bodies, int ExternBodies,
                                               IReadOnlySet<string> ExternMembers, IReadOnlySet<string> OpenedFields,
-                                              IReadOnlyList<string> Errors);
+                                              IReadOnlyList<string> Errors)
+{
+    /// <summary>The documentation ids among <see cref="ExternMembers"/> whose decompiled body is not the code the runtime runs: every
+    /// member of <c>Unsafe</c> and every intrinsic's placeholder.</summary>
+    public IReadOnlySet<string> ReplacedMembers { get; init; } = new SortedSet<string>(StringComparer.Ordinal);
+}
 
 /// <summary>A module decompiled in memory: one tree per top-level type and the assembly-attributes tree last, and the top-level types
 /// the decompiler threw on.</summary>
@@ -162,7 +167,8 @@ public static class LibraryCompilation
     }
 
     /// <summary>Compiles decompiled trees as a library named as the assembly, unsafe code allowed, nullable disabled, makes every
-    /// member of a type <see cref="HasNoBodies"/> names <c>extern</c>, then rewrites every member whose body has an error as
+    /// member of a type <see cref="HasNoBodies"/> names and every intrinsic's placeholder (<see cref="IsPlaceholder"/>)
+    /// <c>extern</c>, then rewrites every member whose body has an error as
     /// <c>extern</c> and recompiles, at most three times. A declaration-level error other
     /// than the benign ones, a body still in error after the last rewrite, or an error the rewrite leaves makes the library
     /// unusable.</summary>
@@ -223,20 +229,26 @@ public static class LibraryCompilation
             }
         }
 
-        // Unsafe has no body, as in every library that references it from metadata.
+        // Unsafe has no body, as in every library that references it from metadata, and neither has an intrinsic's placeholder: a body
+        // whose only statement calls the member itself, IL the JIT replaces, which as recursion with no way out returns nothing.
+        var replacedMembers = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var tree in compilation.SyntaxTrees.ToArray())
         {
             cancellationToken.ThrowIfCancellationRequested();
             var root = tree.GetRoot(cancellationToken);
             var types = root.DescendantNodes(node => node is CompilationUnitSyntax or BaseNamespaceDeclarationSyntax).OfType<TypeDeclarationSyntax>()
                             .Where(type => type.Identifier.ValueText == "Unsafe").ToArray();
-            if (types.Length == 0)
+            var placeholders = root.DescendantNodes().OfType<MethodDeclarationSyntax>().Where(method => OnlyCallOfItsName(method) is not null).ToArray();
+            if (types.Length == 0 && placeholders.Length == 0)
                 continue;
             var model = compilation.GetSemanticModel(tree);
             var members = types.Where(type => model.GetDeclaredSymbol(type, cancellationToken) is { } symbol && HasNoBodies(symbol))
                                .SelectMany(type => type.Members).Where(member => member.DescendantNodesAndSelf().Any(IsBody)).ToHashSet();
+            members.UnionWith(placeholders.Where(method => IsPlaceholder(method, model, cancellationToken)));
             if (members.Count == 0)
                 continue;
+            foreach (var member in members)
+                replacedMembers.UnionWith(DeclaredSymbols(model.GetDeclaredSymbol(member, cancellationToken)));
             var (rewritten, removed) = Rewrite(root, members, new HashSet<(TypeDeclarationSyntax, bool)>(), model, externMembers, cancellationToken);
             externBodies += removed;
             compilation = compilation.ReplaceSyntaxTree(tree, CSharpSyntaxTree.ParseText(rewritten.ToFullString(), (CSharpParseOptions)tree.Options,
@@ -257,13 +269,19 @@ public static class LibraryCompilation
             {
                 var opened = openFields ? LibraryFieldOpening.Open(compilation, cancellationToken)
                                         : (compilation, (IReadOnlySet<string>)new SortedSet<string>(StringComparer.Ordinal));
-                return new LibraryCompilationResult(opened.Item1, null, bodies, externBodies, externMembers, opened.Item2, []);
+                return new LibraryCompilationResult(opened.Item1, null, bodies, externBodies, externMembers, opened.Item2, [])
+                {
+                    ReplacedMembers = replacedMembers
+                };
             }
             if (unusable.Count > 0 || round == REWRITE_ROUNDS)
             {
                 return new LibraryCompilationResult(null, GenerationReasons.LIBRARY_DOES_NOT_COMPILE, bodies, externBodies, externMembers,
                                                     new SortedSet<string>(StringComparer.Ordinal),
-                                                    unusable.Count > 0 ? unusable.ToArray() : targets.Codes.ToArray());
+                                                    unusable.Count > 0 ? unusable.ToArray() : targets.Codes.ToArray())
+                {
+                    ReplacedMembers = replacedMembers
+                };
             }
 
             foreach (var tree in targets.Trees)
@@ -282,6 +300,43 @@ public static class LibraryCompilation
     /// that runs: <c>System.Runtime.CompilerServices.Unsafe</c>.</summary>
     /// <param name="type">The type.</param>
     internal static bool HasNoBodies(INamedTypeSymbol type) => type.GetDocumentationCommentId() == UNSAFE;
+
+    /// <summary>The call a method's body consists of when that call names the method's own name: its expression body or its only
+    /// statement, a <c>return</c> of it or the call alone, through <c>ref</c>; otherwise <c>null</c>. Only syntax: whether the call
+    /// binds to the method itself <see cref="IsPlaceholder"/> decides.</summary>
+    /// <param name="method">The method.</param>
+    private static InvocationExpressionSyntax? OnlyCallOfItsName(MethodDeclarationSyntax method)
+    {
+        var only = method.ExpressionBody?.Expression ?? (method.Body is { Statements: [var statement] }
+            ? statement switch
+            {
+                ReturnStatementSyntax ret => ret.Expression,
+                ExpressionStatementSyntax call => call.Expression,
+                _ => null
+            }
+            : null);
+        while (only is RefExpressionSyntax reference)
+            only = reference.Expression;
+        if (only is not InvocationExpressionSyntax invocation)
+            return null;
+        var name = invocation.Expression switch
+        {
+            SimpleNameSyntax simple => simple.Identifier.ValueText,
+            MemberAccessExpressionSyntax access => access.Name.Identifier.ValueText,
+            _ => null
+        };
+        return name == method.Identifier.ValueText ? invocation : null;
+    }
+
+    /// <summary>Whether a method is an intrinsic's placeholder: its body only calls the method itself, the IL the decompiler renders for
+    /// a body the JIT replaces (<c>MemoryMarshal.GetArrayDataReference</c>, the hardware intrinsics).</summary>
+    /// <param name="method">The method, one <see cref="OnlyCallOfItsName"/> finds.</param>
+    /// <param name="model">The semantic model of its tree.</param>
+    /// <param name="cancellationToken">Cancels the binding.</param>
+    private static bool IsPlaceholder(MethodDeclarationSyntax method, SemanticModel model, CancellationToken cancellationToken) =>
+        OnlyCallOfItsName(method) is { } call && model.GetSymbolInfo(call, cancellationToken).Symbol is IMethodSymbol called &&
+        model.GetDeclaredSymbol(method, cancellationToken) is { } declared &&
+        SymbolEqualityComparer.Default.Equals(called.OriginalDefinition, declared.OriginalDefinition);
 
     private static bool Selected(MemberDeclarationSyntax member, SemanticModel model, IReadOnlySet<string> selection,
                                  CancellationToken cancellationToken)

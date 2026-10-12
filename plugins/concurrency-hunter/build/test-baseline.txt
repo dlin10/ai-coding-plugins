@@ -5550,6 +5550,7 @@ ConcurrencyHunter.Core.Tests.Engine.TimerTests.Wait_on_only_one_branch_after_dis
 ConcurrencyHunter.Core.Tests.Engine.TimerTests.Wait_with_a_timeout_after_dispose_orders_nothing	Passed
 ConcurrencyHunter.Core.Tests.Engine.TimerTests.Work_a_callback_detaches_overlaps_the_write_after_dispose_async	Passed
 ConcurrencyHunter.Core.Tests.Engine.TimerTests.Zero_period_at_creation_is_one_shot	Passed
+ConcurrencyHunter.Core.Tests.Engine.TypeSafetyTests.A_member_of_a_span_keeps_an_array_the_span_is_made_from	Passed
 ConcurrencyHunter.Core.Tests.Engine.TypeSafetyTests.Array_is_skipped_for_a_source_member_and_kept_for_its_interfaces	Passed
 ConcurrencyHunter.Core.Tests.Engine.TypeSafetyTests.Array_rank_inside_a_generic_argument_does_not_admit_a_three_parameter_member	Passed
 ConcurrencyHunter.Core.Tests.Engine.TypeSafetyTests.Call_skips_a_receiver_that_cannot_be_the_declaring_type	Passed
@@ -6378,6 +6379,12 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_given_to_an
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_given_to_an_operation_the_lowering_does_not_express_names_the_operation(member: "public static string Describe(Node node, Action do"···, id: "M:Lib.Api.Describe(Lib.Node,System.Action)", kind: "Interpolation")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_handed_to_an_extern_method_and_an_unsupported_operation_names_only_the_call	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_handed_to_an_extern_method_names_the_call	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public readonly struct Pair { private readonly obj"···, id: "M:Lib.Pair.Show", field: "Lib.Pair._a")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public sealed class Node { public object Item; pub"···, id: "M:Lib.Registration.Unregister", field: "Lib.Registration._node")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public struct Cell { public object Value; public s"···, id: "M:Lib.Cell.Show", field: "Lib.Cell.Value")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public struct Pair { public object A; } public sta"···, id: "M:Lib.Api.Show(Lib.Pair)", field: "Lib.Pair.A")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public struct Two<T1, T2> { public T1 Item1; publi"···, id: "M:Lib.Two`2.Same(Lib.Two{`0,`1})", field: "Item1")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_inside_a_struct_inside_a_struct_input_is_incomplete	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_the_receivers_own_state_names_no_effect	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_what_a_user_delegate_returned_names_the_field	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_what_the_receiver_holds_is_a_deep_read_of_this(types: "public abstract class Part { public abstract strin"···, id: "M:Lib.Cell.Describe")	Passed
@@ -6388,6 +6395,14 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_reference_to_an_i
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_store_into_a_library_static_names_the_store	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_struct_receivers_own_override_runs_in_the_call	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_initializer_assigning_its_own_seeded_static_touches_no_user_object	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_a_struct_has_no_driver(types: "public sealed class StructComparer<T> where T : st"···, id: "M:Lib.StructComparer`1.Compare(System.Nullable{`0}"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_a_struct_has_no_driver(types: "public static class Api { public static bool Same<"···, id: "M:Lib.Api.Same``1(``0,System.Object)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_unmanaged_is_an_int	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_test_a_user_object_cannot_pass_still_narrows_a_probe(types: "internal class Com { public virtual int Release() "···, id: "M:Lib.Api.Release(System.Object)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_test_a_user_object_cannot_pass_still_narrows_a_probe(types: "public static class Api { public static int Length"···, id: "M:Lib.Api.Length(System.Object)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_test_a_user_object_cannot_pass_still_narrows_a_probe(types: "public static class Api { public static int Unbox("···, id: "M:Lib.Api.Unbox(System.Object)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_test_does_not_narrow_a_probe_or_a_seed_which_stand_for_any_user_type(types: "public sealed class Slot { public object Value; pu"···, id: "M:Lib.Slot.Read")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_test_does_not_narrow_a_probe_or_a_seed_which_stand_for_any_user_type(types: "public static class Api { public static int Conver"···, id: "M:Lib.Api.Convert(System.Object)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "Action set = () => a[0] = 1; set();", written: "a")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "Id(a)[0] = 1;", written: "a")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "var all = new[] { a }; all[0][0] = 1;", written: "a")	Passed
@@ -6396,6 +6411,7 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "var r = Choice.Value ? a : b; r[0] = 1;", written: "a,b")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_write_into_a_cell_of_an_array_argument_any_way_it_came_writes_its_cells(body: "void Local() { a[0] = 1; } Local();", written: "a")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_address_handed_to_Unsafe_goes_to_unseen_code	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_array_given_to_an_intrinsic_placeholder_is_touched	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_equality_member_of_what_the_receiver_holds_has_no_name_to_run_on	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_immutable_input_handed_to_a_bodyless_call_leaves_the_model	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_input_given_to_an_operation_the_lowering_does_not_express_is_touched_though_it_is_no_probe	Passed
@@ -6448,6 +6464,8 @@ ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Missing_input_fails_under
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_cannot_lower_the_accessor_floor	Passed
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_cannot_lower_the_exact_floor	Passed
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_cannot_lower_the_fate_gold_entry_floor	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_lowers_a_floor_only_by_answers_now_refused_as_overridable(reason: "driver-not-synthesized", recorded: False)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_lowers_a_floor_only_by_answers_now_refused_as_overridable(reason: "overridable", recorded: True)	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_holder_whose_Fire_trigger_runs_the_delegate_stays_a_holder_naming_Fire	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_holder_whose_members_never_run_the_delegate_is_unknown_execution	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_member_that_ignores_its_delegate_is_not_run_with_no_inputs_and_no_effect	Passed
@@ -6457,6 +6475,12 @@ ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_member_that_
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_member_whose_reached_code_has_an_unresolved_dispatch_is_unknown_execution	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_member_with_a_dropped_lowering_in_a_reached_body_is_unknown_execution	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_member_with_an_unsupported_operation_in_a_reached_body_is_unknown_execution	Passed
+ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_a_call_may_dispatch_away_from_is_overridable(types: "public abstract class Service { public virtual int"···, id: "M:Lib.Service.Count(System.Object)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_a_call_may_dispatch_away_from_is_overridable(types: "public class Base { public virtual void Run(Action"···, id: "M:Lib.Service.Run(System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_a_call_may_dispatch_away_from_is_overridable(types: "public class Service { public virtual object Value"···, id: "M:Lib.Service.set_Value(System.Object)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_a_call_may_dispatch_away_from_is_overridable(types: "public class Service { public virtual void Run(Act"···, id: "M:Lib.Service.Run(System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_no_call_dispatches_away_from_is_answered(types: "public class Base { public virtual void Run(Action"···, id: "M:Lib.Service.Run(System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_no_call_dispatches_away_from_is_answered(types: "public class Service { public void Run(Action acti"···, id: "M:Lib.Service.Run(System.Action)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.UnsafeNarrowingTests.A_gold_parameter_the_classification_leaves_out_counts_as_unknown_execution	Passed
 ConcurrencyHunter.Core.Tests.Generation.UnsafeNarrowingTests.A_holder_of_the_wrong_kind_is_unsafe	Passed
 ConcurrencyHunter.Core.Tests.Generation.UnsafeNarrowingTests.A_member_with_no_classification_counts_as_unknown_execution_for_each_gold_parameter	Passed
@@ -7105,7 +7129,7 @@ ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Out_and_ref_holding_
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Probe_lambdas_return_a_string_a_marker_and_a_library_object_made_in_the_lambda	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Probe_lambdas_return_completed_tasks_of_values_made_in_the_lambda	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Setup_builds_the_receiver_the_arguments_with_their_contents_and_the_intermediates	Passed
-ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Struct_and_unmanaged_constraints_take_the_recipes_int	Passed
+ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Struct_and_unmanaged_constraints_differ_only_unmanaged_takes_the_recipes_int	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.The_recipe_takes_the_constructor_with_a_delegate_when_placing_probes_and_the_fewest_parameters_otherwise	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.The_result_and_the_receiver_holders_share_the_24_triggers	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.The_root_provider_discovers_every_action	Passed
@@ -7456,6 +7480,7 @@ ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.Kept_result_is_refuse
 ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.Result_keeper_without_new_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.This_keeper_on_a_static_member_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.KeptVocabularyTests.Typed_leaf_beside_kept_is_still_checked	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_body_whose_only_statement_calls_the_member_itself_becomes_extern	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_constructor_in_error_loses_its_body_and_its_base_call_and_a_new_of_its_type_is_an_opaque_call	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_custom_event_accessor_in_error_makes_a_field_like_extern_event	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_field_like_event_beside_its_backing_field_blocks_nothing	Passed

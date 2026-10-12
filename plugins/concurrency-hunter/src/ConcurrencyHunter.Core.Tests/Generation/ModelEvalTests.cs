@@ -178,6 +178,33 @@ public sealed class ModelEvalTests
     /// <summary>Checks that recording refuses a lower floor before touching bytes, and accepts an equal or higher floor.</summary>
     /// <param name="property">The count property.</param>
     /// <param name="group">The LINQ assembly group, or null for a top-level count.</param>
+    [Theory]
+    [InlineData("overridable", true)]
+    [InlineData("driver-not-synthesized", false)]
+    public void Recording_lowers_a_floor_only_by_answers_now_refused_as_overridable(string reason, bool recorded)
+    {
+        // Component.set_Site: a model is applied by the member a call names, so a member a call may dispatch away from loses its
+        // exact answer for that reason alone.
+        var path = Path.Combine(Path.GetTempPath(), $"ch-floor-{Guid.NewGuid():N}.json");
+        const string BEFORE = "{\"accessors\":[{\"member\":\"M:A.set_Site\",\"reason\":null,\"model\":{}}],\"exact\":0,\"fateGoldEntries\":0," +
+                              "\"effectsExact\":0,\"linqExact\":{},\"accessorsExact\":1}";
+        File.WriteAllText(path, BEFORE);
+        try
+        {
+            var after = $"{{\"accessors\":[{{\"member\":\"M:A.set_Site\",\"reason\":\"{reason}\",\"model\":null}}],\"exact\":0,\"fateGoldEntries\":0," +
+                        "\"effectsExact\":0,\"linqExact\":{},\"accessorsExact\":0}";
+            if (recorded)
+                RecordSnapshot(path, after);
+            else
+                Assert.Throws<InvalidOperationException>(() => RecordSnapshot(path, after));
+            Assert.Equal(recorded ? after : BEFORE, File.ReadAllText(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     internal static void AssertRecordingPreservesFloor(string property, string? group = null)
     {
         var path = Path.Combine(Path.GetTempPath(), $"ch-floor-{Guid.NewGuid():N}.json");

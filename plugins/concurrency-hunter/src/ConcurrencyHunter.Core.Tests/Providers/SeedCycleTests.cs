@@ -17,7 +17,8 @@ public sealed class SeedCycleTests
         var unseeded = Unseeded("public sealed class Node { public object Item; public Pair Pair; } " +
                                 "public struct Pair { public Node Back; public object Tag; }", "Node");
 
-        Assert.Equal([ROOT + "/F:Lib.Node.Item", ROOT + "/F:Lib.Node.Pair/F:Lib.Pair.Tag"], unseeded);
+        // Every reference field of a struct is unseeded itself, whatever it holds: the heap keeps no object for a struct value.
+        Assert.Equal([ROOT + "/F:Lib.Node.Item", ROOT + "/F:Lib.Node.Pair/F:Lib.Pair.Back", ROOT + "/F:Lib.Node.Pair/F:Lib.Pair.Tag"], unseeded);
     }
 
     [Fact]
@@ -27,7 +28,8 @@ public sealed class SeedCycleTests
                                 "public struct Outer { public Inner Inner; } " +
                                 "public struct Inner { public Node Back; public object Tag; }", "Node");
 
-        Assert.Equal([ROOT + "/F:Lib.Node.Item", ROOT + "/F:Lib.Node.Outer/F:Lib.Outer.Inner/F:Lib.Inner.Tag"], unseeded);
+        Assert.Equal([ROOT + "/F:Lib.Node.Item", ROOT + "/F:Lib.Node.Outer/F:Lib.Outer.Inner/F:Lib.Inner.Back",
+                      ROOT + "/F:Lib.Node.Outer/F:Lib.Outer.Inner/F:Lib.Inner.Tag"], unseeded);
     }
 
     [Fact]
@@ -73,7 +75,8 @@ public sealed class SeedCycleTests
                                 $"public sealed class Node {{ public {container} Items; public Pair Pair; }} " +
                                 $"public struct Pair {{ public {container} Items; }}", "Node");
 
-        Assert.Equal([ROOT + "/F:Lib.Node.Items/F:Lib.Leaf.Item", ROOT + "/F:Lib.Node.Pair/F:Lib.Pair.Items/F:Lib.Leaf.Item"], unseeded);
+        Assert.Equal([ROOT + "/F:Lib.Node.Items/F:Lib.Leaf.Item", ROOT + "/F:Lib.Node.Pair/F:Lib.Pair.Items",
+                      ROOT + "/F:Lib.Node.Pair/F:Lib.Pair.Items/F:Lib.Leaf.Item"], unseeded);
     }
 
     [Fact]
@@ -83,7 +86,7 @@ public sealed class SeedCycleTests
                               "public struct Pair { public Node Back; } " +
                               "public static class Api { public static void Run(Pair value) { } }");
 
-        Assert.Equal(["arg:value/F:Lib.Pair.Back/F:Lib.Node.Item"],
+        Assert.Equal(["arg:value/F:Lib.Pair.Back", "arg:value/F:Lib.Pair.Back/F:Lib.Node.Item", "arg:value/F:Lib.Pair.Back/F:Lib.Node.Pair/F:Lib.Pair.Back"],
                      Drive("M:Lib.Api.Run(Lib.Pair)", library).Unseeded.Where(path => path.StartsWith("arg:value/", StringComparison.Ordinal)));
     }
 

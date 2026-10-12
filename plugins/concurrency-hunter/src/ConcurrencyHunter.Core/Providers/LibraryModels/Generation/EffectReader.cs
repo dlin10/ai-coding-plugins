@@ -1022,10 +1022,15 @@ public sealed class EffectReader
                member.ContainingType is { } type && Declares(field, type);
     }
 
+    /// <summary>Whether a field an access names is declared by the type, or by its definition: a body of a generic type names the
+    /// field of the definition (<c>ValueTuple&lt;T1, …&gt;.Item1</c>), and setup the field of the construction it built.</summary>
+    /// <param name="field">The field the access names.</param>
+    /// <param name="type">The type declaring the unseeded member.</param>
     private static bool Declares(IrFieldRef field, ITypeSymbol type)
     {
         var display = type.ToDisplayString();
-        return field.ContainingTypeId == display || field.ContainingType == display ||
+        var definition = type.OriginalDefinition.ToDisplayString();
+        return field.ContainingTypeId == display || field.ContainingType == display || field.ContainingType == definition ||
                field.ContainingType.EndsWith(type.Name, StringComparison.Ordinal);
     }
 

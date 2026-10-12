@@ -176,9 +176,12 @@ public static class DriverSynthesizer
     /// <param name="externMembers">The documentation ids of the library's members made <c>extern</c>.</param>
     /// <param name="openedFields">The documentation ids of fields and auto-properties opened for the driver.</param>
     /// <param name="cancellationToken">Cancels the driver's compilation.</param>
+    /// <param name="replacedMembers">The documentation ids among <paramref name="externMembers"/> whose body is not the code the runtime
+    /// runs (<see cref="LibraryCompilationResult.ReplacedMembers"/>).</param>
     public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
-                                             IReadOnlySet<string> openedFields, CancellationToken cancellationToken)
-        => Synthesize(library, member, externMembers, openedFields, new HashSet<(string Type, string Name)>(), cancellationToken);
+                                             IReadOnlySet<string> openedFields, CancellationToken cancellationToken,
+                                             IReadOnlySet<string>? replacedMembers = null)
+        => Synthesize(library, member, externMembers, openedFields, new HashSet<(string Type, string Name)>(), cancellationToken, replacedMembers);
 
     /// <summary>The driver with seeds only for static storage loaded by its reached closure.</summary>
     /// <param name="library">The library compilation.</param>
@@ -187,9 +190,11 @@ public static class DriverSynthesizer
     /// <param name="openedFields">The fields and auto-properties opened for setup.</param>
     /// <param name="loadedStatics">The static storage loaded by the closure, by declaring type definition and name.</param>
     /// <param name="cancellationToken">Cancels the driver's compilation.</param>
+    /// <param name="replacedMembers">The documentation ids among <paramref name="externMembers"/> whose body is not the code the runtime
+    /// runs (<see cref="LibraryCompilationResult.ReplacedMembers"/>).</param>
     public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
                                              IReadOnlySet<string> openedFields, IReadOnlySet<(string Type, string Name)> loadedStatics,
-                                             CancellationToken cancellationToken)
+                                             CancellationToken cancellationToken, IReadOnlySet<string>? replacedMembers = null)
     {
         if (IsAccessor(member))
             return new DriverSynthesis(null, GenerationReasons.ACCESSOR, AccessorDetail(member));
@@ -216,7 +221,7 @@ public static class DriverSynthesizer
         if (externMembers.Contains(Id(definition)))
         {
             return new DriverSynthesis(null, GenerationReasons.BODY_DOES_NOT_COMPILE,
-                                       LibraryCompilation.HasNoBodies(definition.ContainingType)
+                                       LibraryCompilation.HasNoBodies(definition.ContainingType) || replacedMembers?.Contains(Id(definition)) == true
                                            ? $"the body of {Id(definition)} is not the code the runtime runs and was made extern"
                                            : $"the body of {Id(definition)} did not compile and was made extern");
         }
@@ -689,6 +694,16 @@ public static class DriverSynthesizer
                 return;
             }
 
+            // A user's struct may hold the user's objects and compare, hash and format itself on them, which no type the recipe
+            // chooses shows, and the heap keeps no object for a struct to stand for it; an unmanaged struct holds no object, and an
+            // enum runs no member of its own.
+            if (parameter.HasValueTypeConstraint && !parameter.HasUnmanagedTypeConstraint &&
+                !parameter.ConstraintTypes.Any(type => type.SpecialType == SpecialType.System_Enum))
+            {
+                Fail($"{parameter.Name} is constrained to struct: a user's struct may hold the user's objects and run its own members on them");
+                return;
+            }
+
             if (RecipeChoice(parameter) is { } choice)
                 _choices[parameter] = choice;
             else
@@ -711,9 +726,9 @@ public static class DriverSynthesizer
                    parameter.ConstraintTypes.Where(type => type.TypeKind == TypeKind.Interface).Cast<INamedTypeSymbol>().All(Implementable);
         }
 
-        /// <summary>The recipe's type argument (step 2): <c>int</c> for <c>struct</c> or <c>unmanaged</c> when it meets the
-        /// interfaces; <c>int</c>, or <c>object</c> under <c>class</c>, with no constraint type; the constraint class itself when it is
-        /// concrete and not generic.</summary>
+        /// <summary>The recipe's type argument (step 2): <c>int</c> for <c>unmanaged</c> when it meets the interfaces; <c>int</c>, or
+        /// <c>object</c> under <c>class</c>, with no constraint type; the constraint class itself when it is concrete and not
+        /// generic.</summary>
         /// <param name="parameter">The type parameter.</param>
         private ITypeSymbol? RecipeChoice(ITypeParameterSymbol parameter)
         {
@@ -1217,7 +1232,9 @@ public static class DriverSynthesizer
             return true;
         }
 
-        /// <summary>Records the unseeded reference storage inside a struct, and below it.</summary>
+        /// <summary>Records every reference storage inside a struct as unseeded: the heap keeps no object for a struct value, so what a
+        /// reference field of it holds — the user's object or the library's own, which a program's struct holds and the driver's default
+        /// does not — the member reads as nothing.</summary>
         /// <param name="type">The struct's type.</param>
         /// <param name="path">The path of the storage that holds the struct.</param>
         /// <param name="field">The field that leads to the struct, or <c>null</c> for an argument or the receiver.</param>
@@ -1234,9 +1251,11 @@ public static class DriverSynthesizer
                     var fieldPath = path + "/" + Id(storage);
                     if (SeedableFields.Struct(member.Type))
                         RecordStruct(member.Type, fieldPath, storage);
-                    else if (SeedableFields.Seed(member.Type) || SeedableFields.Path(member.Type) ||
-                             member.Type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
+                    else if (TypeShape.Of(member.Type) is TypeShapeKind.Reference or TypeShapeKind.Delegate or TypeShapeKind.Task or TypeShapeKind.TaskOfT)
+                    {
+                        AddUnseeded(fieldPath, storage);
                         RecordUnseeded(fieldPath, storage, member.Type);
+                    }
                 }
 
                 // No backing field of a field-like event is listed among the struct's members: the event names its storage.

@@ -181,6 +181,19 @@ public sealed class TypeSafetyTests
     }
 
     [Fact]
+    public void A_member_of_a_span_keeps_an_array_the_span_is_made_from()
+    {
+        // Decimal(int[]) in CoreLib: the conversion carries the array as the span, and ReadOnlySpan<int>.get_Item then reads its cells.
+        var run = Reach(Fixture("var cells = new int[] { 1, 2 };"));
+        var region = Assert.Single(Solve(run).Heap.Regions.Values, candidate => candidate.HasExactType && candidate.TypeKey!.EndsWith("[]", StringComparison.Ordinal));
+        var safety = new TypeSafety(run.Input.Program, run.MetadataSupertypes);
+
+        Assert.False(safety.CannotBe(region, "System.Private.CoreLib:System.ReadOnlySpan<System.Private.CoreLib:int>"));
+        Assert.False(safety.CannotBe(region, "System.Private.CoreLib:System.Span<System.Private.CoreLib:int>"));
+        Assert.True(safety.CannotBe(region, "System.Private.CoreLib:System.Collections.Generic.Dictionary<System.Private.CoreLib:int, System.Private.CoreLib:int>"));
+    }
+
+    [Fact]
     public void Member_of_object_keeps_every_region()
     {
         var run = Reach(Fixture("var tag = new Tag();"));

@@ -908,7 +908,7 @@ public static partial class WholeProgram
             _cancellationToken = cancellationToken;
             _scope = scope;
             _program = scope.Program;
-            _typeSafety = new TypeSafety(scope.Program, scope.MetadataSupertypes);
+            _typeSafety = new TypeSafety(scope.Program, scope.MetadataSupertypes, scope.Reachable.OpenWorldAssemblies);
             _limits = limits;
             _worklistOptions = options;
             _memberOfNestedBody.Attach(new StateKey("_memberOfNestedBody"), ReadState, WroteState);

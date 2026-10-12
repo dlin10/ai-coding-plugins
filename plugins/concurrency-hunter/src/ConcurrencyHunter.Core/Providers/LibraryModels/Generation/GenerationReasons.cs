@@ -29,9 +29,13 @@ public static class GenerationReasons
     /// <summary>The member takes no delegate and no holding value that carries probes.</summary>
     public const string NOT_A_CANDIDATE = "not-a-candidate";
 
-    /// <summary>The member's own body did not compile, or is not the code the runtime runs (a member of <c>Unsafe</c>), and was made
-    /// <c>extern</c>.</summary>
+    /// <summary>The member's own body did not compile, or is not the code the runtime runs (a member of <c>Unsafe</c>, an intrinsic's
+    /// placeholder that only calls itself), and was made <c>extern</c>.</summary>
     public const string BODY_DOES_NOT_COMPILE = "body-does-not-compile";
+
+    /// <summary>A call may dispatch away from the member: it is virtual, or an override not sealed, in a type not sealed, so the body
+    /// the driver would analyse is not the one an override of another type runs, and a model is applied by the member a call names.</summary>
+    public const string OVERRIDABLE = "overridable";
 
     /// <summary>A recognizer of the engine claims a method of the implementation assembly by name, outside the models;
     /// for <c>System.Private.CoreLib</c> only, it must claim the requested member itself.</summary>
@@ -57,7 +61,7 @@ public static class GenerationReasons
     public static IReadOnlyList<string> Ordered { get; } =
     [
         CORELIB, NO_IMPLEMENTATION, REFERENCE_ASSEMBLY, LIBRARY_DOES_NOT_COMPILE, MEMBER_NOT_FOUND, ACCESSOR, ENGINE_RECOGNIZED, DRIVER_NOT_SYNTHESIZED,
-        NOT_A_CANDIDATE, BODY_DOES_NOT_COMPILE, DRIVER_NOT_SYNTHESIZED, CLOSURE_BOUND, ANALYSIS_FAILED
+        NOT_A_CANDIDATE, BODY_DOES_NOT_COMPILE, DRIVER_NOT_SYNTHESIZED, OVERRIDABLE, CLOSURE_BOUND, ANALYSIS_FAILED
     ];
 }
 

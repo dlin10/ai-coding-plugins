@@ -144,10 +144,13 @@ public static class SeedableFields
         return type.TypeKind == TypeKind.Class;
     }
 
-    /// <summary>Whether <paramref name="type"/> is a struct with references. Its containing field is neither seeded nor opened;
-    /// reference fields inside the struct are recorded as unreachable instead.</summary>
-    /// <param name="type">The field or auto-property type.</param>
-    public static bool Struct(ITypeSymbol type) => TypeShape.Of(type) == TypeShapeKind.StructWithReferences;
+    /// <summary>Whether <paramref name="type"/> is a struct with references, a <c>ValueTask</c> included. The heap keeps no object
+    /// for a struct value, so its containing field is neither seeded nor opened, and every reference field inside it is recorded as
+    /// unseeded instead.</summary>
+    /// <param name="type">The receiver, argument, field or auto-property type.</param>
+    public static bool Struct(ITypeSymbol type) =>
+        type is INamedTypeSymbol { TypeKind: TypeKind.Struct, IsRefLikeType: false, IsUnmanagedType: false } &&
+        TypeShape.Of(type) is TypeShapeKind.StructWithReferences or TypeShapeKind.Task or TypeShapeKind.TaskOfT;
 
     /// <summary>The ADR 0010 collection information for <paramref name="type"/>, or <c>null</c>.</summary>
     /// <param name="type">A named type.</param>

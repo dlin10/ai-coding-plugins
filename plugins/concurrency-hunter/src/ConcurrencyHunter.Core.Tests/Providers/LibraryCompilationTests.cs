@@ -169,6 +169,31 @@ public sealed class LibraryCompilationTests
     }
 
     [Fact]
+    public void A_body_whose_only_statement_calls_the_member_itself_becomes_extern()
+    {
+        // MemoryMarshal.GetArrayDataReference and the hardware intrinsics: the JIT replaces the body, and its IL is a call to the member
+        // itself, which recursion with no way out reads as returning nothing.
+        var result = CompileSource("""
+            public static class Memory
+            {
+                public static ref T DataOf<T>(T[] array) => ref DataOf(array);
+                public static int Add(int left, int right) { return Add(left, right); }
+                public static void Barrier() { Barrier(); }
+                public static int Count(int n) { if (n == 0) return 0; return Count(n - 1) + 1; }
+                public static int Other(int n) => Count(n);
+            }
+            """);
+
+        Assert.Null(result.Reason);
+        Assert.True(Method(result, "Memory", "DataOf").IsExtern);
+        Assert.True(Method(result, "Memory", "Add").IsExtern);
+        Assert.True(Method(result, "Memory", "Barrier").IsExtern);
+        Assert.False(Method(result, "Memory", "Count").IsExtern);
+        Assert.False(Method(result, "Memory", "Other").IsExtern);
+        Assert.Equal(["M:Memory.Add(System.Int32,System.Int32)", "M:Memory.Barrier", "M:Memory.DataOf``1(``0[])"], result.ExternMembers);
+    }
+
+    [Fact]
     public void An_async_method_in_error_loses_async()
     {
         var result = CompileSource("""

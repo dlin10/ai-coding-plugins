@@ -253,7 +253,8 @@ internal static class ModelEvals
 
     // ---- the snapshot ----
 
-    /// <summary>Records answers only when every existing entry floor is preserved.</summary>
+    /// <summary>Records answers only when every existing entry floor is preserved, save what the answers the generator now refuses as
+    /// <c>overridable</c> held: a model is applied by the member a call names, so a member a call may dispatch away from has none.</summary>
     /// <param name="path">The snapshot file.</param>
     /// <param name="fresh">The new snapshot text.</param>
     public static void RecordSnapshot(string path, string fresh)
@@ -262,10 +263,26 @@ internal static class ModelEvals
         {
             var recorded = JsonNode.Parse(File.ReadAllText(path))!;
             var current = JsonNode.Parse(fresh)!;
-            foreach (var property in new[] { "exact", "fateGoldEntries", "effectsExact", "accessorsExact" })
-                Check(property, (int?)recorded[property], (int?)current[property]);
+            var members = NowOverridable("members");
+            Check("exact", (int?)recorded["exact"] - members.Sum(answer => answer["classified"]?.AsObject().Count ?? 0), (int?)current["exact"]);
+            Check("fateGoldEntries", (int?)recorded["fateGoldEntries"] - members.Count(answer => answer["model"] is not null),
+                  (int?)current["fateGoldEntries"]);
+            Check("effectsExact", (int?)recorded["effectsExact"] - NowOverridable("effects").Count, (int?)current["effectsExact"]);
+            Check("accessorsExact", (int?)recorded["accessorsExact"] - NowOverridable("accessors").Count, (int?)current["accessorsExact"]);
             foreach (var group in recorded["linqExact"]!.AsObject())
                 Check($"linqExact.{group.Key}", (int?)group.Value, (int?)current["linqExact"]?[group.Key]);
+
+            /// <summary>The recorded answers of a set whose member the fresh answers refuse as <c>overridable</c> and the recorded did not.</summary>
+            /// <param name="set">The answer array.</param>
+            IReadOnlyList<JsonNode> NowOverridable(string set)
+            {
+                var refused = (current[set]?.AsArray() ?? []).Where(answer => (string?)answer?["reason"] == GenerationReasons.OVERRIDABLE)
+                                                            .Select(answer => (string?)answer!["member"]).ToHashSet(StringComparer.Ordinal);
+                return (recorded[set]?.AsArray() ?? []).OfType<JsonNode>()
+                                                     .Where(answer => refused.Contains((string?)answer["member"]) &&
+                                                                      (string?)answer["reason"] != GenerationReasons.OVERRIDABLE)
+                                                     .ToArray();
+            }
         }
         File.WriteAllBytes(path, new System.Text.UTF8Encoding(false).GetBytes(fresh));
 

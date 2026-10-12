@@ -303,7 +303,7 @@ delegate, or feeds a shared region; a reflection, `dynamic`, unresolved-dispatch
 call that touches none of those is not a gap. A virtual, interface or delegate call with no receiver
 object is unresolved dispatch, and the same conditions decide whether it is a gap. A call never runs
 on an object whose exact type the heap knows and which cannot be of the type that declares the called
-member; a call whose every receiver object is excluded that way, and whose receiver comes from
+member — an array can be a `Span<T>` or `ReadOnlySpan<T>`, since a span made from it is the array; a call whose every receiver object is excluded that way, and whose receiver comes from
 nowhere the heap cannot follow, never runs at all: it is neither unresolved dispatch nor a gap. Only shared
 regions count — `Escaped`, `Shared` or `Unknown` — so an object of one execution handed to the call
 makes no gap; an array created at the call to carry its arguments — a `params` array, or an array
@@ -437,7 +437,7 @@ Library code is not a closed world: a delegate the **Model generator** saw run a
 the call, or that anything the analysis cannot see may have reached — a call without a body, a
 dispatch with no receiver object, code it could not lower — may be run later by code no root
 reaches, so its fate is `unknown-execution`. Only a delegate that nothing keeps and nothing unseen
-reached — and that the analysis followed into the call at all — is known not to run (`not-run`). An observed trigger list is never taken as complete. The
+reached — and that the analysis followed into the call at all — is known not to run (`not-run`). An observed trigger list is never taken as complete. A probe or a **Seed** stands for a user object of any type a program could declare, so a type test narrows it only to a type no program can derive from. The
 same holds for what a member does to its arguments: the accesses the
 driver saw to the objects it handed over are a lower bound, so when anything the analysis cannot
 see — a call without a body, an **Unknown execution** — reached those objects, the member gets no

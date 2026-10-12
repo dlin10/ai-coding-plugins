@@ -27,6 +27,10 @@ public sealed record ProgramType(string TypeKey, string DisplayName, string Asse
 
     /// <summary>Whether the type is declared in source, so its instance fields are all known.</summary>
     public bool IsSource { get; init; }
+
+    /// <summary>Whether code in another assembly can name the type, so a program can derive from it or implement it: it is public,
+    /// and a nested type is visible to a subclass of every type containing it.</summary>
+    public bool IsVisibleOutside { get; init; } = true;
 }
 
 public sealed record ProgramParameter(string Name, string TypeKey, IrRefKind RefKind);

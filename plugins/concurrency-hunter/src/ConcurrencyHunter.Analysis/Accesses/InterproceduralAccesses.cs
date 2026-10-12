@@ -742,7 +742,7 @@ public static partial class InterproceduralAccesses
         private static readonly IrFieldRef WILDCARD_FIELD = new("", PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field, false, false, "");
 
         private readonly HeapSolution _heap = input.Heap;
-        private readonly TypeSafety _typeSafety = new(input.Scope.Program, input.Scope.MetadataSupertypes);
+        private readonly TypeSafety _typeSafety = new(input.Scope.Program, input.Scope.MetadataSupertypes, input.Scope.Reachable.OpenWorldAssemblies);
         private readonly List<(ExecutionEntry Entry, PathNode Node)> _visits = [];
         private readonly Dictionary<string, (ExecutionEntry Entry, PathNode Node)> _firstPaths = new(StringComparer.Ordinal);
         private readonly Dictionary<string, (ExecutionEntry Entry, PathNode Node)> _bodyPaths = new(StringComparer.Ordinal);

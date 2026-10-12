@@ -100,7 +100,7 @@ public sealed class DriverSynthesisTests
                 public static Task<Task<Box>> BoxTwiceAsync(Func<int> make) => Task.FromResult(Task.FromResult(new Box(make)));
                 public static void Valued<T>(T value, Action done) where T : struct { }
                 public static void Unmanaged<T>(T value, Action done) where T : unmanaged { }
-                public static void NoOne<T>(T value, Action done) where T : struct, ISink { }
+                public static void NoOne<T>(T value, Action done) where T : unmanaged, ISink { }
                 public static void GuardedArg<T>(T value, Action done) where T : Guarded { }
                 public static void BagArg<T>(T value, Action done) where T : Bag { }
                 public static void Sink<T>(T value, Action done) where T : ISink { }
@@ -365,10 +365,14 @@ public sealed class DriverSynthesisTests
     }
 
     [Fact]
-    public void Struct_and_unmanaged_constraints_take_the_recipes_int()
+    public void Struct_and_unmanaged_constraints_differ_only_unmanaged_takes_the_recipes_int()
     {
-        Assert.Contains("global::Lib.Api.Valued<global::System.Int32>(Arg_value_Call", Body(Drive("M:Lib.Api.Valued``1(``0,System.Action)"), DriverSynthesizer.CALL));
+        // A user's struct may hold the user's objects and run its own members on them, which an int never shows; an unmanaged one
+        // holds none.
         Assert.Contains("global::Lib.Api.Unmanaged<global::System.Int32>(Arg_value_Call", Body(Drive("M:Lib.Api.Unmanaged``1(``0,System.Action)"), DriverSynthesizer.CALL));
+        var valued = Synthesize("M:Lib.Api.Valued``1(``0,System.Action)");
+        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, valued.Reason);
+        Assert.Contains("T is constrained to struct", valued.Detail);
     }
 
     [Fact]

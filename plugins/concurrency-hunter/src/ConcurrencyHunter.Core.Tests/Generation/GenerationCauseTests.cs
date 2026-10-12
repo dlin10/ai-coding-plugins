@@ -25,6 +25,103 @@ public sealed class GenerationCauseTests
     }
 
     [Theory]
+    [InlineData("public static class Api { public static int Convert(object value) => value == null ? 0 : ((IConvert)value).ToInt(); }",
+                "M:Lib.Api.Convert(System.Object)")]
+    [InlineData("public static class Api { public static int Convert(object value) => value is IConvert convert ? convert.ToInt() : 0; }",
+                "M:Lib.Api.Convert(System.Object)")]
+    [InlineData("public sealed class Slot { public object Value; public int Read() => ((IConvert)Value).ToInt(); }", "M:Lib.Slot.Read")]
+    public void A_type_test_does_not_narrow_a_probe_or_a_seed_which_stand_for_any_user_type(string types, string id)
+    {
+        // Convert.ToInt32(object): the driver's probe and seed classes are sealed and implement nothing, but the user's object they
+        // stand for may implement the interface, and then its member runs. The library implements it too, as Int32 implements
+        // IConvertible, so the call dispatches rather than going to a member with no body.
+        var answer = Answer("public interface IConvert { int ToInt(); } public sealed class Number : IConvert { public int ToInt() => 1; } " + types, id);
+
+        Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+        Assert.Contains("Lib.IConvert.ToInt", Cause(answer, ModelCauses.PROBE_HANDED_TO_UNSEEN).Detail);
+    }
+
+    [Theory]
+    [InlineData("public static class Api { public static int Length(object value) => value is string text ? text.Length : 0; }",
+                "M:Lib.Api.Length(System.Object)")]
+    [InlineData("public static class Api { public static int Unbox(object value) => value is int number ? number : 0; }", "M:Lib.Api.Unbox(System.Object)")]
+    [InlineData("internal class Com { public virtual int Release() => 1; } " +
+                "public static class Api { public static int Release(object value) => value is Com com ? com.Release() : 0; }", "M:Lib.Api.Release(System.Object)")]
+    public void A_type_test_a_user_object_cannot_pass_still_narrows_a_probe(string types, string id)
+    {
+        // No user type derives from a sealed class, a struct or a class it cannot name (Marshal.ReleaseComObject tests __ComObject), so
+        // the branch that runs on one never runs on the user's object.
+        var answer = Answer(types, id);
+
+        Assert.NotNull(answer.Model);
+        Assert.Empty(answer.Model.Effects);
+    }
+
+    [Theory]
+    [InlineData("public struct Cell { public object Value; public string Show() => Value.ToString(); }", "M:Lib.Cell.Show", "Lib.Cell.Value")]
+    [InlineData("public struct Pair { public object A; } public static class Api { public static string Show(Pair pair) => pair.A.ToString(); }",
+                "M:Lib.Api.Show(Lib.Pair)", "Lib.Pair.A")]
+    [InlineData("public readonly struct Pair { private readonly object _a; public Pair(int n) { _a = null; } public string Show() => _a.ToString(); }",
+                "M:Lib.Pair.Show", "Lib.Pair._a")]
+    [InlineData("public sealed class Node { public object Item; public void Remove() { Item = null; } } " +
+                "public struct Registration { private Node _node; public void Unregister() { _node?.Remove(); } }", "M:Lib.Registration.Unregister",
+                "Lib.Registration._node")]
+    [InlineData("public struct Two<T1, T2> { public T1 Item1; public T2 Item2; public bool Same(Two<T1, T2> other) => object.Equals(Item1, other.Item1); }",
+                "M:Lib.Two`2.Same(Lib.Two{`0,`1})", "Item1")]
+    public void A_read_of_a_reference_field_of_a_struct_input_is_incomplete(string types, string id, string field)
+    {
+        // The heap keeps no object for a struct value, so whatever a reference field of a struct input holds — the user's object,
+        // or the library's own, which the program's struct holds and the driver's default does not
+        // (CancellationTokenRegistration.Unregister) — the member reads as nothing: it gets no model.
+        var answer = Answer(types, id);
+
+        Assert.Equal(ModelReasons.INCOMPLETE, answer.ModelReason);
+        Assert.Contains(field, Cause(answer, ModelCauses.UNSEEDED_READ).Detail);
+    }
+
+    [Fact]
+    public void A_read_of_a_reference_inside_a_struct_inside_a_struct_input_is_incomplete()
+    {
+        // ValueTaskAwaiter.IsCompleted: the awaiter's ValueTask holds the user's IValueTaskSource, whose member would then run.
+        var answer = Answer("public interface ISource { int Status(); } public sealed class Done : ISource { public int Status() => 0; } " +
+                            "public readonly struct Inner { private readonly object _obj; public Inner(object o) { _obj = o; } " +
+                            "public int Status() => _obj is ISource s ? s.Status() : 1; } " +
+                            "public readonly struct Awaiter { private readonly Inner _inner; internal Awaiter(Inner i) { _inner = i; } " +
+                            "public bool IsDone => _inner.Status() == 0; }",
+                            "M:Lib.Awaiter.get_IsDone");
+
+        Assert.Equal(ModelReasons.INCOMPLETE, answer.ModelReason);
+        Assert.Contains("Lib.Inner._obj", Cause(answer, ModelCauses.UNSEEDED_READ).Detail);
+    }
+
+    [Theory]
+    [InlineData("public sealed class StructComparer<T> where T : struct, IComparable<T> { " +
+                "public int Compare(T? x, T? y) => x.HasValue && y.HasValue ? x.Value.CompareTo(y.Value) : 0; }",
+                "M:Lib.StructComparer`1.Compare(System.Nullable{`0},System.Nullable{`0})")]
+    [InlineData("public static class Api { public static bool Same<T>(T x, object y) where T : struct => x.Equals(y); }",
+                "M:Lib.Api.Same``1(``0,System.Object)")]
+    public void A_type_parameter_constrained_to_a_struct_has_no_driver(string types, string id)
+    {
+        // NullableComparer<T>.Compare: a user's struct compares itself on what it holds, the user's objects; an int never shows it,
+        // and the heap keeps no object for a struct to stand for it.
+        var answer = Answer(types, id);
+
+        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, answer.Reason);
+        Assert.Contains("constrained to struct", answer.Detail);
+    }
+
+    [Fact]
+    public void A_type_parameter_constrained_to_unmanaged_is_an_int()
+    {
+        // An unmanaged struct holds no object.
+        var answer = Answer("public static class Api { public static int Size<T>(T value, Action done) where T : unmanaged { done(); return 4; } }",
+                            "M:Lib.Api.Size``1(``0,System.Action)");
+
+        Assert.Null(answer.Reason);
+        Assert.NotNull(answer.Model);
+    }
+
+    [Theory]
     [InlineData("public static string Describe(Node node, Action done) { done(); return $\"node {node}\"; }", "M:Lib.Api.Describe(Lib.Node,System.Action)",
                 "Interpolation")]
     [InlineData("public static object Pair(Node node, Action done) { done(); return (node, 1); }", "M:Lib.Api.Pair(Lib.Node,System.Action)", "Tuple")]
@@ -264,6 +361,20 @@ public sealed class GenerationCauseTests
     }
 
     [Fact]
+    public void An_array_given_to_an_intrinsic_placeholder_is_touched()
+    {
+        // Decimal(int[]) and Marshal.UnsafeAddrOfPinnedArrayElement reach the user's array through MemoryMarshal.GetArrayDataReference,
+        // whose decompiled body only calls itself: read as a body, its reference pointed nowhere and the array went unseen.
+        var answer = Answer("public static class Memory { public static ref T DataOf<T>(T[] array) => ref DataOf(array); } " +
+                            "public static class Api { public static int Peek(int[] values, Action done) { done(); return Read(ref Memory.DataOf(values)); } " +
+                            "private static int Read(ref int at) => at; }",
+                            "M:Lib.Api.Peek(System.Int32[],System.Action)");
+
+        Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+        Assert.Contains("Lib.Memory.DataOf", Cause(answer, ModelCauses.PROBE_HANDED_TO_UNSEEN).Detail);
+    }
+
+    [Fact]
     public void An_input_given_to_an_operation_the_lowering_does_not_express_is_touched_though_it_is_no_probe()
     {
         // Task.WhenAny(p) builds its params span with a collection expression, which the lowering does not express: what it does with
@@ -305,14 +416,15 @@ public sealed class GenerationCauseTests
     [Fact]
     public void A_member_whose_body_the_call_never_reached_has_no_answer()
     {
-        // The receiver's recipe is the factory, which makes a subclass overriding the member: the call runs Leaf.Size, never Node.Size.
+        // The receiver's recipe is the factory, which makes a subclass overriding the member: the call would run Leaf.Size, never
+        // Node.Size. A call may dispatch away from a virtual member in any program, so the member is refused before the run.
         var trace = GenerationRuns.Trace("public class Node { public object Value; internal Node() { } public static Node Make() => new Leaf(); " +
                                          "public virtual int Size(Action done) { done(); return 1; } } " +
                                          "public sealed class Leaf : Node { public override int Size(Action done) => 2; }",
                                          "M:Lib.Node.Size(System.Action)");
 
-        Assert.Equal(GenerationReasons.ANALYSIS_FAILED, trace.Answer.Reason);
-        Assert.Contains("never reached", trace.Answer.Detail, StringComparison.Ordinal);
+        Assert.Equal(GenerationReasons.OVERRIDABLE, trace.Answer.Reason);
+        Assert.Null(trace.Answer.Classified);
     }
 
     [Theory]
