@@ -62,7 +62,7 @@ sentences of explanation and no code.
 | Tool | When |
 |---|---|
 | `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic, builder, and scout may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — all three roles get the same grant. |
-| `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not; successful entries are served from `CatalogCache`, while unavailable entries are probed again. |
+| `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not, and `degraded` when its Critic and Scout cannot start a shell; successful entries are served from `CatalogCache`, while unavailable and degraded entries are probed again. |
 | `forge.scout.select` | Once, just in time when broad reconnaissance first becomes necessary. Persists one exact Scout Vendor/model/effort selection or the explicit decline to continue without Scout; a later enabling call must also be explicit. |
 | `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the complete Scout answer under `scout`, unclipped, and appends it to `SCOUT.md`. |
 | `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
@@ -220,7 +220,11 @@ For every direct or background Scout call, pass `sessionMode` explicitly. Use `c
 direct follow-up in the same investigation. Use `fresh` for an independent question, a new
 subsystem, stale evidence, or a deliberate reset. After a failure, retry with the saved selection;
 reselect explicitly to clear the old session and failure; or explicitly choose continue without
-Scout. Never silently choose session continuity and never fall back to another Vendor. Scout may
+Scout. Never silently choose session continuity and never fall back to another Vendor. A
+`no_shell` failure is the exception to retrying at once: the Scout's commands never started, so it
+read nothing, and the same selection fails the same way until its vendor is repaired. Tell the user
+what the failure says, and ask whether to repair the vendor and retry, reselect, or continue without
+Scout. Never offer a vendor as Scout while its `forge.models` entry has `degraded` set. Scout may
 use already available internet without per-call authorization or a widened grant. Require typed
 repository citations (path plus positive line or non-empty symbol) and external citations (an
 absolute HTTP(S) URL). Surface `SCOUT.md` only after each successful Scout call.
@@ -594,6 +598,13 @@ findings are, and what one more round would cost against stopping here. On a yes
 same argument on `forge.work.start` — which raises the cap by exactly one. The grant is spent by
 that round, so the round after it needs a fresh answer, and never pass the argument without having
 asked.
+
+A round whose error says the critic could not start a shell spent nothing: no round was counted and
+no finding reached the ledger, because a critic whose commands never started judged without reading
+the repository. Do not call again as if it were a passing fault — the same vendor fails the same way
+until it is repaired. Tell the user what the error quotes, and ask whether to repair the vendor and
+retry, or to run the critic on another vendor. A code-review round, and a builder act whose error
+says the same, are handled the same way.
 
 Link the drafts, do not paste them. Each round is `forge.plan.write` with the current draft, then
 the round itself with `planDraft` omitted — the write puts the plan at `<runPath>/PLAN.md` in
@@ -1051,6 +1062,11 @@ one follow-up question about the part that does not fit before that role's selec
 1. The vendor question offers only vendors the catalogue reports `available: true`. Never offer a
    vendor with `available: false`; its `detail` names the cause — a missing CLI, a sign-in — so
    tell the user why it is out and what would bring it back.
+   - A vendor with `degraded` set is offered for the Builder only. `degraded` says why that
+     vendor's Critic and Scout cannot start a shell in their read-only sandbox, so they would judge
+     without reading the repository; tell the user what it says before the critic's vendor
+     question, and leave that vendor out of it. If that leaves the critic no vendor, stop and relay
+     it as you would for none available.
    - If none is available, stop and relay what each probe reported; no act can run without a
      working vendor CLI.
    - If exactly one is available, do not ask either vendor question. Tell the user which vendor
