@@ -128,7 +128,8 @@ public sealed class EffectReaderTests
     [Fact]
     public void A_load_of_an_unseeded_struct_field_gives_incomplete()
     {
-        var reader = Read("public struct Part { public object Value; } public sealed class Options { public Part Part; } " +
+        // A readonly field's struct is a copy setup cannot write in place.
+        var reader = Read("public struct Part { public object Value; } public sealed class Options { public readonly Part Part; } " +
                           "public static class Api { public static void Read(Options options, Action done) { _ = options.Part.Value; done(); } }",
                           "M:Lib.Api.Read(Lib.Options,System.Action)");
 
@@ -459,8 +460,9 @@ public sealed class EffectReaderTests
     [InlineData("public Nested Value { get; set; }", "options.Part.Value.Item")]
     public void Reading_reference_storage_of_a_struct_auto_property_gives_incomplete(string declaration, string expression)
     {
+        // A property's struct is a copy setup cannot write in place, so the auto-properties of it stay unseeded.
         var trace = Trace($"public struct Nested {{ public object Item {{ get; set; }} }} public struct Part {{ {declaration} }} " +
-                          $"public sealed class Options {{ public Part Part; }} public static class Api {{ public static void Run(Options options, Action done) {{ _ = {expression}; done(); }} }}",
+                          $"public sealed class Options {{ public Part Part {{ get; set; }} }} public static class Api {{ public static void Run(Options options, Action done) {{ _ = {expression}; done(); }} }}",
                           "M:Lib.Api.Run(Lib.Options,System.Action)");
 
         Assert.Null(trace.Answer.Model);
@@ -648,7 +650,7 @@ public sealed class EffectReaderTests
     public void A_load_of_an_unseeded_field_in_a_body_an_unknown_execution_reaches_gives_incomplete()
     {
         var reader = Read("public struct State { public object Value; } public static class Runner { public static extern void Run(Action action); } " +
-                          "public sealed class Host { private State _state; public void Run(object p) { Runner.Run(() => Consume()); } private void Consume() { _ = _state.Value; } }",
+                          "public sealed class Host { private readonly State _state; public void Run(object p) { Runner.Run(() => Consume()); } private void Consume() { _ = _state.Value; } }",
                           "M:Lib.Host.Run(System.Object)");
 
         Assert.Equal(GenerationReasons.INCOMPLETE, reader.Reason);

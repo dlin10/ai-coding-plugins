@@ -17,7 +17,7 @@ public sealed class SeedCycleTests
         var unseeded = Unseeded("public sealed class Node { public object Item; public Pair Pair; } " +
                                 "public struct Pair { public Node Back; public object Tag; }", "Node");
 
-        // Every reference field of a struct is unseeded itself, whatever it holds: the heap keeps no object for a struct value.
+        // Every reference field of a struct below a field setup cannot read is unseeded itself, whatever it holds.
         Assert.Equal([ROOT + "/F:Lib.Node.Item", ROOT + "/F:Lib.Node.Pair/F:Lib.Pair.Back", ROOT + "/F:Lib.Node.Pair/F:Lib.Pair.Tag"], unseeded);
     }
 

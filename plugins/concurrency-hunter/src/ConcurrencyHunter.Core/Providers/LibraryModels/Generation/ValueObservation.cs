@@ -58,6 +58,24 @@ internal sealed class ValueObservation
     public bool HasUnobservedValues(MethodInstance instance, IEnumerable<AbstractValue> values, ValueOrigin producers) =>
         HasUnobservedValues(instance, values, producers, []);
 
+    /// <summary>The bodies whose writes fill the storage a value reads — a static field, the last field or cell of a path on the objects
+    /// its base reaches, a capture cell —, sorted; empty for any other value, or for storage nothing writes.</summary>
+    /// <param name="instance">The instance expressing the value.</param>
+    /// <param name="value">The value.</param>
+    public IReadOnlyList<string> Fillers(MethodInstance instance, AbstractValue value)
+    {
+        var (holders, slot) = value switch
+        {
+            StaticFieldValue field => (new HashSet<string>(StringComparer.Ordinal) { _heap.StaticRegionOf(instance.Id, field.Field) }, FieldSlot.Key(field.Field)),
+            PathValue { Segments: [.., var last] } path when last != PathValue.WILDCARD =>
+                ((IReadOnlySet<string>)Resolve(instance, path with { Segments = path.Segments.SkipLast(1).ToArray() }), last),
+            CapturedValue captured => (Closures(instance, captured.Cell), WholeProgram.ClosureSlot(captured.Cell)),
+            _ => ((IReadOnlySet<string>)new HashSet<string>(StringComparer.Ordinal), "")
+        };
+        return holders.Count == 0 ? [] : Writes[slot].Where(write => write.Holders.Overlaps(holders)).Select(write => write.Instance.BodyId)
+                                                     .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+    }
+
     /// <summary>Checks every alternative and the unknown calls in its origins; an origin is not an additional returned object.</summary>
     /// <param name="instance">The instance expressing the values.</param>
     /// <param name="values">The symbolic alternatives.</param>
@@ -149,9 +167,16 @@ internal sealed class ValueObservation
                     return callees.Any(callee => callee.Summary.RefParameters.Where(parameter => parameter.Ordinal == reference.Ordinal)
                                                      .SelectMany(parameter => parameter.Values).Any(returned => HasUnobserved(callee, returned, seen)));
             }
+            // A struct held by value is no object of its own: it holds what it was copied from, which may be what a reference nothing
+            // proves reads (R2, question 160).
+            if (value is StructCopyValue copy)
+            {
+                return instance.Summary.StructCopies.Where(transfer => transfer.Targets.Contains(copy))
+                               .Any(transfer => HasUnobservedValues(instance, transfer.Sources, ValueOrigin.None, seen));
+            }
             if (value is PathValue path && (HasUnobserved(instance, path.Base, seen) || HasUnobservedWrite(instance, path, seen)))
                 return true;
-            if (value is CapturedValue captured && HasUnobservedWriteInto(instance.CellOwners, captured.ToString(), seen))
+            if (value is CapturedValue captured && HasUnobservedWriteInto(Closures(instance, captured.Cell), WholeProgram.ClosureSlot(captured.Cell), seen))
                 return true;
             if (value is StaticFieldValue field &&
                 HasUnobservedWriteInto(new HashSet<string>(StringComparer.Ordinal) { _heap.StaticRegionOf(instance.Id, field.Field) },
@@ -215,9 +240,8 @@ internal sealed class ValueObservation
         values(call.Library!) is not { } named || named.Any(value => HasUnobservedModelValue(instance, call, value, seen));
 
     /// <summary>Every write into storage the run makes, by the slot it writes: a field store, static or not, and an element or collection
-    /// store, what a known call keeps or stores among them, each also through a reference; and a captured variable's cell, by its
-    /// <see cref="CapturedValue"/>, held by the instances owning the cell. A store an interface call makes out of other storage writes
-    /// what that storage holds.</summary>
+    /// store, what a known call keeps or stores among them, each also through a reference; and a captured variable's capture cell, by its
+    /// slot of the closures holding it. A store an interface call makes out of other storage writes what that storage holds.</summary>
     private ILookup<string, StorageWrite> Writes => _writes ??= StorageWrites().ToLookup(write => write.Slot, write => write.Write, StringComparer.Ordinal);
 
     private IEnumerable<(string Slot, StorageWrite Write)> StorageWrites()
@@ -241,14 +265,20 @@ internal sealed class ValueObservation
                 yield return (element.Slot, new StorageWrite(instance, Regions(instance, element.Arrays), values, element.Producers));
             }
 
-            // A captured variable's cell belongs to the instances owning it; every version of the variable, and what a nested body
-            // assigns to it, goes there.
-            foreach (var variable in summary.Variables)
-                yield return (new CapturedValue(variable.SymbolKey).ToString(), new StorageWrite(instance, instance.CellOwners, variable.Values, variable.Producers));
+            // A captured variable's cell is a slot of the closure of each run of the body declaring it; every version of the variable,
+            // and what a nested body assigns to it, goes there (R4).
+            foreach (var variable in summary.Variables.Where(variable => variable.Cell is not null))
+                yield return (WholeProgram.ClosureSlot(variable.Cell!), new StorageWrite(instance, Closures(instance, variable.Cell!), variable.Values, variable.Producers));
             foreach (var store in summary.CapturedStores)
-                yield return (new CapturedValue(store.SymbolKey).ToString(), new StorageWrite(instance, instance.CellOwners, store.Values, store.Producers));
+                yield return (WholeProgram.ClosureSlot(store.Cell), new StorageWrite(instance, Closures(instance, store.Cell), store.Values, store.Producers));
         }
     }
+
+    /// <summary>The closures holding a capture cell an instance reads and writes: those each run of the body declaring it creates (R4).</summary>
+    /// <param name="instance">The instance.</param>
+    /// <param name="cell">The capture cell.</param>
+    private HashSet<string> Closures(MethodInstance instance, IrClosureCell cell) =>
+        _heap.ClosuresOf(instance, cell).ToHashSet(StringComparer.Ordinal);
 
     private IReadOnlySet<string> Regions(MethodInstance instance, IEnumerable<AbstractValue> values) =>
         values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
@@ -272,7 +302,7 @@ internal sealed class ValueObservation
 
     /// <summary>A write into a slot of some objects.</summary>
     /// <param name="Instance">The instance making the write.</param>
-    /// <param name="Holders">The objects whose slot it writes; for a captured variable, the instances owning its cell.</param>
+    /// <param name="Holders">The objects whose slot it writes; for a captured variable, the closures holding its cell.</param>
     /// <param name="Values">What it writes, as the instance's values.</param>
     /// <param name="Producers">The origins of what it writes, preserved through copies and merges.</param>
     private sealed record StorageWrite(MethodInstance Instance, IReadOnlySet<string> Holders, IReadOnlySet<AbstractValue> Values, ValueOrigin Producers);

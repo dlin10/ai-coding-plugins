@@ -1,6 +1,6 @@
 kind: AnonymousObjectCreation | demo: 0 | eshop: 11 | question: 65
 kind: CaughtException | demo: 0 | eshop: 25 | question: 55
-kind: CollectionExpression | demo: 6 | eshop: 0 | question: 60
+kind: CollectionExpression | demo: 10 | eshop: 0 | question: 60
 kind: DeconstructionAssignment | demo: 1 | eshop: 0 | question: 61
 kind: DefaultValue | demo: 0 | eshop: 179 | question: 66
 kind: DynamicMemberReference | demo: 0 | eshop: 1 | question: 67

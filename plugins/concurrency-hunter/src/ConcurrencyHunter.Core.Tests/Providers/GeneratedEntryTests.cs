@@ -417,13 +417,15 @@ public sealed class GeneratedEntryTests
     }
 
     [Fact]
-    public void A_user_object_stored_into_a_struct_field_of_the_receiver_has_vocabulary_reason()
+    public void A_user_object_stored_into_a_struct_field_of_the_receiver_is_kept_by_the_receiver()
     {
-        // The heap carries no region for a struct inside an object, so what the receiver keeps there has no name (R5).
+        // The struct's storage is part of the receiver, so the receiver keeps what is stored there, as it keeps what is stored into a
+        // class it holds (R7).
         var answer = Answer("public struct State { public object Value; } public sealed class Host { private State _current; public void Run(object p) { _current.Value = p; } }",
                             "M:Lib.Host.Run(System.Object)");
 
-        AssertNoModel(answer, ModelReasons.VOCABULARY);
+        AssertPassesReader(answer);
+        Assert.Equal(["arg:p"], Text(answer.Model!.Keeps["this"]));
     }
 
     [Fact]
@@ -603,6 +605,63 @@ public sealed class GeneratedEntryTests
 
         AssertPassesReader(answer);
         Assert.Empty(answer.Model!.Keeps);
+    }
+
+    /// <summary>A struct constructor's stores into its own fields reach the storage the caller constructs into, the struct receiver's own,
+    /// whatever route reaches them — directly, below a struct field, after <c>this = default</c>, through a chained constructor — so the
+    /// answer is <c>vocabulary</c>, never a model that leaves the store out or keeps the argument in itself (R7).</summary>
+    /// <param name="source">The library source declaring the struct.</param>
+    /// <param name="member">The documentation id of the constructor asked for.</param>
+    [Theory]
+    [InlineData("public struct Pair { private object _value; public Pair(object value) { _value = value; } }", "M:Lib.Pair.#ctor(System.Object)")]
+    [InlineData("public struct One<T> { public T Item1; public One(T item1) { Item1 = item1; } }", "M:Lib.One`1.#ctor(`0)")]
+    [InlineData("public sealed class Sb { } public struct Handler { private readonly Sb _sb; private int _length; " +
+                "public Handler(int length, Sb sb) { _sb = sb; _length = length; } }", "M:Lib.Handler.#ctor(System.Int32,Lib.Sb)")]
+    [InlineData("public struct Inner { public object Ref; } public struct Outer { private Inner _inner; public Outer(object value) { _inner.Ref = value; } }",
+                "M:Lib.Outer.#ctor(System.Object)")]
+    [InlineData("public struct Reset { private object _value; public Reset(object value) { this = default; _value = value; } }", "M:Lib.Reset.#ctor(System.Object)")]
+    [InlineData("public struct Chained { private object _value; private int _n; public Chained(object value) : this(value, 0) { } " +
+                "public Chained(object value, int n) { _value = value; _n = n; } }", "M:Lib.Chained.#ctor(System.Object)")]
+    public void A_struct_constructor_storing_into_its_own_fields_is_vocabulary(string source, string member)
+    {
+        var answer = Answer(source, member);
+
+        AssertNoModel(answer, ModelReasons.VOCABULARY);
+        Assert.Contains(answer.Causes, cause => cause.Code == ModelCauses.STRUCT_STORAGE_WRITE);
+    }
+
+    [Fact]
+    public void A_class_constructor_storing_its_argument_keeps_it_in_this()
+    {
+        var answer = Answer("public sealed class Kept { private object _value; public Kept(object value) { _value = value; } }", "M:Lib.Kept.#ctor(System.Object)");
+
+        AssertPassesReader(answer);
+        Assert.Equal(["arg:value"], Text(answer.Model!.Keeps["this"]));
+        Assert.DoesNotContain(answer.Causes, cause => cause.Code == ModelCauses.STRUCT_STORAGE_WRITE);
+    }
+
+    /// <summary>A pattern that matches an object argument as a struct and names it unboxes it: the copy it takes reads the box's whole
+    /// storage, a read of the user's object, as the cast of a class twin reads it (R2).</summary>
+    /// <param name="source">The library source declaring the member.</param>
+    /// <param name="member">The documentation id of the member asked for.</param>
+    /// <param name="parameter">The name of the object parameter the pattern unboxes.</param>
+    [Theory]
+    [InlineData("public struct D : IComparable { private int _n; public int CompareTo(object value) { if (value == null) return 1; " +
+                "if (value is not D d) throw new ArgumentException(); return _n.CompareTo(d._n); } }", "M:Lib.D.CompareTo(System.Object)", "value")]
+    [InlineData("public struct D : IComparable { private int _n; public int CompareTo(object obj) { if (obj is D other) return _n.CompareTo(other._n); " +
+                "if (obj == null) return 1; throw new ArgumentException(); } }", "M:Lib.D.CompareTo(System.Object)", "obj")]
+    [InlineData("public struct D { private int _n; public int Read(object value) { switch (value) { case D d: return d._n; default: return 0; } } }",
+                "M:Lib.D.Read(System.Object)", "value")]
+    [InlineData("public struct D { public int N; } public static class Api { public static int Read(object value) => value is D { N: > 0 } d ? d.N : 0; }",
+                "M:Lib.Api.Read(System.Object)", "value")]
+    [InlineData("public sealed class C : IComparable { private int _n; public int CompareTo(object value) { if (value == null) return 1; " +
+                "if (value is not C c) throw new ArgumentException(); return _n.CompareTo(c._n); } }", "M:Lib.C.CompareTo(System.Object)", "value")]
+    public void A_pattern_unboxing_an_object_argument_reads_it(string source, string member, string parameter)
+    {
+        var answer = Answer(source, member);
+
+        AssertPassesReader(answer);
+        Assert.Equal([LibraryEffect.DeepReadOf(parameter)], answer.Model!.Effects);
     }
 
     private static GeneratedAnswer Answer(string source, string member)

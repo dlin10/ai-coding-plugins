@@ -433,8 +433,14 @@ public static class DriverSynthesizer
             "System.Collections.Generic.EqualityComparer`1"
         ], StringComparer.Ordinal);
 
+        /// <summary>The fields of a probe class or a probe struct that hold probe objects.</summary>
+        private static readonly string[] ProbeFields = ["Ref0", "Ref1"];
+
         private readonly IReadOnlySet<string> _openedFields = openedFields;
         private readonly Dictionary<ITypeParameterSymbol, string> _probeTypes = new(SymbolEqualityComparer.Default);
+
+        /// <summary>The probe structs among the probe types, by name, each with the probe class of the objects it holds (R9).</summary>
+        private readonly Dictionary<string, string> _probeStructs = new(StringComparer.Ordinal);
         private readonly Dictionary<ITypeParameterSymbol, ITypeSymbol> _choices = new(SymbolEqualityComparer.Default);
         private readonly List<ITypeParameterSymbol> _chosen = [];
         private readonly HashSet<string> _names = new(StringComparer.Ordinal) { DRIVER_TYPE, KEEP_TYPE, WITNESSED_TYPE, WITNESSED_REF_TYPE };
@@ -447,8 +453,8 @@ public static class DriverSynthesizer
         private readonly List<(string Path, string Statement)> _seedStatements = [];
         private readonly SortedDictionary<string, ISymbol> _unseeded = new(StringComparer.Ordinal);
 
-        /// <summary>The types the unseeded-path walk is below: entered by <see cref="RecordBelow"/> or <see cref="RecordStruct"/> and
-        /// not yet left.</summary>
+        /// <summary>The types the unseeded-path walk is below: entered by <see cref="RecordBelow"/>, <see cref="RecordStruct"/> or
+        /// <see cref="SeedStruct"/> and not yet left.</summary>
         private readonly List<ITypeSymbol> _below = [];
         private readonly Dictionary<ITypeSymbol, string> _seedTypes = new(SymbolEqualityComparer.Default);
         private readonly List<ITypeSymbol> _seedTypeKeys = [];
@@ -653,7 +659,8 @@ public static class DriverSynthesizer
             ChooseTypeArguments(parameters);
         }
 
-        /// <summary>A probe class for every type parameter whose constraints allow one, the recipe's choice for the others.</summary>
+        /// <summary>A probe class for every type parameter whose constraints allow one, a probe struct for one constrained to
+        /// <c>struct</c> (R9), the recipe's choice for the others.</summary>
         /// <param name="parameters">The type parameters: the member's and its containing types', or a trigger's own.</param>
         private void ChooseTypeArguments(IReadOnlyList<ITypeParameterSymbol> parameters)
         {
@@ -661,25 +668,47 @@ public static class DriverSynthesizer
             foreach (var parameter in parameters)
                 Choose(parameter, probed);
             foreach (var parameter in probed)
-            {
-                var classes = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(type => type.TypeKind == TypeKind.Class).ToArray();
-                var interfaces = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(type => type.TypeKind == TypeKind.Interface).ToArray();
-                _types.Add(ClassDeclaration(_probeTypes[parameter], classes.FirstOrDefault(), interfaces, fields: true, null, parameter.Name));
-            }
+                _types.AddRange(ProbeDeclarations(parameter));
         }
 
-        /// <summary>Chooses one type parameter's argument: its probe class, the argument of the one type parameter it is constrained
-        /// to, or the recipe's choice.</summary>
+        /// <summary>Gives a type parameter a probe type of its own: a probe struct when it is constrained to <c>struct</c>, else a probe
+        /// class. The declarations come from <see cref="ProbeDeclarations"/>, once every probe type has its name.</summary>
+        /// <param name="parameter">The type parameter, which <see cref="CanProbe"/> or <see cref="CanProbeStruct"/> admits.</param>
+        private string NameProbe(ITypeParameterSymbol parameter)
+        {
+            var name = Unique("Probe_" + parameter.Name);
+            _probeTypes[parameter] = name;
+            if (!CanProbe(parameter))
+                _probeStructs[name] = Unique(name + "_Object");
+            return name;
+        }
+
+        /// <summary>The declarations of a type parameter's probe type: a sealed probe class meeting its base class and interfaces, or a
+        /// probe struct meeting its interfaces and the probe class of the objects the struct holds.</summary>
+        /// <param name="parameter">The type parameter, named by <see cref="NameProbe"/>.</param>
+        private IEnumerable<string> ProbeDeclarations(ITypeParameterSymbol parameter)
+        {
+            var name = _probeTypes[parameter];
+            var classes = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(type => type.TypeKind == TypeKind.Class).ToArray();
+            var interfaces = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(type => type.TypeKind == TypeKind.Interface).ToArray();
+            if (!_probeStructs.TryGetValue(name, out var held))
+                return [ClassDeclaration(name, classes.FirstOrDefault(), interfaces, fields: true, null, parameter.Name)];
+            return [ClassDeclaration(name, null, interfaces, fields: true, null, parameter.Name, parameter),
+                    ClassDeclaration(held, null, [], fields: true, null, parameter.Name)];
+        }
+
+        /// <summary>Chooses one type parameter's argument: its probe class or probe struct, the argument of the one type parameter it is
+        /// constrained to, or the recipe's choice.</summary>
         /// <param name="parameter">The type parameter.</param>
-        /// <param name="probed">Receives the type parameters given a probe class of their own.</param>
+        /// <param name="probed">Receives the type parameters given a probe type of their own.</param>
         private void Choose(ITypeParameterSymbol parameter, List<ITypeParameterSymbol> probed)
         {
             if (_probeTypes.ContainsKey(parameter) || _choices.ContainsKey(parameter))
                 return;
             _chosen.Add(parameter);
-            if (CanProbe(parameter))
+            if (CanProbe(parameter) || CanProbeStruct(parameter))
             {
-                _probeTypes[parameter] = Unique("Probe_" + parameter.Name);
+                NameProbe(parameter);
                 probed.Add(parameter);
                 return;
             }
@@ -695,12 +724,13 @@ public static class DriverSynthesizer
             }
 
             // A user's struct may hold the user's objects and compare, hash and format itself on them, which no type the recipe
-            // chooses shows, and the heap keeps no object for a struct to stand for it; an unmanaged struct holds no object, and an
-            // enum runs no member of its own.
+            // chooses shows: only a probe struct stands for it, and one whose constraints no probe struct meets has no driver. An
+            // unmanaged struct holds no object, and an enum runs no member of its own.
             if (parameter.HasValueTypeConstraint && !parameter.HasUnmanagedTypeConstraint &&
                 !parameter.ConstraintTypes.Any(type => type.SpecialType == SpecialType.System_Enum))
             {
-                Fail($"{parameter.Name} is constrained to struct: a user's struct may hold the user's objects and run its own members on them");
+                Fail($"{parameter.Name} is constrained to struct and no probe struct meets its constraints: a user's struct may hold the " +
+                     "user's objects and run its own members on them");
                 return;
             }
 
@@ -725,6 +755,13 @@ public static class DriverSynthesizer
             return classes.Length <= 1 && classes.All(Derivation.CanDerive) &&
                    parameter.ConstraintTypes.Where(type => type.TypeKind == TypeKind.Interface).Cast<INamedTypeSymbol>().All(Implementable);
         }
+
+        /// <summary>Whether a probe struct can meet the constraints (R9): <c>struct</c> and not <c>unmanaged</c>, no class — <c>Enum</c>
+        /// included — and no type parameter among them, and only interfaces a struct in another assembly can implement.</summary>
+        /// <param name="parameter">The type parameter.</param>
+        private static bool CanProbeStruct(ITypeParameterSymbol parameter) =>
+            parameter is { HasValueTypeConstraint: true, HasUnmanagedTypeConstraint: false } &&
+            parameter.ConstraintTypes.All(type => type is INamedTypeSymbol { TypeKind: TypeKind.Interface } @interface && Implementable(@interface));
 
         /// <summary>The recipe's type argument (step 2): <c>int</c> for <c>unmanaged</c> when it meets the interfaces; <c>int</c>, or
         /// <c>object</c> under <c>class</c>, with no constraint type; the constraint class itself when it is concrete and not
@@ -827,18 +864,30 @@ public static class DriverSynthesizer
 
         // ---- seeds ----
 
-        private void SeedObject(ITypeSymbol type, string value, string path, int depth, List<string> statements)
+        /// <summary>Seeds the fields of a value setup holds, along their paths: an object's, or a struct's where <paramref name="value"/>
+        /// is a place setup can write the struct's fields through (R8).</summary>
+        /// <param name="type">The value's type.</param>
+        /// <param name="value">The expression reading the value.</param>
+        /// <param name="path">The value's field path.</param>
+        /// <param name="depth">How many more fields the path may go through.</param>
+        /// <param name="statements">The statements the seeds are added in.</param>
+        /// <param name="place">Whether <paramref name="value"/> is a variable: a static or receiver field, an argument's field, an
+        /// element of a one-dimensional array, a writable field of an object or of such a struct. A struct elsewhere is a copy.</param>
+        private void SeedObject(ITypeSymbol type, string value, string path, int depth, List<string> statements, bool place = true)
         {
             type = Substitute(type);
             if (SeedableFields.Struct(type))
             {
-                RecordStruct(type, path, null);
+                if (place && type is INamedTypeSymbol structType)
+                    SeedStruct(structType, value, path, depth, statements);
+                else
+                    RecordStruct(type, path, null);
                 return;
             }
             if (type is IArrayTypeSymbol array)
             {
                 if (SeedableFields.Path(array.ElementType))
-                    SeedElements(value, array.ElementType, path, depth, statements);
+                    SeedElements(value, array.ElementType, path, depth, statements, indexed: array.IsSZArray);
                 return;
             }
 
@@ -858,6 +907,48 @@ public static class DriverSynthesizer
             }
         }
 
+        /// <summary>Seeds a struct setup writes in place as an object's fields are seeded, through its own place and never a cast of a
+        /// copy: its storage is its holder's (R1, R8). A seed field gets a seed, a container setup can replace a container of seeds, and a
+        /// struct field is seeded in place in turn. Any other reference field holds what the driver's default left there, where a
+        /// program's struct holds an object of its own — the user's or the library's —, so it is unseeded, and so is what lies below.</summary>
+        /// <param name="type">The struct's type.</param>
+        /// <param name="value">The place holding the struct.</param>
+        /// <param name="path">The struct's field path.</param>
+        /// <param name="depth">How many more fields the path may go through.</param>
+        /// <param name="statements">The statements the seeds are added in.</param>
+        private void SeedStruct(INamedTypeSymbol type, string value, string path, int depth, List<string> statements)
+        {
+            if (Bounded(type, path, null))
+                return;
+            _below.Add(type);
+            try
+            {
+                foreach (var member in type.GetMembers().OfType<IFieldSymbol>().Where(member => !member.IsStatic && !member.IsConst))
+                {
+                    var storage = member.AssociatedSymbol ?? member;
+                    var storageType = Substitute(member.Type);
+                    var fieldPath = path + "/" + Id(storage);
+                    var replaced = (storageType is IArrayTypeSymbol || storageType is INamedTypeSymbol named && SeedableFields.Collection(named) is not null) &&
+                                   CanWrite(storage);
+                    if (SeedableFields.Seed(storageType) || SeedableFields.Struct(storageType) || IsProbeStruct(storageType) || replaced)
+                        SeedMember(storage, $"{value}.{Escape(storage.Name)}", fieldPath, depth, statements);
+                    else if (TypeShape.Of(storageType) is TypeShapeKind.Reference or TypeShapeKind.Delegate or TypeShapeKind.Task or TypeShapeKind.TaskOfT)
+                    {
+                        AddUnseeded(fieldPath, storage);
+                        RecordUnseeded(fieldPath, storage, storageType);
+                    }
+                }
+
+                // No backing field of a field-like event is listed among the struct's members: the event names its storage.
+                foreach (var @event in type.GetMembers().OfType<IEventSymbol>().Where(@event => !@event.IsStatic && FieldLikeEvents.Is(@event)))
+                    SeedMember(@event, $"{value}.{Escape(@event.Name)}", path + "/" + Id(@event), depth, statements);
+            }
+            finally
+            {
+                _below.RemoveAt(_below.Count - 1);
+            }
+        }
+
         private void SeedMember(ISymbol field, string access, string path, int depth, List<string> statements)
         {
             var type = Substitute(MemberType(field));
@@ -873,9 +964,13 @@ public static class DriverSynthesizer
                 RecordUnseeded(path, field, type);
                 return;
             }
+            // A struct field is a place setup writes the struct's fields through; a property's or a readonly field's struct is a copy.
             if (SeedableFields.Struct(type))
             {
-                RecordStruct(type, path, field);
+                if (field is IFieldSymbol && CanWrite(field))
+                    SeedObject(type, access, path, depth - 1, statements);
+                else
+                    RecordStruct(type, path, field);
                 return;
             }
             if (type is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
@@ -884,7 +979,8 @@ public static class DriverSynthesizer
                 return;
             }
 
-            var seed = SeedableFields.Seed(type);
+            // A field of a probe struct's type holds the user's struct as a field of a probe class's type holds the user's object.
+            var seed = SeedableFields.Seed(type) || IsProbeStruct(type);
             var container = type is IArrayTypeSymbol || type is INamedTypeSymbol named && SeedableFields.Collection(named) is not null;
             string? seededValue = null;
             if (seed || container && CanWrite(field))
@@ -1083,12 +1179,21 @@ public static class DriverSynthesizer
             return $"new {name}()";
         }
 
-        private void SeedElements(string value, ITypeSymbol element, string path, int depth, List<string> statements)
+        /// <summary>Seeds every element of a container: an element of a one-dimensional array of structs through its cell, a place; any
+        /// other through the enumeration's variable, which for a struct is a copy.</summary>
+        /// <param name="value">The expression reading the container.</param>
+        /// <param name="element">The element type.</param>
+        /// <param name="path">The container's field path.</param>
+        /// <param name="depth">How many more fields the path may go through.</param>
+        /// <param name="statements">The statements the seeds are added in.</param>
+        /// <param name="indexed">Whether the container is a one-dimensional array, whose cells are places.</param>
+        private void SeedElements(string value, ITypeSymbol element, string path, int depth, List<string> statements, bool indexed = false)
         {
             var local = $"SeedElement_{_seedContainers++}";
-            statements.Add($"foreach ({R(element)} {local} in {value}) {{");
+            var cell = indexed && SeedableFields.Struct(Substitute(element));
+            statements.Add(cell ? $"for (var {local} = 0; {local} < {value}.Length; {local}++) {{" : $"foreach ({R(element)} {local} in {value}) {{");
             var nested = new List<string>();
-            SeedObject(element, local, path, depth, nested);
+            SeedObject(element, cell ? $"{value}[{local}]" : local, path, depth, nested, place: cell);
             statements.AddRange(nested.Select(statement => "    " + statement));
             statements.Add("}");
         }
@@ -1148,15 +1253,12 @@ public static class DriverSynthesizer
             var arguments = new List<ITypeSymbol>();
             foreach (var parameter in definition.TypeParameters)
             {
-                if (CanProbe(parameter))
+                if (CanProbe(parameter) || CanProbeStruct(parameter))
                 {
-                    if (!_probeTypes.TryGetValue(parameter, out var probe))
+                    if (!_probeTypes.ContainsKey(parameter))
                     {
-                        probe = Unique("Probe_" + parameter.Name);
-                        _probeTypes[parameter] = probe;
-                        var classes = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(candidate => candidate.TypeKind == TypeKind.Class).ToArray();
-                        var interfaces = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(candidate => candidate.TypeKind == TypeKind.Interface).ToArray();
-                        _types.Add(ClassDeclaration(probe, classes.FirstOrDefault(), interfaces, fields: true, null, parameter.Name));
+                        NameProbe(parameter);
+                        _types.AddRange(ProbeDeclarations(parameter));
                     }
                     arguments.Add(parameter);
                 }
@@ -1232,12 +1334,13 @@ public static class DriverSynthesizer
             return true;
         }
 
-        /// <summary>Records every reference storage inside a struct as unseeded: the heap keeps no object for a struct value, so what a
+        /// <summary>Records every reference storage inside a struct setup cannot write in place as unseeded: one a property, a readonly
+        /// field, an enumeration's variable or a field setup cannot read gives, which is a copy, or which lies below such storage. What a
         /// reference field of it holds — the user's object or the library's own, which a program's struct holds and the driver's default
-        /// does not — the member reads as nothing.</summary>
+        /// does not — the member would read as nothing.</summary>
         /// <param name="type">The struct's type.</param>
         /// <param name="path">The path of the storage that holds the struct.</param>
-        /// <param name="field">The field that leads to the struct, or <c>null</c> for an argument or the receiver.</param>
+        /// <param name="field">The field that leads to the struct, or <c>null</c> for an element.</param>
         private void RecordStruct(ITypeSymbol type, string path, ISymbol? field)
         {
             if (type is not INamedTypeSymbol named || Bounded(type, path, field))
@@ -1681,7 +1784,17 @@ public static class DriverSynthesizer
             }
         }
 
-        private static string ProbeInstance(string name) => $"new {name}() {{ Ref0 = new {name}() }}";
+        /// <summary>A probe instance holding a probe object: a probe class's holds another of its class, a probe struct's an object of
+        /// its held probe class, which holds another (R9).</summary>
+        /// <param name="name">The probe type's name.</param>
+        private string ProbeInstance(string name) => _probeStructs.TryGetValue(name, out var held)
+            ? $"new {name}() {{ Ref0 = {ProbeInstance(held)} }}"
+            : $"new {name}() {{ Ref0 = new {name}() }}";
+
+        /// <summary>Whether a type is a type parameter the driver gave a probe struct.</summary>
+        /// <param name="type">The type, substituted.</param>
+        private bool IsProbeStruct(ITypeSymbol? type) =>
+            type is ITypeParameterSymbol parameter && _probeTypes.TryGetValue(parameter, out var name) && _probeStructs.ContainsKey(name);
 
         /// <summary>A canned value: a string, a value type's default, <c>typeof(object)</c>, a public constructor of canned values, a
         /// public static member of the type itself; else a default, named in <see cref="Defaulted"/>.</summary>
@@ -1747,6 +1860,15 @@ public static class DriverSynthesizer
         /// <param name="hoist">Setup's statements, or <c>null</c>.</param>
         private string Recipe(ITypeSymbol type, Owner owner, int depth, List<string>? hoist)
         {
+            // A Nullable holds its value and a pair its key and value as a struct holds its fields (R8): where what it holds may be a user's
+            // object, it is made of values the driver makes for what it holds, as it makes them alone.
+            if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T, TypeArguments: [var held] } &&
+                Kind(Substitute(held)) != ParameterKind.Canned)
+                return Value(held, owner, depth, hoist);
+            if (type is INamedTypeSymbol { MetadataName: "KeyValuePair`2", ContainingNamespace: { } pairSpace, TypeArguments: [var key, var value] } pair &&
+                pairSpace.ToDisplayString() == "System.Collections.Generic" &&
+                (Kind(Substitute(key)) != ParameterKind.Canned || Kind(Substitute(value)) != ParameterKind.Canned))
+                return $"new {R(pair)}({Value(key, owner, depth, hoist)}, {Value(value, owner, depth, hoist)})";
             if (TypeShape.Of(type) == TypeShapeKind.StructWithReferences && type.IsValueType)
                 return $"default({R(type)})";
             if (type is INamedTypeSymbol task && TypeShape.Of(type) is TypeShapeKind.Task or TypeShapeKind.TaskOfT)
@@ -1914,7 +2036,7 @@ public static class DriverSynthesizer
                     stored.Inputs.Add(field);
                 }
                 else if (probe is null && TypeShape.Of(parameterType) != TypeShapeKind.RefLikeOrPointer)
-                    body.Add(WitnessStore(name));
+                    body.AddRange(WitnessStores(name, parameterType));
             }
 
             if (!invoke.ReturnsVoid)
@@ -2001,27 +2123,42 @@ public static class DriverSynthesizer
             return name;
         }
 
+        /// <summary>A driver type's declaration: a sealed class, or for <paramref name="probeStruct"/> a struct, whose every expressible
+        /// member a user type could override or implement is a witness.</summary>
+        /// <param name="name">The type's name.</param>
+        /// <param name="baseClass">The class to derive from, or <c>null</c>.</param>
+        /// <param name="interfaces">The interfaces to implement.</param>
+        /// <param name="fields">Whether it has a probe's fields: two that hold objects and an <c>int</c>.</param>
+        /// <param name="excluded">The members left alone, or <c>null</c>.</param>
+        /// <param name="owner">What the type is for, which values its base constructor needs belong to.</param>
+        /// <param name="probeStruct">The type parameter whose probe struct this is, or <c>null</c> for a class.</param>
         private string ClassDeclaration(string name, INamedTypeSymbol? baseClass, IReadOnlyList<INamedTypeSymbol> interfaces, bool fields,
-                                        ISet<ISymbol>? excluded, string owner)
+                                        ISet<ISymbol>? excluded, string owner, ITypeParameterSymbol? probeStruct = null)
         {
             var bases = (baseClass is null ? [] : new[] { R(baseClass) }).Concat(interfaces.Select(R)).ToArray();
             var text = new StringBuilder();
-            text.Append("public sealed class ").Append(name).Append(bases.Length > 0 ? " : " + string.Join(", ", bases) : "").Append("\n{\n");
+            text.Append(probeStruct is null ? "public sealed class " : "public struct ").Append(name)
+                .Append(bases.Length > 0 ? " : " + string.Join(", ", bases) : "").Append("\n{\n");
             if (fields)
-                text.Append("    public object Ref0;\n    public object Ref1;\n    public int Int0;\n");
-            var root = baseClass ?? library.GetSpecialType(SpecialType.System_Object);
-            if (Derivation.Constructors(root).FirstOrDefault() is not { } constructor)
-                Fail($"{root.ToDisplayString()} has no constructor a subclass can call");
-            else
+                text.Append(string.Concat(ProbeFields.Select(field => $"    public object {field};\n"))).Append("    public int Int0;\n");
+            var root = probeStruct is not null ? library.GetSpecialType(SpecialType.System_ValueType)
+                : baseClass ?? library.GetSpecialType(SpecialType.System_Object);
+            // A struct calls no base constructor.
+            if (probeStruct is null)
             {
-                var arguments = constructor.Parameters.Select(parameter => Value(parameter.Type, new Owner(owner, null), INLINE_DEPTH, null));
-                text.Append("    public ").Append(name).Append("() : base(").Append(string.Join(", ", arguments)).Append(") { }\n");
+                if (Derivation.Constructors(root).FirstOrDefault() is not { } constructor)
+                    Fail($"{root.ToDisplayString()} has no constructor a subclass can call");
+                else
+                {
+                    var arguments = constructor.Parameters.Select(parameter => Value(parameter.Type, new Owner(owner, null), INLINE_DEPTH, null));
+                    text.Append("    public ").Append(name).Append("() : base(").Append(string.Join(", ", arguments)).Append(") { }\n");
+                }
             }
 
             if (baseClass is not null && !Derivation.CanDerive(baseClass))
                 Fail($"no class can derive from {baseClass.ToDisplayString()}");
             foreach (var overridable in Derivation.Overridable(root, out _).Where(candidate => excluded?.Contains(candidate.OriginalDefinition) != true))
-                text.Append("    ").Append(Override(overridable)).Append('\n');
+                text.Append("    ").Append(Override(overridable, probeStruct)).Append('\n');
             foreach (var @interface in interfaces.SelectMany(@interface => @interface.AllInterfaces.Prepend(@interface))
                                                  .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default))
             {
@@ -2031,7 +2168,7 @@ public static class DriverSynthesizer
                                                                                        !candidate.IsSealed &&
                                                                                        candidate is IMethodSymbol { MethodKind: MethodKind.Ordinary } or IPropertySymbol or IEventSymbol))
                 {
-                    text.Append("    ").Append(Explicit(@interface, implemented)).Append('\n');
+                    text.Append("    ").Append(Explicit(@interface, implemented, probeStruct)).Append('\n');
                 }
             }
 
@@ -2046,15 +2183,17 @@ public static class DriverSynthesizer
             @interface.AllInterfaces.Prepend(@interface).SelectMany(type => type.GetMembers())
                       .All(candidate => !candidate.IsAbstract || !candidate.IsStatic && candidate.DeclaredAccessibility == Accessibility.Public);
 
-        private string Override(ISymbol overridden)
+        /// <summary>A witness override of a member of the base class.</summary>
+        /// <param name="overridden">The method, property, indexer or event.</param>
+        /// <param name="self">The type parameter whose probe struct declares the witness, or <c>null</c> for a class.</param>
+        private string Override(ISymbol overridden, ITypeParameterSymbol? self)
         {
             var access = overridden.DeclaredAccessibility == Accessibility.Public ? "public" : "protected";
             return overridden switch
             {
-                IMethodSymbol method => MethodWitness($"{access} override ", method),
-                IPropertySymbol property => PropertyWitness($"{access} override ", property),
-                IEventSymbol @event => $"{access} override event {R(@event.Type)} {Escape(@event.Name)} {{ " +
-                                        $"add {{ {WitnessStore("this")} {WitnessStore("value")} }} remove {{ {WitnessStore("this")} {WitnessStore("value")} }} }}",
+                IMethodSymbol method => MethodWitness($"{access} override ", method, self: self),
+                IPropertySymbol property => PropertyWitness($"{access} override ", property, self: self),
+                IEventSymbol @event => $"{access} override event {R(@event.Type)} {Escape(@event.Name)} {EventWitness(@event, self)}",
                 _ => ""
             };
         }
@@ -2062,20 +2201,27 @@ public static class DriverSynthesizer
         /// <summary>An explicit witness implementation of an interface member.</summary>
         /// <param name="interface">The interface.</param>
         /// <param name="implemented">Its method, property, indexer or event.</param>
-        private string Explicit(INamedTypeSymbol @interface, ISymbol implemented)
+        /// <param name="self">The type parameter whose probe struct declares the witness, or <c>null</c> for a class.</param>
+        private string Explicit(INamedTypeSymbol @interface, ISymbol implemented, ITypeParameterSymbol? self)
         {
             var owner = R(@interface);
             return implemented switch
             {
-                IMethodSymbol method => MethodWitness("", method, owner + "."),
-                IPropertySymbol property => PropertyWitness("", property, owner + "."),
-                IEventSymbol @event => $"event {R(@event.Type)} {owner}.{Escape(@event.Name)} {{ " +
-                                        $"add {{ {WitnessStore("this")} {WitnessStore("value")} }} remove {{ {WitnessStore("this")} {WitnessStore("value")} }} }}",
+                IMethodSymbol method => MethodWitness("", method, owner + ".", self),
+                IPropertySymbol property => PropertyWitness("", property, owner + ".", self),
+                IEventSymbol @event => $"event {R(@event.Type)} {owner}.{Escape(@event.Name)} {EventWitness(@event, self)}",
                 _ => ""
             };
         }
 
-        private string PropertyWitness(string modifier, IPropertySymbol property, string explicitOwner = "")
+        /// <summary>The add and remove bodies of an event witness, each witnessing its receiver and the handler it gets.</summary>
+        /// <param name="event">The event.</param>
+        /// <param name="self">The type parameter whose probe struct declares the witness, or <c>null</c> for a class.</param>
+        private string EventWitness(IEventSymbol @event, ITypeParameterSymbol? self) =>
+            $"{{ add {{ {string.Join(" ", WitnessStores("this", self).Concat(WitnessStores("value", Substitute(@event.Type))))} }} " +
+            $"remove {{ {string.Join(" ", WitnessStores("this", self).Concat(WitnessStores("value", Substitute(@event.Type))))} }} }}";
+
+        private string PropertyWitness(string modifier, IPropertySymbol property, string explicitOwner = "", ITypeParameterSymbol? self = null)
         {
             var accessors = new List<(string Declaration, string? Body)>();
             var snapshot = Snapshot();
@@ -2088,7 +2234,8 @@ public static class DriverSynthesizer
                     : accessor.DeclaredAccessibility == Accessibility.Public ? "public " : "protected ";
                 var keyword = accessor.MethodKind == MethodKind.PropertyGet ? "get" : accessor.IsInitOnly ? "init" : "set";
                 var body = WitnessBody(accessor, accessor.ReturnType, accessor.ReturnsByRef, accessor.ReturnsByRefReadonly,
-                                       index => accessor.MethodKind == MethodKind.PropertySet && index == accessor.Parameters.Length - 1 ? "value" : $"p{index}");
+                                       index => accessor.MethodKind == MethodKind.PropertySet && index == accessor.Parameters.Length - 1 ? "value" : $"p{index}",
+                                       self);
                 accessors.Add(($"{accessorModifier}{keyword}", body));
             }
 
@@ -2100,9 +2247,9 @@ public static class DriverSynthesizer
                    $"{explicitOwner}{(property.IsIndexer ? $"this[{Signature(property.Parameters)}]" : Escape(property.Name))} {{ {bodies} }}";
         }
 
-        private string MethodWitness(string modifier, IMethodSymbol method, string explicitOwner = "")
+        private string MethodWitness(string modifier, IMethodSymbol method, string explicitOwner = "", ITypeParameterSymbol? self = null)
         {
-            var body = WitnessBody(method, method.ReturnType, method.ReturnsByRef, method.ReturnsByRefReadonly, index => $"p{index}");
+            var body = WitnessBody(method, method.ReturnType, method.ReturnsByRef, method.ReturnsByRefReadonly, index => $"p{index}", self);
             var externModifier = body is null ? "extern " : "";
             return $"{modifier}{externModifier}{RefReturn(method.ReturnsByRef, method.ReturnsByRefReadonly)}" +
                    $"{(method.ReturnsVoid ? "void" : R(method.ReturnType))} {explicitOwner}{Escape(method.Name)}{TypeParameters(method)}" +
@@ -2110,7 +2257,7 @@ public static class DriverSynthesizer
         }
 
         private string? WitnessBody(IMethodSymbol method, ITypeSymbol returnType, bool returnsByRef, bool returnsByRefReadonly,
-                                    Func<int, string> parameterName)
+                                    Func<int, string> parameterName, ITypeParameterSymbol? self)
         {
             if (method.Parameters.Any(parameter => TypeShape.Of(Substitute(parameter.Type)) == TypeShapeKind.RefLikeOrPointer) ||
                 TypeShape.Of(Substitute(returnType)) == TypeShapeKind.RefLikeOrPointer)
@@ -2123,12 +2270,12 @@ public static class DriverSynthesizer
             if (!method.ReturnsVoid && result is null)
                 return null;
             var field = ReadsByConvention(method) ? READ_WITNESS_FIELD : WITNESS_FIELD;
-            var statements = new List<string> { WitnessStore("this", field) };
+            var statements = new List<string>(WitnessStores("this", self, field));
             foreach (var (parameter, index) in method.Parameters.Select((parameter, index) => (parameter, index)))
             {
                 var name = parameterName(index);
                 if (parameter.RefKind != RefKind.Out)
-                    statements.Add(WitnessStore(name, field));
+                    statements.AddRange(WitnessStores(name, Substitute(parameter.Type), field));
                 // What the member gives back through out is the witness's, as what it returns is (TD-034b).
                 else if (WitnessValue(parameter.Type) is { } value)
                     statements.Add($"{name} = {value};");
@@ -2222,6 +2369,20 @@ public static class DriverSynthesizer
             _witnessFields.Add(field);
             return $"{WITNESSED_TYPE}.{field} = {value};";
         }
+
+        /// <summary>The one owner of what a witness stores of a value a probe member receives, its receiver or a parameter (R9): a
+        /// value of a probe struct stores each probe object it holds and never a copy of the struct, which would box one (R2); any
+        /// other value, a class probe's included, stores itself. Each store goes into a new field of <see cref="WITNESSED_TYPE"/> under
+        /// the prefix the caller chose by <see cref="ReadsByConvention"/>. Every witness site asks it, for the receiver and for each
+        /// parameter: <see cref="WitnessBody"/> — methods, property and indexer accessors with a setter's <c>value</c>, <c>Equals</c>,
+        /// <c>GetHashCode</c>, a seed delegate's <c>Invoke</c> —, the add and remove bodies <see cref="EventWitness"/> writes for
+        /// <see cref="Override"/> and <see cref="Explicit"/>, and a plain lambda's parameters in <see cref="Lambda"/>.</summary>
+        /// <param name="value">The expression naming what it received.</param>
+        /// <param name="type">The value's type, substituted: the type parameter of the probe struct that declares the witness for its
+        /// receiver, <c>null</c> for a class's receiver.</param>
+        /// <param name="prefix"><see cref="WITNESS_FIELD"/>, or <see cref="READ_WITNESS_FIELD"/> for a member the analysis takes to read.</param>
+        private IReadOnlyList<string> WitnessStores(string value, ITypeSymbol? type, string prefix = WITNESS_FIELD) =>
+            IsProbeStruct(type) ? ProbeFields.Select(field => WitnessStore($"{value}.{field}", prefix)).ToArray() : [WitnessStore(value, prefix)];
 
         /// <summary>Whether the analysis takes the member a witness stands for to read what it gets, as deep read takes user code it does
         /// not run (TD-034b): a getter, <c>ToString</c>, <c>Equals</c>, <c>GetHashCode</c>, or a member of comparison.</summary>

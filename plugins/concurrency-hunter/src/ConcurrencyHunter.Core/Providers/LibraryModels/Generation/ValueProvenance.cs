@@ -530,15 +530,17 @@ public sealed class ValueProvenance
                 continue;
             }
 
-            Observe(instance.Receivers, $"call:{member}");
+            // A probe struct's witness got the probe objects the struct holds, which name it as a class probe's object names it (R9).
+            var (receivers, parameters) = GenerationHandoffs.Received(_fate.Heap, instance);
+            Observe(receivers, $"call:{member}");
             var inputs = new IReadOnlyList<LibraryValue>[count];
             for (var ordinal = 0; ordinal < count; ordinal++)
             {
-                var handed = instance.Parameters.GetValueOrDefault(ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
+                var handed = parameters.GetValueOrDefault(ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
                 Observe(handed, $"call:{member}:{ordinal}");
                 inputs[ordinal] = Names(handed, ValuePlace.CallValue, _fate, expected);
             }
-            foreach (var on in Names(instance.Receivers, ValuePlace.CallValue, _fate, expected))
+            foreach (var on in Names(receivers, ValuePlace.CallValue, _fate, expected))
                 calls.Add(new LibraryMemberCall(member, on, inputs));
         }
         return calls.DistinctBy(call => call.Canonical).OrderBy(call => call.Canonical, StringComparer.Ordinal).ToArray();
@@ -1180,8 +1182,10 @@ public sealed class ValueProvenance
             case ReferenceCell { IsOnCollection: true } cell:
                 return cell.Bases.SelectMany(value => heap.Resolve(instance.Id, value))
                            .SelectMany(region => heap.PointsTo(region, FieldSlot.Key(cell.Field))).ToHashSet(StringComparer.Ordinal);
+            // A base that is a struct's storage is its holder's, and one that is a struct copy no place at all (R1, R2).
             case ReferenceCell cell when fields:
-                return cell.Bases.SelectMany(value => heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
+                return cell.Bases.SelectMany(value => heap.Resolve(instance.Id, value)).Select(region => heap.Located(region, "")?.Region)
+                           .OfType<string>().ToHashSet(StringComparer.Ordinal);
             case ReferenceParameter parameter:
             {
                 var arrays = new HashSet<string>(StringComparer.Ordinal);
@@ -1276,11 +1280,8 @@ public sealed class ValueProvenance
         /// <summary>The first value this run observed that may come from somewhere the analysis does not follow, or <c>null</c>.</summary>
         public GenerationCause? Unobserved { get; private set; }
 
-        public IReadOnlySet<string> StaticTargets(string type, string field)
-        {
-            var start = Reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, type, field));
-            return start is null ? new HashSet<string>(StringComparer.Ordinal) : Reachability.Targets(start);
-        }
+        public IReadOnlySet<string> StaticTargets(string type, string field) =>
+            Reachability.Held(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, type, field));
 
         /// <summary>The values setup placed in one argument's initial output slot, before additive call writes.</summary>
         /// <param name="field">The driver's output slot.</param>
@@ -1443,7 +1444,8 @@ public sealed class ValueProvenance
             foreach (var instance in MemberInstances(DriverSynthesizer.CALL).Concat(MemberInstances(DriverSynthesizer.ENUMERATE)))
             {
                 if (instance.Summary.Stores.Concat(instance.Summary.ReferenceStores).Any(store =>
-                    FieldMatches(edge.Field, store.Field.Name) && store.Bases.Any(value => Matches(instance, value, edge.Object)) &&
+                    (FieldMatches(edge.Field, store.Field.Name) && store.Bases.Any(value => Matches(instance, value, edge.Object)) ||
+                     Places(instance, store.Bases, store.Field).Any(place => place.Object == edge.Object && FieldMatches(edge.Field, place.Field))) &&
                     store.Values.Any(value => Matches(instance, value, edge.Value))))
                 {
                     return true;
@@ -1466,15 +1468,25 @@ public sealed class ValueProvenance
             var values = new HashSet<string>(StringComparer.Ordinal);
             foreach (var instance in StoreInstances(actions))
             {
-                foreach (var store in instance.Summary.Stores.Concat(instance.Summary.ReferenceStores)
-                                              .Where(store => FieldCarriesObject(store.Field) && store.Bases.Any(value => Matches(instance, value, @object))))
+                foreach (var store in instance.Summary.Stores.Concat(instance.Summary.ReferenceStores).Where(store => FieldCarriesObject(store.Field)))
                 {
-                    values.UnionWith(ObserveValues(instance, store.Values, store.Producers, out _)
-                                         .Where(value => !IsPlacedSlotSeed(@object, store.Field.Name, value)));
+                    // A store into a struct's storage the object keeps writes the object, at the slot path through the struct (R1).
+                    var field = Places(instance, store.Bases, store.Field).Where(place => place.Object == @object)
+                                                                          .Select(place => place.Field).FirstOrDefault();
+                    if (field is null && !store.Bases.Any(value => Matches(instance, value, @object)))
+                        continue;
+                    values.UnionWith(Held(ObserveValues(instance, store.Values, store.Producers, out _))
+                                         .Where(value => !IsPlacedSlotSeed(@object, field ?? store.Field.Name, value)));
                 }
             }
             return values;
         }
+
+        /// <summary>The objects stored values put into a slot: a struct copy is no object, and storing it puts there what its reference
+        /// fields hold (R2).</summary>
+        /// <param name="values">The stored values.</param>
+        private IEnumerable<string> Held(IEnumerable<string> values) =>
+            values.SelectMany(value => Reachability.IsCopy(value) ? Reachability.Edges(value).Select(edge => edge.Target) : [value]);
 
         /// <summary>Whether a value stored into a field of an object is the delegate seed setup placed in that same field of that
         /// same object: a call that stores it back — a combination with the slot's own value, a removal from it — writes nothing
@@ -1500,7 +1512,7 @@ public sealed class ValueProvenance
                                               .Where(store => store.Kind == ElementOperationKind.Store &&
                                                               store.Arrays.Any(value => Matches(instance, value, @object))))
                 {
-                    values.UnionWith(ObserveValues(instance, store.Values, store.Producers, out _));
+                    values.UnionWith(Held(ObserveValues(instance, store.Values, store.Producers, out _)));
                 }
                 foreach (var access in instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store))
                 {
@@ -1525,12 +1537,12 @@ public sealed class ValueProvenance
                     var symbol = body.Values[store.Value].SymbolKey;
                     var variable = symbol is null ? null : instance.Summary.Variables.FirstOrDefault(variable => variable.SymbolKey == symbol);
                     if (variable is not null)
-                        values.UnionWith(ObserveValues(instance, variable.Values, ValueOrigin.None, out _));
+                        values.UnionWith(Held(ObserveValues(instance, variable.Values, ValueOrigin.None, out _)));
                     else
                     {
                         var transfers = instance.Summary.RefParameters.Where(parameter => access.Targets.Contains(new ReferenceParameter(parameter.Ordinal))).ToArray();
                         foreach (var parameter in transfers)
-                            values.UnionWith(ObserveValues(instance, parameter.Values, ValueOrigin.None, out _));
+                            values.UnionWith(Held(ObserveValues(instance, parameter.Values, ValueOrigin.None, out _)));
                         if (transfers.Length == 0)
                         {
                             Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
@@ -1693,8 +1705,9 @@ public sealed class ValueProvenance
                 if (!_roots.TryGetValue(item.Region, out var roots))
                     _roots[item.Region] = roots = [];
                 roots.Add(item.Value);
-                // What setup placed names an element, whether or not the call stores the same value there again (R5).
-                foreach (var edge in Reachability.Edges(item.Region).Where(edge => (edge.Field is ELEMENT or KEYS) &&
+                // What setup placed names an element, whether or not the call stores the same value there again (R5). A pair's key and value
+                // are no elements: it holds them as a struct holds its fields, which no value of the vocabulary names (R1).
+                foreach (var edge in Reachability.Edges(item.Region).Where(edge => (edge.Field is ELEMENT or KEYS) && !IsPair(item.Region) &&
                     (!Written.Contains(new WrittenEdge(item.Region, edge.Field, edge.Target)) ||
                      _placed.Contains(new WrittenEdge(item.Region, edge.Field, edge.Target)))))
                     pending.Push((edge.Target, new ElementsValue(item.Value), null));
@@ -1706,6 +1719,13 @@ public sealed class ValueProvenance
                 }
             }
         }
+
+        /// <summary>Whether a region is a <c>KeyValuePair</c>, which holds its key and value apart in the storage a collection keeps its
+        /// keys and cells in.</summary>
+        /// <param name="region">The region.</param>
+        private bool IsPair(string region) =>
+            Heap.Regions.TryGetValue(region, out var held) && held.TypeKey is { } key &&
+            key[(key.IndexOf(':') + 1)..].StartsWith("System.Collections.Generic.KeyValuePair<", StringComparison.Ordinal);
 
         private void BuildFired()
         {
@@ -1733,8 +1753,7 @@ public sealed class ValueProvenance
                 var values = instance.Summary.Accesses.Where(summary => summary.OperationId == access.OperationId && summary.Kind == SummaryAccessKind.Store)
                                      .SelectMany(summary => summary.Values).SelectMany(value => Resolve(instance, value))
                                      .ToHashSet(StringComparer.Ordinal);
-                var field = EdgeField(access.Resource.AccessPath.LastOrDefault() ?? access.Resource.Member.Name);
-                foreach (var @object in Reachability.WrittenObjects(access))
+                foreach (var (@object, field) in Reachability.WrittenPlaces(access))
                     AddExistingEdges(written, @object, field, values);
             }
 
@@ -1745,23 +1764,62 @@ public sealed class ValueProvenance
                 (direct.Contains(instance.Id) || Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) is { } executions &&
                  executions.Any(execution => ActionOf(execution) is DriverSynthesizer.CALL or DriverSynthesizer.ENUMERATE))))
             {
-                foreach (var store in instance.Summary.Stores.Concat(instance.Summary.ReferenceStores))
-                {
-                    var objects = store.Bases.SelectMany(value => Resolve(instance, value));
-                    var values = store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
-                    foreach (var @object in objects)
-                        AddExistingEdges(written, @object, store.Field.Name, values);
-                }
-                foreach (var store in instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores)
-                                              .Where(store => store.Kind == ElementOperationKind.Store))
-                {
-                    var objects = store.Arrays.SelectMany(value => Resolve(instance, value));
-                    var values = store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
-                    foreach (var @object in objects)
-                        AddExistingEdges(written, @object, store.Slot, values);
-                }
+                AddStoreEdges(written, instance);
             }
             return written;
+        }
+
+        /// <summary>Adds the edges an instance's own stores write: its field stores and stores through a reference, each at the place it
+        /// writes (<see cref="Places"/>), its cell stores, and its copies of structs, each slot of the copy at the slot below the storage it
+        /// goes into.</summary>
+        /// <param name="edges">The edges found so far.</param>
+        /// <param name="instance">The instance.</param>
+        private void AddStoreEdges(HashSet<WrittenEdge> edges, MethodInstance instance)
+        {
+            foreach (var store in instance.Summary.Stores.Concat(instance.Summary.ReferenceStores))
+            {
+                var values = store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
+                foreach (var (@object, field) in Places(instance, store.Bases, store.Field))
+                    AddExistingEdges(edges, @object, field, values);
+            }
+            foreach (var store in instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores)
+                                          .Where(store => store.Kind == ElementOperationKind.Store))
+            {
+                var objects = store.Arrays.SelectMany(value => Resolve(instance, value));
+                var values = store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
+                foreach (var @object in objects)
+                    AddExistingEdges(edges, @object, store.Slot, values);
+            }
+            foreach (var copy in instance.Summary.StructCopies)
+            {
+                var held = copy.Sources.SelectMany(value => Resolve(instance, value)).SelectMany(Reachability.Edges)
+                               .Select(edge => edge.Target).ToHashSet(StringComparer.Ordinal);
+                foreach (var target in copy.Targets.SelectMany(value => Resolve(instance, value)))
+                {
+                    if (Heap.Located(target, "") is not var (@object, storage) || storage.Length == 0)
+                        continue;
+                    foreach (var edge in Reachability.Edges(@object).Where(edge => edge.Field.StartsWith(storage + FieldSlot.PATH_SEPARATOR, StringComparison.Ordinal) &&
+                                                                                   held.Contains(edge.Target)))
+                        edges.Add(new WrittenEdge(@object, edge.Field, edge.Target));
+                }
+            }
+        }
+
+        /// <summary>The places a store writes, each an object and the field of it written: a base that is a struct's storage stands as its
+        /// holder, with the whole slot path through every struct field (R1); a base that is a struct copy is no place (R2); any other base
+        /// is the object, with the field's name, which <see cref="FieldMatches"/> matches against the object's slots.</summary>
+        /// <param name="instance">The instance storing.</param>
+        /// <param name="bases">The store's bases.</param>
+        /// <param name="field">The field stored.</param>
+        private IEnumerable<(string Object, string Field)> Places(MethodInstance instance, IEnumerable<AbstractValue> bases, IrFieldRef field)
+        {
+            var slot = StructStorage.IsWholeStorage(field) ? "" : FieldSlot.Key(field);
+            foreach (var region in bases.SelectMany(value => Resolve(instance, value)).Distinct(StringComparer.Ordinal))
+            {
+                if (Heap.Located(region, slot) is not var (@object, path))
+                    continue;
+                yield return @object == region ? (region, field.Name) : (@object, path);
+            }
         }
 
         /// <summary>The edges setup placed: the stores of every instance, driver or library, that runs in setup and in nothing else.
@@ -1782,27 +1840,12 @@ public sealed class ValueProvenance
                 var values = instance.Summary.Accesses.Where(summary => summary.OperationId == access.OperationId && summary.Kind == SummaryAccessKind.Store)
                                      .SelectMany(summary => summary.Values).SelectMany(value => Resolve(instance, value))
                                      .ToHashSet(StringComparer.Ordinal);
-                var field = EdgeField(access.Resource.AccessPath.LastOrDefault() ?? access.Resource.Member.Name);
-                foreach (var @object in Reachability.WrittenObjects(access))
+                foreach (var (@object, field) in Reachability.WrittenPlaces(access))
                     AddExistingEdges(placed, @object, field, values);
             }
 
             foreach (var instance in setupOnly.Values)
-            {
-                foreach (var store in instance.Summary.Stores.Concat(instance.Summary.ReferenceStores))
-                {
-                    var values = store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
-                    foreach (var @object in store.Bases.SelectMany(value => Resolve(instance, value)))
-                        AddExistingEdges(placed, @object, store.Field.Name, values);
-                }
-                foreach (var store in instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores)
-                                              .Where(store => store.Kind == ElementOperationKind.Store))
-                {
-                    var values = store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
-                    foreach (var @object in store.Arrays.SelectMany(value => Resolve(instance, value)))
-                        AddExistingEdges(placed, @object, store.Slot, values);
-                }
-            }
+                AddStoreEdges(placed, instance);
             return placed;
         }
 
@@ -1825,8 +1868,7 @@ public sealed class ValueProvenance
                                      .Where(value => Heap.Regions.TryGetValue(value, out var region) && region.Kind == HeapRegionKind.Delegate &&
                                                      Allocations.Of(value).Role == DriverRole.Seed)
                                      .ToHashSet(StringComparer.Ordinal);
-                var field = EdgeField(access.Resource.AccessPath.LastOrDefault() ?? access.Resource.Member.Name);
-                foreach (var @object in Reachability.WrittenObjects(access))
+                foreach (var (@object, field) in Reachability.WrittenPlaces(access))
                     AddExistingEdges(placed, @object, field, values);
             }
             return placed;
@@ -1842,9 +1884,13 @@ public sealed class ValueProvenance
             _ => false
         };
 
+        // A struct copy stored into a slot puts there what its reference fields hold, at the slot paths below it (R2).
         private void AddExistingEdges(HashSet<WrittenEdge> written, string @object, string field, IReadOnlySet<string> values)
         {
-            foreach (var edge in Reachability.Edges(@object).Where(edge => FieldMatches(edge.Field, field) && values.Contains(edge.Target)))
+            var held = Held(values.Where(Reachability.IsCopy)).ToHashSet(StringComparer.Ordinal);
+            foreach (var edge in Reachability.Edges(@object).Where(edge => FieldMatches(edge.Field, field) && values.Contains(edge.Target) ||
+                                                                           held.Contains(edge.Target) && edge.Field.Contains(FieldSlot.PATH_SEPARATOR) &&
+                                                                           FieldMatches(FieldSlot.Root(edge.Field), field)))
                 written.Add(new WrittenEdge(@object, edge.Field, edge.Target));
         }
 
@@ -1860,10 +1906,10 @@ public sealed class ValueProvenance
             _ => 0
         };
 
-        private static bool FieldMatches(string edge, string field) => edge == field || edge.EndsWith("." + field, StringComparison.Ordinal) ||
+        // A bare field name is a slot of the object itself: a field of a struct its storage keeps is a slot path, matched whole (R1).
+        private static bool FieldMatches(string edge, string field) => edge == field ||
+            !edge.Contains(FieldSlot.PATH_SEPARATOR) && edge.EndsWith("." + field, StringComparison.Ordinal) ||
             field.StartsWith('[') && edge == ELEMENT;
-
-        private static string EdgeField(string field) => field.StartsWith('[') ? ELEMENT : field;
 
         private static string Variant(string action) => action switch
         {

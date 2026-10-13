@@ -45,6 +45,23 @@ public sealed record IrAllocateOperation(int Id, int ResultValue, string Allocat
     public IrKeyEquality? KeyEquality { get; init; }
 }
 
+/// <summary>A boxing of a struct (<see cref="StructStorage"/>): a new object of the struct's type holding a copy of the value, read
+/// whole where it is taken. A <c>Nullable</c> boxes as C# boxes it: an empty one gives <c>null</c> and no object, a full one an
+/// object of the struct it holds, never of <c>Nullable</c>. <see cref="SiteOrdinal"/> numbers the boxings of one struct type in the
+/// containing member as <see cref="IrAllocateOperation.SiteOrdinal"/> numbers allocations.</summary>
+/// <param name="Id">The operation's identity in its body.</param>
+/// <param name="ResultValue">The value receiving the box.</param>
+/// <param name="OperandValue">The struct value boxed.</param>
+/// <param name="BoxedTypeKey">The type key of the struct the box holds.</param>
+/// <param name="Provenance">The source location and lowering evidence.</param>
+public sealed record IrBoxOperation(int Id, int ResultValue, int OperandValue, string BoxedTypeKey, IrProvenance Provenance)
+    : IrOperation(Id, Provenance)
+{
+    public override IReadOnlyList<int> DefinedValues => [ResultValue];
+    public override IReadOnlyList<int> Operands => [OperandValue];
+    public int SiteOrdinal { get; init; }
+}
+
 public sealed record IrLoadFieldOperation(int Id, int ResultValue, int? ReceiverValue, IrFieldRef Field,
                                           IrProvenance Provenance) : IrOperation(Id, Provenance)
 {
@@ -631,8 +648,37 @@ public sealed record IrServiceCall(IrServiceCallKind Kind, string? ServiceTypeKe
     public string? Locator => ServiceTypeKey is null ? null : $"locator:{ServiceTypeKey}";
 }
 
+/// <summary>The capture cell of a variable a lambda or a local function captures (R4): a slot of a closure named after its declaring member,
+/// the ordinary member whose body holds it, which every run of the body declaring the variable creates anew — the member's, or that of
+/// the lambda or the local function declaring it (<see cref="Body"/>). The lowering decides all of them once, and every reader takes them
+/// from here.</summary>
+/// <param name="SymbolKey">The captured variable's symbol key.</param>
+/// <param name="Member">The declaring member, as an allocation region names its member.</param>
+/// <param name="Slot">The slot the variable is in its closure: its name, and <c>#n</c> for the n-th variable of that name the member
+/// declares in source order, the first one unnumbered.</param>
+public sealed record IrClosureCell(string SymbolKey, string Member, string Slot)
+{
+    /// <summary>The lambda or local function declaring the variable, whose every run creates the closure the cell is in, as an allocation
+    /// made there is created; null for a variable the ordinary member declares, whose closure each run of the member creates.</summary>
+    public string? Body { get; init; }
+
+    /// <summary>What a closure's slot names as its declaring type: no type of the program, only the closure itself.</summary>
+    public const string CLOSURE_TYPE = "closure";
+
+    /// <summary>The prefix of a closure region's name, before its declaring member.</summary>
+    public const string REGION_PREFIX = "closure:";
+
+    /// <summary>The cell as a field of its closure, as an access names it: its name is the slot.</summary>
+    public IrFieldRef Field => new("", CLOSURE_TYPE, Slot, IrFieldKind.Field, false, false, "");
+
+    /// <summary>The name of the closure region the cell is in.</summary>
+    public string Region => REGION_PREFIX + Member;
+}
+
 /// <summary><see cref="CapturedSymbolKeys"/> are the variables the target body captures; the target members are as on
-/// <see cref="IrCallOperation"/>, null for a lambda or a local function.</summary>
+/// <see cref="IrCallOperation"/>, null for a lambda or a local function. <see cref="CapturedCells"/> are the capture cells the delegate
+/// reaches of the variables the creating body declares or captures: those the target body captures and those any body nested in it
+/// captures from outside it.</summary>
 /// <param name="Id">The operation's identity in its body.</param>
 /// <param name="ResultValue">The value receiving the delegate.</param>
 /// <param name="TargetBodyId">The nested body the delegate runs, for a lambda or a local function.</param>
@@ -646,6 +692,7 @@ public sealed record IrCreateDelegateOperation(int Id, int ResultValue, string? 
     public override IReadOnlyList<int> DefinedValues => [ResultValue];
     public override IReadOnlyList<int> Operands => ReceiverValue is int receiver ? [receiver] : [];
     public IReadOnlyList<string> CapturedSymbolKeys { get; init; } = [];
+    public IReadOnlyList<IrClosureCell> CapturedCells { get; init; } = [];
     public int SiteOrdinal { get; init; }
     public string? TargetMethodId { get; init; }
     public string? TargetContainingTypeKey { get; init; }
@@ -662,6 +709,9 @@ public sealed record IrCaptureOperation(int Id, int Value, string TargetBodyId, 
     public override IReadOnlyList<int> DefinedValues => [];
     public override IReadOnlyList<int> Operands => [Value];
     public string? SymbolKey { get; init; }
+
+    /// <summary>The capture cell of the variable captured.</summary>
+    public IrClosureCell? Cell { get; init; }
 }
 
 /// <summary>A read, by the body that owns it, of a variable a nested body assigns, where that body may have run since the owner last
@@ -675,6 +725,9 @@ public sealed record IrLoadCapturedOperation(int Id, int ResultValue, string Sym
 {
     public override IReadOnlyList<int> DefinedValues => [ResultValue];
     public override IReadOnlyList<int> Operands => [];
+
+    /// <summary>The capture cell read.</summary>
+    public IrClosureCell? Cell { get; init; }
 }
 
 public sealed record IrEscapeOperation(int Id, int Value, string Destination, IrProvenance Provenance)

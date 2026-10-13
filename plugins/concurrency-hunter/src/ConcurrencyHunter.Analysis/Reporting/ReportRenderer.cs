@@ -47,6 +47,9 @@ public static class ReportRenderer
         [CoverageCounters.MERGED_CONTEXT] = "method contexts merged past the context limit",
         [CoverageCounters.WILDCARD_ACCESS] = "accesses collapsed into a wildcard resource",
         [CoverageCounters.UNPROVEN_REFERENCE] = "reference accesses whose target has no proven source location",
+        [CoverageCounters.UNRESOLVED_BASE] = "operations with an access whose object or place resolves to no heap region, such as an object code the " +
+                                             "analysis does not see hands over, and which is therefore on no resource; an access to a struct copy, a " +
+                                             "construction-local or fresh object, or a collection no field holds is left out on purpose and not counted",
         [CoverageCounters.SEMANTIC_GAP] = "callees the analysis could not reduce that touch a mutable region that is not owned, take a delegate or feed a " +
                                           "shared region, by materiality: roots, regions, call sites"
     };
@@ -135,6 +138,7 @@ public static class ReportRenderer
     /// <summary>The phase-3 ordering counters over the scopes' sites, not their numbers: comparisons happens-before removed, then each
     /// spawn site, timer creation site and join without proven identity counted once by source however many scopes reach it, a timer site
     /// in the widest kind any of its contexts gives it.</summary>
+    /// <param name="analysis">The analysis whose scopes are counted.</param>
     private static OrderingCounts Ordering(AnalysisResult analysis)
     {
         int Rank(string counter) => OrderingCounters.TIMER_KINDS.TakeWhile(kind => kind != counter).Count();
@@ -240,10 +244,10 @@ public static class ReportRenderer
 
         foreach (var group in groups)
         {
-            var field = group.Resource.AccessPath[^1];
+            var path = AccessPathParts.Of(group.Resource).Text;
             markdown.Append('#', GROUP_HEADING_LEVEL).Append(' ').Append(group.GroupId).Append(" · ")
                     .Append(group.RuleId).Append(" · ")
-                    .Append(field).Append(" on ").Append(group.Resource.Region).Append(" (")
+                    .Append(path).Append(" on ").Append(group.Resource.Region).Append(" (")
                     .Append(Number(group.FindingIds.Count)).Append(" findings, ")
                     .Append(Number(group.OccurrenceCount)).Append(" occurrences)\n");
             var narrative = report.AcceptedGroupNarratives.GetValueOrDefault(group.GroupId, "_No narrative was accepted for this group._");
@@ -317,19 +321,25 @@ public static class ReportRenderer
     }
 
     /// <summary>What the resource is, in words a reader can act on: a collection has two of them, and which one a finding is
-    /// about decides what fixes it (ADR 0010).</summary>
-    internal static string ResourceText(AccessResource resource) =>
-        resource.Selector is null
-            ? string.Join(".", resource.AccessPath)
-            : $"{string.Join(".", resource.AccessPath.Take(resource.AccessPath.Count - 1))}, cell {resource.Selector.Text}";
+    /// about decides what fixes it (ADR 0010). A field of a struct a cell holds reads with the selector inside the path, and a box's
+    /// whole storage by the boxed struct's type (R10).</summary>
+    /// <param name="resource">The resource.</param>
+    internal static string ResourceText(AccessResource resource)
+    {
+        var path = AccessPathParts.Of(resource);
+        return path.IsCellItself ? $"{string.Join(".", path.Fields)}, cell {path.Selector}"
+            : path.IsWholeStorage ? $"{path.Holder}, whole storage"
+            : path.Text;
+    }
 
     /// <summary>
     /// What to do about the pair, chosen by what the two sides do and never by the resource alone. A pair of compound
     /// operations is not answered by a thread-safe collection: <c>Count</c> and then <c>Add</c> are two atomic calls with a gap
     /// between them, and only one critical section over the check and the change closes it. A read against a write needs both
     /// sides under one primitive, since a lock around the write alone leaves the read unguarded. An atomic member answers only
-    /// the last case: two plain operations on one cell.
+    /// the last case: two plain operations on one cell, the cell itself and not a field of a struct it holds.
     /// </summary>
+    /// <param name="finding">The finding whose pair is answered.</param>
     internal static string Remediation(Finding finding)
     {
         var operations = new[] { finding.AccessA.Operation, finding.AccessB.Operation };
@@ -352,7 +362,7 @@ public static class ReportRenderer
                    "read free to observe a half-finished update; verify manually.";
         }
 
-        if (finding.Resource.Selector is not null)
+        if (AccessPathParts.Of(finding.Resource).IsCellItself)
         {
             return "perform the whole update of this cell with one atomic member, so that no execution can act on a value " +
                    "another has already replaced; verify manually.";
@@ -378,6 +388,7 @@ public static class ReportRenderer
             : finding.AccessB;
 
     /// <summary>The ownership kind with the evidence chain that reaches the region, so the report shows it without findings.json.</summary>
+    /// <param name="access">The access whose region's ownership is shown.</param>
     private static string Ownership(Access access) =>
         access.OwnershipEvidence.Count == 0
             ? access.Ownership.ToString()
@@ -401,7 +412,7 @@ public static class ReportRenderer
 
     private static string Title(Finding finding)
     {
-        var member = $"{finding.Resource.Member.DeclaringType}.{finding.Resource.Member.Name}";
+        var member = AccessPathParts.Of(finding.Resource).NamedToLastField;
         return finding.RuleId switch
         {
             "DCA1002" => $"Non-atomic update of shared {member}",
@@ -565,8 +576,9 @@ public static class ReportRenderer
         resource.Assembly,
         resource.Region,
         resource.AccessPath,
-        // Which cell of the collection, beside the path that already ends with it: a reader of the schema should not have to
-        // parse a segment to tell the collection's structure from one of its cells (ADR 0010, TD-043).
+        // Which cell of the collection, beside the path that already holds it right after the collection field, where the fields of a
+        // struct the cell holds go on after it: a reader of the schema should not have to parse a segment to tell the collection's
+        // structure from one of its cells (ADR 0010, TD-043).
         Selector = resource.Selector?.Text,
         Kind = resource.Selector is null ? "storage" : "element",
         resource.Scope,

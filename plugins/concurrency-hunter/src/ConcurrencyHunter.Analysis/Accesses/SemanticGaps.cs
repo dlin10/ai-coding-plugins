@@ -94,7 +94,8 @@ public static class SemanticGaps
                .Any(region => IsShared(input, region));
 
     private static bool IsShared(InterproceduralInput input, string region) =>
-        input.Executions.Ownership.GetValueOrDefault(region)?.Kind is OwnershipKind.Escaped or OwnershipKind.Shared or OwnershipKind.Unknown;
+        input.Executions.Ownership.GetValueOrDefault(region)?.Kind is OwnershipKind.TreeConfined or OwnershipKind.Escaped or OwnershipKind.Shared
+                                                                      or OwnershipKind.Unknown;
 
     /// <summary>For every instance, the roots whose executions reach it: over the call edges, the constructions and type initializers
     /// they trigger, the work their spawns and timers start, and the delegates they hand to unresolved calls.</summary>

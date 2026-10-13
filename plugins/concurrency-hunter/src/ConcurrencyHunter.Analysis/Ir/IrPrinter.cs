@@ -48,6 +48,7 @@ public static class IrPrinter
         IrPhiOperation phi => F($"phi {Value(phi.TargetValue)} <- " +
                                 $"{string.Join(",", phi.Inputs.Select(PhiInput))}"),
         IrAllocateOperation allocate => F($"allocate {Value(allocate.ResultValue)} type={Text(allocate.AllocatedType)}"),
+        IrBoxOperation box => F($"box {Value(box.ResultValue)} <- {Value(box.OperandValue)} type={Text(box.BoxedTypeKey)}"),
         IrLoadFieldOperation load => F($"load-field {Value(load.ResultValue)} <- " +
                                        $"{Location(load.ReceiverValue, load.Field)}"),
         IrStoreFieldOperation store => F($"store-field {Location(store.ReceiverValue, store.Field)} <- " +
@@ -66,9 +67,12 @@ public static class IrPrinter
         IrCreateDelegateOperation create => F($"create-delegate {Value(create.ResultValue)} " +
                                                 $"body={OptionalText(create.TargetBodyId)} " +
                                                 $"method={OptionalText(create.TargetMethod)} " +
-                                                $"receiver={OptionalValue(create.ReceiverValue)}"),
-        IrCaptureOperation capture => F($"capture {Value(capture.Value)} body={Text(capture.TargetBodyId)}"),
-        IrLoadCapturedOperation load => F($"load-captured {Value(load.ResultValue)} variable={Text(load.SymbolKey)}"),
+                                                $"receiver={OptionalValue(create.ReceiverValue)}" +
+                                                string.Concat(create.CapturedCells.Select(cell => " " + Cell(cell)))),
+        IrCaptureOperation capture => F($"capture {Value(capture.Value)} body={Text(capture.TargetBodyId)}" +
+                                        (capture.Cell is { } captured ? " " + Cell(captured) : "")),
+        IrLoadCapturedOperation load => F($"load-captured {Value(load.ResultValue)} variable={Text(load.SymbolKey)}" +
+                                          (load.Cell is { } read ? " " + Cell(read) : "")),
         IrEscapeOperation escape => F($"escape {Value(escape.Value)} destination={Text(escape.Destination)}"),
         IrReturnOperation @return => F($"return {OptionalValue(@return.Value)}"),
         IrAwaitOperation awaitOperation => F($"await {Value(awaitOperation.AwaitableValue)} " +
@@ -148,6 +152,7 @@ public static class IrPrinter
     private static string Boolean(bool? value) => value is bool actual ? Boolean(actual) : "-";
     private static string Optional<T>(T? value) where T : struct, Enum => value is T actual ? actual.ToString() : "-";
     private static string OptionalText(string? value) => value is null ? "-" : Text(value);
+    private static string Cell(IrClosureCell cell) => $"cell={Text(cell.Region)}/{Text(cell.Slot)}";
     private static string Text(string value) => "\"" + Escape(value) + "\"";
     private static string Escape(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal)
                                                         .Replace("\r", "\\r", StringComparison.Ordinal)

@@ -59,9 +59,21 @@ internal sealed class GapOrigins
                                                                                          .Concat(instance.Summary.ReferenceElementStores)
                                                                                          .Select(element => (instance, element)))
                                        .ToArray());
+        _copies = new(() => heap.Instances.Values.SelectMany(instance => instance.Summary.StructCopies.Select(copy => (instance, copy))).ToArray());
     }
 
+    /// <summary>The struct copies of every instance, through which a struct's fields carry what was stored into them.</summary>
+    private readonly Lazy<(MethodInstance Instance, StructCopy Copy)[]> _copies;
+
+    /// <summary>The closures holding a capture cell an instance reads and writes: those each run of the body declaring it creates (R4).</summary>
+    /// <param name="instance">The instance.</param>
+    /// <param name="cell">The capture cell.</param>
+    private HashSet<string> Closures(MethodInstance instance, IrClosureCell cell) =>
+        _heap.ClosuresOf(instance, cell).ToHashSet(StringComparer.Ordinal);
+
     /// <summary>The gap one of whose call sites an operation of a body is, null for any other operation.</summary>
+    /// <param name="bodyId">The body.</param>
+    /// <param name="operationId">The operation in that body.</param>
     internal SemanticGap? AtSite(string bodyId, int operationId) => _sites.GetValueOrDefault((bodyId, operationId));
 
     internal IReadOnlyList<SemanticGap> Of(MethodInstance instance, ValueOrigin origin)
@@ -114,20 +126,22 @@ internal sealed class GapOrigins
                 }
             }
 
-            // A captured variable holds what the member owning it assigned it, and what a lambda sharing its cells stored into it.
-            foreach (var key in from.Captured.Order(StringComparer.Ordinal))
+            // A captured variable holds what the body declaring it assigned it, and what a lambda sharing its closure stored into its cell
+            // (R4).
+            foreach (var cell in from.Captured.OrderBy(cell => cell.SymbolKey, StringComparer.Ordinal))
             {
-                if (!visited.Add($"captured|{string.Join(",", current.CellOwners.Order(StringComparer.Ordinal))}|{key}"))
+                var closures = Closures(current, cell);
+                if (!visited.Add($"captured|{string.Join(",", closures.Order(StringComparer.Ordinal))}|{WholeProgram.ClosureSlot(cell)}"))
                     continue;
-                foreach (var owner in current.CellOwners.Select(id => _heap.Instances.GetValueOrDefault(id)).OfType<MethodInstance>())
+                foreach (var owner in _heap.ClosureOwners(current, cell).Select(id => _heap.Instances.GetValueOrDefault(id)).OfType<MethodInstance>())
                 {
-                    foreach (var variable in owner.Summary.Variables.Where(variable => variable.SymbolKey == key))
+                    foreach (var variable in owner.Summary.Variables.Where(variable => variable.SymbolKey == cell.SymbolKey))
                         pending.Enqueue((owner, variable.Producers, depth + 1));
                 }
 
-                foreach (var sharing in _heap.Instances.Values.Where(instance => instance.CellOwners.Overlaps(current.CellOwners)))
+                foreach (var sharing in _heap.Instances.Values.Where(instance => Closures(instance, cell).Overlaps(closures)))
                 {
-                    foreach (var store in sharing.Summary.CapturedStores.Where(store => store.SymbolKey == key))
+                    foreach (var store in sharing.Summary.CapturedStores.Where(store => store.Cell == cell))
                         pending.Enqueue((sharing, store.Producers, depth + 1));
                 }
             }
@@ -159,6 +173,13 @@ internal sealed class GapOrigins
                 {
                     if (Targets(storing, store.Field, store.Bases).Overlaps(targets))
                         pending.Enqueue((storing, store.Producers, depth + 1));
+                }
+
+                // A field of a struct's copy or storage also holds what each copy into it carried from the same field of its sources (R2).
+                foreach (var (copying, copy) in _copies.Value)
+                {
+                    if (copy.Targets.SelectMany(value => _heap.Resolve(copying.Id, value)).Any(targets.Contains))
+                        pending.Enqueue((copying, ValueOrigin.None with { Fields = [new FieldOrigin(field.Field, copy.Sources)] }, depth + 1));
                 }
             }
         }

@@ -74,7 +74,7 @@ public sealed class EngineCancellationTests
                                                cancellation.Cancel();
                                            return heap.Resolve(instance, value);
                                        },
-                                       heap.PointsTo, heap.Cell, heap.RootInstances, heap.StaticRegionOf, heap.FieldsOf, heap.DelegateCaptures)
+                                       heap.PointsTo, heap.RootInstances, heap.StaticRegionOf, heap.FieldsOf, heap.DelegateCaptures)
         {
             ExecutionEdges = heap.ExecutionEdges,
             StartupRegions = heap.StartupRegions

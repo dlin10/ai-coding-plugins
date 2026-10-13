@@ -769,6 +769,10 @@ public static class ReachableSet
                 case IrConvertOperation { ConversionKind: IrConversionKind.Boxing } boxing when values.TryGetValue(boxing.OperandValue, out var boxed):
                     Box(boxed.Type);
                     break;
+                // A struct of the program boxes into an object of its own, its method group's receiver among them.
+                case IrBoxOperation box when values.TryGetValue(box.OperandValue, out var held):
+                    Box(held.Type);
+                    break;
                 case IrCreateDelegateOperation { ReceiverValue: int receiver } when values.TryGetValue(receiver, out var bound):
                     Box(bound.Type);
                     break;

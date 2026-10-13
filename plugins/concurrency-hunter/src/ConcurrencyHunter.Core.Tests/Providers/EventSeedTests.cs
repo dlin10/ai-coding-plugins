@@ -110,14 +110,18 @@ public sealed class EventSeedTests
     }
 
     [Fact]
-    public void A_struct_receivers_instance_field_like_event_is_unseeded_and_a_member_raising_it_answers_incomplete()
+    public void A_struct_receivers_instance_field_like_event_is_seeded_in_place_and_reached()
     {
+        const string PATH = "this/E:Lib.Signal.Changed";
         var (_, trace) = Run("public struct Signal { public event Action Changed; public void Raise(object p) { Changed?.Invoke(); } }",
                              "M:Lib.Signal.Raise(System.Object)");
 
-        Assert.Contains("this/E:Lib.Signal.Changed", trace.Driver!.Unseeded);
-        Assert.DoesNotContain(trace.Driver.SeedStatements, seed => seed.Path.Contains("/E:", StringComparison.Ordinal));
-        Assert.Equal(GenerationReasons.INCOMPLETE, Effects(trace).Reason);
+        // The struct's storage is the receiver field's, which setup subscribes to in place (R8).
+        Assert.Contains(trace.Driver!.SeedStatements, seed => seed.Path == PATH && seed.Operation is IEventAssignmentOperation { Adds: true });
+        Assert.Contains("Recv_Call.Changed += Seed_", Setup(trace.Driver));
+        Assert.DoesNotContain(PATH, trace.Driver.Unseeded);
+        Assert.DoesNotContain(PATH, Effects(trace).UnreachedSeeds);
+        Assert.NotEqual(GenerationReasons.INCOMPLETE, Effects(trace).Reason);
     }
 
     [Fact]

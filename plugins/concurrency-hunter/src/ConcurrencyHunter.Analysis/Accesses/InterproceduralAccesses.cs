@@ -28,6 +28,7 @@ public static class CoverageCounters
     public const string WILDCARD_ACCESS = "wildcard-access";
     public const string UNRESOLVED_LOCATOR = "unresolved-locator";
     public const string UNPROVEN_REFERENCE = "unproven-reference";
+    public const string UNRESOLVED_BASE = "unresolved-base";
     public const string SEMANTIC_GAP = "semantic-gap";
 }
 
@@ -112,9 +113,11 @@ public static partial class InterproceduralAccesses
         var accesses = new List<Access>();
         var unproven = new HashSet<(string Body, int Operation)>();
         var folded = new HashSet<(string Body, int Operation)>();
+        var unresolved = new HashSet<(string Body, int Operation)>();
         var graph = new WalkGraph(input);
         var discoveries = Discoveries(input, graph);
-        var holders = new Lazy<IReadOnlyDictionary<string, (string Parent, IrFieldRef Field)>>(() => Holders(input));
+        var holders = new Lazy<IReadOnlyDictionary<string, CollectionHolder>>(() => Holders(input));
+        var slotFields = new Lazy<IReadOnlyDictionary<string, IrFieldRef>>(() => SlotFields(input));
         // The gaps come first: a lock whose identity is a gap's result is a check that gap decides on every access holding it (R6).
         var gaps = SemanticGaps.Find(input);
         var origins = new GapOrigins(input.Heap, gaps);
@@ -136,11 +139,12 @@ public static partial class InterproceduralAccesses
                     execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject) ||
                     workHosts.Contains(execution.Id))
                 {
-                    var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, origins, unknownCalls, reach,
-                                                           cancellationToken);
+                    var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, slotFields, origins,
+                                                           unknownCalls, reach, cancellationToken);
                     accesses.AddRange(collector.Collect());
                     unproven.UnionWith(collector.UnprovenReferences);
                     folded.UnionWith(collector.FoldedReferences);
+                    unresolved.UnionWith(collector.UnresolvedBases);
                 }
 
                 collected++;
@@ -156,7 +160,7 @@ public static partial class InterproceduralAccesses
         }
 
         // The gaps are the same calls now; their materiality counts what the unknown executions of their delegates touched (R4).
-        return new InterproceduralCollection(accesses, Coverage(input, accesses, unproven, folded, SemanticGaps.Find(input, accesses)));
+        return new InterproceduralCollection(accesses, Coverage(input, accesses, unproven, folded, unresolved, SemanticGaps.Find(input, accesses)));
     }
 
     /// <summary>The executions running work without a body: those whose work sites start one, and the unknown execution of a handed
@@ -175,7 +179,8 @@ public static partial class InterproceduralAccesses
 
     private static InterproceduralCoverage Coverage(InterproceduralInput input, IReadOnlyList<Access> accesses,
                                                     IReadOnlySet<(string Body, int Operation)> unproven,
-                                                    IReadOnlySet<(string Body, int Operation)> folded, IReadOnlyList<SemanticGap> gaps)
+                                                    IReadOnlySet<(string Body, int Operation)> folded,
+                                                    IReadOnlySet<(string Body, int Operation)> unresolved, IReadOnlyList<SemanticGap> gaps)
     {
         var heap = input.Heap;
         var summaries = heap.Instances.Values.GroupBy(instance => instance.BodyId, StringComparer.Ordinal)
@@ -241,6 +246,8 @@ public static partial class InterproceduralAccesses
                 summary.OpaqueCalls.Where(call => !call.IsKnown).Sum(call => call.Arguments.Count(argument => argument.References.Count != 0)) +
                 // A known call's arguments are no reference but for a slice handed over ready whose storage nothing proves (R3, R5).
                 summary.ArgumentEffects.Select(effect => effect.OperationId).Distinct().Count(operation => unproven.Contains((summary.BodyId, operation)))),
+            // The operations, by body, that lost an access because its base resolved to no region (R6).
+            [CoverageCounters.UNRESOLVED_BASE] = unresolved.Count,
             [CoverageCounters.NO_RECEIVER_OBJECT] = heap.Counters.GetValueOrDefault(HeapCounters.NO_RECEIVER_OBJECT),
             [CoverageCounters.MERGED_CONTEXT] = heap.Counters.GetValueOrDefault(HeapCounters.MERGED_CONTEXT),
             [CoverageCounters.WILDCARD_ACCESS] = accesses.Where(access => access.Resource.IsWildcard)
@@ -572,18 +579,21 @@ public static partial class InterproceduralAccesses
     /// run's own, the first by region and field order, and otherwise a static field or a field of an object from metadata, as the
     /// bodies that load and store it name it. A collection a known call is handed through a local, a parameter or the cells of
     /// another is still the one that field holds, and is read as such (R3); its identity is the collection itself, so which of its
-    /// fields names it does not matter (ADR 0010).</summary>
+    /// fields names it does not matter (ADR 0010). A field of a struct an object keeps holds it as the struct's storage there names it; a
+    /// struct copy, no location, holds nothing as a resource (R1, R2). A capture cell names only a collection no field of an object or
+    /// of a static storage holds (R4): the variable a body keeps it in does not rename it. A field of a struct kept at any depth below a
+    /// region's slot is held at its whole slot path in that region.</summary>
     /// <param name="input">The scope and solved heap whose fields are searched.</param>
-    private static IReadOnlyDictionary<string, (string Parent, IrFieldRef Field)> Holders(InterproceduralInput input)
+    private static IReadOnlyDictionary<string, CollectionHolder> Holders(InterproceduralInput input)
     {
-        var holders = new Dictionary<string, (string Parent, IrFieldRef Field)>(StringComparer.Ordinal);
+        var holders = new Dictionary<string, CollectionHolder>(StringComparer.Ordinal);
         foreach (var (regionId, region) in input.Heap.Regions.OrderBy(pair => pair.Key, StringComparer.Ordinal))
         {
-            if (region.TypeKey is not { } key || input.Scope.Program.InstanceFieldsOf(key) is not { } fields)
+            if (region.TypeKey is not { } key || input.Scope.Program.InstanceFieldsOf(key) is not { } fields || input.Heap.Located(regionId, "") is null)
                 continue;
             foreach (var field in fields)
             foreach (var target in input.Heap.PointsTo(regionId, FieldSlot.Key(field)).Order(StringComparer.Ordinal))
-                holders.TryAdd(target, (regionId, field));
+                holders.TryAdd(target, new CollectionHolder(regionId, field, FieldSlot.Key(field)));
         }
 
         // A static storage and a library object have no fields the program index lists, only the slots the bodies fill.
@@ -592,17 +602,53 @@ public static partial class InterproceduralAccesses
                          .ToDictionary(group => group.Key,
                                        group => group.OrderBy(field => field.ContainingTypeId, StringComparer.Ordinal).First(),
                                        StringComparer.Ordinal);
-        foreach (var regionId in input.Heap.Regions.Keys.Order(StringComparer.Ordinal))
+        foreach (var regionId in input.Heap.Regions.Keys.OrderBy(regionId => input.Heap.Regions[regionId].Kind == HeapRegionKind.Closure)
+                                                        .ThenBy(regionId => regionId, StringComparer.Ordinal))
         foreach (var slot in input.Heap.FieldsOf(regionId).Order(StringComparer.Ordinal))
         {
-            if (!named.TryGetValue(slot, out var field))
+            // A slot path below the storage of a struct the region keeps is held by its last field there (R1).
+            if (!named.TryGetValue(FieldSlot.Leaf(slot), out var field) || input.Heap.Located(regionId, "") is null)
                 continue;
             foreach (var target in input.Heap.PointsTo(regionId, slot).Order(StringComparer.Ordinal))
-                holders.TryAdd(target, (regionId, field));
+                holders.TryAdd(target, new CollectionHolder(regionId, field, slot));
         }
 
         return holders;
     }
+
+    /// <summary>A field that holds a collection (<see cref="Holders"/>): the region holding it, the field, and the slot path the field is at in
+    /// that region — the field's own slot, or the path through the structs the region keeps to it (R1).</summary>
+    /// <param name="Parent">The region holding the field, or the storage of a struct holding it.</param>
+    /// <param name="Field">The field.</param>
+    /// <param name="Slot">The slot path of the field in <paramref name="Parent"/>.</param>
+    private sealed record CollectionHolder(string Parent, IrFieldRef Field, string Slot)
+    {
+        /// <summary>What holds the field, as an access's base names it: the region, or the storage in it of the struct that declares the
+        /// field, which an access resolves to that region with the whole path (R1).</summary>
+        public AbstractValue Base =>
+            Slot.LastIndexOf(FieldSlot.PATH_SEPARATOR) is var separator && separator < 0
+                ? new RegionValue(Parent)
+                : new StructPlaceValue(new RegionValue(Parent), Slot[..separator], DiIndex.TypeKey(Field.Assembly, Field.ContainingTypeId));
+    }
+
+    /// <summary>The field each slot key names, as the bodies that load, store or take the address of a field name it and as the types of
+    /// the run's own declare it: what each slot of a struct storage's path in its holder is read back as (R1). Of several fields under one
+    /// key, the first by declaring type wins.</summary>
+    /// <param name="input">The scope whose bodies and types are searched.</param>
+    private static IReadOnlyDictionary<string, IrFieldRef> SlotFields(InterproceduralInput input) =>
+        input.Scope.Reachable.Bodies.Values.SelectMany(body => body.Blocks).SelectMany(block => block.Operations)
+             .Select(operation => operation switch
+             {
+                 IrAddressFieldOperation address => address.Field,
+                 IrLoadFieldOperation load => load.Field,
+                 IrStoreFieldOperation store => store.Field,
+                 _ => null
+             })
+             .OfType<IrFieldRef>()
+             .Concat(input.Scope.Program.Types.SelectMany(type => type.InstanceFields))
+             .GroupBy(FieldSlot.Key, StringComparer.Ordinal)
+             .ToDictionary(group => group.Key, group => group.OrderBy(field => field.ContainingTypeId, StringComparer.Ordinal).First(),
+                           StringComparer.Ordinal);
 
     /// <summary>Whether the argument with this ordinal is something the collection holds after the member ran: the value a member puts
     /// in and the key it files it under. What a member removes is not held, nor the value <c>TryUpdate</c> compares against, nor the
@@ -734,7 +780,8 @@ public static partial class InterproceduralAccesses
 
     private sealed partial class ExecutionCollector(InterproceduralInput input, ExecutionInstance execution, IReadOnlyList<ExecutionEntry> entries,
                                             WalkGraph graph, IReadOnlyDictionary<string, List<Discovery>> discoveries,
-                                            Lazy<IReadOnlyDictionary<string, (string Parent, IrFieldRef Field)>> holders, GapOrigins origins,
+                                            Lazy<IReadOnlyDictionary<string, CollectionHolder>> holders,
+                                            Lazy<IReadOnlyDictionary<string, IrFieldRef>> slotFields, GapOrigins origins,
                                             IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach,
                                             CancellationToken cancellationToken)
     {
@@ -774,6 +821,10 @@ public static partial class InterproceduralAccesses
         /// own (R1).</summary>
         internal HashSet<(string Body, int Operation)> FoldedReferences { get; } = [];
 
+        /// <summary>The operations, by body, that lost an access because its base resolved to no region (<see cref="IsUnresolvedBase"/>,
+        /// R6).</summary>
+        internal HashSet<(string Body, int Operation)> UnresolvedBases { get; } = [];
+
         private ReturnSummaries? _returnSummaries;
 
         /// <summary>The root every access of the execution reports, once worked out: it depends on the execution alone.</summary>
@@ -802,6 +853,10 @@ public static partial class InterproceduralAccesses
         /// each of them (<see cref="IdentityOf"/>).</summary>
         private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _resources =
             new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The storage each access of an instance reads or writes as a value lives in (<see cref="ValueResources"/>).</summary>
+        private readonly Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> _valueResources =
+            new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<AccessResource, string> _identities = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>The instances each call of each instance may run, as <see cref="Lifted"/> reads them off the walk's edges.</summary>
@@ -811,7 +866,8 @@ public static partial class InterproceduralAccesses
         private readonly Dictionary<string, HashSet<(string Instance, int Operation)>> _returnLoads = new(StringComparer.Ordinal);
         private readonly Dictionary<(string Instance, int Ordinal), HashSet<(string Instance, int Operation)>> _parameterLoads = [];
         private readonly Dictionary<(string Instance, int Ordinal), HashSet<(string Instance, int Operation)>> _refParameterLoads = [];
-        private readonly Dictionary<(string Owner, string Key), HashSet<(string Instance, int Operation)>> _cellLoads = [];
+        /// <summary>The loads each capture cell holds a value of, by the closure and the cell's slot of it (R4).</summary>
+        private readonly Dictionary<(string Closure, string Slot), HashSet<(string Instance, int Operation)>> _cellLoads = [];
 
         /// <summary>The visits that host what the unknown enumeration of an escaped library sequence does besides running bodies: each
         /// the creator of the sequence or of one it enumerates, true for the escaped sequence's own, whose visit makes the enumeration's
@@ -1018,9 +1074,11 @@ public static partial class InterproceduralAccesses
             {
                 switch (target)
                 {
+                    // Two places of one holder are told apart by every struct field after the field or the cell (R1).
                     case ReferenceCell cell:
                         var bases = cell.Bases.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct().Order(StringComparer.Ordinal);
-                        yield return $"{FieldSlot.Key(cell.Field)}@{string.Join(",", bases)}[{cell.Selector?.Text}]";
+                        yield return $"{FieldSlot.Key(cell.Field)}@{string.Join(",", bases)}[{cell.Selector?.Text}]" +
+                                     string.Concat(cell.StructPath.Select(field => $"{FieldSlot.PATH_SEPARATOR}{FieldSlot.Key(field)}"));
                         break;
                     case ReferenceParameter parameter when BindingCall(node) is { } bound:
                         foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
@@ -1624,14 +1682,14 @@ public static partial class InterproceduralAccesses
                         changed |= Grow(Get(_refParameterLoads, (instanceId, parameter.Ordinal)), Loads(instance, parameter.Dependencies));
                     foreach (var store in summary.CapturedStores)
                     {
-                        foreach (var owner in instance.CellOwners)
-                            changed |= Grow(Get(_cellLoads, (owner, store.SymbolKey)), Loads(instance, store.Dependencies));
+                        foreach (var cell in CellsOf(instance, store.Cell))
+                            changed |= Grow(Get(_cellLoads, cell), Loads(instance, store.Dependencies));
                     }
 
-                    foreach (var variable in summary.Variables)
+                    foreach (var variable in summary.Variables.Where(variable => variable.Cell is not null))
                     {
-                        foreach (var owner in instance.CellOwners)
-                            changed |= Grow(Get(_cellLoads, (owner, variable.SymbolKey)), Loads(instance, variable.Dependencies));
+                        foreach (var cell in CellsOf(instance, variable.Cell!))
+                            changed |= Grow(Get(_cellLoads, cell), Loads(instance, variable.Dependencies));
                     }
 
                     foreach (var call in summary.Calls)
@@ -1645,6 +1703,12 @@ public static partial class InterproceduralAccesses
                 }
             }
         }
+
+        /// <summary>The places a capture cell is in for an instance: its slot of the closure of each run of the body declaring it (R4).</summary>
+        /// <param name="instance">The instance reading or writing the cell.</param>
+        /// <param name="cell">The capture cell.</param>
+        private IEnumerable<(string Closure, string Slot)> CellsOf(MethodInstance instance, IrClosureCell cell) =>
+            _heap.ClosuresOf(instance, cell).Select(closure => (closure, WholeProgram.ClosureSlot(cell)));
 
         private HashSet<(string Instance, int Operation)> Loads(MethodInstance instance, IEnumerable<ValueDependency> dependencies)
         {
@@ -1660,8 +1724,8 @@ public static partial class InterproceduralAccesses
                         loads.UnionWith(_parameterLoads.GetValueOrDefault((instance.Id, parameter.Ordinal)) ?? []);
                         break;
                     case CapturedDependency captured:
-                        foreach (var owner in instance.CellOwners)
-                            loads.UnionWith(_cellLoads.GetValueOrDefault((owner, captured.SymbolKey)) ?? []);
+                        foreach (var cell in CellsOf(instance, captured.Cell))
+                            loads.UnionWith(_cellLoads.GetValueOrDefault(cell) ?? []);
                         break;
                     case CallDependency call:
                         foreach (var edge in ExecutionCalls(instance.Id, call.OperationId))
@@ -1682,7 +1746,12 @@ public static partial class InterproceduralAccesses
         /// <param name="Cell">The cell the reference reaches, or <see langword="null"/> for a place nothing proves.</param>
         /// <param name="Instance">The instance whose frame names the cell.</param>
         /// <param name="Node">The path of that frame.</param>
-        private sealed record ResolvedReference(ReferenceCell? Cell, MethodInstance Instance, PathNode Node);
+        private sealed record ResolvedReference(ReferenceCell? Cell, MethodInstance Instance, PathNode Node)
+        {
+            /// <summary>Whether a reference without a cell names no heap storage at all: a parameter its caller bound to a reference
+            /// to a variable of its own, a copy (R2), rather than a place nothing proves.</summary>
+            public bool IsLocal { get; init; }
+        }
 
         /// <summary>Resolves references in their own frames, following the finite caller path and summarizing a cyclic descent.</summary>
         /// <param name="targets">The targets to resolve.</param>
@@ -1696,7 +1765,8 @@ public static partial class InterproceduralAccesses
             var unproven = new ResolvedReference(null, instance, node);
             foreach (var target in targets)
             {
-                // Every way down names at least one place, or says that it names none: a reference is never lost silently.
+                // Every way down names at least one place, or says that it names none: a reference is never lost silently. A parameter
+                // its caller handed no place for was bound to a variable of the caller's own.
                 var any = false;
                 foreach (var resolved in Resolve(target))
                 {
@@ -1704,7 +1774,7 @@ public static partial class InterproceduralAccesses
                     yield return resolved;
                 }
                 if (!any)
-                    yield return unproven;
+                    yield return target is ReferenceParameter && Caller() is not null ? unproven with { IsLocal = true } : unproven;
             }
 
             IEnumerable<ResolvedReference> Resolve(ReferenceTarget target)
@@ -1963,6 +2033,9 @@ public static partial class InterproceduralAccesses
                     {
                         if (!access.IsCollectionElement && !foldedReferences.Contains((instance.Id, access.OperationId)))
                             UnprovenReferences.Add((instance.BodyId, access.OperationId));
+                        if (IsUnresolvedBase(instance, access.OperationId, [], isCopy: target.IsLocal, isFresh: false,
+                                             isOnUnheldCollection: access.IsCollectionElement))
+                            UnresolvedBases.Add((instance.BodyId, access.OperationId));
                         continue;
                     }
 
@@ -1978,7 +2051,18 @@ public static partial class InterproceduralAccesses
                                   .Concat(instance.Summary.Calls.SelectMany(call => CollectionObjects.LibraryCalls(call,
                                       value => _heap.Resolve(instance.Id, value), region => ObjectKind(region, call.Target))))
                                   .SelectMany(call => CollectionObjects.LibraryEffects(call, call.HeldLocks)))
-                              .Where(effect => !effect.IsDeferred && input.Executions.Runs(instance.BodyId, node.State.Segment, effect.OperationId));
+                              .Where(effect => !effect.IsDeferred && input.Executions.Runs(instance.BodyId, node.State.Segment, effect.OperationId))
+                              .ToArray();
+                // A known call's effect on a value that resolves to no region makes no access at all (R6). A slice is cut from the storage
+                // a field holds, or it is a reference nothing proves into a collection no field holds.
+                foreach (var effect in effects.Where(effect => effect.Values.Count != 0 &&
+                                                               !effect.Values.Any(value => _heap.Resolve(instance.Id, value).Count != 0)))
+                {
+                    if (Handed(instance, effect.ValueId) is { WouldBeAccessed: true } handed &&
+                        IsUnresolvedBase(instance, effect.OperationId, [], handed.IsCopy, isFresh: false, isOnUnheldCollection: effect.IsSlice))
+                        UnresolvedBases.Add((instance.BodyId, effect.OperationId));
+                }
+
                 var deepReads = effects
                                         .SelectMany(effect => Expanded(effect, instance, new HashSet<string>(StringComparer.Ordinal)))
                                         .GroupBy(effect => effect.OperationId)
@@ -2012,16 +2096,22 @@ public static partial class InterproceduralAccesses
                     var selector = term is ConstantTerm constant ? ElementSelector.Exact(constant.Value) : access.Selector;
                     // The guards an access runs under are the same on every resource it touches.
                     Guards? guards = null;
-                    foreach (var original in isStable ? Resources(source, access) : ResourcesOf(source, access))
+                    var resources = isStable ? Resources(source, access) : ResourcesOf(source, access);
+                    if (resources.Count == 0 && !UnresolvedBases.Contains((instance.BodyId, access.OperationId)) &&
+                        IsUnresolvedBase(instance, access.OperationId, BaseRegions(source, access), isCopy: false, access.IsFresh, isOnUnheldCollection: false))
+                        UnresolvedBases.Add((instance.BodyId, access.OperationId));
+                    foreach (var original in resources)
                     {
                         var identity = isStable ? IdentityOf(original) : original.Identity;
                         if (access.Kind == SummaryAccessKind.Load && dropped.Contains((instance.Id, access.OperationId, identity)))
                             continue;
-                        if (access.InterfaceReceiver is { } receiver && FoldsIntoInterfaceCall(receiver, original.RegionId!, access.Field))
+                        if (access.InterfaceReceiver is { } receiver && original.Storage is { } loaded &&
+                            FoldsIntoInterfaceCall(receiver, loaded.Region, loaded.Slot))
                             continue;
 
-                        var resource = selector == access.Selector ? original
-                            : Resource(original.RegionId!, access.Field, original.IsWildcard, selector, original.CollectionId);
+                        // The cell a term binds keeps the fields of the struct it holds after it (R1).
+                        var resource = selector == access.Selector || original.Selector is null || original.Storage is not { } storage ? original
+                            : Resource(original.RegionId!, storage, original.IsWildcard, selector, original.CollectionId);
                         var sources = feeding.GetValueOrDefault((instance.Id, access.OperationId, identity));
                         var operation = isReference && access.ReadModifyWriteOf is not null
                             ? AccessOperation.ReadModifyWrite
@@ -2180,35 +2270,142 @@ public static partial class InterproceduralAccesses
         }
 
         /// <summary>A reference access at one place it resolves to, as an access of that cell. A reference's term is bound where the
-        /// cell was named, and never again below.</summary>
+        /// cell was named, and never again below. A place below a struct field is the last field on the storage of the struct declaring
+        /// it, which names the holder with the whole path (<see cref="ReferenceCell.Leaf"/>, R1); a cell the struct stands in is the one
+        /// the reference names.</summary>
         /// <param name="access">The reference operation whose location was resolved.</param>
         /// <param name="target">The cell and frame that operation reaches.</param>
         private SummaryAccess ReferenceAccess(SummaryReferenceAccess access, ResolvedReference target)
         {
             var cell = target.Cell!;
-            return new SummaryAccess(access.OperationId, access.Kind, cell.Field, cell.Bases, access.Provenance, access.HeldLocks,
+            var (field, bases) = cell.Leaf();
+            return new SummaryAccess(access.OperationId, access.Kind, field, bases, access.Provenance, access.HeldLocks,
                                      access.ReadModifyWriteOf, new HashSet<AbstractValue>(), access.Dependencies)
             {
                 Selector = cell.Selector,
                 SelectorTerm = cell.SelectorTerm is { } named && !cell.IsTermBound
                     ? Bind(named, target.Instance, target.Node)
                     : cell.SelectorTerm,
-                IsOnCollection = cell.IsOnCollection,
+                IsOnCollection = cell.IsOnCollection && cell.StructPath.Count == 0,
                 Conditions = access.Conditions
             };
         }
 
-        /// <summary>Whether an access is on a readonly field of the object it touches, which nothing outside that object's construction
-        /// can assign but reflection. A field of a struct the object holds is not, since a write of the whole struct replaces it.</summary>
+        /// <summary>
+        /// Whether an access dropped for want of a region is the unresolved-base counter's (R6): an access whose base should name heap
+        /// storage — an object reference or a place — and resolves to no region, whatever its form. It is, unless its base is a struct
+        /// copy — a value held by value, or storage a copy holds, which is no location (<see cref="StructStorage"/>, R2) — it is
+        /// construction-local, it is fresh, or it is on a collection no field holds (TD-043); nothing else decides it. Its callers are
+        /// every place an access is dropped for want of a region: <see cref="Emit"/> for a field, element, reference, known-call or
+        /// unknown-effect access it names no resource for, for a reference it resolves to no place before making its access, and for a
+        /// known call's effect on a value that resolves to no region; and, from <see cref="UnknownEffectAccesses"/>,
+        /// <see cref="HasUnresolvedOperand"/> for an unknown effect's receiver or argument that resolves to no region.
+        /// </summary>
+        /// <param name="instance">The instance making the access, at whose operation construction is asked.</param>
+        /// <param name="operationId">The access's operation.</param>
+        /// <param name="regions">The regions its base resolves to without naming a resource, none where it resolves to no region.</param>
+        /// <param name="isCopy">Whether the caller knows the base is a struct copy: a value type handed by value, or a reference its
+        /// caller bound to a variable of its own.</param>
+        /// <param name="isFresh">Whether the access is on a fresh object (R12).</param>
+        /// <param name="isOnUnheldCollection">Whether the access is on a collection no field holds, or a slice of one.</param>
+        private bool IsUnresolvedBase(MethodInstance instance, int operationId, IEnumerable<string> regions, bool isCopy, bool isFresh,
+                                      bool isOnUnheldCollection)
+        {
+            if (isCopy || isFresh || isOnUnheldCollection)
+                return false;
+            foreach (var region in regions)
+            {
+                if (_heap.Located(region, "") is not { } storage ||
+                    storage.Slot.Split(FieldSlot.PATH_SEPARATOR)[0] == PathValue.ELEMENT && !holders.Value.ContainsKey(storage.Region) ||
+                    Localities(instance, operationId, region).Contains(true))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>The regions an access's base resolves to before any is a resource: a static field's storage, or what each base
+        /// points to.</summary>
+        /// <param name="instance">The instance whose context resolves the bases.</param>
+        /// <param name="access">The access.</param>
+        private IEnumerable<string> BaseRegions(MethodInstance instance, SummaryAccess access) =>
+            access.Field.IsStatic
+                ? [_heap.StaticRegionOf(instance.Id, access.Field)]
+                : access.Bases.SelectMany(@base => _heap.Resolve(instance.Id, @base is PathValue { IsWildcard: true } path ? path.Base : @base))
+                        .Distinct(StringComparer.Ordinal);
+
+        /// <summary>Whether a receiver or an argument an unknown effect starts from resolves to no region, so that the effect makes no
+        /// access through it, and the access is the unresolved-base counter's (<see cref="IsUnresolvedBase"/>, R6). An array the call
+        /// creates for its arguments is judged by its elements, whose values are one set and no operand of the call.</summary>
+        /// <param name="call">The unresolved call.</param>
+        /// <param name="instance">The instance the call stands in.</param>
+        private bool HasUnresolvedOperand(UnknownCall call, MethodInstance instance)
+        {
+            var operation = CallOperation(instance, call.OperationId);
+            var operands = call.Arguments.Where(argument => argument.CreatedElements is null)
+                               .Select(argument => (argument.Values, ValueId: operation?.ArgumentAt(argument.ParameterOrdinal), argument.IsFresh))
+                               .Prepend((Values: call.Receivers, ValueId: operation?.ReceiverValue, IsFresh: false));
+            return operands.Any(operand => operand.Values.Count != 0 &&
+                                           !operand.Values.Any(value => _heap.Resolve(instance.Id, value).Count != 0) &&
+                                           Handed(instance, operand.ValueId) is { WouldBeAccessed: true } handed &&
+                                           IsUnresolvedBase(instance, call.OperationId, [], handed.IsCopy, operand.IsFresh, isOnUnheldCollection: false));
+        }
+
+        /// <summary>What a value handed to a call is by its static type (R6).</summary>
+        /// <param name="WouldBeAccessed">Whether an effect on it makes an access where it resolves: an object of a mutable type, or a
+        /// copy, an effect on whose fields is an access to no location. An immutable object has nothing an effect touches, and a
+        /// reference to storage is a place the reference route resolves.</param>
+        /// <param name="IsCopy">Whether it is a value type held by value: a copy (<see cref="StructStorage"/>, R2).</param>
+        private readonly record struct HandedValue(bool WouldBeAccessed, bool IsCopy);
+
+        /// <summary>What a value of an instance's body handed to a call is, as its static type says; a value the body does not name is
+        /// taken for an object.</summary>
+        /// <param name="instance">The instance, whose substitution closes a type parameter.</param>
+        /// <param name="valueId">The IR value handed, or null where no one value is.</param>
+        private HandedValue Handed(MethodInstance instance, int? valueId)
+        {
+            if (valueId is not int id || !input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ||
+                (id < body.Values.Count && body.Values[id].Id == id ? body.Values[id] : body.Values.FirstOrDefault(value => value.Id == id)) is not { } value)
+                return new HandedValue(WouldBeAccessed: true, IsCopy: false);
+            if (value.ObjectTypeKey is not { } key)
+                return new HandedValue(WouldBeAccessed: !value.IsReference, IsCopy: !value.IsReference);
+            var type = ProgramIndex.Substitute(key, instance.Substitution);
+            return input.Scope.Program.Type(type) is { IsValueType: true }
+                ? new HandedValue(WouldBeAccessed: true, IsCopy: true)
+                : new HandedValue(WouldBeAccessed: !input.Scope.Program.ImmutableTypeKeys.Contains(type), IsCopy: false);
+        }
+
+        private readonly Dictionary<(string Body, int Operation), IrCallOperation?> _callOperations = [];
+
+        /// <summary>The call operation of an instance's body, null where the operation is no call.</summary>
+        /// <param name="instance">The instance.</param>
+        /// <param name="operationId">The operation.</param>
+        private IrCallOperation? CallOperation(MethodInstance instance, int operationId)
+        {
+            if (!_callOperations.TryGetValue((instance.BodyId, operationId), out var operation))
+            {
+                operation = input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body)
+                    ? body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>().FirstOrDefault(call => call.Id == operationId)
+                    : null;
+                _callOperations.Add((instance.BodyId, operationId), operation);
+            }
+
+            return operation;
+        }
+
+        /// <summary>Whether an access is on storage readonly in the object it touches, which nothing outside that object's construction
+        /// can assign but reflection: exactly where the path's first field, the object's own, is readonly, and then every struct field
+        /// below it is readonly with it (R1). A readonly field below a struct field the object can replace whole is not, nor is a cell;
+        /// a field of the object a reference field there holds is that object's own resource.</summary>
         /// <param name="instance">The instance making the access.</param>
-        /// <param name="access">The access whose field is checked.</param>
+        /// <param name="access">The access, whose call is checked for reflection.</param>
         /// <param name="resource">The resource the access touches.</param>
         private bool IsOwnReadonlyField(MethodInstance instance, SummaryAccess access, AccessResource resource) =>
-            !access.IsOnCollection && access.Selector is null && access.Field.IsReadOnly &&
+            resource is { IsWildcard: false, Selector: null, CollectionId: null, Storage: { Cell: 0, Fields: [{ IsReadOnly: true } first, ..] } } &&
             !(unknownCalls.GetValueOrDefault(instance.Id) ?? []).Any(call => call.OperationId == access.OperationId &&
                                                                              call.Kind == SemanticGapKinds.REFLECTION) &&
             _heap.Regions[resource.RegionId!].TypeKey is { } typeKey && input.Scope.Program.Type(typeKey) is { IsValueType: false } &&
-            (input.Scope.Program.InstanceFieldsOf(typeKey) ?? []).Any(field => FieldSlot.Key(field) == FieldSlot.Key(access.Field));
+            (input.Scope.Program.InstanceFieldsOf(typeKey) ?? []).Any(field => FieldSlot.Key(field) == FieldSlot.Key(first));
 
         /// <summary>
         /// The unknown effect of an unresolved call (R1): one unknown-effect access of every field, collection structure and cell it
@@ -2225,6 +2422,8 @@ public static partial class InterproceduralAccesses
             // of each start are worked out once for each list of them a visit names, and the accesses once for each choice of those.
             if (!_unknownEffects.TryGetValue(call, out var known))
                 _unknownEffects.Add(call, known = new UnknownEffects());
+            if (!UnresolvedBases.Contains((instance.BodyId, call.OperationId)) && HasUnresolvedOperand(call, instance))
+                UnresolvedBases.Add((instance.BodyId, call.OperationId));
             var starts = new List<(HashSet<string> Fresh, StartReads Reads)>();
             foreach (var start in reach.Starts(call))
             {
@@ -2302,7 +2501,8 @@ public static partial class InterproceduralAccesses
 
         /// <summary>
         /// The reads a deep read makes (R3), each as an ordinary load based on the region it touches. An object of a source type is
-        /// read field by field, its own and its source bases', and every object those fields reach in turn, each object once;
+        /// read field by field, its own and its source bases', and every object those fields reach in turn, each object once; a struct
+        /// a field keeps is read field by field through its storage, one level deeper, each field with the holder's whole path (R1);
         /// fields past the summaries' depth are one wildcard read of the object that holds them. A collection or an array is read
         /// where it is held: its structure and every cell, as atomically as its own enumeration, and then the objects in its
         /// cells; a collection in those cells is read the same way, and a collection type of the run's own also has its own
@@ -2342,7 +2542,7 @@ public static partial class InterproceduralAccesses
             var visited = new HashSet<string>(StringComparer.Ordinal);
             // A region waiting to be read, with the field that holds it where it is a collection: a collection in the cells of another
             // is named by the field the outer one was reached by, its identity being the collection itself (ADR 0010).
-            var pending = new Queue<(string Region, int Depth, (string Parent, IrFieldRef Field)? Holder)>();
+            var pending = new Queue<(string Region, int Depth, (AbstractValue Parent, IrFieldRef Field)? Holder)>();
             var held = new HashSet<string>(StringComparer.Ordinal);
             // The collections whose structure and cells are already read, under the cells a slice cuts.
             var structureRead = new HashSet<string>(StringComparer.Ordinal);
@@ -2351,9 +2551,9 @@ public static partial class InterproceduralAccesses
             {
                 held.UnionWith(collections);
                 structureRead.UnionWith(collections);
-                accesses.AddRange(CollectionReads(read, parent, field, collections, cells, withStructure: !read.IsSlice, kind));
+                accesses.AddRange(CollectionReads(read, new RegionValue(parent), field, collections, cells, withStructure: !read.IsSlice, kind));
                 foreach (var collection in collections)
-                    pending.Enqueue((collection, 0, (parent, field)));
+                    pending.Enqueue((collection, 0, (new RegionValue(parent), field)));
             }
 
             if (IsUnprovenSlice(read, held, objects))
@@ -2387,7 +2587,7 @@ public static partial class InterproceduralAccesses
                 {
                     // A collection reached through a field or the cells of a held one is read as its holder's is; one handed over
                     // otherwise, by a field that holds it, where one does.
-                    var by = holder ?? (holders.Value.TryGetValue(regionId, out var found) ? found : null);
+                    var by = holder ?? (holders.Value.TryGetValue(regionId, out var found) ? (found.Base, found.Field) : null);
                     if (by is { } named && structureRead.Add(regionId))
                         accesses.AddRange(CollectionReads(read, named.Parent, named.Field, [regionId], ElementSelector.Unknown, withStructure: true, kind));
                     foreach (var element in HeldBy(regionId))
@@ -2421,9 +2621,20 @@ public static partial class InterproceduralAccesses
 
                 foreach (var field in fields)
                 {
+                    // A struct the object keeps is part of it: its fields are read through its storage, each with the whole path, one
+                    // level deeper, and what they hold is reached as the object's own fields' is (R1).
+                    if (StructFields(field).Count != 0 &&
+                        _heap.Resolve(instance.Id, new StructPlaceValue(new RegionValue(regionId), FieldSlot.Key(field), field.FieldTypeKey!)) is
+                            { Count: > 0 } storages)
+                    {
+                        foreach (var storage in storages.Order(StringComparer.Ordinal))
+                            pending.Enqueue((storage, depth + 1, null));
+                        continue;
+                    }
+
                     accesses.Add(Access(read, kind, field, new RegionValue(regionId)));
                     foreach (var target in _heap.PointsTo(regionId, FieldSlot.Key(field)).Order(StringComparer.Ordinal))
-                        pending.Enqueue((target, depth + 1, (regionId, field)));
+                        pending.Enqueue((target, depth + 1, (new RegionValue(regionId), field)));
                 }
             }
 
@@ -2447,7 +2658,7 @@ public static partial class InterproceduralAccesses
             foreach (var (parent, field, collections, cells) in HeldCollections(read, instance, node, objects))
             {
                 held.UnionWith(collections);
-                accesses.AddRange(CollectionReads(read, parent, field, collections, cells, withStructure: !read.IsSlice));
+                accesses.AddRange(CollectionReads(read, new RegionValue(parent), field, collections, cells, withStructure: !read.IsSlice));
             }
 
             if (IsUnprovenSlice(read, held, objects))
@@ -2462,7 +2673,7 @@ public static partial class InterproceduralAccesses
                                               .Where(region => !held.Contains(region)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
             {
                 if (holders.Value.TryGetValue(collection, out var holder))
-                    accesses.AddRange(CollectionReads(read, holder.Parent, holder.Field, [collection], ElementSelector.Unknown, withStructure: true));
+                    accesses.AddRange(CollectionReads(read, holder.Base, holder.Field, [collection], ElementSelector.Unknown, withStructure: true));
             }
 
             return accesses;
@@ -2515,7 +2726,7 @@ public static partial class InterproceduralAccesses
                         continue;
                     var indexed = element && selector is not null && cell is not null;
                     yield return Access(call, effect == IrCollectionEffect.Read ? SummaryAccessKind.Load : SummaryAccessKind.Store, holder.Field,
-                                        new RegionValue(holder.Parent)) with
+                                        holder.Base) with
                     {
                         IsOnCollection = true,
                         CollectionRegions = new HashSet<string>(StringComparer.Ordinal) { collection },
@@ -2649,20 +2860,20 @@ public static partial class InterproceduralAccesses
         /// <summary>The reads of collections a field of <paramref name="parent"/> holds: the structure and the cells of each, atomic
         /// for a thread-safe collection, whose enumeration is atomic, and ordinary for any other (ADR 0010).</summary>
         /// <param name="read">The effect the reads are made for.</param>
-        /// <param name="parent">The object holding the field, or the static storage of its type.</param>
+        /// <param name="parent">The object holding the field, the static storage of its type, or the storage of a struct holding it.</param>
         /// <param name="field">The field that holds the collections.</param>
         /// <param name="collections">The collections read.</param>
         /// <param name="cells">The cells of them read.</param>
         /// <param name="withStructure">Whether the structure is read as well as the cells.</param>
         /// <param name="access">The kind of access the reads are made as.</param>
-        private IEnumerable<SummaryAccess> CollectionReads(SummaryArgumentEffect read, string parent, IrFieldRef field,
+        private IEnumerable<SummaryAccess> CollectionReads(SummaryArgumentEffect read, AbstractValue parent, IrFieldRef field,
                                                            IReadOnlyList<string> collections, ElementSelector cells, bool withStructure,
                                                            SummaryAccessKind access = SummaryAccessKind.Load)
         {
             foreach (var kind in collections.GroupBy(collection => CollectionKind(collection).IsConcurrent))
             {
                 // An unknown effect on a thread-safe collection is as atomic as the collection's own members (R1, ADR 0010).
-                var structure = Access(read, access, field, new RegionValue(parent)) with
+                var structure = Access(read, access, field, parent) with
                 {
                     IsOnCollection = true,
                     Atomic = kind.Key ? access == SummaryAccessKind.UnknownEffect ? IrAtomicEffect.Write : IrAtomicEffect.Read : null,
@@ -2888,13 +3099,14 @@ public static partial class InterproceduralAccesses
 
         /// <summary>Whether the load of a field only an interface call reads folds into that call on this object: every object the field
         /// holds is decided as a member of the table, as a direct call of that member on the field has no load of its own. An array keeps
-        /// it, as the same code on the array directly does, and so does an object the call does not decide (R4, R5).</summary>
+        /// it, as the same code on the array directly does, and so does an object the call does not decide (R4, R5). A field of a struct
+        /// the object keeps holds what the object's slot through the whole path does (R1).</summary>
         /// <param name="receiver">The interface call's implementations and method.</param>
-        /// <param name="regionId">The object whose field is loaded.</param>
-        /// <param name="field">The field loaded.</param>
-        private bool FoldsIntoInterfaceCall((IReadOnlyList<IrImplementation> Implementations, string Method) receiver, string regionId, IrFieldRef field)
+        /// <param name="regionId">The object whose field is loaded, as the heap keeps the field.</param>
+        /// <param name="slot">The field's slot of that object: the path through every struct field before it.</param>
+        private bool FoldsIntoInterfaceCall((IReadOnlyList<IrImplementation> Implementations, string Method) receiver, string regionId, string slot)
         {
-            var held = _heap.PointsTo(regionId, FieldSlot.Key(field)).ToArray();
+            var held = _heap.PointsTo(regionId, slot).ToArray();
             return held.Length != 0 &&
                    held.All(target => CollectionObjects.Decision(receiver.Implementations, ObjectKind(target, receiver.Method)) is { } decided &&
                                       !decided.Member.Member.StartsWith(ARRAY_MEMBER, StringComparison.Ordinal));
@@ -3325,21 +3537,20 @@ public static partial class InterproceduralAccesses
         {
             if (instance.Summary.Accesses.FirstOrDefault(access => access.OperationId == loadId &&
                                                           access.Kind == SummaryAccessKind.Load) is not { } load ||
-                !(load.Field.IsReadOnly || load.Field.IsContainingTypeReadOnly) ||
-                WrittenOutsideConstruction.Contains(FieldSlot.Key(load.Field)))
+                !MayBeSettled(load.Field))
                 return null;
 
-            var resources = Resources(instance, load);
-            if (resources.Count != 1 || resources[0].RegionId is not { } region)
+            var resources = ValueResources(instance, load);
+            if (resources.Count != 1 || resources[0] is not { RegionId: { } region, Storage: { } path } || !IsSettled(path, byType: true))
                 return null;
 
-            var construction = (region, FieldSlot.Key(load.Field));
+            var construction = (region, FieldSlot.Path(path.Fields));
             if (!_constructingFields.Add(construction))
                 return null;
 
             try
             {
-                return ConstructedFieldValue(load, region, node, depth);
+                return ConstructedFieldValue(path, region, node, depth);
             }
             finally
             {
@@ -3347,14 +3558,22 @@ public static partial class InterproceduralAccesses
             }
         }
 
-        private ValueTerm? ConstructedFieldValue(SummaryAccess load, string region, PathNode node, int depth)
+        /// <summary>The value every construction of a region stores into the storage a readonly load reads, where each stores one that
+        /// stands for the same value: the stores of the constructor on that region through the same path of fields (R1).</summary>
+        /// <param name="path">The fields the load goes through from the region.</param>
+        /// <param name="region">The region the load reads.</param>
+        /// <param name="node">The visit of the load.</param>
+        /// <param name="depth">How many calls up an argument has already been followed.</param>
+        private ValueTerm? ConstructedFieldValue(StoragePath path, string region, PathNode node, int depth)
         {
             var terms = new List<ValueTerm>();
+            var slots = FieldSlot.Path(path.Fields);
             foreach (var (constructor, constructorNode) in ConstructorPaths(region, node))
             {
                 var stores = constructor.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store &&
-                                                                  FieldSlot.Key(access.Field) == FieldSlot.Key(load.Field) &&
-                                                                  Resources(constructor, access).Any(resource => resource.RegionId == region))
+                                                                  ValueResources(constructor, access).Any(resource => resource.RegionId == region &&
+                                                                                                                 resource.Storage is { } written &&
+                                                                                                                 FieldSlot.Path(written.Fields) == slots))
                                                        .ToArray();
                 if (stores.Length != 1 || stores[0].StoredTerm is not { } stored ||
                     !ConstructorExpression(stored, constructor))
@@ -3375,11 +3594,45 @@ public static partial class InterproceduralAccesses
                                                                         variable.Identity == $"{instance.BodyId}:{parameter.Value}") => true,
             VariableTerm variable when variable.Identity.StartsWith($"{instance.BodyId}#", StringComparison.Ordinal) &&
                                        int.TryParse(variable.Identity[(instance.BodyId.Length + 1)..], out var load) =>
-                instance.Summary.Accesses.Any(access => access.OperationId == load &&
-                                                        (access.Field.IsReadOnly || access.Field.IsContainingTypeReadOnly) &&
-                                                        !WrittenOutsideConstruction.Contains(FieldSlot.Key(access.Field))),
+                instance.Summary.Accesses.Any(access => access.OperationId == load && MayBeSettled(access.Field) &&
+                                                        (ValueResources(instance, access) is { Count: > 0 } resources
+                                                            ? resources.All(resource => resource.Storage is { } path && IsSettled(path, byType: true))
+                                                            : IsSettled(new StoragePath([access.Field], 0, "", ""), byType: true))),
             _ => false
         };
+
+        /// <summary>Whether what a load of a field reads may be settled once construction ends, before its resources are worked out: the
+        /// field is readonly, declared in a readonly struct, or a field of a struct, whose storage the holder's readonly field may be.</summary>
+        /// <param name="field">The field loaded.</param>
+        private bool MayBeSettled(IrFieldRef field) =>
+            field.IsReadOnly || field.IsContainingTypeReadOnly ||
+            input.Scope.Program.Type(DiIndex.TypeKey(field.Assembly, field.ContainingTypeId)) is { IsValueType: true };
+
+        /// <summary>Whether storage reached through <paramref name="path"/> is settled once its construction ends (R1): the path's first
+        /// field, the holder's own, is readonly — or, <paramref name="byType"/>, declared in a readonly struct — so every struct field below
+        /// it is readonly with it, and nothing outside a constructor writes a field of the path or one below its last, which a write of
+        /// the whole struct replaces. A readonly field below a struct field the holder can replace whole is not settled.</summary>
+        /// <param name="path">The fields the access goes through from its region.</param>
+        /// <param name="byType">Whether a field a readonly struct declares counts as readonly.</param>
+        private bool IsSettled(StoragePath path, bool byType) =>
+            path.Fields is [var first, ..] && (first.IsReadOnly || byType && first.IsContainingTypeReadOnly) &&
+            !path.Fields.Concat(FieldsBelow(path.Fields[^1], 0)).Any(field => WrittenOutsideConstruction.Contains(FieldSlot.Key(field)));
+
+        /// <summary>The fields of the struct a field holds, and of every struct below them, as deep as the access path bound reaches: what a
+        /// write of the whole field writes (R1). None for a field of any other type.</summary>
+        /// <param name="field">The field.</param>
+        /// <param name="depth">How many struct fields lie above it already.</param>
+        private IEnumerable<IrFieldRef> FieldsBelow(IrFieldRef field, int depth) =>
+            depth < input.Scope.Summaries.Limits.MaxAccessPathDepth && StructFields(field) is { Count: > 0 } fields
+                ? fields.SelectMany(below => FieldsBelow(below, depth + 1).Prepend(below))
+                : [];
+
+        /// <summary>The instance fields of the struct of the run's own a field holds inline, empty for a field of any other type.</summary>
+        /// <param name="field">The field.</param>
+        private IReadOnlyList<IrFieldRef> StructFields(IrFieldRef field) =>
+            field.FieldTypeKey is { } typeKey && input.Scope.Program.Type(typeKey) is { IsValueType: true, IsSource: true }
+                ? input.Scope.Program.InstanceFieldsOf(typeKey) ?? []
+                : [];
 
         private IEnumerable<(MethodInstance Constructor, PathNode Node)> ConstructorPaths(string region, PathNode node)
         {
@@ -3441,13 +3694,14 @@ public static partial class InterproceduralAccesses
         {
             if (instance.Summary.Accesses.FirstOrDefault(candidate => candidate.OperationId == loadOperationId &&
                                                                       candidate.Kind == SummaryAccessKind.Load) is not { } load ||
-                !load.Field.IsReadOnly || WrittenOutsideConstruction.Contains(FieldSlot.Key(load.Field)))
+                !MayBeSettled(load.Field))
             {
                 return null;
             }
 
-            var resources = Resources(instance, load);
-            if (resources.Count != 1 || resources[0].RegionId is not { } regionId)
+            // A field of a struct the object keeps is settled where the object's own field holding it is (R1).
+            var resources = ValueResources(instance, load);
+            if (resources.Count != 1 || resources[0] is not { RegionId: { } regionId, Storage: { } path } || !IsSettled(path, byType: false))
                 return null;
             // A read while the object may still be being built sees a field the construction has not finished writing.
             if (Construction(instance, loadOperationId, regionId).May)
@@ -3459,12 +3713,12 @@ public static partial class InterproceduralAccesses
         }
 
         /// <summary>The field slots something writes outside a constructor, which are the ones a reader cannot take for
-        /// settled however the field is declared.</summary>
+        /// settled however the field is declared. A write of a whole struct writes every field below it (R1).</summary>
         private HashSet<string> WrittenOutsideConstruction =>
             _writtenOutsideConstruction ??= _heap.Instances.Values
                 .SelectMany(instance => instance.Summary.Accesses
                                                 .Where(access => access.Kind == SummaryAccessKind.Store && !IsConstructor(instance.BodyId))
-                                                .Select(access => FieldSlot.Key(access.Field)))
+                                                .SelectMany(access => FieldsBelow(access.Field, 0).Prepend(access.Field).Select(FieldSlot.Key)))
                 .ToHashSet(StringComparer.Ordinal);
 
         private static bool IsConstructor(string bodyId) =>
@@ -3515,14 +3769,15 @@ public static partial class InterproceduralAccesses
         /// <summary>How the collection a field holds compares the keys of its cells: what each object the field points to was
         /// constructed with, taken at its weakest. A keyed collection this scope never constructs may compare keys any way at all,
         /// so nothing about its keys is proven (ADR 0010).</summary>
-        /// <param name="regionId">The object holding the field.</param>
+        /// <param name="regionId">The object holding the field, or the storage of the struct holding it as the heap keeps it.</param>
+        /// <param name="slot">The field's slot of that region: the path through every struct field before it.</param>
         /// <param name="field">The field that holds the collection.</param>
-        private IrKeyEquality Equality(string regionId, IrFieldRef field)
+        private IrKeyEquality Equality(string regionId, string slot, IrFieldRef field)
         {
             if (!field.Type.Contains("Dictionary<", StringComparison.Ordinal))
                 return IrKeyEquality.Value;
 
-            var equalities = _heap.PointsTo(regionId, FieldSlot.Key(field))
+            var equalities = _heap.PointsTo(regionId, slot)
                                   .Select(target => _heap.Regions.TryGetValue(target, out var region) ? Allocation(region)?.KeyEquality : null)
                                   .ToArray();
             return equalities.Length != 0 && equalities.All(equality => equality is not null)
@@ -3691,12 +3946,29 @@ public static partial class InterproceduralAccesses
         /// which keeps nothing.</summary>
         /// <param name="instance">The instance that makes the access, whose context resolves its bases.</param>
         /// <param name="access">The access whose resources are named.</param>
-        private IReadOnlyList<AccessResource> Resources(MethodInstance instance, SummaryAccess access)
+        private IReadOnlyList<AccessResource> Resources(MethodInstance instance, SummaryAccess access) =>
+            Cached(_resources, instance, access, copies: false);
+
+        /// <summary>The storage a load reads or a store writes as a value lives in, for the readers that ask what a field holds — a readonly
+        /// field's construction, a guard's canonical subject — rather than where an access is: a struct copy is the value it is, with the
+        /// path through its own fields, where <see cref="Resources"/> names no location (R2). Worked out once for each access object.</summary>
+        /// <param name="instance">The instance that makes the access, whose context resolves its bases.</param>
+        /// <param name="access">The access whose storage is named.</param>
+        private IReadOnlyList<AccessResource> ValueResources(MethodInstance instance, SummaryAccess access) =>
+            Cached(_valueResources, instance, access, copies: true);
+
+        /// <summary>The resources of an access kept in a cache, worked out on its first request (<see cref="ResourcesOf"/>).</summary>
+        /// <param name="cache">The cache, by instance and access object.</param>
+        /// <param name="instance">The instance that makes the access.</param>
+        /// <param name="access">The access whose resources are named.</param>
+        /// <param name="copies">Whether a struct copy stands as the value it is.</param>
+        private IReadOnlyList<AccessResource> Cached(Dictionary<MethodInstance, Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>> cache,
+                                                     MethodInstance instance, SummaryAccess access, bool copies)
         {
-            if (!_resources.TryGetValue(instance, out var byAccess))
-                _resources.Add(instance, byAccess = new Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>(ReferenceEqualityComparer.Instance));
+            if (!cache.TryGetValue(instance, out var byAccess))
+                cache.Add(instance, byAccess = new Dictionary<SummaryAccess, IReadOnlyList<AccessResource>>(ReferenceEqualityComparer.Instance));
             if (!byAccess.TryGetValue(access, out var resources))
-                byAccess.Add(access, resources = ResourcesOf(instance, access));
+                byAccess.Add(access, resources = ResourcesOf(instance, access, copies));
             return resources;
         }
 
@@ -3709,20 +3981,34 @@ public static partial class InterproceduralAccesses
             return identity;
         }
 
-        /// <summary>The resources an access touches: a static field's storage, or the field of each region its base points to, or the
-        /// wildcard resource of each region a wildcard path starts from.</summary>
+        /// <summary>
+        /// The resources an access touches: a static field's storage, or the field of each region its base points to, or the wildcard
+        /// resource of each region a wildcard path starts from. A field of a struct kept in heap storage is its holder's resource with the
+        /// path through every struct field, a cell's selector right after the collection's field, and a struct copy is none
+        /// (<see cref="Place"/>, R1, R2). Every resource of an access is named here and in <see cref="Resource"/>: the field, element and
+        /// known-call accesses of a visit and its unknown effects (<see cref="Emit"/>, through <see cref="Resources"/>), each place a
+        /// reference resolves to (<see cref="ReferenceAccess"/>), the reads that feed a write, and, through <see cref="ValueResources"/>,
+        /// the construction of a readonly field (<see cref="ConstructedField"/>, <see cref="ConstructedFieldValue"/>, the loads of a
+        /// constructor's expression) and a guard's canonical subject (<see cref="Canonical"/>).
+        /// </summary>
         /// <param name="instance">The instance that makes the access, whose context resolves its bases.</param>
         /// <param name="access">The access whose resources are named.</param>
-        private IReadOnlyList<AccessResource> ResourcesOf(MethodInstance instance, SummaryAccess access)
+        /// <param name="copies">Whether a struct copy stands as the value it is, for a reader that asks what a field of it holds rather than
+        /// where an access is (<see cref="ValueResources"/>).</param>
+        private IReadOnlyList<AccessResource> ResourcesOf(MethodInstance instance, SummaryAccess access, bool copies = false)
         {
             var resources = new List<AccessResource>();
             var identities = new HashSet<string>(StringComparer.Ordinal);
+            var limit = input.Scope.Summaries.Limits.MaxAccessPathDepth;
 
             void Add(string regionId, bool wildcard)
             {
-                foreach (var collection in CollectionsOf(regionId, access))
+                if (Place(regionId, access, copies) is not { } place)
+                    return;
+                // The depth bound of the path counts every struct field it goes through (TD-042).
+                foreach (var collection in place.Collections)
                 {
-                    var resource = Resource(regionId, access.Field, wildcard, access.Selector, collection);
+                    var resource = Resource(place.RegionId, place.Path, wildcard || place.Path.Fields.Count > limit, place.Selector, collection);
                     if (identities.Add(resource.Identity))
                         resources.Add(resource);
                 }
@@ -3749,6 +4035,78 @@ public static partial class InterproceduralAccesses
             return resources;
         }
 
+        /// <summary>Where an access on a region stands, as its resource names it (R1, R2): the region and the access's field for an object, a
+        /// static storage or a box; for a struct's storage, the storage's holder with the path through every struct field to the access's
+        /// field, and for a storage in a cell of a collection, the object holding the collection with the cell after that collection's field.
+        /// Nothing for a field of a struct copy or of a storage a copy holds, which are no location, unless <paramref name="copies"/> — a
+        /// collection such a field holds is an object of its own, whose accesses stay; for a storage whose holder's type cannot declare the
+        /// path's first field; nor for one in a cell of a collection no field holds (TD-043).</summary>
+        /// <param name="regionId">A region the access's base resolves to.</param>
+        /// <param name="access">The access.</param>
+        /// <param name="copies">Whether a struct copy stands as the value it is, with the path through its own fields.</param>
+        private AccessPlace? Place(string regionId, SummaryAccess access, bool copies)
+        {
+            var whole = StructStorage.IsWholeStorage(access.Field);
+            // A collection a field of a copy holds is an object of its own, and an access on it or its cells is one on that object.
+            if (_heap.Located(regionId, "", copies || access.IsOnCollection) is not { } storage)
+                return null;
+            var located = (Region: storage.Region, Slot: FieldSlot.Join(storage.Slot, whole ? "" : FieldSlot.Key(access.Field)));
+            if (storage.Slot.Length == 0)
+            {
+                return new AccessPlace(regionId, new StoragePath([access.Field], access.IsOnCollection ? 1 : 0, located.Region, located.Slot),
+                                       access.IsOnCollection ? access.Selector : null,
+                                       access.IsOnCollection ? CollectionsOf(located.Region, located.Slot, access) : [null]);
+            }
+
+            var prefix = storage.Slot.Split(FieldSlot.PATH_SEPARATOR);
+            var inCell = prefix[0] == PathValue.ELEMENT;
+            var fields = new List<IrFieldRef>();
+            var holder = located.Region;
+            var segments = prefix;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            // The struct is in a cell of what the holder region is: the resource is that collection's, named by a field holding it on the
+            // outermost holder — through the struct's storage that field is in, and through the cell that storage is in in turn (R1).
+            while (segments[0] == PathValue.ELEMENT)
+            {
+                if (!seen.Add(holder) || !holders.Value.TryGetValue(holder, out var holding) ||
+                    _heap.Located(holding.Parent, holding.Slot) is not { } parent)
+                    return null;
+                fields.InsertRange(0, segments.Skip(1).Select(SlotField));
+                (holder, segments) = (parent.Region, parent.Slot.Split(FieldSlot.PATH_SEPARATOR));
+            }
+
+            if (!inCell && SlotField(prefix[0]) is var first &&
+                _typeSafety.CannotBe(_heap.Regions[holder], DiIndex.TypeKey(first.Assembly, first.ContainingTypeId)))
+                return null;
+
+            fields.InsertRange(0, segments.Select(SlotField));
+            // The fields of the struct below the cell it stands in follow that cell.
+            var cell = inCell ? fields.Count - (prefix.Length - 1) : 0;
+            if (!whole)
+                fields.Add(access.Field);
+            var path = new StoragePath(fields, access.IsOnCollection ? fields.Count : cell, located.Region, located.Slot);
+            // A cell the access works on is its own; one its struct stands in is the one the body names, or any.
+            return access.IsOnCollection ? new AccessPlace(holder, path, access.Selector, CollectionsOf(located.Region, located.Slot, access))
+                : inCell ? new AccessPlace(holder, path, access.Selector ?? ElementSelector.Unknown, [located.Region])
+                : new AccessPlace(holder, path, null, [null]);
+        }
+
+        /// <summary>Where an access on a region stands (<see cref="Place"/>).</summary>
+        /// <param name="RegionId">The region the resource is on.</param>
+        /// <param name="Path">The fields it goes through from there.</param>
+        /// <param name="Selector">The cell it is in, null where it is in none.</param>
+        /// <param name="Collections">The collections that cell is of, a null for a collection nothing names, or one null where there is no
+        /// cell.</param>
+        private sealed record AccessPlace(string RegionId, StoragePath Path, ElementSelector? Selector, IReadOnlyList<string?> Collections);
+
+        /// <summary>The field a slot key names, as the bodies name it: what a slot of a struct storage's path is read back as.</summary>
+        /// <param name="slot">The slot key.</param>
+        private IrFieldRef SlotField(string slot) =>
+            slotFields.Value.TryGetValue(slot, out var field)
+                ? field
+                : new IrFieldRef(slot[..Math.Max(slot.IndexOf(':'), 0)], FieldSlot.DeclaringTypeKey(slot)[(slot.IndexOf(':') + 1)..],
+                                 FieldSlot.Name(slot), IrFieldKind.Field, false, false, "");
+
         /// <summary>
         /// The collections an access on a collection may work on: what the field of that object holds, which is the collection
         /// itself and not the name it was reached by. It is read from the field's slot and not from the values of this one
@@ -3758,9 +4116,10 @@ public static partial class InterproceduralAccesses
         /// to meet a field that names one of them (ADR 0010). A collection the analysis cannot name at all leaves the field as
         /// the only identity there is.
         /// </summary>
-        /// <param name="regionId">The object whose field the access is on.</param>
+        /// <param name="regionId">The object whose field the access is on, or the holder of the struct whose field it is.</param>
+        /// <param name="slot">The field's slot of that region: the path through every struct field before it (R1).</param>
         /// <param name="access">The access.</param>
-        private IReadOnlyList<string?> CollectionsOf(string regionId, SummaryAccess access)
+        private IReadOnlyList<string?> CollectionsOf(string regionId, string slot, SummaryAccess access)
         {
             if (!access.IsOnCollection)
                 return [null];
@@ -3768,7 +4127,7 @@ public static partial class InterproceduralAccesses
             // A known call's read names its collections, which may be held in the cells of the one the field holds. A node a list
             // was handed is a cell of that list, and a live view of a dictionary is that dictionary, whichever field holds it (ADR
             // 0010, phase 5b).
-            var targets = (access.CollectionRegions?.ToArray() ?? _heap.PointsTo(regionId, FieldSlot.Key(access.Field)).ToArray())
+            var targets = (access.CollectionRegions?.ToArray() ?? _heap.PointsTo(regionId, slot).ToArray())
                           .SelectMany(StandsFor)
                           .Distinct(StringComparer.Ordinal)
                           .ToArray();
@@ -3784,30 +4143,42 @@ public static partial class InterproceduralAccesses
                 ? collections
                 : [target];
 
-        private AccessResource Resource(string regionId, IrFieldRef field, bool wildcard, ElementSelector? selector,
-                                        string? collectionId = null)
+        /// <summary>The resource an access names on a region through the fields of <paramref name="path"/> (R1): its path is every field's
+        /// name, the cell's selector right after the field holding the collection, and its identity carries the field it is named by and
+        /// every struct field after that one or after the cell. A box's whole storage is the box with the empty path (R3).</summary>
+        /// <param name="regionId">The region the resource is on.</param>
+        /// <param name="path">The fields the access goes through from the region.</param>
+        /// <param name="wildcard">Whether the path collapsed into the region's wildcard resource (TD-042).</param>
+        /// <param name="selector">The cell the access is in, as the body names it; null where it is in none.</param>
+        /// <param name="collectionId">The collection the cell is of, where the analysis names it (ADR 0010).</param>
+        private AccessResource Resource(string regionId, StoragePath path, bool wildcard, ElementSelector? selector, string? collectionId = null)
         {
             var region = _heap.Regions[regionId];
-            selector = selector?.UnderEquality(Equality(regionId, field));
+            var member = path.Member;
+            if (path.Cell != 0)
+                selector = selector?.UnderEquality(Equality(path.Region, path.Slot, member));
             if (wildcard)
             {
-                return new AccessResource(DeclaringAssembly(region.TypeKey) ?? field.Assembly, input.Scope.ScopeId, region.Display, [PathValue.WILDCARD],
+                return new AccessResource(DeclaringAssembly(region.TypeKey) ?? member.Assembly, input.Scope.ScopeId, region.Display, [PathValue.WILDCARD],
                                           new MemberKey(PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field), regionId, true)
                 {
-                    RegionKey = RegionKey(region)
+                    RegionKey = RegionKey(region),
+                    Storage = path
                 };
             }
 
-            // A cell is the collection's own path with the cell appended, so the collection and its cells read as one family.
-            return new AccessResource(field.Assembly, input.Scope.ScopeId, region.Display,
-                                      selector is null ? [field.Name] : [field.Name, selector.Text],
-                                      new MemberKey(field.ContainingType, field.Name, field.Kind,
-                                                    field.ContainingTypeIdentity == field.ContainingType ? null : field.ContainingTypeIdentity),
-                                      regionId)
+            // A cell is the collection's own path with the cell appended, so the collection and its cells read as one family; the fields of
+            // a struct the cell holds go on after it.
+            var names = path.Fields.Where(field => !StructStorage.IsWholeStorage(field)).Select(field => field.Name).ToList();
+            if (selector is not null && path.Cell != 0)
+                names.Insert(path.Cell, selector.Text);
+            return new AccessResource(member.Assembly, input.Scope.ScopeId, region.Display, names, MemberKey.Of(member), regionId)
             {
                 RegionKey = RegionKey(region),
                 Selector = selector,
-                CollectionId = collectionId
+                CollectionId = collectionId,
+                StructPath = path.Below.Select(MemberKey.Of).ToArray(),
+                Storage = path
             };
         }
 
@@ -3839,6 +4210,8 @@ public static partial class InterproceduralAccesses
                     return $"alloc|{body}#{region.TypeKey}#{SiteOrdinal(body, region.SiteOperationId, operation => operation is IrAllocateOperation)}";
                 case HeapRegionKind.Delegate when region.SiteBodyId is { } body:
                     return $"delegate|{body}#{SiteOrdinal(body, region.SiteOperationId, operation => operation is IrCreateDelegateOperation)}";
+                case HeapRegionKind.Closure when region.SiteBodyId is { } body:
+                    return $"closure|{body}";
                 case HeapRegionKind.Static:
                     return $"static|{region.TypeKey}";
                 case HeapRegionKind.Receiver:
@@ -3897,7 +4270,8 @@ public static partial class InterproceduralAccesses
 /// Pairs accesses on one resource of one scope that may run at the same time: never read/read, never a pair neither of whose sides
 /// is a conflicting operation (TD-072), never construction-local, never on a
 /// thread-confined region, only across executions that overlap, never
-/// where the happens-before graph orders the two accesses, and never two accesses to fresh objects (R12). The candidates come from <see cref="CandidateIndex"/>, each unordered
+/// where the happens-before graph orders the two accesses — both as <see cref="ExecutionAnalysis.Timing"/> decides, per run of its
+/// creator on a tree-confined region — and never two accesses to fresh objects (R12). The candidates come from <see cref="CandidateIndex"/>, each unordered
 /// pair once.
 /// </summary>
 public static class InterproceduralPairing
@@ -3924,9 +4298,9 @@ public static class InterproceduralPairing
             counted++;
             var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? SKIP_READ_READ
                 : !first.Operation.Conflicts() && !second.Operation.Conflicts() ? SKIP_NO_CONFLICTING_OPERATION
-                : first.Resource.Scope != second.Resource.Scope || !executions.Overlaps(first.ExecutionId, second.ExecutionId) ||
-                  first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first) ? SKIP_NO_OVERLAP
-                : executions.Ordered(first, second) ? SKIP_ORDERED
+                : first.Resource.Scope != second.Resource.Scope || first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first)
+                    ? SKIP_NO_OVERLAP
+                : Skip(executions.Timing(first, second)) is { } timing ? timing
                 : IsConfined(first) || IsConfined(second) ? SKIP_CONFINED
                 : PathConditions.Contradict(first.Conditions, second.Conditions) ? SKIP_UNSATISFIABLE_PATH
                 : IsDisjointIteration(first, second) ? SKIP_DISJOINT_ITERATION
@@ -3974,6 +4348,15 @@ public static class InterproceduralPairing
         };
     }
 
+    /// <summary>The skip a pair's timing gives: none for two accesses that may run at once (<see cref="ExecutionAnalysis.Timing"/>).</summary>
+    /// <param name="timing">The timing of the pair.</param>
+    internal static string? Skip(PairTiming timing) => timing switch
+    {
+        PairTiming.NoOverlap => SKIP_NO_OVERLAP,
+        PairTiming.Ordered => SKIP_ORDERED,
+        _ => null
+    };
+
     /// <summary>Whether the two accesses are two iterations of one run of a parallel loop, each naming the cell its own
     /// iteration number names. Two runs of a loop prove nothing, so the two must be one execution of one body: a loop that
     /// joins before it returns can only overlap itself within one run (TD-068).</summary>
@@ -4004,9 +4387,9 @@ internal sealed record CandidatePair(Access First, Access Second, AccessResource
 /// <summary>
 /// The buckets of one scope's non-construction-local accesses (R4): a resource bucket per resource identity, and a wildcard bucket per
 /// scope and region, never a resource bucket. Each unordered pair that may race comes from exactly one enumeration: within a resource
-/// bucket; within a wildcard bucket and between it and its region's resource buckets; or between an open region's bucket and a closed
-/// region of its group, two resource buckets with one path and member, or either region's wildcard bucket against every bucket of
-/// the other.
+/// bucket; between two cell buckets of one collection; between two field buckets of one region whose storage one continues the other's
+/// (R3); within a wildcard bucket and between it and its region's resource buckets; or between an open region's bucket and a closed
+/// region of its group. Which buckets meet and which resource names their pair is <see cref="Meets"/>'s alone.
 /// </summary>
 internal sealed class CandidateIndex
 {
@@ -4023,6 +4406,10 @@ internal sealed class CandidateIndex
     /// <summary>The cell buckets of one collection, by that collection's identity: a cell meets the cells it may be, and no more
     /// (TD-075).</summary>
     private readonly SortedDictionary<string, List<List<Access>>> _cells = new(StringComparer.Ordinal);
+
+    /// <summary>The field buckets of one region, by scope and region: storage that continues another's through a struct's fields meets
+    /// it (R3).</summary>
+    private readonly SortedDictionary<string, List<List<Access>>> _fields = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Scope, string RegionId), RegionBuckets> _regions = [];
     private readonly List<RegionBuckets> _regionOrder = [];
     private readonly Dictionary<Access, int> _positions = new(ReferenceEqualityComparer.Instance);
@@ -4054,11 +4441,14 @@ internal sealed class CandidateIndex
             {
                 index._resources.Add(access.Resource.Identity, bucket = []);
                 region.Resources.Add(bucket);
-                if (access.Resource.Selector is not null)
+                var (family, key) = access.Resource.Selector is not null ? (index._cells, CollectionKey(access.Resource))
+                    : IsField(access.Resource) ? (index._fields, $"{access.Resource.Scope}|{access.Resource.RegionId}")
+                    : (null, "");
+                if (family is not null)
                 {
-                    if (!index._cells.TryGetValue(access.Resource.StructuralIdentity, out var cells))
-                        index._cells.Add(access.Resource.StructuralIdentity, cells = []);
-                    cells.Add(bucket);
+                    if (!family.TryGetValue(key, out var members))
+                        family.Add(key, members = []);
+                    members.Add(bucket);
                 }
             }
 
@@ -4103,12 +4493,37 @@ internal sealed class CandidateIndex
             {
                 for (var second = first + 1; second < cells.Count; second++)
                 {
-                    if (!cells[first][0].Resource.Selector!.MayOverlap(cells[second][0].Resource.Selector!))
+                    if (Meets(cells[first][0].Resource, cells[second][0].Resource, _heap) is null)
                         continue;
                     foreach (var pair in Across(cells[first], cells[second], (item, other) => ReportedCell(item.Resource, other.Resource),
                                                 _ => [], PairEnumeration.Resource))
                     {
                         yield return pair;
+                    }
+                }
+            }
+        }
+
+        // The whole of a struct's storage meets each field below it on one region, and is named by the longer path (R3). Two
+        // resources of one length on one region are two resources, so only buckets of two lengths are compared.
+        foreach (var fields in _fields.Values.Where(fields => fields.Count > 1))
+        {
+            for (var first = 0; first < fields.Count; first++)
+            {
+                for (var second = first + 1; second < fields.Count; second++)
+                {
+                    var (one, other) = (fields[first], fields[second]);
+                    if (Length(one[0].Resource) == Length(other[0].Resource) || Meets(one[0].Resource, other[0].Resource, _heap) is not { } meeting)
+                        continue;
+                    var byOne = ReferenceEquals(meeting.Reported, one[0].Resource);
+                    foreach (var item in one)
+                    {
+                        foreach (var otherItem in other)
+                        {
+                            // Oriented as the all-pairs loop meets them: the earlier access first.
+                            var (earlier, later) = _positions[item] <= _positions[otherItem] ? (item, otherItem) : (otherItem, item);
+                            yield return new CandidatePair(earlier, later, byOne ? item.Resource : otherItem.Resource, [], PairEnumeration.Resource);
+                        }
                     }
                 }
             }
@@ -4137,41 +4552,154 @@ internal sealed class CandidateIndex
         }
     }
 
-    /// <summary>Which of two cells a pair between them is reported on: the cell that is proven, since that is what a reader can
-    /// act on, and the first by text where that does not decide it. The choice does not depend on which side is which.</summary>
+    /// <summary>Which of two cells of one collection a pair between them is reported on: the one with the longer path, which
+    /// names the field of the struct the cell holds (R3); between two of one length, the cell that is proven, since that is what a
+    /// reader can act on, and the first by text where that does not decide it. The choice does not depend on which side is
+    /// which.</summary>
     /// <param name="first">One cell.</param>
     /// <param name="second">The other cell.</param>
     internal static AccessResource ReportedCell(AccessResource first, AccessResource second) =>
-        (first.Selector!.IsProven, second.Selector!.IsProven) switch
-        {
-            (false, true) => second,
-            (true, false) => first,
-            _ => string.CompareOrdinal(second.Selector.Text, first.Selector.Text) < 0 ? second : first
-        };
-
-    private static IEnumerable<CandidatePair> OpenAndClosed(RegionBuckets open, RegionBuckets closed)
-    {
-        IEnumerable<CandidatePair> Pair(IReadOnlyList<Access> openBucket, IReadOnlyList<Access> closedBucket) =>
-            Across(openBucket, closedBucket, (_, second) => second.Resource, first => first.Uncertainties, PairEnumeration.OpenRegion);
-
-        foreach (var openBucket in open.Resources)
-        {
-            var key = openBucket[0].Resource;
-            foreach (var closedBucket in closed.Resources.Where(bucket => bucket[0].Resource.Member.Identity == key.Member.Identity &&
-                                                                          bucket[0].Resource.AccessPath.SequenceEqual(key.AccessPath)))
+        first.AccessPath.Count != second.AccessPath.Count ? Longer(first, second)
+            : (first.Selector!.IsProven, second.Selector!.IsProven) switch
             {
-                foreach (var pair in Pair(openBucket, closedBucket))
-                    yield return pair;
-            }
+                (false, true) => second,
+                (true, false) => first,
+                _ => string.CompareOrdinal(second.Selector.Text, first.Selector.Text) < 0 ? second : first
+            };
 
-            foreach (var pair in Pair(openBucket, closed.Wildcard))
-                yield return pair;
+    /// <summary>How two resources meet (<see cref="Meets"/>), oriented as the pair is enumerated.</summary>
+    /// <param name="Enumeration">The enumeration that produces the pair.</param>
+    /// <param name="First">The pair's first resource: the wildcard of a wildcard pair on one region, the open side of a pair across an
+    /// alias group, the first resource asked about otherwise.</param>
+    /// <param name="Second">The pair's other resource.</param>
+    /// <param name="Reported">The resource the pair is named by: one of the two.</param>
+    internal sealed record Meeting(PairEnumeration Enumeration, AccessResource First, AccessResource Second, AccessResource Reported);
+
+    /// <summary>
+    /// Whether two resources meet, and which of them names their pair: the one rule the index enumerates and the tests' reference
+    /// asks (R3, ADR 0010, TD-042, TD-075). A resource is a base and a chain of struct members below it: a field's base is its region
+    /// and its chain the region's field and every struct field below it, empty for a box's whole storage; a cell's base is its
+    /// collection, however the field holding it is named, with its selector, and its chain the struct fields below the cell; a
+    /// collection's structure is its collection alone and meets only itself and the wildcard (ADR 0010). Two resources meet when
+    /// their bases meet — one resource; one region; one collection, cells compared by selector overlap; an open and a closed region of
+    /// one alias group, cells by the path to the collection and the selector's text — and either chain is a prefix of the other: an
+    /// access to the whole of a struct meets one to any field below it. Only a struct's storage is continued below, so the shorter
+    /// chain of two that differ always ends at one. The wildcard of TD-042 meets every resource of its region and, across an alias
+    /// group, every resource of the other region.
+    /// <para>A pair is named as before for one length — the shared resource, <see cref="ReportedCell"/>'s for two cells, the closed
+    /// side's across an alias group — and by the longer path for two; a pair with the wildcard by the wildcard on one region and by
+    /// the closed side's resource across an alias group.</para>
+    /// </summary>
+    /// <param name="one">One resource.</param>
+    /// <param name="other">The other resource.</param>
+    /// <param name="heap">The heap whose regions say which are open and which group they are of.</param>
+    internal static Meeting? Meets(AccessResource one, AccessResource other, HeapSolution heap)
+    {
+        if (one.Scope != other.Scope)
+            return null;
+        if (one.Identity == other.Identity)
+            return new Meeting(one.IsWildcard ? PairEnumeration.Wildcard : PairEnumeration.Resource, one, other, one);
+        // Two cells of one collection meet where their selectors may name one cell, however the collection is reached (TD-075).
+        if (one.Selector is { } selector && other.Selector is { } otherSelector && CollectionKey(one) == CollectionKey(other))
+        {
+            return selector.MayOverlap(otherSelector) && Continues(one, other)
+                ? new Meeting(PairEnumeration.Resource, one, other, ReportedCell(one, other))
+                : null;
         }
 
-        foreach (var closedBucket in closed.Resources.Append(closed.Wildcard))
+        var wildcard = one.IsWildcard || other.IsWildcard;
+        if (one.RegionId == other.RegionId)
         {
-            foreach (var pair in Pair(open.Wildcard, closedBucket))
-                yield return pair;
+            if (wildcard)
+            {
+                var (first, second) = one.IsWildcard ? (one, other) : (other, one);
+                return new Meeting(PairEnumeration.Wildcard, first, second, first);
+            }
+
+            return IsField(one) && IsField(other) && Length(one) != Length(other) && Continues(one, other)
+                ? new Meeting(PairEnumeration.Resource, one, other, Longer(one, other))
+                : null;
+        }
+
+        var (oneRegion, otherRegion) = (heap.Regions[one.RegionId!], heap.Regions[other.RegionId!]);
+        if (oneRegion.Group != otherRegion.Group || oneRegion.IsOpen == otherRegion.IsOpen)
+            return null;
+        var (open, closed) = oneRegion.IsOpen ? (one, other) : (other, one);
+        if (wildcard || open.Member.Identity == closed.Member.Identity && open.AccessPath.SequenceEqual(closed.AccessPath))
+            return new Meeting(PairEnumeration.OpenRegion, open, closed, closed);
+        // Two cells continue each other only below one field and one selector, as their paths up to the cell say.
+        var continued = IsField(open) && IsField(closed) ||
+                        open.Selector is not null && closed.Selector is not null && open.Member.Identity == closed.Member.Identity &&
+                        open.AccessPath.Take(open.AccessPath.Count - open.StructPath.Count)
+                            .SequenceEqual(closed.AccessPath.Take(closed.AccessPath.Count - closed.StructPath.Count));
+        return continued && Length(open) != Length(closed) && Continues(open, closed)
+            ? new Meeting(PairEnumeration.OpenRegion, open, closed, Longer(open, closed))
+            : null;
+    }
+
+    /// <summary>The collection a cell is of, without the cell or the struct fields below it: what two cells must share to meet.</summary>
+    /// <param name="resource">A cell.</param>
+    private static string CollectionKey(AccessResource resource) =>
+        resource.CollectionId is { } collection
+            ? $"{resource.Scope}|{collection}"
+            : $"{resource.Scope}|{resource.Assembly}|{resource.RegionId ?? resource.Region}|{resource.Member.Identity}";
+
+    /// <summary>Whether a resource is a field's storage on its region: no wildcard, no cell, no collection's structure.</summary>
+    /// <param name="resource">The resource.</param>
+    private static bool IsField(AccessResource resource) =>
+        resource is { IsWildcard: false, Selector: null, CollectionId: null };
+
+    /// <summary>How many members a resource's chain has (<see cref="Meets"/>): a field's own and the struct fields below it, none
+    /// for a box's whole storage; for a cell, the struct fields below it.</summary>
+    /// <param name="resource">A resource that is no wildcard.</param>
+    private static int Length(AccessResource resource) => resource.StructPath.Count + Head(resource);
+
+    /// <summary>Whether a resource's chain starts with its own field: a field's storage, save a box's whole storage.</summary>
+    /// <param name="resource">A resource that is no wildcard.</param>
+    private static int Head(AccessResource resource) => resource.Selector is null && resource.Member.Name.Length != 0 ? 1 : 0;
+
+    /// <summary>Whether either chain is a prefix of the other, member by member.</summary>
+    /// <param name="one">One resource.</param>
+    /// <param name="other">The other resource.</param>
+    private static bool Continues(AccessResource one, AccessResource other)
+    {
+        for (var at = 0; at < Math.Min(Length(one), Length(other)); at++)
+        {
+            if (Link(one, at) != Link(other, at))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>The identity of a resource's chain member at a position.</summary>
+    /// <param name="resource">The resource.</param>
+    /// <param name="at">The position, from the outermost member.</param>
+    private static string Link(AccessResource resource, int at) =>
+        at < Head(resource) ? resource.Member.Identity : resource.StructPath[at - Head(resource)].Identity;
+
+    /// <summary>The resource with the longer path of two whose paths differ in length.</summary>
+    /// <param name="one">One resource.</param>
+    /// <param name="other">The other resource.</param>
+    private static AccessResource Longer(AccessResource one, AccessResource other) =>
+        other.AccessPath.Count > one.AccessPath.Count ? other : one;
+
+    private IEnumerable<CandidatePair> OpenAndClosed(RegionBuckets open, RegionBuckets closed)
+    {
+        foreach (var openBucket in open.Resources.Append(open.Wildcard).Where(bucket => bucket.Count != 0))
+        {
+            foreach (var closedBucket in closed.Resources.Append(closed.Wildcard).Where(bucket => bucket.Count != 0))
+            {
+                // Two cells of one collection are the collection's pair, whatever regions hold it.
+                if (Meets(openBucket[0].Resource, closedBucket[0].Resource, _heap) is not { Enumeration: PairEnumeration.OpenRegion } meeting)
+                    continue;
+                var byClosed = ReferenceEquals(meeting.Reported, closedBucket[0].Resource);
+                foreach (var pair in Across(openBucket, closedBucket, (first, second) => byClosed ? second.Resource : first.Resource,
+                                            first => first.Uncertainties, PairEnumeration.OpenRegion))
+                {
+                    yield return pair;
+                }
+            }
         }
     }
 

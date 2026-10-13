@@ -38,6 +38,35 @@ public sealed class CandidateIndexTests
     }
 
     [Fact]
+    public void A_struct_whole_meets_each_field_below_it_and_is_named_by_the_longer_path()
+    {
+        var accesses = new[] { Struct("a", "s"), Struct("a", "s", "X"), Struct("a", "s", "Z"), Write("a", "t"), Struct("b", "s", "X") };
+        var heap = Heap(Static("a"), Static("b"));
+
+        var pairs = Enumerate(heap, accesses);
+        var prefix = pairs.Where(pair => pair.First.Resource.Identity != pair.Second.Resource.Identity).ToArray();
+
+        Assert.Equal([(0, 1), (0, 2)], Keys(prefix, accesses));
+        Assert.All(prefix, pair => Assert.Equal(2, pair.Reported.AccessPath.Count));
+        Assert.All(prefix, pair => Assert.Same(accesses[0], pair.First));
+        Assert.Equal(Keys(pairs, accesses), ReferenceKeys(heap, accesses));
+    }
+
+    [Fact]
+    public void A_struct_whole_meets_each_field_below_it_across_an_alias_group()
+    {
+        var accesses = new[] { Struct("open", "s", "X"), Struct("closed", "s"), Struct("closed", "s", "X"), Struct("closed", "s", "Z") };
+        var heap = Heap(Static("open", GROUP, isOpen: true), Static("closed", GROUP));
+
+        var pairs = Enumerate(heap, accesses).Where(pair => pair.Enumeration == PairEnumeration.OpenRegion).ToArray();
+
+        Assert.Equal([(0, 1), (0, 2)], Keys(pairs, accesses));
+        Assert.All(pairs, pair => Assert.Same(accesses[0], pair.First));
+        Assert.All(pairs, pair => Assert.Equal(["s", "X"], pair.Reported.AccessPath));
+        Assert.Equal(Keys(Enumerate(heap, accesses), accesses), ReferenceKeys(heap, accesses));
+    }
+
+    [Fact]
     public void Two_members_with_one_display_path_are_two_buckets()
     {
         var accesses = new[] { Write("a", "Value", declaring: "Fixture.Base"), Write("a", "Value", declaring: "Fixture.Derived") };
@@ -248,6 +277,23 @@ public sealed class CandidateIndexTests
                                       region, true),
                    AccessOperation.Write, ROOT, symbol, SPAN, [], [], [], [], []) { ExecutionId = EXECUTION };
 
+    /// <summary>A write to a field of a struct the region keeps, with the path through every struct field below it (R1).</summary>
+    /// <param name="region">The region keeping the struct.</param>
+    /// <param name="field">The region's own field the struct is kept in.</param>
+    /// <param name="below">The struct fields the path goes on through, outermost first.</param>
+    private static Access Struct(string region, string field, params string[] below)
+    {
+        var access = Write(region, field);
+        return access with
+        {
+            Resource = access.Resource with
+            {
+                AccessPath = [field, .. below],
+                StructPath = below.Select(name => new MemberKey("Fixture.S", name, IrFieldKind.Field)).ToArray()
+            }
+        };
+    }
+
     private static Access Make(string region, string member, AccessOperation operation, string declaring, string symbol) =>
         new Access(new AccessResource("Fixture", SCOPE, region, [member], new MemberKey(declaring, member, IrFieldKind.Field), region),
                    operation, ROOT, symbol, SPAN, [], [], [], [], []) { ExecutionId = EXECUTION };
@@ -262,7 +308,7 @@ public sealed class CandidateIndexTests
     private static HeapSolution Heap(params HeapRegion[] regions) =>
         new(regions.ToDictionary(region => region.Identity, StringComparer.Ordinal), new Dictionary<string, MethodInstance>(), [], [], [],
             new Dictionary<string, int>(), new HashSet<string>(), [], [], (_, _) => new HashSet<string>(), (_, _) => new HashSet<string>(),
-            (_, _) => new HashSet<string>(), new Dictionary<string, string>(), (_, _) => "", _ => [], _ => new HashSet<string>());
+            new Dictionary<string, string>(), (_, _) => "", _ => [], _ => new HashSet<string>());
 
     private static ExecutionAnalysis Executions() =>
         new([new ExecutionInstance(EXECUTION, ExecutionKind.Root, "root", POLICY, EXECUTION, null)], [], new Dictionary<string, RegionOwnership>(),

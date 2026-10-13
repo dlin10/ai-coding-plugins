@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Ir;
 
 namespace ConcurrencyHunter.Narrative;
 
@@ -216,8 +217,11 @@ public static class NarrativeValidator
                                   .Concat(access.ReadSources.Select(read => read.Symbol))
                                   .Concat(access.ReadSources.SelectMany(read => read.CodeFlow).Concat(access.CodeFlow).Select(CalleeSymbol).OfType<string>()))
                               .ToArray();
+        // The ownership kinds the scope's resources carry, which the resource evidence names, are accepted as they are.
         var exactSymbols = symbols.Select(NormalizeVerbatimIdentifiers)
+                                  .Concat(accesses.Select(access => access.Ownership.ToString()))
                                   .ToHashSet(StringComparer.Ordinal);
+        var paths = scope.Findings.Select(PathTarget).ToArray();
         var suffixTargets = symbols.Select(symbol => WithoutParameters(NormalizeVerbatimIdentifiers(symbol)))
                                     .Concat(scope.Findings.SelectMany(ResourceTargets))
                                     .Concat(accesses.SelectMany(ProtectionTargets))
@@ -228,7 +232,20 @@ public static class NarrativeValidator
         foreach (var backtick in backticks)
         {
             var quoted = backtick.Groups[1].Value.Trim();
-            if (LOCATION_PATTERN.IsMatch(quoted) || !IDENTIFIER_PATTERN.IsMatch(quoted))
+            if (LOCATION_PATTERN.IsMatch(quoted))
+                continue;
+
+            // A path with a selector in brackets or a numbered captured variable names one resource, which a finding of the scope must
+            // hold: its holder with the path, or the end of that path, segment for segment (R10).
+            if (AccessPathParts.ParseNamedPath(quoted) is { } named)
+            {
+                var segments = named.Select(NormalizeSegment).ToArray();
+                if (!paths.Any(path => IsSegmentSuffix(segments, path)))
+                    addReason($"inventedSymbol:{quoted}");
+                continue;
+            }
+
+            if (!IDENTIFIER_PATTERN.IsMatch(quoted))
                 continue;
 
             var normalized = NormalizeVerbatimIdentifiers(quoted);
@@ -246,16 +263,36 @@ public static class NarrativeValidator
         }
     }
 
-    /// <summary>What a narrative may name of the resource: its region's type, and that type with each field of the access
-    /// path. A cell's path ends with the selector, which names no member, so the field before it is what a reader writes
-    /// (TD-043, ADR 0010).</summary>
+    /// <summary>What a narrative may name of the resource as a dotted identifier: its region's type, that type with each field of the
+    /// access path, and that type with the whole path where the path is one. A selector names no member, so the field before it is
+    /// what a reader writes of a cell (TD-043, ADR 0010); a path through a cell or a numbered captured variable is checked against
+    /// <see cref="PathTarget"/>. A closure's declaring member is no type: it stands only before the captured variable (R4).</summary>
+    /// <param name="finding">The finding whose resource is named.</param>
     private static IEnumerable<string> ResourceTargets(Finding finding)
     {
+        var path = AccessPathParts.Of(finding.Resource);
         var regionType = NormalizeVerbatimIdentifiers(RegionType(finding.Resource.Region));
-        yield return regionType;
-        foreach (var segment in finding.Resource.AccessPath.Where(segment => IDENTIFIER_PATTERN.IsMatch(segment)))
+        if (!path.IsClosure)
+            yield return regionType;
+        foreach (var segment in path.Fields.Where(segment => IDENTIFIER_PATTERN.IsMatch(segment)))
             yield return $"{regionType}.{NormalizeVerbatimIdentifiers(segment)}";
+        if (path.Fields.Count > 1 && IDENTIFIER_PATTERN.IsMatch(path.Text))
+            yield return $"{regionType}.{NormalizeVerbatimIdentifiers(path.Text)}";
     }
+
+    /// <summary>The segments a narrative may end a named path with for this finding: its region's type, or a closure's declaring member,
+    /// split at its dots, then every segment of the access path.</summary>
+    /// <param name="finding">The finding whose resource is named.</param>
+    private static string[] PathTarget(Finding finding) =>
+        NormalizeVerbatimIdentifiers(RegionType(finding.Resource.Region)).Split('.')
+            .Concat(finding.Resource.AccessPath.Select(NormalizeSegment))
+            .ToArray();
+
+    /// <summary>A path segment compared as a reader may write it: a field without its verbatim <c>@</c>; a selector exactly, since
+    /// a key's text is the key's own.</summary>
+    /// <param name="segment">The segment.</param>
+    private static string NormalizeSegment(string segment) =>
+        segment.StartsWith('[') ? segment : NormalizeVerbatimIdentifiers(segment);
 
     // A held protection name is a region or member, optionally "<region> as <service type>" and a trailing
     // parenthesized note; a receiver lock reads "this <type>". Each named type or member is a target.
@@ -293,11 +330,15 @@ public static class NarrativeValidator
     }
 
     /// <summary>A region's type: <c>static:T</c>, <c>di:T@Lifetime</c> and <c>alloc:M#T</c> (with or without a trailing
-    /// <c>#n</c>) all give <c>T</c>; the creating method of an <c>alloc:</c> region is not a type.</summary>
+    /// <c>#n</c>) all give <c>T</c>; the creating method of an <c>alloc:</c> region is not a type. A <c>closure:M</c> region gives its
+    /// declaring member <c>M</c> without parameters, which holds the captured variables (R4).</summary>
+    /// <param name="region">The region's display.</param>
     private static string RegionType(string region)
     {
         if (region.StartsWith("static:", StringComparison.Ordinal))
             return region["static:".Length..];
+        if (region.StartsWith(IrClosureCell.REGION_PREFIX, StringComparison.Ordinal))
+            return WithoutParameters(region[IrClosureCell.REGION_PREFIX.Length..]);
         if (region.StartsWith("alloc:", StringComparison.Ordinal))
         {
             var site = region.IndexOf('#');
@@ -344,6 +385,11 @@ public static class NarrativeValidator
                                     targetSegments[offset + item.index],
                                     StringComparison.Ordinal));
     }
+
+    private static bool IsSegmentSuffix(IReadOnlyList<string> candidate, IReadOnlyList<string> target) =>
+        candidate.Count <= target.Count &&
+        candidate.Select((segment, index) => (segment, index))
+                 .All(item => string.Equals(item.segment, target[target.Count - candidate.Count + item.index], StringComparison.Ordinal));
 
     private static string WithoutParameters(string value)
     {

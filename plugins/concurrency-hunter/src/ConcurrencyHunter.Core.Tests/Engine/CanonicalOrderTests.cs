@@ -57,23 +57,30 @@ public sealed class CanonicalOrderTests
     [Fact]
     public void Reached_from_names_the_ordinally_first_execution()
     {
+        // Two workers run the one allocation, so what they start reaches an object of more than one creator: escaped, not tree-confined.
         var heap = Solve("""
             public sealed class Note { public int Value; }
-            public sealed class Worker : BackgroundService
+            public static class Notes
             {
                 private static void A(Note note) { new Thread(() => note.Value = 1).Start(); }
                 private static void Z(Note note) { Task.Run(() => note.Value = 2); }
-                protected override Task ExecuteAsync(CancellationToken token)
-                {
-                    var note = new Note(); Z(note); A(note); return Task.CompletedTask;
-                }
+                public static void Run() { var note = new Note(); Z(note); A(note); }
             }
-            """ + Startup("services.AddHostedService<Worker>();"));
+            public static class Entry { public static void Run() => Notes.Run(); }
+            public sealed class Worker : BackgroundService
+            {
+                protected override Task ExecuteAsync(CancellationToken token) { Entry.Run(); return Task.CompletedTask; }
+            }
+            public sealed class Other : BackgroundService
+            {
+                protected override Task ExecuteAsync(CancellationToken token) { Entry.Run(); return Task.CompletedTask; }
+            }
+            """ + Startup("services.AddHostedService<Worker>(); services.AddHostedService<Other>();"));
         var scope = Scope(heap);
         foreach (var mode in Permutations.Prepend(null))
         {
             var analysis = ExecutionModel.Build(scope, heap.Heap, CancellationToken.None, mode);
-            var region = heap.Region("alloc:Worker.ExecuteAsync(CancellationToken)#Note").Identity;
+            var region = heap.Region("alloc:Notes.Run()#Note").Identity;
             var other = analysis.ExecutionAccesses().Where(access => access.RegionId == region && analysis.Execution(access.ExecutionId).Kind == ExecutionKind.Spawn)
                                 .Select(access => access.ExecutionId).Distinct().Order(StringComparer.Ordinal).First();
             Assert.Equal(OwnershipKind.Escaped, analysis.Ownership[region].Kind);

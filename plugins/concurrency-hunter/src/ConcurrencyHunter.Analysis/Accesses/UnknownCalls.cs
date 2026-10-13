@@ -351,6 +351,8 @@ public static class UnknownCalls
     /// point to and the values its members were handed, never a region of a type from metadata. An immutable object touches nothing, and
     /// a delegate reaches what it captures.
     /// </summary>
+    /// <param name="scope">The scope whose program declares the types of the run's own.</param>
+    /// <param name="heap">The solved heap whose regions and slots the effect reaches.</param>
     public sealed class Reach(ScopeProgram scope, HeapSolution heap)
     {
         private readonly Lazy<IReadOnlyDictionary<string, IReadOnlyList<IrFieldRef>>> _libraryFields = new(() => LibraryFields(scope, heap));
@@ -438,6 +440,7 @@ public static class UnknownCalls
 
         /// <summary>The fields of types from metadata the program names on an object, its own or inherited: what the heap knows of the
         /// state a library type gives it (R1).</summary>
+        /// <param name="regionId">The object's region.</param>
         public IReadOnlyList<IrFieldRef> LibraryFieldsOf(string regionId) => _libraryFields.Value.GetValueOrDefault(regionId) ?? [];
 
         private void Visit(string start, HashSet<string> reached, HashSet<string> visited, string? declaringTypeKey)
@@ -467,9 +470,11 @@ public static class UnknownCalls
                 if (step.IsCollection || restricted?.Count > 0 || restricted is null && step.HasState)
                     reached.Add(regionId);
                 // What a collection holds is in its storages, which the heap holds as it holds any field (ADR 0010, phase 5b second run).
+                // A slot of a struct the object keeps is decided by the field, or the cell, the struct is kept in (R1).
                 foreach (var (slot, targets) in step.Slots)
                 {
-                    if (restricted is null || restricted.Contains(slot) || slot == PathValue.KEPT || step.IsCollection && PathValue.IsStorage(slot))
+                    var root = FieldSlot.Root(slot);
+                    if (restricted is null || restricted.Contains(root) || root == PathValue.KEPT || step.IsCollection && PathValue.IsStorage(root))
                     {
                         foreach (var target in targets)
                             pending.Push(target);
@@ -491,7 +496,11 @@ public static class UnknownCalls
                 ? new RegionStep(isCollection, true, null, false, [])
                 : region.Kind == HeapRegionKind.Delegate
                     ? new RegionStep(isCollection, false, heap.DelegateCaptures(regionId).ToArray(), false, [])
-                    : new RegionStep(isCollection, false, null, IsSourceObject(regionId) || LibraryFieldsOf(regionId).Count != 0,
+                    // A struct copy is no location and a struct's storage none of its own (R1, R2): the walk goes on through what their
+                    // reference fields hold.
+                    : new RegionStep(isCollection, false, null,
+                                     region.Kind is not (HeapRegionKind.StructCopy or HeapRegionKind.StructStorage) &&
+                                     (IsSourceObject(regionId) || LibraryFieldsOf(regionId).Count != 0),
                                      heap.FieldsOf(regionId).Select(slot => new SlotTargets(slot, heap.PointsTo(regionId, slot).ToArray())).ToArray());
             _steps.Add(regionId, step);
             return step;
@@ -518,12 +527,15 @@ public static class UnknownCalls
 
         /// <summary>The instance fields of types from metadata that the program's own accesses name, directly or through a reference, by
         /// the objects they name them on.</summary>
+        /// <param name="scope">The scope whose program tells a type of the run's own from one from metadata.</param>
+        /// <param name="heap">The solved heap whose instances' accesses name the fields and resolve the objects.</param>
         private static IReadOnlyDictionary<string, IReadOnlyList<IrFieldRef>> LibraryFields(ScopeProgram scope, HeapSolution heap)
         {
             var named = heap.Instances.Values.SelectMany(instance =>
                     instance.Summary.Accesses.Select(access => (Instance: instance, access.Field, access.Bases))
                             .Concat(instance.Summary.ReferenceAccesses.SelectMany(access => access.Targets).OfType<ReferenceCell>()
-                                            .Select(cell => (Instance: instance, cell.Field, cell.Bases))))
+                                            .Select(cell => cell.Leaf())
+                                            .Select(leaf => (Instance: instance, leaf.Field, leaf.Bases))))
                 .Where(item => !item.Field.IsStatic && item.Field.Kind == IrFieldKind.Field &&
                                scope.Program.Type(FieldSlot.TypeKey(item.Field.Assembly, item.Field.ContainingTypeId))?.IsSource != true);
             var fields = new Dictionary<string, Dictionary<string, IrFieldRef>>(StringComparer.Ordinal);

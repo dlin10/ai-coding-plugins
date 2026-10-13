@@ -278,6 +278,21 @@ public sealed record IrBody(string BodyId, IrBodyKind Kind, string OwnerSymbol, 
 public sealed record IrValue(int Id, IrValueKind Kind, string Type, string Name, int SsaVersion)
 {
     public string? SymbolKey { get; init; }
+
+    /// <summary>The type key of the struct whose storage the value names or whose copy it holds, where the analysis follows that
+    /// struct field by field (<see cref="StructStorage"/>): a struct of the program, or a <c>Nullable</c> of one, which keeps the
+    /// struct inline. Null for any other type.</summary>
+    public string? StructTypeKey { get; init; }
+
+    /// <summary>The type key of the object the value refers to, where its type is a reference type or a type parameter not known to be a
+    /// value type: what an effect handed the value may reach through it. Null for a value type, which a value holds by value as a copy
+    /// (<see cref="StructStorage"/>), for a pointer, and for a value with no type, such as <c>null</c>.</summary>
+    public string? ObjectTypeKey { get; init; }
+
+    /// <summary>Whether the value is a reference to storage rather than what the storage holds: an address the body takes, a
+    /// <c>ref</c> local, the incoming value of a <c>ref</c>, <c>in</c> or <c>out</c> parameter, or what a call returns by
+    /// reference where it is used as one.</summary>
+    public bool IsReference { get; init; }
 }
 
 public sealed record IrParameter(string Name, string Type, IrRefKind RefKind, int Ordinal, int Value);

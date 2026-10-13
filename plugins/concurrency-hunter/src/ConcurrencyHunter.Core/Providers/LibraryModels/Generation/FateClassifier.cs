@@ -390,6 +390,12 @@ public static class FateClassifier
 
             foreach (var access in run.Executions!.Accesses.Where(access => access.Access is { Kind: SummaryAccessKind.Store, Field.IsStatic: true }))
                 At(SlotOf(access.Access.Field)).UnionWith(access.Access.Values.SelectMany(value => heap.Resolve(access.InstanceId, value)));
+            // A field of a struct a static field keeps is the static storage's slot through the struct (R1).
+            foreach (var access in run.Executions.Accesses.Where(access => access.Access.Kind == SummaryAccessKind.Store &&
+                                                                         access.Slot.Contains(FieldSlot.PATH_SEPARATOR) &&
+                                                                         heap.Regions.TryGetValue(access.RegionId, out var region) &&
+                                                                         region.Kind == HeapRegionKind.Static))
+                At(access.Slot).UnionWith(access.Access.Values.SelectMany(value => heap.Resolve(access.InstanceId, value)));
             foreach (var edge in heap.Edges)
             {
                 if (!heap.Instances.TryGetValue(edge.CallerInstance, out var caller) || !heap.Instances.TryGetValue(edge.CalleeInstance, out var callee))

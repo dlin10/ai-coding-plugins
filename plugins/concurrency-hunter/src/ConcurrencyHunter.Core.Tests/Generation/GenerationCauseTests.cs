@@ -58,21 +58,23 @@ public sealed class GenerationCauseTests
     }
 
     [Theory]
-    [InlineData("public struct Cell { public object Value; public string Show() => Value.ToString(); }", "M:Lib.Cell.Show", "Lib.Cell.Value")]
-    [InlineData("public struct Pair { public object A; } public static class Api { public static string Show(Pair pair) => pair.A.ToString(); }",
-                "M:Lib.Api.Show(Lib.Pair)", "Lib.Pair.A")]
-    [InlineData("public readonly struct Pair { private readonly object _a; public Pair(int n) { _a = null; } public string Show() => _a.ToString(); }",
-                "M:Lib.Pair.Show", "Lib.Pair._a")]
+    [InlineData("public struct Pair { public object A; } public sealed class Keeper { public readonly Pair Pair; } " +
+                "public static class Api { public static string Show(Keeper keeper) => keeper.Pair.A.ToString(); }", "M:Lib.Api.Show(Lib.Keeper)", "Lib.Pair.A")]
+    [InlineData("public sealed class Keeper { public Pair Pair { get; set; } } public struct Pair { public object A; } " +
+                "public static class Api { public static string Show(Keeper keeper) => keeper.Pair.A.ToString(); }", "M:Lib.Api.Show(Lib.Keeper)", "Lib.Pair.A")]
+    [InlineData("public struct Pair { public object A; } public struct Wrapper { public readonly Pair Pair; public string Show() => Pair.A.ToString(); }",
+                "M:Lib.Wrapper.Show", "Lib.Pair.A")]
     [InlineData("public sealed class Node { public object Item; public void Remove() { Item = null; } } " +
                 "public struct Registration { private Node _node; public void Unregister() { _node?.Remove(); } }", "M:Lib.Registration.Unregister",
                 "Lib.Registration._node")]
-    [InlineData("public struct Two<T1, T2> { public T1 Item1; public T2 Item2; public bool Same(Two<T1, T2> other) => object.Equals(Item1, other.Item1); }",
-                "M:Lib.Two`2.Same(Lib.Two{`0,`1})", "Item1")]
+    [InlineData("public struct Deep { public object A; } public struct Inner { public Deep Deep; } public struct Outer { public Inner Inner; } " +
+                "public static class Api { public static string Show(Outer outer) => outer.Inner.Deep.A.ToString(); }", "M:Lib.Api.Show(Lib.Outer)", "Lib.Deep.A")]
     public void A_read_of_a_reference_field_of_a_struct_input_is_incomplete(string types, string id, string field)
     {
-        // The heap keeps no object for a struct value, so whatever a reference field of a struct input holds — the user's object,
-        // or the library's own, which the program's struct holds and the driver's default does not
-        // (CancellationTokenRegistration.Unregister) — the member reads as nothing: it gets no model.
+        // Setup seeds a struct input in place, as an object's fields (R8), but what a copy holds — a readonly field's struct, a
+        // property's —, what lies past an argument's depth, and the library's own object a program's struct holds where the driver's
+        // default holds nothing (CancellationTokenRegistration.Unregister) stay unseeded: the member would read them as nothing, so it
+        // gets no model.
         var answer = Answer(types, id);
 
         Assert.Equal(ModelReasons.INCOMPLETE, answer.ModelReason);
@@ -95,19 +97,62 @@ public sealed class GenerationCauseTests
     }
 
     [Theory]
-    [InlineData("public sealed class StructComparer<T> where T : struct, IComparable<T> { " +
+    [InlineData("public interface IMake { static abstract object Make(); } public sealed class StructComparer<T> where T : struct, IComparable<T>, IMake { " +
                 "public int Compare(T? x, T? y) => x.HasValue && y.HasValue ? x.Value.CompareTo(y.Value) : 0; }",
                 "M:Lib.StructComparer`1.Compare(System.Nullable{`0},System.Nullable{`0})")]
-    [InlineData("public static class Api { public static bool Same<T>(T x, object y) where T : struct => x.Equals(y); }",
+    [InlineData("public interface IMake { static abstract object Make(); } " +
+                "public static class Api { public static bool Same<T>(T x, object y) where T : struct, IMake => x.Equals(y); }",
                 "M:Lib.Api.Same``1(``0,System.Object)")]
     public void A_type_parameter_constrained_to_a_struct_has_no_driver(string types, string id)
     {
-        // NullableComparer<T>.Compare: a user's struct compares itself on what it holds, the user's objects; an int never shows it,
-        // and the heap keeps no object for a struct to stand for it.
+        // A user's struct compares itself on what it holds, the user's objects, which an int never shows: only a probe struct stands
+        // for it (R9), and none implements an interface with a static abstract member, so the member has no driver.
         var answer = Answer(types, id);
 
         Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, answer.Reason);
         Assert.Contains("constrained to struct", answer.Detail);
+    }
+
+    private const string VALUE_TWIN = "public sealed class Comparer<T> where T : IComparable<T> { public int Compare(T x, T y) => x.CompareTo(y); }";
+    private const string VALUE_TWIN_ID = "M:Lib.Comparer`1.Compare(`0,`0)";
+
+    [Theory]
+    [InlineData("public sealed class NullableComparer<T> where T : struct, IComparable<T> { public int Compare(T? x, T? y) => x.Value.CompareTo(y.Value); }",
+                "M:Lib.NullableComparer`1.Compare(System.Nullable{`0},System.Nullable{`0})", VALUE_TWIN, VALUE_TWIN_ID)]
+    [InlineData("public sealed class NullableComparer<T> where T : struct, IComparable<T> { " +
+                "public int Compare(T? x, T? y) => x.GetValueOrDefault().CompareTo((T)y); }",
+                "M:Lib.NullableComparer`1.Compare(System.Nullable{`0},System.Nullable{`0})", VALUE_TWIN, VALUE_TWIN_ID)]
+    [InlineData("public sealed class NullableComparer<T> where T : struct, IComparable<T> { " +
+                "public int Compare(T x, T y) { T? held = x; T? other = new T?(y); return held.Value.CompareTo(other.Value); } }",
+                "M:Lib.NullableComparer`1.Compare(`0,`0)", VALUE_TWIN, VALUE_TWIN_ID)]
+    [InlineData("public sealed class NullableComparer<T> where T : struct, IComparable<T> { " +
+                "public int Compare(T? x, T y) => x.GetValueOrDefault(y).CompareTo(y); }",
+                "M:Lib.NullableComparer`1.Compare(System.Nullable{`0},`0)", VALUE_TWIN, VALUE_TWIN_ID)]
+    [InlineData("public sealed class PairComparer<T> where T : IComparable<T> { " +
+                "public int Compare(System.Collections.Generic.KeyValuePair<T, T> x) => x.Key.CompareTo(x.Value); }",
+                "M:Lib.PairComparer`1.Compare(System.Collections.Generic.KeyValuePair{`0,`0})",
+                "public sealed class Two<T> { public T Key; public T Value; } " +
+                "public sealed class PairComparer<T> where T : IComparable<T> { public int Compare(Two<T> x) => x.Key.CompareTo(x.Value); }",
+                "M:Lib.PairComparer`1.Compare(Lib.Two{`0})")]
+    [InlineData("public sealed class PairComparer<T> where T : IComparable<T> { " +
+                "public int Compare(T x, T y) { var pair = new System.Collections.Generic.KeyValuePair<T, T>(x, y); return pair.Key.CompareTo(pair.Value); } }",
+                "M:Lib.PairComparer`1.Compare(`0,`0)", VALUE_TWIN, VALUE_TWIN_ID)]
+    [InlineData("public sealed class PairComparer<T> where T : IComparable<T> { " +
+                "public int Compare(T x, T y) { var (key, value) = System.Collections.Generic.KeyValuePair.Create(x, y); return key.CompareTo(value); } }",
+                "M:Lib.PairComparer`1.Compare(`0,`0)", VALUE_TWIN, VALUE_TWIN_ID)]
+    public void A_value_a_nullable_or_a_pair_holds_answers_as_the_value_itself(string types, string id, string twinTypes, string twinId)
+    {
+        // A Nullable holds its value and a KeyValuePair its key and value as a struct holds its fields (R1, R2): what Value, Key or a
+        // deconstruction gives back is the user's object it was made from, whose CompareTo runs as it runs on the object itself, or on
+        // the object a class holding a key and a value holds.
+        var answer = Answer(types, id);
+        var twin = Answer(twinTypes, twinId);
+
+        Assert.False(answer.Model is { Effects.Count: 0 }, $"{answer.Member} answers {{}}");
+        Assert.Equal((twin.Reason, twin.ModelReason), (answer.Reason, answer.ModelReason));
+        Assert.True(twin.Causes.Select(cause => cause.Code).SequenceEqual(answer.Causes.Select(cause => cause.Code)),
+                    string.Join(" | ", answer.Causes.Select(cause => $"{cause.Code}: {cause.Detail}")) + " || twin " +
+                    string.Join(" | ", twin.Causes.Select(cause => $"{cause.Code}: {cause.Detail}")));
     }
 
     [Fact]
@@ -284,13 +329,15 @@ public sealed class GenerationCauseTests
     public void A_struct_receivers_own_override_runs_in_the_call()
     {
         // The driver's receiver is a struct in a static field, which has no object for a dispatch to find: the call once ran nothing,
-        // and the answer was {} whatever the body did.
+        // and the answer was {} whatever the body did. The override runs on the receiver's storage, which setup seeds in place: it hands
+        // the seed in Item to code the analysis does not see.
         var answer = Answer("public struct Pair<T1, T2> { public T1 Item1; public T2 Item2; public override int GetHashCode() => Item1.GetHashCode(); } " +
                             "public struct Mark { public object Item; public override string ToString() { Sink.Take(Item); return \"m\"; } }",
                             "M:Lib.Mark.ToString");
 
         Assert.Null(answer.Model);
-        Assert.Equal(ModelReasons.INCOMPLETE, answer.ModelReason);
+        Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+        Assert.Contains("Lib.Sink.Take", Cause(answer, ModelCauses.PROBE_HANDED_TO_UNSEEN).Detail);
     }
 
     [Fact]
@@ -512,7 +559,8 @@ public sealed class GenerationCauseTests
     [Fact]
     public void A_load_of_an_unseeded_field_names_the_field()
     {
-        var answer = Answer("public struct Part { public object Value; } public sealed class Options { public Part Part; } " +
+        // A readonly field's struct is a copy setup cannot write in place, so what it holds stays unseeded.
+        var answer = Answer("public struct Part { public object Value; } public sealed class Options { public readonly Part Part; } " +
                             "public static class Api { public static void Read(Options options, Action done) { _ = options.Part.Value; done(); } }",
                             "M:Lib.Api.Read(Lib.Options,System.Action)");
 
@@ -588,6 +636,41 @@ public sealed class GenerationCauseTests
 
         Assert.Equal(1, formatted);
         Assert.Equal("value-unnamed: evidence 1", Assert.Single(causes.All).ToString());
+    }
+
+    /// <summary>A call whose receiver can only be what a call with no body put into library state runs code the analysis does not see:
+    /// the member is refused naming the call and the extern, whatever the route — an interface call, a delegate call —, while the same
+    /// state filled by code the analysis sees still gives a model.</summary>
+    /// <param name="filled">The expression the library state's initializer fills it with.</param>
+    /// <param name="call">The call the member makes on that state.</param>
+    /// <param name="refused">Whether the member is refused as one that calls code the analysis does not see.</param>
+    [Theory]
+    [InlineData("(IRunner)Factory.Create()", "State<object>.Runner.Run()", true)]
+    [InlineData("(Action)Factory.Create()", "State<object>.Act()", true)]
+    [InlineData("new Runner()", "State<object>.Runner.Run()", false)]
+    [InlineData("new Action(() => { })", "State<object>.Act()", false)]
+    public void A_call_on_library_state_an_extern_filled_is_refused(string filled, string call, bool refused)
+    {
+        // A get-only static the driver cannot seed, as Comparer<T>.Default is: what fills it is all it ever holds.
+        var property = call.Contains(".Act(", StringComparison.Ordinal) ? "Action Act" : "IRunner Runner";
+        var answer = Answer("public interface IRunner { void Run(); } public sealed class Runner : IRunner { public void Run() { } } " +
+                            "public static class Factory { public static extern object Create(); } " +
+                            $"public static class State<T> {{ public static {property} {{ get; }} = {filled}; }} " +
+                            $"public static class Api {{ public static void Use(object o) => {call}; }}",
+                            "M:Lib.Api.Use(System.Object)");
+
+        if (refused)
+        {
+            Assert.Equal(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+            var detail = Cause(answer, ModelCauses.CALL_RECEIVER_UNFOLLOWED).Detail;
+            Assert.Contains("Lib.Factory.Create", detail);
+            Assert.Contains("M:Lib.Api.Use(System.Object)", detail);
+        }
+        else
+        {
+            Assert.True(answer.Model is not null, string.Join(" | ", answer.Causes));
+            Assert.DoesNotContain(answer.Causes, cause => cause.Code == ModelCauses.CALL_RECEIVER_UNFOLLOWED);
+        }
     }
 
     /// <summary>The answer for one member of a fixture library, checked against what every answer with causes holds: each code is

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
@@ -68,7 +69,20 @@ public enum HeapRegionKind
     Container,
     Provider,
     Symbolic,
-    Task
+    Task,
+
+    /// <summary>The storage a struct occupies in its holder (R1): part of the holder, never an object of its own. Its slots are the
+    /// holder's slots below <see cref="HeapRegion.HolderSlot"/>, and no access reaches it as a resource of its own.</summary>
+    StructStorage,
+
+    /// <summary>A copy of a struct held by value — in a local, a by-value parameter, a result (R2): no location, so no access reaches it
+    /// as a resource. Its slots are what the copy's reference fields hold.</summary>
+    StructCopy,
+
+    /// <summary>The closure of a member (R4): one per instance of the member, created where that instance runs, as an allocation of
+    /// the member is. Its slots are the capture cells of the variables of the member its lambdas and local functions capture.
+    /// <see cref="HeapRegion.SiteBodyId"/> names the member's body.</summary>
+    Closure
 }
 
 /// <summary>One object or set of objects. <see cref="Identity"/> includes the context; <see cref="Display"/> never does.
@@ -92,6 +106,14 @@ public sealed record HeapRegion(string Identity, HeapRegionKind Kind, string Dis
     public bool HasExactType { get; init; }
     /// <summary>The context-free identity of an object a model creates for a destination and path, when it uses that vocabulary.</summary>
     public string? ModelCreationKey { get; init; }
+
+    /// <summary>For a struct's storage (<see cref="HeapRegionKind.StructStorage"/>), the region holding it: an object, a static
+    /// storage, an array or a struct copy, never another struct's storage.</summary>
+    public string? Holder { get; init; }
+
+    /// <summary>For a struct's storage, the slot path it occupies in <see cref="Holder"/>: a field's slot, or <c>[]</c> for a cell, then
+    /// each struct field below it (<see cref="FieldSlot.Join"/>).</summary>
+    public string? HolderSlot { get; init; }
 }
 
 /// <summary>An instantiation of a body: its context, type substitution and the regions its receiver and parameters point to.
@@ -105,10 +127,15 @@ public sealed record HeapRegion(string Identity, HeapRegionKind Kind, string Dis
 /// <param name="Summary">The body's summary.</param>
 /// <param name="Receivers">The regions its receiver points to.</param>
 /// <param name="Parameters">The regions each parameter points to, by ordinal.</param>
-/// <param name="CellOwners">The instances whose capture cells hold the variables its body captures.</param>
+/// <param name="CellOwners">The member-body instances whose closures hold the capture cells of the variables its body captures.</param>
 public sealed record MethodInstance(string Id, string BodyId, string Context, IReadOnlyDictionary<string, string> Substitution,
                                     bool IsMerged, bool IsReceiverless, MethodSummary Summary, IReadOnlySet<string> Receivers,
-                                    IReadOnlyDictionary<int, IReadOnlySet<string>> Parameters, IReadOnlySet<string> CellOwners);
+                                    IReadOnlyDictionary<int, IReadOnlySet<string>> Parameters, IReadOnlySet<string> CellOwners)
+{
+    /// <summary>The instances of lambdas and local functions — this one's own among them, when it is one — whose closures hold the
+    /// capture cells of the variables those bodies declare and this body reaches (<see cref="IrClosureCell.Body"/>).</summary>
+    public IReadOnlySet<string> NestedCellOwners { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+}
 
 public sealed record CallEdge(string CallerInstance, int OperationId, string CalleeInstance, string Reason);
 
@@ -336,7 +363,6 @@ public sealed class HeapSolution
 {
     private readonly Func<string, AbstractValue, IReadOnlySet<string>> _resolve;
     private readonly Func<string, string, IReadOnlySet<string>> _load;
-    private readonly Func<string, string, IReadOnlySet<string>> _cell;
     private readonly Func<string, IrFieldRef, string> _staticRegion;
     private readonly Func<string, IReadOnlyList<string>> _fieldsOf;
     private readonly Func<string, IReadOnlySet<string>> _delegateCaptures;
@@ -347,11 +373,10 @@ public sealed class HeapSolution
                           IReadOnlySet<string> reachableBodies, IReadOnlyList<string> loweredNotReached,
                           IReadOnlyList<(string BodyId, int OperationId)> noReceiverObjects,
                           Func<string, AbstractValue, IReadOnlySet<string>> resolve, Func<string, string, IReadOnlySet<string>> load,
-                          Func<string, string, IReadOnlySet<string>> cell, IReadOnlyDictionary<string, string> rootInstances,
+                          IReadOnlyDictionary<string, string> rootInstances,
                           Func<string, IrFieldRef, string> staticRegion, Func<string, IReadOnlyList<string>> fieldsOf,
                           Func<string, IReadOnlySet<string>> delegateCaptures)
     {
-        _cell = cell;
         RootInstances = rootInstances;
         _staticRegion = staticRegion;
         _fieldsOf = fieldsOf;
@@ -539,7 +564,23 @@ public sealed class HeapSolution
     /// <param name="regionId">The region.</param>
     public IReadOnlyList<string> FieldsOf(string regionId) => _fieldsOf(regionId);
 
-    /// <summary>The regions a delegate region captures: its receiver and the cells of the variables it closes over.</summary>
+    /// <summary>The storage an access to a slot of a region reaches (R1, R2): a slot of a struct's storage is its holder's slot below the
+    /// storage's path, through every struct's storage that holds another — one a query names after the solve may still stand on the
+    /// storage of the struct around it — a slot of a struct copy, or of a storage a copy holds, is no location at all (null), and any
+    /// other region keeps its own slot. Every reader that takes an access's region for a location asks here.</summary>
+    /// <param name="regionId">The region the access's base resolves to.</param>
+    /// <param name="slot">The slot of that region the access names, empty for its whole storage.</param>
+    /// <param name="copies">Whether a struct copy stands as the value it is, for a reader that asks what a field of it holds rather than
+    /// where an access is.</param>
+    public (string Region, string Slot)? Located(string regionId, string slot, bool copies = false)
+    {
+        while (Regions.TryGetValue(regionId, out var region) && region.Kind == HeapRegionKind.StructStorage)
+            (regionId, slot) = (region.Holder!, FieldSlot.Join(region.HolderSlot!, slot));
+        return !copies && Regions.TryGetValue(regionId, out var holder) && holder.Kind == HeapRegionKind.StructCopy ? null : (regionId, slot);
+    }
+
+    /// <summary>The regions a delegate region captures: its receiver, the closures it closes over and what their cells of the variables it
+    /// closes over hold.</summary>
     /// <param name="regionId">The delegate region.</param>
     public IReadOnlySet<string> DelegateCaptures(string regionId) => _delegateCaptures(regionId);
 
@@ -556,10 +597,24 @@ public sealed class HeapSolution
     /// <param name="field">The field: a slot key, <c>[]</c>, or a bare field name.</param>
     public IReadOnlySet<string> PointsTo(string regionId, string field) => _load(regionId, field);
 
-    /// <summary>The regions the capture cell of a symbol key in a member-body instance points to.</summary>
-    /// <param name="ownerInstanceId">The member-body instance owning the cell.</param>
-    /// <param name="symbolKey">The captured symbol's key.</param>
-    public IReadOnlySet<string> Cell(string ownerInstanceId, string symbolKey) => _cell(ownerInstanceId, symbolKey);
+    /// <summary>The closure region of a member-body instance (R4), null when the instance made none: its slots are the capture cells of
+    /// the member's variables, whose objects <see cref="PointsTo"/> gives by the cell's slot.</summary>
+    /// <param name="ownerInstanceId">The member-body instance owning the closure.</param>
+    public string? Closure(string ownerInstanceId) =>
+        WholeProgram.ClosureIdentity(ownerInstanceId) is var closure && Regions.ContainsKey(closure) ? closure : null;
+
+    /// <summary>The instances, or the root standing for a member's invocation, whose closures hold a capture cell an instance reads or
+    /// writes (R4) (<see cref="WholeProgram.ClosureOwners"/>).</summary>
+    /// <param name="instance">The instance.</param>
+    /// <param name="cell">The capture cell.</param>
+    public IEnumerable<string> ClosureOwners(MethodInstance instance, IrClosureCell cell) =>
+        WholeProgram.ClosureOwners(instance.CellOwners, instance.NestedCellOwners, cell.Body, owner => Instances.GetValueOrDefault(owner)?.BodyId);
+
+    /// <summary>The closures holding a capture cell an instance reads or writes (R4), by their identities.</summary>
+    /// <param name="instance">The instance.</param>
+    /// <param name="cell">The capture cell.</param>
+    public IEnumerable<string> ClosuresOf(MethodInstance instance, IrClosureCell cell) =>
+        ClosureOwners(instance, cell).Select(WholeProgram.ClosureIdentity);
 }
 
 /// <summary>The regions of a solved heap: those the solve made, in its order, for every enumeration and count, and also those queries
@@ -592,6 +647,28 @@ public static partial class WholeProgram
     public static HeapSolution Solve(ScopeProgram program, AnalysisLimits limits, CancellationToken cancellationToken) =>
         Solve(program, limits, cancellationToken, new());
 
+    /// <summary>The identity of the closure region of a member-body instance (R4): one per instance, as an allocation region is one per
+    /// instance and site.</summary>
+    /// <param name="ownerInstanceId">The member-body instance.</param>
+    public static string ClosureIdentity(string ownerInstanceId) => $"closure|{ownerInstanceId}";
+
+    /// <summary>The slot of a closure a capture cell is (R4).</summary>
+    /// <param name="cell">The capture cell.</param>
+    public static string ClosureSlot(IrClosureCell cell) => FieldSlot.Key(cell.Field);
+
+    /// <summary>The owners whose closures hold a capture cell for an instance or a delegate reaching it (R4): each run of the body declaring
+    /// the variable creates its closure, as an allocation made there is created, so they are the member's instances — or the root standing
+    /// for its invocation — for a variable the ordinary member declares, and the instances of the lambda or the local function declaring
+    /// it otherwise. Every reader of a cell's closures asks here.</summary>
+    /// <param name="cellOwners">The member-body owners reached.</param>
+    /// <param name="nestedOwners">The lambda and local-function instances reached.</param>
+    /// <param name="body">The lambda or local function declaring the cell's variable, null for the ordinary member
+    /// (<see cref="IrClosureCell.Body"/>).</param>
+    /// <param name="bodyOf">The body an instance runs, null for an id that is no instance.</param>
+    internal static IEnumerable<string> ClosureOwners(IEnumerable<string> cellOwners, IEnumerable<string> nestedOwners, string? body,
+                                                      Func<string, string?> bodyOf) =>
+        body is null ? cellOwners : nestedOwners.Where(owner => bodyOf(owner) == body);
+
     internal static HeapSolution Solve(ScopeProgram program, AnalysisLimits limits, CancellationToken cancellationToken, SolverWorklistOptions options) =>
         new Solver(program, limits, cancellationToken, options).Run();
 
@@ -619,14 +696,53 @@ public static partial class WholeProgram
             : "root-scope";
     }
 
+    /// <summary>A region's identity as the solve holds it: one object per identity, numbered densely in the order the solve first names
+    /// it, so every set, map and read key of the solve hashes the number and compares the reference. Two of them are equal exactly when
+    /// their identities are. The identity is what leaves the solve, and what an interpolation of one writes.</summary>
+    /// <param name="Id">The number.</param>
+    /// <param name="Identity">The identity.</param>
+    private sealed record RegionRef(int Id, string Identity)
+    {
+        public bool Equals(RegionRef? other) => ReferenceEquals(this, other);
+        public override int GetHashCode() => Id;
+        public override string ToString() => Identity;
+    }
+
+    /// <summary>A region the solve hands back to itself as a value — a fate's input, a held delegate, what work is handed — which evaluates
+    /// to that region as <see cref="RegionValue"/> of its identity would.</summary>
+    /// <param name="Region">The region.</param>
+    private sealed record SolvedRegionValue(RegionRef Region) : AbstractValue;
+
+    /// <summary>The regions the solve made, by their identities, in the order the solve made them: what leaves the solve of its own
+    /// region map, which it reads as it stands.</summary>
+    /// <param name="regions">The solve's regions.</param>
+    /// <param name="interned">The solve's interned identities.</param>
+    private sealed class RegionsByIdentity(TrackedMap<RegionRef, HeapRegion> regions, IReadOnlyDictionary<string, RegionRef> interned)
+        : IReadOnlyDictionary<string, HeapRegion>
+    {
+        public HeapRegion this[string key] => TryGetValue(key, out var region) ? region : throw new KeyNotFoundException(key);
+        public IEnumerable<string> Keys => regions.Keys.Select(region => region.Identity);
+        public IEnumerable<HeapRegion> Values => regions.Values;
+        public int Count => regions.Count;
+        public bool ContainsKey(string key) => interned.TryGetValue(key, out var region) && regions.ContainsKey(region);
+        public bool TryGetValue(string key, [MaybeNullWhen(false)] out HeapRegion value)
+        {
+            value = null;
+            return interned.TryGetValue(key, out var region) && regions.TryGetValue(region, out value);
+        }
+        public IEnumerator<KeyValuePair<string, HeapRegion>> GetEnumerator() =>
+            regions.Select(pair => new KeyValuePair<string, HeapRegion>(pair.Key.Identity, pair.Value)).GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
     /// <summary>A factory or instance registration's region: the scope its factory runs for, the factory instances, and whether
     /// its object fell back to the region itself because nothing flowed to it.</summary>
     /// <param name="region">The registration's region.</param>
     /// <param name="registration">The registration.</param>
     /// <param name="scope">The scope its factory runs for.</param>
-    private sealed class RegistrationState(string region, DiRegistration registration, ResolutionScope scope) : ITrackedState
+    private sealed class RegistrationState(RegionRef region, DiRegistration registration, ResolutionScope scope) : ITrackedState
     {
-        internal string Region { get; } = region;
+        internal RegionRef Region { get; } = region;
         internal DiRegistration Registration { get; } = registration;
         internal ResolutionScope Scope { get; } = scope;
         internal TrackedSet<string> Instances { get; } = new(StringComparer.Ordinal);
@@ -650,10 +766,13 @@ public static partial class WholeProgram
         internal bool IsMerged { get; } = isMerged;
         internal bool IsReceiverless { get; } = isReceiverless;
         internal MethodSummary Summary { get; } = summary;
-        internal TrackedSet<string> Receivers { get; } = new(StringComparer.Ordinal);
+        internal TrackedSet<RegionRef> Receivers { get; } = [];
         internal TrackedSet<string> CellOwners { get; } = new(StringComparer.Ordinal);
-        internal TrackedMap<int, TrackedSet<string>> Parameters { get; } = [];
-        internal TrackedMap<int, TrackedSet<string>> CallResults { get; } = [];
+
+        /// <inheritdoc cref="MethodInstance.NestedCellOwners"/>
+        internal TrackedSet<string> NestedCellOwners { get; } = new(StringComparer.Ordinal);
+        internal TrackedMap<int, TrackedSet<RegionRef>> Parameters { get; } = [];
+        internal TrackedMap<int, TrackedSet<RegionRef>> CallResults { get; } = [];
 
         /// <summary>The calls whose result, and the returns of this instance, may come from an origin points-to does not follow.</summary>
         internal TrackedSet<int> UnfollowedCallResults { get; } = [];
@@ -669,14 +788,14 @@ public static partial class WholeProgram
         internal TrackedSet<int> UnresolvedCallTargets { get; } = [];
         private readonly TrackedValue<bool> _returnsUnfollowed = new();
         internal bool ReturnsUnfollowed { get => _returnsUnfollowed.Value; set => _returnsUnfollowed.Value = value; }
-        internal TrackedMap<(int Operation, int Ordinal), TrackedSet<string>> RefResults { get; } = [];
-        internal TrackedSet<string> Returns { get; } = new(StringComparer.Ordinal);
-        internal TrackedMap<int, TrackedSet<(string Region, string Slot)>> ParameterLocations { get; } = [];
-        internal TrackedSet<(string Region, string Slot)> ReturnedLocations { get; } = [];
+        internal TrackedMap<(int Operation, int Ordinal), TrackedSet<RegionRef>> RefResults { get; } = [];
+        internal TrackedSet<RegionRef> Returns { get; } = [];
+        internal TrackedMap<int, TrackedSet<(RegionRef Region, string Slot)>> ParameterLocations { get; } = [];
+        internal TrackedSet<(RegionRef Region, string Slot)> ReturnedLocations { get; } = [];
 
         /// <summary>What an iterator instance's <c>yield return</c>s hand out.</summary>
-        internal TrackedSet<string> Yields { get; } = new(StringComparer.Ordinal);
-        internal TrackedMap<int, TrackedSet<string>> RefParameters { get; } = [];
+        internal TrackedSet<RegionRef> Yields { get; } = [];
+        internal TrackedMap<int, TrackedSet<RegionRef>> RefParameters { get; } = [];
 
         /// <summary>The HTTP invocations, by root id, whose request this instance runs in.</summary>
         internal TrackedSet<string> Requests { get; } = new(StringComparer.Ordinal);
@@ -685,6 +804,7 @@ public static partial class WholeProgram
         {
             Receivers.Attach(key.Member("InstanceState.Receivers"), read, write);
             CellOwners.Attach(key.Member("InstanceState.CellOwners"), read, write);
+            NestedCellOwners.Attach(key.Member("InstanceState.NestedCellOwners"), read, write);
             Parameters.Attach(key.Member("InstanceState.Parameters"), read, write);
             CallResults.Attach(key.Member("InstanceState.CallResults"), read, write);
             UnfollowedCallResults.Attach(key.Member("InstanceState.UnfollowedCallResults"), read, write);
@@ -714,14 +834,22 @@ public static partial class WholeProgram
         internal IReadOnlyList<string> MethodTypeArguments { get; } = methodTypeArguments;
         internal IReadOnlyDictionary<string, string> OwnerSubstitution { get; } = ownerSubstitution;
         internal TrackedSet<string> CellOwners { get; } = new(StringComparer.Ordinal);
-        internal TrackedSet<string> CapturedReceivers { get; } = new(StringComparer.Ordinal);
-        internal TrackedSet<string> CapturedKeys { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>The lambda and local-function instances whose closures hold the capture cells of the variables those bodies declare
+        /// and the delegate reaches (<see cref="MethodInstance.NestedCellOwners"/>).</summary>
+        internal TrackedSet<string> NestedCellOwners { get; } = new(StringComparer.Ordinal);
+        internal TrackedSet<RegionRef> CapturedReceivers { get; } = [];
+
+        /// <summary>The capture cells the delegate reaches, in the closures of its <see cref="CellOwners"/> and
+        /// <see cref="NestedCellOwners"/>.</summary>
+        internal TrackedSet<IrClosureCell> CapturedCells { get; } = [];
 
         public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
         {
             CellOwners.Attach(key.Member("DelegateState.CellOwners"), read, write);
+            NestedCellOwners.Attach(key.Member("DelegateState.NestedCellOwners"), read, write);
             CapturedReceivers.Attach(key.Member("DelegateState.CapturedReceivers"), read, write);
-            CapturedKeys.Attach(key.Member("DelegateState.CapturedKeys"), read, write);
+            CapturedCells.Attach(key.Member("DelegateState.CapturedCells"), read, write);
         }
     }
 
@@ -735,9 +863,9 @@ public static partial class WholeProgram
         internal IrSpawnKind? Kind { get; } = kind;
         internal int CallOperationId { get; } = callOperationId;
         internal IrTimerAction? Action { get; } = action;
-        internal TrackedSet<string> Handles { get; } = new(StringComparer.Ordinal);
-        private readonly TrackedValue<string?> _tail = new();
-        internal string? Tail { get => _tail.Value; set => _tail.Value = value; }
+        internal TrackedSet<RegionRef> Handles { get; } = [];
+        private readonly TrackedValue<RegionRef?> _tail = new();
+        internal RegionRef? Tail { get => _tail.Value; set => _tail.Value = value; }
         internal TrackedSet<(string Instance, SpawnRole Role)> Callees { get; } = [];
 
         public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
@@ -765,16 +893,37 @@ public static partial class WholeProgram
         private readonly ProgramIndex _program;
         private readonly AnalysisLimits _limits;
         private readonly TrackedMap<string, string> _memberOfNestedBody = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, TrackedSet<string>> _capturedKeysOfMember = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, HeapRegion> _regions = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, TrackedList<string>> _groups = new(StringComparer.Ordinal);
-        private readonly TrackedMap<(string Region, string Field), TrackedSet<string>> _fields = [];
-        private readonly TrackedMap<string, TrackedList<string>> _fieldsByRegion = new(StringComparer.Ordinal);
+        private readonly TrackedMap<string, Dictionary<string, IrClosureCell>> _capturedCellsOfMember = new(StringComparer.Ordinal);
+        private readonly TrackedMap<RegionRef, HeapRegion> _regions = [];
+
+        /// <summary>The solve's region identities, each interned once (<see cref="Intern"/>) with the next number: a name, not a fact of the
+        /// solve, which the tracked maps keyed by it record the reads and writes of.</summary>
+        private readonly Dictionary<string, RegionRef> _interned = new(StringComparer.Ordinal);
+
+        /// <summary>The identities queries of the solved heap name that the solve never did. A query leaves the solve's table as it is and
+        /// queries run concurrently, so these are interned apart, numbered below zero.</summary>
+        private readonly ConcurrentDictionary<string, RegionRef> _queryInterned = new(StringComparer.Ordinal);
+        private int _queryIdentities;
+
+        /// <summary>The group and, for a struct's storage, the holder of each region the solve made, as its <see cref="HeapRegion"/> names
+        /// them: set once with the region and read only after the region itself is read.</summary>
+        private readonly Dictionary<RegionRef, (RegionRef Group, RegionRef? Holder)> _links = [];
+        private readonly TrackedMap<RegionRef, TrackedList<RegionRef>> _groups = [];
+        private readonly TrackedMap<(RegionRef Region, string Field), TrackedSet<RegionRef>> _fields = [];
+        private readonly TrackedMap<RegionRef, TrackedList<string>> _fieldsByRegion = [];
+
+        /// <summary>The unions <see cref="Load"/> made of a field over several regions of a group, by region and field. A field set and a
+        /// group only grow while the solve runs, so a set whose size is the one it had when it was joined in adds nothing again. The
+        /// solve's own: a query neither reads nor writes it.</summary>
+        private readonly Dictionary<(RegionRef Region, string Field), LoadedUnion> _loadedUnions = [];
+
+        /// <summary>How many objects a struct copy last added from a slot of a source into a target field set (<see cref="CopyStruct"/>).
+        /// What a source's slot holds only grows while the solve runs, so the same number is the same objects, already in the target.</summary>
+        private readonly Dictionary<(TrackedSet<RegionRef> Target, RegionRef Source, string Slot), int> _copiedSlots = [];
         private readonly TrackedMap<(string Instance, int Operation), TrackedMap<IrLibraryCall, SummaryOpaqueCall>> _keeperCalls = [];
-        private readonly TrackedMap<(string Instance, int Operation, int Keeper), TrackedSet<string>> _libraryKeeping = [];
+        private readonly TrackedMap<(string Instance, int Operation, int Keeper), TrackedSet<RegionRef>> _libraryKeeping = [];
         private readonly TrackedSet<(string Instance, int Operation, int Keeper)> _keptFallbacks = [];
-        private readonly TrackedMap<(string Owner, string Key), TrackedSet<string>> _cells = [];
-        private readonly TrackedMap<string, DelegateState> _delegates = new(StringComparer.Ordinal);
+        private readonly TrackedMap<RegionRef, DelegateState> _delegates = [];
         private readonly TrackedMap<string, InstanceState> _instances = new(StringComparer.Ordinal);
         private readonly TrackedList<string> _instanceOrder = [];
         private readonly TrackedMap<string, int> _contextCounts = new(StringComparer.Ordinal);
@@ -785,25 +934,25 @@ public static partial class WholeProgram
         private readonly TrackedMap<string, TrackedList<(string Caller, int Operation, string Callee, string Reason)>> _edgesByCallee = new(StringComparer.Ordinal);
         private readonly TrackedMap<string, TrackedList<(string Caller, int Operation, string Callee, string Reason)>> _edgesByCaller = new(StringComparer.Ordinal);
         private readonly TrackedMap<(string Caller, int Operation), TrackedList<(string Caller, int Operation, string Callee, string Reason)>> _edgesByCall = [];
-        private readonly TrackedMap<string, CallEdge> _iteratorObjects = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, (string InstanceId, TrackedSet<string> Instances, TrackedSet<string> Regions)> _typeInitializers =
+        private readonly TrackedMap<RegionRef, CallEdge> _iteratorObjects = [];
+        private readonly TrackedMap<string, (string InstanceId, TrackedSet<string> Instances, TrackedSet<RegionRef> Regions)> _typeInitializers =
             new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, TrackedList<string>> _constructions = new(StringComparer.Ordinal);
+        private readonly TrackedMap<RegionRef, TrackedList<string>> _constructions = [];
 
-        /// <summary>The holders the heap knows and what each keeps, by delegate region, <see cref="UNRESOLVED_DELEGATE"/> standing for a
+        /// <summary>The holders the heap knows and what each keeps, by delegate region, <see cref="_unresolvedDelegate"/> standing for a
         /// delegate no delegate object is known for (R4).</summary>
-        private readonly TrackedMap<string, TrackedMap<string, HeldDelegate>> _held = new(StringComparer.Ordinal);
+        private readonly TrackedMap<RegionRef, TrackedMap<RegionRef, HeldDelegate>> _held = [];
 
         /// <summary>What each region's fields point to, built once a pass for the reach of a call's arguments; a pass that changes
         /// nothing reads it whole.</summary>
-        private Dictionary<string, List<string>>? _reachIndex;
+        private Dictionary<RegionRef, List<RegionRef>>? _reachIndex;
 
         /// <summary>The library sequences known calls return, and those a model's value creates, by region (R5).</summary>
-        private readonly TrackedMap<string, SequenceState> _sequences = new(StringComparer.Ordinal);
+        private readonly TrackedMap<RegionRef, SequenceState> _sequences = [];
 
         /// <summary>The groupings a model's value creates: each holds its key in its key storage and yields what its element storage
         /// holds (R5).</summary>
-        private readonly TrackedSet<string> _groupings = new(StringComparer.Ordinal);
+        private readonly TrackedSet<RegionRef> _groupings = [];
 
         private readonly TrackedValue<UnknownCalls.Modelled?> _modelledState = new();
         private UnknownCalls.Modelled? Modelled { get => _modelledState.Value; set => _modelledState.Value = value; }
@@ -814,18 +963,18 @@ public static partial class WholeProgram
             [HeapCounters.REFERENCE_LOOKUPS] = 0,
         };
         private readonly TrackedMap<string, string> _rootInstances = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, ResolutionScope> _providers = new(StringComparer.Ordinal);
-        private readonly TrackedSet<string> _scopeObjects = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, RegistrationState> _registrations = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, string> _factoryInstances = new(StringComparer.Ordinal);
-        private readonly TrackedMap<(string BodyId, int OperationId, string Context), string> _registeredAllocations = [];
-        private readonly TrackedMap<string, TrackedSet<string>> _regionTypes = new(StringComparer.Ordinal);
-        private readonly TrackedSet<(TrackedSet<string> Target, string Region)> _sinks = [];
-        private readonly TrackedMap<string, TrackedList<string>> _uncertainties = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, TrackedList<string>> _collections = new(StringComparer.Ordinal);
-        private readonly TrackedSet<string> _startupRegions = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, TrackedSet<string>> _locatorCreators = new(StringComparer.Ordinal);
-        private readonly TrackedSet<(string InstanceId, int OperationId, string RegionId)> _regionTriggers = [];
+        private readonly TrackedMap<RegionRef, ResolutionScope> _providers = [];
+        private readonly TrackedSet<RegionRef> _scopeObjects = [];
+        private readonly TrackedMap<RegionRef, RegistrationState> _registrations = [];
+        private readonly TrackedMap<string, RegionRef> _factoryInstances = new(StringComparer.Ordinal);
+        private readonly TrackedMap<(string BodyId, int OperationId, string Context), RegionRef> _registeredAllocations = [];
+        private readonly TrackedMap<RegionRef, TrackedSet<string>> _regionTypes = [];
+        private readonly TrackedSet<(TrackedSet<RegionRef> Target, RegionRef Region)> _sinks = [];
+        private readonly TrackedMap<RegionRef, TrackedList<string>> _uncertainties = [];
+        private readonly TrackedMap<RegionRef, TrackedList<RegionRef>> _collections = [];
+        private readonly TrackedSet<RegionRef> _startupRegions = [];
+        private readonly TrackedMap<RegionRef, TrackedSet<string>> _locatorCreators = [];
+        private readonly TrackedSet<(string InstanceId, int OperationId, RegionRef RegionId)> _regionTriggers = [];
         private readonly TrackedMap<(string BodyId, int OperationId), (string BodyId, SummaryOpaqueCall Call)?> _sites = [];
         private readonly TrackedMap<string, DiRegistration[]> _instanceRegistrationsByMember = new(StringComparer.Ordinal);
         private readonly TrackedMap<(string Caller, int Operation), SiteState> _spawns = [];
@@ -833,39 +982,96 @@ public static partial class WholeProgram
         private readonly TrackedMap<(string Caller, int Operation), SiteState> _asyncSpawns = [];
         private readonly TrackedMap<(string Caller, int Operation), (InstanceState Caller, CallTransfer Call)> _receiverlessCalls = [];
         private readonly TrackedSet<(string Caller, int Operation)> _receiverlessFallbacks = [];
-        private readonly TrackedMap<(string Caller, int Operation), TrackedSet<string>> _iteratorMemberReceivers = [];
-        private readonly TrackedMap<(string Instance, int Operation, int Target), TrackedSet<string>> _libraryStored = [];
+        private readonly TrackedMap<(string Caller, int Operation), TrackedSet<RegionRef>> _iteratorMemberReceivers = [];
+        private readonly TrackedMap<(string Instance, int Operation, int Target), TrackedSet<RegionRef>> _libraryStored = [];
         private readonly TypeSafety _typeSafety;
-        private readonly TrackedMap<string, string> _tails = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, TrackedSet<string>> _antecedents = new(StringComparer.Ordinal);
-        private readonly TrackedMap<string, (TrackedSet<string> Members, bool Known)> _taskGroups = new(StringComparer.Ordinal);
+        private readonly TrackedMap<RegionRef, RegionRef> _tails = [];
+        private readonly TrackedMap<RegionRef, TrackedSet<RegionRef>> _antecedents = [];
+        private readonly TrackedMap<RegionRef, (TrackedSet<RegionRef> Members, bool Known)> _taskGroups = [];
 
         /// <summary>The task regions whose completion may be an object the heap does not follow: what completes them is unfollowed where
         /// it is produced, or their producer's code is not seen in full.</summary>
-        private readonly TrackedSet<string> _unfollowedCompletions = new(StringComparer.Ordinal);
+        private readonly TrackedSet<RegionRef> _unfollowedCompletions = [];
 
         /// <summary>The keepers a known call made keep a <c>completion(…)</c> value that may be an object the heap does not follow: what
         /// a later call reads as <c>kept:…</c> of one of them may be such an object (R2).</summary>
-        private readonly TrackedSet<string> _unfollowedKept = new(StringComparer.Ordinal);
+        private readonly TrackedSet<RegionRef> _unfollowedKept = [];
+
+        /// <summary>The struct storage and the copies a copy put a struct into (<see cref="CopyStruct"/>): a <c>Nullable</c> kept there holds
+        /// a value only where one was stored, since storage nothing was stored into holds the default, an empty one, and a copy of it is as
+        /// empty (R2).</summary>
+        private readonly TrackedSet<RegionRef> _filledStorage = [];
+
+        /// <summary>The copies held by value that hold a struct only where a copy put one into them (<see cref="StructCopy.FollowsPresence"/>):
+        /// any other copy holds one wherever it is made (R2).</summary>
+        private readonly TrackedSet<RegionRef> _presenceCopies = [];
 
         /// <summary>The keepers a known call made keep any value that may be an object the heap does not follow. Only a task's completion
         /// reads it: a synchronous <c>kept:…</c> keeps no unknown source of what it names, a rule this set leaves as it is (R2).</summary>
-        private readonly TrackedSet<string> _unfollowedKeptValues = new(StringComparer.Ordinal);
+        private readonly TrackedSet<RegionRef> _unfollowedKeptValues = [];
 
         /// <summary>What completed each task region, for the export only (<see cref="HeapSolution.TaskCompleters"/>): no rule of the solve
         /// reads it.</summary>
-        private readonly TrackedSet<(string Task, TaskCompleter Completer)> _completers = [];
+        private readonly TrackedSet<(RegionRef Task, TaskCompleter Completer)> _completers = [];
         private int _changes;
         private readonly CancellationToken _cancellationToken;
         private readonly TrackedValue<bool> _solvingState = new(true);
         private bool Solving { get => _solvingState.Value; set => _solvingState.Value = value; }
         // Regions that queries of the solved heap named and the solve did not make: no map of the solve holds one.
         private readonly ConcurrentDictionary<string, HeapRegion> _named = new(StringComparer.Ordinal);
+
+        /// <summary>Whether a query has named a region in <see cref="_named"/>: until one has, a lookup of a region need not hash its
+        /// identity there.</summary>
+        private bool _anyNamed;
         private int _queries;
 
         /// <summary>Whether a query of the solved heap is running: it names what the solve did not make and writes nothing (open
         /// question 110).</summary>
         private bool Querying => Volatile.Read(ref _queries) != 0;
+
+        /// <summary>The one <see cref="RegionRef"/> of an identity: the solve's own, made on first naming while the solve runs, or one a
+        /// query names apart, which leaves the solve's table as it is.</summary>
+        /// <param name="identity">The region identity.</param>
+        private RegionRef Intern(string identity)
+        {
+            if (_interned.TryGetValue(identity, out var interned))
+                return interned;
+            if (Querying)
+                return _queryInterned.GetOrAdd(identity, name => new RegionRef(-1 - Interlocked.Increment(ref _queryIdentities), name));
+            interned = new RegionRef(_interned.Count, identity);
+            _interned.Add(identity, interned);
+            return interned;
+        }
+
+        /// <summary>The key a holder keeps a delegate no delegate object is known for under (R4).</summary>
+        private readonly RegionRef _unresolvedDelegate;
+
+        /// <summary>The group a region belongs to, as its <see cref="HeapRegion.Group"/> names it.</summary>
+        /// <param name="regionId">The region.</param>
+        /// <param name="region">What the solve or a query made of it.</param>
+        private RegionRef GroupOf(RegionRef regionId, HeapRegion region) =>
+            _links.TryGetValue(regionId, out var links) ? links.Group : Intern(region.Group);
+
+        /// <summary>The region holding a struct's storage, as its <see cref="HeapRegion.Holder"/> names it.</summary>
+        /// <param name="regionId">The struct's storage.</param>
+        /// <param name="region">What the solve or a query made of it.</param>
+        private RegionRef HolderOf(RegionRef regionId, HeapRegion region) =>
+            _links.TryGetValue(regionId, out var links) && links.Holder is { } holder ? holder : Intern(region.Holder!);
+
+        /// <summary>The identities of regions, in their order, as the solve hands them out.</summary>
+        /// <param name="regions">The regions.</param>
+        private static TrackedSet<string> Identities(IEnumerable<RegionRef> regions) =>
+            regions.Select(region => region.Identity).ToTrackedSet(StringComparer.Ordinal);
+
+        /// <summary>The identities of regions in ordinal order, as the export lists them.</summary>
+        /// <param name="regions">The regions.</param>
+        private static string[] SortedIdentities(IEnumerable<RegionRef> regions) =>
+            regions.Select(region => region.Identity).Order(StringComparer.Ordinal).ToArray();
+
+        /// <summary>Receivers with the types they are seen through, by the identities of the regions, in their order.</summary>
+        /// <param name="receivers">The receivers.</param>
+        private static (string Region, string? DeclaringTypeKey)[] Named(IEnumerable<(RegionRef Region, string? DeclaringTypeKey)> receivers) =>
+            receivers.Select(receiver => (receiver.Region.Identity, receiver.DeclaringTypeKey)).ToArray();
 
         /// <summary>The query, run as a query of the solved heap: <see cref="Querying"/> holds while it runs.</summary>
         /// <param name="query">The query.</param>
@@ -911,8 +1117,9 @@ public static partial class WholeProgram
             _typeSafety = new TypeSafety(scope.Program, scope.MetadataSupertypes, scope.Reachable.OpenWorldAssemblies);
             _limits = limits;
             _worklistOptions = options;
+            _unresolvedDelegate = Intern(UNRESOLVED_DELEGATE);
             _memberOfNestedBody.Attach(new StateKey("_memberOfNestedBody"), ReadState, WroteState);
-            _capturedKeysOfMember.Attach(new StateKey("_capturedKeysOfMember"), ReadState, WroteState);
+            _capturedCellsOfMember.Attach(new StateKey("_capturedCellsOfMember"), ReadState, WroteState);
             _regions.Attach(new StateKey("_regions"), ReadState, WroteState);
             _groups.Attach(new StateKey("_groups"), ReadState, WroteState);
             _fields.Attach(new StateKey("_fields"), ReadState, WroteState);
@@ -920,7 +1127,6 @@ public static partial class WholeProgram
             _keeperCalls.Attach(new StateKey("_keeperCalls"), ReadState, WroteState);
             _libraryKeeping.Attach(new StateKey("_libraryKeeping"), ReadState, WroteState);
             _keptFallbacks.Attach(new StateKey("_keptFallbacks"), ReadState, WroteState);
-            _cells.Attach(new StateKey("_cells"), ReadState, WroteState);
             _delegates.Attach(new StateKey("_delegates"), ReadState, WroteState);
             _instances.Attach(new StateKey("_instances"), ReadState, WroteState);
             _instanceOrder.Attach(new StateKey("_instanceOrder"), ReadState, WroteState);
@@ -965,6 +1171,8 @@ public static partial class WholeProgram
             _unfollowedCompletions.Attach(new StateKey("_unfollowedCompletions"), ReadState, WroteState);
             _unfollowedKept.Attach(new StateKey("_unfollowedKept"), ReadState, WroteState);
             _unfollowedKeptValues.Attach(new StateKey("_unfollowedKeptValues"), ReadState, WroteState);
+            _filledStorage.Attach(new StateKey("_filledStorage"), ReadState, WroteState);
+            _presenceCopies.Attach(new StateKey("_presenceCopies"), ReadState, WroteState);
             _completers.Attach(new StateKey("_completers"), ReadState, WroteState);
             _solvingState.Attach(new StateKey("_solvingState"), ReadState, WroteState);
         }
@@ -1143,14 +1351,17 @@ public static partial class WholeProgram
             var instances = _instances.Values.ToTrackedMap(
                 instance => instance.Id,
                 instance => new MethodInstance(instance.Id, instance.BodyId, instance.Context, instance.Substitution, instance.IsMerged,
-                                               instance.IsReceiverless, instance.Summary, instance.Receivers,
-                                               instance.Parameters.ToTrackedMap(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value),
-                                               instance.CellOwners),
+                                               instance.IsReceiverless, instance.Summary, Identities(instance.Receivers),
+                                               instance.Parameters.ToTrackedMap(pair => pair.Key, pair => (IReadOnlySet<string>)Identities(pair.Value)),
+                                               instance.CellOwners)
+                {
+                    NestedCellOwners = instance.NestedCellOwners
+                },
                 StringComparer.Ordinal);
             var executionEdges = _edges.Where(edge => _scope.Reachable.Bodies.GetValueOrDefault(_instances[edge.Callee].BodyId)?.IsIterator != true)
                                        .Select(edge => new CallEdge(edge.Caller, edge.Operation, edge.Callee, edge.Reason)).ToTrackedList();
-            var unknownIterators = new TrackedSet<string>(StringComparer.Ordinal);
-            bool IsEnumerable(string region) => _iteratorObjects.ContainsKey(region) || _sequences.ContainsKey(region);
+            var unknownIterators = new TrackedSet<RegionRef>();
+            bool IsEnumerable(RegionRef region) => _iteratorObjects.ContainsKey(region) || _sequences.ContainsKey(region);
             foreach (var instance in _instances.Values.Where(_ => _iteratorObjects.Count != 0 || _sequences.Count != 0))
             {
                 CheckCancellation();
@@ -1181,7 +1392,7 @@ public static partial class WholeProgram
                     var iteratorRegions = handed.Where(IsEnumerable)
                                                 .Concat(completed.Where(IsEnumerable))
                                                 .Concat(completed.Where(_delegates.ContainsKey).SelectMany(Captures).Where(IsEnumerable))
-                                                .Distinct(StringComparer.Ordinal).ToArray();
+                                                .Distinct().ToArray();
                     if (iteratorRegions.Length == 0)
                         continue;
                     // A consumer enumerates what it reads deep, names the elements of or copies, and a known call returning a library
@@ -1239,18 +1450,22 @@ public static partial class WholeProgram
             // delegate enumerates it (SPEC TD-060b). The delegate itself, stored without a visible call, runs nowhere of its own. What a
             // library sequence or a grouping holds is what it yields, which is no field of the run's. A task's completion slot is no field
             // either: the task carries what it completes with, which escapes where the task does, as a value handed over directly would (R2).
+            // A capture cell is the variable a delegate captures, which escapes where the delegate does (R4).
             foreach (var (key, values) in _fields)
             {
                 CheckCancellation();
-                if (_sequences.ContainsKey(key.Region) || _groupings.Contains(key.Region) || key.Field == COMPLETION_FIELD)
+                if (_sequences.ContainsKey(key.Region) || _groupings.Contains(key.Region) || key.Field == COMPLETION_FIELD ||
+                    _regions[key.Region].Kind == HeapRegionKind.Closure)
+                {
                     continue;
+                }
                 var carried = Carried(values);
                 unknownIterators.UnionWith(carried.Where(IsEnumerable));
                 unknownIterators.UnionWith(carried.Where(_delegates.ContainsKey).SelectMany(Captures).Where(IsEnumerable));
             }
 
             // What an unknown enumeration of a library sequence runs: its delegates, and what enumerating its sources runs.
-            TrackedSet<string> EnumerationInstances(string region, TrackedSet<string> visited)
+            TrackedSet<string> EnumerationInstances(RegionRef region, TrackedSet<RegionRef> visited)
             {
                 CheckCancellation();
                 var instances = new TrackedSet<string>(StringComparer.Ordinal);
@@ -1270,26 +1485,26 @@ public static partial class WholeProgram
             }
 
             var librarySequences = _sequences.Values.Select(sequence => new LibrarySequence(
-                                                 sequence.Region, sequence.Creator, sequence.Operation, !sequence.IsNested, false,
-                                                 sequence.Sources.Order(StringComparer.Ordinal).ToArray(),
-                                                 Load(sequence.Region, PathValue.ELEMENT).Order(StringComparer.Ordinal).ToArray(), [],
-                                                 EnumerationInstances(sequence.Region, new TrackedSet<string>(StringComparer.Ordinal))
+                                                 sequence.Region.Identity, sequence.Creator, sequence.Operation, !sequence.IsNested, false,
+                                                 SortedIdentities(sequence.Sources),
+                                                 SortedIdentities(Load(sequence.Region, PathValue.ELEMENT)), [],
+                                                 EnumerationInstances(sequence.Region, [])
                                                      .Order(StringComparer.Ordinal).ToArray())
                                              {
-                                                 ReturnedSources = sequence.ReturnedSources.Order(StringComparer.Ordinal).ToArray(),
+                                                 ReturnedSources = SortedIdentities(sequence.ReturnedSources),
                                                  Unresolved = sequence.Unresolved.OrderBy(pair => pair.Key.Parameter)
-                                                                      .ThenBy(pair => pair.Key.Region, StringComparer.Ordinal)
+                                                                      .ThenBy(pair => pair.Key.Region.Identity, StringComparer.Ordinal)
                                                                       .Select(pair => new SequenceDispatch(
                                                                           pair.Value.Callee,
-                                                                          Eval(_instances[sequence.Creator], pair.Value.Inputs.SelectMany(input => input.Values))
-                                                                              .Order(StringComparer.Ordinal).ToArray(),
-                                                                          pair.Value.Receivers))
+                                                                          SortedIdentities(Eval(_instances[sequence.Creator],
+                                                                                                pair.Value.Inputs.SelectMany(input => input.Values))),
+                                                                          Named(pair.Value.Receivers)))
                                                                       .ToArray()
                                              })
                                              .Concat(_groupings.Select(grouping => new LibrarySequence(
-                                                 grouping, "", 0, false, true, [],
-                                                 Load(grouping, PathValue.ELEMENT).Order(StringComparer.Ordinal).ToArray(),
-                                                 Load(grouping, PathValue.KEYS).Order(StringComparer.Ordinal).ToArray(), [])))
+                                                 grouping.Identity, "", 0, false, true, [],
+                                                 SortedIdentities(Load(grouping, PathValue.ELEMENT)),
+                                                 SortedIdentities(Load(grouping, PathValue.KEYS)), [])))
                                              .ToTrackedMap(sequence => sequence.RegionId, StringComparer.Ordinal);
 
             bool PotentialIteratorValue(AbstractValue value)
@@ -1304,7 +1519,7 @@ public static partial class WholeProgram
             }
 
             return new HeapSolution(
-                new SolvedRegions(_regions, _named),
+                new SolvedRegions(new RegionsByIdentity(_regions, _interned), _named),
                 instances,
                 _edges.OrderBy(edge => edge.Caller, StringComparer.Ordinal).ThenBy(edge => edge.Operation)
                       .ThenBy(edge => edge.Callee, StringComparer.Ordinal)
@@ -1312,65 +1527,75 @@ public static partial class WholeProgram
                 _typeInitializers.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                  .Select(pair => new TypeInitializerConstruction(pair.Key, pair.Value.InstanceId,
                                                                                  pair.Value.Instances.Order(StringComparer.Ordinal).ToArray(),
-                                                                                 pair.Value.Regions.Order(StringComparer.Ordinal).ToArray()))
+                                                                                 SortedIdentities(pair.Value.Regions)))
                                  .ToArray(),
-                _constructions.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                              .Select(pair => new RegionConstruction(pair.Key, pair.Value.ToArray())).ToArray(),
+                _constructions.OrderBy(pair => pair.Key.Identity, StringComparer.Ordinal)
+                              .Select(pair => new RegionConstruction(pair.Key.Identity, pair.Value.ToArray())).ToArray(),
                 _counters,
                 reachable,
                 loweredNotReached,
                 _rebuilding.NoReceiver.OrderBy(item => item.BodyId, StringComparer.Ordinal).ThenBy(item => item.OperationId).ToArray(),
-                Query((string instanceId, AbstractValue value) => Eval(_instances[instanceId], value)),
-                Query<string, string, TrackedSet<string>>(LoadAny),
-                Query((string owner, string key) => _cells.GetValueOrDefault((owner, key)) ?? new TrackedSet<string>(StringComparer.Ordinal)),
+                Query((string instanceId, AbstractValue value) => Identities(Eval(_instances[instanceId], value))),
+                Query((string regionId, string field) => Identities(LoadAny(Intern(regionId), field))),
                 _rootInstances,
-                Query((string instanceId, IrFieldRef field) => StaticRegion(_instances[instanceId], field)),
-                Query((string regionId) => (_fieldsByRegion.GetValueOrDefault(regionId) ?? []).Where(field => _fields[(regionId, field)].Count != 0)
-                                                                                              .Order(StringComparer.Ordinal).ToArray()),
-                Query((string regionId) => _delegates.ContainsKey(regionId) ? Captures(regionId) : new TrackedSet<string>(StringComparer.Ordinal)))
+                Query((string instanceId, IrFieldRef field) => StaticRegion(_instances[instanceId], field).Identity),
+                Query((string identity) =>
+                {
+                    var regionId = Intern(identity);
+                    return SlotsBelow(regionId).Where(field => (_regions.TryGetValue(regionId, out var storage) && storage.Kind == HeapRegionKind.StructStorage
+                                                                   ? Load(regionId, field)
+                                                                   : _fields[(regionId, field)]).Count != 0)
+                                               .Order(StringComparer.Ordinal).ToArray();
+                }),
+                Query((string identity) => Intern(identity) is var regionId && _delegates.ContainsKey(regionId)
+                                               ? Identities(Captures(regionId))
+                                               : new TrackedSet<string>(StringComparer.Ordinal)))
             {
                 ExecutionEdges = executionEdges.OrderBy(edge => edge.CallerInstance, StringComparer.Ordinal).ThenBy(edge => edge.OperationId)
                                               .ThenBy(edge => edge.CalleeInstance, StringComparer.Ordinal).ToArray(),
-                IteratorObjects = _iteratorObjects.Select(pair => new IteratorObject(pair.Key, pair.Value)).ToArray(),
-                UnknownIterators = unknownIterators,
+                IteratorObjects = _iteratorObjects.Select(pair => new IteratorObject(pair.Key.Identity, pair.Value)).ToArray(),
+                UnknownIterators = Identities(unknownIterators),
                 IteratorMemberReceivers = _iteratorMemberReceivers.ToTrackedMap(pair => pair.Key,
-                                                                                 pair => (IReadOnlySet<string>)pair.Value),
+                                                                                 pair => (IReadOnlySet<string>)Identities(pair.Value)),
                 UnresolvedLocators = unresolved.OrderBy(item => item.BodyId, StringComparer.Ordinal).ThenBy(item => item.OperationId).ToArray(),
                 UnresolvedDispatches = _rebuilding.UnresolvedDispatches.ToTrackedSet(),
                 UnresolvedDispatchReceivers = _rebuilding.UnresolvedReceivers.ToTrackedMap(pair => pair.Key,
-                                                                                           pair => (IReadOnlySet<(string, string?)>)pair.Value.ToTrackedSet()),
+                                                                                           pair => (IReadOnlySet<(string, string?)>)Named(pair.Value).ToTrackedSet()),
                 UnresolvedFactoryInputs = _rebuilding.UnresolvedFactoryInputs.ToTrackedMap(pair => pair.Key, pair => (IReadOnlySet<IrFactoryInput>)pair.Value.ToTrackedSet()),
                 UnresolvedFateInputs = _rebuilding.UnresolvedFateInputs.ToTrackedMap(pair => pair.Key,
-                                                                                     pair => (IReadOnlySet<string>)pair.Value.ToTrackedSet(StringComparer.Ordinal)),
+                                                                                     pair => (IReadOnlySet<string>)Identities(pair.Value)),
                 UnresolvedWork = _rebuilding.UnresolvedWorkReceivers.Keys
                                             .OrderBy(site => site.Instance, StringComparer.Ordinal).ThenBy(site => site.OperationId)
                                             .ThenBy(site => site.Kind).ThenBy(site => site.DelegateRegion, StringComparer.Ordinal)
                                             .ThenBy(site => site.Callee, StringComparer.Ordinal)
-                                            .Select(site => new UnresolvedWork(site, _rebuilding.UnresolvedWorkReceivers[site].ToTrackedSet(),
-                                                                               _rebuilding.UnresolvedWorkInputs[site].ToTrackedSet(StringComparer.Ordinal)))
+                                            .Select(site => new UnresolvedWork(site, Named(_rebuilding.UnresolvedWorkReceivers[site]).ToTrackedSet(),
+                                                                               Identities(_rebuilding.UnresolvedWorkInputs[site])))
                                             .ToArray(),
-                Holders = _held.Keys.ToTrackedSet(StringComparer.Ordinal),
+                Holders = Identities(_held.Keys),
                 LibrarySequences = librarySequences,
                 StartupDelegates = _rebuilding.StartupDelegates.OrderBy(item => item.Caller, StringComparer.Ordinal).ThenBy(item => item.Operation)
-                                              .ThenBy(item => item.Region, StringComparer.Ordinal).ThenBy(item => item.Callee, StringComparer.Ordinal)
-                                              .Select(item => new StartupDelegate(item.Caller, item.Operation, item.Region, item.Callee))
+                                              .ThenBy(item => item.Region.Identity, StringComparer.Ordinal).ThenBy(item => item.Callee, StringComparer.Ordinal)
+                                              .Select(item => new StartupDelegate(item.Caller, item.Operation, item.Region.Identity, item.Callee))
                                               .ToArray(),
-                DelegateHandoffs = _rebuilding.Handoffs.OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                                              .Select(pair => new DelegateHandoff(pair.Key,
+                DelegateHandoffs = _rebuilding.Handoffs.OrderBy(pair => pair.Key.Identity, StringComparer.Ordinal)
+                                              .Select(pair => new DelegateHandoff(pair.Key.Identity,
                                                                                   pair.Value.Sites.OrderBy(site => site.Caller, StringComparer.Ordinal)
                                                                                       .ThenBy(site => site.Operation).ToArray(),
                                                                                   pair.Value.Callees.Order(StringComparer.Ordinal).ToArray()))
                                               .ToArray(),
-                RegionUncertainties = _uncertainties.ToTrackedMap(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray(), StringComparer.Ordinal),
-                Collections = _collections.ToTrackedMap(pair => pair.Key,
-                                                        pair => (IReadOnlyList<string>)pair.Value.SelectMany(Object).Distinct(StringComparer.Ordinal).ToArray(),
+                RegionUncertainties = _uncertainties.ToTrackedMap(pair => pair.Key.Identity, pair => (IReadOnlyList<string>)pair.Value.ToArray(),
+                                                                  StringComparer.Ordinal),
+                Collections = _collections.ToTrackedMap(pair => pair.Key.Identity,
+                                                        pair => (IReadOnlyList<string>)pair.Value.SelectMany(Object).Distinct()
+                                                                                         .Select(region => region.Identity).ToArray(),
                                                         StringComparer.Ordinal),
-                StartupRegions = _startupRegions,
+                StartupRegions = Identities(_startupRegions),
                 UnfollowedCallResults = _instances.Values
                                                   .SelectMany(instance => instance.UnfollowedCallResults.Select(operation => (instance.Id, operation)))
                                                   .ToTrackedSet(),
-                TaskCompleters = _completers.GroupBy(item => item.Task, StringComparer.Ordinal)
-                                            .ToDictionary(group => group.Key, group => (IReadOnlySet<TaskCompleter>)group.Select(item => item.Completer).ToHashSet(),
+                TaskCompleters = _completers.GroupBy(item => item.Task)
+                                            .ToDictionary(group => group.Key.Identity,
+                                                          group => (IReadOnlySet<TaskCompleter>)group.Select(item => item.Completer).ToHashSet(),
                                                           StringComparer.Ordinal),
                 DelegateReturns = DelegateReturnsExport(),
                 FateRuns = _rebuilding.FateRuns.GroupBy(item => item.Callee, StringComparer.Ordinal)
@@ -1386,14 +1611,14 @@ public static partial class WholeProgram
                                                        .SelectMany(instance => instance.UnfollowedModelCompletions.Select(item =>
                                                                        (instance.Id, item.Operation, item.Channel)))
                                                        .ToTrackedSet(),
-                CompletionQuery = Query((string task) => (IReadOnlySet<string>)Completion([task])),
-                UnfollowedTaskCompletions = _unfollowedCompletions.ToHashSet(StringComparer.Ordinal),
-                LocatorCreators = _locatorCreators.ToTrackedMap(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value, StringComparer.Ordinal),
+                CompletionQuery = Query((string task) => (IReadOnlySet<string>)Identities(Completion([Intern(task)]))),
+                UnfollowedTaskCompletions = _unfollowedCompletions.Select(task => task.Identity).ToHashSet(StringComparer.Ordinal),
+                LocatorCreators = _locatorCreators.ToTrackedMap(pair => pair.Key.Identity, pair => (IReadOnlySet<string>)pair.Value, StringComparer.Ordinal),
                 RegionTriggers = _regionTriggers.OrderBy(item => item.InstanceId, StringComparer.Ordinal).ThenBy(item => item.OperationId)
-                                                .ThenBy(item => item.RegionId, StringComparer.Ordinal)
-                                                .Select(item => new RegionTrigger(item.InstanceId, item.OperationId, item.RegionId)).ToArray(),
+                                                .ThenBy(item => item.RegionId.Identity, StringComparer.Ordinal)
+                                                .Select(item => new RegionTrigger(item.InstanceId, item.OperationId, item.RegionId.Identity)).ToArray(),
                 Spawns = Ordered(_spawns).Select(pair => new SpawnSite(pair.Key.Caller, pair.Key.Operation, pair.Value.CallOperationId, pair.Value.Kind!.Value,
-                                                                       Sorted(pair.Value.Handles), pair.Value.Tail,
+                                                                       Sorted(pair.Value.Handles), pair.Value.Tail?.Identity,
                                                                        pair.Value.Callees.OrderBy(callee => callee.Instance, StringComparer.Ordinal)
                                                                            .ThenBy(callee => callee.Role)
                                                                            .Select(callee => new SpawnCallee(callee.Instance, callee.Role)).ToArray()))
@@ -1405,17 +1630,19 @@ public static partial class WholeProgram
                 })
                                                          .ToArray(),
                 AsyncSpawns = Ordered(_asyncSpawns).Select(pair => new AsyncSpawnSite(pair.Key.Caller, pair.Key.Operation, pair.Value.Kind!.Value,
-                                                                                      pair.Value.Handles.SingleOrDefault(), Callees(pair.Value)))
+                                                                                      pair.Value.Handles.SingleOrDefault()?.Identity, Callees(pair.Value)))
                                                    .ToArray(),
-                Tails = _tails,
-                Antecedents = _antecedents.ToTrackedMap(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value, StringComparer.Ordinal),
-                TaskGroups = _taskGroups.ToTrackedMap(pair => pair.Key, pair => new TaskGroup(pair.Value.Members, pair.Value.Known), StringComparer.Ordinal)
+                Tails = _tails.ToTrackedMap(pair => pair.Key.Identity, pair => pair.Value.Identity, StringComparer.Ordinal),
+                Antecedents = _antecedents.ToTrackedMap(pair => pair.Key.Identity, pair => (IReadOnlySet<string>)Identities(pair.Value), StringComparer.Ordinal),
+                TaskGroups = _taskGroups.ToTrackedMap(pair => pair.Key.Identity, pair => new TaskGroup(Identities(pair.Value.Members), pair.Value.Known),
+                                                      StringComparer.Ordinal)
             };
 
             static IEnumerable<KeyValuePair<(string Caller, int Operation), SiteState>> Ordered(TrackedMap<(string Caller, int Operation), SiteState> sites) =>
                 sites.OrderBy(pair => pair.Key.Caller, StringComparer.Ordinal).ThenBy(pair => pair.Key.Operation);
 
-            static IReadOnlySet<string> Sorted(IEnumerable<string> regions) => new SortedSet<string>(regions, StringComparer.Ordinal);
+            static IReadOnlySet<string> Sorted(IEnumerable<RegionRef> regions) =>
+                new SortedSet<string>(regions.Select(region => region.Identity), StringComparer.Ordinal);
 
             static IReadOnlyList<string> Callees(SiteState site) =>
                 site.Callees.Select(callee => callee.Instance).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
@@ -1429,19 +1656,27 @@ public static partial class WholeProgram
             return _rebuilding.DelegateSites.ToDictionary(site => site, site =>
             {
                 var siteRuns = runs[site].Distinct().ToArray();
-                var regions = siteRuns.SelectMany(run => run.Task is { } task ? [task] : (IEnumerable<string>)_instances[run.Callee].Returns)
+                var regions = siteRuns.SelectMany(run => run.Task is { } task ? [task] : _instances[run.Callee].Returns.Select(region => region.Identity))
                                       .ToHashSet(StringComparer.Ordinal);
                 return new DelegateReturnRuns(siteRuns, regions, _rebuilding.UnseenDelegates.Contains(site));
             });
         }
 
-        /// <summary>What a delegate region captures: the receiver it was created on and the values of the variables it closes over.</summary>
+        /// <summary>What a delegate region captures: the receiver it was created on, the closures holding the cells of the variables it
+        /// closes over and what those cells hold (R4). A delegate capturing no variable — a method group, a lambda closing over nothing —
+        /// carries no closure, whatever closures the instance creating it has (R5).</summary>
         /// <param name="regionId">The regionId.</param>
-        private TrackedSet<string> Captures(string regionId)
+        private TrackedSet<RegionRef> Captures(RegionRef regionId)
         {
             var state = _delegates[regionId];
-            return state.CapturedReceivers.Concat(state.CellOwners.SelectMany(owner => state.CapturedKeys.SelectMany(key => Cell(owner, key))))
-                        .ToTrackedSet(StringComparer.Ordinal);
+            var closures = state.CapturedCells.SelectMany(cell => ClosureOwners(state.CellOwners, state.NestedCellOwners, cell.Body,
+                                                                                owner => _instances.GetValueOrDefault(owner)?.BodyId)
+                                                                      .Select(owner => (Closure: Intern(ClosureIdentity(owner)), Cell: cell)))
+                                      .Where(captured => _regions.ContainsKey(captured.Closure))
+                                      .ToArray();
+            return state.CapturedReceivers.Concat(closures.Select(captured => captured.Closure))
+                        .Concat(closures.SelectMany(captured => Load(captured.Closure, ClosureSlot(captured.Cell))))
+                        .ToTrackedSet();
         }
 
         /// <summary>The locator calls of every instance that resolve nothing: no constant type, a receiver standing for no scope,
@@ -1472,7 +1707,7 @@ public static partial class WholeProgram
         /// one region gives each of them the uncertainty that it is more than one object.</summary>
         private void RegistrationUncertainties()
         {
-            foreach (var state in _registrations.Values.OrderBy(state => state.Region, StringComparer.Ordinal))
+            foreach (var state in _registrations.Values.OrderBy(state => state.Region.Identity, StringComparer.Ordinal))
             {
                 CheckCancellation();
                 var region = _regions[state.Region];
@@ -1486,7 +1721,7 @@ public static partial class WholeProgram
                 var objects = Object(state.Region);
                 if (objects.Count > 1)
                 {
-                    foreach (var target in objects.Order(StringComparer.Ordinal))
+                    foreach (var target in objects.OrderBy(target => target.Identity, StringComparer.Ordinal))
                     {
                         CheckCancellation();
                         Uncertain(target, $"{region.Display}: factory returns more than one object ({source}).");
@@ -1495,7 +1730,7 @@ public static partial class WholeProgram
             }
         }
 
-        private void Uncertain(string region, string uncertainty)
+        private void Uncertain(RegionRef region, string uncertainty)
         {
             if (!_uncertainties.TryGetValue(region, out var list))
                 _uncertainties.Add(region, list = []);
@@ -1584,7 +1819,7 @@ public static partial class WholeProgram
                 var bindings = root.InstanceBindings;
                 var invocation = $"root:{root.StableRootId}";
                 var context = invocation;
-                string? receiver = null;
+                RegionRef? receiver = null;
                 ResolutionScope scope = new(root.StableRootId);
                 if (bindings is { Receiver: ReceiverKind.HostedService, ReceiverTypeKey: { } hostedKey })
                 {
@@ -1610,7 +1845,7 @@ public static partial class WholeProgram
                 var memberId = _memberOfNestedBody.GetValueOrDefault(bodyId);
                 var method = _program.Method(memberId ?? bodyId);
                 var substitution = receiver is not null && method is not null ? ReceiverSubstitution(_regions[receiver], method, []) : NO_SUBSTITUTION;
-                var entry = Instance(bodyId, receiver ?? context, substitution, receiver is null ? [] : [receiver],
+                var entry = Instance(bodyId, receiver?.Identity ?? context, substitution, receiver is null ? [] : [receiver],
                                      memberId is null ? [] : [invocation], receiver is null && method is { IsStatic: false });
                 if (entry is null)
                     continue;
@@ -1642,7 +1877,7 @@ public static partial class WholeProgram
 
         /// <summary>The region standing for a scope's <see cref="IServiceProvider"/>.</summary>
         /// <param name="scope">The resolution scope.</param>
-        private string Provider(ResolutionScope scope)
+        private RegionRef Provider(ResolutionScope scope)
         {
             var provider = Region($"provider|{scope.Context}", HeapRegionKind.Provider, $"provider:{scope.Context}", null, scope.Context, null);
             _providers.TryAdd(provider, scope);
@@ -1653,7 +1888,7 @@ public static partial class WholeProgram
         /// registration's object grows with the fixpoint.</summary>
         /// <param name="target">The target.</param>
         /// <param name="regions">The regions.</param>
-        private void Inject(TrackedSet<string> target, IEnumerable<string> regions)
+        private void Inject(TrackedSet<RegionRef> target, IEnumerable<RegionRef> regions)
         {
             CheckCancellation();
             foreach (var region in regions)
@@ -1666,13 +1901,13 @@ public static partial class WholeProgram
 
         /// <summary>The objects a resolved region stands for: the region itself, or a factory or instance registration's object.</summary>
         /// <param name="region">The region.</param>
-        private IReadOnlyCollection<string> Object(string region)
+        private IReadOnlyCollection<RegionRef> Object(RegionRef region)
         {
             CheckCancellation();
             if (!_registrations.TryGetValue(region, out var state))
                 return [region];
 
-            var objects = new TrackedSet<string>(StringComparer.Ordinal);
+            var objects = new TrackedSet<RegionRef>();
             if (state.Registration.Form == DiRegistrationForm.Factory)
             {
                 foreach (var instance in state.Instances)
@@ -1735,7 +1970,7 @@ public static partial class WholeProgram
             var delegates = _instances.Values.Where(instance => instance.BodyId == site.BodyId).ToArray()
                                       .SelectMany(holder => Eval(holder, argument.Values))
                                       .Where(_delegates.ContainsKey)
-                                      .Distinct(StringComparer.Ordinal)
+                                      .Distinct()
                                       .ToArray();
             foreach (var region in delegates)
             {
@@ -1758,14 +1993,16 @@ public static partial class WholeProgram
             }
         }
 
-        private IEnumerable<InstanceState> FactoryInstances(string region, DelegateState target)
+        private IEnumerable<InstanceState> FactoryInstances(RegionRef region, DelegateState target)
         {
             if (target.IsNestedBody)
             {
                 var owner = target.CellOwners.Select(id => _instances.GetValueOrDefault(id)).OfType<InstanceState>().FirstOrDefault();
-                if (Instance(target.Target, region, target.OwnerSubstitution, target.CapturedReceivers, target.CellOwners, owner?.IsReceiverless ?? false)
+                if (Instance(target.Target, region.Identity, target.OwnerSubstitution, target.CapturedReceivers, target.CellOwners,
+                             owner?.IsReceiverless ?? false)
                     is { } nested)
                 {
+                    Add(nested.NestedCellOwners, target.NestedCellOwners);
                     yield return nested;
                 }
 
@@ -1776,7 +2013,8 @@ public static partial class WholeProgram
                 yield break;
             if (method.IsStatic)
             {
-                if (Instance(method.MethodId, region, Substitution(method, target.ContainingTypeKey, target.MethodTypeArguments), [], [], false) is { } factory)
+                if (Instance(method.MethodId, region.Identity, Substitution(method, target.ContainingTypeKey, target.MethodTypeArguments), [], [], false)
+                    is { } factory)
                     yield return factory;
                 yield break;
             }
@@ -1804,7 +2042,7 @@ public static partial class WholeProgram
         /// context.</param>
         /// <param name="consumer">What consumes the service; a transient's context.</param>
         /// <param name="parameter">The parameter the service is resolved for, or empty; a transient's context.</param>
-        private IReadOnlyList<string> Resolve(DiResolution resolution, ResolutionScope scope, string resolver, string consumer, string parameter)
+        private IReadOnlyList<RegionRef> Resolve(DiResolution resolution, ResolutionScope scope, string resolver, string consumer, string parameter)
         {
             if (IsServiceProvider(resolution.ServiceType))
                 return [Provider(scope)];
@@ -1838,8 +2076,8 @@ public static partial class WholeProgram
         /// <param name="resolver">What resolves the service; a transient's context.</param>
         /// <param name="consumer">What consumes the service; a transient's context.</param>
         /// <param name="parameter">The parameter the service is resolved for, or empty; a transient's context.</param>
-        private string Registration(string serviceTypeKey, DiRegistration registration, ResolutionScope scope, string resolver, string consumer,
-                                    string parameter)
+        private RegionRef Registration(string serviceTypeKey, DiRegistration registration, ResolutionScope scope, string resolver, string consumer,
+                                       string parameter)
         {
             var context = registration.Lifetime switch
             {
@@ -1847,7 +2085,7 @@ public static partial class WholeProgram
                 DiLifetime.Scoped => scope.Context,
                 _ => $"{resolver}|{consumer}|{parameter}"
             };
-            var identity = $"{HeapIdentity(serviceTypeKey, registration.ImplementationTypeKey!, registration.Lifetime, registration.Number)}|{context}";
+            var identity = Intern($"{HeapIdentity(serviceTypeKey, registration.ImplementationTypeKey!, registration.Lifetime, registration.Number)}|{context}");
             if (_regions.ContainsKey(identity))
                 return identity;
 
@@ -1873,7 +2111,7 @@ public static partial class WholeProgram
         /// <param name="regionId">The regionId.</param>
         /// <param name="typeKey">The typeKey.</param>
         /// <param name="scope">The scope.</param>
-        private void Construct(string regionId, string typeKey, ResolutionScope scope)
+        private void Construct(RegionRef regionId, string typeKey, ResolutionScope scope)
         {
             CheckCancellation();
             if (_constructions.ContainsKey(regionId))
@@ -1886,7 +2124,8 @@ public static partial class WholeProgram
             foreach (var constructor in ReachableSet.SelectedConstructors(_program, typeKey, bindings))
             {
                 CheckCancellation();
-                var instance = Instance(constructor.MethodId, regionId, ReceiverSubstitution(_regions[regionId], constructor, []), [regionId], [], false);
+                var instance = Instance(constructor.MethodId, regionId.Identity, ReceiverSubstitution(_regions[regionId], constructor, []), [regionId], [],
+                                        false);
                 if (instance is null)
                     continue;
                 constructorInstances.Add(instance.Id);
@@ -1898,11 +2137,11 @@ public static partial class WholeProgram
                     if (parameter.Ordinal < constructor.Parameters.Count && constructor.Parameters[parameter.Ordinal].TypeKey == parameter.TypeKey)
                     {
                         var resolution = ReachableSet.ResolveConstructorParameter(_program, _scope.DiIndex, typeKey, parameter);
-                        var resolved = Resolve(resolution, scope, regionId, typeKey, parameter.Name);
+                        var resolved = Resolve(resolution, scope, regionId.Identity, typeKey, parameter.Name);
                         Inject(Parameter(instance, parameter.Ordinal), resolved);
                         Trigger(instance, -1, resolved);
                         // A created scope's objects have no execution of their own: their constructions run where the scope's owner runs.
-                        foreach (var child in resolved.Where(child => child.Contains("|scope:", StringComparison.Ordinal)))
+                        foreach (var child in resolved.Where(child => child.Identity.Contains("|scope:", StringComparison.Ordinal)))
                         {
                             CheckCancellation();
                             ConstructionEdges(instance, -1, child);
@@ -1915,7 +2154,7 @@ public static partial class WholeProgram
         }
 
         private InstanceState? Instance(string bodyId, string context, IReadOnlyDictionary<string, string> substitution,
-                                        IEnumerable<string> receivers, IEnumerable<string> cellOwners, bool receiverless,
+                                        IEnumerable<RegionRef> receivers, IEnumerable<string> cellOwners, bool receiverless,
                                         bool merged = false)
         {
             if (!_scope.Reachable.Bodies.ContainsKey(bodyId))
@@ -1952,8 +2191,11 @@ public static partial class WholeProgram
                 _changes++;
                 if (merged)
                     _counters[HeapCounters.MERGED_CONTEXT] = _counters.GetValueOrDefault(HeapCounters.MERGED_CONTEXT) + 1;
+                // Each run of a body creates the closure of the variables it declares (R4).
                 if (!_memberOfNestedBody.ContainsKey(bodyId))
                     instance.CellOwners.Add(key);
+                else
+                    instance.NestedCellOwners.Add(key);
                 if (_instanceRegistrationsByMember.TryGetValue(_memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId, out var registrations))
                     MapRegisteredAllocations(instance, registrations);
             }
@@ -1993,27 +2235,21 @@ public static partial class WholeProgram
             _counters[HeapCounters.INSTANCE_PROCESSINGS]++;
             var summary = instance.Summary;
             var memberId = _memberOfNestedBody.GetValueOrDefault(instance.BodyId) ?? instance.BodyId;
-            var capturedKeys = CapturedKeys(memberId);
-            foreach (var variable in summary.Variables.Where(variable => capturedKeys.Contains(variable.SymbolKey)))
+            var capturedCells = CapturedCells(memberId);
+            // Every version of a captured variable, and what a nested body assigns to it, goes into its capture cell: the slot of the
+            // closure of each instance of the member owning it (R4). A struct kept there is the cell's storage itself, which its copies
+            // fill field by field.
+            foreach (var variable in summary.Variables)
             {
                 CheckCancellation();
-                var values = Eval(instance, variable.Values);
-                foreach (var owner in instance.CellOwners.ToArray())
-                {
-                    CheckCancellation();
-                    Add(Cell(owner, variable.SymbolKey), values);
-                }
+                if (capturedCells.TryGetValue(variable.SymbolKey, out var cell))
+                    AddToCell(instance, cell, Eval(instance, variable.Values));
             }
 
             foreach (var store in summary.CapturedStores)
             {
                 CheckCancellation();
-                var values = Eval(instance, store.Values);
-                foreach (var owner in instance.CellOwners.ToArray())
-                {
-                    CheckCancellation();
-                    Add(Cell(owner, store.SymbolKey), values);
-                }
+                AddToCell(instance, store.Cell, Eval(instance, store.Values));
             }
 
             foreach (var store in summary.Stores)
@@ -2030,13 +2266,19 @@ public static partial class WholeProgram
                     }
             }
 
+            foreach (var copy in summary.StructCopies)
+            {
+                CheckCancellation();
+                CopyStruct(instance, copy);
+            }
+
             foreach (var element in summary.Elements.Where(element => element.Kind == ElementOperationKind.Store))
             {
                 CheckCancellation();
                 // What an interface call does goes only into, and only comes from, the objects of the kinds whose member it is there, and
                 // never into an object whose type of the run's own implements the member itself (ADR 0010, amendment of the phase 5b
                 // third run).
-                bool Decides(string region, IReadOnlySet<string>? kinds) =>
+                bool Decides(RegionRef region, IReadOnlySet<string>? kinds) =>
                     kinds is null || ObjectKind(region, element.InterfaceMethod) is { } kind && kinds.Contains(kind);
 
                 // A view an interface call makes holds what the storage it views holds in each object it is made of.
@@ -2044,7 +2286,7 @@ public static partial class WholeProgram
                 {
                     var viewedHeld = Eval(instance, element.CopiedFrom!).Where(source => Decides(source, element.ValueKinds))
                                                                          .SelectMany(source => Load(source, viewed))
-                                                                         .ToTrackedSet(StringComparer.Ordinal);
+                                                                         .ToTrackedSet();
                     foreach (var view in Eval(instance, element.Arrays))
                     {
                         CheckCancellation();
@@ -2075,7 +2317,7 @@ public static partial class WholeProgram
 
                 var values = Eval(instance, element.Values);
                 if (element.ValueKinds is { } valueKinds)
-                    values = values.Where(region => Decides(region, valueKinds)).ToTrackedSet(StringComparer.Ordinal);
+                    values = values.Where(region => Decides(region, valueKinds)).ToTrackedSet();
                 foreach (var array in Eval(instance, element.Arrays).Where(array => Decides(array, element.ArrayKinds)))
                 {
                     CheckCancellation();
@@ -2109,7 +2351,14 @@ public static partial class WholeProgram
                 var region = DelegateRegion(instance, created.Delegate);
                 var state = _delegates[region];
                 Add(state.CellOwners, instance.CellOwners);
-                state.CapturedKeys.UnionWith(created.Delegate.CapturedValues.Keys.Where(key => key != "this"));
+                Add(state.NestedCellOwners, instance.NestedCellOwners);
+                state.CapturedCells.UnionWith(created.Delegate.CapturedCells);
+                // The closures the delegate closes over are made where it is.
+                foreach (var (member, body) in created.Delegate.CapturedCells.Select(cell => (cell.Member, cell.Body)).Distinct())
+                {
+                    foreach (var owner in Owners(instance, body))
+                        ClosureRegion(owner, member);
+                }
                 if (created.Delegate.CapturedValues.TryGetValue("this", out var thisValues))
                     Add(state.CapturedReceivers, Eval(instance, thisValues));
                 if (!state.IsNestedBody && _program.Method(state.Target) is { IsStatic: true } method)
@@ -2150,9 +2399,10 @@ public static partial class WholeProgram
             }
 
             foreach (var call in summary.OpaqueCalls
-                                        .SelectMany(call => CollectionObjects.LibraryCalls(call, value => Eval(instance, value), region => ObjectKind(region)))
-                                        .Concat(summary.Calls.SelectMany(call => CollectionObjects.LibraryCalls(call, value => Eval(instance, value),
-                                                                          region => ObjectKind(region, call.Target))))
+                                        .SelectMany(call => CollectionObjects.LibraryCalls(call, value => Identities(Eval(instance, value)),
+                                                                                           region => ObjectKind(Intern(region))))
+                                        .Concat(summary.Calls.SelectMany(call => CollectionObjects.LibraryCalls(call, value => Identities(Eval(instance, value)),
+                                                                          region => ObjectKind(Intern(region), call.Target))))
                                         .Where(call => call.IsKnown))
             {
                 CheckCancellation();
@@ -2207,7 +2457,7 @@ public static partial class WholeProgram
                 foreach (var effect in summary.ArgumentEffects.Where(effect => effect is { IsDeferred: false, Member: null, Kind: IrLibraryEffectKind.Enumerate or IrLibraryEffectKind.DeepRead }))
                 {
                     CheckCancellation();
-                    Consume(instance, effect.OperationId, Eval(instance, effect.Values), new TrackedSet<string>(StringComparer.Ordinal));
+                    Consume(instance, effect.OperationId, Eval(instance, effect.Values), []);
                 }
             }
 
@@ -2273,7 +2523,7 @@ public static partial class WholeProgram
         /// <param name="instance">The instance.</param>
         /// <param name="operationId">The reading operation.</param>
         /// <param name="tasks">The tasks it reads.</param>
-        private void ReadsCompletion(InstanceState instance, int operationId, IEnumerable<string> tasks)
+        private void ReadsCompletion(InstanceState instance, int operationId, IEnumerable<RegionRef> tasks)
         {
             if (!instance.UnfollowedCompletions.Contains(operationId) && tasks.Any(_unfollowedCompletions.Contains) &&
                 instance.UnfollowedCompletions.Add(operationId))
@@ -2293,13 +2543,13 @@ public static partial class WholeProgram
         private void Spawn(InstanceState caller, SummarySpawn spawn)
         {
             var site = SiteOf(_spawns, caller, spawn.OperationId, () => new SiteState(spawn.Kind, spawn.CallOperationId));
-            IReadOnlyList<TrackedSet<string>> works;
-            string? handle = null;
+            IReadOnlyList<TrackedSet<RegionRef>> works;
+            RegionRef? handle = null;
             if (spawn.Kind == IrSpawnKind.ThreadStart)
             {
                 var threads = Eval(caller, spawn.Handle!.Values);
                 Add(site.Handles, threads);
-                works = [threads.SelectMany(thread => Load(thread, THREAD_WORK_FIELD)).ToTrackedSet(StringComparer.Ordinal)];
+                works = [threads.SelectMany(thread => Load(thread, THREAD_WORK_FIELD)).ToTrackedSet()];
             }
             else
             {
@@ -2363,7 +2613,7 @@ public static partial class WholeProgram
 
             var state = spawn.State is { } stateValue ? Eval(caller, stateValue.Values) : [];
             var localValues = callees.Length == 3 && spawn.Kind is IrSpawnKind.ParallelFor or IrSpawnKind.ParallelForEach
-                ? callees[0].Concat(callees[1]).SelectMany(callee => callee.Returns).ToTrackedSet(StringComparer.Ordinal)
+                ? callees[0].Concat(callees[1]).SelectMany(callee => callee.Returns).ToTrackedSet()
                 : null;
             for (var index = 0; index < callees.Length; index++)
             {
@@ -2396,7 +2646,7 @@ public static partial class WholeProgram
             {
                 CheckCancellation();
                 var role = localValues is null ? SpawnRole.Work : index switch { 0 => SpawnRole.LocalInit, 1 => SpawnRole.Work, _ => SpawnRole.LocalFinally };
-                IEnumerable<string> inputs = spawn.Kind switch
+                IEnumerable<RegionRef> inputs = spawn.Kind switch
                 {
                     IrSpawnKind.ContinueWith => Eval(caller, spawn.Antecedent!.Values).Concat(state),
                     IrSpawnKind.StartNew or IrSpawnKind.QueueUserWorkItem or IrSpawnKind.UnsafeQueueUserWorkItem or IrSpawnKind.ThreadStart => state,
@@ -2407,7 +2657,7 @@ public static partial class WholeProgram
                 RecordUnresolvedWork(caller, spawn.OperationId, UnresolvedWorkKind.Spawn, null, callee, receivers, inputs);
             }
 
-            TrackedList<InstanceState> WorkCallees(string region, int index)
+            TrackedList<InstanceState> WorkCallees(RegionRef region, int index)
             {
                 if (!_delegates.TryGetValue(region, out var work))
                 {
@@ -2432,7 +2682,7 @@ public static partial class WholeProgram
         /// <param name="Index">The index of the role's works in the spawn.</param>
         /// <param name="Callee">The display of the member without a body.</param>
         /// <param name="Receivers">The receivers it runs no body on; empty for a static method group.</param>
-        private sealed record BodylessWork(int Index, string Callee, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> Receivers);
+        private sealed record BodylessWork(int Index, string Callee, IReadOnlyCollection<(RegionRef Region, string? DeclaringTypeKey)> Receivers);
 
         /// <summary>The <c>Execute()</c> implementations a work item region runs, with the region as receiver. An item that runs one
         /// without a body is reported, with that implementation and the type declaring it, as a dispatch would be (R1, question 145).</summary>
@@ -2440,7 +2690,7 @@ public static partial class WholeProgram
         /// <param name="workMethod">The workMethod.</param>
         /// <param name="unresolved">Called for each item that runs an implementation without a body, with the implementation (or the work
         /// method, where none is found), the item and the type of the run's own declaring the implementation.</param>
-        private TrackedList<InstanceState> WorkItemCallees(IEnumerable<string> items, string workMethod, Action<ProgramMethod, string, string?> unresolved)
+        private TrackedList<InstanceState> WorkItemCallees(IEnumerable<RegionRef> items, string workMethod, Action<ProgramMethod, RegionRef, string?> unresolved)
         {
             var callees = new TrackedList<InstanceState>();
             if (ReachableSet.WorkMethodId(_program, workMethod) is not { } methodId)
@@ -2503,7 +2753,7 @@ public static partial class WholeProgram
             Add(CallResult(caller, whenAll.CallOperationId), [group]);
             if (!_taskGroups.TryGetValue(group, out var members))
             {
-                _taskGroups.Add(group, members = (new TrackedSet<string>(StringComparer.Ordinal), whenAll.TasksKnown));
+                _taskGroups.Add(group, members = ([], whenAll.TasksKnown));
                 _changes++;
             }
 
@@ -2528,7 +2778,7 @@ public static partial class WholeProgram
         /// <param name="task">The task operation.</param>
         private void TaskOperation(InstanceState instance, SummaryTaskOperation task)
         {
-            IReadOnlyCollection<string> targets;
+            IReadOnlyCollection<RegionRef> targets;
             if (task.Task is { } existing)
                 targets = Eval(instance, existing.Values).ToArray();
             else
@@ -2548,7 +2798,7 @@ public static partial class WholeProgram
                 IrTaskKind.AnyOf when !task.ValuesKnown =>
                     (Eval(instance, task.Values.SelectMany(value => value.Values)).SelectMany(source => Load(source, PathValue.ELEMENT)).ToArray(), true),
                 IrTaskKind.AnyOf => (task.Values.SelectMany(value => Eval(instance, value.Values)).ToArray(), task.Values.Any(Unknown)),
-                _ => (Array.Empty<string>(), true)
+                _ => (Array.Empty<RegionRef>(), true)
             };
             foreach (var target in targets)
             {
@@ -2564,14 +2814,26 @@ public static partial class WholeProgram
         /// <param name="callerId">The instance making the timer step.</param>
         /// <param name="operationId">The step's operation.</param>
         /// <param name="timers">The regions of the site.</param>
-        private bool TimersKnown(string callerId, int operationId, IReadOnlySet<string> timers)
+        private bool TimersKnown(string callerId, int operationId, IReadOnlySet<RegionRef> timers)
         {
             var caller = _instances[callerId];
             var timer = caller.Summary.Timers.First(step => step.OperationId == operationId).Timer;
             return !Unfollowed(caller, timer.UnknownSources, timer.SourceCalls, timer.Completions) &&
                    timer.SourceCalls.All(call => timer.Depths(call).All(depth =>
-                       HeapSolution.Completions(CallResult(caller, call), depth, task => Completion([task])) is { Count: > 0 } result &&
+                       Completions(CallResult(caller, call), depth) is { Count: > 0 } result &&
                        result.All(timers.Contains)));
+        }
+
+        /// <summary>What tasks complete with, followed <paramref name="depth"/> times, as <see cref="HeapSolution.Completions"/> answers
+        /// it: the tasks themselves for none, nothing for <see cref="SummaryValue.MAX_COMPLETION_DEPTH"/>.</summary>
+        /// <param name="tasks">The regions to start from.</param>
+        /// <param name="depth">How many completions to follow.</param>
+        private HashSet<RegionRef> Completions(IEnumerable<RegionRef> tasks, int depth)
+        {
+            var regions = depth >= SummaryValue.MAX_COMPLETION_DEPTH ? [] : tasks.ToHashSet();
+            for (var level = 0; level < depth && regions.Count != 0; level++)
+                regions = regions.SelectMany(task => Completion([task])).ToHashSet();
+            return regions;
         }
 
         private SiteState SiteOf(TrackedMap<(string Caller, int Operation), SiteState> sites, InstanceState caller, int operationId,
@@ -2590,7 +2852,7 @@ public static partial class WholeProgram
         /// <param name="callee">The instance of the spawned or called-back body.</param>
         /// <param name="ordinal">The parameter's ordinal.</param>
         /// <param name="regions">The regions the parameter is bound to.</param>
-        private void BindParameter(InstanceState callee, int ordinal, IEnumerable<string> regions)
+        private void BindParameter(InstanceState callee, int ordinal, IEnumerable<RegionRef> regions)
         {
             if (ordinal >= 0 && ordinal < ParameterCount(callee))
                 Add(Parameter(callee, ordinal), regions);
@@ -2605,7 +2867,7 @@ public static partial class WholeProgram
         /// <param name="operationId">The operation's call.</param>
         /// <param name="depth">For a known call's <c>task(…)</c> result, how many tasks deep this one stands inside the call's own: each
         /// level is a region of its own (R4).</param>
-        private string TaskRegion(InstanceState instance, int operationId, int depth = 0)
+        private RegionRef TaskRegion(InstanceState instance, int operationId, int depth = 0)
         {
             var owner = _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.OwnerSymbol : instance.BodyId;
             var level = depth == 0 ? "" : "@" + depth;
@@ -2618,7 +2880,7 @@ public static partial class WholeProgram
         /// <param name="instance">The instance making the call.</param>
         /// <param name="operationId">The call's operation.</param>
         /// <param name="arrayType">The array's type key.</param>
-        private string CompletionArray(InstanceState instance, int operationId, string arrayType)
+        private RegionRef CompletionArray(InstanceState instance, int operationId, string arrayType)
         {
             var typeKey = ProgramIndex.Substitute(arrayType, instance.Substitution);
             var owner = _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.OwnerSymbol : instance.BodyId;
@@ -2627,7 +2889,7 @@ public static partial class WholeProgram
                           merged: instance.IsMerged, site: new CreationSite(instance.BodyId, operationId, arrayType, 1), exactType: true);
         }
 
-        private string TailRegion(string handle)
+        private RegionRef TailRegion(RegionRef handle)
         {
             if (_tails.TryGetValue(handle, out var tail))
                 return tail;
@@ -2640,9 +2902,9 @@ public static partial class WholeProgram
 
         /// <summary>What tasks complete with: what their completion slots hold.</summary>
         /// <param name="tasks">The task regions.</param>
-        private TrackedSet<string> Completion(IEnumerable<string> tasks)
+        private TrackedSet<RegionRef> Completion(IEnumerable<RegionRef> tasks)
         {
-            var result = new TrackedSet<string>(StringComparer.Ordinal);
+            var result = new TrackedSet<RegionRef>();
             foreach (var task in tasks)
             {
                 CheckCancellation();
@@ -2655,20 +2917,20 @@ public static partial class WholeProgram
         /// own task. Each is looked up as a query, so a value the solve never evaluated names no region and adds none.</summary>
         /// <param name="instance">The instance expressing the values.</param>
         /// <param name="values">The fresh values.</param>
-        private TrackedSet<string> SolvedTasks(InstanceState instance, AllocationValue[] values) =>
+        private TrackedSet<RegionRef> SolvedTasks(InstanceState instance, AllocationValue[] values) =>
             values.Length == 0
-                ? new TrackedSet<string>(StringComparer.Ordinal)
+                ? []
                 : Query((AllocationValue[] fresh) => Eval(instance, fresh.Cast<AbstractValue>())
                                                      .Where(region => _regions.ContainsKey(region) && _fields.ContainsKey((region, COMPLETION_FIELD)))
-                                                     .ToTrackedSet(StringComparer.Ordinal))(values);
+                                                     .ToTrackedSet())(values);
 
         /// <summary>The regions, and what the tasks among them complete with, at any depth: what a value carries wherever it goes, as each
         /// of those values handed over directly would be carried (R2). Every escape decider reads it.</summary>
         /// <param name="regions">The regions to start from.</param>
-        private TrackedSet<string> Carried(IEnumerable<string> regions)
+        private TrackedSet<RegionRef> Carried(IEnumerable<RegionRef> regions)
         {
-            var carried = new TrackedSet<string>(StringComparer.Ordinal);
-            var pending = new Stack<string>(regions);
+            var carried = new TrackedSet<RegionRef>();
+            var pending = new Stack<RegionRef>(regions);
             while (pending.TryPop(out var region))
             {
                 CheckCancellation();
@@ -2687,7 +2949,7 @@ public static partial class WholeProgram
         /// <param name="values">The regions it completes with.</param>
         /// <param name="unfollowed">Whether what completes it may be such an object.</param>
         /// <param name="completer">Where what completes it comes from, for the export (<see cref="Completed"/>).</param>
-        private void Complete(string task, IEnumerable<string> values, bool unfollowed, TaskCompleter completer)
+        private void Complete(RegionRef task, IEnumerable<RegionRef> values, bool unfollowed, TaskCompleter completer)
         {
             var completed = values.ToArray();
             if (completed.Length != 0)
@@ -2701,12 +2963,12 @@ public static partial class WholeProgram
         /// solve reads it, so it changes nothing the solve depends on.</summary>
         /// <param name="task">The task region.</param>
         /// <param name="completer">Where what completes it comes from.</param>
-        private void Completed(string task, TaskCompleter completer) => _completers.Add((task, completer));
+        private void Completed(RegionRef task, TaskCompleter completer) => _completers.Add((task, completer));
 
         /// <summary>What one run of a body completes with, and whether it may be an object the heap does not follow: an async body's returns,
         /// or what the tasks a non-async body returns complete with.</summary>
         /// <param name="callee">The body's instance.</param>
-        private (TrackedSet<string> Values, bool Unfollowed) CompletionOf(InstanceState callee) =>
+        private (TrackedSet<RegionRef> Values, bool Unfollowed) CompletionOf(InstanceState callee) =>
             IsAsyncBody(callee.BodyId)
                 ? (callee.Returns, callee.ReturnsUnfollowed)
                 : (Completion(callee.Returns), callee.ReturnsUnfollowed || callee.Returns.Any(_unfollowedCompletions.Contains));
@@ -2723,7 +2985,7 @@ public static partial class WholeProgram
                 if (call.Callee.Contains("ServiceProvider", StringComparison.Ordinal))
                 {
                     var scopes = Eval(instance, call.Receivers).Where(_scopeObjects.Contains).ToArray();
-                    Add(CallResult(instance, call.OperationId), scopes.Select(scope => Provider(new ResolutionScope(null, scope))));
+                    Add(CallResult(instance, call.OperationId), scopes.Select(scope => Provider(new ResolutionScope(null, scope.Identity))));
                 }
 
                 return;
@@ -2748,7 +3010,7 @@ public static partial class WholeProgram
             {
                 CheckCancellation();
                 var resolver = $"locator|{instance.BodyId}#{call.OperationId}";
-                IReadOnlyList<string> regions = service.Kind == IrServiceCallKind.Locator
+                IReadOnlyList<RegionRef> regions = service.Kind == IrServiceCallKind.Locator
                     ? Resolve(resolution, scope, resolver, scope.Context, "")
                     : Supported(resolution).Select(registration => Registration(key, registration, scope, resolver, scope.Context, "")).ToArray();
                 foreach (var region in regions.Where(region => _regions[region] is { Kind: HeapRegionKind.Di, Context: not ("singleton" or "root-scope") } di &&
@@ -2804,14 +3066,14 @@ public static partial class WholeProgram
                                provider.Count == 0 || !provider.All(value => value is ParameterValue):
                     return [];
                 default:
-                    return Eval(instance, provider).Order(StringComparer.Ordinal)
+                    return Eval(instance, provider).OrderBy(region => region.Identity, StringComparer.Ordinal)
                                                          .Select(region => _providers.GetValueOrDefault(region))
                                                          .OfType<ResolutionScope>()
                                                          .ToArray();
             }
         }
 
-        private void Trigger(InstanceState instance, int operationId, IEnumerable<string> regions)
+        private void Trigger(InstanceState instance, int operationId, IEnumerable<RegionRef> regions)
         {
             foreach (var region in regions)
             {
@@ -2821,7 +3083,7 @@ public static partial class WholeProgram
             }
         }
 
-        private void ConstructionEdges(InstanceState caller, int operationId, string region)
+        private void ConstructionEdges(InstanceState caller, int operationId, RegionRef region)
         {
             foreach (var constructor in _constructions.GetValueOrDefault(region)?.ToArray() ?? [])
             {
@@ -2834,14 +3096,16 @@ public static partial class WholeProgram
         {
             var typeArguments = (call.TargetMethodTypeArgumentKeys ?? []).Select(key => ProgramIndex.Substitute(key, caller.Substitution)).ToArray();
             var containing = call.TargetContainingTypeKey is null ? null : ProgramIndex.Substitute(call.TargetContainingTypeKey, caller.Substitution);
-            TrackedSet<string>? evaluatedReceivers = null;
-            TrackedSet<string> Receivers() => evaluatedReceivers ??= Eval(caller, call.Receivers);
+            TrackedSet<RegionRef>? evaluatedReceivers = null;
+            TrackedSet<RegionRef> Receivers() => evaluatedReceivers ??= Eval(caller, call.Receivers);
             switch (call.Kind)
             {
                 case IrCallKind.LocalFunction:
                 {
                     var callee = Instance(call.Target, OwnerContext(caller.CellOwners), caller.Substitution, caller.Receivers, caller.CellOwners,
                                           caller.IsReceiverless);
+                    if (callee is not null)
+                        Add(callee.NestedCellOwners, caller.NestedCellOwners);
                     Bind(caller, call, callee, "exact");
                     return;
                 }
@@ -2929,9 +3193,9 @@ public static partial class WholeProgram
             }
         }
 
-        private TrackedSet<string> IteratorMember(InstanceState caller, int operationId, IEnumerable<string> receivers)
+        private TrackedSet<RegionRef> IteratorMember(InstanceState caller, int operationId, IEnumerable<RegionRef> receivers)
         {
-            var handled = new TrackedSet<string>(StringComparer.Ordinal);
+            var handled = new TrackedSet<RegionRef>();
             if (!_scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ||
                 body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
                     .FirstOrDefault(call => call.Id == operationId) is not { } operation)
@@ -2955,7 +3219,7 @@ public static partial class WholeProgram
                         Add(CallResult(caller, operationId), [region]);
                         break;
                     case IrEnumerationRole.MoveNext or IrEnumerationRole.Dispose:
-                        Consume(caller, operationId, [region], new TrackedSet<string>(StringComparer.Ordinal));
+                        Consume(caller, operationId, [region], []);
                         break;
                     case IrEnumerationRole.Current:
                         Add(CallResult(caller, operationId), _sequences.TryGetValue(region, out var sequence)
@@ -2967,7 +3231,7 @@ public static partial class WholeProgram
             if (handled.Count != 0)
             {
                 if (!_iteratorMemberReceivers.TryGetValue((caller.Id, operationId), out var recorded))
-                    _iteratorMemberReceivers.Add((caller.Id, operationId), recorded = new TrackedSet<string>(StringComparer.Ordinal));
+                    _iteratorMemberReceivers.Add((caller.Id, operationId), recorded = []);
                 recorded.UnionWith(handled);
             }
             return handled;
@@ -2982,7 +3246,7 @@ public static partial class WholeProgram
             _ => IrEnumerationRole.None
         };
 
-        private bool ForeachAlreadyEnumerated(InstanceState caller, IrCallOperation operation, string region)
+        private bool ForeachAlreadyEnumerated(InstanceState caller, IrCallOperation operation, RegionRef region)
         {
             if (operation.EnumerationId is not int enumeration)
                 return false;
@@ -2996,7 +3260,7 @@ public static partial class WholeProgram
             return receivers is not null && Eval(caller, receivers).Contains(region);
         }
 
-        private TrackedSet<string> EligibleReceivers(TrackedSet<string> receivers, string? containing)
+        private TrackedSet<RegionRef> EligibleReceivers(TrackedSet<RegionRef> receivers, string? containing)
         {
             if (containing is not null)
                 receivers.RemoveWhere(region => _typeSafety.CannotBe(_regions[region], containing));
@@ -3004,7 +3268,7 @@ public static partial class WholeProgram
         }
 
         private bool DeadReceiver(InstanceState caller, CallTransfer call, string? containing,
-                                  Func<TrackedSet<string>>? evaluateReceivers = null)
+                                  Func<TrackedSet<RegionRef>>? evaluateReceivers = null)
         {
             if (containing is null)
                 return false;
@@ -3075,12 +3339,12 @@ public static partial class WholeProgram
         /// that implementation, any other through the target's. Null when nothing is unresolved, or the delegate is a nested body.</summary>
         /// <param name="state">The delegate.</param>
         /// <param name="ran">Whether the delegate runs some body.</param>
-        private (string Region, string? DeclaringTypeKey)[]? UnresolvedReceivers(DelegateState state, bool ran)
+        private (RegionRef Region, string? DeclaringTypeKey)[]? UnresolvedReceivers(DelegateState state, bool ran)
         {
             if (state.IsNestedBody)
                 return null;
             var target = _program.Method(state.Target);
-            var receivers = new List<(string Region, string? DeclaringTypeKey)>();
+            var receivers = new List<(RegionRef Region, string? DeclaringTypeKey)>();
             foreach (var receiver in state.CapturedReceivers)
             {
                 var implementations = target is null ? [] : ImplementationsWithoutBody(receiver, target, state.ContainingTypeKey, state.IsNonVirtual);
@@ -3097,7 +3361,7 @@ public static partial class WholeProgram
         /// <param name="method">The method a delegate or a call names.</param>
         /// <param name="containingTypeKey">The type the method is named on.</param>
         /// <param name="isNonVirtual">Whether the delegate binds the named member without virtual dispatch.</param>
-        private IReadOnlyList<ProgramMethod> ImplementationsWithoutBody(string receiver, ProgramMethod method, string? containingTypeKey, bool isNonVirtual)
+        private IReadOnlyList<ProgramMethod> ImplementationsWithoutBody(RegionRef receiver, ProgramMethod method, string? containingTypeKey, bool isNonVirtual)
         {
             IEnumerable<ProgramMethod?> implementations = isNonVirtual ? [method] :
                 ReceiverTypes(receiver).Select(type => _program.Implementation(type, method.MethodId, containingTypeKey));
@@ -3121,12 +3385,12 @@ public static partial class WholeProgram
             {
                 CheckCancellation();
                 var isDictionary = InterproceduralAccesses.IsDictionaryType(_program, _regions[source].TypeKey);
-                TrackedSet<string> held;
+                TrackedSet<RegionRef> held;
                 if (copy.Pair is null)
                 {
                     held = isDictionary
                         ? Load(source, copy.Slot)
-                        : Load(source, PathValue.ELEMENT).SelectMany(pair => Load(pair, copy.Slot)).ToTrackedSet(StringComparer.Ordinal);
+                        : Load(source, PathValue.ELEMENT).SelectMany(pair => Load(pair, copy.Slot)).ToTrackedSet();
                 }
                 else if (isDictionary)
                 {
@@ -3265,7 +3529,7 @@ public static partial class WholeProgram
             }
             else
                 projections[library] = call;
-            var runs = new TrackedMap<int, TrackedList<(string Region, InstanceState Callee)>>();
+            var runs = new TrackedMap<int, TrackedList<(RegionRef Region, InstanceState Callee)>>();
             // The delegates some alternative of which runs code the analysis does not see in full: no delegate object is known for an
             // alternative, one resolves no body, or a dispatch of one has no receiver.
             var unseen = new HashSet<int>();
@@ -3300,7 +3564,7 @@ public static partial class WholeProgram
             // What a delegate returned that the model names the elements of is enumerated as an argument would be: at the call when the
             // call returns no library sequence, else as a source of the one it returns, by whoever enumerates it (R3, R5).
             Consume(caller, call.OperationId, EnumeratedReturned(caller, call, library.EnumeratedReturns(false), library.EnumeratedCompletions(false), returns),
-                    new TrackedSet<string>(StringComparer.Ordinal));
+                    []);
             if (sequence is not null)
                 AddReturnedSources(sequence, EnumeratedReturned(caller, call, library.EnumeratedReturns(true), library.EnumeratedCompletions(true), returns));
             foreach (var fate in library.Fates.Where(fate => fate.Kind != IrFateKind.NotRun))
@@ -3315,7 +3579,7 @@ public static partial class WholeProgram
                 var inputs = fate.Inputs.Select((input, ordinal) => new CallArgument(ordinal, input.SelectMany((value, position) =>
                                                                                                         ModelValues(caller, call, value, returns,
                                                                                                                     $"fate{fate.ParameterOrdinal}.{ordinal}.{position}"))
-                                                                                                    .Select(region => (AbstractValue)new RegionValue(region))
+                                                                                                    .Select(region => (AbstractValue)new SolvedRegionValue(region))
                                                                                                     .ToTrackedSet()))
                                  .ToArray();
                 var invocation = Invocation(call, fate, inputs);
@@ -3324,7 +3588,7 @@ public static partial class WholeProgram
                 {
                     if (sequence is not null && fate.Kind == IrFateKind.Iterator)
                     {
-                        sequence.Unresolved[(fate.ParameterOrdinal, UNRESOLVED_DELEGATE)] = (call.Callee, inputs, []);
+                        sequence.Unresolved[(fate.ParameterOrdinal, _unresolvedDelegate)] = (call.Callee, inputs, []);
                         continue;
                     }
 
@@ -3388,7 +3652,7 @@ public static partial class WholeProgram
                 var inputs = model.Inputs.Select((input, ordinal) => new CallArgument(ordinal, input.SelectMany((value, position) =>
                                                                                                    ModelValues(caller, call, value, returns,
                                                                                                                $"call{index}.{ordinal}.{position}"))
-                                                                                               .Select(region => (AbstractValue)new RegionValue(region))
+                                                                                               .Select(region => (AbstractValue)new SolvedRegionValue(region))
                                                                                                .ToTrackedSet()))
                                          .ToArray();
                 foreach (var receiver in ModelValues(caller, call, model.On, returns, $"call{index}.on").ToArray())
@@ -3430,7 +3694,7 @@ public static partial class WholeProgram
                 CheckCancellation();
                 var key = (caller.Id, call.OperationId, keep.Key);
                 if (!_libraryKeeping.TryGetValue(key, out var kept))
-                    _libraryKeeping.Add(key, kept = new TrackedSet<string>(StringComparer.Ordinal));
+                    _libraryKeeping.Add(key, kept = []);
                 Add(kept, keep.Value.SelectMany((value, position) => ModelValues(caller, call, value, returns, $"keep{keep.Key}.{position}")));
                 var unfollowedKept = caller.UnfollowedModelCompletions.Contains((call.OperationId, $"keep{keep.Key}"));
                 var unfollowedValue = keep.Value.Any(value => ModelUnfollowed(caller, call, value, returns));
@@ -3450,7 +3714,7 @@ public static partial class WholeProgram
                 var values = store.Value.SelectMany((value, position) => ModelValues(caller, call, value, returns, $"store{store.Key}.{position}")).ToArray();
                 var key = (caller.Id, call.OperationId, store.Key);
                 if (!_libraryStored.TryGetValue(key, out var stored))
-                    _libraryStored.Add(key, stored = new TrackedSet<string>(StringComparer.Ordinal));
+                    _libraryStored.Add(key, stored = []);
                 Add(stored, values);
             }
         }
@@ -3462,19 +3726,19 @@ public static partial class WholeProgram
         /// <param name="creator">The creator.</param>
         /// <param name="operation">The operation.</param>
         /// <param name="nested">The nested.</param>
-        private sealed class SequenceState(string region, string creator, int operation, bool nested) : ITrackedState
+        private sealed class SequenceState(RegionRef region, string creator, int operation, bool nested) : ITrackedState
         {
-            public string Region { get; } = region;
+            public RegionRef Region { get; } = region;
             public string Creator { get; } = creator;
             public int Operation { get; } = operation;
             public bool IsNested { get; } = nested;
             public TrackedSet<string> Callees { get; } = new(StringComparer.Ordinal);
-            public TrackedSet<string> Yields { get; } = new(StringComparer.Ordinal);
-            public TrackedSet<string> Sources { get; } = new(StringComparer.Ordinal);
-            public TrackedSet<string> ReturnedSources { get; } = new(StringComparer.Ordinal);
-            /// <summary>By delegate parameter and delegate region, <see cref="UNRESOLVED_DELEGATE"/> where no delegate object is known: each
+            public TrackedSet<RegionRef> Yields { get; } = [];
+            public TrackedSet<RegionRef> Sources { get; } = [];
+            public TrackedSet<RegionRef> ReturnedSources { get; } = [];
+            /// <summary>By delegate parameter and delegate region, <see cref="_unresolvedDelegate"/> where no delegate object is known: each
             /// target of one argument is a dispatch of its own.</summary>
-            public TrackedMap<(int Parameter, string Region), (string Callee, IReadOnlyList<CallArgument> Inputs, (string Region, string? DeclaringTypeKey)[] Receivers)> Unresolved { get; } = [];
+            public TrackedMap<(int Parameter, RegionRef Region), (string Callee, IReadOnlyList<CallArgument> Inputs, (RegionRef Region, string? DeclaringTypeKey)[] Receivers)> Unresolved { get; } = [];
 
             public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
             {
@@ -3530,7 +3794,7 @@ public static partial class WholeProgram
         /// <param name="operationId">The operationId.</param>
         /// <param name="regions">The regions.</param>
         /// <param name="visited">The visited.</param>
-        private void Consume(InstanceState consumer, int operationId, IEnumerable<string> regions, TrackedSet<string> visited)
+        private void Consume(InstanceState consumer, int operationId, IEnumerable<RegionRef> regions, TrackedSet<RegionRef> visited)
         {
             foreach (var region in regions.ToArray())
             {
@@ -3562,9 +3826,9 @@ public static partial class WholeProgram
             }
         }
 
-        private string KeeperStore(SummaryOpaqueCall call, int ordinal) => StaticRegion(call.Library!.KeeperTypeKeys[ordinal]);
+        private RegionRef KeeperStore(SummaryOpaqueCall call, int ordinal) => StaticRegion(call.Library!.KeeperTypeKeys[ordinal]);
 
-        private TrackedSet<string> KeeperTargets(InstanceState caller, SummaryOpaqueCall call, int ordinal, bool read)
+        private TrackedSet<RegionRef> KeeperTargets(InstanceState caller, SummaryOpaqueCall call, int ordinal, bool read)
         {
             var targets = ordinal == IrLibraryCall.RESULT ? ResultObjects(caller, call) : Eval(caller, ArgumentOf(call, ordinal));
             // A keeper argument that may also be an object the heap does not name keeps into, and reads, the type store as well as the
@@ -3583,9 +3847,9 @@ public static partial class WholeProgram
         /// (R4).</summary>
         /// <param name="caller">The instance making the call.</param>
         /// <param name="call">The known call.</param>
-        private TrackedSet<string> ResultObjects(InstanceState caller, SummaryOpaqueCall call)
+        private TrackedSet<RegionRef> ResultObjects(InstanceState caller, SummaryOpaqueCall call)
         {
-            var objects = CallResult(caller, call.OperationId).ToTrackedSet(StringComparer.Ordinal);
+            var objects = CallResult(caller, call.OperationId).ToTrackedSet();
             for (var level = call.Library!.Result?.TaskDepth ?? call.Library.ReturnTaskDepth; level > 0; level--)
                 objects = Completion(objects);
             return objects;
@@ -3640,9 +3904,9 @@ public static partial class WholeProgram
         /// back an object the heap does not follow: the one answer every model value naming <c>returns:</c> reads (R1, R2, R4).</summary>
         /// <param name="Values">The objects each delegate parameter's runs give back, by parameter ordinal.</param>
         /// <param name="Unfollowed">The delegate parameters some run of which may give back such an object.</param>
-        private sealed record DelegateReturns(IReadOnlyDictionary<int, TrackedSet<string>> Values, IReadOnlySet<int> Unfollowed)
+        private sealed record DelegateReturns(IReadOnlyDictionary<int, TrackedSet<RegionRef>> Values, IReadOnlySet<int> Unfollowed)
         {
-            public IEnumerable<string> Of(int ordinal) => Values.GetValueOrDefault(ordinal) ?? [];
+            public IEnumerable<RegionRef> Of(int ordinal) => Values.GetValueOrDefault(ordinal) ?? [];
         }
 
         /// <summary>What one run of each <c>invoke-now</c> or <c>iterator</c> delegate gives back: a non-async body what it returns, an
@@ -3653,15 +3917,15 @@ public static partial class WholeProgram
         /// <param name="call">The known call.</param>
         /// <param name="runs">The delegate regions and the instances they run, by parameter ordinal.</param>
         /// <param name="unseen">The delegate parameters some alternative of which runs code the analysis does not see in full.</param>
-        private DelegateReturns ReturnsOf(InstanceState caller, SummaryOpaqueCall call, IReadOnlyDictionary<int, TrackedList<(string Region, InstanceState Callee)>> runs,
+        private DelegateReturns ReturnsOf(InstanceState caller, SummaryOpaqueCall call, IReadOnlyDictionary<int, TrackedList<(RegionRef Region, InstanceState Callee)>> runs,
                                           IReadOnlySet<int> unseen)
         {
-            var values = new TrackedMap<int, TrackedSet<string>>();
+            var values = new TrackedMap<int, TrackedSet<RegionRef>>();
             var unfollowed = new HashSet<int>();
             foreach (var fate in call.Library!.Fates.Where(fate => fate.Kind is IrFateKind.InvokeNow or IrFateKind.Iterator))
             {
                 CheckCancellation();
-                var returned = new TrackedSet<string>(StringComparer.Ordinal);
+                var returned = new TrackedSet<RegionRef>();
                 var site = new DelegateSite(caller.Id, call.OperationId, fate.ParameterOrdinal);
                 _rebuilding.DelegateSites.Add(site);
                 foreach (var (_, callee) in runs[fate.ParameterOrdinal])
@@ -3672,7 +3936,7 @@ public static partial class WholeProgram
                         var task = ReturnedTask(caller, call.OperationId, fate.ParameterOrdinal);
                         Complete(task, callee.Returns, callee.ReturnsUnfollowed, new TaskCompleter(callee.Id, -1, TaskCompleterKind.Returns));
                         returned.Add(task);
-                        _rebuilding.DelegateRuns.Add((site, new DelegateRun(callee.Id, task)));
+                        _rebuilding.DelegateRuns.Add((site, new DelegateRun(callee.Id, task.Identity)));
                     }
                     else
                     {
@@ -3695,7 +3959,7 @@ public static partial class WholeProgram
         /// <param name="instance">The instance making the call.</param>
         /// <param name="operationId">The call's operation.</param>
         /// <param name="ordinal">The delegate parameter's ordinal.</param>
-        private string ReturnedTask(InstanceState instance, int operationId, int ordinal)
+        private RegionRef ReturnedTask(InstanceState instance, int operationId, int ordinal)
         {
             var owner = _scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ? body.OwnerSymbol : instance.BodyId;
             return Region($"task|{instance.BodyId}#{operationId}^returns{ordinal}|{ContextKey(instance)}", HeapRegionKind.Task,
@@ -3712,7 +3976,7 @@ public static partial class WholeProgram
         /// <param name="ordinals">The delegate parameters whose returns are enumerated.</param>
         /// <param name="completions">The completions whose values are enumerated.</param>
         /// <param name="returns">What the call's delegates give back.</param>
-        private IEnumerable<string> EnumeratedReturned(InstanceState caller, SummaryOpaqueCall call, IEnumerable<int> ordinals,
+        private IEnumerable<RegionRef> EnumeratedReturned(InstanceState caller, SummaryOpaqueCall call, IEnumerable<int> ordinals,
                                                        IEnumerable<IrModelCompletion> completions, DelegateReturns returns) =>
             ordinals.SelectMany(returns.Of)
                     .Concat(completions.Where(completion => !IrLibraryCall.ReachesCallValues(completion))
@@ -3725,11 +3989,11 @@ public static partial class WholeProgram
         /// <param name="call">The known call.</param>
         /// <param name="completion">The completion.</param>
         /// <param name="returns">What the call's delegates give back.</param>
-        private IEnumerable<string> CompletionSources(InstanceState caller, SummaryOpaqueCall call, IrModelCompletion completion, DelegateReturns returns)
+        private IEnumerable<RegionRef> CompletionSources(InstanceState caller, SummaryOpaqueCall call, IrModelCompletion completion, DelegateReturns returns)
         {
             var (source, depth) = IrLibraryCall.CompletedSource(completion);
             return IrLibraryCall.CompletionHolders(completion).SelectMany(holder => ModelValues(caller, call, holder, returns, SOURCE_PATH))
-                                .Concat(HeapSolution.Completions(ModelValues(caller, call, source, returns, SOURCE_PATH), depth, task => Completion([task])))
+                                .Concat(Completions(ModelValues(caller, call, source, returns, SOURCE_PATH), depth))
                                 .ToArray();
         }
 
@@ -3737,11 +4001,11 @@ public static partial class WholeProgram
         /// <param name="caller">The caller.</param>
         /// <param name="invocation">The invocation.</param>
         /// <param name="receivers">The receivers.</param>
-        private void UnresolvedFate(InstanceState caller, CallTransfer invocation, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers)
+        private void UnresolvedFate(InstanceState caller, CallTransfer invocation, IReadOnlyCollection<(RegionRef Region, string? DeclaringTypeKey)> receivers)
         {
             Unresolved(caller, invocation, receivers);
             if (!_rebuilding.UnresolvedFateInputs.TryGetValue((caller.Id, invocation.OperationId), out var seen))
-                _rebuilding.UnresolvedFateInputs.Add((caller.Id, invocation.OperationId), seen = new TrackedSet<string>(StringComparer.Ordinal));
+                _rebuilding.UnresolvedFateInputs.Add((caller.Id, invocation.OperationId), seen = []);
             seen.UnionWith(Eval(caller, invocation.Arguments.SelectMany(argument => argument.Values)));
         }
 
@@ -3753,8 +4017,8 @@ public static partial class WholeProgram
         /// <param name="value">The model value to evaluate.</param>
         /// <param name="returns">What each named delegate gives back (<see cref="ReturnsOf"/>).</param>
         /// <param name="path">The value's path within this call's model.</param>
-        private TrackedSet<string> ModelValues(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, DelegateReturns returns,
-                                            string path)
+        private TrackedSet<RegionRef> ModelValues(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, DelegateReturns returns,
+                                               string path)
         {
             switch (value)
             {
@@ -3768,12 +4032,12 @@ public static partial class WholeProgram
                     // A keeper keeping an unfollowed completion value delivers it through this channel as that completion would (R2).
                     if (path != SOURCE_PATH && keepers.Any(_unfollowedKept.Contains) && caller.UnfollowedModelCompletions.Add((call.OperationId, Channel(path))))
                         _changes++;
-                    return keepers.SelectMany(keeper => Load(keeper, PathValue.KEPT)).ToTrackedSet(StringComparer.Ordinal);
+                    return keepers.SelectMany(keeper => Load(keeper, PathValue.KEPT)).ToTrackedSet();
                 }
                 case IrModelArgument argument:
                     return Eval(caller, ArgumentOf(call, argument.ParameterOrdinal));
                 case IrModelReturns returned:
-                    return new TrackedSet<string>(returns.Of(returned.ParameterOrdinal), StringComparer.Ordinal);
+                    return new TrackedSet<RegionRef>(returns.Of(returned.ParameterOrdinal));
                 case IrModelElements elements:
                     return Elements(ModelValues(caller, call, elements.Source, returns, path + ".e"), elements.ElementTypeKey);
                 case IrModelSequence sequenceValue:
@@ -3801,7 +4065,7 @@ public static partial class WholeProgram
                     return [grouping];
                 }
                 case IrModelHolderArgument:
-                    return new TrackedSet<string>(StringComparer.Ordinal);
+                    return [];
                 case IrModelCompletion completion:
                 {
                     // What the tasks the source names complete with (R4). Where one of them may complete with an object the heap does not
@@ -3855,7 +4119,7 @@ public static partial class WholeProgram
         /// <param name="operationId">The call operation that runs the delegate.</param>
         /// <param name="value">The fresh input and its declared type.</param>
         /// <param name="path">The fate and input position distinguishing this object.</param>
-        private string ModelNew(InstanceState caller, int operationId, IrModelNew value, string path)
+        private RegionRef ModelNew(InstanceState caller, int operationId, IrModelNew value, string path)
         {
             var typeKey = ProgramIndex.Substitute(value.TypeKey, caller.Substitution);
             var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
@@ -3909,7 +4173,7 @@ public static partial class WholeProgram
         /// <summary>What a delegate returned that a sequence's values name the elements of is a source it enumerates too (R5).</summary>
         /// <param name="sequence">The sequence.</param>
         /// <param name="returned">The returned.</param>
-        private void AddReturnedSources(SequenceState sequence, IEnumerable<string> returned)
+        private void AddReturnedSources(SequenceState sequence, IEnumerable<RegionRef> returned)
         {
             foreach (var source in returned)
             {
@@ -3920,7 +4184,7 @@ public static partial class WholeProgram
             }
         }
 
-        private void AddSequenceYields(SequenceState sequence, IEnumerable<string> values)
+        private void AddSequenceYields(SequenceState sequence, IEnumerable<RegionRef> values)
         {
             var yielded = values.ToArray();
             Add(Field(sequence.Region, PathValue.ELEMENT), yielded);
@@ -3932,9 +4196,9 @@ public static partial class WholeProgram
         /// one where that type says nothing (SPEC TD-034a). A user iterator yields what its body's <c>yield return</c>s hand out.</summary>
         /// <param name="sources">The sources.</param>
         /// <param name="elementTypeKey">The elementTypeKey.</param>
-        private TrackedSet<string> Elements(IEnumerable<string> sources, string? elementTypeKey)
+        private TrackedSet<RegionRef> Elements(IEnumerable<RegionRef> sources, string? elementTypeKey)
         {
-            var yielded = new TrackedSet<string>(StringComparer.Ordinal);
+            var yielded = new TrackedSet<RegionRef>();
             foreach (var source in sources)
             {
                 CheckCancellation();
@@ -4034,7 +4298,7 @@ public static partial class WholeProgram
         /// <param name="call">The known call.</param>
         /// <param name="depth">How many tasks stand around what lands.</param>
         /// <param name="unfollowed">Whether what lands in the innermost task may be an object the heap does not follow.</param>
-        private TrackedSet<string> ResultSlot(InstanceState caller, SummaryOpaqueCall call, int depth, bool unfollowed)
+        private TrackedSet<RegionRef> ResultSlot(InstanceState caller, SummaryOpaqueCall call, int depth, bool unfollowed)
         {
             if (depth == 0)
             {
@@ -4062,7 +4326,7 @@ public static partial class WholeProgram
         /// <param name="declaredType">The destination's referenced type key.</param>
         /// <param name="destination">The result or output destination.</param>
         /// <param name="path">The path from that destination's root.</param>
-        private string CreatedForDestination(InstanceState caller, SummaryOpaqueCall call, string declaredType, ResultDestination destination, string path)
+        private RegionRef CreatedForDestination(InstanceState caller, SummaryOpaqueCall call, string declaredType, ResultDestination destination, string path)
         {
             var typeKey = ProgramIndex.Substitute(declaredType, caller.Substitution);
             var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
@@ -4195,9 +4459,9 @@ public static partial class WholeProgram
         /// <param name="call">The known call.</param>
         /// <param name="destination">The result or output parameter receiving the graph.</param>
         /// <param name="declaredType">The destination's referenced type key before caller substitution.</param>
-        private string NewGraph(InstanceState caller, SummaryOpaqueCall call, ResultDestination destination, string declaredType)
+        private RegionRef NewGraph(InstanceState caller, SummaryOpaqueCall call, ResultDestination destination, string declaredType)
         {
-            var objects = new TrackedMap<string, string>(StringComparer.Ordinal);
+            var objects = new TrackedMap<string, RegionRef>(StringComparer.Ordinal);
             foreach (var node in GraphNodes(ProgramIndex.Substitute(declaredType, caller.Substitution)))
             {
                 CheckCancellation();
@@ -4213,7 +4477,7 @@ public static partial class WholeProgram
         /// <param name="caller">The instance making the call.</param>
         /// <param name="call">The call.</param>
         /// <param name="resultType">The object's type key before the caller's substitution.</param>
-        private string CreatedAtCall(InstanceState caller, SummaryOpaqueCall call, string resultType)
+        private RegionRef CreatedAtCall(InstanceState caller, SummaryOpaqueCall call, string resultType)
         {
             var created = CreatedObject(caller, call, resultType);
             Add(CallResult(caller, call.OperationId), [created]);
@@ -4224,7 +4488,7 @@ public static partial class WholeProgram
         /// <param name="caller">The instance making the call.</param>
         /// <param name="call">The call.</param>
         /// <param name="resultType">The object's type key before the caller's substitution.</param>
-        private string CreatedObject(InstanceState caller, SummaryOpaqueCall call, string resultType)
+        private RegionRef CreatedObject(InstanceState caller, SummaryOpaqueCall call, string resultType)
         {
             var typeKey = ProgramIndex.Substitute(resultType, caller.Substitution);
             var owner = _scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ? body.OwnerSymbol : caller.BodyId;
@@ -4240,7 +4504,7 @@ public static partial class WholeProgram
         /// <summary>Looks up a reference target's locations in its instance. Calls and parameters carry locations through the fixpoint.</summary>
         /// <param name="instance">The instance in whose frame the target is resolved.</param>
         /// <param name="target">The reference target to resolve.</param>
-        private IEnumerable<(string Region, string Slot)> ReferenceLocations(InstanceState instance, ReferenceTarget target)
+        private IEnumerable<(RegionRef Region, string Slot)> ReferenceLocations(InstanceState instance, ReferenceTarget target)
         {
             CheckCancellation();
             // The counter counts the solve's lookups; a query of the solved heap is not one.
@@ -4250,20 +4514,21 @@ public static partial class WholeProgram
             {
                 case ReferenceCell cell:
                 {
-                    var owners = cell.Field.IsStatic ? new TrackedSet<string>(StringComparer.Ordinal) { StaticRegion(instance, cell.Field) } : Eval(instance, cell.Bases);
+                    var owners = cell.Field.IsStatic ? new TrackedSet<RegionRef> { StaticRegion(instance, cell.Field) } : Eval(instance, cell.Bases);
                     foreach (var owner in owners)
                     {
                         CheckCancellation();
+                        // The place is the cell, or the field, and the struct fields below it, as one slot path of the holder (R1).
                         if (cell.IsOnCollection)
                         {
                             foreach (var array in Load(owner, FieldSlot.Key(cell.Field)))
                             {
                                 CheckCancellation();
-                                yield return (array, PathValue.ELEMENT);
+                                yield return Located(array, cell.Slot);
                             }
                         }
                         else
-                            yield return (owner, FieldSlot.Key(cell.Field));
+                            yield return Located(owner, cell.Slot);
                     }
                     break;
                 }
@@ -4314,7 +4579,7 @@ public static partial class WholeProgram
             /// <summary>The call that made the delegate held, which names its unresolved dispatch where it escapes.</summary>
             private readonly TrackedValue<string> _callee = new("");
             public string Callee { get => _callee.Value; init => _callee.Value = value; }
-            public TrackedList<TrackedSet<string>> Regions { get; } = [];
+            public TrackedList<TrackedSet<RegionRef>> Regions { get; } = [];
             public TrackedList<TrackedSet<int>> HolderArguments { get; } = [];
             public TrackedList<TrackedSet<HeldNewInput>> NewInputs { get; } = [];
 
@@ -4352,7 +4617,7 @@ public static partial class WholeProgram
                                                                       .Where(item => item.Value is not (IrModelHolderArgument or IrModelNew))
                                                                       .SelectMany(item => ModelValues(caller, call, item.Value, returns,
                                                                                                       $"fate{fate.ParameterOrdinal}.{ordinal}.{item.Position}"))
-                                                                      .ToTrackedSet(StringComparer.Ordinal))
+                                                                      .ToTrackedSet())
                               .ToArray();
             var holderArguments = fate.Inputs.Select(input => input.OfType<IrModelHolderArgument>().Select(argument => argument.Index).ToTrackedSet()).ToArray();
             var newInputs = fate.Inputs.Select(input => input.Select((value, position) => (value, position))
@@ -4364,7 +4629,7 @@ public static partial class WholeProgram
             var delegates = Eval(caller, ArgumentOf(call, fate.ParameterOrdinal)).Where(_delegates.ContainsKey).ToArray();
             // On a task member the holder is the innermost completion value, inside the chain of tasks a task(…) result of the
             // member's depth makes (R4).
-            IReadOnlyCollection<string> holders = fate.Holder == IrHolderKind.Result && !call.IsConstructor
+            IReadOnlyCollection<RegionRef> holders = fate.Holder == IrHolderKind.Result && !call.IsConstructor
                 ? call.Library!.ResultTypeKey is { } holderType ? [HolderAtCall(caller, call, holderType)] : []
                 : Eval(caller, call.Receivers);
             if (holders.Count == 0)
@@ -4372,7 +4637,7 @@ public static partial class WholeProgram
                 var handed = regions.Select((values, ordinal) => values.Concat(newInputs[ordinal].Select(input =>
                                               ModelNew(caller, call.OperationId, new IrModelNew(input.TypeKey),
                                                        input.Path(ordinal))))
-                                                       .ToTrackedSet(StringComparer.Ordinal)).ToArray();
+                                                       .ToTrackedSet()).ToArray();
                 // A delegate no object is known for is an unresolved dispatch there, as it would be in that unknown execution (R3).
                 if (delegates.Length == 0)
                     UnresolvedHeld(caller, call.OperationId, call.Callee, handed);
@@ -4388,7 +4653,7 @@ public static partial class WholeProgram
             {
                 CheckCancellation();
                 if (delegates.Length == 0)
-                    Keep(holder, UNRESOLVED_DELEGATE, call.Callee, regions, holderArguments, newInputs);
+                    Keep(holder, _unresolvedDelegate, call.Callee, regions, holderArguments, newInputs);
                 foreach (var region in delegates)
                 {
                     CheckCancellation();
@@ -4401,19 +4666,19 @@ public static partial class WholeProgram
         /// <param name="caller">The instance making the call.</param>
         /// <param name="call">The known call.</param>
         /// <param name="holderType">The holder's type key, the innermost type the member returns.</param>
-        private string HolderAtCall(InstanceState caller, SummaryOpaqueCall call, string holderType)
+        private RegionRef HolderAtCall(InstanceState caller, SummaryOpaqueCall call, string holderType)
         {
             var created = CreatedObject(caller, call, holderType);
             Add(ResultSlot(caller, call, call.Library!.ReturnTaskDepth, unfollowed: false), [created]);
             return created;
         }
 
-        private void Keep(string holder, string region, string callee, IReadOnlyList<TrackedSet<string>> regions,
+        private void Keep(RegionRef holder, RegionRef region, string callee, IReadOnlyList<TrackedSet<RegionRef>> regions,
                           IReadOnlyList<TrackedSet<int>> holderArguments, IReadOnlyList<TrackedSet<HeldNewInput>> newInputs)
         {
             if (!_held.TryGetValue(holder, out var kept))
             {
-                _held.Add(holder, kept = new TrackedMap<string, HeldDelegate>(StringComparer.Ordinal));
+                _held.Add(holder, kept = []);
                 _changes++;
             }
 
@@ -4428,7 +4693,7 @@ public static partial class WholeProgram
                 CheckCancellation();
                 if (held.Regions.Count <= ordinal)
                 {
-                    held.Regions.Add(new TrackedSet<string>(StringComparer.Ordinal));
+                    held.Regions.Add([]);
                     held.HolderArguments.Add([]);
                     held.NewInputs.Add([]);
                 }
@@ -4457,7 +4722,7 @@ public static partial class WholeProgram
         /// <param name="callee">The callee.</param>
         /// <param name="arguments">The arguments.</param>
         /// <param name="holder">The holder.</param>
-        private void RunHeld(InstanceState caller, int operationId, string callee, IReadOnlyList<CallArgument> arguments, string holder)
+        private void RunHeld(InstanceState caller, int operationId, string callee, IReadOnlyList<CallArgument> arguments, RegionRef holder)
         {
             foreach (var (region, held) in _held[holder].ToArray())
             {
@@ -4467,13 +4732,15 @@ public static partial class WholeProgram
                                                 Eval(caller, arguments.FirstOrDefault(argument => argument.ParameterOrdinal == index)?.Values ?? new TrackedSet<AbstractValue>())))
                                             .Concat(held.NewInputs[ordinal].Select(input => ModelNew(caller, operationId,
                                                 new IrModelNew(input.TypeKey), input.Path(ordinal))))
-                                            .Select(value => (AbstractValue)new RegionValue(value))
+                                            .Select(value => (AbstractValue)new SolvedRegionValue(value))
                                             .ToTrackedSet()))
                                  .ToArray();
                 var invocation = new CallTransfer(operationId, callee, IrCallKind.Delegate,
-                                                  region == UNRESOLVED_DELEGATE ? new TrackedSet<AbstractValue>() : new TrackedSet<AbstractValue> { new RegionValue(region) },
+                                                  region == _unresolvedDelegate
+                                                      ? new TrackedSet<AbstractValue>()
+                                                      : new TrackedSet<AbstractValue> { new SolvedRegionValue(region) },
                                                   inputs, []);
-                if (region == UNRESOLVED_DELEGATE)
+                if (region == _unresolvedDelegate)
                 {
                     NoReceiver(caller, invocation);
                     UnresolvedFate(caller, invocation, []);
@@ -4506,7 +4773,7 @@ public static partial class WholeProgram
         /// <param name="callee">The callee.</param>
         /// <param name="region">The region.</param>
         /// <param name="regions">The regions.</param>
-        private void HandOver(InstanceState caller, int operationId, string callee, string region, IReadOnlyList<TrackedSet<string>> regions)
+        private void HandOver(InstanceState caller, int operationId, string callee, RegionRef region, IReadOnlyList<TrackedSet<RegionRef>> regions)
         {
             if (!_rebuilding.Handoffs.TryGetValue(region, out var handoff))
                 _rebuilding.Handoffs.Add(region, handoff = ([], new TrackedSet<string>(StringComparer.Ordinal)));
@@ -4528,7 +4795,7 @@ public static partial class WholeProgram
             if (callees.Count == 0 && !state.IsNestedBody)
             {
                 var declaring = _program.Method(state.Target)?.ContainingTypeKey;
-                UnresolvedFate(caller, HeldInvocation(operationId, callee, new TrackedSet<AbstractValue> { new RegionValue(region) }, regions),
+                UnresolvedFate(caller, HeldInvocation(operationId, callee, new TrackedSet<AbstractValue> { new SolvedRegionValue(region) }, regions),
                                state.CapturedReceivers.Select(receiver => (receiver, declaring)).ToArray());
             }
         }
@@ -4539,16 +4806,17 @@ public static partial class WholeProgram
         /// <param name="operationId">The operationId.</param>
         /// <param name="callee">The callee.</param>
         /// <param name="regions">The regions.</param>
-        private void UnresolvedHeld(InstanceState caller, int operationId, string callee, IReadOnlyList<TrackedSet<string>> regions)
+        private void UnresolvedHeld(InstanceState caller, int operationId, string callee, IReadOnlyList<TrackedSet<RegionRef>> regions)
         {
             var invocation = HeldInvocation(operationId, callee, new TrackedSet<AbstractValue>(), regions);
             NoReceiver(caller, invocation);
             UnresolvedFate(caller, invocation, []);
         }
 
-        private static CallTransfer HeldInvocation(int operationId, string callee, IReadOnlySet<AbstractValue> receivers, IReadOnlyList<TrackedSet<string>> regions) =>
+        private static CallTransfer HeldInvocation(int operationId, string callee, IReadOnlySet<AbstractValue> receivers, IReadOnlyList<TrackedSet<RegionRef>> regions) =>
             new(operationId, callee, IrCallKind.Delegate, receivers,
-                regions.Select((values, ordinal) => new CallArgument(ordinal, values.Select(value => (AbstractValue)new RegionValue(value)).ToTrackedSet())).ToArray(),
+                regions.Select((values, ordinal) => new CallArgument(ordinal, values.Select(value => (AbstractValue)new SolvedRegionValue(value)).ToTrackedSet()))
+                       .ToArray(),
                 []);
 
         /// <summary>The holders reachable from what a call without a body is handed, the argument itself or through fields, array and
@@ -4573,7 +4841,7 @@ public static partial class WholeProgram
         {
             if (_held.Count == 0)
                 return;
-            var done = new TrackedSet<string>(StringComparer.Ordinal);
+            var done = new TrackedSet<RegionRef>();
             while (_rebuilding.Handoffs.Keys.Where(done.Add).ToArray() is { Length: > 0 } handed)
             {
                 CheckCancellation();
@@ -4594,7 +4862,7 @@ public static partial class WholeProgram
             }
         }
 
-        private void Escape(string holder, InstanceState caller, int operationId)
+        private void Escape(RegionRef holder, InstanceState caller, int operationId)
         {
             foreach (var (region, held) in _held[holder].ToArray())
             {
@@ -4602,8 +4870,8 @@ public static partial class WholeProgram
                 var inputs = held.Regions.Select((regions, ordinal) => regions.Concat(held.NewInputs[ordinal].Select(input =>
                                              ModelNew(caller, operationId, new IrModelNew(input.TypeKey),
                                                       input.Path(ordinal))))
-                                                      .ToTrackedSet(StringComparer.Ordinal)).ToArray();
-                if (region == UNRESOLVED_DELEGATE)
+                                                      .ToTrackedSet()).ToArray();
+                if (region == _unresolvedDelegate)
                     UnresolvedHeld(caller, operationId, held.Callee, inputs);
                 else
                     HandOver(caller, operationId, held.Callee, region, inputs);
@@ -4612,12 +4880,12 @@ public static partial class WholeProgram
 
         /// <summary>The regions reachable from <paramref name="starts"/>, the starts included, through fields, storages and captures.</summary>
         /// <param name="starts">The starts.</param>
-        private TrackedSet<string> Reached(IEnumerable<string> starts)
+        private TrackedSet<RegionRef> Reached(IEnumerable<RegionRef> starts)
         {
             BuildReachIndex();
             ReadState(REACH_KEY);
-            var reached = new TrackedSet<string>(starts, StringComparer.Ordinal);
-            var pending = new Stack<string>(reached);
+            var reached = new TrackedSet<RegionRef>(starts);
+            var pending = new Stack<RegionRef>(reached);
             while (pending.TryPop(out var current))
             {
                 CheckCancellation();
@@ -4638,7 +4906,7 @@ public static partial class WholeProgram
         /// <param name="caller">The calling instance.</param>
         /// <param name="call">The unresolved call.</param>
         /// <param name="receivers">The receiver objects it sees, each with the type of the run's own declaring the implementation.</param>
-        private void Unresolved(InstanceState caller, CallTransfer call, IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers)
+        private void Unresolved(InstanceState caller, CallTransfer call, IReadOnlyCollection<(RegionRef Region, string? DeclaringTypeKey)> receivers)
         {
             _rebuilding.UnresolvedDispatches.Add((caller.Id, call.OperationId));
             if (_asyncSpawns.TryGetValue((caller.Id, call.OperationId), out var site))
@@ -4664,20 +4932,20 @@ public static partial class WholeProgram
         /// <param name="callee">The display of the member without a body.</param>
         /// <param name="receivers">The receivers it runs no body on, each with the type of the run's own declaring the member.</param>
         /// <param name="inputs">What the work is handed.</param>
-        private void RecordUnresolvedWork(InstanceState caller, int operationId, UnresolvedWorkKind kind, string? delegateRegion, string callee,
-                                          IReadOnlyCollection<(string Region, string? DeclaringTypeKey)> receivers, IEnumerable<string> inputs)
+        private void RecordUnresolvedWork(InstanceState caller, int operationId, UnresolvedWorkKind kind, RegionRef? delegateRegion, string callee,
+                                          IReadOnlyCollection<(RegionRef Region, string? DeclaringTypeKey)> receivers, IEnumerable<RegionRef> inputs)
         {
-            var handed = inputs.Distinct(StringComparer.Ordinal).ToArray();
+            var handed = inputs.Distinct().ToArray();
             if (receivers.Count == 0 && handed.Length == 0)
                 return;
-            var site = new UnresolvedWorkSite(caller.Id, operationId, kind, delegateRegion, callee);
+            var site = new UnresolvedWorkSite(caller.Id, operationId, kind, delegateRegion?.Identity, callee);
             if (!_rebuilding.UnresolvedWorkReceivers.TryGetValue(site, out var known))
                 _rebuilding.UnresolvedWorkReceivers.Add(site, known = []);
             known.UnionWith(receivers);
             if (!_rebuilding.UnresolvedWorkInputs.TryGetValue(site, out var given))
-                _rebuilding.UnresolvedWorkInputs.Add(site, given = new TrackedSet<string>(StringComparer.Ordinal));
+                _rebuilding.UnresolvedWorkInputs.Add(site, given = []);
             given.UnionWith(handed);
-            var values = handed.Select(region => (AbstractValue)new RegionValue(region)).ToArray();
+            var values = handed.Select(region => (AbstractValue)new SolvedRegionValue(region)).ToArray();
             Handoff(caller, operationId, values);
             EscapeHolders(caller, operationId, values);
         }
@@ -4704,6 +4972,7 @@ public static partial class WholeProgram
                 if (Instance(state.Target, OwnerContext(state.CellOwners), state.OwnerSubstitution, state.CapturedReceivers, state.CellOwners,
                              owner?.IsReceiverless ?? false) is { } nested)
                 {
+                    Add(nested.NestedCellOwners, state.NestedCellOwners);
                     callees.Add(nested);
                 }
 
@@ -4754,7 +5023,7 @@ public static partial class WholeProgram
         /// <param name="cellOwners">The instances owning the body's capture cells.</param>
         private static string OwnerContext(IEnumerable<string> cellOwners) => string.Join(",", cellOwners.Order(StringComparer.Ordinal));
 
-        private void Dispatch(InstanceState caller, CallTransfer call, string methodId, string receiver, IReadOnlyList<string> typeArguments,
+        private void Dispatch(InstanceState caller, CallTransfer call, string methodId, RegionRef receiver, IReadOnlyList<string> typeArguments,
                               string? interfaceTypeKey, string reason)
         {
             var (dispatched, callees) = DispatchCallees(receiver, methodId, typeArguments, interfaceTypeKey);
@@ -4804,12 +5073,12 @@ public static partial class WholeProgram
         /// <summary>What a region is to a call through an interface (<see cref="CollectionObjects"/>).</summary>
         /// <param name="regionId">The region.</param>
         /// <param name="interfaceMethod">The interface member called, if any.</param>
-        private string? ObjectKind(string regionId, string? interfaceMethod = null) =>
+        private string? ObjectKind(RegionRef regionId, string? interfaceMethod = null) =>
             CollectionObjects.KindOf(_regions[regionId], _program, _scope.Summaries, interfaceMethod);
 
         /// <summary>The types a receiver runs as: a registration's constructed types, or the ordinary region's type.</summary>
         /// <param name="receiver">The receiver region.</param>
-        private IReadOnlyCollection<string> ReceiverTypes(string receiver) =>
+        private IReadOnlyCollection<string> ReceiverTypes(RegionRef receiver) =>
             _registrations.ContainsKey(receiver)
                 ? _regionTypes.GetValueOrDefault(receiver)?.Order(StringComparer.Ordinal).ToArray() ?? []
                 : _regions[receiver].TypeKey is { } type ? [type] : [];
@@ -4820,8 +5089,8 @@ public static partial class WholeProgram
         /// <param name="typeArguments">The typeArguments.</param>
         /// <param name="interfaceTypeKey">The interfaceTypeKey.</param>
         /// <param name="methodId">The methodId.</param>
-        private (bool Dispatched, TrackedList<InstanceState> Callees) DispatchCallees(string receiver, string methodId, IReadOnlyList<string> typeArguments,
-                                                                             string? interfaceTypeKey = null)
+        private (bool Dispatched, TrackedList<InstanceState> Callees) DispatchCallees(RegionRef receiver, string methodId, IReadOnlyList<string> typeArguments,
+                                                                                      string? interfaceTypeKey = null)
         {
             var dispatched = false;
             var callees = new TrackedList<InstanceState>();
@@ -4926,7 +5195,7 @@ public static partial class WholeProgram
         /// <param name="caller">The calling instance.</param>
         /// <param name="operationId">The call's operation.</param>
         /// <param name="task">The call's task region.</param>
-        private void UnseenAlternative(InstanceState caller, int operationId, string task)
+        private void UnseenAlternative(InstanceState caller, int operationId, RegionRef task)
         {
             if (caller.UnresolvedCallTargets.Contains(operationId))
                 Completed(task, new TaskCompleter(caller.Id, operationId, TaskCompleterKind.Unseen));
@@ -4989,7 +5258,7 @@ public static partial class WholeProgram
         /// <param name="typeKey">The typeKey.</param>
         /// <param name="triggerInstance">The triggerInstance.</param>
         /// <param name="triggerRegion">The triggerRegion.</param>
-        private void ActivateTypeInitializer(string typeKey, InstanceState? triggerInstance, string? triggerRegion)
+        private void ActivateTypeInitializer(string typeKey, InstanceState? triggerInstance, RegionRef? triggerRegion)
         {
             if (_program.Type(typeKey) is not { } type ||
                 _program.MethodsOf(type.TypeKey).FirstOrDefault(method => method.Kind == ProgramMethodKind.TypeInitializer && _scope.Reachable.HasBody(method)) is not { } initializer ||
@@ -5006,7 +5275,7 @@ public static partial class WholeProgram
                 // An open type's one construction stands for every closed one, so its regions are merged.
                 var instance = Instance(initializer.MethodId, $"type-initializer:{typeKey}", substitution, [], [], false,
                                         merged: _program.IsOpen(typeKey));
-                construction = (instance?.Id ?? "", new TrackedSet<string>(StringComparer.Ordinal), new TrackedSet<string>(StringComparer.Ordinal));
+                construction = (instance?.Id ?? "", new TrackedSet<string>(StringComparer.Ordinal), []);
                 _typeInitializers.Add(typeKey, construction);
                 _changes++;
             }
@@ -5017,10 +5286,10 @@ public static partial class WholeProgram
                 _changes++;
         }
 
-        private TrackedSet<string> Eval(InstanceState instance, IEnumerable<AbstractValue> values)
+        private TrackedSet<RegionRef> Eval(InstanceState instance, IEnumerable<AbstractValue> values)
         {
             CheckCancellation();
-            var result = new TrackedSet<string>(StringComparer.Ordinal);
+            var result = new TrackedSet<RegionRef>();
             foreach (var value in values)
             {
                 CheckCancellation();
@@ -5029,38 +5298,50 @@ public static partial class WholeProgram
             return result;
         }
 
-        private TrackedSet<string> Eval(InstanceState instance, AbstractValue value) => value switch
+        private TrackedSet<RegionRef> Eval(InstanceState instance, AbstractValue value) => value switch
         {
-            ThisValue => new TrackedSet<string>(instance.Receivers, StringComparer.Ordinal),
-            ParameterValue parameter => new TrackedSet<string>(Parameter(instance, parameter.Ordinal), StringComparer.Ordinal),
+            ThisValue => new TrackedSet<RegionRef>(instance.Receivers),
+            ParameterValue parameter => new TrackedSet<RegionRef>(Parameter(instance, parameter.Ordinal)),
             StaticFieldValue field => Load(StaticRegion(instance, field.Field), FieldSlot.Key(field.Field)),
+            // A box of an empty Nullable is null: no box is made where no struct reaches the boxing, nor where the Nullable is read from
+            // storage no struct was stored into (R2).
+            AllocationValue { Present: { } present } when !Eval(instance, present).Any(HoldsStruct) => [],
             AllocationValue allocation => [AllocationRegion(instance, allocation.Site)],
-            CallResultValue result => new TrackedSet<string>(CallResult(instance, result.OperationId), StringComparer.Ordinal),
+            CallResultValue result => new TrackedSet<RegionRef>(CallResult(instance, result.OperationId)),
             LibraryKeeperValue keeper => _keeperCalls.TryGetValue((instance.Id, keeper.OperationId), out var keepingCalls)
                 ? keepingCalls.Values.Where(call => call.Library!.Keeps.ContainsKey(keeper.KeeperOrdinal) || call.Library.KeeperTypeKeys.ContainsKey(keeper.KeeperOrdinal))
-                    .SelectMany(call => KeeperTargets(instance, call, keeper.KeeperOrdinal, keeper.Read)).ToTrackedSet(StringComparer.Ordinal) : [],
-            LibraryKeepingValue keeping => new TrackedSet<string>(_libraryKeeping.GetValueOrDefault((instance.Id, keeping.OperationId, keeping.KeeperOrdinal)) ?? [], StringComparer.Ordinal),
-            LibraryStoredValue stored => new TrackedSet<string>(_libraryStored.GetValueOrDefault((instance.Id, stored.OperationId, stored.TargetOrdinal)) ?? [], StringComparer.Ordinal),
-            RefResultValue result => new TrackedSet<string>(RefResult(instance, result.OperationId, result.Ordinal), StringComparer.Ordinal),
+                    .SelectMany(call => KeeperTargets(instance, call, keeper.KeeperOrdinal, keeper.Read)).ToTrackedSet() : [],
+            LibraryKeepingValue keeping => new TrackedSet<RegionRef>(_libraryKeeping.GetValueOrDefault((instance.Id, keeping.OperationId, keeping.KeeperOrdinal)) ?? []),
+            LibraryStoredValue stored => new TrackedSet<RegionRef>(_libraryStored.GetValueOrDefault((instance.Id, stored.OperationId, stored.TargetOrdinal)) ?? []),
+            RefResultValue result => new TrackedSet<RegionRef>(RefResult(instance, result.OperationId, result.Ordinal)),
             ReferenceLocationValue location => ReferenceLocations(instance, location.Target)
-                .SelectMany(target => location.Read ? Load(target.Region, target.Slot) : [target.Region]).ToTrackedSet(StringComparer.Ordinal),
+                .SelectMany(target => location.Read ? Load(target.Region, target.Slot) : [target.Region]).ToTrackedSet(),
             DelegateCreationValue created => [DelegateRegion(instance, created)],
-            CapturedValue captured => instance.CellOwners.SelectMany(owner => Cell(owner, captured.SymbolKey)).ToTrackedSet(StringComparer.Ordinal),
+            CapturedValue captured => Owners(instance, captured.Cell.Body)
+                                              .SelectMany(owner => Load(ClosureRegion(owner, captured.Cell.Member), ClosureSlot(captured.Cell)))
+                                              .ToTrackedSet(),
+            ClosureValue closure => Owners(instance, closure.Body).Select(owner => ClosureRegion(owner, closure.Member))
+                                                                  .ToTrackedSet(),
             AwaitResultValue awaited => Completion(instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId)
                                                            .SelectMany(join => join.Handles)
                                                            .SelectMany(handle => Eval(instance, handle.Values))),
             PathValue path => EvalPath(instance, path),
-            RegionValue region => [region.RegionId],
-            _ => new TrackedSet<string>(StringComparer.Ordinal)
+            RegionValue region => [Intern(region.RegionId)],
+            SolvedRegionValue solved => [solved.Region],
+            StructCopyValue copy => [CopyRegion(instance, copy)],
+            StructPlaceValue place => Eval(instance, place.Base).Select(holder => Storage(instance, holder, place.Slot, place.TypeKey))
+                                                                .ToTrackedSet(),
+            StaticHolderValue holder => [StaticRegion(instance, holder.Field)],
+            _ => []
         };
 
-        private TrackedSet<string> EvalPath(InstanceState instance, PathValue path)
+        private TrackedSet<RegionRef> EvalPath(InstanceState instance, PathValue path)
         {
             var current = Eval(instance, path.Base);
             foreach (var segment in path.Segments)
             {
                 CheckCancellation();
-                var next = new TrackedSet<string>(StringComparer.Ordinal);
+                var next = new TrackedSet<RegionRef>();
                 foreach (var region in current)
                 {
                     CheckCancellation();
@@ -5075,18 +5356,20 @@ public static partial class WholeProgram
 
         /// <summary>Every region reachable from a region through any fields.</summary>
         /// <param name="region">The region.</param>
-        private TrackedSet<string> Closure(string region)
+        private TrackedSet<RegionRef> Closure(RegionRef region)
         {
             CheckCancellation();
-            var seen = new TrackedSet<string>(StringComparer.Ordinal);
-            var pending = new Stack<string>([region]);
+            var seen = new TrackedSet<RegionRef>();
+            var pending = new Stack<RegionRef>([region]);
             while (pending.TryPop(out var current))
             {
                 CheckCancellation();
-                foreach (var field in _fieldsByRegion.GetValueOrDefault(current)?.ToArray() ?? [])
+                foreach (var field in SlotsBelow(current))
                 {
                     CheckCancellation();
-                    foreach (var target in _fields[(current, field)])
+                    foreach (var target in TryGetRegion(current, out var storage) && storage.Kind == HeapRegionKind.StructStorage
+                                 ? Load(current, field)
+                                 : _fields[(current, field)])
                     {
                         CheckCancellation();
                         if (seen.Add(target))
@@ -5098,16 +5381,106 @@ public static partial class WholeProgram
             return seen;
         }
 
+        /// <summary>The slots a region holds objects through: its own, or, for a struct's storage, its holder's below the storage's path,
+        /// named from the storage.</summary>
+        /// <param name="regionId">The region.</param>
+        private IEnumerable<string> SlotsBelow(RegionRef regionId)
+        {
+            if (!TryGetRegion(regionId, out var region) || region.Kind != HeapRegionKind.StructStorage)
+                return _fieldsByRegion.GetValueOrDefault(regionId)?.ToArray() ?? [];
+            var prefix = region.HolderSlot! + FieldSlot.PATH_SEPARATOR;
+            return (_fieldsByRegion.GetValueOrDefault(HolderOf(regionId, region))?.ToArray() ?? [])
+                   .Where(slot => slot.StartsWith(prefix, StringComparison.Ordinal))
+                   .Select(slot => slot[prefix.Length..])
+                   .Concat(HeldWhole(regionId, region).SelectMany(SlotsBelow))
+                   .Distinct(StringComparer.Ordinal)
+                   .ToArray();
+        }
+
+        /// <summary>The structs a struct's storage holds whole: copies that a member of a collection, a task or a model put into the
+        /// storage's slot as it puts any value it is handed there, rather than field by field.</summary>
+        /// <param name="storageId">The struct's storage.</param>
+        /// <param name="storage">What the solve or a query made of it.</param>
+        private IEnumerable<RegionRef> HeldWhole(RegionRef storageId, HeapRegion storage) =>
+            Load(HolderOf(storageId, storage), storage.HolderSlot!).Where(held => _regions.TryGetValue(held, out var region) &&
+                                                                                  region.Kind == HeapRegionKind.StructCopy)
+                                                                   .ToArray();
+
+        /// <summary>A copy of a struct (<see cref="StructCopy"/>): what each slot of each source holds goes into the same slot of each
+        /// target, so the reference fields of the copy keep pointing at the objects they held (R2).</summary>
+        /// <param name="instance">The instance making the copy.</param>
+        /// <param name="copy">The copy.</param>
+        private void CopyStruct(InstanceState instance, StructCopy copy)
+        {
+            var targets = Eval(instance, copy.Targets);
+            if (targets.Count == 0)
+                return;
+            var sources = Eval(instance, copy.Sources);
+            if (sources.Any(HoldsStruct))
+            {
+                foreach (var target in targets.Where(target => TryGetRegion(target, out var region) &&
+                                                               region.Kind is HeapRegionKind.StructStorage or HeapRegionKind.StructCopy))
+                {
+                    if (_filledStorage.Add(target))
+                        _changes++;
+                }
+            }
+            foreach (var source in sources)
+            {
+                CheckCancellation();
+                foreach (var slot in SlotsBelow(source).Where(slot => !IsOverwritten(copy, slot)))
+                {
+                    CheckCancellation();
+                    var held = Load(source, slot);
+                    foreach (var target in targets.Where(target => target != source))
+                    {
+                        // The slot is read and the target's set made as on every processing; what the slot held when last added is
+                        // there already.
+                        var values = Field(target, slot);
+                        if (_copiedSlots.TryGetValue((values, source, slot), out var copied) && copied == held.Count)
+                            continue;
+                        Add(values, held);
+                        _copiedSlots[(values, source, slot)] = held.Count;
+                    }
+                }
+            }
+        }
+
+        /// <summary>Whether a region a value of a struct reaches holds a struct: any region but a struct's storage or a copy that follows the
+        /// presence of what it is taken from; that storage where a copy put a struct into it or its slot holds one whole, as a collection or
+        /// a task holds a value it is handed; that copy where a copy put a struct into it. Storage nothing was stored into holds its default,
+        /// which for a <c>Nullable</c> is empty, and so does a copy taken only from such storage (R2).</summary>
+        /// <param name="regionId">The region.</param>
+        private bool HoldsStruct(RegionRef regionId)
+        {
+            if (!TryGetRegion(regionId, out var region))
+                return true;
+            return region.Kind switch
+            {
+                HeapRegionKind.StructStorage => _filledStorage.Contains(regionId) || HeldWhole(regionId, region).Any(),
+                HeapRegionKind.StructCopy => !_presenceCopies.Contains(regionId) || _filledStorage.Contains(regionId),
+                _ => true
+            };
+        }
+
+        /// <summary>Whether a slot of a struct is one a copy of it leaves out because the body overwrites it first
+        /// (<see cref="StructCopy.Overwritten"/>): the slot itself or one below it.</summary>
+        /// <param name="copy">The copy.</param>
+        /// <param name="slot">The slot, a path below the struct's storage.</param>
+        private static bool IsOverwritten(StructCopy copy, string slot) =>
+            copy.Overwritten.Count != 0 &&
+            copy.Overwritten.Any(overwritten => slot == overwritten || slot.StartsWith(overwritten + FieldSlot.PATH_SEPARATOR, StringComparison.Ordinal));
+
         /// <summary>A field slot of a region, or, for a bare field name, every declaring type's slot of that name.</summary>
         /// <param name="regionId">The regionId.</param>
         /// <param name="field">The field.</param>
-        private TrackedSet<string> LoadAny(string regionId, string field)
+        private TrackedSet<RegionRef> LoadAny(RegionRef regionId, string field)
         {
             if (field.Contains('.', StringComparison.Ordinal) || PathValue.IsStorage(field) || field is PathValue.NODE_LIST or PathValue.VIEWED)
                 return Load(regionId, field);
 
             var result = Load(regionId, field);
-            foreach (var slot in (_fieldsByRegion.GetValueOrDefault(regionId) ?? []).Where(slot => FieldSlot.Name(slot) == field))
+            foreach (var slot in SlotsBelow(regionId).Where(slot => !slot.Contains(FieldSlot.PATH_SEPARATOR) && FieldSlot.Name(slot) == field))
             {
                 CheckCancellation();
                 result.UnionWith(Load(regionId, slot));
@@ -5119,35 +5492,83 @@ public static partial class WholeProgram
         /// when the region itself is open.</summary>
         /// <param name="regionId">The regionId.</param>
         /// <param name="field">The field.</param>
-        private TrackedSet<string> Load(string regionId, string field)
+        private TrackedSet<RegionRef> Load(RegionRef regionId, string field)
         {
-            var result = new TrackedSet<string>(StringComparer.Ordinal);
-            if (!_regions.TryGetValue(regionId, out var region))
+            if (!TryGetRegion(regionId, out var region))
+                return [];
+            // A struct's storage holds nothing of its own: its fields are its holder's slots below its path (R1), and those of a struct
+            // put into that slot whole, as a collection or a task holds a value it is handed.
+            if (region.Kind == HeapRegionKind.StructStorage)
+            {
+                var result = Load(HolderOf(regionId, region), FieldSlot.Join(region.HolderSlot!, field));
+                foreach (var held in HeldWhole(regionId, region))
+                    result.UnionWith(Load(held, field));
                 return result;
-            foreach (var member in _groups[region.Group])
+            }
+            // Any other region a query named holds nothing the solve put there.
+            if (!_groups.TryGetValue(GroupOf(regionId, region), out var members))
+                return [];
+            var joined = new List<TrackedSet<RegionRef>>();
+            foreach (var member in members)
             {
                 CheckCancellation();
-                if (member == regionId || region.IsOpen || _regions[member].IsOpen)
-                    result.UnionWith(_fields.GetValueOrDefault((member, field)) ?? []);
+                if ((member == regionId || region.IsOpen || _regions[member].IsOpen) && _fields.GetValueOrDefault((member, field)) is { } values)
+                    joined.Add(values);
             }
 
-            return result;
+            if (joined.Count == 0)
+                return [];
+            if (joined.Count == 1)
+                return new TrackedSet<RegionRef>(joined[0]);
+            if (Querying)
+            {
+                var result = new TrackedSet<RegionRef>();
+                foreach (var values in joined)
+                    result.UnionWith(values);
+                return result;
+            }
+
+            // Every joined set is read, as a union reads it; only those that grew since they were joined in are joined in again.
+            if (!_loadedUnions.TryGetValue((regionId, field), out var union))
+                _loadedUnions.Add((regionId, field), union = new LoadedUnion());
+            foreach (var values in joined)
+            {
+                CheckCancellation();
+                var count = values.Count;
+                if (union.Joined.TryGetValue(values, out var seen) && seen == count)
+                    continue;
+                union.Objects.UnionWith(values);
+                union.Joined[values] = count;
+            }
+
+            return new TrackedSet<RegionRef>(union.Objects);
+        }
+
+        /// <summary>A union <see cref="Load"/> keeps of a field over several regions of a group: the objects, and the size each field set
+        /// had when it was joined in.</summary>
+        private sealed class LoadedUnion
+        {
+            /// <summary>The objects of every field set joined in.</summary>
+            internal HashSet<RegionRef> Objects { get; } = [];
+
+            /// <summary>Each field set joined in, by reference, with its size then.</summary>
+            internal Dictionary<TrackedSet<RegionRef>, int> Joined { get; } = new(ReferenceEqualityComparer.Instance);
         }
 
         private string StaticTypeKey(InstanceState instance, IrFieldRef field) =>
             ProgramIndex.Substitute(DiIndex.TypeKey(field.Assembly, field.ContainingTypeId), instance.Substitution);
 
-        private string StaticRegion(InstanceState instance, IrFieldRef field)
+        private RegionRef StaticRegion(InstanceState instance, IrFieldRef field)
         {
             var typeKey = StaticTypeKey(instance, field);
             return Region($"static:{typeKey}", HeapRegionKind.Static, $"static:{DisplayType(typeKey)}", typeKey, "",
                           $"static|{_program.Decompose(typeKey).DefinitionKey}", merged: instance.IsMerged && _program.IsOpen(typeKey));
         }
 
-        private string StaticRegion(string typeKey) =>
+        private RegionRef StaticRegion(string typeKey) =>
             Region($"static:{typeKey}", HeapRegionKind.Static, $"static:{DisplayType(typeKey)}", typeKey, "", $"static|{typeKey}");
 
-        private string AllocationRegion(InstanceState instance, CreationSite site)
+        private RegionRef AllocationRegion(InstanceState instance, CreationSite site)
         {
             var typeKey = ProgramIndex.Substitute(site.TypeKey, instance.Substitution);
             if (_registeredAllocations.TryGetValue((site.BodyId, site.OperationId, ContextKey(instance)), out var registered) ||
@@ -5172,10 +5593,64 @@ public static partial class WholeProgram
                                             .Any(operation => operation is IrAllocateOperation allocation && allocation.Id == site.OperationId));
         }
 
-        private string DelegateRegion(InstanceState instance, DelegateCreationValue created)
+        /// <summary>The storage a struct occupies at <paramref name="slot"/> of a holder (R1): one handle per holder and slot path, whose
+        /// slots are the holder's below that path. A struct inside a struct's storage is the outer holder's, one path further, so every
+        /// handle names the object, the static storage, the array or the copy that holds the whole chain.</summary>
+        /// <param name="instance">The instance whose substitution names the struct's type.</param>
+        /// <param name="holder">The holder, or a struct's storage in it.</param>
+        /// <param name="slot">The slot of the struct in the holder.</param>
+        /// <param name="typeKey">The struct's type key, as the instance's body names it.</param>
+        private RegionRef Storage(InstanceState instance, RegionRef holder, string slot, string typeKey)
+        {
+            if (TryGetRegion(holder, out var outer) && outer.Kind == HeapRegionKind.StructStorage)
+                (holder, slot) = (HolderOf(holder, outer), FieldSlot.Join(outer.HolderSlot!, slot));
+            var held = TryGetRegion(holder, out var owner) ? owner : null;
+            return Region($"{holder}{STORAGE}{slot}", HeapRegionKind.StructStorage, $"{held?.Display ?? holder.Identity}{STORAGE}{slot}",
+                          ProgramIndex.Substitute(typeKey, instance.Substitution), held?.Context ?? instance.Context, null,
+                          merged: held?.IsMerged ?? instance.IsMerged, exactType: true, holder: (holder, slot));
+        }
+
+        /// <summary>A slot as the region that keeps it names it: a slot of a struct's storage is its holder's slot below the storage's
+        /// path (R1); any other region keeps its own.</summary>
+        /// <param name="region">The region the slot is named on.</param>
+        /// <param name="slot">The slot.</param>
+        private (RegionRef Region, string Slot) Located(RegionRef region, string slot) =>
+            TryGetRegion(region, out var storage) && storage.Kind == HeapRegionKind.StructStorage
+                ? (HolderOf(region, storage), FieldSlot.Join(storage.HolderSlot!, slot))
+                : (region, slot);
+
+        /// <summary>A region the solve made, or one a query of the solved heap named (<see cref="_named"/>): a struct's storage a query
+        /// names still stands on its holder's slots below its path. Until a query names one, there is none to look up.</summary>
+        /// <param name="identity">The region's identity.</param>
+        /// <param name="region">The region, where there is one.</param>
+        private bool TryGetRegion(RegionRef identity, [NotNullWhen(true)] out HeapRegion? region) =>
+            _regions.TryGetValue(identity, out region) || Volatile.Read(ref _anyNamed) && _named.TryGetValue(identity.Identity, out region);
+
+        /// <summary>What separates a struct's storage from its holder in the storage's identity and display.</summary>
+        private const string STORAGE = "&";
+
+        /// <summary>The copy of a struct a value of an instance holds by value (R2): a region of its own per instance and value, which no
+        /// access reaches as a resource.</summary>
+        /// <param name="instance">The instance holding the copy.</param>
+        /// <param name="copy">The copy.</param>
+        private RegionRef CopyRegion(InstanceState instance, StructCopyValue copy)
+        {
+            var identity = Intern($"copy|{instance.BodyId}#{copy.ValueId}|{ContextKey(instance)}");
+            if (_regions.ContainsKey(identity))
+                return identity;
+            // Whether the copy follows the presence of what it is taken from is known before anything asks whether it holds a struct.
+            if (!Querying && instance.Summary.StructCopies.Any(made => made.FollowsPresence && made.Targets.Contains(copy)) &&
+                _presenceCopies.Add(identity))
+                _changes++;
+            var typeKey = ProgramIndex.Substitute(copy.TypeKey, instance.Substitution);
+            return Region(identity, HeapRegionKind.StructCopy, $"copy:{instance.BodyId}#{copy.ValueId}", typeKey, instance.Context, null,
+                          merged: instance.IsMerged, exactType: true);
+        }
+
+        private RegionRef DelegateRegion(InstanceState instance, DelegateCreationValue created)
         {
             var site = created.Site;
-            var identity = $"delegate|{site.BodyId}#{site.OperationId}|{ContextKey(instance)}";
+            var identity = Intern($"delegate|{site.BodyId}#{site.OperationId}|{ContextKey(instance)}");
             if (_delegates.ContainsKey(identity))
                 return identity;
 
@@ -5226,48 +5701,98 @@ public static partial class WholeProgram
                 : $"{instance.Context}|{string.Join(",", instance.Substitution.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                                                              .Select(pair => $"{pair.Key}={pair.Value}"))}";
 
-        private string Region(string identity, HeapRegionKind kind, string display, string? typeKey, string context, string? group,
-                              bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false,
-                              string? modelCreationKey = null)
+        private RegionRef Region(string identity, HeapRegionKind kind, string display, string? typeKey, string context, string? group,
+                                 bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false,
+                                 string? modelCreationKey = null, (RegionRef Region, string Slot)? holder = null, string? siteBodyId = null) =>
+            Region(Intern(identity), kind, display, typeKey, context, group, merged, mayOverlapItself, site, exactType, modelCreationKey, holder,
+                   siteBodyId);
+
+        private RegionRef Region(RegionRef identity, HeapRegionKind kind, string display, string? typeKey, string context, string? group,
+                                 bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false,
+                                 string? modelCreationKey = null, (RegionRef Region, string Slot)? holder = null, string? siteBodyId = null)
         {
             if (_regions.ContainsKey(identity))
                 return identity;
-            group ??= identity;
-            var region = new HeapRegion(identity, kind, display, typeKey, context, group, typeKey is not null && _program.IsOpen(typeKey), merged,
-                                        mayOverlapItself, site?.BodyId, site?.OperationId) { HasExactType = exactType, ModelCreationKey = modelCreationKey };
+            group ??= identity.Identity;
+            var region = new HeapRegion(identity.Identity, kind, display, typeKey, context, group, typeKey is not null && _program.IsOpen(typeKey),
+                                        merged, mayOverlapItself, site?.BodyId ?? siteBodyId, site?.OperationId)
+            {
+                HasExactType = exactType, ModelCreationKey = modelCreationKey, Holder = holder?.Region.Identity, HolderSlot = holder?.Slot
+            };
             if (Querying)
             {
                 // A query names a region the solve did not make and adds it nowhere, so every stage sees the heap the solve made.
-                _named.TryAdd(identity, region);
+                Volatile.Write(ref _anyNamed, true);
+                _named.TryAdd(identity.Identity, region);
                 return identity;
             }
+            var groupId = Intern(group);
+            _links.Add(identity, (groupId, holder?.Region));
             _regions.Add(identity, region);
-            if (!_groups.TryGetValue(group, out var members))
-                _groups.Add(group, members = []);
+            if (!_groups.TryGetValue(groupId, out var members))
+                _groups.Add(groupId, members = []);
             members.Add(identity);
             _changes++;
             return identity;
         }
 
-        private TrackedSet<string> CapturedKeys(string memberId)
+        /// <summary>The capture cells of the variables of a member its lambdas and local functions capture, by symbol key, as their capture
+        /// operations name them.</summary>
+        /// <param name="memberId">The member.</param>
+        private Dictionary<string, IrClosureCell> CapturedCells(string memberId)
         {
-            if (_capturedKeysOfMember.TryGetValue(memberId, out var keys))
-                return keys;
-            keys = new TrackedSet<string>(StringComparer.Ordinal);
+            if (_capturedCellsOfMember.TryGetValue(memberId, out var cells))
+                return cells;
+            cells = new Dictionary<string, IrClosureCell>(StringComparer.Ordinal);
             var nested = _program.Method(memberId)?.NestedBodyIds ?? [];
             foreach (var bodyId in nested)
             {
                 CheckCancellation();
-                if (_scope.Reachable.Bodies.TryGetValue(bodyId, out var body))
+                if (!_scope.Reachable.Bodies.TryGetValue(bodyId, out var body))
+                    continue;
+                foreach (var cell in body.Blocks.SelectMany(block => block.Operations).OfType<IrCaptureOperation>()
+                                         .Select(capture => capture.Cell).OfType<IrClosureCell>())
                 {
-                    keys.UnionWith(body.Blocks.SelectMany(block => block.Operations).OfType<IrCaptureOperation>()
-                                       .Select(capture => capture.SymbolKey).OfType<string>());
+                    cells.TryAdd(cell.SymbolKey, cell);
                 }
             }
 
-            _capturedKeysOfMember.Add(memberId, keys);
-            return keys;
+            _capturedCellsOfMember.Add(memberId, cells);
+            return cells;
         }
+
+        /// <summary>The closure region of a member-body instance (R4): made where the instance runs, as an allocation of the member is, and
+        /// named after the member as the capture cells name it. A root that runs a lambda of a member stands for the member's invocation,
+        /// which no instance of the heap runs: its closure is the root's own, which no execution of the heap creates.</summary>
+        /// <param name="ownerId">The member-body instance, or the root standing for the member's invocation.</param>
+        /// <param name="member">The member, as <see cref="IrClosureCell.Member"/> names it.</param>
+        private RegionRef ClosureRegion(string ownerId, string member)
+        {
+            var owner = _instances.TryGetValue(ownerId, out var instance) ? instance : null;
+            return Region(ClosureIdentity(ownerId), HeapRegionKind.Closure, IrClosureCell.REGION_PREFIX + member, null, owner?.Context ?? ownerId,
+                          null, merged: owner?.IsMerged ?? false, siteBodyId: owner?.BodyId);
+        }
+
+        /// <summary>Puts objects into a capture cell in the closure of each run of the body declaring it. A struct's storage is the cell
+        /// itself, never something the cell holds.</summary>
+        /// <param name="instance">The instance writing the cell.</param>
+        /// <param name="cell">The capture cell.</param>
+        /// <param name="values">The objects.</param>
+        private void AddToCell(InstanceState instance, IrClosureCell cell, TrackedSet<RegionRef> values)
+        {
+            var held = values.Where(value => !_regions.TryGetValue(value, out var region) || region.Kind != HeapRegionKind.StructStorage).ToArray();
+            foreach (var owner in Owners(instance, cell.Body))
+            {
+                CheckCancellation();
+                Add(Field(ClosureRegion(owner, cell.Member), ClosureSlot(cell)), held);
+            }
+        }
+
+        /// <summary>The owners whose closures hold the cells an instance reaches of the variables a body declares (<see cref="ClosureOwners"/>).</summary>
+        /// <param name="instance">The instance.</param>
+        /// <param name="body">The lambda or local function declaring them, null for the ordinary member.</param>
+        private string[] Owners(InstanceState instance, string? body) =>
+            ClosureOwners(instance.CellOwners, instance.NestedCellOwners, body, owner => _instances.GetValueOrDefault(owner)?.BodyId).ToArray();
 
         /// <summary>Counts a changing round of an instance; a call-graph cycle that keeps changing past the budget has its bodies'
         /// contexts merged, and propagation continues.</summary>
@@ -5335,11 +5860,12 @@ public static partial class WholeProgram
             _changes++;
         }
 
-        private TrackedSet<string> Field(string region, string field)
+        private TrackedSet<RegionRef> Field(RegionRef region, string field)
         {
+            (region, field) = Located(region, field);
             if (!_fields.TryGetValue((region, field), out var values))
             {
-                _fields.Add((region, field), values = new TrackedSet<string>(StringComparer.Ordinal));
+                _fields.Add((region, field), values = []);
                 if (!_fieldsByRegion.TryGetValue(region, out var fields))
                     _fieldsByRegion.Add(region, fields = []);
                 fields.Add(field);
@@ -5347,11 +5873,9 @@ public static partial class WholeProgram
             return values;
         }
 
-        private TrackedSet<string> Cell(string owner, string key) => Get(_cells, (owner, key));
+        private TrackedSet<RegionRef> Parameter(InstanceState instance, int ordinal) => Get(instance.Parameters, ordinal);
 
-        private TrackedSet<string> Parameter(InstanceState instance, int ordinal) => Get(instance.Parameters, ordinal);
-
-        private TrackedSet<string> CallResult(InstanceState instance, int operation) => Get(instance.CallResults, operation);
+        private TrackedSet<RegionRef> CallResult(InstanceState instance, int operation) => Get(instance.CallResults, operation);
 
         /// <summary>Whether a value may come from an origin points-to does not follow: a parameter, a captured variable, an opaque call or
         /// an operation the summary does not model. A null or a field read before its first write is no object, and a source call is
@@ -5365,15 +5889,15 @@ public static partial class WholeProgram
             sources.Any(source => source is not (UnknownSource.Null or UnknownSource.FieldBeforeWrite or UnknownSource.SourceCall)) ||
             calls.Any(instance.UnfollowedCallResults.Contains) || completions.Any(instance.UnfollowedCompletions.Contains);
 
-        private TrackedSet<string> RefResult(InstanceState instance, int operation, int ordinal) => Get(instance.RefResults, (operation, ordinal));
+        private TrackedSet<RegionRef> RefResult(InstanceState instance, int operation, int ordinal) => Get(instance.RefResults, (operation, ordinal));
 
-        private TrackedSet<string> RefParameter(InstanceState instance, int ordinal) => Get(instance.RefParameters, ordinal);
+        private TrackedSet<RegionRef> RefParameter(InstanceState instance, int ordinal) => Get(instance.RefParameters, ordinal);
 
-        private TrackedSet<string> Get<TKey>(TrackedMap<TKey, TrackedSet<string>> map, TKey key) where TKey : notnull
+        private TrackedSet<RegionRef> Get<TKey>(TrackedMap<TKey, TrackedSet<RegionRef>> map, TKey key) where TKey : notnull
         {
             if (!map.TryGetValue(key, out var set))
             {
-                set = new TrackedSet<string>(StringComparer.Ordinal);
+                set = [];
                 // A query reads an empty set where the solve left none, and leaves the map as it was.
                 if (!Querying)
                     map.Add(key, set);
@@ -5381,7 +5905,7 @@ public static partial class WholeProgram
             return set;
         }
 
-        private TrackedSet<(string Region, string Slot)> ParameterLocations(InstanceState instance, int ordinal)
+        private TrackedSet<(RegionRef Region, string Slot)> ParameterLocations(InstanceState instance, int ordinal)
         {
             if (!instance.ParameterLocations.TryGetValue(ordinal, out var locations))
             {
@@ -5392,7 +5916,7 @@ public static partial class WholeProgram
             return locations;
         }
 
-        private void AddLocations(TrackedSet<(string Region, string Slot)> target, IEnumerable<(string Region, string Slot)> locations)
+        private void AddLocations(TrackedSet<(RegionRef Region, string Slot)> target, IEnumerable<(RegionRef Region, string Slot)> locations)
         {
             foreach (var location in locations.ToArray())
             {
@@ -5402,7 +5926,7 @@ public static partial class WholeProgram
             }
         }
 
-        private void Add(TrackedSet<string> target, IEnumerable<string> values)
+        private void Add<T>(TrackedSet<T> target, IEnumerable<T> values)
         {
             foreach (var value in values.ToArray())
             {

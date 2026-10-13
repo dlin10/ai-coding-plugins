@@ -10,19 +10,19 @@
     },
     "reachableBodies": 832,
     "summaries": 953,
-    "regions": 1405,
+    "regions": 1499,
     "instances": 1483,
-    "accesses": 3784,
+    "accesses": 4169,
     "pairs": {
-      "comparisons": 5211,
-      "cartesianBound": 704011,
+      "comparisons": 6192,
+      "cartesianBound": 881398,
       "largestBucket": 11,
-      "buckets": 1436,
+      "buckets": 1574,
       "skips": {
-        "confined": 2345,
+        "confined": 2512,
         "fresh-object": 9,
-        "no-overlap": 48,
-        "read-read": 2773
+        "no-overlap": 100,
+        "read-read": 3535
       },
       "suppressed": 0,
       "candidates": 36
@@ -76,7 +76,7 @@
         "aspnetcore": 8,
         "hosting": 0
       },
-      "accesses": 169,
+      "accesses": 183,
       "counters": {
         "delegate-to-opaque": 19,
         "element-operation": 9,
@@ -95,6 +95,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 41,
+        "unresolved-base": 148,
         "unresolved-locator": 1,
         "unsupported-operation": 48,
         "wildcard-access": 0
@@ -134,7 +135,7 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 593,
+      "accesses": 687,
       "counters": {
         "delegate-to-opaque": 13,
         "element-operation": 47,
@@ -153,6 +154,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 59,
+        "unresolved-base": 186,
         "unresolved-locator": 6,
         "unsupported-operation": 141,
         "wildcard-access": 0
@@ -185,7 +187,7 @@
         "aspnetcore": 19,
         "hosting": 0
       },
-      "accesses": 737,
+      "accesses": 826,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 16,
@@ -204,6 +206,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 157,
+        "unresolved-base": 556,
         "unresolved-locator": 2,
         "unsupported-operation": 104,
         "wildcard-access": 1
@@ -231,7 +234,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 423,
+      "accesses": 456,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 6,
@@ -250,6 +253,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 7,
+        "unresolved-base": 71,
         "unresolved-locator": 0,
         "unsupported-operation": 30,
         "wildcard-access": 1
@@ -281,7 +285,7 @@
         "aspnetcore": 9,
         "hosting": 0
       },
-      "accesses": 105,
+      "accesses": 176,
       "counters": {
         "delegate-to-opaque": 12,
         "element-operation": 37,
@@ -300,6 +304,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 43,
+        "unresolved-base": 103,
         "unresolved-locator": 6,
         "unsupported-operation": 53,
         "wildcard-access": 0
@@ -330,7 +335,7 @@
         "aspnetcore": 0,
         "hosting": 1
       },
-      "accesses": 20,
+      "accesses": 29,
       "counters": {
         "delegate-to-opaque": 4,
         "element-operation": 4,
@@ -349,6 +354,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 12,
+        "unresolved-base": 39,
         "unresolved-locator": 0,
         "unsupported-operation": 17,
         "wildcard-access": 0
@@ -375,7 +381,7 @@
         "aspnetcore": 0,
         "hosting": 0
       },
-      "accesses": 7,
+      "accesses": 10,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 3,
@@ -394,6 +400,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 25,
+        "unresolved-base": 70,
         "unresolved-locator": 0,
         "unsupported-operation": 17,
         "wildcard-access": 0
@@ -423,7 +430,7 @@
         "aspnetcore": 0,
         "hosting": 0
       },
-      "accesses": 4,
+      "accesses": 5,
       "counters": {
         "delegate-to-opaque": 2,
         "element-operation": 2,
@@ -442,6 +449,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 27,
+        "unresolved-base": 51,
         "unresolved-locator": 0,
         "unsupported-operation": 21,
         "wildcard-access": 0
@@ -464,7 +472,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 449,
+      "accesses": 488,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 10,
@@ -483,6 +491,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 7,
+        "unresolved-base": 72,
         "unresolved-locator": 0,
         "unsupported-operation": 30,
         "wildcard-access": 1
@@ -514,7 +523,7 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 296,
+      "accesses": 297,
       "counters": {
         "delegate-to-opaque": 1,
         "element-operation": 2,
@@ -533,6 +542,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 24,
+        "unresolved-base": 122,
         "unresolved-locator": 0,
         "unsupported-operation": 33,
         "wildcard-access": 1
@@ -573,6 +583,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 12,
+        "unresolved-base": 27,
         "unresolved-locator": 0,
         "unsupported-operation": 5,
         "wildcard-access": 0
@@ -596,7 +607,7 @@
         "aspnetcore": 3,
         "hosting": 0
       },
-      "accesses": 9,
+      "accesses": 10,
       "counters": {
         "delegate-to-opaque": 1,
         "element-operation": 1,
@@ -615,6 +626,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 27,
+        "unresolved-base": 56,
         "unresolved-locator": 0,
         "unsupported-operation": 27,
         "wildcard-access": 0
@@ -655,6 +667,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 7,
+        "unresolved-base": 18,
         "unresolved-locator": 0,
         "unsupported-operation": 0,
         "wildcard-access": 0
@@ -676,7 +689,7 @@
         "aspnetcore": 5,
         "hosting": 0
       },
-      "accesses": 42,
+      "accesses": 72,
       "counters": {
         "delegate-to-opaque": 5,
         "element-operation": 17,
@@ -695,6 +708,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 12,
+        "unresolved-base": 37,
         "unresolved-locator": 3,
         "unsupported-operation": 23,
         "wildcard-access": 1

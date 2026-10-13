@@ -2,6 +2,7 @@ using System.Text.Json;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Reporting;
 using Xunit;
@@ -166,6 +167,123 @@ public sealed class ReportingSelectorTests
         Assert.Equal(ReportRenderer.Remediation(finding), Json(finding).GetProperty("remediation").GetString());
         Assert.EndsWith("verify manually.", ReportRenderer.Remediation(finding), StringComparison.Ordinal);
     }
+
+    /// <summary>A field of the struct a cell holds reads with the selector inside the path, in the text and the heading alike (R10).</summary>
+    [Fact]
+    public void Struct_path_through_a_cell_reads_with_the_selector_inside_the_path()
+    {
+        var markdown = Markdown(Finding(InCell(), AccessOperation.Write, AccessOperation.Write));
+
+        Assert.Contains("- Resource: Fixture · di:Ns.Board@Singleton · _slots[0].Count · scope", markdown, StringComparison.Ordinal);
+        Assert.Contains("#### G1 · DCA1001 · _slots[0].Count on di:Ns.Board@Singleton (", markdown, StringComparison.Ordinal);
+        Assert.DoesNotContain(", cell [0]", markdown, StringComparison.Ordinal);
+    }
+
+    /// <summary>findings.json keeps the cell's segment right after the collection field, the fields of the struct after it, and still
+    /// says which cell it is.</summary>
+    [Fact]
+    public void Struct_path_json_keeps_the_cell_right_after_the_collection_field()
+    {
+        var resource = Resource(Finding(InCell(), AccessOperation.Write, AccessOperation.Write));
+
+        Assert.Equal(("element", "[0]"), (resource.GetProperty("kind").GetString(), resource.GetProperty("selector").GetString()));
+        Assert.Equal([FIELD, "[0]", "Count"], resource.GetProperty("accessPath").EnumerateArray().Select(item => item.GetString()));
+    }
+
+    /// <summary>An atomic member of the collection updates a cell as a whole; a field of the struct inside it is no such cell, so two
+    /// plain operations on it are answered by one primitive (ADR 0010).</summary>
+    [Fact]
+    public void Struct_path_through_a_cell_is_not_offered_an_atomic_member_of_the_collection()
+    {
+        var inside = ReportRenderer.Remediation(Finding(InCell(), AccessOperation.ReadModifyWrite, AccessOperation.Write));
+        var cell = ReportRenderer.Remediation(Cell(ElementSelector.Exact(0), AccessOperation.ReadModifyWrite, AccessOperation.Write));
+
+        Assert.DoesNotContain("atomic member", inside, StringComparison.Ordinal);
+        Assert.Contains("one synchronization primitive for the whole of its update", inside, StringComparison.Ordinal);
+        Assert.Contains("one atomic member", cell, StringComparison.Ordinal);
+    }
+
+    /// <summary>A finding on a field of a struct in a field names that last field in its scenario and accesses, and its holder with
+    /// the whole path as its resource.</summary>
+    [Fact]
+    public void Struct_path_finding_names_its_last_field_and_its_holder_with_the_whole_path()
+    {
+        var resource = new AccessResource("Fixture", FindingTestData.SCOPE, REGION, ["_state", "Count"], new MemberKey("Ns.Board", "_state", IrFieldKind.Field),
+                                          REGION) { StructPath = [new MemberKey("Ns.Gauge", "Count", IrFieldKind.Field)] };
+
+        var finding = Created(resource, AccessOperation.ReadModifyWrite, AccessOperation.Write);
+
+        Assert.Equal(["A reads `Count`", "B writes `Count`", "A writes a value computed from its stale read, overwriting B's update"], finding.Scenario);
+        Assert.Contains(" performs read-modify-write on Count at ", Evidence(finding, "A"), StringComparison.Ordinal);
+        Assert.StartsWith("Resource: field Ns.Board._state.Count in region di:Ns.Board@Singleton ", Evidence(finding, "R"), StringComparison.Ordinal);
+        Assert.Equal("Non-atomic update of shared Ns.Board._state.Count", Json(finding).GetProperty("title").GetString());
+    }
+
+    /// <summary>A box's whole storage has the empty path, and wherever a finding names its field it names the boxed struct's type (R3,
+    /// R10).</summary>
+    [Fact]
+    public void Struct_path_of_a_box_whole_storage_is_named_by_the_boxed_struct_type()
+    {
+        const string box = "alloc:Ns.Board.Post()#Ns.Point";
+        var resource = new AccessResource("Fixture", FindingTestData.SCOPE, box, [], new MemberKey("Ns.Point", "", IrFieldKind.Field), box);
+
+        var finding = Created(resource, AccessOperation.Read, AccessOperation.Write);
+        var markdown = Markdown(finding);
+
+        Assert.Equal(["B writes `Ns.Point`", "A reads `Ns.Point` at the same time", "A observes either the old or the new value"], finding.Scenario);
+        Assert.StartsWith($"Resource: boxed struct Ns.Point in region {box} ", Evidence(finding, "R"), StringComparison.Ordinal);
+        Assert.Contains($" · DCA1001 · Ns.Point on {box} (", markdown, StringComparison.Ordinal);
+        Assert.Contains($"- Resource: Fixture · {box} · Ns.Point, whole storage · scope", markdown, StringComparison.Ordinal);
+        Assert.Equal("Unsynchronized access to shared Ns.Point", Json(finding).GetProperty("title").GetString());
+    }
+
+    /// <summary>A capture cell reads as its closure region and its variable, the fields of a struct it holds after it, and a
+    /// <c>TreeConfined</c> region with the evidence for it (R4, R5, R10).</summary>
+    [Fact]
+    public void Struct_path_of_a_capture_cell_reads_its_closure_and_its_tree_confined_ownership()
+    {
+        const string closure = "closure:Ns.Board.Post()";
+        const string why = "created by action Ns.Board.Post(); reached only by the work that run starts";
+        var resource = new AccessResource("Fixture", FindingTestData.SCOPE, closure, ["total#2", "Count"],
+                                          new MemberKey(IrClosureCell.CLOSURE_TYPE, "total#2", IrFieldKind.Field), closure)
+        {
+            StructPath = [new MemberKey("Ns.Gauge", "Count", IrFieldKind.Field)]
+        };
+
+        var finding = Created(resource, AccessOperation.Write, AccessOperation.Write, OwnershipKind.TreeConfined, why);
+        var markdown = Markdown(finding);
+
+        Assert.StartsWith($"Resource: captured variable total#2.Count of Ns.Board.Post() in region {closure} ", Evidence(finding, "R"),
+                          StringComparison.Ordinal);
+        Assert.Contains($"ownership: TreeConfined ({why})", Evidence(finding, "R"), StringComparison.Ordinal);
+        Assert.Contains($" · DCA1001 · total#2.Count on {closure} (", markdown, StringComparison.Ordinal);
+        Assert.Contains($" · total#2.Count · scope {FindingTestData.SCOPE} · ownership TreeConfined ({why})", markdown, StringComparison.Ordinal);
+    }
+
+    /// <summary>A field <c>Count</c> of the struct the cell <c>[0]</c> of <c>_slots</c> holds.</summary>
+    private static AccessResource InCell() =>
+        FindingTestData.Resource(REGION, FIELD) with
+        {
+            AccessPath = [FIELD, "[0]", "Count"],
+            Selector = ElementSelector.Exact(0),
+            StructPath = [new MemberKey("Ns.Slot", "Count", IrFieldKind.Field)]
+        };
+
+    /// <summary>The finding the rules make of one pair of these operations on the resource, in a region of this ownership.</summary>
+    /// <param name="resource">The resource both accesses are on.</param>
+    /// <param name="first">The first access's operation.</param>
+    /// <param name="second">The second access's operation.</param>
+    /// <param name="ownership">The ownership of the resource's region.</param>
+    /// <param name="evidence">The ownership's evidence, or null for none.</param>
+    private static Finding Created(AccessResource resource, AccessOperation first, AccessOperation second,
+                                   OwnershipKind ownership = OwnershipKind.Shared, string? evidence = null)
+    {
+        Access Owned(Access access) => access with { Ownership = ownership, OwnershipEvidence = evidence is null ? [] : [evidence] };
+        var pair = new AccessPair(Owned(Access(resource, first, "root-a")), Owned(Access(resource, second, "root-b")), PairProtection.UNPROTECTED);
+        return ConflictFindings.Create([pair], CancellationToken.None).Findings.Single();
+    }
+
+    private static string Evidence(Finding finding, string suffix) => finding.Evidence.Single(item => item.Id == $"{finding.FindingId}.{suffix}").Text;
 
     private static (string? Result, string? Solver) Feasibility(Finding finding)
     {

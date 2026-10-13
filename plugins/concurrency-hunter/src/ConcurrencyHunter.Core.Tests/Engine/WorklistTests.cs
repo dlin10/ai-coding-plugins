@@ -237,7 +237,7 @@ public sealed class WorklistTests
         Assert.NotNull(Field(solver, "_reachIndex").GetValue(solver));
         Assert.Equal(count, ((Dictionary<string, int>)Field(solver, "_counters").GetValue(solver)!)[HeapCounters.INSTANCE_PROCESSINGS]);
         var fields = (IDictionary)Field(solver, "_fields").GetValue(solver)!;
-        fields[("snapshot-owner", "slot")] = new TrackedSet<string>(StringComparer.Ordinal) { "snapshot-value" };
+        fields[FieldKey(solver, "snapshot-owner", "slot")] = RegionSet(solver, "snapshot-value");
         Assert.False((bool)Invoke(solver, "Dirty", histories[first]!)!);
         Field(solver, "_reachIndex").SetValue(solver, null);
         Invoke(solver, "ProcessOrSkip", states[first]!);
@@ -253,12 +253,14 @@ public sealed class WorklistTests
         var snapshot = Field(solver, "_reachIndex").GetValue(solver);
         var delegates = (IDictionary)Field(solver, "_delegates").GetValue(solver)!;
         var entry = Entries(delegates).First();
-        var receivers = (TrackedSet<string>)entry.Value!.GetType().GetProperty("CapturedReceivers", MEMBERS)!.GetValue(entry.Value)!;
-        var extra = heap.Regions.Keys.First(region => !receivers.Contains(region) && region != (string)entry.Key);
-        var before = (IReadOnlySet<string>)Invoke(solver, "Reached", (object)new[] { (string)entry.Key })!;
+        var receivers = entry.Value!.GetType().GetProperty("CapturedReceivers", MEMBERS)!.GetValue(entry.Value)!;
+        var extra = heap.Regions.Keys.First(region => !Identities(receivers).Contains(region) && region != entry.Key.ToString());
+        var starts = Array.CreateInstance(RegionRefType(), 1);
+        starts.SetValue(entry.Key, 0);
+        var before = Identities(Invoke(solver, "Reached", starts)!);
         if (before.Contains(extra)) extra = "extra-capture";
-        receivers.Add(extra);
-        var after = (IReadOnlySet<string>)Invoke(solver, "Reached", (object)new[] { (string)entry.Key })!;
+        AddTo(receivers, Region(solver, extra));
+        var after = Identities(Invoke(solver, "Reached", starts)!);
         Assert.Contains(extra, after);
         Assert.DoesNotContain(extra, before);
         Assert.Same(snapshot, Field(solver, "_reachIndex").GetValue(solver));
@@ -312,7 +314,12 @@ public sealed class WorklistTests
             "_scope", "_program", "_limits", "_typeSafety", "_cancellationToken",
             "_counters", "_changes", "_changedRounds", "_sccHandled", "_reachIndex",
             "_worklistOptions", "_writes", "_history", "_reads", "_writeClock", "_suspendReads", "_auditing", "_rebuilding",
-            "_named", "_queries"
+            "_named", "_queries",
+            // Memos of a union and of a copy: each use still reads the tracked sets they were made from and checks them grown or not.
+            "_loadedUnions", "_copiedSlots",
+            // Names, not facts: the interned region identities, a region's links read only after the region itself, and whether a query
+            // named a region.
+            "_interned", "_queryInterned", "_queryIdentities", "_links", "_anyNamed", "_unresolvedDelegate"
         };
         var checkedTypes = new HashSet<Type>();
         void Check(Type type)
@@ -356,6 +363,146 @@ public sealed class WorklistTests
         Assert.IsType<InvalidOperationException>(error.InnerException);
     }
 
+    [Fact]
+    public void A_kept_union_sees_what_its_group_gained_and_reads_what_a_union_reads()
+    {
+        // A load over several regions of a group keeps its union between loads: it still sees an object a field set gained since, a
+        // region the group gained since, and reads every set it joins as the union it stands for reads them.
+        var solver = NewSolver(SIMPLE + Startup());
+        Invoke(solver, "Run");
+        AddRegion(solver, "load-a", "load-group", open: true);
+        AddRegion(solver, "load-b", "load-group");
+        AddTo(Slot(solver, "load-a"), Region(solver, "x"));
+        AddTo(Slot(solver, "load-b"), Region(solver, "y"));
+
+        var union = Loaded(solver, query: true);
+        Assert.Equal(["x", "y"], Loaded(solver).Objects);
+        var kept = Loaded(solver);
+        Assert.Equal(["x", "y"], kept.Objects);
+        Assert.Equal(union.Reads, kept.Reads);
+
+        AddTo(Slot(solver, "load-b"), Region(solver, "z"));
+        var grown = Loaded(solver);
+        Assert.Equal(["x", "y", "z"], grown.Objects);
+        Assert.Equal(Loaded(solver, query: true).Reads, grown.Reads);
+
+        AddRegion(solver, "load-c", "load-group");
+        AddTo(Slot(solver, "load-c"), Region(solver, "w"));
+        var joined = Loaded(solver);
+        Assert.Equal(["w", "x", "y", "z"], joined.Objects);
+        Assert.Equal(Loaded(solver, query: true).Reads, joined.Reads);
+
+        // What a caller does to what it loaded is its own.
+        AddTo(Invoke(solver, "Load", Region(solver, "load-a"), "slot")!, Region(solver, "caller"));
+        Assert.DoesNotContain("caller", Loaded(solver).Objects);
+    }
+
+    [Fact]
+    public void A_struct_copy_adds_again_only_what_its_source_slot_gained()
+    {
+        // A copy run again adds what its source's slot gained since it last copied, into each of its targets, and nothing else.
+        var solver = NewSolver(SIMPLE + Startup());
+        Invoke(solver, "Run");
+        AddRegion(solver, "copy-source", "copy-source", HeapRegionKind.StructCopy);
+        AddRegion(solver, "copy-target", "copy-target", HeapRegionKind.StructCopy);
+        AddRegion(solver, "copy-other", "copy-other", HeapRegionKind.StructCopy);
+        var instance = Entries((IDictionary)Field(solver, "_instances").GetValue(solver)!).First().Value!;
+        StructCopy Copy(string target) =>
+            new(-1, new HashSet<AbstractValue> { new RegionValue(target) }, new HashSet<AbstractValue> { new RegionValue("copy-source") });
+
+        AddTo(Slot(solver, "copy-source"), Region(solver, "x"));
+        Invoke(solver, "CopyStruct", instance, Copy("copy-target"));
+        Assert.Equal(["x"], Identities(Slot(solver, "copy-target")).Order());
+        var changes = (int)Field(solver, "_changes").GetValue(solver)!;
+        Invoke(solver, "CopyStruct", instance, Copy("copy-target"));
+        Assert.Equal(changes, (int)Field(solver, "_changes").GetValue(solver)!);
+
+        AddTo(Slot(solver, "copy-source"), Region(solver, "y"));
+        Invoke(solver, "CopyStruct", instance, Copy("copy-target"));
+        Assert.Equal(["x", "y"], Identities(Slot(solver, "copy-target")).Order());
+        Invoke(solver, "CopyStruct", instance, Copy("copy-other"));
+        Assert.Equal(["x", "y"], Identities(Slot(solver, "copy-other")).Order());
+    }
+
+    /// <summary>Adds a region of a group to a solved solver, as the solve adds one.</summary>
+    /// <param name="solver">The solver.</param>
+    /// <param name="identity">The region's identity.</param>
+    /// <param name="group">The group it joins.</param>
+    /// <param name="kind">The region's kind.</param>
+    /// <param name="open">Whether the region stands for a type parameter's constructions, which joins every region of its group.</param>
+    private static void AddRegion(object solver, string identity, string group, HeapRegionKind kind = HeapRegionKind.Allocation, bool open = false)
+    {
+        var regions = (IDictionary)Field(solver, "_regions").GetValue(solver)!;
+        var groups = (IDictionary)Field(solver, "_groups").GetValue(solver)!;
+        regions.Add(Region(solver, identity), new HeapRegion(identity, kind, identity, null, "", group, open, false));
+        var key = Region(solver, group);
+        if (!groups.Contains(key))
+            groups.Add(key, Activator.CreateInstance(typeof(TrackedList<>).MakeGenericType(RegionRefType()), MEMBERS, null, [], null)!);
+        var members = groups[key]!;
+        members.GetType().GetMethod("Add", [RegionRefType()])!.Invoke(members, [Region(solver, identity)]);
+    }
+
+    /// <summary>The field set of the slot the tests use on a region, made where there is none.</summary>
+    /// <param name="solver">The solver.</param>
+    /// <param name="region">The region.</param>
+    private static object Slot(object solver, string region) => Invoke(solver, "Field", Region(solver, region), "slot")!;
+
+    /// <summary>What a load of the tests' slot on <c>load-a</c> gives, sorted, and the state keys it reads.</summary>
+    /// <param name="solver">The solver.</param>
+    /// <param name="query">Whether the load runs as a query of the solved heap, which joins every set afresh and keeps nothing.</param>
+    private static (string[] Objects, HashSet<StateKey> Reads) Loaded(object solver, bool query = false)
+    {
+        var region = Region(solver, "load-a");
+        var reads = new HashSet<StateKey>();
+        Field(solver, "_reads").SetValue(solver, reads);
+        if (query)
+            Field(solver, "_queries").SetValue(solver, 1);
+        try
+        {
+            return (Identities(Invoke(solver, "Load", region, "slot")!).Order(StringComparer.Ordinal).ToArray(), reads);
+        }
+        finally
+        {
+            Field(solver, "_reads").SetValue(solver, null);
+            Field(solver, "_queries").SetValue(solver, 0);
+        }
+    }
+
+    /// <summary>The solver's type of an interned region identity.</summary>
+    private static Type RegionRefType() => typeof(WholeProgram).GetNestedType("RegionRef", BindingFlags.NonPublic)!;
+
+    /// <summary>The solver's one reference to a region identity, as the solve interns it.</summary>
+    /// <param name="solver">The solver.</param>
+    /// <param name="identity">The region identity.</param>
+    private static object Region(object solver, string identity) => Invoke(solver, "Intern", identity)!;
+
+    /// <summary>A new set of the solver's region references.</summary>
+    /// <param name="solver">The solver.</param>
+    /// <param name="identities">The identities of the regions it holds.</param>
+    private static object RegionSet(object solver, params string[] identities)
+    {
+        var set = Activator.CreateInstance(typeof(TrackedSet<>).MakeGenericType(RegionRefType()), MEMBERS, null, [], null)!;
+        foreach (var identity in identities)
+            AddTo(set, Region(solver, identity));
+        return set;
+    }
+
+    /// <summary>The key of a field set of the solver: a region reference and a slot.</summary>
+    /// <param name="solver">The solver.</param>
+    /// <param name="region">The region identity.</param>
+    /// <param name="slot">The slot.</param>
+    private static object FieldKey(object solver, string region, string slot) =>
+        Activator.CreateInstance(typeof(ValueTuple<,>).MakeGenericType(RegionRefType(), typeof(string)), Region(solver, region), slot)!;
+
+    /// <summary>Adds a region reference to a set of them.</summary>
+    /// <param name="set">The set.</param>
+    /// <param name="item">The region reference.</param>
+    private static void AddTo(object set, object item) => set.GetType().GetMethod("Add", [item.GetType()])!.Invoke(set, [item]);
+
+    /// <summary>The identities a set of region references holds, in its order.</summary>
+    /// <param name="set">The set.</param>
+    private static string[] Identities(object set) => ((IEnumerable)set).Cast<object>().Select(item => item.ToString()!).ToArray();
+
     private static string Holders() => """
         using System.Collections.Generic;
         public sealed class Box { public object Value = new(); }
@@ -398,7 +545,14 @@ public sealed class WorklistTests
         Activator.CreateInstance(typeof(WholeProgram).GetNestedType("Solver", BindingFlags.NonPublic)!,
                                 MEMBERS, null, [Scope(program, limits), limits ?? AnalysisLimits.Default, CancellationToken.None, options], null)!;
     private static FieldInfo Field(object solver, string name) => solver.GetType().GetField(name, MEMBERS)!;
-    private static object? Invoke(object solver, string name, params object[] arguments) => solver.GetType().GetMethod(name, MEMBERS)!.Invoke(solver, arguments);
+    private static object? Invoke(object solver, string name, params object[] arguments)
+    {
+        var method = solver.GetType().GetMethod(name, MEMBERS)!;
+        // A generic member takes its type argument from the elements of its first argument.
+        if (method.ContainsGenericParameters)
+            method = method.MakeGenericMethod(arguments[0].GetType().GetGenericArguments()[0]);
+        return method.Invoke(solver, arguments);
+    }
     private static Dictionary<StateKey, long> Writes(object solver) => (Dictionary<StateKey, long>)Field(solver, "_writes").GetValue(solver)!;
     private static IDictionary Handoffs(object solver)
     {

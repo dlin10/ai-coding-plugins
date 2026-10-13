@@ -19,7 +19,7 @@ public static partial class WholeProgram
         private static readonly StateKey REACH_KEY = new StateKey("_reachIndex").All;
 
         private sealed record ProcessingHistory(long Started, HashSet<StateKey> Reads, RebuiltState Contribution,
-                                                Dictionary<string, List<string>>? ReachSnapshot);
+                                                Dictionary<RegionRef, List<RegionRef>>? ReachSnapshot);
 
         private void ReadState(StateKey key)
         {
@@ -123,9 +123,8 @@ public static partial class WholeProgram
             try
             {
                 _reachIndex = _fields.Where(pair => pair.Value.Count != 0)
-                                     .GroupBy(pair => pair.Key.Region, StringComparer.Ordinal)
-                                     .ToDictionary(group => group.Key, group => group.SelectMany(pair => pair.Value)
-                                                                                  .Distinct(StringComparer.Ordinal).ToList(), StringComparer.Ordinal);
+                                     .GroupBy(pair => pair.Key.Region)
+                                     .ToDictionary(group => group.Key, group => group.SelectMany(pair => pair.Value).Distinct().ToList());
             }
             finally
             {
@@ -133,7 +132,7 @@ public static partial class WholeProgram
             }
         }
 
-        private static bool SameReach(Dictionary<string, List<string>>? first, Dictionary<string, List<string>>? second) =>
+        private static bool SameReach(Dictionary<RegionRef, List<RegionRef>>? first, Dictionary<RegionRef, List<RegionRef>>? second) =>
             ReferenceEquals(first, second) || first is not null && second is not null && first.Count == second.Count &&
             first.All(pair => second.TryGetValue(pair.Key, out var values) && pair.Value.SequenceEqual(values));
 
@@ -165,14 +164,14 @@ public static partial class WholeProgram
         {
             internal TrackedSet<(string BodyId, int OperationId)> NoReceiver { get; } = [];
             internal TrackedSet<(string Instance, int Operation)> UnresolvedDispatches { get; } = [];
-            internal TrackedMap<(string Instance, int Operation), TrackedSet<(string Region, string? DeclaringTypeKey)>> UnresolvedReceivers { get; } = [];
+            internal TrackedMap<(string Instance, int Operation), TrackedSet<(RegionRef Region, string? DeclaringTypeKey)>> UnresolvedReceivers { get; } = [];
             internal TrackedMap<(string Instance, int Operation), TrackedSet<IrFactoryInput>> UnresolvedFactoryInputs { get; } = [];
-            internal TrackedMap<(string Instance, int Operation), TrackedSet<string>> UnresolvedFateInputs { get; } = [];
-            internal TrackedMap<UnresolvedWorkSite, TrackedSet<(string Region, string? DeclaringTypeKey)>> UnresolvedWorkReceivers { get; } = [];
-            internal TrackedMap<UnresolvedWorkSite, TrackedSet<string>> UnresolvedWorkInputs { get; } = [];
-            internal TrackedMap<string, (TrackedSet<(string Caller, int Operation)> Sites, TrackedSet<string> Callees)> Handoffs { get; } = new(StringComparer.Ordinal);
-            internal TrackedSet<(string Caller, int Operation, string Region, string Callee)> StartupDelegates { get; } = [];
-            internal TrackedSet<(string Instance, int Operation, string Region)> IteratorEnumerations { get; } = [];
+            internal TrackedMap<(string Instance, int Operation), TrackedSet<RegionRef>> UnresolvedFateInputs { get; } = [];
+            internal TrackedMap<UnresolvedWorkSite, TrackedSet<(RegionRef Region, string? DeclaringTypeKey)>> UnresolvedWorkReceivers { get; } = [];
+            internal TrackedMap<UnresolvedWorkSite, TrackedSet<RegionRef>> UnresolvedWorkInputs { get; } = [];
+            internal TrackedMap<RegionRef, (TrackedSet<(string Caller, int Operation)> Sites, TrackedSet<string> Callees)> Handoffs { get; } = [];
+            internal TrackedSet<(string Caller, int Operation, RegionRef Region, string Callee)> StartupDelegates { get; } = [];
+            internal TrackedSet<(string Instance, int Operation, RegionRef Region)> IteratorEnumerations { get; } = [];
             internal TrackedSet<DelegateSite> DelegateSites { get; } = [];
             internal TrackedSet<(DelegateSite Site, DelegateRun Run)> DelegateRuns { get; } = [];
             internal TrackedSet<DelegateSite> UnseenDelegates { get; } = [];

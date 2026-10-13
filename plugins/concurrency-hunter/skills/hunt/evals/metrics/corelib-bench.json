@@ -1227,5 +1227,345 @@
         }
       }
     }
+  },
+  {
+    "label": "a9",
+    "recordedAt": "2026-10-13T18:22:36.3766688\u002B00:00",
+    "head": "5c28dcf26c824ac75435542bd712fc5f3d0788a0",
+    "dirty": true,
+    "machine": "DESKTOP-OZCODE",
+    "logicalCores": 16,
+    "coreLibVersion": "8.0.31",
+    "scopes": {
+      "four": {
+        "bodies": 30736,
+        "externBodies": 2978,
+        "selectedMembers": 535,
+        "reachableBodies": 10595,
+        "peakWorkingSetMb": 3599.7890625,
+        "stages": {
+          "rootDiscovery": {
+            "status": "finished",
+            "seconds": 0.4966297
+          },
+          "programIndex": {
+            "status": "finished",
+            "seconds": 8.5890854
+          },
+          "lowering": {
+            "status": "finished",
+            "seconds": 8.080514
+          },
+          "reachableSet": {
+            "status": "finished",
+            "seconds": 0.5958603
+          },
+          "summariesAndFixpoint": {
+            "status": "cut",
+            "reason": "timeout",
+            "seconds": 600.6118571,
+            "counters": {
+              "propagate-passes": 98,
+              "instance-processings": 150900,
+              "reference-lookups": 888201,
+              "merged-context": 2242,
+              "scc-budget-exceeded": 9
+            }
+          },
+          "executions": {
+            "status": "notRun"
+          },
+          "accesses": {
+            "status": "notRun"
+          }
+        }
+      },
+      "all": {
+        "bodies": 30736,
+        "externBodies": 9454,
+        "selectedMembers": 7199,
+        "reachableBodies": 907,
+        "peakWorkingSetMb": 4548.234375,
+        "stages": {
+          "rootDiscovery": {
+            "status": "finished",
+            "seconds": 0.3877399
+          },
+          "programIndex": {
+            "status": "finished",
+            "seconds": 6.7092742
+          },
+          "lowering": {
+            "status": "finished",
+            "seconds": 0.989239
+          },
+          "reachableSet": {
+            "status": "finished",
+            "seconds": 0.1123204
+          },
+          "summariesAndFixpoint": {
+            "status": "finished",
+            "seconds": 2.7842764,
+            "counters": {
+              "propagate-passes": 33,
+              "instance-processings": 9475,
+              "reference-lookups": 25072,
+              "merged-context": 66,
+              "no-receiver-object": 279,
+              "reachable-bodies": 851,
+              "lowered-not-reached": 58,
+              "scc-budget-exceeded": 0,
+              "unresolved-locator": 0
+            }
+          },
+          "executions": {
+            "status": "finished",
+            "seconds": 0.5103786,
+            "counters": {
+              "walkVisits": 8411
+            }
+          },
+          "accesses": {
+            "status": "finished",
+            "seconds": 69.7768844,
+            "counters": {
+              "executions": 31,
+              "accesses": 55249
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "label": "a9-cache",
+    "recordedAt": "2026-10-13T19:42:44.3245737\u002B00:00",
+    "head": "5c28dcf26c824ac75435542bd712fc5f3d0788a0",
+    "dirty": true,
+    "machine": "DESKTOP-OZCODE",
+    "logicalCores": 16,
+    "coreLibVersion": "8.0.31",
+    "scopes": {
+      "four": {
+        "bodies": 30736,
+        "externBodies": 2978,
+        "selectedMembers": 535,
+        "reachableBodies": 10595,
+        "peakWorkingSetMb": 3629.05078125,
+        "stages": {
+          "rootDiscovery": {
+            "status": "finished",
+            "seconds": 0.5005048
+          },
+          "programIndex": {
+            "status": "finished",
+            "seconds": 8.9626733
+          },
+          "lowering": {
+            "status": "finished",
+            "seconds": 8.4826322
+          },
+          "reachableSet": {
+            "status": "finished",
+            "seconds": 0.5732324
+          },
+          "summariesAndFixpoint": {
+            "status": "cut",
+            "reason": "timeout",
+            "seconds": 600.6817109,
+            "counters": {
+              "propagate-passes": 142,
+              "instance-processings": 164579,
+              "reference-lookups": 1012214,
+              "merged-context": 2347,
+              "scc-budget-exceeded": 10
+            }
+          },
+          "executions": {
+            "status": "notRun"
+          },
+          "accesses": {
+            "status": "notRun"
+          }
+        }
+      },
+      "all": {
+        "bodies": 30736,
+        "externBodies": 9454,
+        "selectedMembers": 7199,
+        "reachableBodies": 907,
+        "peakWorkingSetMb": 4616.30078125,
+        "stages": {
+          "rootDiscovery": {
+            "status": "finished",
+            "seconds": 0.4075521
+          },
+          "programIndex": {
+            "status": "finished",
+            "seconds": 7.4168545
+          },
+          "lowering": {
+            "status": "finished",
+            "seconds": 1.0448528
+          },
+          "reachableSet": {
+            "status": "finished",
+            "seconds": 0.1281164
+          },
+          "summariesAndFixpoint": {
+            "status": "finished",
+            "seconds": 2.6701225,
+            "counters": {
+              "propagate-passes": 33,
+              "instance-processings": 9475,
+              "reference-lookups": 25072,
+              "merged-context": 66,
+              "no-receiver-object": 279,
+              "reachable-bodies": 851,
+              "lowered-not-reached": 58,
+              "scc-budget-exceeded": 0,
+              "unresolved-locator": 0
+            }
+          },
+          "executions": {
+            "status": "finished",
+            "seconds": 0.5448231,
+            "counters": {
+              "walkVisits": 8411
+            }
+          },
+          "accesses": {
+            "status": "finished",
+            "seconds": 72.3662426,
+            "counters": {
+              "executions": 31,
+              "accesses": 55249
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "label": "a9-int",
+    "recordedAt": "2026-10-13T21:01:14.6968602\u002B00:00",
+    "head": "5c28dcf26c824ac75435542bd712fc5f3d0788a0",
+    "dirty": true,
+    "machine": "DESKTOP-OZCODE",
+    "logicalCores": 16,
+    "coreLibVersion": "8.0.31",
+    "scopes": {
+      "four": {
+        "bodies": 30736,
+        "externBodies": 2978,
+        "selectedMembers": 535,
+        "reachableBodies": 10595,
+        "peakWorkingSetMb": 25653.12890625,
+        "stages": {
+          "rootDiscovery": {
+            "status": "finished",
+            "seconds": 0.4901668
+          },
+          "programIndex": {
+            "status": "finished",
+            "seconds": 8.8267223
+          },
+          "lowering": {
+            "status": "finished",
+            "seconds": 8.2232302
+          },
+          "reachableSet": {
+            "status": "finished",
+            "seconds": 0.5423365
+          },
+          "summariesAndFixpoint": {
+            "status": "finished",
+            "seconds": 308.9623313,
+            "counters": {
+              "propagate-passes": 191,
+              "instance-processings": 197460,
+              "reference-lookups": 1303577,
+              "merged-context": 2452,
+              "scc-budget-exceeded": 11,
+              "no-receiver-object": 2847,
+              "reachable-bodies": 4172,
+              "lowered-not-reached": 6428,
+              "unresolved-locator": 0
+            }
+          },
+          "executions": {
+            "status": "finished",
+            "seconds": 174.3327873,
+            "counters": {
+              "walkVisits": 160907
+            }
+          },
+          "accesses": {
+            "status": "cut",
+            "reason": "timeout",
+            "seconds": 691.4927153,
+            "counters": {
+              "executions": 0,
+              "accesses": 0
+            }
+          }
+        }
+      },
+      "all": {
+        "bodies": 30736,
+        "externBodies": 9454,
+        "selectedMembers": 7199,
+        "reachableBodies": 907,
+        "peakWorkingSetMb": 12829,
+        "stages": {
+          "rootDiscovery": {
+            "status": "finished",
+            "seconds": 0.3957251
+          },
+          "programIndex": {
+            "status": "finished",
+            "seconds": 7.0982327
+          },
+          "lowering": {
+            "status": "finished",
+            "seconds": 1.279519
+          },
+          "reachableSet": {
+            "status": "finished",
+            "seconds": 0.2181779
+          },
+          "summariesAndFixpoint": {
+            "status": "finished",
+            "seconds": 3.0437452,
+            "counters": {
+              "propagate-passes": 33,
+              "instance-processings": 9475,
+              "reference-lookups": 25072,
+              "merged-context": 66,
+              "no-receiver-object": 279,
+              "reachable-bodies": 851,
+              "lowered-not-reached": 58,
+              "scc-budget-exceeded": 0,
+              "unresolved-locator": 0
+            }
+          },
+          "executions": {
+            "status": "finished",
+            "seconds": 0.3498456,
+            "counters": {
+              "walkVisits": 8411
+            }
+          },
+          "accesses": {
+            "status": "finished",
+            "seconds": 71.5497464,
+            "counters": {
+              "executions": 31,
+              "accesses": 55249
+            }
+          }
+        }
+      }
+    }
   }
 ]

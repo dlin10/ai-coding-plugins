@@ -308,6 +308,8 @@ internal static class ConflictFindings
         $"{resource.Scope}|{resource.RegionKey}|{string.Join(".", resource.AccessPath)}|{resource.Member.Identity}";
 
     /// <summary>Two different lifecycle roots of one hosted-service implementation, whose relative order is not modeled.</summary>
+    /// <param name="first">The root of one access.</param>
+    /// <param name="second">The root of the other access.</param>
     private static bool IsLifecyclePair(AccessRoot first, AccessRoot second) =>
         first.ProviderId == HOSTING_PROVIDER && second.ProviderId == HOSTING_PROVIDER && first.RootId != second.RootId &&
         first.ReceiverTypeKey is not null && first.ReceiverTypeKey == second.ReceiverTypeKey;
@@ -315,8 +317,10 @@ internal static class ConflictFindings
     private static IReadOnlyList<EvidenceItem> Evidence(string findingId, AccessResource resource, Access accessA, Access accessB,
                                                         string protection, string overlap, IReadOnlyList<string> scenario)
     {
-        var kind = resource.Region.StartsWith("static:", StringComparison.Ordinal)
-            ? "static field"
+        var path = AccessPathParts.Of(resource);
+        var kind = path.IsWholeStorage ? "boxed struct"
+            : path.IsClosure ? "captured variable"
+            : resource.Region.StartsWith("static:", StringComparison.Ordinal) ? "static field"
             : resource.Member.Kind switch
             {
                 IrFieldKind.PropertyBackingField => "property",
@@ -332,7 +336,7 @@ internal static class ConflictFindings
             new EvidenceItem($"{findingId}.A", "access-a", AccessText("A", resource, accessA)),
             new EvidenceItem($"{findingId}.B", "access-b", AccessText("B", resource, accessB)),
             new EvidenceItem($"{findingId}.R", "resource",
-                             $"Resource: {kind} {resource.Member.DeclaringType}.{resource.Member.Name} in region {resource.Region} " +
+                             $"Resource: {kind} {path.Named} in region {resource.Region} " +
                              $"of scope {resource.Scope}; ownership: {Ownership(ResourceAccess(resource, accessA, accessB))}; binding evidence: " +
                              $"{(bindings.Length == 0 ? "none" : string.Join("; ", bindings))}."),
             new EvidenceItem($"{findingId}.O", "overlap", overlap),
@@ -512,7 +516,9 @@ internal static class ConflictFindings
         _ => 1
     };
 
-    private static string Field(AccessResource resource) => resource.AccessPath[^1];
+    /// <summary>The field a finding names: the path's last field, or the boxed struct's type for a box's whole storage.</summary>
+    /// <param name="resource">The finding's resource.</param>
+    private static string Field(AccessResource resource) => AccessPathParts.Of(resource).Label;
 
     private sealed record GroupKey(string Rule, string Scope, string Assembly, string Region, string Path, string MemberKey)
     {

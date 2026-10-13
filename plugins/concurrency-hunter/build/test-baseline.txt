@@ -117,6 +117,7 @@ ConcurrencyHunter.Cli.Tests.RunToolsTests.Oversized_unicode_group_digest_is_fitt
 ConcurrencyHunter.Cli.Tests.RunToolsTests.Page_below_one_is_invalidPage	Passed
 ConcurrencyHunter.Cli.Tests.RunToolsTests.Rejection_with_600_long_unknown_citations_stays_under_8_KB	Passed
 ConcurrencyHunter.Cli.Tests.RunToolsTests.Run_poll_reports_phase_state_counts_elapsed_and_remaining	Passed
+ConcurrencyHunter.Cli.Tests.RunToolsTests.Struct_path_digest_keeps_the_whole_path_and_names_its_field	Passed
 ConcurrencyHunter.Cli.Tests.RunToolsTests.Unknown_run_id_is_unknownRun_on_every_tool	Passed
 ConcurrencyHunter.Cli.Tests.SemanticGapTests.Measurement_carries_the_gap_counter_and_the_sorted_callees_of_each_scope	Passed
 ConcurrencyHunter.Cli.Tests.TargetResolverTests.Directory_that_cannot_be_enumerated_is_unresolvable_with_the_exception	Passed
@@ -477,6 +478,8 @@ ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.The_seventeenth_path_disc
 ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.Two_calls_in_one_execution_keep_their_own_guards	Passed
 ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.Two_calls_of_one_helper_under_different_guards_keep_both_paths	Passed
 ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.Two_calls_of_one_helper_under_guards_that_exclude_the_other_worker_keep_no_pair	Passed
+ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.A_struct_whole_meets_each_field_below_it_across_an_alias_group	Passed
+ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.A_struct_whole_meets_each_field_below_it_and_is_named_by_the_longer_path	Passed
 ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.Accesses_on_two_regions_are_never_compared	Passed
 ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.Accesses_on_two_resources_of_one_region_are_never_compared	Passed
 ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.Cartesian_bound_is_n_times_n_plus_one_over_two_per_scope_and_summed	Passed
@@ -495,6 +498,15 @@ ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Group_members_do_not_dep
 ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Reached_from_names_the_ordinally_first_execution	Passed
 ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Startup_delegate_display_does_not_depend_on_visit_order	Passed
 ConcurrencyHunter.Core.Tests.Engine.CanonicalOrderTests.Store_evidence_names_the_store_first_in_source_order	Passed
+ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.A_captured_struct_is_the_storage_of_its_cell_and_its_fields_continue_the_path	Passed
+ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.A_local_function_reaches_the_cell_of_its_method_through_the_capture	Passed
+ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.A_reference_variable_a_lambda_reassigns_holds_every_object_in_its_cell	Passed
+ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.A_variable_a_lambda_declares_and_a_nested_lambda_captures_is_in_the_closure_of_the_ordinary_member	Passed
+ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.A_variable_no_nested_body_captures_is_no_location	Passed
+ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.The_closure_is_a_region_of_the_declaring_member_and_the_captured_variable_its_slot	Passed
+ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.The_declaring_members_accesses_to_its_closure_are_fresh_and_a_lambdas_are_not	Passed
+ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.The_nth_variable_of_one_name_the_member_declares_is_its_slot_with_hash_n_in_declaration_order	Passed
+ConcurrencyHunter.Core.Tests.Engine.CaptureCellTests.The_owner_reads_its_own_version_before_a_nested_body_may_have_run_and_the_cell_after	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_Sort_with_a_comparison_runs_it_now_and_writes_the_cells	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_static_runs_its_delegate(member: "ConvertAll", statement: "System.Array.ConvertAll(_state.Cells, x => { x.Hit"···, result: "alloc:State..ctor()#Spare")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CollectionDelegateMemberTests.Array_static_runs_its_delegate(member: "Exists", statement: "_ = System.Array.Exists(_state.Cells, x => { x.Hit"···, result: "")	Passed
@@ -4530,6 +4542,24 @@ ConcurrencyHunter.Core.Tests.Engine.NotRunFateTests.Not_run_remove_on_a_holder_r
 ConcurrencyHunter.Core.Tests.Engine.NotRunFateTests.Not_run_with_a_holder_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Engine.NotRunFateTests.Not_run_with_inputs_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Engine.NotRunFateTests.Two_entries_differing_only_by_not_run_conflict	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Empty, destination: Interface, unboxing: None)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Empty, destination: Interface, unboxing: Nullable)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Empty, destination: Object, unboxing: None)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Empty, destination: Object, unboxing: Nullable)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Full, destination: Interface, unboxing: None)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Full, destination: Interface, unboxing: Nullable)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Full, destination: Interface, unboxing: Struct)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Full, destination: Object, unboxing: None)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Full, destination: Object, unboxing: Nullable)	Passed
+ConcurrencyHunter.Core.Tests.Engine.NullableBoxingTests.Nullable_boxes_and_unboxes_as_csharp_does(presence: Full, destination: Object, unboxing: Struct)	Passed
+ConcurrencyHunter.Core.Tests.Engine.OncePerCreatorRunMatrixTests.Every_cell_is_ordered_as_its_once_running_twin	Passed
+ConcurrencyHunter.Core.Tests.Engine.OncePerCreatorRunMatrixTests.Every_cell_runs_as_expected	Passed
+ConcurrencyHunter.Core.Tests.Engine.OncePerCreatorRunMatrixTests.Every_value_of_every_axis_occurs	Passed
+ConcurrencyHunter.Core.Tests.Engine.OncePerCreatorRunMatrixTests.No_repeating_start_counts_once	Passed
+ConcurrencyHunter.Core.Tests.Engine.OncePerCreatorRunMatrixTests.Stated_cells_are_ordered_as_stated(kind: ParallelFor, chain: Creator, itself: Concurrent, before: Ordered, after: Ordered)	Passed
+ConcurrencyHunter.Core.Tests.Engine.OncePerCreatorRunMatrixTests.Stated_cells_are_ordered_as_stated(kind: PeriodicTimer, chain: Creator, itself: Concurrent, before: Ordered, after: Ordered)	Passed
+ConcurrencyHunter.Core.Tests.Engine.OncePerCreatorRunMatrixTests.Stated_cells_are_ordered_as_stated(kind: TaskRun, chain: Creator, itself: NoOverlap, before: Ordered, after: Ordered)	Passed
+ConcurrencyHunter.Core.Tests.Engine.OncePerCreatorRunMatrixTests.Stated_cells_are_ordered_as_stated(kind: UnresolvedHandoff, chain: OnceWork, itself: Concurrent, before: Concurrent, after: Concurrent)	Passed
 ConcurrencyHunter.Core.Tests.Engine.OpaqueDelegateExecutionTests.Access_in_the_unknown_call_has_the_symbol_of_its_member_and_a_root_kind_of_its_own	Passed
 ConcurrencyHunter.Core.Tests.Engine.OpaqueDelegateExecutionTests.Delegate_handed_to_a_dynamic_call_runs_in_an_unknown_execution	Passed
 ConcurrencyHunter.Core.Tests.Engine.OpaqueDelegateExecutionTests.Delegate_handed_to_an_interface_call_without_a_receiver_object_runs_in_an_unknown_execution	Passed
@@ -4617,6 +4647,10 @@ ConcurrencyHunter.Core.Tests.Engine.PathConditionTests.Two_iterations_of_one_par
 ConcurrencyHunter.Core.Tests.Engine.PathConditionTests.Two_runs_of_a_parallel_for_keep_their_pair	Passed
 ConcurrencyHunter.Core.Tests.Engine.PathConditionTests.Two_runs_of_one_action_do_not_share_a_value_neither_proved_canonical	Passed
 ConcurrencyHunter.Core.Tests.Engine.PathConditionTests.Two_runs_of_one_action_do_not_share_the_index_they_were_handed	Passed
+ConcurrencyHunter.Core.Tests.Engine.PathOverlapMatrixTests.Every_cell_meets_as_expected	Passed
+ConcurrencyHunter.Core.Tests.Engine.PathOverlapMatrixTests.Every_meeting_pair_is_named_as_expected	Passed
+ConcurrencyHunter.Core.Tests.Engine.PathOverlapMatrixTests.Every_value_of_every_axis_occurs	Passed
+ConcurrencyHunter.Core.Tests.Engine.PathOverlapMatrixTests.No_cell_misses_a_meeting	Passed
 ConcurrencyHunter.Core.Tests.Engine.PatternImpliedCallTests.List_element_designation_binds_what_the_indexer_returned	Passed
 ConcurrencyHunter.Core.Tests.Engine.PatternImpliedCallTests.List_pattern_designation_binds_the_tested_object	Passed
 ConcurrencyHunter.Core.Tests.Engine.PatternImpliedCallTests.List_pattern_in_a_switch_expression_calls_the_indexer	Passed
@@ -5137,6 +5171,38 @@ ConcurrencyHunter.Core.Tests.Engine.SpawnHeapTests.Unsafe_queue_user_work_item_s
 ConcurrencyHunter.Core.Tests.Engine.SpawnHeapTests.When_all_with_a_list_does_not_know_its_tasks	Passed
 ConcurrencyHunter.Core.Tests.Engine.SpawnHeapTests.When_all_with_listed_tasks_remembers_them	Passed
 ConcurrencyHunter.Core.Tests.Engine.SpawnHeapTests.Work_item_execute_is_reached_and_writes_the_field_of_its_receiver	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_cell_its_term_binds_to_a_constant_keeps_the_struct_fields_after_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_constructor_whole_struct_write_is_construction_local_for_every_field_below_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_field_of_a_struct_a_readonly_field_keeps_is_one_value_in_every_execution	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_holder_region_whose_type_cannot_declare_the_first_field_of_the_path_is_skipped	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_known_call_on_a_collection_a_struct_field_holds_names_the_whole_path	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_readonly_field_below_a_struct_field_the_holder_can_replace_is_a_value_of_each_execution	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_struct_inside_a_struct_is_its_holders_resource_with_the_path_through_both	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_struct_path_past_the_depth_bound_is_the_wildcard_of_the_holder_region_struct_segments_counted	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.An_interface_collection_call_on_a_collection_a_struct_field_holds_folds_the_receiver_load	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.An_unknown_effect_on_a_holder_reaches_the_fields_of_its_structs_and_what_they_hold	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.An_unknown_effect_only_reads_a_readonly_struct_field_while_what_its_reference_fields_hold_gets_the_whole_effect	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.An_unknown_effect_writes_a_readonly_field_of_a_struct_the_holder_can_replace	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.One_operation_reaching_two_paths_of_one_holder_gives_two_accesses	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.Reflection_writes_readonly_struct_storage_as_it_writes_any_readonly_field	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.Two_fields_holding_one_array_reach_one_cells_struct_field_as_one_resource	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructPlaceMatrixTests.Every_cell_accesses_as_expected	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructPlaceMatrixTests.Every_value_of_every_axis_occurs	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructPlaceMatrixTests.No_cell_loses_an_access	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructPlaceMatrixTests.No_copy_is_a_resource	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructPlaceMatrixTests.No_copy_loses_the_object_its_reference_field_holds	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructPlaceMatrixTests.No_method_group_delegate_writes_the_storage	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.A_box_holds_a_copy_of_the_struct_and_an_unboxing_copies_it_out	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.A_store_through_a_ref_parameter_and_a_member_called_on_storage_write_the_holder_slot	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.A_whole_struct_stored_through_a_reference_is_copied_into_the_storage_it_names	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.An_object_in_a_nested_struct_field_is_the_holder_slot_of_the_whole_path	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.An_object_in_a_struct_field_survives_a_by_value_argument	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.An_object_in_a_struct_field_survives_a_load_out_of_a_field_a_static_field_and_a_cell	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.An_object_in_a_struct_field_survives_a_return	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.An_object_in_a_struct_field_survives_a_store_into_a_cell	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.An_object_in_a_struct_field_survives_a_store_into_a_field	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.An_object_in_a_struct_field_survives_a_store_into_a_static_field	Passed
+ConcurrencyHunter.Core.Tests.Engine.StructStoragePointsToTests.Two_copies_of_one_struct_change_apart	Passed
 ConcurrencyHunter.Core.Tests.Engine.SynchronizationPrimitiveTests.A_helper_called_under_two_modes_holds_the_weaker_one	Passed
 ConcurrencyHunter.Core.Tests.Engine.SynchronizationPrimitiveTests.A_lock_scope_against_a_monitor_on_one_object_is_incompatible_mode	Passed
 ConcurrencyHunter.Core.Tests.Engine.SynchronizationPrimitiveTests.A_lock_statement_over_a_lock_against_a_monitor_on_one_object_is_incompatible_mode	Passed
@@ -5550,6 +5616,19 @@ ConcurrencyHunter.Core.Tests.Engine.TimerTests.Wait_on_only_one_branch_after_dis
 ConcurrencyHunter.Core.Tests.Engine.TimerTests.Wait_with_a_timeout_after_dispose_orders_nothing	Passed
 ConcurrencyHunter.Core.Tests.Engine.TimerTests.Work_a_callback_detaches_overlaps_the_write_after_dispose_async	Passed
 ConcurrencyHunter.Core.Tests.Engine.TimerTests.Zero_period_at_creation_is_one_shot	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedMatrixTests.Every_cell_is_classified_as_expected	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedMatrixTests.Every_cell_pairs_as_expected	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedMatrixTests.Every_value_of_every_axis_occurs	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedMatrixTests.No_pair_within_a_run_is_lost	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.A_captured_value_copied_into_a_singleton_publishes_nothing	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.A_region_a_shared_root_reaches_stays_escaped_and_pairs_across_runs	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.A_region_two_executions_create_and_others_access_stays_escaped	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.A_semantic_gap_counts_a_tree_confined_object_shared	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.An_object_an_action_hands_only_to_its_work_is_tree_confined_and_its_evidence_names_the_creator_and_the_work	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.An_unknown_effect_on_a_tree_confined_region_stays_a_write	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.Owned_thread_confined_and_unknown_keep_their_precedence	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.Publication_counts_a_tree_confined_object_shared	Passed
+ConcurrencyHunter.Core.Tests.Engine.TreeConfinedTests.Two_creators_contexts_in_one_analysis_answer_alike_whichever_is_asked_first	Passed
 ConcurrencyHunter.Core.Tests.Engine.TypeSafetyTests.A_member_of_a_span_keeps_an_array_the_span_is_made_from	Passed
 ConcurrencyHunter.Core.Tests.Engine.TypeSafetyTests.Array_is_skipped_for_a_source_member_and_kept_for_its_interfaces	Passed
 ConcurrencyHunter.Core.Tests.Engine.TypeSafetyTests.Array_rank_inside_a_generic_argument_does_not_admit_a_three_parameter_member	Passed
@@ -5626,6 +5705,43 @@ ConcurrencyHunter.Core.Tests.Engine.UnknownEffectTests.Unknown_effect_and_a_writ
 ConcurrencyHunter.Core.Tests.Engine.UnknownEffectTests.Unknown_effect_costs_the_operation_component_alone_and_names_its_gap	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnknownEffectTests.Unknown_effect_under_a_flag_and_a_write_under_its_negation_make_no_pair	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnknownEffectTests.Unknown_effect_under_a_lock_the_other_side_does_not_hold_is_partial_protection	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a construction-local base", body: "_ = new Built();", constructor: "N = 1;", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a fresh base", body: "var box = new Box(); box.N = 1;", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a resolved base", body: "Holder.Shared.N = 1;", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a struct copy: a by-value parameter", body: "value.X = 1;", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a struct copy: a call's result", body: "_ = Holder.Make().X;", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a struct copy: a defensive copy", body: "Holder.Ro.Bump();", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a struct copy: a local", body: "var local = new S(); local.X = 1;", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "a struct copy: a ref to a local", body: "var local = new S(); ref S r = ref local; r.X = 1;", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a direct field access", reason: "an object base from code the analysis does not see", body: "unseen.N = 1;", constructor: "", expected: 1)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a known-call effect", reason: "a construction-local base", body: "_ = new Built();", constructor: "System.Text.Json.JsonSerializer.Serialize(this);", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a known-call effect", reason: "a fresh base", body: "var box = new Box(); System.Text.Json.JsonSerializ"···, constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a known-call effect", reason: "a resolved base", body: "System.Text.Json.JsonSerializer.Serialize(Holder.S"···, constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a known-call effect", reason: "a struct copy: a by-value parameter", body: "System.Text.Json.JsonSerializer.Serialize(count);", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a known-call effect", reason: "a struct copy: a by-value parameter", body: "System.Text.Json.JsonSerializer.Serialize(value);", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a known-call effect", reason: "a struct copy: a call's result", body: "System.Text.Json.JsonSerializer.Serialize(Holder.M"···, constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a known-call effect", reason: "a struct copy: a local", body: "var local = new S(); System.Text.Json.JsonSerializ"···, constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "a known-call effect", reason: "an object base from code the analysis does not see", body: "System.Text.Json.JsonSerializer.Serialize(unseen);", constructor: "", expected: 1)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an access through a ref reference", reason: "a construction-local base", body: "_ = new Built();", constructor: "ref int r = ref N; r = 1;", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an access through a ref reference", reason: "a fresh base", body: "var box = new Box(); ref int r = ref box.N; r = 1;", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an access through a ref reference", reason: "a resolved base", body: "ref int r = ref Holder.Shared.N; r = 1;", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an access through a ref reference", reason: "a struct copy: a by-value parameter", body: "ref int r = ref value.X; r = 1;", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an access through a ref reference", reason: "a struct copy: a call's result", body: "_ = Holder.Read(Holder.Make());", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an access through a ref reference", reason: "a struct copy: a defensive copy", body: "Holder.Touch(in Holder.Shared.S);", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an access through a ref reference", reason: "a struct copy: a local", body: "var local = new S(); ref int r = ref local.X; r = "···, constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an access through a ref reference", reason: "a struct copy: a ref to a local", body: "int local = 0; Holder.Set(ref local);", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an access through a ref reference", reason: "an object base from code the analysis does not see", body: "ref int r = ref unseen.N; r = 1;", constructor: "", expected: 1)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an unknown effect", reason: "a construction-local base", body: "_ = new Built();", constructor: "System.Console.WriteLine(this);", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an unknown effect", reason: "a fresh base", body: "var box = new Box(); System.Console.WriteLine(box)"···, constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an unknown effect", reason: "a resolved base", body: "System.Console.WriteLine(Holder.Shared);", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an unknown effect", reason: "a struct copy: a by-value parameter", body: "System.Console.WriteLine(count);", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an unknown effect", reason: "a struct copy: a by-value parameter", body: "System.Console.WriteLine(value);", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an unknown effect", reason: "a struct copy: a call's result", body: "System.Console.WriteLine(Holder.Make());", constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an unknown effect", reason: "a struct copy: a local", body: "var local = new S(); System.Console.WriteLine(loca"···, constructor: "", expected: 0)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Access_dropped_for_want_of_a_region_is_counted_unless_left_out_on_purpose(form: "an unknown effect", reason: "an object base from code the analysis does not see", body: "System.Console.WriteLine(unseen);", constructor: "", expected: 1)	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Element_access_on_a_collection_no_field_holds_is_not_counted	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Immutable_object_from_unseen_code_is_not_counted_where_an_effect_touches_nothing_of_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.UnresolvedBaseCoverageTests.Library_returned_reference_into_struct_storage_is_counted	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnresolvedCallRegressionTests.Constructor_handing_this_to_a_base_member_as_an_argument_publishes_the_shared_object	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnresolvedCallRegressionTests.Delegate_handed_to_a_delegate_with_no_target_runs_its_whole_body	Passed
 ConcurrencyHunter.Core.Tests.Engine.UnresolvedCallRegressionTests.Delegate_in_a_params_array_runs_in_an_unknown_execution	Passed
@@ -6346,6 +6462,11 @@ ConcurrencyHunter.Core.Tests.Generation.GeneratedEntryMatrixTests.Every_cell_get
 ConcurrencyHunter.Core.Tests.Generation.GeneratedEntryMatrixTests.Every_cell_has_no_unsafe_narrowing	Passed
 ConcurrencyHunter.Core.Tests.Generation.GeneratedEntryMatrixTests.Every_listed_reason_is_reported_with_its_cells	Passed
 ConcurrencyHunter.Core.Tests.Generation.GeneratedEntryMatrixTests.The_matrix_covers_every_axis_value	Passed
+ConcurrencyHunter.Core.Tests.Generation.GeneratedStructEffectMatrixTests.Each_expectation_matches_its_class_twin	Passed
+ConcurrencyHunter.Core.Tests.Generation.GeneratedStructEffectMatrixTests.Every_cell_answers_as_expected	Passed
+ConcurrencyHunter.Core.Tests.Generation.GeneratedStructEffectMatrixTests.Every_route_answers_as_its_storage	Passed
+ConcurrencyHunter.Core.Tests.Generation.GeneratedStructEffectMatrixTests.Every_value_of_every_axis_occurs	Passed
+ConcurrencyHunter.Core.Tests.Generation.GeneratedStructEffectMatrixTests.No_cell_gets_a_model_that_misses_its_effect	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_case_met_again_formats_its_evidence_once	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_case_of_a_later_reason_is_named_beside_the_first	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_getter_of_the_receiver_the_analysis_takes_to_read_keeps_the_model_through_a_witness	Passed
@@ -6379,11 +6500,11 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_given_to_an
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_given_to_an_operation_the_lowering_does_not_express_names_the_operation(member: "public static string Describe(Node node, Action do"···, id: "M:Lib.Api.Describe(Lib.Node,System.Action)", kind: "Interpolation")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_handed_to_an_extern_method_and_an_unsupported_operation_names_only_the_call	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_probe_handed_to_an_extern_method_names_the_call	Passed
-ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public readonly struct Pair { private readonly obj"···, id: "M:Lib.Pair.Show", field: "Lib.Pair._a")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public sealed class Keeper { public Pair Pair { ge"···, id: "M:Lib.Api.Show(Lib.Keeper)", field: "Lib.Pair.A")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public sealed class Node { public object Item; pub"···, id: "M:Lib.Registration.Unregister", field: "Lib.Registration._node")	Passed
-ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public struct Cell { public object Value; public s"···, id: "M:Lib.Cell.Show", field: "Lib.Cell.Value")	Passed
-ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public struct Pair { public object A; } public sta"···, id: "M:Lib.Api.Show(Lib.Pair)", field: "Lib.Pair.A")	Passed
-ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public struct Two<T1, T2> { public T1 Item1; publi"···, id: "M:Lib.Two`2.Same(Lib.Two{`0,`1})", field: "Item1")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public struct Deep { public object A; } public str"···, id: "M:Lib.Api.Show(Lib.Outer)", field: "Lib.Deep.A")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public struct Pair { public object A; } public sea"···, id: "M:Lib.Api.Show(Lib.Keeper)", field: "Lib.Pair.A")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_field_of_a_struct_input_is_incomplete(types: "public struct Pair { public object A; } public str"···, id: "M:Lib.Wrapper.Show", field: "Lib.Pair.A")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_a_reference_inside_a_struct_inside_a_struct_input_is_incomplete	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_the_receivers_own_state_names_no_effect	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_read_of_what_a_user_delegate_returned_names_the_field	Passed
@@ -6395,8 +6516,8 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_reference_to_an_i
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_store_into_a_library_static_names_the_store	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_struct_receivers_own_override_runs_in_the_call	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_initializer_assigning_its_own_seeded_static_touches_no_user_object	Passed
-ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_a_struct_has_no_driver(types: "public sealed class StructComparer<T> where T : st"···, id: "M:Lib.StructComparer`1.Compare(System.Nullable{`0}"···)	Passed
-ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_a_struct_has_no_driver(types: "public static class Api { public static bool Same<"···, id: "M:Lib.Api.Same``1(``0,System.Object)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_a_struct_has_no_driver(types: "public interface IMake { static abstract object Ma"···, id: "M:Lib.Api.Same``1(``0,System.Object)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_a_struct_has_no_driver(types: "public interface IMake { static abstract object Ma"···, id: "M:Lib.StructComparer`1.Compare(System.Nullable{`0}"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_unmanaged_is_an_int	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_test_a_user_object_cannot_pass_still_narrows_a_probe(types: "internal class Com { public virtual int Release() "···, id: "M:Lib.Api.Release(System.Object)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_test_a_user_object_cannot_pass_still_narrows_a_probe(types: "public static class Api { public static int Length"···, id: "M:Lib.Api.Length(System.Object)")	Passed
@@ -6780,6 +6901,10 @@ ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Backticked_suffix_of_an_evi
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Backticked_symbol_absent_from_the_evidence_is_rejected	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Backticked_synchronization_vocabulary_is_accepted	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Call_step_symbol_is_accepted_like_an_access_symbol	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Capture_cell_captured_variables_of_the_scope_are_accepted	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Capture_cell_closure_of_a_member_outside_the_scope_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Capture_cell_invented_variable_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Capture_cell_ownership_kind_of_the_scope_is_accepted	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Citation_of_a_spawn_evidence_id_the_finding_does_not_have_is_rejected	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Citation_of_an_unknown_evidence_id_is_rejected	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Citation_of_evidence_from_another_group_is_rejected	Passed
@@ -6805,6 +6930,12 @@ ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Root_entry_symbol_is_accept
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Spawn_site_location_missing_from_the_evidence_is_rejected	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Spawn_site_location_named_by_spawn_evidence_is_accepted	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Static_region_type_is_still_accepted_without_its_prefix	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Struct_path_check_leaves_other_snippets_unchecked	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Struct_path_holder_type_with_the_whole_path_is_accepted	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Struct_path_no_finding_of_the_scope_holds_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Struct_path_through_a_cell_is_accepted	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Struct_path_with_an_invented_field_is_rejected	Passed
+ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Struct_path_with_an_invented_selector_is_rejected	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Summary_may_cite_any_group_and_needs_no_Remediation	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.Text_over_the_size_limit_is_rejected	Passed
 ConcurrencyHunter.Core.Tests.NarrativeValidatorTests.The_callee_of_a_gap_that_decides_a_check_is_accepted_without_type_arguments_or_parameters	Passed
@@ -6948,7 +7079,7 @@ ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Refused_built_in_fi
 ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Refused_built_in_files(bytes: [123, 34, 115, 99, 104, ···])	Passed
 ConcurrencyHunter.Core.Tests.Providers.BuiltInModelFileTests.Refused_built_in_files(bytes: [255])	Passed
 ConcurrencyHunter.Core.Tests.Providers.CandidacyTests.A_member_taking_only_a_mutable_argument_is_a_candidate	Passed
-ConcurrencyHunter.Core.Tests.Providers.CandidacyTests.A_member_taking_only_a_struct_with_a_reference_field_is_a_candidate_and_lists_the_field	Passed
+ConcurrencyHunter.Core.Tests.Providers.CandidacyTests.A_member_taking_only_a_struct_with_a_reference_field_is_a_candidate_and_seeds_the_field	Passed
 ConcurrencyHunter.Core.Tests.Providers.CandidacyTests.A_member_taking_only_a_task_of_a_carrying_type_is_a_candidate_handed_what_the_bare_type_gets(task: "M:Lib.Api.TaskOfBox(System.Threading.Tasks.Task{Li"···, bare: "M:Lib.Api.BoxOnly(Lib.Box)", recipe: "global::System.Threading.Tasks.Task.FromResult<glo"···)	Passed
 ConcurrencyHunter.Core.Tests.Providers.CandidacyTests.A_member_taking_only_a_task_of_a_carrying_type_is_a_candidate_handed_what_the_bare_type_gets(task: "M:Lib.Api.TaskOfStruct(System.Threading.Tasks.Task"···, bare: "M:Lib.Api.StructOnly(Lib.Pair)", recipe: "global::System.Threading.Tasks.Task.FromResult<glo"···)	Passed
 ConcurrencyHunter.Core.Tests.Providers.CandidacyTests.A_member_taking_only_a_task_of_a_carrying_type_is_a_candidate_handed_what_the_bare_type_gets(task: "M:Lib.Api.ValueTaskOfHolder(System.Threading.Tasks"···, bare: "M:Lib.Api.HolderOnly(Lib.Holder)", recipe: "new global::System.Threading.Tasks.ValueTask<globa"···)	Passed
@@ -7169,7 +7300,7 @@ ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.A_private_field_like_event
 ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.A_static_custom_events_backing_field_a_reached_body_loads_is_seeded_as_a_field	Passed
 ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.A_static_field_like_event_a_reached_body_raises_is_seeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.A_static_field_like_event_no_reached_body_loads_is_neither_seeded_nor_listed_unseeded	Passed
-ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.A_struct_receivers_instance_field_like_event_is_unseeded_and_a_member_raising_it_answers_incomplete	Passed
+ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.A_struct_receivers_instance_field_like_event_is_seeded_in_place_and_reached	Passed
 ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.A_structs_static_field_like_event_a_reached_body_raises_is_seeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.An_arguments_field_like_event_is_seeded_below_the_argument	Passed
 ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.An_event_seed_on_an_object_setup_left_null_is_unseeded_and_its_load_makes_the_answer_incomplete	Passed
@@ -7233,7 +7364,7 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_task_result_is_name
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_task_result_is_named_through_the_task_argument_it_returns_or_completes_with(member: "public static Task<Task<Task<Box>>> WrapTwice(Task"···, id: "M:Lib.Api.WrapTwice(System.Threading.Tasks.Task{Li"···, expected: "task(task([arg:p]))")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_task_result_is_named_through_the_task_argument_it_returns_or_completes_with(member: "public static ValueTask<Box> EchoValue(ValueTask<B"···, id: "M:Lib.Api.EchoValue(System.Threading.Tasks.ValueTa"···, expected: "[arg:p]")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_task_result_is_named_through_the_task_argument_it_returns_or_completes_with(member: "public static ValueTask<Task<Box>> WrapValue(Task<"···, id: "M:Lib.Api.WrapValue(System.Threading.Tasks.Task{Li"···, expected: "task([arg:p])")	Passed
-ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_user_object_stored_into_a_struct_field_of_the_receiver_has_vocabulary_reason	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_user_object_stored_into_a_struct_field_of_the_receiver_is_kept_by_the_receiver	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_write_to_unkept_preexisting_state_has_library_state_model_reason	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.An_effects_only_member_has_empty_classified_and_an_entry	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.An_entry_the_final_reader_check_rejects_gives_vocabulary_with_the_rejection_in_the_detail	Passed
@@ -7711,7 +7842,7 @@ ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.Entries_differin
 ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_as_a_result_and_an_output_loads_in_both_layers	Passed
 ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_inside_one_of_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_on_a_void_member_is_refused	Passed
-ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_field_declared_in_a_struct_is_untouched	Passed
+ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_field_declared_in_a_struct_is_opened_as_a_classs_is	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_field_like_event_is_opened	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_field_of_a_private_nested_type_is_reachable	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_field_of_a_private_protected_nested_type_is_reachable	Passed
@@ -7724,11 +7855,12 @@ ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_private_interface_typ
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_private_path_field_of_a_sealed_library_class_is_reachable_and_keeps_readonly	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_public_auto_property_with_a_private_setter_is_settable_from_the_driver	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_readonly_seed_field_loses_readonly	Passed
+ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_readonly_structs_seed_field_is_opened_and_every_member_of_it_stays_readonly	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_seed_typed_init_auto_property_becomes_settable	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_static_seed_field_is_opened	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_string_field_is_untouched	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_struct_constrained_type_parameter_field_is_not_a_seed_field	Passed
-ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_struct_with_references_field_is_untouched	Passed
+ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_struct_with_references_field_is_a_path_opened_with_readonly_kept	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.An_init_auto_property_is_changed_to_a_setter	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.An_opening_that_changes_name_binding_and_fails_is_reverted	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.Installed_System_Linq_has_the_same_body_counts_and_no_new_errors_with_field_opening	Passed
@@ -7746,6 +7878,55 @@ ConcurrencyHunter.Core.Tests.Providers.ParameterKindsTests.Axis_6_a_non_sealed_c
 ConcurrencyHunter.Core.Tests.Providers.ParameterKindsTests.Axis_7_a_sealed_class_a_task_or_a_struct_with_references_is_the_recipes_value	Passed
 ConcurrencyHunter.Core.Tests.Providers.ParameterKindsTests.IEnumerable_of_T_takes_axis_4_before_axis_5	Passed
 ConcurrencyHunter.Core.Tests.Providers.ParameterKindsTests.Ref_out_and_in_parameters_are_asked_about_with_their_referenced_type	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructTests.A_struct_constrained_type_parameter_gets_a_probe_struct_that_holds_probe_objects(types: "public sealed class StructComparer<T> where T : st"···, id: "M:Lib.StructComparer`1.Compare(`0,`0)", argument: "x")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructTests.A_struct_constrained_type_parameter_gets_a_probe_struct_that_holds_probe_objects(types: "public static class Api { public static bool Same<"···, id: "M:Lib.Api.Same``1(``0,System.Object)", argument: "x")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructTests.An_interface_constraint_is_met_by_an_explicit_witness_implementation	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructTests.Its_Equals_and_GetHashCode_witness_the_objects_it_holds_and_the_call_reads_them_as_a_class_probes	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructTests.Unmanaged_and_Enum_keep_the_recipes_choice(types: "public static class Api { public static int Size<T"···, id: "M:Lib.Api.Size``1(``0,System.Action)", refusal: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructTests.Unmanaged_and_Enum_keep_the_recipes_choice(types: "public static class Api { public static string Nam"···, id: "M:Lib.Api.Name``1(``0,System.Action)", refusal: "no type argument meets the constraints of T")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Class_probe_witnesses_are_unchanged	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: EqualsObject, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: EqualsObject, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: EventAdd, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: EventAdd, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: EventRemove, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: EventRemove, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Explicit, probe: ClassProbe, source: ClassProbeParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Explicit, probe: ClassProbe, source: ProbeStructParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Explicit, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Explicit, probe: ProbeStruct, source: ClassProbeParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Explicit, probe: ProbeStruct, source: ProbeStructParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Explicit, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: GetHashCode, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: GetHashCode, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerGet, probe: ClassProbe, source: ClassProbeParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerGet, probe: ClassProbe, source: ProbeStructParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerGet, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerGet, probe: ProbeStruct, source: ClassProbeParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerGet, probe: ProbeStruct, source: ProbeStructParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerGet, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerSet, probe: ClassProbe, source: ClassProbeParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerSet, probe: ClassProbe, source: ProbeStructParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerSet, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerSet, probe: ClassProbe, source: SetterValue)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerSet, probe: ProbeStruct, source: ClassProbeParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerSet, probe: ProbeStruct, source: ProbeStructParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerSet, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: IndexerSet, probe: ProbeStruct, source: SetterValue)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Method, probe: ClassProbe, source: ClassProbeParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Method, probe: ClassProbe, source: ProbeStructParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Method, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Method, probe: ProbeStruct, source: ClassProbeParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Method, probe: ProbeStruct, source: ProbeStructParameter)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: Method, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: PropertyGet, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: PropertyGet, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: PropertySet, probe: ClassProbe, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: PropertySet, probe: ClassProbe, source: SetterValue)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: PropertySet, probe: ProbeStruct, source: Receiver)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_cell_witnesses_as_expected(kind: PropertySet, probe: ProbeStruct, source: SetterValue)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.Every_value_of_every_axis_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.ProbeStructWitnessMatrixTests.No_struct_copy_is_witnessed	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProcessScopeTests.Executable_is_a_scope_of_itself_and_its_transitive_project_references	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProcessScopeTests.Executable_test_project_is_not_a_scope(testFramework: "Microsoft.Testing.Platform")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProcessScopeTests.Executable_test_project_is_not_a_scope(testFramework: "Microsoft.VisualStudio.TestPlatform.ObjectModel")	Passed
@@ -7826,8 +8007,8 @@ ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_static_field_the_member_loads
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_static_load_reached_only_after_seeding_gets_a_seed_on_the_next_iteration	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_static_load_through_a_ref_parameter_is_seeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_static_load_through_a_ref_return_is_seeded	Passed
+ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_struct_auto_property_lists_the_unseeded_reference_storage(declaration: "public Nested Value { get; init; }", path: "P:Lib.Part.Value/P:Lib.Nested.Item")	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_struct_auto_property_lists_the_unseeded_reference_storage(declaration: "public Nested Value { get; set; }", path: "P:Lib.Part.Value/P:Lib.Nested.Item")	Passed
-ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_struct_auto_property_lists_the_unseeded_reference_storage(declaration: "public object Value { get; set; }", path: "P:Lib.Part.Value")	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_struct_field_lists_its_seed_typed_reference_fields	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_System_Delegate_field_is_unseeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.A_witness_returning_a_seedable_type_returns_a_seed	Passed
@@ -7850,6 +8031,15 @@ ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_first_argument_field_past_d
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_first_receiver_field_past_depth_3_is_unseeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_first_static_field_past_depth_2_is_unseeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_receivers_field_at_depth_3_is_seeded	Passed
+ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_cell_of_a_struct_array_is_a_place_its_fields_are_seeded_through	Passed
+ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_generic_readonly_structs_fields_like_KeyValuePairs_are_opened_and_seeded_with_its_probes	Passed
+ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_nested_structs_reference_field_is_seeded_through_every_struct_field	Passed
+ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_receiver_structs_reference_field_is_seeded_in_place_and_answers_as_its_class_twin	Passed
+ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_struct_a_property_or_a_readonly_field_gives_is_a_copy_whose_fields_stay_unseeded(declaration: "public readonly Slot Slot;", id: "F:Lib.Keeper.Slot")	Passed
+ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_struct_a_property_or_a_readonly_field_gives_is_a_copy_whose_fields_stay_unseeded(declaration: "public Slot Slot { get; set; }", id: "P:Lib.Keeper.Slot")	Passed
+ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_ValueTask_like_structs_object_is_seeded_and_the_runtimes_ValueTask_object_stays_unseeded	Passed
+ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.An_argument_structs_reference_field_is_seeded_in_place_and_answers_as_its_class_twin	Passed
+ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.An_auto_propertys_backing_field_is_seeded_through_its_opened_setter	Passed
 ConcurrencyHunter.Core.Tests.Providers.StubAssemblyTests.Demo_patterns_compile_against_every_supported_stub_version(major: 10)	Passed
 ConcurrencyHunter.Core.Tests.Providers.StubAssemblyTests.Demo_patterns_compile_against_every_supported_stub_version(major: 8)	Passed
 ConcurrencyHunter.Core.Tests.Providers.StubAssemblyTests.Demo_patterns_compile_against_every_supported_stub_version(major: 9)	Passed
@@ -7945,6 +8135,12 @@ ConcurrencyHunter.Core.Tests.ReportingSelectorTests.A_solver_that_could_not_answ
 ConcurrencyHunter.Core.Tests.ReportingSelectorTests.A_verdict_between_the_two_raises_the_finding_confidence	Passed
 ConcurrencyHunter.Core.Tests.ReportingSelectorTests.An_undecided_solver_costs_the_finding_confidence	Passed
 ConcurrencyHunter.Core.Tests.ReportingSelectorTests.Every_protection_verdict_reaches_the_report	Passed
+ConcurrencyHunter.Core.Tests.ReportingSelectorTests.Struct_path_finding_names_its_last_field_and_its_holder_with_the_whole_path	Passed
+ConcurrencyHunter.Core.Tests.ReportingSelectorTests.Struct_path_json_keeps_the_cell_right_after_the_collection_field	Passed
+ConcurrencyHunter.Core.Tests.ReportingSelectorTests.Struct_path_of_a_box_whole_storage_is_named_by_the_boxed_struct_type	Passed
+ConcurrencyHunter.Core.Tests.ReportingSelectorTests.Struct_path_of_a_capture_cell_reads_its_closure_and_its_tree_confined_ownership	Passed
+ConcurrencyHunter.Core.Tests.ReportingSelectorTests.Struct_path_through_a_cell_is_not_offered_an_atomic_member_of_the_collection	Passed
+ConcurrencyHunter.Core.Tests.ReportingSelectorTests.Struct_path_through_a_cell_reads_with_the_selector_inside_the_path	Passed
 ConcurrencyHunter.Core.Tests.ReportingSelectorTests.The_json_resource_says_which_of_the_two_resources_it_is	Passed
 ConcurrencyHunter.Core.Tests.ReportingSelectorTests.The_remediation_for_a_read_against_a_write_asks_for_one_primitive_on_both_sides	Passed
 ConcurrencyHunter.Core.Tests.ReportingSelectorTests.The_remediation_for_two_plain_operations_on_one_cell_names_an_atomic_member	Passed
@@ -8014,3 +8210,18 @@ ConcurrencyHunter.Core.Tests.RunStatusRulesTests.Low_group_without_narrative_kee
 ConcurrencyHunter.Core.Tests.RunStatusRulesTests.Missing_analysis_is_Incomplete_with_AnalysisNotFinished	Passed
 ConcurrencyHunter.Core.Tests.RunStatusRulesTests.Missing_projects_are_Incomplete_with_ProjectsNotLoaded	Passed
 ConcurrencyHunter.Core.Tests.RunStatusRulesTests.No_findings_and_a_complete_load_is_CompleteClean	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.A_struct_held_by_value_is_its_value_wherever_an_operation_reaches_through_it	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.A_struct_of_a_library_is_no_struct_the_analysis_follows	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Event_accessor_on_a_struct_field_is_on_its_address	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Field_access_through_a_ref_local_is_on_the_reference	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Field_access_through_a_ref_parameter_is_on_the_reference	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Field_access_through_a_ref_return_is_on_the_returned_reference	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Field_access_through_a_static_struct_field_is_on_its_address	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Field_access_through_a_struct_cell_is_on_the_cell_address	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Field_access_through_a_struct_field_is_on_its_address	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Field_read_through_an_in_parameter_is_on_the_reference	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Member_call_on_a_struct_field_is_on_its_address	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Member_call_on_read_only_storage_takes_a_defensive_copy_unless_the_member_is_readonly	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Method_group_of_a_struct_field_boxes_a_copy	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.New_and_default_of_a_struct_make_a_value_and_no_allocation_region	Passed
+ConcurrencyHunter.Core.Tests.StructPlaceLoweringTests.Property_accessors_on_a_struct_field_are_on_its_address	Passed

@@ -39,7 +39,9 @@ internal sealed record SpawnAnchor(string ExecutionId, string CallerInstance, in
 /// another when no valid interprocedural path leads back from the second to the first; a join precedes what cannot be reached from the
 /// execution's start around it. Between executions the edges are spawns, proven joins, <c>Parallel</c> returns, continuations, the tails
 /// of async work and the end of startup; a path counts only when every inter-execution edge on it holds for every instance it
-/// connects. Each execution's graph is built once, when a query first needs it.
+/// connects. In the context of a <c>TreeConfined</c> region's creator, that creator runs once, and every condition an edge puts on an
+/// execution running or being started once is read per run of it (ADR 0020). Each execution's graph is built once per context, when a
+/// query first needs it.
 /// </summary>
 internal sealed class HappensBefore
 {
@@ -57,20 +59,34 @@ internal sealed class HappensBefore
     private readonly Dictionary<(string Caller, int Operation), SpawnSite> _spawnSites;
     private readonly Dictionary<string, List<string>> _handles = new(StringComparer.Ordinal);
     private readonly HashSet<string> _asyncHandles = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, bool> _composite = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, List<string>> _continuations = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, Flow> _flows = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Flow> _plainFlows = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, IReadOnlyList<JoinAnchor>> _joins = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, List<(string Execution, int Join)>> _joinedBy = new(StringComparer.Ordinal);
-    private readonly HashSet<(string BodyId, int OperationId)> _unprovenJoins = [];
     private readonly HashSet<(string Instance, int Operation)> _proving = [];
     private readonly HashSet<(string Task, int Depth)> _provingTasks = [];
     private readonly Dictionary<string, bool> _quietEvents = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _enumerated = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, HashSet<string>> _executionReach = new(StringComparer.Ordinal);
-    private bool _joinsReady;
+    private readonly Context _global = new(null);
+    private readonly Dictionary<string, Context> _contexts = new(StringComparer.Ordinal);
+
+    /// <summary>The context the query in progress reads its edges in: the whole scope, or one run of a creator.</summary>
+    private Context _context;
     private CancellationToken _constructionToken;
+
+    /// <summary>What the edges of one context decide and cache: the whole scope (no creator), or one run of the creator of a
+    /// <c>TreeConfined</c> region, where every condition an edge puts on an execution running or being started once is read per run of
+    /// that creator (ADR 0020).</summary>
+    /// <param name="creator">The creator, or null for the whole scope.</param>
+    private sealed class Context(string? creator)
+    {
+        internal string? Creator { get; } = creator;
+        internal Dictionary<string, bool> Composite { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, List<string>> Continuations { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, Flow> Flows { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, IReadOnlyList<JoinAnchor>> Joins { get; } = new(StringComparer.Ordinal);
+        internal Dictionary<string, List<(string Execution, int Join)>> JoinedBy { get; } = new(StringComparer.Ordinal);
+        internal HashSet<(string BodyId, int OperationId)> UnprovenJoins { get; } = [];
+        internal Dictionary<string, HashSet<string>> ExecutionReach { get; } = new(StringComparer.Ordinal);
+        internal bool JoinsReady { get; set; }
+    }
 
     internal HappensBefore(ScopeProgram scope, HeapSolution heap, AsyncSegments segments, IReadOnlyDictionary<string, ExecutionInstance> executions,
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionEntry>> entries,
@@ -79,6 +95,7 @@ internal sealed class HappensBefore
                            IReadOnlyDictionary<string, string> tails, IReadOnlySet<string> duringStartup, CancellationToken cancellationToken)
     {
         _constructionToken = cancellationToken;
+        _context = _global;
         _scope = scope;
         _heap = heap;
         _segments = segments;
@@ -142,19 +159,68 @@ internal sealed class HappensBefore
 
     private void CheckCancellation() => _constructionToken.ThrowIfCancellationRequested();
 
-    internal IReadOnlyList<OperationSite> UnprovenJoins
+    /// <summary>The joins whose handle identity is not proven, counted for the whole scope whatever context a query read.</summary>
+    internal IReadOnlyList<OperationSite> UnprovenJoins => In(null, () =>
     {
-        get
+        EnsureJoins();
+        return _context.UnprovenJoins.Select(join => new OperationSite(join.BodyId, join.OperationId))
+                       .OrderBy(join => join.BodyId, StringComparer.Ordinal)
+                       .ThenBy(join => join.OperationId)
+                       .ToArray();
+    });
+
+    /// <summary>Whether a happens-before path orders two accesses, in the whole scope, or with a creator given, in one run of it: the
+    /// creator runs once there, and every condition an edge puts on an execution running or being started once is read per run of it
+    /// (ADR 0020).</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    /// <param name="creator">The creator of the <c>TreeConfined</c> region the two are on, or null.</param>
+    internal bool Ordered(Access first, Access second, string? creator = null) => In(creator, () => Path(first, second) || Path(second, first));
+
+    /// <summary>Runs a query in the context of a creator, or of the whole scope, and restores the context it was asked in.</summary>
+    /// <typeparam name="T">What the query answers.</typeparam>
+    /// <param name="creator">The creator, or null for the whole scope.</param>
+    /// <param name="query">The query.</param>
+    private T In<T>(string? creator, Func<T> query)
+    {
+        var outer = _context;
+        _context = ContextOf(creator);
+        try
         {
-            EnsureJoins();
-            return _unprovenJoins.Select(join => new OperationSite(join.BodyId, join.OperationId))
-                                 .OrderBy(join => join.BodyId, StringComparer.Ordinal)
-                                 .ThenBy(join => join.OperationId)
-                                 .ToArray();
+            return query();
+        }
+        finally
+        {
+            _context = outer;
         }
     }
 
-    internal bool Ordered(Access first, Access second) => Path(first, second) || Path(second, first);
+    /// <summary>The context of a creator, made the first time it is asked for: which continuations hold there is known only once every
+    /// child's task has been judged in it, as the constructor judges them for the whole scope.</summary>
+    /// <param name="creator">The creator, or null for the whole scope.</param>
+    private Context ContextOf(string? creator)
+    {
+        if (creator is null)
+            return _global;
+        if (_contexts.TryGetValue(creator, out var context))
+            return context;
+
+        context = new Context(creator);
+        _contexts.Add(creator, context);
+        var outer = _context;
+        _context = context;
+        try
+        {
+            foreach (var child in _executions.Values.Where(execution => execution.ParentId is not null).Select(execution => execution.Id))
+                IsComposite(child);
+        }
+        finally
+        {
+            _context = outer;
+        }
+
+        return context;
+    }
 
     /// <summary>Whether every path of an execution to an access passes a join operation: only then could that join, proven, order the
     /// access after what it waits for.</summary>
@@ -179,8 +245,18 @@ internal sealed class HappensBefore
             list.Add(execution);
     }
 
+    /// <summary>Whether an execution runs at most once: in the whole scope by its policy, and in one run of a creator also when it runs
+    /// once per run of that creator.</summary>
+    /// <param name="execution">The execution.</param>
     private bool Once(string execution) =>
-        _executions.TryGetValue(execution, out var instance) && instance.Policy is { Multiplicity: Multiplicity.AtMostOnce, SelfOverlap: SelfOverlap.Serialized };
+        _executions.TryGetValue(execution, out var instance) && instance.Policy is { Multiplicity: Multiplicity.AtMostOnce, SelfOverlap: SelfOverlap.Serialized } ||
+        _context.Creator is { } creator && CreatorRuns.Once(_executions, execution, creator);
+
+    /// <summary>Whether an execution is started once, so its handle names one run: in the whole scope by
+    /// <see cref="ExecutionInstance.SpawnedOnce"/>, and in one run of a creator per run of that creator.</summary>
+    /// <param name="execution">The execution.</param>
+    private bool SpawnedOnce(string execution) =>
+        _context.Creator is { } creator ? CreatorRuns.StartedOnce(_executions, execution, creator) : _executions[execution].SpawnedOnce;
 
     /// <summary>A task whose completion the plan gives no order for: a continuation of anything but one proven spawn's handle, or the task a
     /// non-async <c>Task.Run</c> delegate returned. A join on it proves nothing.</summary>
@@ -188,9 +264,9 @@ internal sealed class HappensBefore
     private bool IsComposite(string child)
     {
         CheckCancellation();
-        if (_composite.TryGetValue(child, out var cached))
+        if (_context.Composite.TryGetValue(child, out var cached))
             return cached;
-        _composite[child] = false;
+        _context.Composite[child] = false;
         var composite = false;
         // A tail runs the rest of work whose completion the plan gives no order for, so its own completion has none either.
         if (_executions.TryGetValue(child, out var tail) && tail.Origin is { IsTail: true } && tail.ParentId is { } parent)
@@ -207,7 +283,7 @@ internal sealed class HappensBefore
                     var antecedent = receiver is null ? null : ProveHandle(anchor.ExecutionId, caller, receiver, anchor.OperationId);
                     composite = antecedent is null;
                     if (!composite && Once(anchor.ExecutionId))
-                        Get(_continuations, antecedent!).Add(child);
+                        Get(_context.Continuations, antecedent!).Add(child);
                     break;
                 }
                 case IrSpawnKind.TaskRun:
@@ -221,7 +297,7 @@ internal sealed class HappensBefore
             }
         }
 
-        _composite[child] = composite;
+        _context.Composite[child] = composite;
         return composite;
     }
 
@@ -383,7 +459,7 @@ internal sealed class HappensBefore
     /// <param name="execution">The spawning execution.</param>
     private IEnumerable<SpawnAnchor> TrustedAnchors(string execution) =>
         Once(execution)
-            ? (_anchors.GetValueOrDefault(execution) ?? []).Where(anchor => anchor.Kind != SpawnAnchorKind.Timer || _executions[anchor.ChildId].SpawnedOnce)
+            ? (_anchors.GetValueOrDefault(execution) ?? []).Where(anchor => anchor.Kind != SpawnAnchorKind.Timer || SpawnedOnce(anchor.ChildId))
             : [];
 
     private static PointKey AnchorPoint(SpawnAnchor anchor) =>
@@ -395,12 +471,12 @@ internal sealed class HappensBefore
     private IEnumerable<EventNode> EndEdges(string execution)
     {
         EnsureJoins();
-        foreach (var (joining, join) in _joinedBy.GetValueOrDefault(execution) ?? [])
+        foreach (var (joining, join) in _context.JoinedBy.GetValueOrDefault(execution) ?? [])
         {
             CheckCancellation();
             yield return new EventNode(EventKind.Join, joining, join, execution);
         }
-        foreach (var continuation in _continuations.GetValueOrDefault(execution) ?? [])
+        foreach (var continuation in _context.Continuations.GetValueOrDefault(execution) ?? [])
         {
             CheckCancellation();
             yield return new EventNode(EventKind.Start, continuation, -1);
@@ -421,7 +497,7 @@ internal sealed class HappensBefore
     /// <param name="start">The start.</param>
     private HashSet<string> ExecutionReach(string start)
     {
-        if (_executionReach.TryGetValue(start, out var cached))
+        if (_context.ExecutionReach.TryGetValue(start, out var cached))
             return cached;
 
         var reach = new HashSet<string>(StringComparer.Ordinal);
@@ -439,7 +515,7 @@ internal sealed class HappensBefore
             }
         }
 
-        _executionReach.Add(start, reach);
+        _context.ExecutionReach.Add(start, reach);
         return reach;
     }
 
@@ -450,16 +526,16 @@ internal sealed class HappensBefore
     private IReadOnlyList<JoinAnchor> Joins(string execution)
     {
         EnsureJoins();
-        return _joins.GetValueOrDefault(execution) ?? [];
+        return _context.Joins.GetValueOrDefault(execution) ?? [];
     }
 
     /// <summary>Proves the joins of every execution once: the handles each waits for, the unproven ones counted per operation, and the
     /// executions each proven join follows.</summary>
     private void EnsureJoins()
     {
-        if (_joinsReady)
+        if (_context.JoinsReady)
             return;
-        _joinsReady = true;
+        _context.JoinsReady = true;
 
         var candidates = new List<Candidate>();
         foreach (var execution in _executions.Keys.Order(StringComparer.Ordinal))
@@ -478,7 +554,7 @@ internal sealed class HappensBefore
                 {
                     CheckCancellation();
                     if (target is null)
-                        _unprovenJoins.Add((instance.BodyId, operationId));
+                        _context.UnprovenJoins.Add((instance.BodyId, operationId));
                     else
                         Wait(candidates, resumed, execution, visit, instance, operationId, [target], throwsAfter);
                 }
@@ -494,7 +570,7 @@ internal sealed class HappensBefore
 
                     var (targets, proven) = Prove(execution, instance, join);
                     if (!proven)
-                        _unprovenJoins.Add((instance.BodyId, join.OperationId));
+                        _context.UnprovenJoins.Add((instance.BodyId, join.OperationId));
                     if (targets.Count != 0)
                         Wait(candidates, resumed, execution, visit, instance, join.OperationId, targets, join.ThrowsOnlyAfterCompletion);
                 }
@@ -520,15 +596,15 @@ internal sealed class HappensBefore
         foreach (var group in candidates.GroupBy(candidate => (candidate.Execution, candidate.Point)))
         {
             CheckCancellation();
-            var joins = _joins.TryGetValue(group.Key.Execution, out var existing) ? (List<JoinAnchor>)existing : [];
+            var joins = _context.Joins.TryGetValue(group.Key.Execution, out var existing) ? (List<JoinAnchor>)existing : [];
             var targets = group.SelectMany(candidate => candidate.Targets).Distinct(StringComparer.Ordinal).ToArray();
             var join = new JoinAnchor(joins.Count, group.Key.Point, targets, group.Any(candidate => candidate.ThrowsAfter));
             joins.Add(join);
-            _joins[group.Key.Execution] = joins;
+            _context.Joins[group.Key.Execution] = joins;
             foreach (var target in targets.Where(target => target != group.Key.Execution))
             {
                 CheckCancellation();
-                Get(_joinedBy, target).Add((group.Key.Execution, join.Index));
+                Get(_context.JoinedBy, target).Add((group.Key.Execution, join.Index));
             }
         }
     }
@@ -989,7 +1065,7 @@ internal sealed class HappensBefore
             return null;
         }
 
-        return _executions[target].SpawnedOnce && !IsComposite(target) ? target : null;
+        return SpawnedOnce(target) && !IsComposite(target) ? target : null;
     }
 
     /// <summary>Whether every unknown source of a value that resolves to one region is one that cannot be another object: a field read
@@ -1192,12 +1268,12 @@ internal sealed class HappensBefore
 
     private Flow FlowOf(string execution)
     {
-        if (_flows.TryGetValue(execution, out var flow))
+        if (_context.Flows.TryGetValue(execution, out var flow))
             return flow;
         var throwsAfter = Joins(execution).Where(join => join.ThrowsOnlyAfterCompletion).Select(join => (join.Point.Instance, ThrowingOperation(join.Point)))
                                           .ToHashSet();
         flow = NewFlow(execution, throwsAfter);
-        _flows.Add(execution, flow);
+        _context.Flows.Add(execution, flow);
         return flow;
     }
 

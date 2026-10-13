@@ -48,6 +48,7 @@ public sealed class EffectReader
     private readonly Dictionary<string, Allocation> _origins = new(StringComparer.Ordinal);
     private Dictionary<(string Slot, string Region), HashSet<string>>? _setupSlotValues;
     private ILookup<string, string>? _staticStorage;
+    private HashSet<string>? _constructedStructs;
     private readonly Dictionary<(string Parameter, string Kind), Observation> _effects = [];
     private readonly Dictionary<string, HashSet<string>> _stateStores = new(StringComparer.Ordinal);
     private readonly List<Input> _inputs = [];
@@ -158,7 +159,7 @@ public sealed class EffectReader
         var reached = _reachability.From(roots);
         var probeGraph = _reachability.From(reached.Where(region => IsProbeObject(region) || Origin(region).Role == DriverRole.ProbeDelegate));
         var ownProbeRoots = roots.Where(IsProbeObject).ToHashSet(StringComparer.Ordinal);
-        _inputs.Add(new Input(name, type, refKind, isReceiver, action, roots, reached, probeGraph, ownProbeRoots));
+        _inputs.Add(new Input(name, type, refKind, isReceiver, action, field, roots, reached, probeGraph, ownProbeRoots));
     }
 
     private void BuildSpecialObjects()
@@ -239,6 +240,8 @@ public sealed class EffectReader
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_IN_UNSUPPORTED_OPERATION, Handed(given));
         if (_handoffs.ForeignAccesses.FirstOrDefault(_unknownSensitive.Contains) is { } accessed)
             _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_ACCESSED_ELSEWHERE, accessed);
+        if (_handoffs.UnfollowedReceiverCalls.FirstOrDefault() is { } unfollowed)
+            _causes.Add(GenerationReasons.UNKNOWN_TOUCH, ModelCauses.CALL_RECEIVER_UNFOLLOWED, unfollowed);
         ReadUnseenMembers();
         if (_handoffs.HandedOutsideSetup.FirstOrDefault(_witnessReturns.Contains) is { } witnessHanded)
             _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_VALUE_HANDED, Handed(witnessHanded));
@@ -301,7 +304,7 @@ public sealed class EffectReader
 
             if (IsIgnoredDriverStatic(access.Access.Field))
                 continue;
-            if (IsWitnessRef(access.Access.Field))
+            if (IsWitnessRef(access.Access.Field) || IsWitnessRefStorage(access.RegionId, access.Slot))
             {
                 _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.WITNESS_REFERENCE, $"{FieldSlot.Key(access.Access.Field)} in {instance.BodyId}");
                 continue;
@@ -330,18 +333,21 @@ public sealed class EffectReader
         }
     }
 
+    // A field of a struct kept in a cell is a write into that cell, as the store of the whole cell is (R7).
     private void ReadStore(ExecutionAccess access, string action) =>
-        ReadStore(access.RegionId, access.Access.Field, access.Access.IsOnCollection && access.Access.Selector is not null, action,
+        ReadStore(access.RegionId, access.Slot, access.Access.Field,
+                  access.Access.IsOnCollection && access.Access.Selector is not null || FieldSlot.Root(access.Slot) == PathValue.ELEMENT, action,
                   _heap.Instances.TryGetValue(access.InstanceId, out var instance) &&
                   IsDelegateSlotStore(instance, access.Access, access.RegionId));
 
     /// <summary>Classifies one library store outside setup into the object it writes: an effect, a state store or a model reason.</summary>
-    /// <param name="region">The object written into.</param>
+    /// <param name="region">The object written into: the holder of a struct's storage, never the storage itself.</param>
+    /// <param name="slot">The slot of <paramref name="region"/> written: the field's, or the path through every struct field to it.</param>
     /// <param name="field">The field written.</param>
     /// <param name="cell">Whether the store writes a cell of a collection.</param>
     /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
     /// <param name="delegateSlot">Whether <see cref="IsDelegateSlotStore"/> says the store is no state store.</param>
-    private void ReadStore(string region, IrFieldRef field, bool cell, string action, bool delegateSlot = false)
+    private void ReadStore(string region, string slot, IrFieldRef field, bool cell, string action, bool delegateSlot = false)
     {
         if (_probeReturns.Contains(region) || _witnessReturns.Contains(region))
         {
@@ -349,7 +355,7 @@ public sealed class EffectReader
             return;
         }
 
-        if (StructStorageStore(field, action) || delegateSlot)
+        if (StructStorageStore(region, slot, action) || delegateSlot)
             return;
 
         var handled = false;
@@ -486,68 +492,79 @@ public sealed class EffectReader
     private bool IsDelegateField(IrFieldRef field) =>
         FieldSymbols.TypeOf(field, _driver.Compilation) is { } type && TypeShape.Of(type) == TypeShapeKind.Delegate;
 
-    /// <summary>A store into a field of a struct that sits in a field of an object, which the heap carries no region for: no
-    /// collected access shows it, so it lands here (rule 2 of the run). A value that can hold a user object is kept where the heap
-    /// cannot name it, R5's <c>vocabulary</c>; any other value is a write into the storage of the object that holds the struct.</summary>
+    /// <summary>The places a library store writes, each an object and its slot, as the collected accesses name them (R1): the regions its
+    /// bases resolve to, a struct's storage standing as its holder with the path through every struct field, and for a static field, the
+    /// static storage of its declaring type (task 11). A field of a struct copy is no place at all (R2).</summary>
     /// <param name="instance">The library instance that stores.</param>
     /// <param name="access">The store.</param>
-    /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
-    private void ReadStructFieldStore(MethodInstance instance, SummaryAccess access, string action)
+    private IReadOnlySet<(string Region, string Slot)> StoreTargets(MethodInstance instance, SummaryAccess access)
     {
-        if (StructField(access.Field) is not { } field || StructOwners(instance, access) is not { Count: > 0 } owners)
-            return;
-        if (CanHoldUserObject(field.Type))
-        {
-            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.STRUCT_FIELD_OBJECT, $"{FieldSlot.Key(access.Field)} in {instance.BodyId}");
-            return;
-        }
-        foreach (var owner in owners)
-            ReadStore(owner, access.Field, cell: false, action);
-    }
-
-    /// <summary>The field a store writes, when it is declared in a struct.</summary>
-    /// <param name="field">The stored field.</param>
-    private IFieldSymbol? StructField(IrFieldRef field) =>
-        FieldSymbols.Of(field, _driver.Compilation) is IFieldSymbol
-        {
-            ContainingType.IsValueType: true
-        } symbol ? symbol : null;
-
-    /// <summary>The objects holding the struct a store writes into, for a store whose path the heap resolves to no region: the last
-    /// objects the path reaches before the struct field it stops at.</summary>
-    /// <param name="instance">The library instance that stores.</param>
-    /// <param name="access">The store.</param>
-    private IReadOnlySet<string> StructOwners(MethodInstance instance, SummaryAccess access)
-    {
-        var owners = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var path in access.Bases.OfType<PathValue>().Where(path => _heap.Resolve(instance.Id, path).Count == 0))
-        {
-            IReadOnlySet<string> reached = _heap.Resolve(instance.Id, path.Base);
-            foreach (var segment in path.Segments)
-            {
-                var next = reached.SelectMany(region => _heap.PointsTo(region, segment)).ToHashSet(StringComparer.Ordinal);
-                if (next.Count == 0)
-                    break;
-                reached = next;
-            }
-            owners.UnionWith(reached);
-        }
-        return owners;
-    }
-
-    /// <summary>The objects a library store writes into: the regions its bases resolve to, for a field of a struct held in an
-    /// object, that object, and for a static field, the static storage of its declaring type, which the collected accesses name
-    /// as the object a static store writes into (task 11).</summary>
-    /// <param name="instance">The library instance that stores.</param>
-    /// <param name="access">The store.</param>
-    private IReadOnlySet<string> StoreTargets(MethodInstance instance, SummaryAccess access)
-    {
-        var targets = access.Bases.SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
-        if (StructField(access.Field) is not null)
-            targets.UnionWith(StructOwners(instance, access));
+        var slot = StructStorage.IsWholeStorage(access.Field) ? "" : FieldSlot.Key(access.Field);
+        var targets = access.Bases.SelectMany(value => _heap.Resolve(instance.Id, value))
+                            .Select(region => _heap.Located(region, slot)).OfType<(string Region, string Slot)>().ToHashSet();
         if (access.Field.IsStatic)
-            targets.UnionWith(StaticStorage()[FieldSlot.TypeKey(access.Field.Assembly, access.Field.ContainingTypeId)]);
+            targets.UnionWith(StaticStorage()[FieldSlot.TypeKey(access.Field.Assembly, access.Field.ContainingTypeId)].Select(region => (region, slot)));
         return targets;
+    }
+
+    /// <summary>The places a library instance's stores of a whole struct through a reference write — <c>x = w</c> for a <c>ref</c> local,
+    /// a <c>ref</c> parameter or a <c>ref</c> return — each a holder and the slot of the struct's storage in it (R1): where the copy the store
+    /// makes goes. A copy that goes into a struct held by value is no place (R2).</summary>
+    /// <param name="instance">The library instance that stores.</param>
+    private IEnumerable<(string Region, string Slot, IrFieldRef Field)> ReferenceStructStores(MethodInstance instance)
+    {
+        var stores = instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store).Select(access => access.OperationId)
+                             .ToHashSet();
+        foreach (var storage in instance.Summary.StructCopies.Where(copy => stores.Contains(copy.OperationId)).SelectMany(copy => copy.Targets)
+                                        .SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal))
+        {
+            if (_heap.Located(storage, "") is ({ } region, { Length: > 0 } slot))
+                yield return (region, slot, StructStorage.WholeStorage(_heap.Regions[storage].TypeKey ?? ""));
+        }
+    }
+
+    /// <summary>The slots a library instance's stores write in a struct the driver's action constructs (<see cref="ConstructedStructs"/>):
+    /// a field store on it or on a struct's storage within it, and a whole struct stored through a reference to it, as <c>this = …</c> in a
+    /// constructor does; empty for the whole storage.</summary>
+    /// <param name="instance">The library instance that stores.</param>
+    private IEnumerable<string> ConstructedStructStores(MethodInstance instance)
+    {
+        var constructed = ConstructedStructs();
+        if (constructed.Count == 0)
+            yield break;
+        foreach (var access in instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store))
+        {
+            var slot = StructStorage.IsWholeStorage(access.Field) ? "" : FieldSlot.Key(access.Field);
+            foreach (var region in access.Bases.SelectMany(value => _heap.Resolve(instance.Id, value)))
+            {
+                if (_heap.Located(region, slot, copies: true) is ({ } holder, var written) && constructed.Contains(holder))
+                    yield return written;
+            }
+        }
+        var stores = instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store).Select(access => access.OperationId)
+                             .ToHashSet();
+        foreach (var storage in instance.Summary.StructCopies.Where(copy => stores.Contains(copy.OperationId)).SelectMany(copy => copy.Targets)
+                                        .SelectMany(value => _heap.Resolve(instance.Id, value)))
+        {
+            if (_heap.Located(storage, "", copies: true) is ({ } holder, var written) && constructed.Contains(holder))
+                yield return written;
+        }
+    }
+
+    /// <summary>The structs the driver's actions construct: the copy each call they make runs on, which is the value <c>new S(…)</c> makes
+    /// for a struct constructor (R2) and stands for the storage the caller constructs into. Every other call of an action runs on the
+    /// driver's static storage of the receiver, which is no copy.</summary>
+    private HashSet<string> ConstructedStructs()
+    {
+        if (_constructedStructs is not null)
+            return _constructedStructs;
+        var actions = new[] { DriverSynthesizer.CALL, DriverSynthesizer.ENUMERATE }
+                      .Select(action => $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.{action}").ToHashSet(StringComparer.Ordinal);
+        var callers = _heap.Instances.Values.Where(instance => actions.Contains(instance.BodyId)).Select(instance => instance.Id).ToHashSet(StringComparer.Ordinal);
+        return _constructedStructs = _heap.Edges.Where(edge => callers.Contains(edge.CallerInstance))
+                                          .SelectMany(edge => _heap.Resolve(edge.CalleeInstance, global::ConcurrencyHunter.Heap.ThisValue.Instance))
+                                          .Where(_reachability.IsCopy)
+                                          .ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>The static storage regions of the run, by their declaring type without type arguments.</summary>
@@ -564,21 +581,23 @@ public sealed class EffectReader
                 .SelectMany(store => store.Arrays).SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Every object a library instance's own stores write into, whatever the kind of store: a field store, a cell store,
-    /// and a store through a reference into a cell or into a field (R6). A field store <see cref="IsDelegateSlotStore"/> says is no
-    /// state store writes no object here (task 11).</summary>
+    /// and a store through a reference into a cell or into a field (R6), with the slot a field store writes; null for the others. A
+    /// field store <see cref="IsDelegateSlotStore"/> says is no state store writes no object here (task 11).</summary>
     /// <param name="instance">The library instance that stores.</param>
     /// <param name="unobserved">Whether a store through a reference has no proven place.</param>
-    private IReadOnlySet<string> StoreTargets(MethodInstance instance, out bool unobserved)
+    private IReadOnlySet<(string Region, string? Slot)> StoreTargets(MethodInstance instance, out bool unobserved)
     {
         unobserved = false;
         var targets = instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store)
-                              .SelectMany(access => StoreTargets(instance, access).Where(region => !IsDelegateSlotStore(instance, access, region)))
-                              .ToHashSet(StringComparer.Ordinal);
-        targets.UnionWith(CellStoreTargets(instance));
+                              .SelectMany(access => StoreTargets(instance, access).Where(place => !IsDelegateSlotStore(instance, access, place.Region)))
+                              .Select(place => (place.Region, (string?)place.Slot))
+                              .ToHashSet();
+        targets.UnionWith(ReferenceStructStores(instance).Select(place => (place.Region, (string?)place.Slot)));
+        targets.UnionWith(CellStoreTargets(instance).Select(region => (region, (string?)null)));
         foreach (var target in instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store)
                                        .SelectMany(access => access.Targets))
         {
-            targets.UnionWith(ValueProvenance.ReferenceStorage(_heap, instance, target, out var unproven));
+            targets.UnionWith(ValueProvenance.ReferenceStorage(_heap, instance, target, out var unproven).Select(region => (region, (string?)null)));
             unobserved |= unproven;
         }
         return targets;
@@ -597,13 +616,15 @@ public sealed class EffectReader
                 _causes.Add(GenerationReasons.INCOMPLETE, ModelCauses.UNSEEDED_READ, $"{FieldSlot.Key(unseeded.Field)} in {instance.BodyId}");
             }
             var actions = executions.Select(ActionOf).Where(action => action is not null).Cast<string>().Distinct(StringComparer.Ordinal).ToArray();
+            // A store into the struct the driver's action itself makes with `new S(...)` — what a struct constructor runs on — writes the
+            // storage the caller constructs into, the struct receiver's own, R5's vocabulary, by whatever route it reaches it (R7).
+            if (actions.Length != 0 && ConstructedStructStores(instance).FirstOrDefault() is { } constructed)
+                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.STRUCT_STORAGE_WRITE, $"this: {constructed} in {instance.BodyId}");
             foreach (var action in actions)
             {
-                foreach (var access in instance.Summary.Accesses)
-                {
-                    if (access.Kind == SummaryAccessKind.Store && !StructStorageStore(access.Field, action))
-                        ReadStructFieldStore(instance, access, action);
-                }
+                // A whole struct stored through a reference writes the storage it reaches, as the same store made directly does (R7).
+                foreach (var (region, slot, field) in ReferenceStructStores(instance))
+                    ReadStore(region, slot, field, FieldSlot.Root(slot) == PathValue.ELEMENT, action);
 
                 var cells = CellStoreTargets(instance, PathValue.ELEMENT);
                 foreach (var region in CellStoreTargets(instance))
@@ -657,11 +678,11 @@ public sealed class EffectReader
                 if (!_heap.Instances.TryGetValue(instanceId, out var instance) || !IsLibraryBody(instance.BodyId))
                     continue;
                 var targets = StoreTargets(instance, out var unobserved);
-                foreach (var region in targets)
+                foreach (var (region, slot) in targets)
                 {
                     if (_allocations.CreatedByCall(region))
                         continue;
-                    foreach (var action in actions)
+                    foreach (var action in actions.Where(action => slot is null || !StructStorageStore(region, slot, action)))
                         AddStateStore(region, action);
                 }
                 if (unobserved)
@@ -779,16 +800,24 @@ public sealed class EffectReader
                 : CollectionObjects.Decision(effect.Implementations, CollectionObjects.KindOfType(_heap.Regions[region].TypeKey))?.Member) is
             { Member: ARRAY_ELEMENT_WRITE, Structure: IrCollectionEffect.None });
 
-    private bool StructStorageStore(IrFieldRef field, string action)
+    /// <summary>Whether a store writes the caller's storage of a struct input: the driver's own static storage of the struct receiver or of
+    /// a struct argument, whatever field of the struct it reaches and by whatever route. The receiver's and what a <c>ref</c>, <c>out</c>
+    /// or <c>in</c> parameter refers to are written where the vocabulary has no name for it, R5's <c>vocabulary</c>; a by-value argument's
+    /// storage the member never reaches, since it has a copy. Decided by the storage the write reaches, never by the struct's type (R7).</summary>
+    /// <param name="region">The object written into, a struct's storage standing as its holder.</param>
+    /// <param name="slot">The slot of <paramref name="region"/> written.</param>
+    /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    private bool StructStorageStore(string region, string slot, string action)
     {
-        var matching = Inputs(action).Where(input => input.IsStruct && Declares(field, input.Type)).ToArray();
-        if (matching.Length == 0)
+        if (region != $"static:{FieldSlot.TypeKey(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.DRIVER_TYPE)}")
             return false;
-        foreach (var input in matching)
-        {
-            if (input.IsReceiver || input.RefKind is RefKind.Ref or RefKind.Out or RefKind.In)
-                _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.STRUCT_STORAGE_WRITE, $"{input.Name}: {FieldSlot.Key(field)}");
-        }
+        var root = FieldSlot.Root(slot);
+        var input = Inputs(action).FirstOrDefault(input => input is { IsStruct: true, Field: { } field } &&
+                                                           root == HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.DRIVER_TYPE, field));
+        if (input is null)
+            return false;
+        if (input.IsReceiver || input.RefKind is RefKind.Ref or RefKind.Out or RefKind.In)
+            _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.STRUCT_STORAGE_WRITE, $"{input.Name}: {slot}");
         return true;
     }
 
@@ -954,11 +983,8 @@ public sealed class EffectReader
     private bool OutsideSetup(string execution) =>
         _executions.Of(execution).Role is not (DriverExecutionRole.Setup or DriverExecutionRole.Artefact);
 
-    private IReadOnlySet<string> StaticTargets(string type, string field)
-    {
-        var start = _reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, type, field));
-        return start is null ? new HashSet<string>(StringComparer.Ordinal) : _reachability.Targets(start);
-    }
+    private IReadOnlySet<string> StaticTargets(string type, string field) =>
+        _reachability.Held(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, type, field));
 
     private Allocation Origin(string region) => _origins.TryGetValue(region, out var origin)
         ? origin
@@ -979,6 +1005,14 @@ public sealed class EffectReader
     private static bool IsWitnessRef(IrFieldRef field) => field.IsStatic && field.Assembly == DriverSynthesizer.ASSEMBLY &&
         field.ContainingType.StartsWith(DriverSynthesizer.WITNESSED_REF_TYPE, StringComparison.Ordinal);
 
+    /// <summary>Whether an access writes inside the storage of a struct a witness's reference static holds: the access names the struct's
+    /// field, and only its storage says where the struct is.</summary>
+    /// <param name="region">The region the access is on.</param>
+    /// <param name="slot">The slot of the region it names.</param>
+    private static bool IsWitnessRefStorage(string region, string slot) =>
+        slot.Contains(FieldSlot.PATH_SEPARATOR) &&
+        region.StartsWith($"static:{FieldSlot.TypeKey(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.WITNESSED_REF_TYPE)}", StringComparison.Ordinal);
+
     private bool ReferencesWitness(MethodInstance instance, ReferenceTarget target, HashSet<(string Instance, ReferenceTarget Target)> seen)
     {
         if (!seen.Add((instance.Id, target)))
@@ -992,9 +1026,6 @@ public sealed class EffectReader
                     .Where(callee => callee is not null)
                     .Any(callee => callee!.Summary.ReferenceReturns.Any(reference => ReferencesWitness(callee, reference, seen)));
     }
-
-    private static bool CanHoldUserObject(ITypeSymbol type) => TypeShape.Of(type) is
-        TypeShapeKind.Delegate or TypeShapeKind.TaskOfT or TypeShapeKind.StructWithReferences or TypeShapeKind.Reference;
 
     private static bool Reads(IrCollectionEffect effect) => effect is IrCollectionEffect.Read or IrCollectionEffect.ReadWrite;
 
@@ -1039,7 +1070,18 @@ public sealed class EffectReader
 
     private void CloseInPlace(HashSet<string> regions) => regions.UnionWith(_reachability.From(regions));
 
-    private sealed record Input(string Name, ITypeSymbol Type, RefKind RefKind, bool IsReceiver, string Action,
+    /// <summary>One input of one action: the receiver or an argument, with the objects it is and reaches.</summary>
+    /// <param name="Name">The parameter name, or <c>this</c>.</param>
+    /// <param name="Type">The input's type.</param>
+    /// <param name="RefKind">How the argument is passed.</param>
+    /// <param name="IsReceiver">Whether the input is the receiver.</param>
+    /// <param name="Action"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    /// <param name="Field">The driver's static field the input is kept in, or <c>null</c> for a delegate argument.</param>
+    /// <param name="Roots">The objects the input is.</param>
+    /// <param name="Reached">Every object reachable from <paramref name="Roots"/>.</param>
+    /// <param name="ProbeGraph">Every object reachable from a probe the input reaches.</param>
+    /// <param name="OwnProbeRoots">The roots that are probe objects.</param>
+    private sealed record Input(string Name, ITypeSymbol Type, RefKind RefKind, bool IsReceiver, string Action, string? Field,
                                 IReadOnlySet<string> Roots, IReadOnlySet<string> Reached, IReadOnlySet<string> ProbeGraph,
                                 IReadOnlySet<string> OwnProbeRoots)
     {

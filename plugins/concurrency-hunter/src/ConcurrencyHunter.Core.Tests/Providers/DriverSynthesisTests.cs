@@ -367,12 +367,12 @@ public sealed class DriverSynthesisTests
     [Fact]
     public void Struct_and_unmanaged_constraints_differ_only_unmanaged_takes_the_recipes_int()
     {
-        // A user's struct may hold the user's objects and run its own members on them, which an int never shows; an unmanaged one
-        // holds none.
+        // A user's struct may hold the user's objects and run its own members on them, which an int never shows: a probe struct
+        // stands for it (R9); an unmanaged one holds none.
         Assert.Contains("global::Lib.Api.Unmanaged<global::System.Int32>(Arg_value_Call", Body(Drive("M:Lib.Api.Unmanaged``1(``0,System.Action)"), DriverSynthesizer.CALL));
-        var valued = Synthesize("M:Lib.Api.Valued``1(``0,System.Action)");
-        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, valued.Reason);
-        Assert.Contains("T is constrained to struct", valued.Detail);
+        var valued = Drive("M:Lib.Api.Valued``1(``0,System.Action)");
+        Assert.Contains("global::Lib.Api.Valued<Probe_T>(Arg_value_Call", Body(valued, DriverSynthesizer.CALL));
+        Assert.Equal(TypeKind.Struct, Type(valued, "Probe_T").TypeKind);
     }
 
     [Fact]

@@ -371,19 +371,19 @@ public sealed class CompoundAssignmentLoweringTests
         Assert.Equal(load.ReceiverValue, store.ReceiverValue);
     }
 
-    /// <summary>A property that returns a reference and has no setter is a target the lowering does not model: its receiver and the
-    /// right-hand side are still lowered, their calls kept, and handed to its unknown.</summary>
+    /// <summary>A library property that returns a reference, is no indexer and has no setter is a target the lowering does not model (a
+    /// reference into storage a library member returns, questions 162 and 164): its receiver and the right-hand side are still lowered,
+    /// their calls kept, and handed to its unknown. Such a property the source declares is an address (R1).</summary>
     [Fact]
     public async Task Unmodelled_compound_target_still_lowers_its_operands()
     {
         var body = await Lower("""
-            class Holder { int _value; public ref int Slot => ref _value; }
             class C
             {
-                Holder _holder = new();
-                Holder Get() => _holder;
+                int[] _values = new int[1];
+                System.Span<int>.Enumerator Get() => new System.Span<int>(_values).GetEnumerator();
                 int Read() => 1;
-                void M() { Get().Slot += Read(); Get().Slot++; }
+                void M() { Get().Current += Read(); Get().Current++; }
             }
             """);
 
@@ -395,6 +395,34 @@ public sealed class CompoundAssignmentLoweringTests
         Assert.Equal(2, unknowns.Length);
         Assert.Equal([holders[0], read.ResultValue!.Value], unknowns[0].OperandValues);
         Assert.Equal([holders[1]], unknowns[1].OperandValues);
+    }
+
+    /// <summary>A property the source declares that returns a reference is an address, as a ref-returning method is: a compound
+    /// assignment calls its getter once and reads and writes through the reference the getter hands back (R1).</summary>
+    /// <param name="statement">The compound assignment or increment on the property, an instance one or a static one.</param>
+    [Theory]
+    [InlineData("_holder.Slot += Read();")]
+    [InlineData("_holder.Slot++;")]
+    [InlineData("Holder.Static += Read();")]
+    public async Task Ref_returning_property_target_is_read_and_written_through_the_reference_its_getter_hands_back(string statement)
+    {
+        var body = await Lower($$"""
+            class Holder { int _value; static int s_value; public ref int Slot => ref _value; public static ref int Static => ref s_value; }
+            class C
+            {
+                Holder _holder = new();
+                int Read() => 1;
+                void M() { {{statement}} }
+            }
+            """);
+
+        var getter = Assert.Single(Operations<IrCallOperation>(body), call => call.Method.Contains(".get_", StringComparison.Ordinal));
+        var load = Assert.Single(Operations<IrLoadReferenceOperation>(body));
+        var store = Assert.Single(Operations<IrStoreReferenceOperation>(body));
+        Assert.Equal(getter.ResultValue, load.AddressValue);
+        Assert.Equal(getter.ResultValue, store.AddressValue);
+        Assert.Equal(load.Id, store.ReadModifyWriteOf);
+        Assert.DoesNotContain(Operations<IrUnknownOperation>(body), unknown => unknown.Reason is "unsupported" or "unproven-reference");
     }
 
     /// <summary>The findings and the accesses of the member are those of its long form with the receiver and the index taken into

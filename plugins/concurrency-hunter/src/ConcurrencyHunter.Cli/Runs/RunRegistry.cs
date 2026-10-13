@@ -370,10 +370,11 @@ internal sealed class RunRegistry
                                                                        finding.OccurrenceCount))
                                   .ToArray();
         var scenario = allFindings.FirstOrDefault()?.Scenario.Select(step => ResponseBudget.Fit(step, stringLimit)).ToArray() ?? [];
+        var path = AccessPathParts.Of(group.Resource);
         return new GroupDigest(ResponseBudget.Fit(group.GroupId, stringLimit), ResponseBudget.Fit(group.RuleId, stringLimit),
                                ResponseBudget.Fit(group.ConfidenceLabel, stringLimit), ResponseBudget.Fit(group.Resource.Region, stringLimit),
-                               group.Resource.AccessPath.Take(3).Select(item => ResponseBudget.Fit(item, stringLimit)).ToArray(),
-                               ResponseBudget.Fit(Ownership(group), stringLimit), group.FindingIds.Count, findings, scenario,
+                               path.Segments.Select(item => ResponseBudget.Fit(item, stringLimit)).ToArray(),
+                               ResponseBudget.Fit(path.Label, stringLimit), ResponseBudget.Fit(Ownership(group), stringLimit), group.FindingIds.Count, findings, scenario,
                                group.OccurrenceCount);
     }
 

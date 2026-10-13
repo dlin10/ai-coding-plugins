@@ -4,6 +4,7 @@ using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Di;
+using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Mcp;
 using ConcurrencyHunter.Runs;
 using Xunit;
@@ -96,6 +97,34 @@ public sealed class RunToolsTests
         var findings = digest.GetProperty("findings").EnumerateArray().ToArray();
         Assert.NotEmpty(findings);
         Assert.Equal(Enumerable.Range(2, findings.Length), findings.Select(finding => finding.GetProperty("occurrenceCount").GetInt32()));
+    }
+
+    /// <summary>The digest keeps the whole path, the selector inside it, and names the field a finding names: the last one, or the
+    /// boxed struct's type for a box's whole storage, whose path is empty (R10).</summary>
+    [Fact]
+    public async Task Struct_path_digest_keeps_the_whole_path_and_names_its_field()
+    {
+        using var environment = new RunTestEnvironment();
+        var deep = FindingTestData.Resource("static:Ns.Type1", "_outer") with
+        {
+            AccessPath = ["_outer", "Inner", "_items", "[3]", "Point", "X"],
+            Selector = ElementSelector.Exact(3)
+        };
+        var box = new AccessResource("Fixture", FindingTestData.SCOPE, "alloc:Ns.Type2.Post()#Ns.Point", [],
+                                     new MemberKey("Ns.Point", "", IrFieldKind.Field));
+        var analysis = WithResource(WithResource(CreateAnalysis(["High", "High"], 4), 0, deep), 1, box);
+        var registry = environment.Registry((_, _) => Task.FromResult(Success(analysis)));
+        var runId = Start(registry, environment.SolutionPath);
+        await registry.WaitForAnalysisAsync(runId);
+
+        var digests = Parse(RunTools.get_groups(registry, runId)).GetProperty("items").EnumerateArray().ToArray();
+
+        Assert.Equal(2, digests.Length);
+        Assert.All(digests, digest => Assert.True(Encoding.UTF8.GetByteCount(digest.GetRawText()) <= 1536));
+        Assert.Equal(deep.AccessPath, digests[0].GetProperty("accessPath").EnumerateArray().Select(item => item.GetString()));
+        Assert.Equal("X", digests[0].GetProperty("field").GetString());
+        Assert.Empty(digests[1].GetProperty("accessPath").EnumerateArray());
+        Assert.Equal("Ns.Point", digests[1].GetProperty("field").GetString());
     }
 
     [Fact]
@@ -449,6 +478,28 @@ public sealed class RunToolsTests
         var findings = analysis.Findings.Select(finding => finding with { AccessA = Enrich(finding.AccessA), AccessB = Enrich(finding.AccessB) }).ToArray();
         var groups = analysis.Groups.Select(group => group with { OwnershipEvidence = group.OwnershipEvidence.Select(item => item + padding).ToArray() })
                              .ToArray();
+        return analysis with { Findings = findings, Groups = groups };
+    }
+
+    /// <summary>Puts every finding of the group at <paramref name="groupIndex"/>, its accesses and the group itself on
+    /// <paramref name="resource"/>.</summary>
+    /// <param name="analysis">The analysis whose group is moved.</param>
+    /// <param name="groupIndex">The index of the group in the analysis's groups.</param>
+    /// <param name="resource">The resource the group and its findings are put on.</param>
+    private static AnalysisResult WithResource(AnalysisResult analysis, int groupIndex, AccessResource resource)
+    {
+        var groups = analysis.Groups.ToArray();
+        var groupId = groups[groupIndex].GroupId;
+        groups[groupIndex] = groups[groupIndex] with { Resource = resource };
+        var findings = analysis.Findings.Select(finding => finding.GroupId != groupId
+                                                    ? finding
+                                                    : finding with
+                                                    {
+                                                        Resource = resource,
+                                                        AccessA = finding.AccessA with { Resource = resource },
+                                                        AccessB = finding.AccessB with { Resource = resource }
+                                                    })
+                                    .ToArray();
         return analysis with { Findings = findings, Groups = groups };
     }
 

@@ -64,12 +64,38 @@ public sealed class OpenedFieldsTests
     }
 
     [Fact]
-    public void A_field_declared_in_a_struct_is_untouched()
+    public void A_field_declared_in_a_struct_is_opened_as_a_classs_is()
     {
-        var result = CompileSource("public struct Box { private object _value; }");
+        // A struct's storage is its holder's, which setup writes in place (R8).
+        var result = CompileSource("public struct Box { private readonly object _value; }");
 
-        Assert.Equal(Accessibility.Private, Field(result, "Box", "_value").DeclaredAccessibility);
-        Assert.DoesNotContain("F:Box._value", result.OpenedFields);
+        var field = Field(result, "Box", "_value");
+        Assert.Equal(Accessibility.Internal, field.DeclaredAccessibility);
+        Assert.False(field.IsReadOnly);
+        Assert.Contains("F:Box._value", result.OpenedFields);
+        AssertDriverCompiles(result, "public static class Driver { public static Box Value; public static void Set(object v) { Value._value = v; } }");
+    }
+
+    [Fact]
+    public void A_readonly_structs_seed_field_is_opened_and_every_member_of_it_stays_readonly()
+    {
+        // KeyValuePair, ValueTask, CancellationToken: no field of a readonly struct can lose readonly, so the struct loses it and each
+        // member keeps it, and a call on readonly storage copies nothing it did not copy before.
+        var result = CompileSource("public readonly struct Pair { private readonly object _a; private readonly int _n; public Pair(object a) { _a = a; _n = 1; } " +
+                                   "public object A => _a; public int N { get { return _n; } } public object Tag { get; } " +
+                                   "public override string ToString() => _a.ToString(); public int Count(int k) => _n + k; " +
+                                   "public event System.Action Changed { add { } remove { } } }");
+
+        AssertNoErrors(result);
+        var pair = result.Compilation!.GetTypeByMetadataName("Pair")!;
+        Assert.False(pair.IsReadOnly);
+        Assert.False(Field(result, "Pair", "_a").IsReadOnly);
+        Assert.True(Field(result, "Pair", "_n").IsReadOnly);
+        Assert.Contains("F:Pair._a", result.OpenedFields);
+        Assert.Contains("P:Pair.Tag", result.OpenedFields);
+        Assert.All(pair.GetMembers().OfType<IMethodSymbol>().Where(method => method.MethodKind is not (MethodKind.Constructor or MethodKind.PropertySet)),
+                   method => Assert.True(method.IsReadOnly, method.ToDisplayString()));
+        AssertDriverCompiles(result, "public static class Driver { public static Pair Value; public static void Set(object v) { Value._a = v; Value.Tag = v; } }");
     }
 
     [Fact]
@@ -113,12 +139,17 @@ public sealed class OpenedFieldsTests
     }
 
     [Fact]
-    public void A_struct_with_references_field_is_untouched()
+    public void A_struct_with_references_field_is_a_path_opened_with_readonly_kept()
     {
-        var result = CompileSource("public struct Payload { public object Value; } public sealed class Holder { private Payload _value; }");
+        // A struct field is a path through which setup writes the struct's fields; readonly keeps its copy semantics (TD-034b).
+        var result = CompileSource("public struct Payload { public object Value; } public sealed class Holder { private Payload _value; private readonly Payload _kept; }");
 
         Assert.True(SeedableFields.Struct(Field(result, "Holder", "_value").Type));
-        Assert.Equal(Accessibility.Private, Field(result, "Holder", "_value").DeclaredAccessibility);
+        Assert.True(SeedableFields.Path(Field(result, "Holder", "_value").Type));
+        Assert.Equal(Accessibility.Internal, Field(result, "Holder", "_value").DeclaredAccessibility);
+        Assert.Equal(Accessibility.Internal, Field(result, "Holder", "_kept").DeclaredAccessibility);
+        Assert.True(Field(result, "Holder", "_kept").IsReadOnly);
+        AssertDriverCompiles(result, "public static class Driver { public static void Set(Holder h, object v) { h._value.Value = v; } }");
     }
 
     [Fact]

@@ -233,8 +233,8 @@ public sealed class CoreLibGenerationSetMatrixTests
             // it and the constructed type's implementation runs instead.
             if (making == Making.NeverConstructed && IsDispatching(operation))
                 return new(Reached: true, Bound: false, OtherBound: true, Opaque: false, Unseen: false, "R7");
-            // R7: the heap binds the callee wherever an object of its type is the receiver — for an unboxed value, the region its `new`
-            // allocates, which the constrained call resolves by type.
+            // R7: the heap binds the callee wherever an object of its type is the receiver — for an unboxed value, the copy the value is,
+            // which the constrained call resolves by type.
             return new(Reached: true, Bound: true, OtherBound: false, Opaque: false, Unseen: false, "R7");
         }
 
@@ -270,8 +270,8 @@ public sealed class CoreLibGenerationSetMatrixTests
                 new(Reached: true, Bound: true, OtherBound: false, Opaque: false, Unseen: false, "R1"),
             // R1: nothing the set counts as a construction makes the type, so only the constructed types' implementations bind.
             Making.NeverConstructed => new(Reached: false, Bound: false, OtherBound: true, Opaque: false, Unseen: false, "R1"),
-            // R1, R3: a value type counts only once boxed, but the heap holds the region its `new` allocates, so the call's resolution on
-            // it is opaque — never nothing.
+            // R1, R3: a value type counts only once boxed, but the heap holds the copy the value is, so the call's resolution on it is
+            // opaque — never nothing.
             Making.Unboxed => new(Reached: false, Bound: false, OtherBound: false, Opaque: true, Unseen: false, "R1, R3"),
             _ => throw new ArgumentOutOfRangeException(nameof(cell), cell, null)
         };
@@ -296,13 +296,13 @@ public sealed class CoreLibGenerationSetMatrixTests
     /// <summary>The channels an opaque resolution is checked on, each from where the operation stands (R3): the argument and the
     /// receiver as the form carries them, never a constructor's new object; the <c>out</c> argument where the invocation or object
     /// creation names the left-out member; and the handed lambda in an unknown execution where no in-set implementation runs it. An
-    /// unboxed row checks the receiver and the argument alone.</summary>
+    /// unboxed row checks the argument alone: its receiver is a copy of the value, which no access reaches (R2).</summary>
     /// <param name="cell">The cell.</param>
     private static Channel OpaqueChannels(Cell cell)
     {
         var carried = Carried(cell) & ~(cell.Operation == Operation.Constructor ? Channel.Receiver : Channel.None);
         if (cell.Making == Making.Unboxed)
-            return carried & (Channel.Argument | Channel.Receiver);
+            return carried & Channel.Argument;
         if (cell.Making == Making.LeftOutMixed || !NamesTheCallee(cell.Operation))
             carried &= ~Channel.Out;
         if (cell.Making == Making.LeftOutMixed)
@@ -654,7 +654,8 @@ public sealed class CoreLibGenerationSetMatrixTests
             var touched = $"{callee}.";
             if (carried.HasFlag(Channel.Argument))
                 Check(Writes("Count", touched), $"{callee} does not write the argument");
-            if (carried.HasFlag(Channel.Receiver) && cell.Operation != Operation.Constructor)
+            // An unboxed value's member writes a copy of it, which is no location (R2).
+            if (carried.HasFlag(Channel.Receiver) && cell.Operation != Operation.Constructor && cell.Making != Making.Unboxed)
             {
                 Check(IsSpawn(cell.Operation)
                           ? accesses.Any(access => access.Operation == AccessOperation.Write && access.Resource.Member.Name == "Value" &&
@@ -706,6 +707,10 @@ public sealed class CoreLibGenerationSetMatrixTests
             Check(!Unknown("Count") && !Unknown("Value"), "an operation that resolves no opaque call has an unknown effect");
             Check(!LambdaRunsIn(kind => kind == ExecutionKind.UnknownDelegateCall), "a lambda runs in an unknown execution");
         }
+
+        // An unboxed value is a copy, whatever runs on it: no access reaches it (R2).
+        if (cell.Making == Making.Unboxed)
+            Check(!accesses.Any(access => InRegionOf(access, callee)), $"an access is made on the unboxed {callee}, which is a copy");
 
         if (expected.Unseen)
         {

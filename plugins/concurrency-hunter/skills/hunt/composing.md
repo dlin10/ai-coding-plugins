@@ -20,10 +20,20 @@ occurrences pass through.
   sites of one type in that method apart. When you name the region's type in backticks, write the type
   alone, `Ledger` or `Slot`, not `di:`, `static:` or `alloc:`, not the `@Singleton` suffix, and not the
   creating method or the `#` parts.
+  A `closure:<method>` region is the closure of a method whose lambdas or local functions capture its
+  variables, such as `closure:SlotWorker.ExecuteAsync(CancellationToken)`, and its path is the captured
+  variable: `count`, or `count#2` for the second variable of that name the method declares. Each run of
+  the method has its own closure, shared by that run and every delegate it made, so two delegates of
+  one run meet on the variable and two runs do not, unless the closure is published: a delegate that
+  captures the variable stored where other executions reach it, such as a static or a singleton's
+  field. Then the region reads `Escaped`, and its findings pair two runs as any escaped object's do.
   The resource text also gives the region's ownership and the evidence for it: `Shared` (reachable
   from more than one execution, such as a singleton or static storage), `Escaped` (the object was
   stored somewhere another execution can reach it, such as a static field, a singleton's field or an
   array), `ThreadConfined` (reached only by one execution, such as a scoped service within one request),
+  `TreeConfined` (created by one run of an execution and reached besides it only by the work that run
+  starts, such as an object an action creates and hands to `Task.Run`: a finding on it pairs two
+  accesses of one run, never two runs, so explain it within one request or one pass of a worker),
   `Owned` (never reached by any access) or `Unknown` (the analysis could not tell, for example after
   contexts were merged). Explain a finding on an `alloc:` object through that evidence: say how the
   object escaped rather than just naming the region. A `<completion>` step in that evidence names the
@@ -33,6 +43,16 @@ occurrences pass through.
   collapsed onto the region it starts from, so the finding stands for some field reached through that
   path. Such a finding is labeled Medium because the exact field is not identified; say so in the
   uncertainty section.
+- **Struct paths.** A path of several fields goes on through a struct kept in the region's storage,
+  which is part of that storage and no object of its own: `_state.Count` is the field `Count` of the
+  struct the field `_state` holds, and a captured variable's path goes on the same way, as in
+  `total.Count`. A selector inside the path, as in `_items[0].Count`, is a field of the struct a cell
+  holds, and only a finding whose path ends with the selector is about the cell itself. Code that
+  copies the whole struct out of its storage reads all of it, and code that stores a whole struct there
+  writes all of it, so it meets each of the struct's fields; such a pair is named by the longer path. A
+  struct held by value, in a local or a parameter, is a copy and never a resource. A box, the object a
+  struct is boxed into, has the struct's type as its region type, and its whole storage, which unboxing
+  reads, has the empty path; the finding names it by that type.
 - **`Fk.O`, the overlap.** It says either that one root may run concurrently with itself, for example
   an HTTP action serving two requests at once, or that two different roots may run concurrently in the
   scope, for example an action and a hosted service. Two lifecycle methods of one hosted service, such
@@ -92,7 +112,7 @@ occurrences pass through.
   library's documentation. You may name the call in backticks by its type and member without type
   arguments or parameters, such as `CollectionsMarshal.SetCount`.
 - **Collections.** `HashSet`, `Queue`, `Stack` and `LinkedList` are modelled as `List` and `Dictionary`
-  are: a structure resource (the collection itself) and a cell resource (`Items.[?]`), none of them
+  are: a structure resource (the collection itself) and a cell resource (`Items[?]`), none of them
   thread-safe. Add, Enqueue, Push, AddFirst, AddLast, AddBefore, AddAfter, Dequeue, Pop, RemoveFirst,
   RemoveLast and Clear change the structure and a cell; Count reads the structure, Peek the structure
   and a cell. A `LinkedListNode` is a cell of its list: setting its Value writes that cell without
@@ -145,7 +165,9 @@ Follow every validation rule:
   segment. Use only an exact evidence access symbol, root entry symbol, called method of a `call` step
   or method of a read location; a dot-suffix of any of them without its parameters; the evidenced
   region type without its `static:`, `di:` or `alloc:<method>#` prefix and its `@<Lifetime>` or `#<n>`
-  suffix; the field; a held protection name without that prefix, suffix or its trailing note; the callee
+  suffix; the field, or the region type with the field or with the whole path, such as `Store._state.Count`;
+  a captured variable, alone or after its closure's method without parameters; the ownership kind the
+  resource text gives; a held protection name without that prefix, suffix or its trailing note; the callee
   of a semantic gap the finding's uncertainty names, without type arguments or parameters, or a
   dot-suffix of it; an evidence id; `DCA1001` through `DCA1004`; the synchronization vocabulary below; or a reserved C# keyword. The lifetime on
   its own, such as `Singleton`, and the creating method of an `alloc:` region, are not accepted.
@@ -153,7 +175,12 @@ Follow every validation rule:
   evidence does not name: a worker, controller or service is named by its member, a dot-suffix of the
   root entry symbol such as `OrderWorker.ExecuteAsync`, never by the class alone, and any other word
   stays outside backticks.
-  Backticked snippets that do not match the identifier pattern are not checked.
+  A path with a selector in brackets or a numbered captured variable, such as `_items[0].Count`,
+  `Board._items[0].Count` or `count#2`, is checked against the findings you may cite: it must be the end
+  of one finding's path written after its region type or its closure's method, with the selector
+  exactly as that path prints it, so an invented field, selector or variable is rejected. Other
+  backticked snippets that do not match the identifier pattern, such as `value + 1` or
+  `different-identity`, are not checked.
 - An identifier is also accepted when its first segment, before `.` or `(`, is in this vocabulary:
   `lock`, `Monitor`, `Interlocked`, `Volatile`, `volatile`, `SemaphoreSlim`,
   `ReaderWriterLockSlim`, `Lock`, `Mutex`, `ConcurrentDictionary`, `ConcurrentQueue`,

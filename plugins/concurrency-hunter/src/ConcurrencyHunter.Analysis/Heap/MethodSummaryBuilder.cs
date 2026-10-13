@@ -75,7 +75,13 @@ public static class MethodSummaryBuilder
         private readonly Dictionary<int, IrValue> _values;
         private readonly Dictionary<int, IrOperation> _definitions = [];
         private readonly Dictionary<int, int> _parameterOrdinals;
-        private readonly HashSet<string> _capturedKeys;
+
+        /// <summary>The capture cells of the variables this body captures from an enclosing one, by symbol key.</summary>
+        private readonly Dictionary<string, IrClosureCell> _capturedKeys;
+
+        /// <summary>Every capture cell the body knows, by symbol key: those it captures, those it reads back (question 153), those a
+        /// delegate it creates reaches, and, for the member's own body, those any lambda or local function of the member captures.</summary>
+        private readonly Dictionary<string, IrClosureCell> _cells;
         private readonly Dictionary<int, HashSet<AbstractValue>> _points = [];
         private readonly Dictionary<int, HashSet<ValueDependency>> _dependencies = [];
         private readonly Dictionary<int, HashSet<UnknownSource>> _unknown = [];
@@ -122,8 +128,21 @@ public static class MethodSummaryBuilder
             }
 
             _parameterOrdinals = body.Parameters.ToDictionary(parameter => parameter.Value, parameter => parameter.Ordinal);
-            _capturedKeys = _operations.OfType<IrCaptureOperation>().Select(capture => capture.SymbolKey).OfType<string>()
-                                       .ToHashSet(StringComparer.Ordinal);
+            _capturedKeys = _operations.OfType<IrCaptureOperation>().Select(capture => capture.Cell).OfType<IrClosureCell>()
+                                       .DistinctBy(cell => cell.SymbolKey, StringComparer.Ordinal)
+                                       .ToDictionary(cell => cell.SymbolKey, StringComparer.Ordinal);
+            var nested = body.Kind == IrBodyKind.Method && bodies is not null
+                ? (index.Method(body.BodyId)?.NestedBodyIds ?? []).Select(bodies).OfType<IrBody>()
+                                                                  .SelectMany(inner => inner.Blocks).SelectMany(block => block.Operations)
+                                                                  .OfType<IrCaptureOperation>().Select(capture => capture.Cell)
+                : [];
+            _cells = _capturedKeys.Values
+                                  .Concat(_operations.OfType<IrLoadCapturedOperation>().Select(load => load.Cell))
+                                  .Concat(_operations.OfType<IrCreateDelegateOperation>().SelectMany(create => create.CapturedCells))
+                                  .Concat(nested)
+                                  .OfType<IrClosureCell>()
+                                  .DistinctBy(cell => cell.SymbolKey, StringComparer.Ordinal)
+                                  .ToDictionary(cell => cell.SymbolKey, StringComparer.Ordinal);
             var callResults = _operations.OfType<IrCallOperation>().Where(call => call.ResultValue is not null)
                                          .ToDictionary(call => call.Id, call => call.ResultValue!.Value);
             foreach (var operation in _operations)
@@ -210,11 +229,51 @@ public static class MethodSummaryBuilder
             var dynamicOperations = new List<SummaryDynamicOperation>();
             var unsupportedOperations = new List<SummaryUnsupportedOperation>();
             var capturedStores = new List<CapturedStore>();
+            // Every copy of a struct held by value is taken from what defines it (R2).
+            var copies = _body.Values.Where(IsStructCopy)
+                              .Select(value => (Value: value, Sources: Final(CopySources(value), delegates)))
+                              .Select(copy => new StructCopy(_definitions.TryGetValue(copy.Value.Id, out var definition) ? definition.Id : -1,
+                                                             new HashSet<AbstractValue> { new StructCopyValue(copy.Value.Id, copy.Value.StructTypeKey!) },
+                                                             copy.Sources)
+                              {
+                                  Overwritten = Overwritten(copy.Value.Id),
+                                  FollowsPresence = FollowsPresence(copy.Value, copy.Sources)
+                              })
+                              .Where(copy => copy.Sources.Count != 0)
+                              .ToList();
+            // A struct parameter a lambda or a local function captures is its cell's storage, which starts holding the argument the call
+            // passed: what each of its reference fields holds goes there, as into any storage a struct is copied into (R2, R4).
+            foreach (var (value, ordinal) in _parameterOrdinals)
+            {
+                if (_values[value].StructTypeKey is { } captured && CellOf(_values[value]) is { } cell)
+                    copies.Add(new StructCopy(-1, new HashSet<AbstractValue> { CellStorage(cell, captured) }, new HashSet<AbstractValue> { new ParameterValue(ordinal) }));
+            }
             foreach (var operation in _operations)
             {
                 var locks = held.GetValueOrDefault(operation.Id) ?? [];
+                accesses.AddRange(CellAccesses(operation, locks, delegates, copies));
+                accesses.AddRange(ReceiverCopies(operation, locks));
                 switch (operation)
                 {
+                    case IrStoreReferenceOperation store when _values[store.Value].StructTypeKey is not null:
+                        referenceAccesses.Add(new SummaryReferenceAccess(store.Id, SummaryAccessKind.Store,
+                                                                         References(store.AddressValue), store.Provenance, locks,
+                                                                         Dependencies(store.Value))
+                        {
+                            ReadModifyWriteOf = store.ReadModifyWriteOf
+                        });
+                        copies.Add(new StructCopy(store.Id, Final(Points(store.AddressValue), delegates), Final(Points(store.Value), delegates)));
+                        break;
+                    case IrBoxOperation box:
+                        copies.Add(new StructCopy(box.Id, Final(Points(box.ResultValue), delegates), Final(Points(box.OperandValue), delegates)));
+                        break;
+                    // An unboxing reads the whole storage of each box it may unbox (R2, R3).
+                    case IrConvertOperation { ConversionKind: IrConversionKind.Unboxing } unboxing
+                        when _values[unboxing.ResultValue].StructTypeKey is { } unboxed:
+                        accesses.Add(new SummaryAccess(unboxing.Id, SummaryAccessKind.Load, StructStorage.WholeStorage(unboxed),
+                                                       AccessBases(Final(Points(unboxing.OperandValue), delegates)), unboxing.Provenance, locks, null,
+                                                       new HashSet<AbstractValue>(), new HashSet<ValueDependency>()));
+                        break;
                     case IrLoadReferenceOperation load:
                         referenceAccesses.Add(new SummaryReferenceAccess(load.Id, SummaryAccessKind.Load,
                                                                          References(load.AddressValue), load.Provenance, locks,
@@ -229,26 +288,39 @@ public static class MethodSummaryBuilder
                         });
                         break;
                     case IrLoadFieldOperation load:
+                        var loadStorage = StorageCell(load.ReceiverValue);
                         accesses.Add(new SummaryAccess(load.Id, SummaryAccessKind.Load, load.Field, AccessBases(Points(load.ReceiverValue)),
                                                        load.Provenance, locks, null, Final(Points(load.ResultValue), delegates),
                                                        new HashSet<ValueDependency>())
                         {
                             Atomic = atomic.TryGetValue(load.Id, out var loadMark) ? loadMark.Effect : null,
-                            IsFresh = load.ReceiverValue is int loadReceiver && IsFresh(loadReceiver)
+                            IsFresh = load.ReceiverValue is int loadReceiver && IsFresh(loadReceiver),
+                            Selector = loadStorage?.Selector,
+                            SelectorTerm = loadStorage?.Term,
+                            SelectorParameter = loadStorage?.Parameter,
+                            SelectorWidth = loadStorage?.Width
                         });
                         break;
                     case IrStoreFieldOperation store:
                         var stored = Final(Points(store.Value), delegates);
                         var bases = Final(Points(store.ReceiverValue), delegates);
+                        var storeStorage = StorageCell(store.ReceiverValue);
                         accesses.Add(new SummaryAccess(store.Id, SummaryAccessKind.Store, store.Field, AccessBases(bases), store.Provenance, locks,
                                                        store.ReadModifyWriteOf, stored, Dependencies(store.Value))
                         {
                             Atomic = atomic.TryGetValue(store.Id, out var storeMark) ? storeMark.Effect : null,
                             ComparandLoad = Comparand(atomic, store.Id),
                             StoredTerm = Term(store.Value),
-                            IsFresh = store.ReceiverValue is int storeReceiver && IsFresh(storeReceiver)
+                            IsFresh = store.ReceiverValue is int storeReceiver && IsFresh(storeReceiver),
+                            Selector = storeStorage?.Selector,
+                            SelectorTerm = storeStorage?.Term,
+                            SelectorParameter = storeStorage?.Parameter,
+                            SelectorWidth = storeStorage?.Width
                         });
-                        if (!IsValueType(store.Field.Type))
+                        // A struct stored whole is copied into the field's storage; a scalar holds no object.
+                        if (_values[store.Value].StructTypeKey is { } storedStruct)
+                            copies.Add(new StructCopy(store.Id, StoragePlaces(store, storedStruct), stored));
+                        else if (!IsValueType(store.Field.Type))
                             stores.Add(new StoreTransfer(store.Id, store.Field, bases, stored) { Producers = Producers(store.Value) });
                         break;
                     case IrStoreElementOperation element when Cell(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } storeCell:
@@ -264,8 +336,7 @@ public static class MethodSummaryBuilder
                             SelectorTerm = storeCell.Term,
                             IsOnCollection = true
                         });
-                        elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Store, Final(Points(element.ReceiverValue), delegates),
-                                                         Final(Points(element.Value), delegates)) { Producers = Producers(element.Value) });
+                        elements.AddRange(ElementStore(element, delegates, copies));
                         break;
                     case IrLoadElementOperation loadElement when Cell(loadElement.ReceiverValue, loadElement.IndexValues, loadElement.NamesOneCell) is { } loadCell:
                         accesses.Add(new SummaryAccess(loadElement.Id, SummaryAccessKind.Load, loadCell.Field,
@@ -292,8 +363,7 @@ public static class MethodSummaryBuilder
                         else if (!IsFresh(Slice(element.ReceiverValue).Array))
                             argumentEffects.Add(StandingElement(element.Id, element.ReceiverValue, element.IndexValues, element.NamesOneCell, ELEMENT_WRITE,
                                                                 element.Provenance, locks, delegates, Dependencies(element.Value)));
-                        elements.Add(new ElementTransfer(element.Id, ElementOperationKind.Store, Final(Points(element.ReceiverValue), delegates),
-                                                         Final(Points(element.Value), delegates)) { Producers = Producers(element.Value) });
+                        elements.AddRange(ElementStore(element, delegates, copies));
                         break;
                     case IrLoadElementOperation element:
                         if (ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } loadCollection)
@@ -313,12 +383,27 @@ public static class MethodSummaryBuilder
                         break;
                     case IrReturnOperation { Value: int returned, IsByRef: true }:
                         referenceReturns.AddRange(References(returned));
+                        // A struct returned by reference is its storage, which a caller's operation through the reference reaches (R1).
+                        if (_values[returned].StructTypeKey is not null)
+                            returns.Add(new ReturnTransfer(operation.Id, Final(Points(returned), delegates), Dependencies(returned)));
                         break;
                     case IrReturnOperation { Value: int returned } @return:
                         // What the body hands back is only ever indexed if it is a collection; a return nothing names is kept as
                         // such, so an element operation on the result never takes the returns that do name one for all of them.
                         collectionReturns.Add(Collection(returned)?.Collection ?? ReferenceUnproven.Instance);
-                        returns.Add(new ReturnTransfer(@return.Id, Final(Points(returned), delegates), Dependencies(returned))
+                        var handed = Final(Points(returned), delegates);
+                        // A struct returned by value is a copy: one of the storage the receiver or a captured variable names is taken
+                        // here, as a load takes one out of heap storage, and what the caller does to it never reaches that storage (R2).
+                        if (_values[returned].StructTypeKey is { } returnedStruct && handed.Any(point => point is ThisValue or StructPlaceValue))
+                        {
+                            var copy = new StructCopyValue(returned, returnedStruct);
+                            copies.Add(new StructCopy(@return.Id, new HashSet<AbstractValue> { copy }, handed)
+                            {
+                                FollowsPresence = FollowsPresence(_values[returned], handed)
+                            });
+                            handed = new HashSet<AbstractValue> { copy };
+                        }
+                        returns.Add(new ReturnTransfer(@return.Id, handed, Dependencies(returned))
                         {
                             UnknownSources = _unknown[returned],
                             SourceCalls = _sourceCalls[returned],
@@ -380,13 +465,20 @@ public static class MethodSummaryBuilder
                                 {
                                     if ((ordinal == IrLibraryCall.RECEIVER ? call.ReceiverValue : call.ArgumentAt(ordinal)) is int sequence)
                                         yield return new SummaryArgumentEffect(kind, call.Id, Final(Points(sequence), delegates), Collection(sequence),
-                                                                              SpanTypes.Names(_values[sequence].Type), call.Provenance, locks);
+                                                                              SpanTypes.Names(_values[sequence].Type), call.Provenance, locks)
+                                        {
+                                            ValueId = sequence
+                                        };
                                     yield break;
                                 }
                                 foreach (var argument in library.Effects.Where(effect => effect.Kind == kind && effect.ParameterOrdinal == ordinal)
                                                                        .SelectMany(effect => effect.Arguments))
                                     yield return new SummaryArgumentEffect(kind, call.Id, Final(Points(argument.Value), delegates), Collection(argument.Value),
-                                                                          argument.IsSlice, call.Provenance, locks) { IsSequence = argument.IsSequence };
+                                                                          argument.IsSlice, call.Provenance, locks)
+                                    {
+                                        IsSequence = argument.IsSequence,
+                                        ValueId = argument.Value
+                                    };
                             }
                         }
 
@@ -423,14 +515,15 @@ public static class MethodSummaryBuilder
                         when Final(unsupported.OperandValues.SelectMany(operand => _points[operand]), delegates) is { Count: > 0 } given:
                         unsupportedOperations.Add(new SummaryUnsupportedOperation(unsupported.Id, unsupported.OperationKind, given));
                         break;
-                    case IrAssignOperation assign when _values[assign.TargetValue].SymbolKey is { } key && _capturedKeys.Contains(key):
-                        capturedStores.Add(new CapturedStore(assign.Id, key, Final(Points(assign.SourceValue), delegates), Dependencies(assign.SourceValue))
+                    case IrAssignOperation assign when _values[assign.TargetValue].SymbolKey is { } key && _capturedKeys.TryGetValue(key, out var assigned):
+                        capturedStores.Add(new CapturedStore(assign.Id, assigned, Final(Points(assign.SourceValue), delegates), Dependencies(assign.SourceValue))
                         {
                             Producers = Producers(assign.SourceValue)
                         });
                         break;
-                    case IrCombineDelegatesOperation combine when _values[combine.ResultValue].SymbolKey is { } key && _capturedKeys.Contains(key):
-                        capturedStores.Add(new CapturedStore(combine.Id, key,
+                    case IrCombineDelegatesOperation combine when _values[combine.ResultValue].SymbolKey is { } key &&
+                                                                  _capturedKeys.TryGetValue(key, out var combined):
+                        capturedStores.Add(new CapturedStore(combine.Id, combined,
                                                              Final(combine.ContributingOperands.SelectMany(operand => _points[operand]), delegates),
                                                              Dependencies(combine.ResultValue))
                         {
@@ -445,7 +538,10 @@ public static class MethodSummaryBuilder
                 {
                     argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, enumeration.Id, Final(Points(enumerated), delegates),
                                                                   Collection(enumerated), SpanTypes.Names(_values[enumerated].Type),
-                                                                  enumeration.Provenance, locks));
+                                                                  enumeration.Provenance, locks)
+                    {
+                        ValueId = enumerated
+                    });
                 }
 
                 // A copy enumerates its source as a `foreach` does, and every pair, view and copy holds what it was filled with (ADR 0010,
@@ -456,7 +552,10 @@ public static class MethodSummaryBuilder
                     {
                         argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, copying.Id, Final(Points(source), delegates),
                                                                       Collection(source), SpanTypes.Names(_values[source].Type),
-                                                                      copying.Provenance, locks));
+                                                                      copying.Provenance, locks)
+                        {
+                            ValueId = source
+                        });
                     }
 
                     elements.AddRange(CopyStores(copying, delegates));
@@ -480,7 +579,8 @@ public static class MethodSummaryBuilder
                     {
                         Member = standing,
                         Implementations = standingCall.Implementations,
-                        InterfaceMethod = InterfaceMethodOf(standingCall)
+                        InterfaceMethod = InterfaceMethodOf(standingCall),
+                        ValueId = stands
                     });
                 }
             }
@@ -537,7 +637,8 @@ public static class MethodSummaryBuilder
             var variables = VariableKeys().Select(key => new SummaryVariable(key, Final(VariablePoints(key), delegates), VariableDependencies(key))
                                           {
                                               UnknownSources = _body.Values.Where(value => value.SymbolKey == key).SelectMany(value => _unknown[value.Id]).ToHashSet(),
-                                              Producers = ValueOrigin.Union(_body.Values.Where(value => value.SymbolKey == key).Select(value => Producers(value.Id)))
+                                              Producers = ValueOrigin.Union(_body.Values.Where(value => value.SymbolKey == key).Select(value => Producers(value.Id))),
+                                              Cell = _cells.GetValueOrDefault(key)
                                           })
                                           .ToArray();
             var lockTransfers = _operations.Select(operation => operation switch
@@ -594,8 +695,142 @@ public static class MethodSummaryBuilder
                 UnsupportedOperations = unsupportedOperations,
                 ResultStores = ResultStores(delegates),
                 ReferenceStores = ReferenceStores(delegates),
-                ReferenceElementStores = ReferenceElementStores(delegates)
+                ReferenceElementStores = ReferenceElementStores(delegates),
+                StructCopies = copies
             };
+        }
+
+        /// <summary>The accesses an operation makes on capture cells (R4): a write of the cell of the variable it assigns, and a read of
+        /// the cell of each variable it reads, whose value it takes. A struct a field access or a member call works on in its cell is
+        /// storage the operation goes through, which is no read of the whole of it. The accesses of the body declaring the variable reach
+        /// the closure its own run created directly and are fresh; those of a lambda or a local function nested in it reach that closure
+        /// through the capture and are not.</summary>
+        /// <param name="operation">The operation.</param>
+        /// <param name="locks">The locks held where it stands.</param>
+        /// <param name="delegates">The final delegate creations used to resolve what it reads and writes.</param>
+        /// <param name="copies">The struct copies of the body, which a struct assigned whole into its cell adds to (R2).</param>
+        private IEnumerable<SummaryAccess> CellAccesses(IrOperation operation, IReadOnlyList<HeldLockValue> locks,
+                                                        IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates, List<StructCopy> copies)
+        {
+            var written = operation switch
+            {
+                IrAssignOperation assign => (int?)assign.TargetValue,
+                IrCombineDelegatesOperation combine => combine.ResultValue,
+                _ => null
+            };
+            if (written is int target && _values[target].SymbolKey is { } key && _cells.TryGetValue(key, out var assigned))
+            {
+                var source = operation is IrAssignOperation assign ? assign.SourceValue : target;
+                var stored = Final(Points(source), delegates);
+                // A struct assigned whole is copied into the storage its cell is.
+                if (_values[target].StructTypeKey is { } whole)
+                    copies.Add(new StructCopy(operation.Id, new HashSet<AbstractValue> { CellStorage(assigned, whole) }, stored));
+                yield return new SummaryAccess(operation.Id, SummaryAccessKind.Store, assigned.Field, CellBases(assigned), operation.Provenance,
+                                               locks, null, stored, Dependencies(source))
+                {
+                    IsFresh = Declares(assigned)
+                };
+            }
+
+            if (operation is IrPhiOperation or IrCaptureOperation)
+                yield break;
+            foreach (var read in operation.Operands.Distinct())
+            {
+                if (WorksOnStorage(operation, read) || CellOf(_values[read]) is not { } cell)
+                    continue;
+                yield return new SummaryAccess(operation.Id, SummaryAccessKind.Load, cell.Field, CellBases(cell), operation.Provenance, locks, null,
+                                               Final(Points(read), delegates), new HashSet<ValueDependency>())
+                {
+                    IsFresh = Declares(cell)
+                };
+            }
+        }
+
+        /// <summary>Whether this body declares the variable of a capture cell, so that its own run created the closure the cell is in (R4).</summary>
+        /// <param name="cell">The capture cell.</param>
+        private bool Declares(IrClosureCell cell) =>
+            cell.Body is { } body ? body == _body.BodyId : _body.Kind == IrBodyKind.Method;
+
+        /// <summary>The closure a capture cell is a slot of.</summary>
+        /// <param name="cell">The capture cell.</param>
+        private static HashSet<AbstractValue> CellBases(IrClosureCell cell) => [new ClosureValue(cell.Member, cell.Body)];
+
+        /// <summary>Whether an operation goes through the storage of a struct a value names, rather than taking the value: the value is
+        /// the receiver of a field access or of a member call, or a reference to it is taken.</summary>
+        /// <param name="operation">The operation.</param>
+        /// <param name="value">One of its operands.</param>
+        private bool WorksOnStorage(IrOperation operation, int value) =>
+            _values[value].StructTypeKey is not null &&
+            operation switch
+            {
+                IrLoadFieldOperation load => load.ReceiverValue == value,
+                IrStoreFieldOperation store => store.ReceiverValue == value,
+                IrAddressFieldOperation address => address.ReceiverValue == value,
+                IrCallOperation call => call.ReceiverValue == value,
+                IrAssignOperation assign => assign.SourceValue == value && _values[assign.TargetValue].IsReference,
+                _ => false
+            };
+
+        /// <summary>The read of the whole storage a struct member was called on that an operation makes when it takes a copy of <c>this</c>
+        /// — assigns it to a variable, passes it by value, returns it, stores it, boxes it or binds a delegate to it — as a load of a struct
+        /// field takes a copy out of heap storage (R2). An operation that goes through the storage, a field access, a member call or a
+        /// reference, reads none of it whole, nor does a temporary that only names it.</summary>
+        /// <param name="operation">The operation.</param>
+        /// <param name="locks">The locks held where it stands.</param>
+        private IEnumerable<SummaryAccess> ReceiverCopies(IrOperation operation, IReadOnlyList<HeldLockValue> locks)
+        {
+            if (operation is IrPhiOperation || operation.DefinedValues is [var defined] && NamesReceiver(defined))
+                yield break;
+            foreach (var read in operation.Operands.Distinct())
+            {
+                if (!NamesReceiver(read) || WorksOnStorage(operation, read))
+                    continue;
+                yield return new SummaryAccess(operation.Id, SummaryAccessKind.Load, StructStorage.WholeStorage(_values[read].StructTypeKey!),
+                                               AccessBases(Points(read)), operation.Provenance, locks, null, new HashSet<AbstractValue>(),
+                                               new HashSet<ValueDependency>());
+            }
+        }
+
+        /// <summary>Whether a value is the receiver of a struct member, the storage the member was called on: <c>this</c>, or a temporary an
+        /// assignment or a conversion gives it.</summary>
+        /// <param name="value">The value.</param>
+        private bool NamesReceiver(int value) =>
+            _values[value] switch
+            {
+                { StructTypeKey: null } => false,
+                { Kind: IrValueKind.Receiver } => true,
+                { Kind: IrValueKind.Temporary } => _definitions.GetValueOrDefault(value) switch
+                {
+                    IrAssignOperation assign => NamesReceiver(assign.SourceValue),
+                    IrConvertOperation { ConversionKind: not IrConversionKind.Unboxing } convert => NamesReceiver(convert.OperandValue),
+                    _ => false
+                },
+                _ => false
+            };
+
+        /// <summary>Whether an operation takes the value of a variable from its capture cell, which a value it computes depends on as a
+        /// value computed from a field load depends on that load (R4).</summary>
+        /// <param name="operation">The operation defining a value.</param>
+        private bool ReadsCell(IrOperation operation) =>
+            operation is not (IrPhiOperation or IrCaptureOperation) &&
+            operation.Operands.Any(operand => !WorksOnStorage(operation, operand) && CellOf(_values[operand]) is not null);
+
+        /// <summary>What an element store puts into the cells of the arrays it stores into: the value, or, for a struct, nothing — a copy
+        /// of it goes into the cell's storage instead, added to <paramref name="copies"/> (R2).</summary>
+        /// <param name="element">The element store.</param>
+        /// <param name="delegates">The final delegate creations used to resolve the arrays and the stored value.</param>
+        /// <param name="copies">The struct copies of the body, which a struct's store adds to.</param>
+        private ElementTransfer[] ElementStore(IrStoreElementOperation element, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates,
+                                              List<StructCopy> copies)
+        {
+            if (_values[element.Value].StructTypeKey is { } stored)
+            {
+                copies.Add(new StructCopy(element.Id, StoragePlaces(element, stored), Final(Points(element.Value), delegates)));
+                return [];
+            }
+
+            return [new ElementTransfer(element.Id, ElementOperationKind.Store, Final(Points(element.ReceiverValue), delegates),
+                                        Final(Points(element.Value), delegates)) { Producers = Producers(element.Value) }];
         }
 
         /// <summary>Every write of a call's or a <c>dynamic</c> operation's result into a field, an array cell or a collection that holds
@@ -1196,19 +1431,26 @@ public static class MethodSummaryBuilder
         /// <param name="delegates">The final delegate creations used to resolve bases and stored objects.</param>
         private List<StoreTransfer> ReferenceStores(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             _operations.OfType<IrStoreReferenceOperation>()
-                       .SelectMany(store => References(store.AddressValue).OfType<ReferenceCell>().Where(cell => !cell.IsOnCollection)
-                                                .Select(cell => new StoreTransfer(store.Id, cell.Field, Final(cell.Bases, delegates),
+                       .Where(store => _values[store.Value].StructTypeKey is null)
+                       .SelectMany(store => References(store.AddressValue).OfType<ReferenceCell>().Where(cell => !IsCellItself(cell))
+                                                .Select(cell => cell.Leaf())
+                                                .Select(leaf => new StoreTransfer(store.Id, leaf.Field, Final(leaf.Bases, delegates),
                                                                                   Final(Points(store.Value), delegates))
                                                 {
                                                     Producers = Producers(store.Value)
                                                 }))
                        .ToList();
 
+        /// <summary>Whether a reference names a cell of a collection itself, and not a field of a struct kept in one.</summary>
+        /// <param name="cell">The place the reference names.</param>
+        private static bool IsCellItself(ReferenceCell cell) => cell is { IsOnCollection: true, StructPath.Count: 0 };
+
         /// <summary>The stores through a reference into a cell of the arrays the reference names: the arrays are what its field holds.</summary>
         /// <param name="delegates">The final delegate creations used to resolve arrays and stored objects.</param>
         private List<ElementTransfer> ReferenceElementStores(IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             _operations.OfType<IrStoreReferenceOperation>()
-                       .SelectMany(store => References(store.AddressValue).OfType<ReferenceCell>().Where(cell => cell.IsOnCollection)
+                       .Where(store => _values[store.Value].StructTypeKey is null)
+                       .SelectMany(store => References(store.AddressValue).OfType<ReferenceCell>().Where(IsCellItself)
                                                 .Select(cell => new ElementTransfer(store.Id, ElementOperationKind.Store,
                                                                                     Final(Extend(cell.Bases, FieldSlot.Key(cell.Field)), delegates),
                                                                                     Final(Points(store.Value), delegates))
@@ -1225,7 +1467,7 @@ public static class MethodSummaryBuilder
             var calls = new HashSet<int>();
             var parameters = new HashSet<int>();
             var fields = new List<FieldOrigin>();
-            var captured = new HashSet<string>(StringComparer.Ordinal);
+            var captured = new HashSet<IrClosureCell>();
             var elements = new List<IReadOnlySet<AbstractValue>>();
             var keys = new List<IReadOnlySet<AbstractValue>>();
             var kept = new List<IReadOnlySet<AbstractValue>>();
@@ -1245,8 +1487,8 @@ public static class MethodSummaryBuilder
                 if (!_definitions.TryGetValue(current, out var definition))
                 {
                     // A captured variable read where no assignment of this body defines it holds what its owner or a lambda put there.
-                    if (_values[current].SymbolKey is { } key && _capturedKeys.Contains(key))
-                        captured.Add(key);
+                    if (_values[current].SymbolKey is { } key && _capturedKeys.TryGetValue(key, out var cell))
+                        captured.Add(cell);
                     continue;
                 }
 
@@ -1260,8 +1502,8 @@ public static class MethodSummaryBuilder
                 switch (definition)
                 {
                     // An owner's read of its variable's capture cell holds what it or a nested body put there (question 153).
-                    case IrLoadCapturedOperation load:
-                        captured.Add(load.SymbolKey);
+                    case IrLoadCapturedOperation { Cell: { } readBack }:
+                        captured.Add(readBack);
                         break;
                     case IrLoadElementOperation load:
                         elements.Add(_points[load.ReceiverValue].ToHashSet());
@@ -1283,10 +1525,10 @@ public static class MethodSummaryBuilder
                     case IrLoadReferenceOperation load:
                         foreach (var cell in References(load.AddressValue).OfType<ReferenceCell>())
                         {
-                            if (cell.IsOnCollection)
+                            if (IsCellItself(cell))
                                 elements.Add(Extend(cell.Bases, FieldSlot.Key(cell.Field)));
-                            else
-                                fields.Add(new FieldOrigin(cell.Field, cell.Bases));
+                            else if (cell.Leaf() is var (field, holders))
+                                fields.Add(new FieldOrigin(field, holders));
                         }
 
                         break;
@@ -1429,7 +1671,11 @@ public static class MethodSummaryBuilder
                 if (!visited.Add(current))
                     continue;
                 var irValue = _values[current];
-                if (irValue.Kind == IrValueKind.Receiver || CapturedKey(irValue) is not null ||
+                // A struct the body declaring it keeps in a capture cell is in the closure its own run creates, whatever kind of body
+                // declares it (R4).
+                if (irValue.StructTypeKey is not null && CellOf(irValue) is { } cell && Declares(cell))
+                    continue;
+                if (irValue.Kind == IrValueKind.Receiver || CapturedCell(irValue) is not null ||
                     _parameterOrdinals.ContainsKey(current) || !_definitions.TryGetValue(current, out var definition))
                 {
                     return false;
@@ -1530,7 +1776,7 @@ public static class MethodSummaryBuilder
         private bool OnlyCompletes(int created, IReadOnlyList<IrTaskOperation> operations)
         {
             var aliases = _definitions.Keys.Where(value => Origin(value) == created).Append(created).ToHashSet();
-            if (aliases.Any(alias => CapturedKey(_values[alias]) is not null))
+            if (aliases.Any(alias => CapturedCell(_values[alias]) is not null))
                 return false;
             var calls = operations.Select(operation => operation.CallOperationId).ToHashSet();
             return _operations.Where(operation => operation.Operands.Any(aliases.Contains)).All(operation => operation switch
@@ -1626,7 +1872,7 @@ public static class MethodSummaryBuilder
         {
             if (value.Kind == IrValueKind.Receiver)
                 return [];
-            if (CapturedKey(value) is not null)
+            if (CapturedCell(value) is not null)
                 return [UnknownSource.Captured];
             if (_parameterOrdinals.ContainsKey(value.Id))
                 return [UnknownSource.Parameter];
@@ -1652,18 +1898,34 @@ public static class MethodSummaryBuilder
                 IrLoadFieldOperation => [UnknownSource.FieldBeforeWrite],
                 IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _unknown[outer]],
                 IrCallOperation call when call.ResultValue == value.Id && _modeledCalls.Contains(call.Id) => [],
+                IrCallOperation call when PairPartOf(call, value.Id) is int pair => [.. _unknown[pair]],
                 IrCallOperation call => [IsOpaque(call) ? UnknownSource.OpaqueCall : UnknownSource.SourceCall],
                 IrAwaitOperation awaited when AwaitsCompletion(awaited, value) => [.. _unknown[awaited.TaskValue ?? awaited.AwaitableValue]],
                 _ => [UnknownSource.Other]
             };
         }
 
+        /// <summary>The pair a value is a part of where a call gives it back — the key or the value <c>Key</c>, <c>Value</c> or
+        /// <c>Deconstruct</c> hands out —, which the pair holds as a struct holds its fields: the part comes from wherever the pair came
+        /// from and from nothing else (R1, R2); null for any other value of the call.</summary>
+        /// <param name="call">The call defining the value.</param>
+        /// <param name="value">The value.</param>
+        private static int? PairPartOf(IrCallOperation call, int value) =>
+            call is { ReceiverValue: int pair, Collection.Member: PAIR_KEY or PAIR_VALUE or PAIR_DECONSTRUCT } &&
+            (call.ResultValue == value || call.RefResults.Values.Contains(value))
+                ? pair
+                : null;
+
+        private const string PAIR_KEY = "System.Collections.Generic.KeyValuePair`2.get_Key";
+        private const string PAIR_VALUE = "System.Collections.Generic.KeyValuePair`2.get_Value";
+        private const string PAIR_DECONSTRUCT = "System.Collections.Generic.KeyValuePair`2.Deconstruct";
+
         /// <summary>The calls a value comes from as <see cref="UnknownSource.SourceCall"/>, followed over the same steps as the unknown
         /// sources themselves, so that a value merging two calls keeps both.</summary>
         /// <param name="value">The value.</param>
         private HashSet<int> EvaluateSourceCalls(IrValue value)
         {
-            if (value.Kind == IrValueKind.Receiver || CapturedKey(value) is not null ||
+            if (value.Kind == IrValueKind.Receiver || CapturedCell(value) is not null ||
                 _parameterOrdinals.ContainsKey(value.Id) || !_definitions.TryGetValue(value.Id, out var definition))
             {
                 return [];
@@ -1679,6 +1941,7 @@ public static class MethodSummaryBuilder
                 IrConvertOperation convert => [.. _sourceCalls[convert.OperandValue]],
                 IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _sourceCalls[outer]],
                 IrCallOperation call when call.ResultValue == value.Id && _modeledCalls.Contains(call.Id) => [],
+                IrCallOperation call when PairPartOf(call, value.Id) is int pair => [.. _sourceCalls[pair]],
                 IrCallOperation call => IsOpaque(call) ? [] : [call.Id],
                 IrAwaitOperation awaited when AwaitsCompletion(awaited, value) => [.. _sourceCalls[awaited.TaskValue ?? awaited.AwaitableValue]],
                 _ => []
@@ -1690,7 +1953,7 @@ public static class MethodSummaryBuilder
         /// <param name="value">The value.</param>
         private HashSet<int> EvaluateCompletions(IrValue value)
         {
-            if (value.Kind == IrValueKind.Receiver || CapturedKey(value) is not null ||
+            if (value.Kind == IrValueKind.Receiver || CapturedCell(value) is not null ||
                 _parameterOrdinals.ContainsKey(value.Id) || !_definitions.TryGetValue(value.Id, out var definition))
             {
                 return [];
@@ -1730,7 +1993,7 @@ public static class MethodSummaryBuilder
         /// <param name="value">The value.</param>
         private HashSet<(int Call, int Depth)> EvaluateCompletedCalls(IrValue value)
         {
-            if (value.Kind == IrValueKind.Receiver || CapturedKey(value) is not null ||
+            if (value.Kind == IrValueKind.Receiver || CapturedCell(value) is not null ||
                 _parameterOrdinals.ContainsKey(value.Id) || !_definitions.TryGetValue(value.Id, out var definition))
             {
                 return [];
@@ -1770,19 +2033,174 @@ public static class MethodSummaryBuilder
              type.StartsWith("System.Runtime.CompilerServices.ConfiguredTaskAwaitable<", StringComparison.Ordinal) ||
              type.StartsWith("System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable<", StringComparison.Ordinal));
 
-        /// <summary>The key of the captured variable a value reads: a version of a variable of an enclosing body, or an owner's read of
-        /// its own variable's capture cell (question 153); null for every other value.</summary>
+        /// <summary>The capture cell of the captured variable a value reads: a version of a variable of an enclosing body, or an owner's
+        /// read of its own variable's capture cell (question 153); null for every other value.</summary>
         /// <param name="value">The value.</param>
-        private string? CapturedKey(IrValue value) =>
-            value.SymbolKey is { } key && _capturedKeys.Contains(key) ? key
-            : _definitions.GetValueOrDefault(value.Id) is IrLoadCapturedOperation load ? load.SymbolKey : null;
+        private IrClosureCell? CapturedCell(IrValue value) =>
+            value.SymbolKey is { } key && _capturedKeys.TryGetValue(key, out var cell) ? cell
+            : _definitions.GetValueOrDefault(value.Id) is IrLoadCapturedOperation load ? load.Cell : null;
+
+        /// <summary>The capture cell a value is a version of, or reads back (R4): of a variable this body captures, or of one it declares
+        /// that a lambda or a local function captures; null for every other value.</summary>
+        /// <param name="value">The value.</param>
+        private IrClosureCell? CellOf(IrValue value) =>
+            _definitions.GetValueOrDefault(value.Id) is IrLoadCapturedOperation { Cell: { } read } ? read
+            : value.SymbolKey is { } key && _cells.TryGetValue(key, out var cell) ? cell
+            : null;
+
+        /// <summary>The storage a struct kept in a capture cell occupies: the cell's slot of the closure (R1, R4).</summary>
+        /// <param name="cell">The capture cell.</param>
+        /// <param name="typeKey">The struct's type key.</param>
+        private static StructPlaceValue CellStorage(IrClosureCell cell, string typeKey) =>
+            new(new ClosureValue(cell.Member, cell.Body), FieldSlot.Key(cell.Field), typeKey);
+
+        /// <summary>What names a struct value of the body, in the terms <see cref="StructStorage"/> decides on: a reference, a captured
+        /// variable and the receiver name storage; any other value is a local's, a parameter's, a new value or a result.</summary>
+        /// <param name="value">A value whose type is a struct the analysis follows.</param>
+        private StructOperand StructOperandOf(IrValue value) =>
+            value.IsReference ? StructOperand.ReferenceLocal
+            : CellOf(value) is not null ? StructOperand.Capture
+            : value.Kind == IrValueKind.Receiver ? StructOperand.Receiver
+            : _parameterOrdinals.ContainsKey(value.Id) ? StructOperand.Parameter
+            : value.Kind == IrValueKind.Local ? StructOperand.Local
+            : _definitions.GetValueOrDefault(value.Id) is IrAllocateOperation || value.Kind == IrValueKind.Constant ? StructOperand.Creation
+            : StructOperand.Result;
+
+        /// <summary>Whether a value is a copy of a struct held by value that the body makes, a region of its own
+        /// (<see cref="StructCopyValue"/>). A call's result, a <c>ref</c> or <c>out</c> one and an await's are copies too, but the ones
+        /// the callee or the task hands back: the body takes them as they are. A temporary an assignment, a phi or a conversion defines
+        /// is no variable that could change apart from what it was given: it is that value. An empty <c>Nullable</c>, a <c>null</c>,
+        /// holds no struct at all.</summary>
+        /// <param name="value">The value.</param>
+        private bool IsStructCopy(IrValue value) =>
+            value.StructTypeKey is not null && !StructStorage.IsStorage(StructOperandOf(value)) &&
+            value is not { Kind: IrValueKind.Constant, Name: "null" } &&
+            _definitions.GetValueOrDefault(value.Id) switch
+            {
+                IrCallOperation or IrAwaitOperation => false,
+                IrAssignOperation or IrPhiOperation or IrConvertOperation { ConversionKind: not IrConversionKind.Unboxing } =>
+                    value.Kind != IrValueKind.Temporary,
+                _ => true
+            };
+
+        /// <summary>Whether a struct value is a <c>Nullable</c> of the struct, which may hold none.</summary>
+        /// <param name="value">A value whose type is a struct the analysis follows.</param>
+        private static bool IsNullable(IrValue value) => value.Type.EndsWith('?');
+
+        /// <summary>Whether a copy held by value holds a struct only where one of what it is taken from does
+        /// (<see cref="StructCopy.FollowsPresence"/>): a <c>Nullable</c> taken only from storage, other copies or boxes, whose presence the
+        /// heap follows, so one taken from storage nothing was stored into is as empty as that storage (R2).</summary>
+        /// <param name="value">The value holding the copy.</param>
+        /// <param name="sources">What the copy is taken from.</param>
+        private static bool FollowsPresence(IrValue value, IReadOnlySet<AbstractValue> sources) =>
+            IsNullable(value) && sources.All(source => source is StructPlaceValue or StructCopyValue or AllocationValue);
+
+        /// <summary>The values that hold the struct a <c>Nullable</c> value holds, where one reaches it: through every assignment, phi,
+        /// conversion and copy it was taken from, down to a value the body cannot tell empty — a parameter, a call's or an await's result,
+        /// a load — which holds one only where something reaches it in the heap (R2). A <c>null</c> and a <c>new S?()</c> hold none. Null
+        /// where a struct that is no <c>Nullable</c> reaches it, which is always there.</summary>
+        /// <param name="value">The value.</param>
+        /// <param name="seen">The values already followed, which a cycle of phis does not follow again.</param>
+        private HashSet<AbstractValue>? Present(int value, HashSet<int> seen)
+        {
+            if (!seen.Add(value))
+                return [];
+            if (_values[value] is var irValue && irValue.StructTypeKey is not null && !IsNullable(irValue))
+                return null;
+            if (_parameterOrdinals.TryGetValue(value, out var ordinal))
+                return [new ParameterValue(ordinal)];
+            IEnumerable<int> from = _definitions.GetValueOrDefault(value) switch
+            {
+                IrAssignOperation assign => [assign.SourceValue],
+                IrPhiOperation phi => phi.Inputs.Select(input => input.Value),
+                IrConvertOperation { ConversionKind: not IrConversionKind.Unboxing } convert => [convert.OperandValue],
+                _ => []
+            };
+            if (!from.Any())
+                return IsStructCopy(irValue) ? CopySources(irValue) : [.. _points[value]];
+
+            var present = new HashSet<AbstractValue>();
+            foreach (var source in from.ToArray())
+            {
+                if (Present(source, seen) is not { } reached)
+                    return null;
+                present.UnionWith(reached);
+            }
+            return present;
+        }
+
+        /// <summary>The storage a struct occupies at <paramref name="slot"/> of each holder <paramref name="holders"/> point to, or of
+        /// the static storage of a static field's type.</summary>
+        /// <param name="holders">The holders, ignored for a static field.</param>
+        /// <param name="field">The static field, or null.</param>
+        /// <param name="slot">The slot the struct occupies.</param>
+        /// <param name="typeKey">The struct's type key.</param>
+        private static HashSet<AbstractValue> Places(IEnumerable<AbstractValue> holders, IrFieldRef? field, string slot, string typeKey) =>
+            field is { IsStatic: true }
+                ? [new StructPlaceValue(new StaticHolderValue(field), slot, typeKey)]
+                : holders.Select(holder => (AbstractValue)new StructPlaceValue(holder, slot, typeKey)).ToHashSet();
+
+        /// <summary>The storage of a struct a field or element operation names: the field's slot in each object its receiver points to,
+        /// or the cell's in each array it is.</summary>
+        /// <param name="operation">An address, a load or a store of a field or an element.</param>
+        /// <param name="typeKey">The struct's type key.</param>
+        private HashSet<AbstractValue> StoragePlaces(IrOperation operation, string typeKey) => operation switch
+        {
+            IrAddressFieldOperation field => Places(Points(field.ReceiverValue), field.Field, FieldSlot.Key(field.Field), typeKey),
+            IrLoadFieldOperation field => Places(Points(field.ReceiverValue), field.Field, FieldSlot.Key(field.Field), typeKey),
+            IrStoreFieldOperation field => Places(Points(field.ReceiverValue), field.Field, FieldSlot.Key(field.Field), typeKey),
+            IrAddressElementOperation element => Places(Points(Slice(element.ReceiverValue).Array), null, PathValue.ELEMENT, typeKey),
+            IrLoadElementOperation element => Places(Points(Slice(element.ReceiverValue).Array), null, PathValue.ELEMENT, typeKey),
+            IrStoreElementOperation element => Places(Points(Slice(element.ReceiverValue).Array), null, PathValue.ELEMENT, typeKey),
+            _ => []
+        };
+
+        /// <summary>What a copy of a struct held by value is taken from: the storage a load reads whole, the struct an assignment, a phi
+        /// or a conversion takes, the box an unboxing reads, what a by-value parameter is handed, what a captured variable holds. A new
+        /// value and a default are taken from nothing.</summary>
+        /// <param name="value">A value <see cref="IsStructCopy"/> holds a copy in.</param>
+        private HashSet<AbstractValue> CopySources(IrValue value)
+        {
+            if (_parameterOrdinals.TryGetValue(value.Id, out var ordinal))
+                return [new ParameterValue(ordinal)];
+            return _definitions.GetValueOrDefault(value.Id) switch
+            {
+                IrLoadFieldOperation or IrLoadElementOperation => StoragePlaces(_definitions[value.Id], value.StructTypeKey!),
+                IrLoadReferenceOperation load => [.. _points[load.AddressValue]],
+                IrAssignOperation assign => [.. _points[assign.SourceValue]],
+                IrPhiOperation phi => phi.Inputs.SelectMany(input => _points[input.Value]).ToHashSet(),
+                IrConvertOperation convert => [.. _points[convert.OperandValue]],
+                IrLoadCapturedOperation { Cell: { } read } => [new CapturedValue(read)],
+                IrAllocateOperation or null => [],
+                // Any other operation hands over what it points to, which is nothing the analysis follows.
+                _ => OwnPoints(value)
+            };
+        }
 
         private HashSet<AbstractValue> EvaluatePoints(IrValue value)
         {
             if (value.Kind == IrValueKind.Receiver)
                 return [ThisValue.Instance];
-            if (CapturedKey(value) is { } key)
-                return [new CapturedValue(key)];
+            // A struct kept in a capture cell is the cell's storage in the closure, to the body that declares it and to every lambda
+            // and local function that captures it (R1, R4).
+            if (value.StructTypeKey is { } kept && CellOf(value) is { } storage)
+                return [CellStorage(storage, kept)];
+            if (CapturedCell(value) is { } cell)
+                return [new CapturedValue(cell)];
+            // A struct held by value is a copy of its own, filled from what it was taken from (R2); one in storage is that storage (R1).
+            // A Nullable copied from nothing that holds a struct is empty, as the null it was taken from.
+            if (IsStructCopy(value))
+                return IsNullable(value) && CopySources(value).Count == 0 ? [] : [new StructCopyValue(value.Id, value.StructTypeKey!)];
+            if (value is { IsReference: true, StructTypeKey: { } stored } &&
+                _definitions.GetValueOrDefault(value.Id) is IrAddressFieldOperation or IrAddressElementOperation)
+                return StoragePlaces(_definitions[value.Id], stored);
+            return OwnPoints(value);
+        }
+
+        /// <summary>The points of a value other than a struct's copy or storage: what it is, through the operation defining it.</summary>
+        /// <param name="value">The value.</param>
+        private HashSet<AbstractValue> OwnPoints(IrValue value)
+        {
             if (_parameterOrdinals.TryGetValue(value.Id, out var ordinal))
                 return [new ParameterValue(ordinal)];
             if (!_definitions.TryGetValue(value.Id, out var definition))
@@ -1790,6 +2208,14 @@ public static class MethodSummaryBuilder
 
             return definition switch
             {
+                // A box is a new object holding a copy of the struct, where there is a struct to box: an empty Nullable boxes to null,
+                // which the heap decides where what reaches the boxing is not known here (R2).
+                IrBoxOperation box => _points[box.OperandValue].Count == 0
+                    ? []
+                    : [new AllocationValue(new CreationSite(_body.BodyId, box.Id, box.BoxedTypeKey, box.SiteOrdinal))
+                    {
+                        Present = IsNullable(_values[box.OperandValue]) ? Present(box.OperandValue, []) : null
+                    }],
                 _ when _sameTasks.TryGetValue(value.Id, out var same) => [.. _points[same]],
                 // What a Result join's call gives is the completion value of the task it waits for, as an await's result is (R1).
                 _ when _resultJoins.TryGetValue(value.Id, out var read) => [new AwaitResultValue(read.Id)],
@@ -1860,13 +2286,25 @@ public static class MethodSummaryBuilder
 
         private HashSet<ValueDependency> EvaluateDependencies(IrValue value)
         {
-            if (CapturedKey(value) is { } key)
-                return [new CapturedDependency(key)];
+            if (CapturedCell(value) is { } cell)
+                return [new CapturedDependency(cell)];
             if (_parameterOrdinals.TryGetValue(value.Id, out var ordinal))
                 return [new ParameterDependency(ordinal)];
             if (!_definitions.TryGetValue(value.Id, out var definition))
                 return [];
 
+            var dependencies = OperationDependencies(value, definition);
+            // A value computed from a variable taken from its capture cell depends on that read of the cell (R4).
+            if (ReadsCell(definition))
+                dependencies.Add(new LoadDependency(definition.Id));
+            return dependencies;
+        }
+
+        /// <summary>What a value depends on through the operation defining it.</summary>
+        /// <param name="value">The value.</param>
+        /// <param name="definition">The operation defining it.</param>
+        private HashSet<ValueDependency> OperationDependencies(IrValue value, IrOperation definition)
+        {
             return definition switch
             {
                 IrAssignOperation assign => [.. _dependencies[assign.SourceValue]],
@@ -1910,13 +2348,79 @@ public static class MethodSummaryBuilder
                       .ToHashSet();
 
         /// <summary>The bases of an access: the limit is on the access path, the base path and the accessed field together, so a base
-        /// the field would grow past the limit is the wildcard of the region its path starts from (R5).</summary>
+        /// the field would grow past the limit is the wildcard of the region its path starts from (R5). The fields of the structs a
+        /// struct's storage is reached through count as segments of that path (R1).</summary>
         /// <param name="bases">The objects the access is made on.</param>
         private HashSet<AbstractValue> AccessBases(IEnumerable<AbstractValue> bases) =>
-            bases.Select(value => value is PathValue { IsWildcard: false } path && path.Segments.Count >= _limits.MaxAccessPathDepth
-                             ? new PathValue(path.Base, [PathValue.WILDCARD])
-                             : value)
+            bases.Select(value => value switch
+                 {
+                     PathValue { IsWildcard: false } path when path.Segments.Count >= _limits.MaxAccessPathDepth =>
+                         new PathValue(path.Base, [PathValue.WILDCARD]),
+                     StructPlaceValue when PlaceDepth(value) is var (root, depth) && depth >= _limits.MaxAccessPathDepth =>
+                         root is PathValue { IsWildcard: true } ? root : new PathValue(root, [PathValue.WILDCARD]),
+                     _ => value
+                 })
                  .ToHashSet();
+
+        /// <summary>What a struct's storage is reached from, past every struct field and the path of the object holding it, and how many
+        /// field segments lead there: those of the object's path and those of the struct fields, a cell not among them.</summary>
+        /// <param name="value">A base of an access.</param>
+        private static (AbstractValue Root, int Depth) PlaceDepth(AbstractValue value) => value switch
+        {
+            StructPlaceValue place when PlaceDepth(place.Base) is var (root, depth) =>
+                (root, depth + place.Slot.Split(FieldSlot.PATH_SEPARATOR).Count(segment => segment != PathValue.ELEMENT)),
+            PathValue { IsWildcard: false } path => (path.Base, path.Segments.Count),
+            _ => (value, 0)
+        };
+
+        /// <summary>The cell of a collection a field access's struct storage stands in, where the body names it: the cell whose address
+        /// the receiver is, through the struct fields between them (R1). Its selector names the cell the access touches a field of the
+        /// struct in. Null where the storage is in no cell the body names.</summary>
+        /// <param name="receiver">The receiver of the field access.</param>
+        private StorageCellOf? StorageCell(int? receiver) =>
+            StorageCells(receiver, []).Distinct().ToArray() is [{ } one] ? one : null;
+
+        /// <summary>The cells each alternative of a field access's struct storage stands in (<see cref="StorageCell"/>), null for one in
+        /// no cell the body names. A value already followed adds nothing: a <c>ref</c> local reassigned in a loop reaches its own phi
+        /// back, and what that phi names comes from its other inputs.</summary>
+        /// <param name="receiver">The receiver of the field access.</param>
+        /// <param name="seen">The values already followed.</param>
+        private IEnumerable<StorageCellOf?> StorageCells(int? receiver, HashSet<int> seen)
+        {
+            for (var value = receiver; value is int current && _values[current].StructTypeKey is not null;)
+            {
+                if (!seen.Add(current))
+                    return [];
+                switch (Definition(current))
+                {
+                    case IrAddressElementOperation element when Cell(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } cell:
+                        var oneCell = element.IndexValues.Count == 1 && element.NamesOneCell;
+                        return [new StorageCellOf(cell.Selector, cell.Term, oneCell ? ParameterOf(element.IndexValues[0]).Ordinal : null,
+                                                  oneCell ? ParameterOf(element.IndexValues[0]).Width : null)];
+                    case IrAddressFieldOperation { ReceiverValue: int holder }:
+                        value = holder;
+                        break;
+                    case IrAssignOperation assign:
+                        value = assign.SourceValue;
+                        break;
+                    // A conditional `ref` names the cell its branches name, where every branch naming storage names the same one; a
+                    // branch taking a copy names no location (R2).
+                    case IrPhiOperation phi:
+                        return phi.Inputs.Where(input => !IsCopyReference(input.Value)).SelectMany(input => StorageCells(input.Value, seen)).ToArray();
+                    default:
+                        return [null];
+                }
+            }
+
+            return [null];
+        }
+
+        /// <summary>The cell a struct's storage stands in (<see cref="StorageCell"/>).</summary>
+        /// <param name="Selector">Which cell it is.</param>
+        /// <param name="Term">The expression naming the cell, or null where none is kept.</param>
+        /// <param name="Parameter">The ordinal of the parameter naming the cell, where one does.</param>
+        /// <param name="Width">The narrowest width the index passes through from that parameter.</param>
+        private sealed record StorageCellOf(ElementSelector Selector, ValueTerm? Term, int? Parameter, int? Width);
 
         private HashSet<AbstractValue> Extend(IEnumerable<AbstractValue> bases, string segment) =>
             bases.Select(@base => Extend(@base, segment)).ToHashSet();
@@ -1943,7 +2447,7 @@ public static class MethodSummaryBuilder
                     captured["this"] = _points[bound];
                 else if (create.TargetBodyId is { } target && receiver is not null && UsesReceiver(target, []))
                     captured["this"] = new HashSet<AbstractValue> { ThisValue.Instance };
-                delegates[Site(create)] = new DelegateCreationValue(Site(create), Target(create), captured);
+                delegates[Site(create)] = new DelegateCreationValue(Site(create), Target(create), captured) { CapturedCells = create.CapturedCells };
             }
 
             return delegates;
@@ -2081,7 +2585,8 @@ public static class MethodSummaryBuilder
                 MemberSelectorTerm = oneCell ? Shifted(Term(indices[0]), slice.Shift) : null,
                 MemberSelectorParameter = oneCell ? ParameterOf(indices[0]).Ordinal : null,
                 MemberSelectorWidth = oneCell ? ParameterOf(indices[0]).Width : null,
-                MemberValueDependencies = dependencies
+                MemberValueDependencies = dependencies,
+                ValueId = slice.Array
             };
         }
 
@@ -2112,18 +2617,51 @@ public static class MethodSummaryBuilder
             return CallCollection(value) is { } call ? new ArgumentCollection(call, slice.Shift, slice.Length) : null;
         }
 
-        private IReadOnlyList<ReferenceTarget> References(int value, int depth = 0)
+        private IReadOnlyList<ReferenceTarget> References(int value, int depth = 0) => References(value, depth, []) ?? [];
+
+        /// <summary>The places a reference may point to (<see cref="References(int, int)"/>), null for a value the walk is already
+        /// following: a <c>ref</c> local reassigned in a loop reaches its own phi back, which names nothing its other inputs do not.</summary>
+        /// <param name="value">The reference value.</param>
+        /// <param name="depth">How many definitions the walk has followed to reach it.</param>
+        /// <param name="following">The values on the walk's path to it.</param>
+        private IReadOnlyList<ReferenceTarget>? References(int value, int depth, HashSet<int> following)
+        {
+            if (!following.Add(value))
+                return null;
+            try
+            {
+                return FollowedReferences(value, depth, following);
+            }
+            finally
+            {
+                following.Remove(value);
+            }
+        }
+
+        /// <summary>The places a reference the walk has just reached may point to (<see cref="References(int, int, HashSet{int})"/>).</summary>
+        /// <param name="value">The reference value.</param>
+        /// <param name="depth">How many definitions the walk has followed to reach it.</param>
+        /// <param name="following">The values on the walk's path to it, itself included.</param>
+        private IReadOnlyList<ReferenceTarget>? FollowedReferences(int value, int depth, HashSet<int> following)
         {
             if (depth >= _limits.MaxAccessPathDepth)
                 return [];
             if (_parameterOrdinals.TryGetValue(value, out var ordinal) &&
                 _body.Parameters.Any(parameter => parameter.Ordinal == ordinal && parameter.RefKind != IrRefKind.None))
                 return [new ReferenceParameter(ordinal)];
+            // A struct a capture cell holds is the cell's storage, which a reference to the variable names (R1, R4).
+            if (_values[value].StructTypeKey is not null && CellOf(_values[value]) is { } captured)
+                return [new ReferenceCell(captured.Field, CellBases(captured), null, null, false)];
             if (!_definitions.TryGetValue(value, out var definition))
                 return [];
 
             return definition switch
             {
+                // A field of a struct a reference names is the place that reference names, one field further along its path (R1).
+                IrAddressFieldOperation { ReceiverValue: int holder } field
+                    when _values[holder] is { IsReference: true, StructTypeKey: not null } &&
+                         References(holder, depth + 1, following) is { Count: > 0 } outer && outer.All(target => target is ReferenceCell) =>
+                    outer.Cast<ReferenceCell>().Select(cell => (ReferenceTarget)(cell with { StructPath = [.. cell.StructPath, field.Field] })).ToArray(),
                 IrAddressFieldOperation field =>
                     [new ReferenceCell(field.Field, AccessBases(Points(field.ReceiverValue)), null, null, false)],
                 IrAddressElementOperation element when Cell(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } cell =>
@@ -2131,15 +2669,26 @@ public static class MethodSummaryBuilder
                 IrAddressElementOperation element when ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } parameter =>
                     [parameter],
                 IrAddressElementOperation element when CallCollection(element.ReceiverValue) is { } call => [call],
-                IrAssignOperation assign => References(assign.SourceValue, depth + 1),
-                IrPhiOperation phi => Alternatives(phi.Inputs.Select(input => References(input.Value, depth + 1)).ToArray()),
-                IrConvertOperation convert => References(convert.OperandValue, depth + 1),
+                IrAssignOperation assign => References(assign.SourceValue, depth + 1, following),
+                // A reference to a struct copy names no location, which is no place left unproven either (R2). An input the walk is
+                // already following is no alternative of its own; a phi whose every input is one adds nothing.
+                IrPhiOperation phi when phi.Inputs.Where(input => !IsCopyReference(input.Value)).ToArray() is var inputs =>
+                    inputs.Select(input => References(input.Value, depth + 1, following)).ToArray() is var alternatives &&
+                    inputs.Length > 0 && alternatives.All(targets => targets is null)
+                        ? null
+                        : Alternatives(alternatives.OfType<IReadOnlyList<ReferenceTarget>>().ToArray()),
+                IrConvertOperation convert => References(convert.OperandValue, depth + 1, following),
                 // A reference a call with no body returns points where nothing says (`Unsafe.As<TFrom, TTo>(ref …)`): a place
                 // nothing proves, counted rather than read as no reference at all (R3).
                 IrCallOperation call when call.ResultValue == value => IsOpaque(call) ? [ReferenceUnproven.Instance] : [new ReferenceCall(call.Id)],
                 _ => []
             };
         }
+
+        /// <summary>Whether a value refers to nothing but copies of a struct held by value, which are no location.</summary>
+        /// <param name="value">A value a reference is joined from.</param>
+        private bool IsCopyReference(int value) =>
+            _values[value].StructTypeKey is not null && Points(value) is { Count: > 0 } points && points.All(point => point is StructCopyValue);
 
         /// <summary>The places a reference that joins several may point to. Where some alternative names a place and another names
         /// none, the unnamed one is a place nothing proves: it is kept as such, so it is counted rather than lost behind the others
@@ -2690,6 +3239,38 @@ public static class MethodSummaryBuilder
         /// <summary>The type the body records for a value, null where it records none.</summary>
         /// <param name="value">The value whose type is read.</param>
         private string? TypeOf(int value) => _values.TryGetValue(Origin(value), out var named) ? named.Type : null;
+
+        /// <summary>The fields of a struct copy a store overwrites before anything else uses the copy (<see cref="StructCopy.Overwritten"/>):
+        /// a store of the field on the copy itself that dominates every other operation taking the copy as an operand, so no path reads the
+        /// field, takes the copy whole or a reference to it before the store (R2). A loop or a handler the store does not dominate keeps
+        /// the field.</summary>
+        /// <param name="value">The value holding the copy.</param>
+        private HashSet<string> Overwritten(int value)
+        {
+            var overwritten = new HashSet<string>(StringComparer.Ordinal);
+            var uses = _operations.Where(operation => operation.Operands.Contains(value)).ToArray();
+            foreach (var store in uses.OfType<IrStoreFieldOperation>().Where(store => store.ReceiverValue == value))
+            {
+                if (uses.All(use => use == store || Dominates(store.Id, use.Id)))
+                    overwritten.Add(FieldSlot.Key(store.Field));
+            }
+
+            return overwritten;
+        }
+
+        /// <summary>Whether every path to one operation passes another first: an earlier one of the same block, or one in a block that
+        /// dominates it.</summary>
+        /// <param name="first">The operation that must come first.</param>
+        /// <param name="second">The operation reached.</param>
+        private bool Dominates(int first, int second)
+        {
+            if (!BlockOf.TryGetValue(first, out var from) || !BlockOf.TryGetValue(second, out var to))
+                return false;
+            if (from != to)
+                return Dominators[to].Contains(from);
+            var operations = _body.Blocks.Single(block => block.Ordinal == from).Operations;
+            return operations.ToList().FindIndex(operation => operation.Id == first) < operations.ToList().FindIndex(operation => operation.Id == second);
+        }
 
         private IReadOnlyDictionary<int, int> BlockOf =>
             _blockOf ??= _body.Blocks.SelectMany(block => block.Operations.Select(operation => (operation.Id, block.Ordinal)))

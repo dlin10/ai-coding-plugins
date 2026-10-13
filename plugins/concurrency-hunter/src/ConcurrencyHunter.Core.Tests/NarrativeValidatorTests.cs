@@ -1,6 +1,8 @@
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Execution;
+using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Narrative;
 using Xunit;
 
@@ -579,6 +581,229 @@ public sealed class NarrativeValidatorTests
 
         Assert.Equal(["inventedSymbol:PersistentDictionary"], verdict.Reasons);
     }
+
+    private const string STORE = "di:Ns.Store@Singleton";
+    private const string WORKER_CLOSURE = "closure:Ns.Worker.Run(int)";
+
+    /// <summary>A field of a struct kept in a field is named by the holder's type with the whole path, or by the end of it (R10).</summary>
+    [Fact]
+    public void Struct_path_holder_type_with_the_whole_path_is_accepted()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Both change `Store._state.Count`, `Ns.Store._state.Count`, `_state.Count` and `Store.Count`."),
+            GroupScope(OnPath(STORE, ["_state", "Count"])));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    [Fact]
+    public void Struct_path_through_a_cell_is_accepted()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Both change `Store._items[0].Count`, `Ns.Store._items[0].Count`, `_items[0].Count` and `_items.[0].Count`."),
+            GroupScope(OnPath(STORE, ["_items", "[0]", "Count"])));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    /// <summary>A field the path does not hold is an invention whether the snippet carries the cell or not; dropping the selector
+    /// names no path at all.</summary>
+    [Fact]
+    public void Struct_path_with_an_invented_field_is_rejected()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Not `_items[0].Total`, `Store._items[0].Count.Total`, `Store._items.Total` or `Store._items.Count`."),
+            GroupScope(OnPath(STORE, ["_items", "[0]", "Count"])));
+
+        Assert.Equal(["inventedSymbol:_items[0].Total", "inventedSymbol:Store._items[0].Count.Total", "inventedSymbol:Store._items.Total",
+                      "inventedSymbol:Store._items.Count"],
+                     verdict.Reasons);
+    }
+
+    /// <summary>The selector is checked exactly as the path prints it: another index, an unknown cell or a key is not the proven
+    /// cell.</summary>
+    [Fact]
+    public void Struct_path_with_an_invented_selector_is_rejected()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Not `_items[1].Count`, `_items[?].Count` or `Store._items[\"0\"].Count`."),
+            GroupScope(OnPath(STORE, ["_items", "[0]", "Count"])));
+
+        Assert.Equal(["inventedSymbol:_items[1].Count", "inventedSymbol:_items[?].Count", "inventedSymbol:Store._items[\"0\"].Count"],
+                     verdict.Reasons);
+    }
+
+    /// <summary>A group's narrative may name only the paths of its own findings; the summary may name any finding's.</summary>
+    [Fact]
+    public void Struct_path_no_finding_of_the_scope_holds_is_rejected()
+    {
+        var result = CreateResult(OnPath(STORE, ["_items", "[0]", "Count"]), OnPath(STORE, ["_other", "[0]", "Count"], "F2", "G2"));
+
+        var group = NarrativeValidator.Validate(ValidGroupText("Not `_other[0].Count`."), NarrativeScope.ForGroup(result, "G1", 3));
+        var summary = NarrativeValidator.Validate("Both `_items[0].Count` and `_other[0].Count` [E:F1.A] [E:F2.A].", NarrativeScope.ForSummary(result));
+
+        Assert.Equal(["inventedSymbol:_other[0].Count"], group.Reasons);
+        Assert.True(summary.Accepted, string.Join(", ", summary.Reasons));
+    }
+
+    /// <summary>A selector's brackets match outside string literals: a key holding brackets is one selector, checked like any
+    /// other, so the critic's invented key is rejected (R10).</summary>
+    [Fact]
+    public void Struct_path_with_a_string_key_holding_brackets_is_checked()
+    {
+        var invented = NarrativeValidator.Validate(ValidGroupText("Not `_items[\"invented[0]\"].Count`."),
+                                                   GroupScope(OnPath(STORE, ["_items", "[0]", "Count"])));
+        var named = NarrativeValidator.Validate(
+            ValidGroupText("Both change `_items[\"a[0]\"].Count` and `Store._items[\"a[0]\"].Count`, not `_items[\"a[1]\"].Count`."),
+            GroupScope(OnPath(STORE, ["_items", "[\"a[0]\"]", "Count"])));
+
+        Assert.Equal(["inventedSymbol:_items[\"invented[0]\"].Count"], invented.Reasons);
+        Assert.Equal(["inventedSymbol:_items[\"a[1]\"].Count"], named.Reasons);
+    }
+
+    /// <summary>A key is written as a C# string literal and compared as the key itself: an escaped quote names the quote the key
+    /// holds, and a `#` in a key is no numbered variable.</summary>
+    [Fact]
+    public void Struct_path_with_an_escaped_quote_in_a_string_key_is_compared_as_the_key()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Both change `_items[\"a\\\"b\"].Count` and `_items[\"a#2\"]`, not `_items[\"a\\\"c\"].Count` or `_items[\"a#3\"]` [E:F2.A]."),
+            GroupScope(OnPath(STORE, ["_items", "[\"a\"b\"]", "Count"]), OnPath(STORE, ["_items", "[\"a#2\"]"], "F2")));
+
+        Assert.Equal(["inventedSymbol:_items[\"a\\\"c\"].Count", "inventedSymbol:_items[\"a#3\"]"], verdict.Reasons);
+    }
+
+    [Fact]
+    public void Struct_path_with_a_string_key_a_finding_holds_is_accepted()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Both change `Ns.Store._items[\"k]\"].Count`, `_items[\"k]\"].Count` and `_items.[\"k]\"].Count` [E:F2.A]."),
+            GroupScope(OnPath(STORE, ["_items", "[\"k]\"]", "Count"]), OnPath(STORE, ["_items", "[\"@k\"]", "Count"], "F2")));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    [Fact]
+    public void Struct_path_with_an_invented_string_key_is_rejected()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Not `_items[\"k\"].Count`, `_items[\"@k]\"].Count` or `Store._items[\"k]\"].Total`."),
+            GroupScope(OnPath(STORE, ["_items", "[\"k]\"]", "Count"])));
+
+        Assert.Equal(["inventedSymbol:_items[\"k\"].Count", "inventedSymbol:_items[\"@k]\"].Count", "inventedSymbol:Store._items[\"k]\"].Total"],
+                     verdict.Reasons);
+    }
+
+    /// <summary>A key written with a <c>\x</c> or <c>\U</c> escape is read as C# reads it and checked as the key it names, and one
+    /// with an escape C# does not have is checked by its spelling: neither leaves the path unchecked (R10).</summary>
+    [Fact]
+    public void Struct_path_with_a_hex_or_long_unicode_escape_in_an_invented_key_is_rejected()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Not `_items[\"\\x31\"].Invented`, `_items[\"\\U00000031\"].Invented` or `_items[\"\\q\"].Count`."),
+            GroupScope(OnPath(STORE, ["_items", "[0]", "Count"])));
+
+        Assert.Equal(["inventedSymbol:_items[\"\\x31\"].Invented", "inventedSymbol:_items[\"\\U00000031\"].Invented",
+                      "inventedSymbol:_items[\"\\q\"].Count"],
+                     verdict.Reasons);
+    }
+
+    [Fact]
+    public void Struct_path_with_a_held_key_spelled_with_an_escape_is_accepted()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Both change `_items[\"\\x31\"].Count`, `_items[\"\\x0031\"].Count`, `_items[\"\\u0031\"].Count` and " +
+                           "`Store._items[\"\\U00000031\"].Count`, not `_items[\"\\x32\"].Count`."),
+            GroupScope(OnPath(STORE, ["_items", "[\"1\"]", "Count"])));
+
+        Assert.Equal(["inventedSymbol:_items[\"\\x32\"].Count"], verdict.Reasons);
+    }
+
+    /// <summary>A snippet that is no identifier and no path stays unchecked: an expression, a verdict, a region's text and a
+    /// citation.</summary>
+    [Fact]
+    public void Struct_path_check_leaves_other_snippets_unchecked()
+    {
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Not `value + 1`, `different-identity`, `alloc:Ns.Store.Post()#Ns.Point#2`, `closure:Ns.Worker.Run(int)` or `[E:F1.A]`."),
+            GroupScope(OnPath(STORE, ["_items", "[0]", "Count"])));
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    /// <summary>A captured variable is named alone or after its closure's member, numbered as the path numbers it, with the fields of
+    /// a struct it holds after it (R4).</summary>
+    [Fact]
+    public void Capture_cell_captured_variables_of_the_scope_are_accepted()
+    {
+        var scope = GroupScope(OnPath(WORKER_CLOSURE, ["count#2"]), OnPath(WORKER_CLOSURE, ["note", "Total"], "F2"));
+
+        var verdict = NarrativeValidator.Validate(
+            ValidGroupText("Both change `count#2`, `Worker.Run.count#2`, `Ns.Worker.Run.count#2`, `note`, `Run.note`, `note.Total` and " +
+                           "`Worker.Run.note.Total` [E:F2.A]."),
+            scope);
+
+        Assert.True(verdict.Accepted, string.Join(", ", verdict.Reasons));
+    }
+
+    /// <summary>A variable the closure does not hold, or another of the same name, is an invention.</summary>
+    [Fact]
+    public void Capture_cell_invented_variable_is_rejected()
+    {
+        var verdict = NarrativeValidator.Validate(ValidGroupText("Not `count#3`, `count`, `total#2` or `Run.count#2.Total`."),
+                                                  GroupScope(OnPath(WORKER_CLOSURE, ["count#2"])));
+
+        Assert.Equal(["inventedSymbol:count#3", "inventedSymbol:count", "inventedSymbol:total#2", "inventedSymbol:Run.count#2.Total"],
+                     verdict.Reasons);
+    }
+
+    /// <summary>The closure of a member whose findings are in another group is outside a group's narrative.</summary>
+    [Fact]
+    public void Capture_cell_closure_of_a_member_outside_the_scope_is_rejected()
+    {
+        var result = CreateResult(OnPath(WORKER_CLOSURE, ["count#2"]), OnPath("closure:Ns.Other.Go()", ["count#2"], "F2", "G2"));
+
+        var verdict = NarrativeValidator.Validate(ValidGroupText("Not `Other.Go.count#2` or `Go.count#2`, only `Worker.Run.count#2`."),
+                                                  NarrativeScope.ForGroup(result, "G1", 3));
+
+        Assert.Equal(["inventedSymbol:Other.Go.count#2", "inventedSymbol:Go.count#2"], verdict.Reasons);
+    }
+
+    /// <summary>The ownership kind the resource text gives may stand in backticks; one no resource of the scope has may not.</summary>
+    [Fact]
+    public void Capture_cell_ownership_kind_of_the_scope_is_accepted()
+    {
+        var finding = OnPath(WORKER_CLOSURE, ["count#2"]);
+        finding = finding with
+        {
+            AccessA = finding.AccessA with { Ownership = OwnershipKind.TreeConfined },
+            AccessB = finding.AccessB with { Ownership = OwnershipKind.TreeConfined }
+        };
+
+        var verdict = NarrativeValidator.Validate(ValidGroupText("The closure is `TreeConfined`, not `Escaped`."), GroupScope(finding));
+
+        Assert.Equal(["inventedSymbol:Escaped"], verdict.Reasons);
+    }
+
+    /// <summary>A finding whose resource is on <paramref name="region"/> with the access path <paramref name="path"/>.</summary>
+    /// <param name="region">The resource's region display.</param>
+    /// <param name="path">The resource's access path, its first segment the holder's own field.</param>
+    /// <param name="findingId">The finding's id.</param>
+    /// <param name="groupId">The id of the group the finding is in.</param>
+    private static Finding OnPath(string region, IReadOnlyList<string> path, string findingId = "F1", string groupId = "G1")
+    {
+        var finding = CreateFinding(findingId, groupId);
+        var resource = new AccessResource("Fixture", FindingTestData.SCOPE, region, path, new MemberKey("Ns.Store", path[0], IrFieldKind.Field), region);
+        return finding with
+        {
+            Resource = resource,
+            AccessA = finding.AccessA with { Resource = resource },
+            AccessB = finding.AccessB with { Resource = resource }
+        };
+    }
+
+    private static NarrativeScope GroupScope(params Finding[] findings) =>
+        NarrativeScope.ForGroup(CreateResult(findings), findings[0].GroupId, 3);
 
     private static string ValidGroupText(string body = "Race explanation.", string citation = "F1.A") => $"""
         {body}

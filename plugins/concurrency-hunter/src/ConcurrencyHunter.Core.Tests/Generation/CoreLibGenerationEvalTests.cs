@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ConcurrencyHunter.Frontend;
+using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
 using Xunit;
@@ -18,16 +19,16 @@ public sealed class CoreLibGenerationEvalTests
     private static readonly string[] Candidates =
     [
         "M:System.ApplicationId.Equals(System.Object)",
-        "M:System.Collections.ArrayList.get_IsSynchronized",
-        "M:System.ComponentModel.DefaultValueAttribute.Equals(System.Object)",
-        "M:System.Globalization.GregorianCalendar.GetDaysInYear(System.Int32,System.Int32)",
-        "M:System.Globalization.GregorianCalendar.set_TwoDigitYearMax(System.Int32)",
-        "M:System.Reflection.ExceptionHandlingClause.get_TryLength",
+        "M:System.Collections.Generic.GenericEqualityComparer`1.GetHashCode",
+        "M:System.ComponentModel.EditorBrowsableAttribute.Equals(System.Object)",
+        "M:System.Globalization.NumberFormatInfo.get_CurrencyDecimalDigits",
+        "M:System.Globalization.NumberFormatInfo.set_PercentSymbol(System.String)",
         "M:System.ResolveEventArgs.#ctor(System.String,System.Reflection.Assembly)",
+        "M:System.Text.StringBuilder.get_Capacity",
+        "M:System.Text.StringBuilder.get_Chars(System.Int32)",
         "M:System.Threading.CancellationToken.ThrowIfCancellationRequested",
         "M:System.Threading.CancellationTokenRegistration.op_Inequality(System.Threading.CancellationTokenRegistration,System.Threading.CancellationTokenRegistration)",
-        "M:System.TupleExtensions.Deconstruct``11(System.Tuple{``0,``1,``2,``3,``4,``5,``6,System.Tuple{``7,``8,``9,``10}},``0@,``1@,``2@,``3@,``4@,``5@,``6@,``7@,``8@,``9@,``10@)",
-        "M:System.Tuple`8.GetHashCode"
+        "M:System.TupleExtensions.Deconstruct``11(System.Tuple{``0,``1,``2,``3,``4,``5,``6,System.Tuple{``7,``8,``9,``10}},``0@,``1@,``2@,``3@,``4@,``5@,``6@,``7@,``8@,``9@,``10@)"
     ];
     private static readonly Lazy<GenerationTrace[]> Runs = new(() => Candidates.Select(Trace).ToArray());
 
@@ -97,6 +98,76 @@ public sealed class CoreLibGenerationEvalTests
         {
             var error = Record.Exception(() => IrLowering.Lower(method, compilation, Path.GetTempPath(), CancellationToken.None));
             Assert.True(error is null, $"{method.GetDocumentationCommentId()}: {error}");
+        }
+    }
+
+    /// <summary>A struct constructor that stores into its own fields writes the storage the caller constructs into, the struct receiver's
+    /// own, so it answers <c>vocabulary</c> — never a model that leaves the store out, nor one whose argument keeps itself (R7).</summary>
+    [RequiresModelEvalsFact]
+    public void Every_struct_constructor_storing_into_its_own_fields_answers_vocabulary()
+    {
+        string[] members =
+        [
+            "M:System.ValueTuple`1.#ctor(`0)",
+            "M:System.Runtime.InteropServices.ArrayWithOffset.#ctor(System.Object,System.Int32)",
+            "M:System.Runtime.Serialization.StreamingContext.#ctor(System.Runtime.Serialization.StreamingContextStates,System.Object)",
+            "M:System.Reflection.CustomAttributeNamedArgument.#ctor(System.Reflection.MemberInfo,System.Reflection.CustomAttributeTypedArgument)",
+            "M:System.ValueTuple`8.#ctor(`0,`1,`2,`3,`4,`5,`6,`7)",
+            "M:System.Reflection.CustomAttributeTypedArgument.#ctor(System.Type,System.Object)",
+            "M:System.Text.StringBuilder.AppendInterpolatedStringHandler.#ctor(System.Int32,System.Int32,System.Text.StringBuilder)"
+        ];
+
+        foreach (var member in members)
+        {
+            var answer = Trace(member).Answer;
+            Assert.True(answer.Model is null && answer.ModelReason == ModelReasons.VOCABULARY,
+                        $"{member}: {answer.Reason} / {answer.ModelReason}: {answer.Detail}");
+            Assert.Contains(answer.Causes, cause => cause.Code == ModelCauses.STRUCT_STORAGE_WRITE);
+        }
+    }
+
+    /// <summary>A <c>CompareTo(object)</c> of a CoreLib struct that unboxes its argument through a pattern reads the user's object, the box's
+    /// whole storage, as its step-10 answer did (R2).</summary>
+    [RequiresModelEvalsFact]
+    public void Every_struct_CompareTo_object_unboxing_its_argument_reads_it()
+    {
+        (string Member, string Parameter)[] members =
+        [
+            ("M:System.DateOnly.CompareTo(System.Object)", "value"),
+            ("M:System.Guid.CompareTo(System.Object)", "value"),
+            ("M:System.Int128.CompareTo(System.Object)", "value"),
+            ("M:System.UInt128.CompareTo(System.Object)", "value"),
+            ("M:System.TimeOnly.CompareTo(System.Object)", "value"),
+            ("M:System.Runtime.InteropServices.NFloat.CompareTo(System.Object)", "obj")
+        ];
+
+        foreach (var (member, parameter) in members)
+        {
+            var answer = Trace(member).Answer;
+            Assert.True(answer.Model is not null, $"{member}: {answer.Reason} / {answer.ModelReason}: {answer.Detail}");
+            Assert.Equal([LibraryEffect.DeepReadOf(parameter)], answer.Model.Effects);
+        }
+    }
+
+    /// <summary>The Nullable comparers that call the default comparer of T, which CoreLib builds by reflection through an extern, make a
+    /// call on a receiver the analysis cannot follow, so each is refused rather than given a model that leaves the user's comparison out.
+    /// <c>NullableEqualityComparer&lt;T&gt;.GetHashCode(T?)</c> calls <c>obj.GetHashCode()</c> and no default comparer, so it is not
+    /// among them.</summary>
+    [RequiresModelEvalsFact]
+    public void Every_Nullable_comparer_calling_the_default_comparer_is_refused()
+    {
+        string[] members =
+        [
+            "M:System.Collections.Generic.NullableComparer`1.Compare(System.Nullable{`0},System.Nullable{`0})",
+            "M:System.Collections.Generic.NullableEqualityComparer`1.Equals(System.Nullable{`0},System.Nullable{`0})"
+        ];
+
+        foreach (var member in members)
+        {
+            var answer = Trace(member).Answer;
+            Assert.True(answer.Model is null && answer.ModelReason == ModelReasons.UNKNOWN_TOUCH,
+                        $"{member}: {answer.Reason} / {answer.ModelReason}: {answer.Detail}");
+            Assert.Contains(answer.Causes, cause => cause.Code == ModelCauses.CALL_RECEIVER_UNFOLLOWED);
         }
     }
 

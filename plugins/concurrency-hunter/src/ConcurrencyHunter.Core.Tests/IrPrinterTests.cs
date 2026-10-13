@@ -75,6 +75,7 @@ public sealed class IrPrinterTests
             new IrCompareOperation(nextOperation++, nextValue++, IrComparisonKind.Equality, 0, 1, null, Provenance),
             new IrConvertOperation(nextOperation++, nextValue++, 0, "System.Int64",
                                    IrConversionKind.Numeric, Provenance),
+            new IrBoxOperation(nextOperation++, nextValue++, 0, "Fixture:Fixture.State", Provenance),
             new IrUnknownOperation(nextOperation, nextValue, "Dynamic", "unresolved", [0], Provenance)
         ]);
         // A kind missing from the list above is a kind the printer is never asked to print.
@@ -92,7 +93,7 @@ public sealed class IrPrinterTests
                      "assign", "phi", "allocate", "load-field", "store-field", "load-element",
                      "store-element", "address-field", "address-element", "load-reference", "store-reference",
                      "create-delegate", "capture", "load-captured", "escape", "return", "await", "yield",
-                     "spawn", "thread-work", "join", "when-all", "unwrap", "task", "timer", "acquire", "release", "atomic", "compute", "combine-delegates", "remove-delegates", "compare", "convert", "unknown"
+                     "spawn", "thread-work", "join", "when-all", "unwrap", "task", "timer", "acquire", "release", "atomic", "compute", "combine-delegates", "remove-delegates", "compare", "convert", "box", "unknown"
                  })
         {
             Assert.Contains($" {form} ", text);

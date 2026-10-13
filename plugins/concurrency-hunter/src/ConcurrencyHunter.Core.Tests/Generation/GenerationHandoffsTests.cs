@@ -297,7 +297,7 @@ public sealed class GenerationHandoffsTests
     private static HeapSolution Copy(HeapSolution heap, IReadOnlyList<DelegateHandoff>? delegateHandoffs = null,
                                      IReadOnlyList<StartupDelegate>? startupDelegates = null) =>
         new(heap.Regions, heap.Instances, heap.Edges, heap.TypeInitializers, heap.Constructions, heap.Counters, heap.ReachableBodies,
-            heap.LoweredNotReached, heap.NoReceiverObjects, heap.Resolve, heap.PointsTo, heap.Cell, heap.RootInstances, heap.StaticRegionOf,
+            heap.LoweredNotReached, heap.NoReceiverObjects, heap.Resolve, heap.PointsTo, heap.RootInstances, heap.StaticRegionOf,
             heap.FieldsOf, heap.DelegateCaptures)
         {
             ExecutionEdges = heap.ExecutionEdges,

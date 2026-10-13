@@ -9,17 +9,63 @@ namespace ConcurrencyHunter.Accesses;
 /// <summary>The declaring type, name and kind of the field, backing field or constructor parameter an access touches.
 /// A field hidden by a same-named field of a derived type has a different declaring type, so a different key.
 /// <see cref="DeclaringTypeIdentity"/> tells closed generics over same-named type arguments apart.</summary>
+/// <param name="DeclaringType">The type that declares the member, as the report names it.</param>
+/// <param name="Name">The member's name.</param>
+/// <param name="Kind">Whether the member is a field, a backing field or a constructor parameter.</param>
+/// <param name="DeclaringTypeIdentity">The declaring type's identity where it differs from <paramref name="DeclaringType"/>, null
+/// otherwise.</param>
 public sealed record MemberKey(string DeclaringType, string Name, IrFieldKind Kind, string? DeclaringTypeIdentity = null)
 {
     public string Identity => $"{DeclaringTypeIdentity ?? DeclaringType}.{Name}:{Kind}";
+
+    /// <summary>The key of a field as an access names it.</summary>
+    /// <param name="field">The field.</param>
+    internal static MemberKey Of(IrFieldRef field) =>
+        new(field.ContainingType, field.Name, field.Kind, field.ContainingTypeIdentity == field.ContainingType ? null : field.ContainingTypeIdentity);
+}
+
+/// <summary>The fields an access goes through from the region it is on (R1): the region's own field first, then each field of a struct
+/// the storage goes on through; where the storage is in a cell of a collection, the cell stands after the first <see cref="Cell"/> of
+/// them, and the last of those holds the collection.</summary>
+/// <param name="Fields">The fields, outermost first; one field, the struct's whole storage, for a box's.</param>
+/// <param name="Cell">How many of <paramref name="Fields"/> lead to the collection the storage is in a cell of; 0 where it is in none.</param>
+/// <param name="Region">The region the heap keeps the access's own field in: the resource's region, or the collection whose cell holds the
+/// struct.</param>
+/// <param name="Slot">That field's slot of <paramref name="Region"/>: the path through every struct field before it; empty for a box's whole
+/// storage.</param>
+internal sealed record StoragePath(IReadOnlyList<IrFieldRef> Fields, int Cell, string Region, string Slot)
+{
+    /// <summary>The field the resource is named by (<see cref="AccessResource.Member"/>): the one holding the collection for a cell, the
+    /// region's own field otherwise.</summary>
+    internal IrFieldRef Member => Cell == 0 ? Fields[0] : Fields[Cell - 1];
+
+    /// <summary>The fields below <see cref="Member"/>, or below the cell, that the resource goes on through
+    /// (<see cref="AccessResource.StructPath"/>).</summary>
+    internal IEnumerable<IrFieldRef> Below => Fields.Skip(Cell == 0 ? 1 : Cell);
 }
 
 /// <summary>What an access touches. <see cref="Identity"/> joins the scope, assembly, region identity (<see cref="RegionId"/>, which carries
-/// the region's context) and member key and is what pairing, grouping and stable ids use; <see cref="Region"/> and
-/// <see cref="AccessPath"/> keep the display format. A wildcard resource has the path <c>*</c> and the member key <c>*</c>.</summary>
+/// the region's context), member key and the struct fields below it and is what pairing, grouping and stable ids use; <see cref="Region"/>
+/// and <see cref="AccessPath"/> keep the display format. A wildcard resource has the path <c>*</c> and the member key <c>*</c>.</summary>
+/// <param name="Assembly">The assembly that declares the member.</param>
+/// <param name="Scope">The scope the access was collected in.</param>
+/// <param name="Region">The region's display, such as <c>alloc:</c>, <c>static:</c>, <c>di:</c> or <c>closure:</c>.</param>
+/// <param name="AccessPath">The path's names from the region: every field, a cell's selector right after the collection's field.</param>
+/// <param name="Member">The field the resource is named by: the region's own field, or the one holding the collection for a cell.</param>
+/// <param name="RegionId">The region's identity, which carries its context; null where the resource names no region.</param>
+/// <param name="IsWildcard">Whether the path collapsed into the region's wildcard resource (TD-042).</param>
 public sealed record AccessResource(string Assembly, string Scope, string Region, IReadOnlyList<string> AccessPath, MemberKey Member,
                                     string? RegionId = null, bool IsWildcard = false)
 {
+    /// <summary>The fields of the structs the access goes on through below <see cref="Member"/>, or below the cell of the collection it
+    /// holds, outermost first (R1): a struct kept in the region's storage is part of it, and a field of it is the region's resource with
+    /// the whole path. Empty for a field, a collection or a cell itself.</summary>
+    public IReadOnlyList<MemberKey> StructPath { get; init; } = [];
+
+    /// <summary>The fields the access goes through from <see cref="RegionId"/>, as the analysis names them: <see cref="Member"/>'s field,
+    /// then those of <see cref="StructPath"/>, with <see cref="StoragePath.Cell"/> saying where a cell stands between them.</summary>
+    internal StoragePath? Storage { get; init; }
+
     /// <summary>Which cell of the collection the access touches, null when it touches the collection itself (TD-043). It is part of
     /// the identity: two proven cells are two resources.</summary>
     public ElementSelector? Selector { get; init; }
@@ -33,7 +79,8 @@ public sealed record AccessResource(string Assembly, string Scope, string Region
     /// <summary>The collection itself, without the cell: what the candidate index groups by, so that a cell nothing proves apart
     /// still meets every cell it may be (TD-075).</summary>
     public string StructuralIdentity =>
-        CollectionId is { } collection ? $"{Scope}|{collection}" : $"{Scope}|{Assembly}|{RegionId ?? Region}|{Member.Identity}";
+        (CollectionId is { } collection ? $"{Scope}|{collection}" : $"{Scope}|{Assembly}|{RegionId ?? Region}|{Member.Identity}") +
+        string.Concat(StructPath.Select(member => $"/{member.Identity}"));
 
     public string Identity => Selector is null ? StructuralIdentity : $"{StructuralIdentity}|{Selector.Text}";
 

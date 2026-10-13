@@ -5,6 +5,15 @@ using Demo.Web.Cases.TaskRunResultShared;
 using Demo.Web.Cases.CompletionSourceHandoff;
 using Demo.Web.Cases.AwaitedFreshResult;
 using Demo.Web.Cases.SpawnBodylessWork;
+using Demo.Web.Cases.StructFieldOfSingleton;
+using Demo.Web.Cases.StructInArrayCell;
+using Demo.Web.Cases.NestedStructField;
+using Demo.Web.Cases.StructMutatingMethod;
+using Demo.Web.Cases.StructThroughReference;
+using Demo.Web.Cases.StructTornWrite;
+using Demo.Web.Cases.SpawnedWorkObjectPublished;
+using Demo.Web.Cases.StructCopyNotShared;
+using Demo.Web.Cases.ReadonlyStructDefensiveCopy;
 // Only a list of calls: every registration, endpoint and startup write lives in its case file, so no
 // two cases share a line here that the analysis could mistake for shared state.
 using Demo.Web.Cases.ActionSelfOverlap;
@@ -384,7 +393,16 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddTaskRunResultShared()
                 .AddCompletionSourceHandoff()
                 .AddAwaitedFreshResult()
-                .AddSpawnBodylessWork();
+                .AddSpawnBodylessWork()
+                .AddStructFieldOfSingleton()
+                .AddStructInArrayCell()
+                .AddNestedStructField()
+                .AddStructMutatingMethod()
+                .AddStructThroughReference()
+                .AddStructTornWrite()
+                .AddSpawnedWorkObjectPublished()
+                .AddStructCopyNotShared()
+                .AddReadonlyStructDefensiveCopy();
 
 var app = builder.Build();
 

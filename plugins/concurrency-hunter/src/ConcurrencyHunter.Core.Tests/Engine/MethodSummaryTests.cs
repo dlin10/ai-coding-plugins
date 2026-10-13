@@ -143,7 +143,7 @@ public sealed class MethodSummaryTests
 
         var key = Assert.Single(outer.Delegates).Delegate.CapturedValues.Keys.Single(candidate => candidate != "this");
         var store = Assert.Single(nested.Accesses, access => access.Kind == SummaryAccessKind.Store);
-        Assert.Equal([new CapturedDependency(key)], store.Dependencies);
+        Assert.Contains(store.Dependencies, dependency => dependency is CapturedDependency captured && captured.SymbolKey == key);
         var load = Assert.Single(outer.Accesses, access => access.Kind == SummaryAccessKind.Load);
         Assert.Contains(new LoadDependency(load.OperationId), Assert.Single(outer.Variables, variable => variable.SymbolKey == key).Dependencies);
     }

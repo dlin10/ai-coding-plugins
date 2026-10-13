@@ -69,7 +69,7 @@ public sealed class SeedTests
             {
                 public static object Value;
             }
-            public static class ImpossibleStatics<T> where T : struct, IUser
+            public static class ImpossibleStatics<T> where T : struct, IStaticUser
             {
                 public static object Value;
             }
@@ -224,6 +224,7 @@ public sealed class SeedTests
     [Fact]
     public void A_struct_field_lists_its_seed_typed_reference_fields()
     {
+        // Seeded in place as an object's fields are, each struct field counting as a field: past the argument's depth of 2.
         Assert.Contains("arg:value/F:Lib.All.Struct/F:Lib.OuterStruct.Nested/F:Lib.Nested.Value", Use().Unseeded);
     }
 
@@ -573,10 +574,12 @@ public sealed class SeedTests
     }
 
     [Theory]
-    [InlineData("public object Value { get; set; }", "P:Lib.Part.Value")]
+    [InlineData("public Nested Value { get; init; }", "P:Lib.Part.Value/P:Lib.Nested.Item")]
     [InlineData("public Nested Value { get; set; }", "P:Lib.Part.Value/P:Lib.Nested.Item")]
     public void A_struct_auto_property_lists_the_unseeded_reference_storage(string declaration, string path)
     {
+        // A struct an auto-property gives is a copy setup cannot write in place; the struct argument's own auto-property it seeds
+        // through the setter (StructSeedTests).
         var library = Compile($"namespace Lib {{ public struct Nested {{ public object Item {{ get; set; }} }} public struct Part {{ {declaration} }} " +
                               "public static class Api { public static void Run(Part value, object input) { } } }");
         var driver = Drive("M:Lib.Api.Run(Lib.Part,System.Object)", library);

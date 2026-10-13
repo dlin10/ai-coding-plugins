@@ -50,11 +50,12 @@ public sealed class CandidacyTests
     }
 
     [Fact]
-    public void A_member_taking_only_a_struct_with_a_reference_field_is_a_candidate_and_lists_the_field()
+    public void A_member_taking_only_a_struct_with_a_reference_field_is_a_candidate_and_seeds_the_field()
     {
         var driver = Assert.IsType<Driver>(Synthesize("M:Lib.Api.StructOnly(Lib.Pair)").Driver);
 
-        Assert.Contains("arg:value/F:Lib.Pair.Value", driver.Unseeded);
+        Assert.Contains(driver.SeedStatements, seed => seed.Path == "arg:value/F:Lib.Pair.Value");
+        Assert.DoesNotContain("arg:value/F:Lib.Pair.Value", driver.Unseeded);
     }
 
     [Fact]

@@ -552,6 +552,17 @@
       ]
     },
     {
+      "id": "escape-via-captured-closure/note-cell",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "closure:Demo.Web.Cases.EscapeViaCapturedClosure.NoteWorker.ExecuteAsync(CancellationToken)", "accessPath": ["note"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.EscapeViaCapturedClosure.NoteWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.EscapeViaCapturedClosure.NoteWorker.ExecuteAsync(CancellationToken)", "operation": "read" }
+      ]
+    },
+    {
       "id": "escape-via-static-assignment/static-slot",
       "phase": "2",
       "rule": "DCA1001",
@@ -2420,6 +2431,160 @@
         { "symbol": "Demo.Web.Cases.SpawnBodylessWork.NoiseController.Get()", "operation": "read" },
         { "symbol": "Demo.Web.Cases.SpawnBodylessWork.NoiseRefresher.ExecuteAsync(CancellationToken)", "operation": "unknown-effect" }
       ]
+    },
+    {
+      "id": "struct-field-of-singleton",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructFieldOfSingleton.Tally@Singleton", "accessPath": ["_counter", "Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructFieldOfSingleton.Tally.Add()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructFieldOfSingleton.Tally.Add()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "struct-in-array-cell",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructInArrayCell.Board@Singleton", "accessPath": ["_slots", "[0]", "Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructInArrayCell.Board.Hit()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructInArrayCell.Board.HitThroughSpan()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "static-struct-field",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.StaticStructField.StatsController", "accessPath": ["s_stats", "Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StaticStructField.StatsController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StaticStructField.StatsController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "nested-struct-field",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.NestedStructField.Gauge@Singleton", "accessPath": ["_outer", "Inner", "Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.NestedStructField.Gauge.Add()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.NestedStructField.Gauge.Add()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "struct-mutating-method",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructMutatingMethod.Meter@Singleton", "accessPath": ["_reading", "Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructMutatingMethod.Reading.Increment()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructMutatingMethod.Reading.Increment()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "struct-through-reference",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructThroughReference.Ledger@Singleton", "accessPath": ["_balance", "Amount"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructThroughReference.Ledger.Bump(Balance)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructThroughReference.Ledger.Credit()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "struct-torn-write/field",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructTornWrite.Window@Singleton", "accessPath": ["_range", "Lo"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructTornWrite.Window.Shift(long)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.StructTornWrite.Window.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "struct-torn-write/copy",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructTornWrite.Window@Singleton", "accessPath": ["_range"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructTornWrite.Window.Shift(long)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.StructTornWrite.Window.Span()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "captured-counter",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "closure:Demo.Web.Cases.CapturedCounter.CounterController.Post()", "accessPath": ["count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.CapturedCounter.CounterController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.CapturedCounter.CounterController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "captured-struct",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "closure:Demo.Web.Cases.CapturedStruct.StateController.Post()", "accessPath": ["state", "Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.CapturedStruct.StateController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.CapturedStruct.StateController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "spawned-work-own-object-twice",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.SpawnedWorkOwnObjectTwice.TallyController.Post()#Demo.Web.Cases.SpawnedWorkOwnObjectTwice.Tally", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SpawnedWorkOwnObjectTwice.TallyController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.SpawnedWorkOwnObjectTwice.TallyController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "spawned-work-in-a-loop",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.SpawnedWorkInALoop.TallyController.Post()#Demo.Web.Cases.SpawnedWorkInALoop.Tally", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SpawnedWorkInALoop.TallyController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.SpawnedWorkInALoop.TallyController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "spawned-work-object-published",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.SpawnedWorkObjectPublished.TallyController.Post()#Demo.Web.Cases.SpawnedWorkObjectPublished.Tally", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SpawnedWorkObjectPublished.TallyController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.SpawnedWorkObjectPublished.TallyController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "spawned-work-object-published/slot",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.SpawnedWorkObjectPublished.Registry@Singleton", "accessPath": ["Last"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SpawnedWorkObjectPublished.TallyController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SpawnedWorkObjectPublished.TallyController.Post()", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [
@@ -2948,6 +3113,46 @@
       "id": "awaited-fresh-result",
       "phase": "5d",
       "resource": { "region": "alloc:Demo.Web.Cases.AwaitedFreshResult.TallyFactory.CreateAsync()#Demo.Web.Cases.AwaitedFreshResult.Tally", "accessPath": ["Hits"] }
+    },
+    {
+      "id": "struct-copy-not-shared/entries",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.StructCopyNotShared.Archive@Singleton", "accessPath": ["_entries", "[0]", "Hits"] }
+    },
+    {
+      "id": "struct-copy-not-shared/last",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.StructCopyNotShared.Archive@Singleton", "accessPath": ["_last", "Hits"] }
+    },
+    {
+      "id": "captured-struct-copied/field",
+      "phase": "5d",
+      "resource": { "region": "closure:Demo.Web.Cases.CapturedStructCopied.StateController.Post()", "accessPath": ["state", "Count"] }
+    },
+    {
+      "id": "captured-struct-copied/whole",
+      "phase": "5d",
+      "resource": { "region": "closure:Demo.Web.Cases.CapturedStructCopied.StateController.Post()", "accessPath": ["state"] }
+    },
+    {
+      "id": "readonly-struct-defensive-copy",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.ReadonlyStructDefensiveCopy.Clock@Singleton", "accessPath": ["_ticker", "Count"] }
+    },
+    {
+      "id": "capture-per-invocation",
+      "phase": "5d",
+      "resource": { "region": "closure:Demo.Web.Cases.CapturePerInvocation.SumController.Post(List<int>)", "accessPath": ["sum"] }
+    },
+    {
+      "id": "spawned-work-own-object",
+      "phase": "5d",
+      "resource": { "region": "alloc:Demo.Web.Cases.SpawnedWorkOwnObject.TallyController.Post()#Demo.Web.Cases.SpawnedWorkOwnObject.Tally", "accessPath": ["Count"] }
+    },
+    {
+      "id": "captured-counter-one-task",
+      "phase": "5d",
+      "resource": { "region": "closure:Demo.Web.Cases.CapturedCounterOneTask.CounterController.Post()", "accessPath": ["count"] }
     }
   ]
 }

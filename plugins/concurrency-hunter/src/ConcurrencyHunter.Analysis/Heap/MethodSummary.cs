@@ -1,4 +1,5 @@
 ﻿using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Ir;
 
 namespace ConcurrencyHunter.Heap;
@@ -44,6 +45,19 @@ public sealed record StaticFieldValue(IrFieldRef Field) : AbstractValue
 
 public sealed record AllocationValue(CreationSite Site) : AbstractValue
 {
+    /// <summary>For a box of a <c>Nullable</c>, the values that hold the struct it boxes where one reaches the boxing: the box is made
+    /// only where some of them point to something, since an empty <c>Nullable</c> boxes to <c>null</c> (R2). Null for every other
+    /// creation, which is always made.</summary>
+    public IReadOnlySet<AbstractValue>? Present { get; init; }
+
+    /// <summary>Two creation values are one where their sites are and they need the same values present, compared as sets: the body's
+    /// solve sees a box's <see cref="Present"/> grow as a change.</summary>
+    /// <param name="other">The other creation value.</param>
+    public bool Equals(AllocationValue? other) =>
+        other is not null && Site == other.Site && (Present is null ? other.Present is null : other.Present?.SetEquals(Present) == true);
+
+    public override int GetHashCode() => Site.GetHashCode();
+
     public override string ToString() => $"alloc:{Site.BodyId}#{Site.OperationId}";
 }
 
@@ -80,12 +94,38 @@ public sealed record ReferenceLocationValue(ReferenceTarget Target, bool Read) :
 {
     public bool Equals(ReferenceLocationValue? other) => other is not null && Read == other.Read &&
         (Target is ReferenceCell a && other.Target is ReferenceCell b
-            ? FieldSlot.Key(a.Field) == FieldSlot.Key(b.Field) && a.IsOnCollection == b.IsOnCollection && a.Bases.SetEquals(b.Bases)
+            ? a.Field == b.Field && a.Slot == b.Slot && a.IsOnCollection == b.IsOnCollection && a.Bases.SetEquals(b.Bases)
             : Target.Equals(other.Target));
 
     public override int GetHashCode() => Target is ReferenceCell cell
-        ? HashCode.Combine(Read, FieldSlot.Key(cell.Field), cell.IsOnCollection, cell.Bases.Aggregate(0, (hash, value) => hash ^ value.GetHashCode()))
+        ? HashCode.Combine(Read, cell.Field, cell.Slot, cell.IsOnCollection, cell.Bases.Aggregate(0, (hash, value) => hash ^ value.GetHashCode()))
         : HashCode.Combine(Read, Target);
+}
+
+/// <summary>A copy of a struct held by value: the struct a value of the body holds, which is no location (R2). The heap keeps one
+/// region of its own for it, which no access reaches as a resource; what its reference fields hold are that region's slots.</summary>
+/// <param name="ValueId">The IR value holding the copy.</param>
+/// <param name="TypeKey">The struct's type key, as the body names it.</param>
+public sealed record StructCopyValue(int ValueId, string TypeKey) : AbstractValue
+{
+    public override string ToString() => $"copy:{ValueId}";
+}
+
+/// <summary>The storage a struct occupies at <see cref="Slot"/> of each object, or each struct's storage, <see cref="Base"/> points to:
+/// part of its holder, never an object of its own (R1). Its fields are the holder's slots below <see cref="Slot"/>.</summary>
+/// <param name="Base">The holders.</param>
+/// <param name="Slot">The slot the struct occupies in each of them: a field's slot key, or <c>[]</c> for a cell.</param>
+/// <param name="TypeKey">The struct's type key, as the body names it.</param>
+public sealed record StructPlaceValue(AbstractValue Base, string Slot, string TypeKey) : AbstractValue
+{
+    public override string ToString() => $"({Base})&{Slot}";
+}
+
+/// <summary>The static storage of a field's declaring type: what holds a struct a static field keeps.</summary>
+/// <param name="Field">The static field.</param>
+public sealed record StaticHolderValue(IrFieldRef Field) : AbstractValue
+{
+    public override string ToString() => $"statics:{Field.Assembly}:{Field.ContainingTypeId}";
 }
 
 /// <summary>A delegate created at <see cref="Site"/> for <see cref="Target"/> (a nested body id, a method id or a method symbol).
@@ -97,6 +137,9 @@ public sealed record ReferenceLocationValue(ReferenceTarget Target, bool Read) :
 public sealed record DelegateCreationValue(CreationSite Site, string Target, IReadOnlyDictionary<string, IReadOnlySet<AbstractValue>> CapturedValues)
     : AbstractValue
 {
+    /// <summary>The capture cells the delegate reaches (<see cref="IrCreateDelegateOperation.CapturedCells"/>).</summary>
+    public IReadOnlyList<IrClosureCell> CapturedCells { get; init; } = [];
+
     public bool Equals(DelegateCreationValue? other) => other is not null && Site == other.Site && Target == other.Target;
 
     public override int GetHashCode() => HashCode.Combine(Site, Target);
@@ -113,11 +156,26 @@ public sealed record AwaitResultValue(int OperationId) : AbstractValue
     public override string ToString() => $"await:{OperationId}";
 }
 
-/// <summary>A variable a nested body captures from the body that creates it: every version, on either side.</summary>
-/// <param name="SymbolKey">The captured variable's symbol key.</param>
-public sealed record CapturedValue(string SymbolKey) : AbstractValue
+/// <summary>A variable a nested body captures from the body that creates it: what its capture cell holds, every version, on either
+/// side.</summary>
+/// <param name="Cell">The captured variable's capture cell.</param>
+public sealed record CapturedValue(IrClosureCell Cell) : AbstractValue
 {
+    /// <summary>The captured variable's symbol key.</summary>
+    public string SymbolKey => Cell.SymbolKey;
+
     public override string ToString() => $"captured:{SymbolKey}";
+}
+
+/// <summary>A closure named after a member (R4), which each run of the body declaring its variables creates: for that body the closure its
+/// own run creates, for a lambda or a local function nested in it the closure of each run of that body that made it. A captured
+/// variable's capture cell is a slot of it.</summary>
+/// <param name="Member">The declaring member, as <see cref="IrClosureCell.Member"/> names it.</param>
+/// <param name="Body">The lambda or local function whose runs create it, null for the member's own closure, as
+/// <see cref="IrClosureCell.Body"/> names it.</param>
+public sealed record ClosureValue(string Member, string? Body) : AbstractValue
+{
+    public override string ToString() => IrClosureCell.REGION_PREFIX + Member;
 }
 
 /// <summary>The storage slot of a field: its declaring type, assembly-qualified as a type key is, and its name, so a field a
@@ -129,14 +187,37 @@ public static class FieldSlot
 {
     public static string Key(IrFieldRef field) => $"{TypeKey(field.Assembly, field.ContainingTypeId)}.{field.Name}";
 
+    /// <summary>What separates the slots of a path inside one holder: a struct's storage is part of its holder, so a field of a struct a
+    /// field holds is the holder's slot <c>s/X</c>, never a slot of an object of its own (R1).</summary>
+    public const char PATH_SEPARATOR = '/';
+
+    /// <summary>The slot below <paramref name="storage"/> that <paramref name="slot"/> names inside the struct kept there; the slot
+    /// itself below the empty path of a region's own storage, and the storage itself for the empty slot.</summary>
+    /// <param name="storage">The slot path of the struct's storage in its holder, empty for a region's own.</param>
+    /// <param name="slot">A slot of the struct, itself a path, empty for the struct's whole storage.</param>
+    public static string Join(string storage, string slot) =>
+        storage.Length == 0 ? slot : slot.Length == 0 ? storage : $"{storage}{PATH_SEPARATOR}{slot}";
+
+    /// <summary>The slot path a chain of fields names inside one holder: the first field's slot, then each struct field below it.</summary>
+    /// <param name="fields">The fields, outermost first.</param>
+    public static string Path(IEnumerable<IrFieldRef> fields) => fields.Select(Key).Aggregate("", Join);
+
+    /// <summary>The first slot of a slot path: the holder's own field, or the cell, the struct's storage is in.</summary>
+    /// <param name="key">A slot key or path.</param>
+    public static string Root(string key) => key.IndexOf(PATH_SEPARATOR) is var separator && separator >= 0 ? key[..separator] : key;
+
+    /// <summary>The last slot of a slot path, which is the field it names.</summary>
+    /// <param name="key">A slot key or path.</param>
+    public static string Leaf(string key) => key.LastIndexOf(PATH_SEPARATOR) is var separator && separator >= 0 ? key[(separator + 1)..] : key;
+
     /// <summary>A declaring type in the form a slot key carries it.</summary>
     /// <param name="assembly">The assembly declaring the type.</param>
     /// <param name="type">The declaring type, with or without type arguments.</param>
     public static string TypeKey(string assembly, string type) => $"{assembly}:{WithoutTypeArguments(type)}";
 
-    /// <summary>The declaring type key a slot key starts with, empty for <c>[]</c> and <c>*</c>.</summary>
-    /// <param name="key">The slot key.</param>
-    public static string DeclaringTypeKey(string key) => key.LastIndexOf('.') is var dot && dot >= 0 ? key[..dot] : "";
+    /// <summary>The declaring type key a slot key starts with, empty for <c>[]</c> and <c>*</c>; for a slot path, its last slot's.</summary>
+    /// <param name="key">The slot key or path.</param>
+    public static string DeclaringTypeKey(string key) => Leaf(key) is var leaf && leaf.LastIndexOf('.') is var dot && dot >= 0 ? leaf[..dot] : "";
 
     /// <summary>The field name a slot key ends with, which is what the report and the expectations show.</summary>
     /// <param name="key">The slot key.</param>
@@ -216,7 +297,13 @@ public sealed record LoadDependency(int OperationId) : ValueDependency;
 
 public sealed record ParameterDependency(int Ordinal) : ValueDependency;
 
-public sealed record CapturedDependency(string SymbolKey) : ValueDependency;
+/// <summary>What a captured variable's capture cell holds.</summary>
+/// <param name="Cell">The capture cell.</param>
+public sealed record CapturedDependency(IrClosureCell Cell) : ValueDependency
+{
+    /// <summary>The captured variable's symbol key.</summary>
+    public string SymbolKey => Cell.SymbolKey;
+}
 
 /// <summary>The result of the call with this operation id; the callee decides what that depends on.</summary>
 /// <param name="OperationId">The call.</param>
@@ -287,7 +374,8 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
     /// </summary>
     public int? ComparandLoad { get; init; }
 
-    /// <summary>Which cell of the collection the access touches, null when it touches the field itself (TD-043).</summary>
+    /// <summary>Which cell of the collection the access touches, null when it touches the field itself (TD-043). For a field of a struct
+    /// kept in a cell, which is no access on a collection, the cell the struct stands in where the body names it (R1).</summary>
     public ElementSelector? Selector { get; init; }
 
     /// <summary>Whether this access is the change of a check-then-act sequence over one collection, which is one compound
@@ -351,8 +439,8 @@ public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Para
 {
     public static readonly ValueOrigin None = new(new HashSet<int>(), new HashSet<int>(), []);
 
-    /// <summary>The captured variables the value is read from: what the member owning them, or a lambda, assigned them.</summary>
-    public IReadOnlySet<string> Captured { get; init; } = new HashSet<string>();
+    /// <summary>The capture cells the value is read from: what the member owning them, or a lambda, assigned them.</summary>
+    public IReadOnlySet<IrClosureCell> Captured { get; init; } = new HashSet<IrClosureCell>();
 
     /// <summary>The arrays the value is read from a cell of: what any store put into their cells.</summary>
     public IReadOnlyList<IReadOnlySet<AbstractValue>> Elements { get; init; } = [];
@@ -378,7 +466,7 @@ public sealed record ValueOrigin(IReadOnlySet<int> Calls, IReadOnlySet<int> Para
             _ => new ValueOrigin(all.SelectMany(origin => origin.Calls).ToHashSet(), all.SelectMany(origin => origin.Parameters).ToHashSet(),
                                  all.SelectMany(origin => origin.Fields).ToArray())
             {
-                Captured = all.SelectMany(origin => origin.Captured).ToHashSet(StringComparer.Ordinal),
+                Captured = all.SelectMany(origin => origin.Captured).ToHashSet(),
                 Elements = all.SelectMany(origin => origin.Elements).ToArray(),
                 Keys = all.SelectMany(origin => origin.Keys).ToArray(),
                 Kept = all.SelectMany(origin => origin.Kept).ToArray()
@@ -451,6 +539,24 @@ public sealed record ElementTransfer(int OperationId, ElementOperationKind Kind,
     /// <summary>Where set, each object of <see cref="Arrays"/> — a view an interface call makes — holds what the storage of this name holds
     /// in each object of <see cref="CopiedFrom"/> of the kinds of <see cref="ValueKinds"/>.</summary>
     public string? ViewOf { get; init; }
+}
+
+/// <summary>A copy of a struct (<see cref="StructStorage"/>): what every reference field of each source holds goes into the same field
+/// of each target. A source or a target is the storage a struct occupies in its holder (<see cref="StructPlaceValue"/>), a copy held by
+/// value (<see cref="StructCopyValue"/>), a box, or what a parameter, a call or a capture hands over of either; the copy itself never
+/// goes into a slot.</summary>
+/// <param name="OperationId">The operation that copies, or -1 for a by-value parameter's copy on entry.</param>
+/// <param name="Targets">Where the copy goes.</param>
+/// <param name="Sources">What it is taken from.</param>
+public sealed record StructCopy(int OperationId, IReadOnlySet<AbstractValue> Targets, IReadOnlySet<AbstractValue> Sources)
+{
+    /// <summary>The slots of the copy a store of the body overwrites before anything else uses the copy: what the sources hold there is
+    /// never seen through it, so it is not copied (R2). Each slot leaves out the slots below it too.</summary>
+    public IReadOnlySet<string> Overwritten { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Whether the target, a <c>Nullable</c> held by value, holds a struct only where one of the sources does: every source is
+    /// storage, a copy or a box, whose presence the heap follows (R2). Otherwise the target holds one wherever it is a copy at all.</summary>
+    public bool FollowsPresence { get; init; }
 }
 
 public sealed record ReturnTransfer(int OperationId, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
@@ -538,12 +644,60 @@ public sealed record ArgumentCollection(ReferenceTarget Collection, long? Shift,
 
 public abstract record ReferenceTarget;
 
+/// <summary>A place a reference names: <see cref="Field"/> of each object <see cref="Bases"/> points to — the static storage of its
+/// type for a static field — or, <see cref="IsOnCollection"/>, a cell of what that field holds, and below either the struct fields of
+/// <see cref="StructPath"/> the place goes on through (R1). <see cref="Path"/> is the whole chain of fields.</summary>
+/// <param name="Field">The holder's own field: the first of the path.</param>
+/// <param name="Bases">The objects holding it, none for a static field.</param>
+/// <param name="Selector">The cell of the collection, where the place is in one.</param>
+/// <param name="SelectorTerm">The cell's expression, where one is kept.</param>
+/// <param name="IsOnCollection">Whether the place is in a cell of what <see cref="Field"/> holds.</param>
 public sealed record ReferenceCell(IrFieldRef Field, IReadOnlySet<AbstractValue> Bases, ElementSelector? Selector,
                                    ValueTerm? SelectorTerm, bool IsOnCollection) : ReferenceTarget
 {
     /// <summary>Whether <see cref="SelectorTerm"/> already names its values as the execution does: a term that crossed a call is
     /// bound where it was written, and binding it again would rename it away from the guards over the same values.</summary>
     public bool IsTermBound { get; init; }
+
+    /// <summary>The fields of the structs the place goes on through below <see cref="Field"/>, or below the cell, outermost first:
+    /// empty for a place that is the field or the cell itself.</summary>
+    public IReadOnlyList<IrFieldRef> StructPath { get; init; } = [];
+
+    /// <summary>The whole chain of fields the place is reached through from its holder: <see cref="Field"/>, then
+    /// <see cref="StructPath"/>.</summary>
+    public IReadOnlyList<IrFieldRef> Path => [Field, .. StructPath];
+
+    /// <summary>Two cells are one where every part is, the struct path field by field: a cell carried through a call or widened keeps
+    /// its path, and is still the place it named.</summary>
+    /// <param name="other">The other cell.</param>
+    public bool Equals(ReferenceCell? other) =>
+        other is not null && Field == other.Field && Equals(Bases, other.Bases) && Equals(Selector, other.Selector) &&
+        Equals(SelectorTerm, other.SelectorTerm) && IsOnCollection == other.IsOnCollection && IsTermBound == other.IsTermBound &&
+        StructPath.SequenceEqual(other.StructPath);
+
+    public override int GetHashCode() => HashCode.Combine(Field, Bases, Selector, SelectorTerm, IsOnCollection, IsTermBound, StructPath.Count);
+
+    /// <summary>The slot the place is in its holder: the slot path of <see cref="Path"/>, or, on a collection, the cell's slot
+    /// <c>[]</c> and the struct fields below it, in what the field holds.</summary>
+    public string Slot => IsOnCollection ? FieldSlot.Join(PathValue.ELEMENT, FieldSlot.Path(StructPath)) : FieldSlot.Path(Path);
+
+    /// <summary>The place as one field of its holders: <see cref="Field"/> of <see cref="Bases"/> where no struct field follows it, and
+    /// otherwise the last field of <see cref="StructPath"/> on the storage of the struct that declares it, which the rest of the path
+    /// names in each holder (<see cref="StructPlaceValue"/>). A reader that keys on one field reaches the place through it.</summary>
+    public (IrFieldRef Field, IReadOnlySet<AbstractValue> Bases) Leaf()
+    {
+        if (StructPath.Count == 0)
+            return (Field, Bases);
+
+        var leaf = StructPath[^1];
+        var typeKey = DiIndex.TypeKey(leaf.Assembly, leaf.ContainingTypeId);
+        var outer = StructPath.Take(StructPath.Count - 1);
+        IEnumerable<AbstractValue> holders = Field.IsStatic ? [IsOnCollection ? new StaticFieldValue(Field) : new StaticHolderValue(Field)]
+            : IsOnCollection ? Bases.Select(@base => (AbstractValue)new PathValue(@base, [FieldSlot.Key(Field)]))
+            : Bases;
+        var slot = IsOnCollection ? FieldSlot.Join(PathValue.ELEMENT, FieldSlot.Path(outer)) : FieldSlot.Path(outer.Prepend(Field));
+        return (leaf, holders.Select(holder => (AbstractValue)new StructPlaceValue(holder, slot, typeKey)).ToHashSet());
+    }
 }
 
 public sealed record ReferenceParameter(int Ordinal) : ReferenceTarget;
@@ -760,6 +914,10 @@ public sealed record SummaryArgumentEffect(IrLibraryEffectKind Kind, int Operati
     /// enumerated, in the enumerating execution, and never at the call (R5).</summary>
     public bool IsDeferred { get; init; }
 
+    /// <summary>The IR value of the calling body the effect is handed, whose type says whether it refers to an object (R6); null where
+    /// no one value of the body is handed.</summary>
+    public int? ValueId { get; init; }
+
     /// <summary>The member of the table whose receiver no field of the calling body names: the effect is that member's own accesses,
     /// made on each collection the receiver is or stands for in the heap — a collection handed over or returned, the list a node was
     /// added to, the dictionary a view is of — where a field holds it (ADR 0010, phase 5b second and third runs). Null for every other
@@ -803,14 +961,17 @@ public sealed record SummaryArgumentEffect(IrLibraryEffectKind Kind, int Operati
 /// <param name="Selector">The cell its key names, null for none.</param>
 public sealed record SummaryMemberCheck(int OperationId, ElementSelector? Selector);
 
-/// <summary>An assignment, in a nested body, to a variable it captures: task 5 joins it with the outer variable.</summary>
+/// <summary>An assignment, in a nested body, to a variable it captures: what it assigns goes into the variable's capture cell.</summary>
 /// <param name="OperationId">The assignment.</param>
-/// <param name="SymbolKey">The captured variable's symbol key.</param>
+/// <param name="Cell">The captured variable's capture cell.</param>
 /// <param name="Values">The assigned values.</param>
 /// <param name="Dependencies">What the assigned value depends on.</param>
-public sealed record CapturedStore(int OperationId, string SymbolKey, IReadOnlySet<AbstractValue> Values,
+public sealed record CapturedStore(int OperationId, IrClosureCell Cell, IReadOnlySet<AbstractValue> Values,
                                    IReadOnlySet<ValueDependency> Dependencies)
 {
+    /// <summary>The captured variable's symbol key.</summary>
+    public string SymbolKey => Cell.SymbolKey;
+
     /// <inheritdoc cref="SummaryValue.Producers"/>
     public ValueOrigin Producers { get; init; } = ValueOrigin.None;
 }
@@ -825,6 +986,9 @@ public sealed record SummaryVariable(string SymbolKey, IReadOnlySet<AbstractValu
 
     /// <summary>Where every version of the variable in the body comes from (<see cref="ValueOrigin"/>).</summary>
     public ValueOrigin Producers { get; init; } = ValueOrigin.None;
+
+    /// <summary>The variable's capture cell, where a lambda or a local function the body knows of captures it; null otherwise.</summary>
+    public IrClosureCell? Cell { get; init; }
 }
 
 /// <summary>Where a value may come from that the analysis does not follow to an object: <c>null</c> or a default, a parameter,
@@ -1023,4 +1187,7 @@ public sealed record MethodSummary(string BodyId, IReadOnlyList<SummaryAccess> A
     /// <summary>The stores through a reference into a cell of an array, such as <c>ref var r = ref x.A[0]; r = v;</c>, by the arrays the
     /// reference names: kept apart from <see cref="Elements"/>, which the heap and the counters read (R4, R6).</summary>
     public IReadOnlyList<ElementTransfer> ReferenceElementStores { get; init; } = [];
+
+    /// <summary>The copies of structs the body makes (<see cref="StructCopy"/>).</summary>
+    public IReadOnlyList<StructCopy> StructCopies { get; init; } = [];
 }

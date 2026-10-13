@@ -214,9 +214,12 @@ public static class EngineFixture
     }
 
     /// <summary>The pairing before the candidate index, kept as the tests' reference: every unordered pair of non-construction-local
-    /// accesses is tested against the rules that admit it (one resource; one region with a wildcard on either side; an open region and a
-    /// closed region of its group, on one path and member or with a wildcard on either side), then compared as the index's
-    /// <c>Consider</c> compares it.</summary>
+    /// accesses is tested against the rule that admits it (one resource; one collection's cells; one region's storage continuing another's
+    /// or a wildcard on either side; an open region and a closed region of its group, by the same rule or with a wildcard on either side),
+    /// then compared as the index's <c>Consider</c> compares it.</summary>
+    /// <param name="accesses">The scope's accesses.</param>
+    /// <param name="executions">The executions that say which accesses overlap and which are ordered.</param>
+    /// <param name="heap">The heap whose regions say which are open and which group they are of.</param>
     internal static PairAnalysis ReferencePair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
     {
         var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
@@ -240,13 +243,13 @@ public static class EngineFixture
             counted++;
             var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? InterproceduralPairing.SKIP_READ_READ
                 : !first.Operation.Conflicts() && !second.Operation.Conflicts() ? InterproceduralPairing.SKIP_NO_CONFLICTING_OPERATION
-                : first.Resource.Scope != second.Resource.Scope || !executions.Overlaps(first.ExecutionId, second.ExecutionId) ||
+                : first.Resource.Scope != second.Resource.Scope ||
                   first.ExecutionId == second.ExecutionId && heap.Regions[first.IsReferenceAccess
                       ? first.Resource.CollectionId ?? first.Resource.RegionId!
                       : first.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
                   region.Context.StartsWith($"di|{ConcurrencyHunter.Di.DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal)
                     ? InterproceduralPairing.SKIP_NO_OVERLAP
-                : executions.Ordered(first, second) ? InterproceduralPairing.SKIP_ORDERED
+                : InterproceduralPairing.Skip(executions.Timing(first, second)) is { } timing ? timing
                 : IsConfined(first) || IsConfined(second) ? InterproceduralPairing.SKIP_CONFINED
                 : PathConditions.Contradict(first.Conditions, second.Conditions) ? InterproceduralPairing.SKIP_UNSATISFIABLE_PATH
                 : InterproceduralPairing.IsDisjointIteration(first, second) ? InterproceduralPairing.SKIP_DISJOINT_ITERATION
@@ -273,41 +276,18 @@ public static class EngineFixture
             ownership.Kind == OwnershipKind.ThreadConfined;
     }
 
-    /// <summary>Whether the reference admits two accesses, oriented and reported as the candidate index does, or null.</summary>
+    /// <summary>Whether the reference admits two accesses, oriented and reported as the candidate index does, or null: the index's own
+    /// rule of which resources meet (<see cref="CandidateIndex.Meets"/>), asked of every pair.</summary>
+    /// <param name="one">The earlier access of the all-pairs loop.</param>
+    /// <param name="other">The later access.</param>
+    /// <param name="heap">The heap whose regions say which are open and which group they are of.</param>
     internal static (Access First, Access Second, AccessResource Reported, IReadOnlyList<string> Uncertainties)? ReferenceAdmits(Access one, Access other,
                                                                                                                                 HeapSolution heap)
     {
-        if (one.Resource.Scope != other.Resource.Scope)
+        if (CandidateIndex.Meets(one.Resource, other.Resource, heap) is not { } meeting)
             return null;
-        if (one.Resource.CollectionId is { } firstCollection && firstCollection == other.Resource.CollectionId &&
-            one.Resource.Selector is { } firstSelector && other.Resource.Selector is { } secondSelector &&
-            firstSelector.MayOverlap(secondSelector))
-            return (one, other, CandidateIndex.ReportedCell(one.Resource, other.Resource), []);
-        var wildcard = one.Resource.IsWildcard || other.Resource.IsWildcard;
-        if (one.Resource.RegionId == other.Resource.RegionId)
-        {
-            if (!wildcard)
-            {
-                if (one.Resource.Identity == other.Resource.Identity)
-                    return (one, other, one.Resource, []);
-                // Two cells of one collection meet where their selectors may name one cell, and are reported on the proven one (TD-075).
-                return one.Resource.StructuralIdentity == other.Resource.StructuralIdentity &&
-                       one.Resource.Selector is { } selector && other.Resource.Selector is { } otherSelector &&
-                       selector.MayOverlap(otherSelector)
-                    ? (one, other, CandidateIndex.ReportedCell(one.Resource, other.Resource), [])
-                    : null;
-            }
-            var (first, second) = one.Resource.IsWildcard ? (one, other) : (other, one);
-            return (first, second, first.Resource, []);
-        }
-
-        var (oneRegion, otherRegion) = (heap.Regions[one.Resource.RegionId!], heap.Regions[other.Resource.RegionId!]);
-        if (oneRegion.Group != otherRegion.Group || oneRegion.IsOpen == otherRegion.IsOpen)
-            return null;
-        var (open, closed) = oneRegion.IsOpen ? (one, other) : (other, one);
-        var admitted = wildcard || open.Resource.Member.Identity == closed.Resource.Member.Identity &&
-                                   open.Resource.AccessPath.SequenceEqual(closed.Resource.AccessPath);
-        return admitted ? (open, closed, closed.Resource, open.Uncertainties) : null;
+        var (first, second) = ReferenceEquals(meeting.First, one.Resource) ? (one, other) : (other, one);
+        return (first, second, meeting.Reported, meeting.Enumeration == PairEnumeration.OpenRegion ? first.Uncertainties : []);
     }
 
     private static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol @namespace) =>

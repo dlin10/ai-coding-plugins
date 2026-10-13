@@ -19,6 +19,7 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// atomicity and the compound flag — the objects a write through a handed-out value lands on are the same, and neither has an unknown
 /// effect or a semantic gap the other lacks.
 /// </summary>
+/// <param name="cache">The class fixture that keeps each case's run for every test of the class.</param>
 public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
     private const string LIST = "System.Collections.Generic.List`1";
@@ -1150,14 +1151,21 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
     /// on the field folds it (review F-0018), unless <paramref name="ownFields"/> is false, as for a factory, whose ways differ only in
     /// the field they take the delegate from — and how many semantic gaps have a site in the way's bodies. <paramref name="taken"/>
     /// reads the line a snapshot is used on in the body that took it instead of the statement's.</summary>
+    /// <param name="run">The case's collected run.</param>
+    /// <param name="id">The way, whose root is the controller action of that name.</param>
+    /// <param name="marked">Whether only the accesses at the statement's line count.</param>
+    /// <param name="ownFields">Whether the singleton's own fields count.</param>
+    /// <param name="taken">Whether the line is the one a snapshot is used on in the body that took it.</param>
     private static IReadOnlyList<string> Seen(Collected run, string id, bool marked, bool ownFields = true, bool taken = false)
     {
-        // The controller's field is its root's own, and each root is an object of its own.
+        // The controller's field is its root's own, and each root is an object of its own; the variable a capture route keeps the
+        // receiver in is a cell of that route's own closure (R4).
         var lines = taken ? run.Taken : run.Marked;
         var accesses = run.Collection.Accesses
                           .Where(access => access.Root.Symbol.EndsWith($".{id}()", StringComparison.Ordinal) && !access.IsConstructionLocal &&
                                            (!marked || lines.Contains(access.Source.StartLine)) &&
                                            access.Resource.Member.DeclaringType != "RouteController" &&
+                                           access.Resource.Member.DeclaringType != Ir.IrClosureCell.CLOSURE_TYPE &&
                                            !(!ownFields && access.Resource.CollectionId is null && access.Resource.Member.DeclaringType == "State"))
                           .Select(access => $"{access.Resource.Identity} {access.Operation.ToWireName()}");
         // A body without parameters has none in its id, and a local function's follows its method's after a '#'.

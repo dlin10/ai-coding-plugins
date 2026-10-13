@@ -122,6 +122,11 @@ public static class ModelCauses
     /// body, or a seed's member —, other than one the analysis takes to read, as for an argument.</summary>
     public const string RECEIVER_MEMBER_UNSEEN = "receiver-member-unseen";
 
+    /// <summary><c>unknown-touch</c>: outside setup the member made a call whose receiver resolves to no object and can only be what a
+    /// call the analysis does not follow put there — library state a call with no body filled, as <c>Comparer&lt;T&gt;.Default</c> is by
+    /// reflection —, so the call runs code the analysis does not see (<see cref="GenerationHandoffs.UnfollowedReceiverCalls"/>).</summary>
+    public const string CALL_RECEIVER_UNFOLLOWED = "call-receiver-unfollowed";
+
     /// <summary><c>incomplete</c>: the member read a field setup could not seed or did not reach.</summary>
     public const string UNSEEDED_READ = "unseeded-read";
 
@@ -157,9 +162,6 @@ public static class ModelCauses
 
     /// <summary><c>vocabulary</c>: the member wrote a cell of an array an argument reaches below its own object.</summary>
     public const string ARGUMENT_GRAPH_CELLS = "argument-graph-cells";
-
-    /// <summary><c>vocabulary</c>: a field of a struct held in an object took a value that can hold a user object.</summary>
-    public const string STRUCT_FIELD_OBJECT = "struct-field-object";
 
     /// <summary><c>vocabulary</c>: the member wrote the storage of a struct receiver or of a struct passed by <c>ref</c>, <c>out</c>
     /// or <c>in</c>.</summary>

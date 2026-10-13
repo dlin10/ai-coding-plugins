@@ -94,7 +94,8 @@ _Avoid_: sequential, ordered, before (a line above is not happens-before when a 
 A root that runs at most once without overlapping itself, together with the executions started from
 it and from its once-running descendants; its spawn and join edges hold for every instance they
 connect, which makes it the only place a **Happens-before** path is trusted. A periodic timer or a
-`Parallel` body inside it still overlaps itself.
+`Parallel` body inside it still overlaps itself. For the accesses to a `TreeConfined` region, one run
+of the execution that created it is such a tree, however often that execution runs.
 _Avoid_: task tree, call tree, thread tree
 
 **Construction**:
@@ -124,20 +125,32 @@ _Avoid_: solution, app, deployment, app domain
 
 **Heap region**:
 The identity of one object or one set of objects: an allocation site with its creation context, a
-static storage, a modeled DI instance, a symbolic parameter or receiver, or a bounded summary region.
+static storage, a modeled DI instance, a symbolic parameter or receiver, the closure an invocation of
+a member, a lambda or a local function creates for the variables it declares that the lambdas and
+local functions inside it capture, or a bounded summary
+region. A struct is never a region of its own: kept in heap storage it is part of its holder's, and a
+boxed struct is the box's region.
 _Avoid_: object, instance, allocation (a region may stand for many runtime objects)
 
 **Access path**:
 The field-by-field route from a heap region to a location, with a selector where the location is an
-element of an array, span or collection.
-_Avoid_: expression, member chain, variable (a local's name is never part of a path)
+element of an array, span or collection. A struct kept in a field, a static field or a cell is part of
+that storage, not an object of its own, so the route runs on through the struct's fields:
+`_state.Count` of a `Store` is the `Store`'s region with the path `_state`, `Count`. Writing the whole
+struct writes each of its fields. A struct held by value — in a local, a by-value parameter or a
+result — is a copy and no location at all; taking the copy reads the storage it was taken from.
+_Avoid_: expression, member chain, variable (a local's name is never part of a path, save a captured
+variable's: its **Capture cell** is a field of its closure)
 
 **Resource**:
-A heap region plus an access path: the unit two accesses are compared on.
+A heap region plus an access path: the unit two accesses are compared on. Two accesses meet on one
+resource, and also where one path runs on from the other on the same region: the whole of a struct
+meets each of its fields, and the pair is named by the longer path.
 _Avoid_: shared state, variable, field (a field of two different regions is two resources)
 
 **Selector**:
-What an access path's last step picks out of an array, span or collection: a proven constant, a
+What the step of an access path that follows an array, span or collection picks out of it — the
+path's last step, unless the cell holds a struct whose fields the path goes on through: a proven constant, a
 symbolic expression or conservative range with the guards that bound it, or unknown. Two selectors
 tell two locations apart only when their values are proven never to meet. A slice's selector is
 counted in the storage the slice is cut from: the framework's spans are taken at their word, and any
@@ -159,6 +172,16 @@ reaches as far as the collection holding it. A dictionary holds its keys apart f
 is held, and escapes with its dictionary, but it is never a cell.
 _Avoid_: contents, items, elements (bare)
 
+**Capture cell**:
+The storage of a variable that a lambda or a local function captures: a field of the closure each
+invocation of the body declaring the variable creates — the declaring member, or the lambda or local
+function the variable is declared in — shared by that invocation and every delegate made in it. The
+closure is a heap region named after the declaring member, owned like an object that invocation
+created, and the cell's path is the variable's name, numbered `#n` for the n-th variable of that name
+the member declares after the first. Two delegates of one invocation running in two executions
+share the cell; two invocations never do.
+_Avoid_: display class (the compiler's type for it), captured local (the variable, not its storage)
+
 **Completion value**:
 The value a task completes with, and what an `await`, `.Result` or `GetResult()` on it yields: what
 an async body returns, what the work of `Task.Run`, `StartNew` or a continuation returns, what
@@ -169,8 +192,11 @@ producer the analysis does not see completes with an unknown value.
 _Avoid_: task result (the result of a task-returning call is the task), awaited value
 
 **Ownership**:
-What the analysis proved about who can reach a region: `Owned`, `ThreadConfined`, `Escaped`, `Shared`
-or `Unknown`, each with its evidence chain.
+What the analysis proved about who can reach a region: `Owned`, `ThreadConfined`, `TreeConfined`,
+`Escaped`, `Shared` or `Unknown`, each with its evidence chain. A `TreeConfined` region is one that a
+single execution creates and that, besides its creator, only the executions one run of the creator starts
+reach — what it spawns, at any depth — and no shared root, so the objects two runs of the creator make
+never meet; one its creator alone reaches is `ThreadConfined`.
 _Avoid_: scope, lifetime (a DI lifetime is evidence for ownership, never the same thing)
 
 **Fresh object**:
@@ -178,7 +204,8 @@ An object an access reaches directly through a value that holds only objects cre
 invocation of the body the access is in. Two invocations never reach each other's fresh objects that
 way, and the accesses of one invocation follow one another, so two accesses to fresh objects never make
 a candidate, however far the object has escaped. An access that reaches the same object any other way —
-through a holder, a capture, a parameter or a field of it — is not one, and still pairs.
+through a holder, a capture, a parameter or a field of it — is not one, and pairs unless the object's
+**Ownership** keeps the two accesses apart.
 _Avoid_: new object, local object, unpublished object (it may already be published; what counts is how the access reaches it)
 
 ### Conflicts

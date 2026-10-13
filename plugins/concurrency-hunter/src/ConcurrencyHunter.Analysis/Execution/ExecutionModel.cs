@@ -51,6 +51,18 @@ public sealed record ExecutionInstance(string Id, ExecutionKind Kind, string Dis
     /// again through its own chain; a tail has its work's value. Its handle then names one run.</summary>
     public bool SpawnedOnce { get; init; }
 
+    /// <summary>Whether the start of a spawned execution may run its work more than once: a <c>Parallel</c> body, a periodic timer or a
+    /// callback that may run on a timer of unknown origin, an unrecognised start (<see cref="IrSpawnKind.Unrecognized"/>). A tail, a
+    /// <c>Task.Run</c>, a thread, a one-shot timer, an async call's tail and a continuation run it once.</summary>
+    public bool StartRepeats { get; init; }
+
+    /// <summary>Whether one run of the parent passes the site of a spawned execution once, with the timer a callback runs on created
+    /// there; a tail's site, its work's end, is passed once.</summary>
+    public bool SitePassedOnce { get; init; }
+
+    /// <summary>Whether a start the chain of this execution reaches again reuses it.</summary>
+    public bool IsRecursive { get; init; }
+
     public bool OverlapsItself =>
         Policy is { Multiplicity: Multiplicity.Repeated, SelfOverlap: SelfOverlap.MayOverlap } ||
         Policy.Multiplicity == Multiplicity.Unknown || Policy.SelfOverlap == SelfOverlap.Unknown;
@@ -93,12 +105,31 @@ public enum OwnershipKind
 {
     Owned,
     ThreadConfined,
+
+    /// <summary>A region one execution creates that, besides its creator, only executions one run of the creator starts reach, and no
+    /// shared root: two of its accesses pair as if that run were the only one (ADR 0020).</summary>
+    TreeConfined,
     Escaped,
     Shared,
     Unknown
 }
 
-public sealed record RegionOwnership(OwnershipKind Kind, IReadOnlyList<string> Evidence);
+/// <summary>What the analysis proved about who can reach a region, with its evidence chain.</summary>
+/// <param name="Kind">The ownership kind.</param>
+/// <param name="Evidence">The evidence chain.</param>
+public sealed record RegionOwnership(OwnershipKind Kind, IReadOnlyList<string> Evidence)
+{
+    /// <summary>The one execution that creates a <see cref="OwnershipKind.TreeConfined"/> region; null for any other kind.</summary>
+    public string? Creator { get; init; }
+}
+
+/// <summary>How two accesses meet in time: they may run at once, their executions never overlap, or happens-before orders them.</summary>
+public enum PairTiming
+{
+    Concurrent,
+    NoOverlap,
+    Ordered
+}
 
 /// <summary>An access on one region, with the executions that run it so (ADR 0017). A construction-local access touches the object its
 /// enclosing construction builds, before the construction publishes it, and never pairs.</summary>
@@ -107,7 +138,12 @@ public sealed record RegionOwnership(OwnershipKind Kind, IReadOnlyList<string> E
 /// <param name="Access">The access from the instance's summary.</param>
 /// <param name="RegionId">The region the access touches.</param>
 /// <param name="IsConstructionLocal">Whether the access is construction-local.</param>
-public sealed record CollectedAccess(ExecutionSet Executions, string InstanceId, SummaryAccess Access, string RegionId, bool IsConstructionLocal);
+public sealed record CollectedAccess(ExecutionSet Executions, string InstanceId, SummaryAccess Access, string RegionId, bool IsConstructionLocal)
+{
+    /// <summary>The slot of <see cref="RegionId"/> the access names: its field's slot, or for a field of a struct kept in the region,
+    /// the slot path through every struct field (R1).</summary>
+    public string Slot { get; init; } = FieldSlot.Key(Access.Field);
+}
 
 /// <summary>An access as one execution runs it on one region.</summary>
 /// <param name="ExecutionId">The execution running the access.</param>
@@ -115,7 +151,11 @@ public sealed record CollectedAccess(ExecutionSet Executions, string InstanceId,
 /// <param name="Access">The access from the instance's summary.</param>
 /// <param name="RegionId">The region the access touches.</param>
 /// <param name="IsConstructionLocal">Whether the access is construction-local.</param>
-public sealed record ExecutionAccess(string ExecutionId, string InstanceId, SummaryAccess Access, string RegionId, bool IsConstructionLocal);
+public sealed record ExecutionAccess(string ExecutionId, string InstanceId, SummaryAccess Access, string RegionId, bool IsConstructionLocal)
+{
+    /// <inheritdoc cref="CollectedAccess.Slot"/>
+    public string Slot { get; init; } = FieldSlot.Key(Access.Field);
+}
 
 /// <summary>Whether an object is under construction where one execution runs one operation of one instance, over every node of the
 /// walk graph for that instance whose segment runs the operation (ADR 0017).</summary>
@@ -190,7 +230,7 @@ public sealed class ExecutionAnalysis
             foreach (var access in Accesses)
             {
                 if (access.Executions.Contains(execution))
-                    yield return new ExecutionAccess(execution, access.InstanceId, access.Access, access.RegionId, access.IsConstructionLocal);
+                    yield return new ExecutionAccess(execution, access.InstanceId, access.Access, access.RegionId, access.IsConstructionLocal) { Slot = access.Slot };
             }
         }
     }
@@ -235,6 +275,48 @@ public sealed class ExecutionAnalysis
     /// <param name="first">The first access.</param>
     /// <param name="second">The second access.</param>
     public bool Ordered(Access first, Access second) => first.ExecutionId != second.ExecutionId && _order?.Ordered(first, second) == true;
+
+    /// <summary>Whether an execution runs once per run of a creator (ADR 0020): it is the creator, or every start on its chain from the
+    /// creator runs its work once and stands where one run of its parent passes once. A periodic timer, a <c>Parallel</c> body, a
+    /// delegate handed to an unresolved call, a start recursion reaches again, an unrecognised start and everything below one of them
+    /// do not, nor does any execution outside the creator's tree.</summary>
+    /// <param name="execution">The execution.</param>
+    /// <param name="creator">The creator whose one run is asked about.</param>
+    public bool RunsOncePerRunOf(string execution, string creator) => CreatorRuns.Once(_executions, execution, creator);
+
+    /// <summary>How two accesses meet in time. On a <c>TreeConfined</c> region, both sides of one creator, the creator runs once
+    /// (ADR 0020): two accesses of one execution may run at once only when it does not run once per run of the creator, and two of two
+    /// executions unless happens-before, read per run of the creator, orders them. Anywhere else the executions' policies and the
+    /// happens-before graph of the whole scope decide.</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    public PairTiming Timing(Access first, Access second)
+    {
+        if (TreeCreator(first, second) is not { } creator)
+        {
+            return !Overlaps(first.ExecutionId, second.ExecutionId) ? PairTiming.NoOverlap
+                : Ordered(first, second) ? PairTiming.Ordered
+                : PairTiming.Concurrent;
+        }
+
+        if (first.ExecutionId == second.ExecutionId)
+            return RunsOncePerRunOf(first.ExecutionId, creator) ? PairTiming.NoOverlap : PairTiming.Concurrent;
+        return _order?.Ordered(first, second, creator) == true ? PairTiming.Ordered : PairTiming.Concurrent;
+    }
+
+    /// <summary>The creator of the <c>TreeConfined</c> region both accesses are on, or null.</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    private string? TreeCreator(Access first, Access second) =>
+        Ownership.GetValueOrDefault(OwnershipRegion(first)) is { Kind: OwnershipKind.TreeConfined, Creator: { } creator } &&
+        Ownership.GetValueOrDefault(OwnershipRegion(second)) is { Kind: OwnershipKind.TreeConfined, Creator: { } other } && creator == other
+            ? creator
+            : null;
+
+    /// <summary>The region whose ownership decides an access: the collection a reference access is on, else the access's region.</summary>
+    /// <param name="access">The access.</param>
+    private static string OwnershipRegion(Access access) =>
+        access.IsReferenceAccess ? access.Resource.CollectionId ?? access.Resource.RegionId! : access.Resource.RegionId!;
 
     /// <summary>Whether a join of an instance comes before an access on every path of the access's execution (R6).</summary>
     /// <param name="joinInstance">The instance making the join.</param>
@@ -295,6 +377,69 @@ public sealed class ExecutionAnalysis
     /// <param name="edge">The call edge.</param>
     public BodySegment? Follow(MethodInstance caller, BodySegment segment, CallEdge edge) =>
         _segments is null ? BodySegment.Whole : _segments.Follow(caller, segment, edge);
+}
+
+/// <summary>How the executions of one creator's tree run in one run of that creator (ADR 0020). Each fact mirrors the global policy of
+/// <see cref="ExecutionInstance"/> with the creator standing as a root that runs once, so in an instance tree whose root runs once the
+/// two agree.</summary>
+internal static class CreatorRuns
+{
+    /// <summary>Whether an execution runs once per run of a creator: it is the creator, or it descends from it, none of the starts on its
+    /// chain repeats its work, every one stands where one run of its parent passes once, and none is reached again by recursion.</summary>
+    /// <param name="executions">The executions of the scope, by id.</param>
+    /// <param name="execution">The execution.</param>
+    /// <param name="creator">The creator.</param>
+    internal static bool Once(IReadOnlyDictionary<string, ExecutionInstance> executions, string execution, string creator)
+    {
+        for (var current = execution; current != creator;)
+        {
+            if (!executions.TryGetValue(current, out var instance) || instance.ParentId is not { } parent ||
+                instance.IsRecursive || instance.StartRepeats || !instance.SitePassedOnce)
+            {
+                return false;
+            }
+
+            current = parent;
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether an execution is started once per run of a creator, so its handle names one of its runs there, as
+    /// <see cref="ExecutionInstance.SpawnedOnce"/> says for the whole scope: its parent runs once per run of the creator, one run of the
+    /// parent passes its site once and recursion does not reach it again; a tail is as its work is. Whether its own start repeats its
+    /// work is not asked. The creator, and anything outside its tree, keep their global answer.</summary>
+    /// <param name="executions">The executions of the scope, by id.</param>
+    /// <param name="execution">The execution.</param>
+    /// <param name="creator">The creator.</param>
+    internal static bool StartedOnce(IReadOnlyDictionary<string, ExecutionInstance> executions, string execution, string creator)
+    {
+        if (!executions.TryGetValue(execution, out var instance))
+            return false;
+        if (instance.SpawnedOnce)
+            return true;
+        if (execution == creator || instance.ParentId is not { } parent)
+            return false;
+        return instance.Origin is { IsTail: true }
+            ? StartedOnce(executions, parent, creator)
+            : !instance.IsRecursive && instance.SitePassedOnce && Once(executions, parent, creator);
+    }
+
+    /// <summary>Whether an execution descends from a creator through parent links, at any depth.</summary>
+    /// <param name="executions">The executions of the scope, by id.</param>
+    /// <param name="execution">The execution.</param>
+    /// <param name="creator">The creator.</param>
+    internal static bool Descends(IReadOnlyDictionary<string, ExecutionInstance> executions, string execution, string creator)
+    {
+        for (var current = executions.GetValueOrDefault(execution)?.ParentId; current is not null;
+             current = current == ExecutionModel.STARTUP ? null : executions.GetValueOrDefault(current)?.ParentId)
+        {
+            if (current == creator)
+                return true;
+        }
+
+        return false;
+    }
 }
 
 /// <summary>
@@ -962,10 +1107,13 @@ public static class ExecutionModel
                 var parent = parentId == STARTUP ? null : _executions[parentId];
                 var origin = child.Origin!;
                 var parentOnce = parent is null || parent.Policy is { Multiplicity: Multiplicity.AtMostOnce, SelfOverlap: SelfOverlap.Serialized };
-                var once = origin.IsTail ? parent!.SpawnedOnce
-                    : !_recursive.Contains(id) && parentOnce && SiteOnce(parentId, origin.BodyId, origin.OperationId) && OriginKnown(id);
+                // Whether one run of the parent passes the site once is kept whatever the parent's policy: a tree-confined region reads
+                // it per run of its creator (ADR 0020).
+                var sitePassedOnce = origin.IsTail || SiteOnce(parentId, origin.BodyId, origin.OperationId) && OriginKnown(id);
+                var once = origin.IsTail ? parent!.SpawnedOnce : !_recursive.Contains(id) && parentOnce && sitePassedOnce;
                 var timerKind = child.Kind == ExecutionKind.TimerCallback && !origin.IsTail ? CallbackKind(id) : (TimerKind?)null;
-                var policy = _recursive.Contains(id) || _alwaysRepeated.Contains(id) || timerKind == TimerKind.Periodic ? REPEATED
+                var startRepeats = _alwaysRepeated.Contains(id) || timerKind == TimerKind.Periodic;
+                var policy = _recursive.Contains(id) || startRepeats ? REPEATED
                     : origin.IsTail ? parent!.Policy
                     : once ? AT_MOST_ONCE
                     : REPEATED;
@@ -978,7 +1126,11 @@ public static class ExecutionModel
                 _spawnSites[id] = origin.IsTail
                     ? _spawnSites[parentId]
                     : [.. _spawnSites.GetValueOrDefault(parentId) ?? [], new SpawnSiteLocation(segment, SiteSource(origin))];
-                _executions[id] = child with { Policy = policy, TreeRootId = parent?.TreeRootId ?? STARTUP, SpawnedOnce = once };
+                _executions[id] = child with
+                {
+                    Policy = policy, TreeRootId = parent?.TreeRootId ?? STARTUP, SpawnedOnce = once, StartRepeats = startRepeats,
+                    SitePassedOnce = sitePassedOnce, IsRecursive = _recursive.Contains(id)
+                };
             }
         }
 
@@ -1550,14 +1702,17 @@ public static class ExecutionModel
         /// <param name="Node">The node.</param>
         /// <param name="Access">The access from its instance's summary.</param>
         /// <param name="Region">The region.</param>
-        private sealed record NodeAccess(WalkNode Node, SummaryAccess Access, string Region);
+        /// <param name="Slot">The slot of the region the access names (<see cref="CollectedAccess.Slot"/>).</param>
+        private sealed record NodeAccess(WalkNode Node, SummaryAccess Access, string Region, string Slot);
 
-        /// <summary>What collected accesses are told apart by.</summary>
+        /// <summary>What collected accesses are told apart by: one operation on one holder can reach several slot paths of it, each a
+        /// field of another struct the holder keeps (R1).</summary>
         /// <param name="Instance">The instance making the access.</param>
         /// <param name="Operation">The access's operation.</param>
         /// <param name="Region">The region it touches.</param>
+        /// <param name="Slot">The slot of the region it names.</param>
         /// <param name="Local">Whether it is construction-local.</param>
-        private sealed record AccessKey(string Instance, int Operation, string Region, bool Local);
+        private sealed record AccessKey(string Instance, int Operation, string Region, string Slot, bool Local);
 
         /// <summary>A collected access being gathered: the first access of the summary with its key, and the executions found so far.</summary>
         /// <param name="access">The first access of the summary with the key.</param>
@@ -2096,7 +2251,8 @@ public static class ExecutionModel
             var published = new HashSet<string>(StringComparer.Ordinal);
             var inside = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             var shared = Bits.Of(Enumerable.Range(0, _objects.Count)
-                                           .Where(number => ownership.GetValueOrDefault(_objects[number])?.Kind is OwnershipKind.Escaped or OwnershipKind.Shared
+                                           .Where(number => ownership.GetValueOrDefault(_objects[number])?.Kind is OwnershipKind.TreeConfined
+                                                                                                                       or OwnershipKind.Escaped or OwnershipKind.Shared
                                                                                                                        or OwnershipKind.Unknown));
             bool InChain(string instanceId, string @object) =>
                 _chains.TryGetValue(instanceId, out var objects) && _objectIds.TryGetValue(@object, out var number) && Bits.Contains(objects, number);
@@ -2226,7 +2382,7 @@ public static class ExecutionModel
         /// <param name="target">The region a store puts the object into.</param>
         private bool IsInternal(string @object, Func<IReadOnlySet<string>> inside, string target) =>
             heap.Regions[target] is var region && !SharedReach(@object).Contains(target) &&
-            (region.Kind is HeapRegionKind.Allocation or HeapRegionKind.Delegate && inside().Contains(target) ||
+            (region.Kind is HeapRegionKind.Allocation or HeapRegionKind.Delegate or HeapRegionKind.Closure && inside().Contains(target) ||
              region.Kind == HeapRegionKind.Di && region.Context.StartsWith($"{@object}|", StringComparison.Ordinal));
 
         /// <summary>Every region shared storage reaches: static storage, singletons and root-scope objects, and what they hold. The
@@ -2294,7 +2450,9 @@ public static class ExecutionModel
 
         private IEnumerable<string> Successors(string region) => Edges(region).Select(edge => edge.Target);
 
-        /// <summary>Every access each node makes, on each region it may touch, in the order of its instance's summary.</summary>
+        /// <summary>Every access each node makes, on each region it may touch, in the order of its instance's summary. A field of a struct's
+        /// storage is a slot of the storage's holder, and one of a struct copy is no location but for the collection it holds
+        /// (<see cref="HeapSolution.Located"/>).</summary>
         private List<NodeAccess> NodeAccesses
         {
             get
@@ -2312,8 +2470,13 @@ public static class ExecutionModel
                         var regions = access.Field.IsStatic
                             ? new HashSet<string> { heap.StaticRegionOf(instance.Id, access.Field) }
                             : Resolve(instance, access.Bases);
+                        var slot = StructStorage.IsWholeStorage(access.Field) ? "" : FieldSlot.Key(access.Field);
                         foreach (var region in regions)
-                            _nodeAccesses.Add(new NodeAccess(node, access, region));
+                        {
+                            // A collection a field of a copy holds is an object of its own, and an access on it is made there.
+                            if (heap.Located(region, slot, copies: access.IsOnCollection) is { } located)
+                                _nodeAccesses.Add(new NodeAccess(node, access, located.Region, located.Slot));
+                        }
                     }
                 }
 
@@ -2333,7 +2496,7 @@ public static class ExecutionModel
                     return _constructionStatus;
                 _constructionStatus = [];
                 var asked = new Dictionary<int, HashSet<WalkNode>>();
-                foreach (var (node, _, region) in NodeAccesses)
+                foreach (var (node, _, region, _) in NodeAccesses)
                 {
                     if (!_objectIds.TryGetValue(region, out var number) || !Bits.Contains(node.Objects, number))
                         continue;
@@ -2355,54 +2518,60 @@ public static class ExecutionModel
 
         private Dictionary<(WalkNode Node, int Object), ConstructionAt>? _constructionStatus;
 
-        /// <summary>Every access the executions run on each region, once per instance, operation, region and construction-local, with the
-        /// executions that run it so; of two accesses at one operation on one region, the first of the instance's summary stands. An
-        /// access on an object its node runs inside the construction of is local in the executions where the object is in <c>MayIn</c> and
-        /// not local in those where it is not in <c>MustIn</c>, unless the construction publishes the object; any other access is not
-        /// local, in every execution that reaches its node.</summary>
+        /// <summary>Every access the executions run on each region, once per instance, operation, region, slot of the region and
+        /// construction-local, with the executions that run it so; of two accesses at one operation on one slot of one region, the first
+        /// of the instance's summary stands. An access on an object its node runs inside the construction of is local in the executions
+        /// where the object is in <c>MayIn</c> and not local in those where it is not in <c>MustIn</c>, unless the construction publishes
+        /// the object; any other access is not local, in every execution that reaches its node.</summary>
         /// <param name="published">The objects whose construction publishes them.</param>
         private IReadOnlyList<CollectedAccess> Collect(IReadOnlySet<string> published)
         {
             var collected = new Dictionary<AccessKey, AccessRun>();
-            void Add(string instance, SummaryAccess access, string region, bool local, ulong[] executions)
+            void Add(string instance, SummaryAccess access, string region, string slot, bool local, ulong[] executions)
             {
                 if (Bits.IsEmpty(executions))
                     return;
-                var key = new AccessKey(instance, access.OperationId, region, local);
+                var key = new AccessKey(instance, access.OperationId, region, slot, local);
                 if (!collected.TryGetValue(key, out var run))
                     collected.Add(key, run = new AccessRun(access));
                 Bits.UnionWith(ref run.Executions, executions);
             }
 
-            foreach (var (node, access, region) in NodeAccesses)
+            foreach (var (node, access, region, slot) in NodeAccesses)
             {
                 CheckCancellation();
                 if (!published.Contains(region) && _objectIds.TryGetValue(region, out var number) && Bits.Contains(node.Objects, number))
                 {
                     var (_, may, notMust) = ConstructionStatus[(node, number)];
-                    Add(node.Instance, access, region, true, may);
-                    Add(node.Instance, access, region, false, notMust);
+                    Add(node.Instance, access, region, slot, true, may);
+                    Add(node.Instance, access, region, slot, false, notMust);
                 }
                 else
                 {
-                    Add(node.Instance, access, region, false, node.Executions);
+                    Add(node.Instance, access, region, slot, false, node.Executions);
                 }
             }
 
             return collected.OrderBy(pair => pair.Key.Instance, StringComparer.Ordinal).ThenBy(pair => pair.Key.Operation)
-                            .ThenBy(pair => pair.Key.Region, StringComparer.Ordinal).ThenBy(pair => pair.Key.Local)
+                            .ThenBy(pair => pair.Key.Region, StringComparer.Ordinal).ThenBy(pair => pair.Key.Slot, StringComparer.Ordinal)
+                            .ThenBy(pair => pair.Key.Local)
                             .Select(pair => new CollectedAccess(_ids.Set(pair.Value.Executions), pair.Key.Instance, pair.Value.Access, pair.Key.Region,
-                                                                pair.Key.Local))
+                                                                pair.Key.Local) { Slot = pair.Key.Slot })
                             .ToArray();
         }
 
         private Dictionary<string, RegionOwnership> Ownership(IReadOnlyList<CollectedAccess> accesses)
         {
             // What the unknown execution of a handed delegate touches it touches as the executions that handed it over, so their own
-            // objects stay theirs and only what is shared overlaps everything (R3).
+            // objects stay theirs and only what is shared overlaps everything (R3). An async body hands it over in the segment that runs the
+            // handing site, not in every execution of the body: its tail does not hand over what its prefix did (ADR 0020).
             var handedBy = HandedRegions().ToDictionary(
                 region => UnknownDelegateCallId(region),
-                region => Handings(region).Select(handing => handing.Execution).ToHashSet(StringComparer.Ordinal),
+                region => (_handoffs.TryGetValue(region, out var handoff)
+                              ? handoff.Sites.SelectMany(site => ExecutionsRunning(heap.Instances[site.CallerInstance], site.OperationId))
+                              : [])
+                          .Concat((_fateHandings.GetValueOrDefault(region) ?? []).Select(handing => handing.Execution))
+                          .ToHashSet(StringComparer.Ordinal),
                 StringComparer.Ordinal);
             // A delegate handed over inside the unknown call of another is attributed through it to where the outer one was handed.
             HashSet<string> Attributed(IEnumerable<string> executions)
@@ -2472,15 +2641,35 @@ public static class ExecutionModel
                     _ when IsContainerWide(region) =>
                         new RegionOwnership(OwnershipKind.Shared, [$"{region.Display} is one container object for the whole scope ({region.Context})."]),
                     _ when escapes.TryGetValue(region.Identity, out var chain) => new RegionOwnership(OwnershipKind.Escaped, chain),
-                    _ when reached is not null && reached.Except(Attributed(CreationExecutions(region))).Order(StringComparer.Ordinal).FirstOrDefault() is { } other =>
-                        new RegionOwnership(OwnershipKind.Escaped,
-                                            [$"{region.Display} is created in {Describe(Attributed(CreationExecutions(region)))} and reached from {Describe([other])}."]),
-                    _ when reached is not null => new RegionOwnership(OwnershipKind.ThreadConfined, [$"{region.Display} is reached only in {Describe(reached)}."]),
-                    _ => new RegionOwnership(OwnershipKind.Owned, [$"No access reaches {region.Display}."])
+                    _ when reached is null => new RegionOwnership(OwnershipKind.Owned, [$"No access reaches {region.Display}."]),
+                    _ => Reached(region, reached, Attributed(CreationExecutions(region)))
                 };
             }
 
             return ownership;
+        }
+
+        /// <summary>The ownership of a region executions access and no shared root reaches: <c>ThreadConfined</c> when only its creators
+        /// access it, however many they are; <c>TreeConfined</c> when exactly one execution creates it and every other execution accessing
+        /// it descends from that creator through parent links (ADR 0020); <c>Escaped</c> otherwise.</summary>
+        /// <param name="region">The region.</param>
+        /// <param name="reached">The executions accessing it, a handed delegate's unknown call counted as the executions that handed it.</param>
+        /// <param name="creators">The executions creating it, counted the same way.</param>
+        private RegionOwnership Reached(HeapRegion region, HashSet<string> reached, HashSet<string> creators)
+        {
+            var others = reached.Except(creators).Order(StringComparer.Ordinal).ToArray();
+            if (others.Length == 0)
+                return new RegionOwnership(OwnershipKind.ThreadConfined, [$"{region.Display} is reached only in {Describe(reached)}."]);
+            if (creators.Count == 1 && creators.First() is var creator && others.All(other => CreatorRuns.Descends(_executions, other, creator)))
+            {
+                return new RegionOwnership(OwnershipKind.TreeConfined,
+                                           [$"{region.Display} is created in {Describe([creator])} and reached besides only from what one run of it starts: {Describe(others)}."])
+                {
+                    Creator = creator
+                };
+            }
+
+            return new RegionOwnership(OwnershipKind.Escaped, [$"{region.Display} is created in {Describe(creators)} and reached from {Describe([others[0]])}."]);
         }
 
         /// <summary>One hop of an escape chain, with the source location that made it: the delegate creation of a capture, or the
@@ -2516,7 +2705,7 @@ public static class ExecutionModel
             if (_storesByRegion is not { } index || !ReferenceEquals(index.Accesses, accesses))
                 _storesByRegion = index = new StoreIndex(accesses, accesses.Where(access => access.Access.Kind == SummaryAccessKind.Store)
                                                                          .ToLookup(access => access.RegionId, StringComparer.Ordinal));
-            var collected = FirstSpan(index.Stores[source].Where(access => FieldSlot.Key(access.Access.Field) == field &&
+            var collected = FirstSpan(index.Stores[source].Where(access => access.Slot == field &&
                                                                            Resolve(heap.Instances[access.InstanceId], access.Access.Values).Contains(target))
                                                           .Select(access => access.Access.Provenance.Span));
             if (collected is not null)
@@ -2526,8 +2715,10 @@ public static class ExecutionModel
                                                         .Select(store => Span(store.Instance.BodyId, store.OperationId)));
         }
 
-        /// <summary>Every instance's stores and element stores, by the slot they write and each region they may write it in, with the
-        /// values they may store: resolved once for every hop an escape chain asks about.</summary>
+        /// <summary>Every instance's stores, element stores and struct copies, by the slot they write and each region they may write it in,
+        /// with the values they may store: resolved once for every hop an escape chain asks about. A slot of a struct's storage is its
+        /// holder's slot below the storage's path, as the heap keeps it, and a copy writes each slot below the storage it goes into
+        /// (<see cref="HeapSolution.Located"/>).</summary>
         private ILookup<(string Slot, string Region), SlotStore> SlotStores
         {
             get
@@ -2541,13 +2732,25 @@ public static class ExecutionModel
                     foreach (var store in instance.Summary.Stores)
                     {
                         var values = Resolve(instance, store.Values);
-                        stores.AddRange(Targets(instance, store).Select(region => new SlotStore(FieldSlot.Key(store.Field), region, instance, store.OperationId, values)));
+                        stores.AddRange(Targets(instance, store).Select(region => heap.Located(region, FieldSlot.Key(store.Field)))
+                                                                .OfType<(string Region, string Slot)>()
+                                                                .Select(place => new SlotStore(place.Slot, place.Region, instance, store.OperationId, values)));
                     }
 
                     foreach (var element in instance.Summary.Elements.Where(element => element.Kind == ElementOperationKind.Store))
                     {
                         var values = Resolve(instance, element.Values);
                         stores.AddRange(Resolve(instance, element.Arrays).Select(region => new SlotStore(element.Slot, region, instance, element.OperationId, values)));
+                    }
+
+                    foreach (var copy in instance.Summary.StructCopies)
+                    {
+                        var sources = Resolve(instance, copy.Sources);
+                        foreach (var place in Resolve(instance, copy.Targets).Select(region => heap.Located(region, "")).OfType<(string Region, string Slot)>())
+                        foreach (var source in sources)
+                        foreach (var slot in heap.FieldsOf(source))
+                            stores.Add(new SlotStore(FieldSlot.Join(place.Slot, slot), place.Region, instance, copy.OperationId,
+                                                     heap.PointsTo(source, slot).ToHashSet(StringComparer.Ordinal)));
                     }
                 }
 
@@ -2656,17 +2859,29 @@ public static class ExecutionModel
 
         private ILookup<(string BodyId, string Context), MethodInstance>? _creators;
 
+        /// <summary>The operation a body's entry stands as: run by its prefix and by a whole body, never by its tail
+        /// (<see cref="AsyncSegments.Runs"/>).</summary>
+        private const int BODY_ENTRY = -1;
+
+        /// <summary>The executions that run an operation of an instance once the walk is done: those of its nodes whose segment runs the
+        /// operation, so that an async body's prefix and its tail each run only their own (every node where no operation is named).</summary>
+        /// <param name="instance">The instance.</param>
+        /// <param name="operationId">The operation, <see cref="BODY_ENTRY"/> for the body's entry, or null for any.</param>
+        private IEnumerable<string> ExecutionsRunning(MethodInstance instance, int? operationId) =>
+            (NodesByInstance.GetValueOrDefault(instance.Id) ?? [])
+                .Where(node => operationId is not { } operation || _segments.Runs(instance.BodyId, node.Segment, operation))
+                .SelectMany(node => _ids.Set(node.Executions));
+
         /// <summary>The executions that create a region. An allocation or a delegate is created by the executions that run its site: an
         /// async body's prefix runs in its caller's execution and its tail, after the first await, in the tail's, so an object the tail
-        /// creates is not created where the prefix runs.</summary>
+        /// creates is not created where the prefix runs. A closure is created once per run of its member, at the body's entry, by the
+        /// executions that run its first segment: an async tail of the same run does not create it again (R4, ADR 0020).</summary>
         /// <param name="region">The region.</param>
         private HashSet<string> CreationExecutions(HeapRegion region) => region.Kind switch
         {
-            HeapRegionKind.Allocation or HeapRegionKind.Delegate =>
+            HeapRegionKind.Allocation or HeapRegionKind.Delegate or HeapRegionKind.Closure =>
                 CreatorsOf(region)
-                    .SelectMany(instance => (NodesByInstance.GetValueOrDefault(instance.Id) ?? [])
-                                .Where(node => region.SiteOperationId is not { } site || _segments.Runs(instance.BodyId, node.Segment, site))
-                                .SelectMany(node => _ids.Set(node.Executions)))
+                    .SelectMany(instance => ExecutionsRunning(instance, region.Kind == HeapRegionKind.Closure ? BODY_ENTRY : region.SiteOperationId))
                     .ToHashSet(StringComparer.Ordinal),
             HeapRegionKind.Receiver => [region.Context],
             _ => (_regionExecutions.GetValueOrDefault(region.Identity) ?? [])

@@ -97,7 +97,8 @@ internal static class LibraryFieldOpening
                 var unitByNode = new Dictionary<SyntaxNode, OpeningUnit>();
                 foreach (var type in root.DescendantNodes().OfType<TypeDeclarationSyntax>())
                 {
-                    if (model.GetDeclaredSymbol(type, cancellationToken) is not { TypeKind: TypeKind.Class } typeSymbol)
+                    // A struct's fields are opened by the rules of a class's: its storage is its holder's (R1), which setup seeds in place.
+                    if (model.GetDeclaredSymbol(type, cancellationToken) is not ({ TypeKind: TypeKind.Class } or { TypeKind: TypeKind.Struct, IsRefLikeType: false }))
                         continue;
                     foreach (var field in type.Members.OfType<FieldDeclarationSyntax>())
                     {
@@ -182,7 +183,7 @@ internal static class LibraryFieldOpening
             for (SyntaxNode? current = containingType; current is TypeDeclarationSyntax type; current = type.Parent?.AncestorsAndSelf().OfType<TypeDeclarationSyntax>().FirstOrDefault())
             {
                 if (model.GetDeclaredSymbol(type, cancellationToken) is not { } symbol ||
-                    OpenTypeModifiers(type.Modifiers, symbol.DeclaredAccessibility) is not { } opened || Equivalent(type.Modifiers, opened))
+                    OpenTypeModifiers(type, symbol, model, cancellationToken) is not { } opened || Equivalent(type.Modifiers, opened))
                 {
                     continue;
                 }
@@ -251,6 +252,8 @@ internal static class LibraryFieldOpening
 
         public override SyntaxNode? VisitRecordDeclaration(RecordDeclarationSyntax node) => Open(node, base.VisitRecordDeclaration(node));
 
+        public override SyntaxNode? VisitStructDeclaration(StructDeclarationSyntax node) => Open(node, base.VisitStructDeclaration(node));
+
         public IReadOnlyDictionary<OpeningUnit, SyntaxNode> Current(SyntaxNode root) =>
             active.Where(unit => unit.TreeIndex >= 0)
                   .Select(unit => (Unit: unit, Node: root.GetAnnotatedNodes(unit.Annotation).SingleOrDefault()))
@@ -262,7 +265,13 @@ internal static class LibraryFieldOpening
                 return visited;
             var opened = unit.Opened;
             if (opened is TypeDeclarationSyntax openedType && visited is TypeDeclarationSyntax visitedType)
-                opened = visitedType.WithModifiers(openedType.Modifiers);
+            {
+                var openedModifiers = visitedType.WithModifiers(openedType.Modifiers);
+                // Only a struct, a record struct included, is ever declared readonly and opened without it.
+                opened = visitedType.Modifiers.Any(SyntaxKind.ReadOnlyKeyword) && !openedType.Modifiers.Any(SyntaxKind.ReadOnlyKeyword)
+                    ? KeepMembersReadonly(openedModifiers)
+                    : openedModifiers;
+            }
             return opened.WithAdditionalAnnotations(unit.Annotation);
         }
     }
@@ -320,12 +329,58 @@ internal static class LibraryFieldOpening
         _ => modifiers
     };
 
-    private static SyntaxTokenList? OpenTypeModifiers(SyntaxTokenList modifiers, Accessibility accessibility) => accessibility switch
+    /// <summary>A containing type's opened modifiers, or <c>null</c> when it opens as it is: a private or protected type becomes
+    /// <c>internal</c>, and a <c>readonly</c> struct that declares seed storage — a <c>readonly struct</c> or a
+    /// <c>readonly record struct</c> alike, as its symbol says — loses <c>readonly</c>, which no field it declares could otherwise lose,
+    /// while <see cref="KeepMembersReadonly"/> keeps every member of it <c>readonly</c>.</summary>
+    /// <param name="type">The type's declaration.</param>
+    /// <param name="symbol">The type's symbol.</param>
+    /// <param name="model">The declaration's semantic model.</param>
+    /// <param name="cancellationToken">Cancels the binding.</param>
+    private static SyntaxTokenList? OpenTypeModifiers(TypeDeclarationSyntax type, INamedTypeSymbol symbol, SemanticModel model,
+                                                      CancellationToken cancellationToken)
     {
-        Accessibility.Private or Accessibility.Protected or Accessibility.ProtectedAndInternal =>
-            ReplaceAccessibility(modifiers, SyntaxKind.InternalKeyword),
-        _ => null
-    };
+        SyntaxTokenList? opened = symbol.DeclaredAccessibility is Accessibility.Private or Accessibility.Protected or Accessibility.ProtectedAndInternal
+            ? ReplaceAccessibility(type.Modifiers, SyntaxKind.InternalKeyword)
+            : null;
+        if (symbol.TypeKind != TypeKind.Struct || !type.Modifiers.Any(SyntaxKind.ReadOnlyKeyword) || !DeclaresSeedStorage(type, model, cancellationToken))
+            return opened;
+        return TokenList((opened ?? type.Modifiers).Where(modifier => !modifier.IsKind(SyntaxKind.ReadOnlyKeyword)));
+    }
+
+    /// <summary>Whether a type declares an instance field or auto-property the opening makes writable for a seed.</summary>
+    /// <param name="type">The type's declaration.</param>
+    /// <param name="model">The declaration's semantic model.</param>
+    /// <param name="cancellationToken">Cancels the binding.</param>
+    private static bool DeclaresSeedStorage(TypeDeclarationSyntax type, SemanticModel model, CancellationToken cancellationToken) =>
+        type.Members.OfType<FieldDeclarationSyntax>().Any(field => !field.Modifiers.Any(SyntaxKind.StaticKeyword) && !field.Modifiers.Any(SyntaxKind.ConstKeyword) &&
+                                                                   model.GetTypeInfo(field.Declaration.Type, cancellationToken).Type is { } fieldType &&
+                                                                   SeedableFields.Seed(fieldType)) ||
+        type.Members.OfType<PropertyDeclarationSyntax>().Any(property => !property.Modifiers.Any(SyntaxKind.StaticKeyword) && IsAutoProperty(property) &&
+                                                                         model.GetDeclaredSymbol(property, cancellationToken) is { } symbol &&
+                                                                         SeedableFields.Seed(symbol.Type));
+
+    /// <summary>The struct with every instance member <c>readonly</c> that was so only because the struct was: a method, an event with
+    /// accessors, a property or indexer with no setter; one with a setter, which a seed auto-property gains, keeps each getter
+    /// <c>readonly</c>. A call on readonly storage then copies nothing it did not copy before.</summary>
+    /// <param name="type">The struct or record struct, its own <c>readonly</c> dropped.</param>
+    private static TypeDeclarationSyntax KeepMembersReadonly(TypeDeclarationSyntax type) =>
+        type.WithMembers(List(type.Members.Select(member => member switch
+        {
+            _ when member.Modifiers.Any(SyntaxKind.StaticKeyword) || member.Modifiers.Any(SyntaxKind.ReadOnlyKeyword) => member,
+            MethodDeclarationSyntax or EventDeclarationSyntax => AddReadonly(member),
+            BasePropertyDeclarationSyntax { AccessorList.Accessors: var accessors } property
+                when accessors.Any(accessor => accessor.IsKind(SyntaxKind.SetAccessorDeclaration) || accessor.IsKind(SyntaxKind.InitAccessorDeclaration)) =>
+                property.WithAccessorList(property.AccessorList!.WithAccessors(List(accessors.Select(accessor =>
+                    accessor.IsKind(SyntaxKind.GetAccessorDeclaration) && !accessor.Modifiers.Any(SyntaxKind.ReadOnlyKeyword)
+                        ? accessor.WithModifiers(accessor.Modifiers.Add(Token(SyntaxKind.ReadOnlyKeyword).WithTrailingTrivia(Space)))
+                        : accessor)))),
+            BasePropertyDeclarationSyntax => AddReadonly(member),
+            _ => member
+        })));
+
+    private static MemberDeclarationSyntax AddReadonly(MemberDeclarationSyntax member) =>
+        member.WithModifiers(member.Modifiers.Add(Token(SyntaxKind.ReadOnlyKeyword).WithTrailingTrivia(Space)));
 
     private static SyntaxTokenList ReplaceAccessibility(SyntaxTokenList modifiers, params SyntaxKind[] kinds)
     {

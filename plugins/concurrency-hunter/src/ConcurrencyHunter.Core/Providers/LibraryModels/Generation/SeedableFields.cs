@@ -7,17 +7,19 @@ using Microsoft.CodeAnalysis;
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 
 /// <summary>The one owner of whether a library field can receive a seed, is a path to further fields, or is a struct whose
-/// reference fields cannot be opened. Each answer starts with <see cref="TypeShape.Of"/>.</summary>
+/// reference fields setup seeds in place. Each answer starts with <see cref="TypeShape.Of"/>.</summary>
 public static class SeedableFields
 {
     /// <summary>The static storage loaded by the closure reached from a driver, keyed by its declaring type definition and name.</summary>
     /// <param name="run">The driver's pipeline run.</param>
     public static IReadOnlySet<(string Type, string Name)> LoadedStatics(ScopeRun run)
     {
+        var loads = run.Executions?.Accesses.Where(access => access.Access.Kind == SummaryAccessKind.Load).ToArray() ?? [];
+        // A load of a field of a struct a static field keeps loads that static's storage, which no field load names (R1).
         var fields = run.Reachable.Bodies.Values.SelectMany(body => body.Blocks).SelectMany(block => block.Operations)
                         .OfType<IrLoadFieldOperation>().Select(load => load.Field)
-                        .Concat(run.Executions?.Accesses.Where(access => access.Access.Kind == SummaryAccessKind.Load)
-                                   .Select(access => access.Access.Field) ?? [])
+                        .Concat(loads.Select(access => access.Access.Field))
+                        .Concat(loads.SelectMany(access => access.Access.Bases).SelectMany(StaticStorageOf))
                         .Concat(ReferenceLoads(run));
         return fields.Where(field => field.IsStatic)
                      .Select(field => (run.Program.Decompose($"{field.Assembly}:{field.ContainingTypeId}").DefinitionKey, field.Name))
@@ -29,6 +31,15 @@ public static class SeedableFields
     /// <param name="member">The field, auto-property or field-like event.</param>
     public static (string Type, string Name) StaticStorage(ISymbol member) =>
         (SymbolNames.TypeKey(member.ContainingType.OriginalDefinition), member.Name);
+
+    /// <summary>The static field whose storage a value is a struct's storage in, through every struct around it: none for any other value.</summary>
+    /// <param name="value">A base of an access.</param>
+    private static IEnumerable<IrFieldRef> StaticStorageOf(AbstractValue value) => value switch
+    {
+        StructPlaceValue place => StaticStorageOf(place.Base),
+        StaticHolderValue holder => [holder.Field],
+        _ => []
+    };
 
     private static IEnumerable<IrFieldRef> ReferenceLoads(ScopeRun run)
     {
@@ -129,10 +140,12 @@ public static class SeedableFields
     }
 
     /// <summary>Whether the driver reaches through a field of <paramref name="type"/> to seed fields of library objects stored
-    /// below it.</summary>
+    /// below it, or of a struct with references stored in it, whose fields are the holder's storage (R1).</summary>
     /// <param name="type">The field or auto-property type.</param>
     public static bool Path(ITypeSymbol type)
     {
+        if (Struct(type))
+            return true;
         if (TypeShape.Of(type) != TypeShapeKind.Reference)
             return false;
         if (type is IArrayTypeSymbol array)
@@ -144,9 +157,9 @@ public static class SeedableFields
         return type.TypeKind == TypeKind.Class;
     }
 
-    /// <summary>Whether <paramref name="type"/> is a struct with references, a <c>ValueTask</c> included. The heap keeps no object
-    /// for a struct value, so its containing field is neither seeded nor opened, and every reference field inside it is recorded as
-    /// unseeded instead.</summary>
+    /// <summary>Whether <paramref name="type"/> is a struct with references, a <c>ValueTask</c> included. Its storage is part of its
+    /// holder's (R1): a field of it is a path, opened with <c>readonly</c> kept, and setup seeds the struct's fields where it can
+    /// write them in place; a struct setup cannot write in place lists its reference fields as unseeded.</summary>
     /// <param name="type">The receiver, argument, field or auto-property type.</param>
     public static bool Struct(ITypeSymbol type) =>
         type is INamedTypeSymbol { TypeKind: TypeKind.Struct, IsRefLikeType: false, IsUnmanagedType: false } &&

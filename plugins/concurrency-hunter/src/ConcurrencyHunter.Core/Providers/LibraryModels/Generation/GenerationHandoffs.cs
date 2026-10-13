@@ -1,5 +1,6 @@
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
@@ -31,6 +32,7 @@ public sealed class GenerationHandoffs
     private readonly HashSet<string> _foreignAccesses = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Instance, int Operation), IReadOnlySet<string>> _outsideByCall = [];
     private readonly Dictionary<string, IReadOnlyList<string>> _unseen = new(StringComparer.Ordinal);
+    private readonly SortedSet<string> _unfollowedReceivers = new(StringComparer.Ordinal);
 
     /// <summary>Builds all handoff sets once for a completed generator run.</summary>
     /// <param name="driver">The driver.</param>
@@ -111,9 +113,10 @@ public sealed class GenerationHandoffs
 
         foreach (var instance in _heap.Instances.Values.Where(IsWitness))
         {
-            var receipts = Close(instance.Receivers.Concat(instance.Parameters.Values.SelectMany(values => values)));
+            var received = Received(_heap, instance);
+            var receipts = Close(received.Receivers.Concat(received.Parameters.Values.SelectMany(values => values)));
             if (FileWitness(instance.Id, receipts) && !ReadsByConvention(instance))
-                _unseenMembersOutsideSetup[instance.Id] = instance.Receivers.ToHashSet(StringComparer.Ordinal);
+                _unseenMembersOutsideSetup[instance.Id] = received.Receivers;
         }
 
         var implementation = driver.Member.ContainingAssembly.Name;
@@ -134,6 +137,27 @@ public sealed class GenerationHandoffs
             }
 
             _foreignAccesses.UnionWith(Close([access.RegionId]));
+        }
+
+        var unfollowed = unknownCalls.ToLookup(call => call.Instance.Id, call => call.Callee, StringComparer.Ordinal);
+        var edges = _heap.Edges.ToLookup(edge => edge.CallerInstance, edge => edge.CalleeInstance, StringComparer.Ordinal);
+        var program = run.ScopeProgram!.Program;
+        foreach (var instance in _heap.Instances.Values.Where(instance => OutsideSetup(ExecutionsOf(instance.Id))))
+        {
+            foreach (var call in instance.Summary.Calls.Where(call => call.Kind is IrCallKind.Virtual or IrCallKind.Interface or IrCallKind.Delegate &&
+                                                                      call.Receivers.Count != 0 && call.Receivers.All(ReadsStorage)))
+            {
+                // A receiver the dispatch can run on — an object that may be of the call's target type — is one the analysis follows.
+                var target = call.TargetContainingTypeKey is { } key ? ProgramIndex.Substitute(key, instance.Substitution) : null;
+                if (call.Receivers.SelectMany(value => _heap.Resolve(instance.Id, value)).Any(region => MayBe(program, region, target)))
+                    continue;
+                var fillers = call.Receivers.SelectMany(value => observation.Fillers(instance, value)).Distinct(StringComparer.Ordinal).ToArray();
+                var filled = UnfollowedFrom(fillers, unfollowed, edges);
+                if (filled is null)
+                    continue;
+                _unfollowedReceivers.Add($"{call.Target} in {instance.BodyId}#{call.OperationId}, whose receiver only {string.Join(", ", fillers)} " +
+                                         $"fills, through {filled}, which the analysis does not follow");
+            }
         }
 
         foreach (var action in new[] { DriverSynthesizer.CALL, DriverSynthesizer.ENUMERATE })
@@ -185,6 +209,19 @@ public sealed class GenerationHandoffs
 
     /// <summary>Regions a library body loaded or stored in an execution outside setup, the call, enumeration and escape artefact.</summary>
     public IReadOnlySet<string> ForeignAccesses => _foreignAccesses;
+
+    /// <summary>The one decision on calls whose receiver can only be what a call the engine cannot follow put there: for each call an
+    /// instance running outside setup dispatches on its receiver — a virtual or interface call, a delegate call; a call whose body is
+    /// fixed runs without an object — whose receiver is read out of storage (<see cref="ReadsStorage"/>) and holds no object that may be
+    /// of the call's target type (<see cref="MayBe"/>), while
+    /// the bodies whose writes fill that storage (<see cref="ValueObservation.Fillers"/>) run or reach a call the analysis does not follow
+    /// (<see cref="UnfollowedFrom"/>), as <c>Comparer&lt;T&gt;.Default</c> is filled by its type initializer through
+    /// <c>ComparerHelpers.CreateDefaultComparer</c> and the extern behind <c>CreateInstanceForAnotherGenericParameter</c>: the call, the
+    /// bodies and the call they reach, in words, sorted. Storage nothing writes holds its default, and a call on it only throws. Such a call runs
+    /// code the analysis does not see, so the generator refuses the member (<see cref="ModelCauses.CALL_RECEIVER_UNFOLLOWED"/>) rather
+    /// than give a model that leaves the call out; the engine's handling of the call in a user's analysis is not this decision's.
+    /// Read by <c>EffectReader.ReadReasonsFromHandoffs</c>.</summary>
+    public IReadOnlyCollection<string> UnfollowedReceiverCalls => _unfollowedReceivers;
 
     /// <summary>What the analysis did not see in the tree of <c>V_Call</c> or <c>V_Enum</c>, sorted: every unresolved dispatch of an
     /// instance running there, of any call kind, delegate calls included, and every dispatch without a receiver object in a body one
@@ -269,6 +306,53 @@ public sealed class GenerationHandoffs
         return true;
     }
 
+    /// <summary>The first call, by name, the analysis does not follow that a body filling storage runs or reaches through its calls —
+    /// a call with no body, such as an extern —; null where none of the bodies reaches one.</summary>
+    /// <param name="fillers">The bodies whose writes fill the storage.</param>
+    /// <param name="unfollowed">The calls the analysis does not follow, by the instance making them.</param>
+    /// <param name="edges">The call edges, by caller instance.</param>
+    private string? UnfollowedFrom(IReadOnlyCollection<string> fillers, ILookup<string, string> unfollowed, ILookup<string, string> edges)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>(_heap.Instances.Values.Where(instance => fillers.Contains(instance.BodyId)).Select(instance => instance.Id));
+        var found = new SortedSet<string>(StringComparer.Ordinal);
+        while (pending.TryPop(out var current))
+        {
+            if (!seen.Add(current))
+                continue;
+            found.UnionWith(unfollowed[current]);
+            foreach (var callee in edges[current])
+                pending.Push(callee);
+        }
+        return found.Count == 0 ? null : found.Min;
+    }
+
+    /// <summary>Whether an object may be of a call's target type: always, but for one whose supertypes hold the target's definition
+    /// only with other type arguments — a <c>GenericEqualityComparer&lt;string&gt;</c> is no <c>EqualityComparer&lt;T&gt;</c> of another
+    /// <c>T</c>, which the dispatch, comparing definitions, lets through.</summary>
+    /// <param name="program">The scope's types.</param>
+    /// <param name="region">The object.</param>
+    /// <param name="target">The call's target type, substituted; null where the call names none.</param>
+    private bool MayBe(ProgramIndex program, string region, string? target)
+    {
+        if (target is null || !_heap.Regions.TryGetValue(region, out var held) || held.TypeKey is not { } type || program.Type(type) is null)
+            return true;
+        var definition = TypeSafety.DefinitionOf(target);
+        var same = program.Supertypes(type).Append(type).Where(supertype => TypeSafety.DefinitionOf(supertype) == definition).ToArray();
+        return same.Length == 0 || same.Contains(target, StringComparer.Ordinal);
+    }
+
+    /// <summary>Whether a receiver is read out of storage — a static field, a field or a cell along a path, a capture cell — rather than
+    /// a value a call hands back directly: only state can be what a call with no body filled before the member ran.</summary>
+    /// <param name="value">A receiver value.</param>
+    private static bool ReadsStorage(AbstractValue value) => value is StaticFieldValue or PathValue or CapturedValue;
+
+    /// <summary>Whether some of an instance's executions ran outside setup and are no artefact, as <see cref="File"/> files a site.</summary>
+    /// <param name="executions">The instance's executions.</param>
+    private bool OutsideSetup(IReadOnlySet<string> executions) =>
+        !(executions.Count != 0 && executions.All(_executions.IsArtefact)) &&
+        executions.Any(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution));
+
     private IReadOnlySet<string> ExecutionsOf(string instanceId) =>
         _analysis.InstanceExecutions.GetValueOrDefault(instanceId) ?? new HashSet<string>(StringComparer.Ordinal);
 
@@ -319,6 +403,58 @@ public sealed class GenerationHandoffs
     private static bool TouchesNothing(string callee) => string.Equals(callee, OBJECT_GET_TYPE, StringComparison.Ordinal);
 
     private static bool IsWitness(MethodInstance instance) => instance.Summary.Stores.Any(store => IsWitnessField(store.Field));
+
+    /// <summary>The objects a witness instance received, by where: what its receiver is and what each parameter got, together with what
+    /// its witness stores read from either. A struct is no object (R2): a copy stands for the objects it holds, and a probe struct's
+    /// witness stores the probe objects the struct holds (R9), which are what the member it stands for got. A class's witness stores
+    /// what it got, which adds nothing.</summary>
+    /// <param name="heap">The solved heap.</param>
+    /// <param name="instance">A witness instance.</param>
+    internal static (IReadOnlySet<string> Receivers, IReadOnlyDictionary<int, IReadOnlySet<string>> Parameters) Received(HeapSolution heap,
+                                                                                                                           MethodInstance instance)
+    {
+        var receivers = Objects(instance.Receivers);
+        var parameters = instance.Parameters.ToDictionary(pair => pair.Key, pair => Objects(pair.Value));
+        foreach (var value in instance.Summary.Stores.Where(store => IsWitnessField(store.Field)).SelectMany(store => store.Values))
+        {
+            var target = ReceivedFrom(value) switch
+            {
+                Heap.ThisValue => receivers,
+                ParameterValue parameter => parameters.TryGetValue(parameter.Ordinal, out var got) ? got : parameters[parameter.Ordinal] = new(StringComparer.Ordinal),
+                _ => null
+            };
+            target?.UnionWith(Objects(heap.Resolve(instance.Id, value)));
+        }
+
+        return (receivers, parameters.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value));
+
+        // A struct copy is no object: it stands for the objects its slots hold, through every copy inside it.
+        HashSet<string> Objects(IEnumerable<string> regions)
+        {
+            var objects = new HashSet<string>(StringComparer.Ordinal);
+            var copies = new HashSet<string>(StringComparer.Ordinal);
+            var pending = new Stack<string>(regions);
+            while (pending.TryPop(out var region))
+            {
+                if (!heap.Regions.TryGetValue(region, out var held) || held.Kind != HeapRegionKind.StructCopy)
+                    objects.Add(region);
+                else if (copies.Add(region))
+                {
+                    foreach (var target in heap.FieldsOf(region).SelectMany(slot => heap.PointsTo(region, slot)))
+                        pending.Push(target);
+                }
+            }
+
+            return objects;
+        }
+
+        static AbstractValue ReceivedFrom(AbstractValue value) => value switch
+        {
+            PathValue path => ReceivedFrom(path.Base),
+            StructPlaceValue place => ReceivedFrom(place.Base),
+            _ => value
+        };
+    }
 
     /// <summary>Whether an instance is a witness of a member the analysis takes to read what it gets — a getter, <c>ToString</c>, or
     /// a member of equality, hash or ordering, which a model's <c>calls</c> runs.</summary>

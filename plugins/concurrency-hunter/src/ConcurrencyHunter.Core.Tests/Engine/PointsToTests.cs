@@ -482,8 +482,9 @@ public sealed class PointsToTests
         var method = Assert.Single(run.Instances("body:Fixture:M:LocalController.Post"));
         var local = Assert.Single(run.Instances("body:Fixture:M:LocalController.Post#local:Replace"));
         Assert.Equal([method.Id], local.CellOwners);
-        var key = Assert.Single(method.Summary.Variables, variable => variable.SymbolKey.Contains("|current|", StringComparison.Ordinal)).SymbolKey;
-        var cell = run.Heap.Cell(method.Id, key).Select(id => run.Heap.Regions[id].Display).Order(StringComparer.Ordinal).ToArray();
+        var variable = Assert.Single(method.Summary.Variables, variable => variable.SymbolKey.Contains("|current|", StringComparison.Ordinal));
+        var cell = run.Heap.PointsTo(run.Heap.Closure(method.Id)!, WholeProgram.ClosureSlot(variable.Cell!))
+                      .Select(id => run.Heap.Regions[id].Display).Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(["alloc:LocalController.Post()#Holder#2", "alloc:LocalController.Post()#object"], cell);
         Assert.Contains("alloc:LocalController.Post()#object", run.Targets(run.Region("alloc:LocalController.Post()#Holder"), "Seen"));
     }
@@ -507,8 +508,8 @@ public sealed class PointsToTests
 
         var method = Assert.Single(run.Instances("body:Fixture:M:HookController.Post"));
         Assert.Single(run.Instances("body:Fixture:M:HookController.Post#lambda1"));
-        var key = Assert.Single(method.Summary.Delegates).Delegate.CapturedValues.Keys.Single(candidate => candidate != "this");
-        var cell = run.Heap.Cell(method.Id, key).Select(id => run.Heap.Regions[id].Display).ToArray();
+        var captured = Assert.Single(Assert.Single(method.Summary.Delegates).Delegate.CapturedCells);
+        var cell = run.Heap.PointsTo(run.Heap.Closure(method.Id)!, WholeProgram.ClosureSlot(captured)).Select(id => run.Heap.Regions[id].Display).ToArray();
         Assert.Contains("alloc:HookController.Post()#Hooks", cell);
         Assert.Contains("alloc:HookController.Post()#System.Collections.Generic.List<int>", cell);
         Assert.Contains("alloc:HookController.Post()#object", cell);
