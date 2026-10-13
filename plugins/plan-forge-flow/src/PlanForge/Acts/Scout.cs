@@ -172,6 +172,7 @@ internal sealed class Scout
         {
             ScoutSensitiveOutputException => ScoutFailures.SensitiveOutput,
             JsonException => ScoutFailures.InvalidOutput,
+            NoShellException noShell => ScoutFailures.NoShell(noShell.ErrorCode),
             VendorException => ScoutFailures.VendorFailed,
             _ => ScoutFailures.Unknown
         };
@@ -291,4 +292,15 @@ internal static class ScoutFailures
 
     public static ScoutFailure Unknown { get; } =
         new("unknown", "Scout failed for an unknown reason; the previous report was preserved.");
+
+    /// <summary>
+    /// The Scout tried commands and its vendor started none, so its answer was written without
+    /// reading the repository. Fixed text like every Scout failure, except for the vendor's error
+    /// code, which <see cref="NoShellException"/> carries only when it is a bare identifier.
+    /// </summary>
+    /// <param name="errorCode">The vendor's error code, such as <c>helper_unknown_error</c>, or null.</param>
+    public static ScoutFailure NoShell(string? errorCode) =>
+        new("no_shell",
+            $"Scout's worker could not start a shell{(errorCode is null ? string.Empty : $" ({errorCode})")}, "
+            + "so it answered without reading the repository; the answer was discarded and the previous report was preserved.");
 }

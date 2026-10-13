@@ -34,9 +34,9 @@ a time: first the one the others depend on, and the next only once that one is a
 answer can change or remove the questions behind it. This overrides the `grilling` rule to ask the
 whole frontier in one round: a delegated interview skill supplies the questions, never their
 batching. You make two batches unasked, one per worker role, both described under "Choosing the
-vendor and model": the critic's vendor, model-and-effort, Fast and instruction questions share one
-call, and the builder's another. Their options come from the catalogue you fetch before the first
-of them, each naming what it depends on, and answers that do not fit together get one follow-up
+vendor and model": once the role's vendor is answered, its model-and-effort, Fast and instruction
+questions share one call, the critic's first. Their options come from the chosen vendor's
+catalogue, each naming what it depends on, and answers that do not fit together get one follow-up
 question. Explain each question of a batch before the call. If the user asks for questions in a
 batch, batch them as they asked.
 
@@ -62,7 +62,7 @@ sentences of explanation and no code.
 | Tool | When |
 |---|---|
 | `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic, builder, and scout may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — all three roles get the same grant. |
-| `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not; successful entries are served from `CatalogCache`, while unavailable entries are probed again. |
+| `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not, and `degraded` when its Critic and Scout cannot start a shell; successful entries are served from `CatalogCache`, while unavailable and degraded entries are probed again. |
 | `forge.scout.select` | Once, just in time when broad reconnaissance first becomes necessary. Persists one exact Scout Vendor/model/effort selection or the explicit decline to continue without Scout; a later enabling call must also be explicit. |
 | `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the complete Scout answer under `scout`, unclipped, and appends it to `SCOUT.md`. |
 | `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
@@ -220,7 +220,11 @@ For every direct or background Scout call, pass `sessionMode` explicitly. Use `c
 direct follow-up in the same investigation. Use `fresh` for an independent question, a new
 subsystem, stale evidence, or a deliberate reset. After a failure, retry with the saved selection;
 reselect explicitly to clear the old session and failure; or explicitly choose continue without
-Scout. Never silently choose session continuity and never fall back to another Vendor. Scout may
+Scout. Never silently choose session continuity and never fall back to another Vendor. A
+`no_shell` failure is the exception to retrying at once: the Scout's commands never started, so it
+read nothing, and the same selection fails the same way until its vendor is repaired. Tell the user
+what the failure says, and ask whether to repair the vendor and retry, reselect, or continue without
+Scout. Never offer a vendor as Scout while its `forge.models` entry has `degraded` set. Scout may
 use already available internet without per-call authorization or a widened grant. Require typed
 repository citations (path plus positive line or non-empty symbol) and external citations (an
 absolute HTTP(S) URL). Surface `SCOUT.md` only after each successful Scout call.
@@ -594,6 +598,13 @@ findings are, and what one more round would cost against stopping here. On a yes
 same argument on `forge.work.start` — which raises the cap by exactly one. The grant is spent by
 that round, so the round after it needs a fresh answer, and never pass the argument without having
 asked.
+
+A round whose error says the critic could not start a shell spent nothing: no round was counted and
+no finding reached the ledger, because a critic whose commands never started judged without reading
+the repository. Do not call again as if it were a passing fault — the same vendor fails the same way
+until it is repaired. Tell the user what the error quotes, and ask whether to repair the vendor and
+retry, or to run the critic on another vendor. A code-review round, and a builder act whose error
+says the same, are handled the same way.
 
 Link the drafts, do not paste them. Each round is `forge.plan.write` with the current draft, then
 the round itself with `planDraft` omitted — the write puts the plan at `<runPath>/PLAN.md` in
@@ -1029,26 +1040,33 @@ This happens at the end of Act 1, after the last interview question and before t
 draft — the depth rule above reads the builder's selection.
 
 Critic/Builder selection remains at most six questions total: two Vendor questions, two
-model/effort questions, and one Fast question for each role whose choice offers it. Ask them in two
-calls, one per role, the critic's first: each call carries that role's vendor, model-and-effort,
-Fast and instruction questions, in the order of the steps below — four questions at most. A single
-just-in-time Scout selection round is additional; there is no numeric cap on the domain interview.
+model/effort questions, and one Fast question for each role whose choice offers it. Ask them role
+by role, the critic's first: the vendor question alone, then one call carrying that role's
+model-and-effort, Fast and instruction questions, in the order of the steps below — three questions
+at most. The vendor question never shares a call with the model-and-effort question: the questions
+in a call cannot see each other's answers, so the model options would have to span every vendor,
+and a user who chose one vendor would be offered another's models. A single just-in-time Scout
+selection round is additional; there is no numeric cap on the domain interview.
 The combinations come from the server, not from your own knowledge. Call `forge.models` (no
 `vendor` argument) again immediately before the Critic/Builder Vendor question: successful probes
 return from `CatalogCache` immediately, while previously unavailable probes rerun so a repaired
 CLI or sign-in can re-enter the choices. Do not claim that the catalogue is called only once. Build
-both calls from that one answer: it holds every available vendor's models, efforts and Fast tiers,
+every call from that one answer: it holds every available vendor's models, efforts and Fast tiers,
 which is what lets one call carry questions that would otherwise wait on each other's answers.
 
 The questions in a call cannot see each other's answers, so every option says what it depends on:
-a model-and-effort pair names its vendor, and the Fast question names the pairs that offer it. When
-the answers do not fit together — a pair from a vendor the user did not choose, a free-text model
-the chosen vendor's catalogue does not list, Fast for a pair that has none — ask one follow-up
-question about the part that does not fit before that role's selection is used.
+the Fast question names the pairs that offer it. When the answers do not fit together — a
+free-text model the chosen vendor's catalogue does not list, Fast for a pair that has none — ask
+one follow-up question about the part that does not fit before that role's selection is used.
 
 1. The vendor question offers only vendors the catalogue reports `available: true`. Never offer a
    vendor with `available: false`; its `detail` names the cause — a missing CLI, a sign-in — so
    tell the user why it is out and what would bring it back.
+   - A vendor with `degraded` set is offered for the Builder only. `degraded` says why that
+     vendor's Critic and Scout cannot start a shell in their read-only sandbox, so they would judge
+     without reading the repository; tell the user what it says before the critic's vendor
+     question, and leave that vendor out of it. If that leaves the critic no vendor, stop and relay
+     it as you would for none available.
    - If none is available, stop and relay what each probe reported; no act can run without a
      working vendor CLI.
    - If exactly one is available, do not ask either vendor question. Tell the user which vendor
@@ -1060,12 +1078,11 @@ question about the part that does not fit before that role's selection is used.
      cursor, or the host you are running in is Cursor. Tell the user both workers will run through
      `cursor-agent`, put both roles on the `cursor` vendor, and draw step 2's pairs from its
      catalogue alone.
-2. The model-and-effort question requests a valid combination, drawn from the catalogue in the
-   tool's order — it is already newest first. Offer three concrete model-plus-effort pairs, your
-   recommendation first, among them the vendor's own pick where it names one (`isDefault`,
-   `defaultEffort`), and say which that is; always leave free text open. While the call also asks
-   for the vendor, draw the pairs from the vendors it offers, your recommended vendor's first, and
-   name each pair's vendor in its label.
+2. The model-and-effort question requests a valid combination for that role's chosen vendor, drawn
+   from that vendor's catalogue in the tool's order — it is already newest first. Offer three
+   concrete model-plus-effort pairs, your recommendation first, among them the vendor's own pick
+   where it names one (`isDefault`, `defaultEffort`), and say which that is; always leave free text
+   open. Never offer a pair from a vendor the user did not choose for that role.
    Say what kind of list you are offering: `source: "live"` came from the vendor CLI just now;
    `source: "resolved"` (claude) is a list of aliases this repo remembers, each one turned by the
    CLI into the model it currently stands for — so name that model beside the alias, because

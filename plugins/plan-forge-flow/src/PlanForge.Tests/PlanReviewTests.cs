@@ -140,6 +140,34 @@ public sealed class PlanReviewTests : IDisposable
         Assert.Equal(0, state.GrantedReviewRounds);
     }
 
+    /// <summary>
+    /// A critic whose commands never started judged the plan without reading the repository: the
+    /// round is not spent, nothing reaches the ledger, and the flow log quotes the vendor. See
+    /// docs/adr/0031.
+    /// </summary>
+    [Fact]
+    public async Task A_critic_without_a_shell_spends_no_round_and_the_flow_log_quotes_codex()
+    {
+        var critic = new RecordingVendor("codex");
+        critic.Enqueue(new NoShellException(
+            "codex could not start a shell for the Critic at 20:10, so its answer was not used: none of the 2 command(s) "
+            + "it tried started — \"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\".",
+            "Retry once codex can start a sandboxed command.", "helper_unknown_error"));
+        var run = NewRun(rounds: 1, cap: 5);
+
+        var error = await Assert.ThrowsAsync<NoShellException>(
+            () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+                .ReviewAsync(run, HardenedPlan, new Selection("gpt-critic", "xhigh"),
+                             "reworked step 3", null, false, CancellationToken.None));
+
+        Assert.Equal(1, run.ReadState().ReviewRounds);
+        Assert.Empty(run.ReadDecisionLedger().Snapshot.Entries);
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("## Plan review — round 2 rejected", flow, StringComparison.Ordinal);
+        Assert.Contains("Error: " + error.Message, flow, StringComparison.Ordinal);
+        Assert.Contains("helper_unknown_error: setup refresh had errors", flow, StringComparison.Ordinal);
+    }
+
     [Fact]
     [Trait("Category", "Integration")]
     public async Task Rounds_accumulate_and_a_revised_plan_fares_better()

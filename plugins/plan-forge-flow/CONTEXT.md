@@ -65,6 +65,8 @@ these terms replace it.
 | **Scout selection** | The Run's initially unset choice for the Scout Vendor, model, effort, and Fast tier, the last confirmed when chosen. On the first need the Orchestrator either stores an exact selection or records that the Run continues without Scout; the latter suppresses later automatic questions, while an explicit later choice may enable Scout. Calls reuse the stored selection exactly, and an explicit reselection after failure starts a fresh Scout session rather than silently falling back. |
 | **Model family** | A cursor catalogue entry: the base id its raw list spells out once per effort and speed variant (`gpt-5.3-codex` behind `gpt-5.3-codex-high-fast`), offered with exactly the efforts observed and, separately, the efforts observed with a `-fast` variant. The chosen effort and Fast join back onto the family id; `default` names the bare id and joins to nothing. A `-fast` already written into a model or effort is read as a Fast request. |
 | **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Readiness means **able to do the work**, not merely installed and signed in: a vendor that could not execute a command is unavailable, however healthy its sign-in. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
+| **Degraded vendor** | An available vendor whose sandboxed Workers — Critic and Scout — cannot start a shell, so they would answer without reading the repository; its Builder, which runs outside the sandbox, is unaffected. `forge.models` names the cause as `degraded`, from the Probe or, newer, from a sandboxed Worker of this server process that started none of its commands, until a later one starts one. Offered for the Builder only. See `docs/adr/0031`. |
+| **Shell-less answer** | A Worker's answer from a turn in which it tried commands and the vendor started none. Not used: the act fails like any vendor failure, the Scout report and the ledger stay as they were, a review round is not spent, and the error and the Flow log quote the vendor. A turn that started one command, or tried none, is not shell-less. |
 | **Requirement** | A numbered statement under the plan's `## Requirements` heading of what must be true when the run is done — `R1`…`Rn`, with the run's exclusions beside them. The interview's output, so it names no file and no symbol; every task cites the requirements it serves. |
 | **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task; a `## Gates` entry — `G1`…`Gn` — belongs to no single task. **Executable** when code immediately follows the label: the server runs task gates after `forge.build.next`, and complete-plan gates after `forge.review.fix` in the default full mode. A targeted fix uses its Fix gate instead. Otherwise a **condition**, left to the Builder's word for tasks and to the Orchestrator for complete-plan checks. See docs/adr/0015 and docs/adr/0030. |
 | **Fix gate** | One explicitly stated executable `**Fix gate:**` under `## Gates`, used by the server after each fix attempt that opts into targeted verification. It supplies short feedback and does not establish complete-plan verification. No union of task gates is inferred. |
@@ -243,8 +245,42 @@ an `error` item was not logged at all.
 `sandbox.helpers` alone was `fail` ("elevated Windows sandbox provisioning recorded a structured
 failure"), while `codex exec --sandbox read-only` on the same machine exited `0` and answered. The
 report is printed in full before the exit, so the probe reads its `checks` instead of the exit code:
-`auth.credentials` must be `ok`, `installation` and `config.load` must not be `fail`, and any other
-failed check is named in the readiness detail rather than withholding codex.
+`auth.credentials` must be `ok`, `installation` and `config.load` must not be `fail`, a failed
+`sandbox.helpers` makes codex a Degraded vendor (next section), and any other failed check is named
+in the readiness detail rather than withholding codex.
+
+## A codex Worker can answer without starting a single command
+
+Measured on 2026-10-12, in run `20261012-163837-6fc7b1` and two probes after it, against the npm
+codex-cli 0.162.1 (installed 2026-10-11; the sandbox logs of every day before it, on 0.159.2, hold no
+setup error). Every one of the 17 commands that run's codex Critics and Scouts tried failed before
+it started — eleven of its twelve codex acts tried at least one — and every act still came back as
+a successful critique or Scout answer.
+
+- **A command codex could not start** completes as a `command_execution` item with `status`
+  `failed`, `exit_code` `-1` and output opening "Failed to create unified exec process:" — here
+  "…: helper_unknown_error: setup refresh had errors". codex pins that shape in its own
+  `unified_exec_launch_failure_tests.rs`. The process still exits `0` and the result is written.
+- **The cause was the sandbox setup, not the desktop app.** Before each sandboxed command codex runs
+  a setup refresh, logged to `CODEX_HOME/.sandbox/sandbox.<yyyy-MM-dd>.log`. In 0.162.1 it validates
+  the desktop app's `cua_node` runtime and failed with "open ACL target for root-only update … (os
+  error 32)" on `node_repl.exe`. It failed the same way with the app quit and no process of it
+  running, and with the `node_repl` MCP server disabled, while PowerShell could open the file
+  exclusively. `codex sandbox -- cmd` passed the same refresh, because it does not validate the
+  runtime, so it cannot stand in as a probe for `codex exec`.
+- **A "good" answer had no shell either.** The answers that read files read them through the app's
+  `node_repl` MCP server, which runs its own sandbox; none of their commands started.
+- **`setup_error.json` describes the last refresh any codex ran.** codex writes
+  `CODEX_HOME/.sandbox/setup_error.json` when a refresh fails and deletes it before every refresh and
+  after a successful one (`codex-rs/windows-sandbox-rs/src/setup.rs` at `rust-v0.162.1`). doctor's
+  `sandbox.helpers` reads it, with the code in `details["error code"]`. The desktop app's own
+  successful refreshes delete it too, and nothing has failed at the start of a day, so the run's one
+  probe, at 16:38, found it absent: a probe alone would not have named the fault.
+
+So a Worker's own commands decide. A codex turn that tried commands and started none is a
+Shell-less answer, and a sandboxed Worker's outcome is kept for the life of the server process,
+where `forge.models` reports it as `degraded`; doctor's `sandbox.helpers` adds the cause the probe can
+see, and the newest "setup refresh completed with errors" line names the file. See `docs/adr/0031`.
 
 ## Codex Builders run with the launching process's permissions
 

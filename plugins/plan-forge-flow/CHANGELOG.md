@@ -1,5 +1,32 @@
 # Plan Forge Flow releases
 
+## 0.45.0
+
+A worker whose commands never started no longer passes for one that read the repository. In run
+`20261012-163837-6fc7b1` codex-cli 0.162.1's sandbox setup failed before every command the codex
+Critics and Scouts tried, and their blind critiques and answers went into the ledger and `SCOUT.md`
+as ordinary results. See [issue #147](https://github.com/dlin10/ai-coding-plugins/issues/147) and
+`docs/adr/0031`.
+
+- A codex turn that tried commands and started none fails instead of answering. A review round is
+  not spent and nothing reaches the ledger; the error and the flow log quote codex's launch
+  diagnostic and, for a Critic or Scout, the sandbox log's newest setup failure, which names the
+  blocking file. A Scout fails as `no_shell`, carrying only codex's error code.
+- `forge.models` reports `degraded` on a vendor whose Critic and Scout cannot start a shell, from
+  doctor's `sandbox.helpers` and from what this server's own Critics and Scouts showed since; codex
+  stays available for the Builder. A degraded probe is not cached. `sandbox.helpers` no longer
+  appears as a warning in `detail`.
+- The forge skill offers a degraded vendor for the Builder only, and on a shell-less failure asks
+  the user to repair the vendor or choose another rather than retrying.
+
+## 0.44.1
+
+- The forge skill asks each worker role's vendor question on its own, and only then the call with
+  that role's model-and-effort, Fast and instruction questions, the critic's first. The
+  model-and-effort options come from the chosen vendor's catalogue alone. Asked in one call with
+  the vendor, they had to span every vendor, so a user who chose codex was still offered Claude
+  models.
+
 ## 0.44.0
 
 Code-review fixes can run a short, explicit Fix gate while full plan verification is deferred to the

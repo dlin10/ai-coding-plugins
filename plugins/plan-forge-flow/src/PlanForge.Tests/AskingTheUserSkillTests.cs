@@ -59,34 +59,38 @@ public sealed class AskingTheUserSkillTests
     }
 
     [Fact]
-    public void Each_worker_role_is_asked_in_one_call_the_critics_first()
+    public void Each_worker_role_is_asked_its_vendor_alone_then_one_call_the_critics_first()
     {
         var skill = Skill();
         Contains("You make two batches unasked, one per worker role",
-                 "the critic's vendor, model-and-effort, Fast and instruction questions share one call, and the builder's another",
+                 "once the role's vendor is answered, its model-and-effort, Fast and instruction questions share one call",
                  "Explain each question of a batch before the call", skill);
-        Contains("Ask them in two calls, one per role, the critic's first",
-                 "each call carries that role's vendor, model-and-effort, Fast and instruction questions", "four questions at most",
-                 skill);
+        Contains("Ask them role by role, the critic's first",
+                 "the vendor question alone, then one call carrying that role's model-and-effort, Fast and instruction questions",
+                 "three questions at most", "The vendor question never shares a call with the model-and-effort question", skill);
+        DoesNotContain("each call carries that role's vendor", skill);
         DoesNotContain("as one round of two questions", skill);
         DoesNotContain("instruction questions of step 4 as one round", skill);
     }
 
     [Fact]
-    public void Both_calls_are_built_from_the_catalogue_fetched_before_the_first()
+    public void Every_call_is_built_from_the_catalogue_fetched_before_the_first()
     {
-        Contains("again immediately before the Critic/Builder Vendor question", "Build both calls from that one answer",
+        Contains("again immediately before the Critic/Builder Vendor question", "Build every call from that one answer",
                  "every available vendor's models, efforts and Fast tiers", Skill());
     }
 
     [Fact]
-    public void Options_name_what_they_depend_on_and_a_misfit_gets_one_follow_up()
+    public void Model_options_come_from_the_chosen_vendor_and_a_misfit_gets_one_follow_up()
     {
-        Contains("every option says what it depends on", "a model-and-effort pair names its vendor",
-                 "the Fast question names the pairs that offer it", "a pair from a vendor the user did not choose",
+        Contains("every option says what it depends on", "the Fast question names the pairs that offer it",
+                 "a free-text model the chosen vendor's catalogue does not list",
                  "ask one follow-up question about the part that does not fit", Skill());
-        Contains("name each pair's vendor in its label", "Ask the Fast question only when a pair the call offers",
+        Contains("a valid combination for that role's chosen vendor, drawn from that vendor's catalogue",
+                 "Never offer a pair from a vendor the user did not choose for that role",
+                 "Ask the Fast question only when a pair the call offers",
                  "only on a yes for a pair that offers it", "propose no wording of your own", Skill());
+        DoesNotContain("draw the pairs from the vendors it offers", Skill());
     }
 
     [Fact]

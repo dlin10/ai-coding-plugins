@@ -231,6 +231,13 @@ public sealed class VendorTimingTests : IDisposable
         AssertDurations(Record(), "00:00:10", "00:00:01", "00:00:09");
     }
 
+    /// <summary>
+    /// A tool's time is the gap between the moments its two lines are observed, cut off at the
+    /// process's exit and truncated to whole seconds. The first line can be observed late on a loaded
+    /// machine while the exit still caps the end, so the sleep leaves a second and a half of that
+    /// lateness before two seconds truncate to one; 2.2 seconds left a fifth of one, and the release
+    /// run of 0.44.1 failed on it.
+    /// </summary>
     [Fact]
     public async Task A_real_worker_process_measures_a_slow_tool_and_stops_timing_before_output_assessment()
     {
@@ -239,8 +246,8 @@ public sealed class VendorTimingTests : IDisposable
         var start = ToolEvent("codex", "command_execution", "slow", true);
         var end = ToolEvent("codex", "command_execution", "slow", false);
         var spec = OperatingSystem.IsWindows()
-            ? new ProcessSpec("powershell.exe", ["-NoProfile", "-Command", $"Write-Output '{start}'; Start-Sleep -Milliseconds 2200; Write-Output '{end}'"], null, "")
-            : new ProcessSpec("/bin/sh", ["-c", $"echo '{start}'; sleep 2.2; echo '{end}'"], null, "");
+            ? new ProcessSpec("powershell.exe", ["-NoProfile", "-Command", $"Write-Output '{start}'; Start-Sleep -Milliseconds 3500; Write-Output '{end}'"], null, "")
+            : new ProcessSpec("/bin/sh", ["-c", $"echo '{start}'; sleep 3.5; echo '{end}'"], null, "");
         var beforeStart = DateTimeOffset.Now;
         DateTimeOffset? firstOutputAt = null;
         var elapsed = Stopwatch.StartNew();
@@ -257,9 +264,9 @@ public sealed class VendorTimingTests : IDisposable
         var wall = TimeSpan.Parse(record.GetProperty("wallDuration").GetString()!, CultureInfo.InvariantCulture);
         var tools = TimeSpan.Parse(record.GetProperty("toolDuration").GetString()!, CultureInfo.InvariantCulture);
         var net = TimeSpan.Parse(record.GetProperty("duration").GetString()!, CultureInfo.InvariantCulture);
-        Assert.True(tools >= TimeSpan.FromSeconds(2));
+        Assert.True(tools >= TimeSpan.FromSeconds(2), $"tools={tools} wall={wall} elapsed={elapsed.Elapsed}");
         Assert.Equal(wall - tools, net);
-        Assert.True(wall < elapsed.Elapsed - TimeSpan.FromSeconds(1.5));
+        Assert.True(wall < elapsed.Elapsed - TimeSpan.FromSeconds(1.5), $"tools={tools} wall={wall} elapsed={elapsed.Elapsed}");
         Assert.InRange(record.GetProperty("at").GetString()!,
                        VendorAttempt.FormatLocalTimestamp(beforeStart), VendorAttempt.FormatLocalTimestamp(firstOutputAt!.Value));
     }

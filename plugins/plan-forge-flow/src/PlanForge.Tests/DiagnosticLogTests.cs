@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
@@ -221,20 +222,36 @@ public sealed class DiagnosticLogTests : IDisposable
     /// waiting for EOF was waiting on a process that was never the one under the timeout. What the
     /// vendor wrote still arrives; the wait ends when the vendor does.
     /// </summary>
+    /// <remarks>
+    /// The child holds the pipe until the test lets it go, after the read has returned, so a read
+    /// that waits for EOF never returns at all and fails on the one-minute timeout, however fast or
+    /// slow the machine. The time bound is left to the drains, five seconds for stdout and two for
+    /// stderr, and to launching the process: the release run of 0.44.1 took 12.5 seconds for the
+    /// correct read on a loaded runner, against a ten-second bound and a fifteen-second child.
+    /// </remarks>
     [Fact]
     public async Task A_child_holding_the_pipe_open_does_not_extend_the_wait_past_the_process()
     {
         var run = RunDirectory.Create(_repo, "20260101-000000-lingering");
+        var hold = Path.Combine(_repo, "hold-the-pipe");
+        File.WriteAllText(hold, string.Empty);
         var clock = Stopwatch.StartNew();
 
         IReadOnlyList<string> lines;
-        using (RunLog.Use(run.Log))
+        try
         {
-            lines = await StreamingProcess.CollectAsync(Lingering(), TimeSpan.FromMinutes(1), CancellationToken.None);
+            using (RunLog.Use(run.Log))
+            {
+                lines = await StreamingProcess.CollectAsync(Lingering(hold), TimeSpan.FromMinutes(1), CancellationToken.None);
+            }
+        }
+        finally
+        {
+            File.Delete(hold);
         }
 
         Assert.Equal("done", lines.Single());
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10),
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(20),
             $"the read waited {clock.Elapsed} on a pipe the process no longer owned");
         Assert.Equal("0", Field(Single(Read(run), "process.exit"), "exitCode"));
     }
@@ -298,16 +315,24 @@ public sealed class DiagnosticLogTests : IDisposable
 
     /// <summary>
     /// Stands in for a vendor that outlives itself: it writes its one line and exits at once, while
-    /// a background child it started holds the stdout handle it inherited for far longer.
+    /// a background child it started holds the stdout handle it inherited until
+    /// <paramref name="hold"/> is deleted — two minutes at most, should the test die first.
     /// </summary>
-    private ProcessSpec Lingering()
+    /// <param name="hold">The file whose existence keeps the child, and so the pipe, alive.</param>
+    private ProcessSpec Lingering(string hold)
     {
-        const int Seconds = 15;
-        return OperatingSystem.IsWindows()
-            ? new ProcessSpec("cmd.exe",
-                ["/c", $"echo done&start /b powershell -NoProfile -Command Start-Sleep -Seconds {Seconds}"],
-                _repo, string.Empty)
-            : new ProcessSpec("/bin/sh", ["-c", $"echo done; sleep {Seconds} &"], _repo, string.Empty);
+        if (!OperatingSystem.IsWindows())
+            return new ProcessSpec("/bin/sh",
+                ["-c", $"echo done; ( i=0; while [ -e '{hold}' ] && [ $i -lt 600 ]; do sleep 0.2; i=$((i+1)); done ) &"],
+                _repo, string.Empty);
+
+        // Encoded, so no quote in the script has to survive cmd.exe's own parsing.
+        var script = $"$hold = '{hold.Replace("'", "''", StringComparison.Ordinal)}'; $until = (Get-Date).AddMinutes(2); "
+                     + "while ((Test-Path -LiteralPath $hold) -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 200 }";
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        return new ProcessSpec("cmd.exe",
+            ["/c", $"echo done&start /b powershell -NoProfile -EncodedCommand {encoded}"],
+            _repo, string.Empty);
     }
 
     /// <summary>

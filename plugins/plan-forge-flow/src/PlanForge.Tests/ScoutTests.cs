@@ -627,6 +627,41 @@ public sealed class ScoutTests : IDisposable
         Assert.DoesNotContain("MALICIOUS", JsonSerializer.Serialize(run.ReadState(), ForgeJson.Default.RunState), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A Scout whose commands never started answered without reading the repository, so nothing it
+    /// said reaches SCOUT.md; the failure names the vendor's error code and no other vendor words.
+    /// See docs/adr/0031.
+    /// </summary>
+    [Fact]
+    public async Task A_scout_without_a_shell_fails_as_no_shell_and_appends_nothing()
+    {
+        var run = NewRun();
+        var first = new RecordingVendor("codex");
+        first.Enqueue(ValidReport("first report"), "one");
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                  CancellationToken.None, _ => first, _prompts);
+        var before = File.ReadAllText(run.ScoutReportPath);
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new NoShellException("codex could not start a shell for the Scout: \"MALICIOUS output\".",
+                                            "Retry once codex can start a sandboxed command.", "helper_unknown_error"),
+                       "two");
+
+        var error = await Assert.ThrowsAsync<ScoutException>(() =>
+            ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "second", "continue",
+                                CancellationToken.None, _ => vendor, _prompts));
+
+        var failure = run.ReadState().Scout!.LastFailure!;
+        Assert.Equal("no_shell", failure.Code);
+        Assert.Contains("could not start a shell (helper_unknown_error)", failure.Summary, StringComparison.Ordinal);
+        Assert.Contains("no_shell", error.Message, StringComparison.Ordinal);
+        Assert.Contains("helper_unknown_error", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("MALICIOUS", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("MALICIOUS", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+        Assert.Contains("no_shell", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+        Assert.Equal(before, File.ReadAllText(run.ScoutReportPath));
+        Assert.Equal(1, run.ReadState().ScoutAnswers);
+    }
+
     [Fact]
     public async Task Direct_cancellation_is_reported_as_cancellation_without_a_failure()
     {

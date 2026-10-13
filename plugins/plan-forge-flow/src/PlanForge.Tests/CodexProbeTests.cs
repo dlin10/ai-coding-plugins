@@ -57,7 +57,7 @@ public sealed class CodexProbeTests
     }
 
     [Fact]
-    public void A_doctor_failing_only_on_sandbox_helpers_leaves_codex_available_with_a_warning()
+    public void A_doctor_failing_only_on_sandbox_helpers_leaves_codex_available_but_degraded()
     {
         // Recorded from codex-cli 0.154.0 on 2026-09-17, which exited 1 with this report while
         // `codex exec --sandbox read-only` answered; details are dropped, ids and verdicts kept.
@@ -97,12 +97,57 @@ public sealed class CodexProbeTests
             """);
 
         var (refusal, warning) = CodexCliVendor.JudgeDoctor(document.RootElement);
+        var degraded = CodexCliVendor.SandboxSetupFailure(document.RootElement);
 
         Assert.Null(refusal);
-        Assert.NotNull(warning);
-        Assert.Contains("sandbox.helpers failed", warning, StringComparison.Ordinal);
-        Assert.Contains("structured failure", warning, StringComparison.Ordinal);
-        Assert.DoesNotContain("mcp.config", warning, StringComparison.Ordinal);
+        Assert.Null(warning);
+        Assert.NotNull(degraded);
+        Assert.Equal("codex doctor reports the last sandbox setup failed: "
+                     + "elevated Windows sandbox provisioning recorded a structured failure", degraded);
+    }
+
+    [Fact]
+    public void A_failed_sandbox_setup_is_named_by_its_error_code()
+    {
+        // Recorded from codex-cli 0.162.1 on 2026-10-12, after a setup refresh failed on the desktop
+        // app's node_repl.exe; the other checks are cut to the ones the judgement reads.
+        using var document = JsonDocument.Parse(
+            """
+            {
+              "checks": {
+                "auth.credentials": { "status": "ok", "summary": "auth is configured" },
+                "config.load": { "status": "warning", "summary": "config loaded" },
+                "installation": { "status": "ok", "summary": "installation looks consistent" },
+                "sandbox.helpers": {
+                  "id": "sandbox.helpers",
+                  "category": "sandbox",
+                  "status": "fail",
+                  "summary": "elevated Windows sandbox provisioning recorded a structured failure",
+                  "details": { "error code": "helper_unknown_error", "sandbox backend": "elevated", "sandbox provisioning": "failed" }
+                },
+                "security.endpoint": { "status": "fail", "summary": "endpoint protection blocks codex" }
+              }
+            }
+            """);
+
+        var (refusal, warning) = CodexCliVendor.JudgeDoctor(document.RootElement);
+
+        Assert.Null(refusal);
+        Assert.Equal("codex doctor warns: security.endpoint failed: endpoint protection blocks codex", warning);
+        Assert.Equal("codex doctor reports the last sandbox setup failed (helper_unknown_error): "
+                     + "elevated Windows sandbox provisioning recorded a structured failure",
+                     CodexCliVendor.SandboxSetupFailure(document.RootElement));
+    }
+
+    [Theory]
+    [InlineData("ok")]
+    [InlineData("warning")]
+    public void A_sandbox_helpers_check_that_did_not_fail_degrades_nothing(string status)
+    {
+        using var document = JsonDocument.Parse(
+            $$"""{ "checks": { "sandbox.helpers": { "status": "{{status}}", "summary": "helpers look fine" } } }""");
+
+        Assert.Null(CodexCliVendor.SandboxSetupFailure(document.RootElement));
     }
 
     [Theory]
