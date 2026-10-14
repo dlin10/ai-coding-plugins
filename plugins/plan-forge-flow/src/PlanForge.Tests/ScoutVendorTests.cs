@@ -53,14 +53,14 @@ public sealed class ScoutVendorTests
     }
 
     [Fact]
-    public void Codex_scout_is_fresh_read_only_and_not_ephemeral()
+    public void Codex_scout_is_fresh_unsandboxed_and_not_ephemeral()
     {
         var role = new RoleSpec(VendorRole.Scout, "scout", [@"C:\outside"]);
         var arguments = CodexCliSession.BuildArguments(role, new Selection("gpt-scout", null), null,
                                                         "schema.json", "result.json");
 
-        Assert.Contains("sandbox_mode=\"read-only\"", arguments);
-        Assert.DoesNotContain("--dangerously-bypass-approvals-and-sandbox", arguments);
+        Assert.Contains("--dangerously-bypass-approvals-and-sandbox", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_mode=", StringComparison.Ordinal));
         Assert.DoesNotContain("--ephemeral", arguments);
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_workspace_write", StringComparison.Ordinal));
         AssertNoNetworkDisable(arguments);
@@ -75,8 +75,8 @@ public sealed class ScoutVendorTests
                                                         ["roslyn-mcp"]);
 
         Assert.Equal(["exec", "resume", "scout-thread", "-"], arguments.Take(4));
-        Assert.Contains("sandbox_mode=\"read-only\"", arguments);
-        Assert.DoesNotContain("--dangerously-bypass-approvals-and-sandbox", arguments);
+        Assert.Contains("--dangerously-bypass-approvals-and-sandbox", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_mode=", StringComparison.Ordinal));
         Assert.Contains("mcp_servers.roslyn-mcp.default_tools_approval_mode=\"approve\"", arguments);
         Assert.DoesNotContain("--ephemeral", arguments);
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_workspace_write", StringComparison.Ordinal));
@@ -112,7 +112,7 @@ public sealed class ScoutVendorTests
     }
 
     [Fact]
-    public void Every_scout_vendor_session_is_read_only_but_can_resume()
+    public void Every_scout_vendor_session_can_resume_and_only_codex_runs_without_a_read_only_launch()
     {
         var selection = new Selection("model", null);
         var claude = new ClaudeCliSession(new RoleSpec(VendorRole.Scout, "scout"), selection, null, "claude");
@@ -121,7 +121,7 @@ public sealed class ScoutVendorTests
 
         Assert.All(new IVendorSession[] { claude, codex, cursor }, session => Assert.True(session.CanResume));
         Assert.DoesNotContain("acceptEdits", claude.BuildArguments("schema.json"));
-        Assert.Contains("sandbox_mode=\"read-only\"", CodexCliSession.BuildArguments(
+        Assert.Contains("--dangerously-bypass-approvals-and-sandbox", CodexCliSession.BuildArguments(
             new RoleSpec(VendorRole.Scout, "scout"), selection, null, "schema.json", "result.json"));
         Assert.Contains("--mode", cursor.BuildArguments());
     }

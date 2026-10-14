@@ -71,7 +71,6 @@ these terms replace it.
 | **Scout selection** | The Run's initially unset choice for the Scout Vendor, model, effort, and Fast tier, the last confirmed when chosen. On the first need the Orchestrator either stores an exact selection or records that the Run continues without Scout; the latter suppresses later automatic questions, while an explicit later choice may enable Scout. Calls reuse the stored selection exactly, and an explicit reselection after failure starts a fresh Scout session rather than silently falling back. |
 | **Model family** | A cursor catalogue entry: the base id its raw list spells out once per effort and speed variant (`gpt-5.3-codex` behind `gpt-5.3-codex-high-fast`), offered with exactly the efforts observed and, separately, the efforts observed with a `-fast` variant. The chosen effort and Fast join back onto the family id; `default` names the bare id and joins to nothing. A `-fast` already written into a model or effort is read as a Fast request. |
 | **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Readiness means **able to do the work**, not merely installed and signed in: a vendor that could not execute a command is unavailable, however healthy its sign-in. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
-| **Degraded vendor** | An available vendor whose sandboxed Workers — Critic and Scout — cannot start a shell, so they would answer without reading the repository; its Builder, which runs outside the sandbox, is unaffected. `forge.models` names the cause as `degraded`, from the Probe or, newer, from a sandboxed Worker of this server process that started none of its commands, until a later one starts one. Offered for the Builder only. See `docs/adr/0031`. |
 | **Shell-less answer** | A Worker's answer from a turn in which it tried commands and the vendor started none. Not used: the act fails like any vendor failure, the Scout report and the ledger stay as they were, a review round is not spent, and the error and the Flow log quote the vendor. A turn that started one command, or tried none, is not shell-less. |
 | **Requirement** | A numbered statement under the plan's `## Requirements` heading of what must be true when the run is done — `R1`…`Rn`, with the run's exclusions beside them. The interview's output, so it names no file and no symbol; every task cites the requirements it serves. |
 | **Gate** | The check that would catch a requirement's violation: a command, or a condition someone can observe. A task's own gate ends the task; a `## Gates` entry — `G1`…`Gn` — belongs to no single task. **Executable** when code immediately follows the label: the server runs task gates after `forge.build.next`, and complete-plan gates after `forge.review.fix` in the default full mode. A targeted fix uses its Fix gate instead. Otherwise a **condition**, left to the Builder's word for tasks and to the Orchestrator for complete-plan checks. See docs/adr/0015 and docs/adr/0030. |
@@ -158,8 +157,9 @@ check no single task owns — a test suite, a warnings-clean build, an invariant
 so those go under `## Gates`; the server runs the executable ones after a full-mode fix, or only
 the Fix gate after a targeted fix. The orchestrator runs all full G checks after the last task and
 verifies targeted fixes at saved beforeNextRound or final timing, conditions included. Not the builder, whose turns are task-specific; and not
-the critic, because a build writes `bin/` and `obj/` into the tree it is judging, and each vendor's
-read-only guarantee covers the agent's own edits, not the side effects of a command it ran. A gate
+the critic, because a build writes `bin/` and `obj/` into the tree it is judging, and a vendor's
+read-only guarantee, where it gives one, covers the agent's own edits, not the side effects of a
+command it ran. A gate
 that is a condition rather than a command is still a self-reported claim, so for those the rule below
 stands: anything but `passed` is the orchestrator's to run itself.
 
@@ -252,8 +252,8 @@ an `error` item was not logged at all.
 failure"), while `codex exec --sandbox read-only` on the same machine exited `0` and answered. The
 report is printed in full before the exit, so the probe reads its `checks` instead of the exit code:
 `auth.credentials` must be `ok`, `installation` and `config.load` must not be `fail`, a failed
-`sandbox.helpers` makes codex a Degraded vendor (next section), and any other failed check is named
-in the readiness detail rather than withholding codex.
+`sandbox.helpers` is ignored because no Worker runs in the sandbox, and any other failed check is
+named in the readiness detail rather than withholding codex.
 
 ## A codex Worker can answer without starting a single command
 
@@ -283,16 +283,16 @@ a successful critique or Scout answer.
   successful refreshes delete it too, and nothing has failed at the start of a day, so the run's one
   probe, at 16:38, found it absent: a probe alone would not have named the fault.
 
-So a Worker's own commands decide. A codex turn that tried commands and started none is a
-Shell-less answer, and a sandboxed Worker's outcome is kept for the life of the server process,
-where `forge.models` reports it as `degraded`; doctor's `sandbox.helpers` adds the cause the probe can
-see, and the newest "setup refresh completed with errors" line names the file. See `docs/adr/0031`.
+So a Worker's own commands decide: a codex turn that tried commands and started none is a
+Shell-less answer, whatever kept them from starting. See `docs/adr/0031`. No codex Worker runs in the
+sandbox (next section), so the setup refresh above is on no Worker's path.
 
-## Codex Builders run with the launching process's permissions
+## Codex Workers run with the launching process's permissions
 
-Every Codex Builder launch passes `--dangerously-bypass-approvals-and-sandbox`, for both `exec`
-and `exec resume`. The installed Codex CLI 0.159.2 advertises that flag for both commands. This
-is the fixed policy for implementation, review fixes, and resumed retries; see `docs/adr/0028`.
+Every Codex launch — Builder, Critic and Scout — passes `--dangerously-bypass-approvals-and-sandbox`,
+for both `exec` and `exec resume`. Codex CLI 0.159.2 advertised that flag for both commands, and
+0.160.1 does on 2026-10-14. This is the fixed policy for every act, resumed retries and resumed Scout
+turns included; see `docs/adr/0028` for the Builder and `docs/adr/0033` for Critic and Scout.
 
 Codex's workspace-write restrictions on top-level `.git`, `.codex`, and `.agents` do not apply to
 these launches. Builder access depends on the launching process's permissions. `builderRoots`
@@ -300,15 +300,15 @@ is still accepted and stored in the Run, but produces no writable-roots override
 restrict access. The Builder implements the approved plan's edits directly, while the server
 continues to own executable gates.
 
-## Each vendor keeps the Critic and Scout read-only by a different mechanism
+## Claude and Cursor keep the Critic and Scout read-only by different mechanisms; codex does not
 
 The Critic judges and the Scout gathers evidence; neither may edit — including through any subagent
 it spawns.
-Nothing in this codebase enforces that; all three guarantees are the vendor's, and they are not the
-same guarantee:
+Nothing in this codebase enforces that; the guarantees are the vendors', they are not the same
+guarantee, and codex gives none:
 
-- **Codex** — `-c sandbox_mode="read-only"`. A real sandbox. The key rather than the `-s` flag
-  because `codex exec resume` has no `-s`, so fresh and resumed Scout turns use the same spelling.
+- **Codex** — nothing at launch. Critic and Scout run without the sandbox, as the Builder does, so
+  their role contracts are all that keeps them from editing. See `docs/adr/0033`.
 - **Claude** — `--permission-mode acceptEdits` and `--allowedTools Bash PowerShell` are passed only
   for a Builder, so the Critic's and Scout's edit and shell tools are simply never pre-approved.
   Every role gets the run's Worker tools, which is safe only while the granted servers are read-only; see

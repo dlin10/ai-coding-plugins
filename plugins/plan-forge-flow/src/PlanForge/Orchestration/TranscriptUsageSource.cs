@@ -46,7 +46,7 @@ internal sealed class TranscriptUsageSource : IUsageSource
     /// <summary>The source over the roots the server process's environment names.</summary>
     /// <param name="environment">Reads the server process's environment variables.</param>
     public static TranscriptUsageSource ForProcess(Func<string, string?> environment) =>
-        new(ClaudeConfigDirectory.Resolve(environment), CodexSandbox.Home(environment));
+        new(ClaudeConfigDirectory.Resolve(environment), CodexLaunch.Home(environment));
 
     public string? Name => "transcript";
 
