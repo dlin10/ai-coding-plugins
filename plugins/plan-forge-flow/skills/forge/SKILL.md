@@ -302,6 +302,10 @@ ask exactly one mode question, unless the user already said which mode they want
 - interview without documentation;
 - interview that maintains the domain model as it goes.
 
+`forge.begin` opens `phase: "interview"` itself, so the interview needs no declaration of its own.
+Every later phase you declare through `forge.log.append`'s `phase` argument, at the moment the phase
+begins, in the sections below.
+
 Keep the skill-availability chain out of that question. Each mode resolves down a two-step ladder,
 taking the first step that is available:
 
@@ -553,8 +557,10 @@ The critic judges a matrix task with the rest of the plan, so the plan spells it
 ## Rounds, revision, and caps
 
 Each non-Cursor `forge.plan.review` call, or each Cursor start → poll → fetch round, runs exactly
-one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, address the
-findings in the plan yourself — *Writing a revision* below says how — and run the next round. The
+one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, declare
+`phase: "plan_revision"` as soon as the verdict arrives — after every `revise`, not only the first —
+then address the findings in the plan yourself — *Writing a revision* below says how — and run the
+next round. The
 Critic is a fresh process each round and receives only the current plan-phase ledger projection, so
 it converges on current findings without being anchored by the transcript.
 
@@ -619,7 +625,8 @@ Rewriting an already-approved plan takes the approval back: whichever call chang
 to zero, and records it in the flow log. That is not a silent housekeeping detail — say it in the
 chat, because the next `forge.build.next` will refuse until the user approves again, and the builder
 will then start from the first task. If tasks were already built, tell the user how many are about
-to be rebuilt before you write the new draft.
+to be rebuilt before you write the new draft. Declare `phase: "plan_revision"` when you begin
+rewriting an approved plan, before its new review round, whatever phase the run was in.
 
 ### Writing a revision
 
@@ -698,7 +705,7 @@ Never paste raw JSON, and never let narration grow into pasting the plan itself 
 ## Approval
 
 Nothing in the server asks the user anything. Showing them the plan and getting an answer is your
-job, in five steps:
+job, in five steps. Declare `phase: "approval"` before the first of them:
 
 1. Call `forge.status` and read `driftedFiles` — the files that changed since `forge.begin`.
 2. Show the user the **whole** plan, not a summary of it, and the drifted files beside it.
@@ -712,10 +719,11 @@ job, in five steps:
    Either way, if anything drifted, say so out loud rather than leaving it in a list they may not
    read.
 3. Ask them to approve it or say what to change. Ask in the chat even when the canvas is up: it
-   displays and nothing more, and it says so to the user. On a change, revise the plan, write it
-   with `forge.plan.write`, and go back to `forge.plan.review` with `revision` saying what you
-   changed — a plan amended after the last verdict has not been reviewed — then show the revised
-   plan again before asking a second time.
+   displays and nothing more, and it says so to the user. On a change, declare
+   `phase: "plan_revision"`, revise the plan, write it with `forge.plan.write`, and go back to
+   `forge.plan.review` with `revision` saying what you changed — a plan amended after the last
+   verdict has not been reviewed — then declare `phase: "approval"` again and show the revised plan
+   before asking a second time.
 4. With a yes, ask for what the gates need on this host: the value of every `$env:NAME` the plan's
    gates reference, one variable per question, each saying which gate reads it and what for.
    Collect them in the chat — never write a value into the plan, and never guess one.
@@ -734,7 +742,8 @@ job, in five steps:
    and empty values clear them. Successful confirm resets the global gate-failure brief for the
    next Builder while preserving attempt history. Approved false leaves PLAN/state/ledger and any
    existing approval unchanged. Both timing values are case-sensitive; empty, whitespace and
-   unknown values are refused even with approved false.
+   unknown values are refused even with approved false. After `forge.plan.confirm` with a yes,
+   declare `phase: "build"`.
 
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole
 of what approval means here: it writes the approved plan over `PLAN.md`, flips `approved` in the run
@@ -759,6 +768,10 @@ If the Builder ran no checks because an executable gate belongs to the server, i
 is `unavailable` with that explicit reason, not `failed`. Fully implemented work is still `done`;
 the server runs its gate as usual. Optional Builder checks report only their own actual results,
 never a claim that the gate passed. A genuine inability to check still reports its exact reason.
+
+Declare `phase: "build"` before each build act — `forge.build.next`, or on Cursor
+`forge.work.start` with act `build` — a retry of the same task included, so each record holds one
+attempt at one task.
 
 Read `gate.outcome` first:
 
@@ -824,6 +837,11 @@ the remaining work into a new legal attempt, or run the checks yourself and reco
 `forge.log.append`.
 
 ## The code-review loop
+
+When the last task's gate passes, declare `phase: "code_review"` before you run the gates below.
+Declare `phase: "code_review"` again each time a review round's critique arrives — `forge.review.code` returning, or on
+Cursor `forge.work.fetch` of its job — so each record holds one round: your filtering, the fixes and
+their checks up to the next critique.
 
 After the last task and before the first review round, run the plan's `## Gates` entries yourself,
 in your own environment — all of them, conditions included. The server runs the executable ones
@@ -895,15 +913,16 @@ environment-only repair repeats full verification without another Critic. If bef
 blocked, repair the environment, explicitly reconfirm `fullGate=final`, or consciously defer/reject
 with reasons and an honest account of unverified fixes; changing timing alone verifies nothing.
 
-If the user stops or declines another round, end the run as unfinished with explicit pending IDs
-and covered attempts; do not force checks against that stop. Approval with pending is not successful
-completion. If saved fullGate is malformed or unknown (including non-string JSON), leave the run
+If the user stops or declines another round, declare `phase: "wrap_up"` and end the run as
+unfinished with explicit pending IDs and covered attempts; do not force checks against that stop.
+Approval with pending is not successful completion. Finished or unfinished, declare `phase: "done"`
+once the outcome is reported to the user. If saved fullGate is malformed or unknown (including non-string JSON), leave the run
 unchanged, record the failure with the still-available `forge.log.append`, and begin a new run.
 Never suggest manually editing `.forge`. Auxiliary models/log/poll/cancel/fetch remain available
 without added state checks; fetch retains its historical snapshot.
 
-When the verdict settles — or the cap is reached and the user chooses to stop — the deferred
-findings go to the user with the outcome. They are real findings about real gaps; the plan is the
+When the verdict settles — or the cap is reached and the user chooses to stop — declare
+`phase: "wrap_up"`, and the deferred findings go to the user with the outcome. They are real findings about real gaps; the plan is the
 only reason they were not fixed here, and they are candidates for the next run.
 
 ### Fix batches and their notes
@@ -1066,9 +1085,9 @@ one follow-up question about the part that does not fit before that role's selec
      vendor's Critic and Scout cannot start a shell in their read-only sandbox, so they would judge
      without reading the repository; tell the user what it says before the critic's vendor
      question, and leave that vendor out of it. If that leaves the critic no vendor, stop and relay
-     it as you would for none available.
+     it as you would for none available, then declare `phase: "done"`.
    - If none is available, stop and relay what each probe reported; no act can run without a
-     working vendor CLI.
+     working vendor CLI. Then declare `phase: "done"`.
    - If exactly one is available, do not ask either vendor question. Tell the user which vendor
      both roles will use, and draw step 2's pairs from it alone.
    - If you are orchestrating from inside Cursor and `cursor` is available, do not ask either
@@ -1134,6 +1153,9 @@ refuses what the catalogue does not confirm. The roles are not interchangeable i
 builder works against an already-hardened plan and can be cheap; the critic is judging, so lean
 nearer the strong end.
 
+Once both roles' selections and instructions are settled, the interview is over: declare
+`phase: "planning"` before you start the first plan draft.
+
 ## What is not enforced
 
 Nothing stops you from abandoning a run halfway, or from editing code during Act 1. There are no
@@ -1160,14 +1182,20 @@ consequences to hold yourself to:
   it is the hole `approved` has, see `docs/adr/0003` — and instructions of your own invention would
   be steering the critic that exists to judge you. The run's timeline carries the text verbatim, so
   the one person who can tell whether they said it is reading it.
-- Do not stop mid-run without telling the user where you stopped and what remains.
+- Do not stop mid-run without telling the user where you stopped and what remains. Wherever the run
+  stops or ends, at whatever act, declare `phase: "done"` once you have told them.
 
 Do not hand-edit anything under `.forge/` — including `forge.log`, which is append-only and
 written through `forge.log.append`. Use that tool whenever a run does something a later reader
 would have to guess at: the models and vendors you selected and why, a retry and what provoked it,
 a finding you deferred, the point at which you stopped. It takes `message` plus an optional `level`
-(`info`, `warn`, `error`) and an optional longer `detail`. The server already records every tool
-call with its arguments, every vendor process with its full command line, and every process exit,
-kill and stderr tail into the same file; your entries are the part it cannot see.
+(`info`, `warn`, `error`), an optional longer `detail`, and an optional `phase` — one of
+`interview`, `planning`, `plan_revision`, `approval`, `build`, `code_review`, `wrap_up` or `done`,
+exactly as spelled — which closes the Orchestrator phase that is open and opens the one it names, as
+the sections above say when. Any other `phase` value is refused. The server records each closed
+phase's time and, where the host's usage can be read, its tokens in `telemetry.json`; a declaration
+you miss or make late costs only that record's accuracy, never the run. The server already records
+every tool call with its arguments, every vendor process with its full command line, and every
+process exit, kill and stderr tail into the same file; your entries are the part it cannot see.
 
 Do not stage or commit the workers' changes; leave the diff for the user to inspect.

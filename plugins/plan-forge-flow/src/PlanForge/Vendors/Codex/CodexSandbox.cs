@@ -128,8 +128,10 @@ internal static partial class CodexSandbox
         return list.Length == 0 ? null : Quote(list);
     }
 
-    private static string Home() =>
-        Environment.GetEnvironmentVariable("CODEX_HOME") is { Length: > 0 } home
+    /// <summary>Codex's home: <c>CODEX_HOME</c>, else <c>~/.codex</c>.</summary>
+    /// <param name="environment">Reads an environment variable; the process's own when null.</param>
+    internal static string Home(Func<string, string?>? environment = null) =>
+        (environment ?? Environment.GetEnvironmentVariable)("CODEX_HOME") is { Length: > 0 } home
             ? home
             : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
 

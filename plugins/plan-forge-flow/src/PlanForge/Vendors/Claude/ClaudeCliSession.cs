@@ -12,7 +12,7 @@ internal sealed class ClaudeCliSession : IVendorSession
     // One payload, because the speed rides beside the self-plugin disable: `fastMode` is the opt-in a
     // non-interactive session otherwise reports as `sdk_opt_in_required`, and standard speed is named
     // as explicitly as Fast. See docs/adr/0023.
-    private const string STANDARD_SETTINGS = """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false},"fastMode":false}""";
+    internal const string STANDARD_SETTINGS ="""{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false},"fastMode":false}""";
     private const string FAST_SETTINGS = """{"enabledPlugins":{"plan-forge-flow@dlin10-ai-coding-plugins":false},"fastMode":true}""";
 
     // The Bash tool's own ceiling on a foreground command, ten minutes unless raised. Thirty covers

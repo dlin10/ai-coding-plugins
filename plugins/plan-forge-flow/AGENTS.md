@@ -2,7 +2,13 @@
 
 Plan Forge Flow is an MCP stdio server — a .NET 10 executable named `planforge` — packaged as a
 plugin for Codex, Claude Code, and Cursor. It is not a CLI: nothing here is meant to be run by a
-human at a prompt, and the only supported entry point is the MCP handshake. The plugin lives inside
+human at a prompt, and its entry point is the MCP handshake. The binary has one second entry point,
+which no human runs either: `planforge.exe --telemetry-collector --port <n>`, the Telemetry
+collector (`Orchestration/TelemetryCollector.cs`). A server starts it detached when the host's
+profile exports OpenTelemetry to a loopback port; it serves no MCP, takes OTLP/JSON logs at
+`/v1/logs` from loopback only, keeps the usage of the Host sessions servers registered with it, and
+exits five minutes after the last registered server process does. `Program.cs` dispatches on the
+flag before the MCP host is built. The plugin lives inside
 the `CodexPlugins` monorepo at `plugins/plan-forge-flow`; all commands below are run from this
 directory unless stated otherwise.
 
@@ -170,7 +176,8 @@ beside the binary. Do not move it in with the prompts.
 ## Run state, and the absence of locks
 
 Everything a run knows lives under `.forge/<runId>/`: `state.json`, `decision-ledger.json`, `PLAN.md`,
-`SCOUT.md`, `flow_log.md`, `forge.log`, `telemetry.json`, `baseline.patch`. **Not under
+`SCOUT.md`, `flow_log.md`, `forge.log`, `telemetry.json`, `orchestrator-phase.json`,
+`baseline.patch`. **Not under
 `workspaceRoot`** — that argument is the
 git window and the workers' working directory, and the run's own files follow the *session* instead,
 the directory the host names through MCP's roots capability (`Run/SessionRoots.cs`), falling back to
@@ -227,6 +234,14 @@ the same length any more: they are spread either side of the old twenty-five mil
 that two waiters do not come back together. Keep the *mean* where it is. Waiting less means retrying
 more, and a caller that retries every millisecond holds its thread instead of parking it — a backoff
 starting at one millisecond doubled the suite's running time and starved the tasks sharing its pool.
+
+`telemetry.json` holds two kinds of record: `vendor.usage`, one per Worker attempt, and
+`orchestrator.usage`, one per closed Orchestrator phase (`Orchestration/OrchestratorPhases.cs`).
+Resumed-attempt growth reads `vendor.usage` records only, and neither writer may disturb the other
+kind or a file that is not a JSON array of objects. The open phase lives in its own run file,
+`orchestrator-phase.json`, not in `state.json`, which a background Job rewrites while a poll runs;
+a later server process closes the phase from it — see
+[docs/adr/0032](docs/adr/0032-record-the-orchestrator-per-declared-phase.md).
 
 ## What is checked, and what is not
 
