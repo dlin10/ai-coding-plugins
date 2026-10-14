@@ -4,6 +4,10 @@ status: accepted
 
 # Run Codex Builders without a sandbox
 
+The Critic and Scout half is superseded by
+[0033](0033-run-codex-critics-and-scouts-without-a-sandbox.md): they run without the sandbox too.
+Everything below about the Builder stands.
+
 Codex Builders run without Codex's sandbox as the fixed default for every Run. This applies
 to implementation, review fixes, and resumed retry turns. Critic and Scout retain their read-only
 sandbox. The user chose this role boundary and a fixed default over a per-Run setting.

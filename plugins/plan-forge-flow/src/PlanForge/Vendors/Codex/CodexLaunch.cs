@@ -21,7 +21,8 @@ internal sealed record CodexCommand(string FileName, IReadOnlyList<string> Prefi
 /// <summary>
 /// Owns the two Windows launch details Codex cannot safely leave to a command shell: an npm shim is
 /// replaced by node plus its script, and the CLI's own shell is selected through its process PATH.
-/// See docs/adr/0013-strip-the-store-alias-from-the-codex-path.md for the latter.
+/// See docs/adr/0013-strip-the-store-alias-from-the-codex-path.md for the latter. Also names the
+/// home the launched CLI keeps its configuration and sessions in.
 /// </summary>
 internal static class CodexLaunch
 {
@@ -29,6 +30,13 @@ internal static class CodexLaunch
 
     internal static CodexCommand Command =>
         Resolve(Environment.GetEnvironmentVariable("PATH"), OperatingSystem.IsWindows());
+
+    /// <summary>Codex's home: <c>CODEX_HOME</c>, else <c>~/.codex</c>.</summary>
+    /// <param name="environment">Reads an environment variable; the process's own when null.</param>
+    internal static string Home(Func<string, string?>? environment = null) =>
+        (environment ?? Environment.GetEnvironmentVariable)("CODEX_HOME") is { Length: > 0 } home
+            ? home
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
 
     internal static CodexCommand Resolve(string? path, bool windows)
     {

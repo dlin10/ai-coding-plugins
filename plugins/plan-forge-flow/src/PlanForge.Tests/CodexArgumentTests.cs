@@ -32,9 +32,31 @@ public sealed class CodexArgumentTests
             "-m", "gpt-5.6-sol",
             "-c", "service_tier=" + TomlValue.String("default"),
             "-c", "plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false",
-            "-c", "sandbox_mode=" + TomlValue.String("read-only"),
+            "--dangerously-bypass-approvals-and-sandbox",
             "-c", "developer_instructions=" + TomlValue.String("review the plan")
         ], arguments);
+    }
+
+    /// <summary>
+    /// No codex role runs in the sandbox, fresh or resumed: Critic and Scout are launched as the Builder
+    /// is. See docs/adr/0033.
+    /// </summary>
+    /// <param name="role">The worker role launched.</param>
+    /// <param name="sessionId">The session resumed, or null for a fresh launch.</param>
+    [Theory]
+    [InlineData("Critic", null)]
+    [InlineData("Scout", null)]
+    [InlineData("Scout", "thread-1")]
+    [InlineData("Builder", null)]
+    [InlineData("Builder", "thread-1")]
+    public void Every_role_bypasses_the_sandbox_on_every_turn(string role, string? sessionId)
+    {
+        var arguments = CodexCliSession.BuildArguments(new RoleSpec(Enum.Parse<VendorRole>(role), "work"),
+                                                       new Selection("gpt-5.6-sol", null), sessionId,
+                                                       "schema.json", "result.json");
+
+        Assert.Contains("--dangerously-bypass-approvals-and-sandbox", arguments);
+        Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_mode=", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -135,8 +157,6 @@ public sealed class CodexArgumentTests
 
         var arguments = CodexCliSession.BuildArguments(role, new Selection("gpt-5.6-sol", null), null, "schema.json", "result.json");
 
-        Assert.Contains("sandbox_mode=" + TomlValue.String("read-only"), arguments);
-        Assert.DoesNotContain("--dangerously-bypass-approvals-and-sandbox", arguments);
         Assert.DoesNotContain(arguments, argument => argument.StartsWith("sandbox_workspace_write", StringComparison.Ordinal));
     }
 

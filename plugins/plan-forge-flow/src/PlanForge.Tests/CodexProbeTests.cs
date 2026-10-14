@@ -57,7 +57,7 @@ public sealed class CodexProbeTests
     }
 
     [Fact]
-    public void A_doctor_failing_only_on_sandbox_helpers_leaves_codex_available_but_degraded()
+    public void A_doctor_failing_only_on_sandbox_helpers_leaves_codex_available_without_a_warning()
     {
         // Recorded from codex-cli 0.154.0 on 2026-09-17, which exited 1 with this report while
         // `codex exec --sandbox read-only` answered; details are dropped, ids and verdicts kept.
@@ -97,17 +97,17 @@ public sealed class CodexProbeTests
             """);
 
         var (refusal, warning) = CodexCliVendor.JudgeDoctor(document.RootElement);
-        var degraded = CodexCliVendor.SandboxSetupFailure(document.RootElement);
 
         Assert.Null(refusal);
         Assert.Null(warning);
-        Assert.NotNull(degraded);
-        Assert.Equal("codex doctor reports the last sandbox setup failed: "
-                     + "elevated Windows sandbox provisioning recorded a structured failure", degraded);
     }
 
+    /// <summary>
+    /// No Worker runs in the sandbox, so its failed setup is no warning, while another failed check
+    /// still is. See docs/adr/0033.
+    /// </summary>
     [Fact]
-    public void A_failed_sandbox_setup_is_named_by_its_error_code()
+    public void A_failed_sandbox_setup_is_left_out_of_the_warnings()
     {
         // Recorded from codex-cli 0.162.1 on 2026-10-12, after a setup refresh failed on the desktop
         // app's node_repl.exe; the other checks are cut to the ones the judgement reads.
@@ -134,20 +134,6 @@ public sealed class CodexProbeTests
 
         Assert.Null(refusal);
         Assert.Equal("codex doctor warns: security.endpoint failed: endpoint protection blocks codex", warning);
-        Assert.Equal("codex doctor reports the last sandbox setup failed (helper_unknown_error): "
-                     + "elevated Windows sandbox provisioning recorded a structured failure",
-                     CodexCliVendor.SandboxSetupFailure(document.RootElement));
-    }
-
-    [Theory]
-    [InlineData("ok")]
-    [InlineData("warning")]
-    public void A_sandbox_helpers_check_that_did_not_fail_degrades_nothing(string status)
-    {
-        using var document = JsonDocument.Parse(
-            $$"""{ "checks": { "sandbox.helpers": { "status": "{{status}}", "summary": "helpers look fine" } } }""");
-
-        Assert.Null(CodexCliVendor.SandboxSetupFailure(document.RootElement));
     }
 
     [Theory]

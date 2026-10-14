@@ -134,9 +134,11 @@ Adding a vendor means a folder under `Vendors/`, an arm in `VendorFactory`, and 
 vendor needs to be told something the role contracts do not already say — a folder under `prompts/`
 and the matching bundle assertion in `build/package.ps1`.
 
-**Each vendor keeps Critic and Scout read-only by a different mechanism**, and none of it is enforced by
-this codebase — Codex uses a real sandbox, Claude withholds `--permission-mode acceptEdits` and the
-builder's shell grant, Cursor relies on `--mode plan` alone. All Worker roles receive the run's
+**Claude and Cursor keep Critic and Scout read-only by different mechanisms, and Codex not at all**;
+none of it is enforced by this codebase — Claude withholds `--permission-mode acceptEdits` and the
+builder's shell grant, Cursor relies on `--mode plan` alone, and Codex runs every role without its
+sandbox, so only the role contracts stand in the way — see
+[docs/adr/0033](docs/adr/0033-run-codex-critics-and-scouts-without-a-sandbox.md). All Worker roles receive the run's
 Worker tools, so Critic and Scout stay read-only only while the servers named there are — see
 [docs/adr/0017](docs/adr/0017-grant-worker-tools-by-exact-server-name.md). `CONTEXT.md` documents
 what was measured for each.

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
@@ -11,15 +12,24 @@ namespace PlanForge.Vendors.Codex;
 /// docs/adr/0012-reach-codex-through-exec.md. Modelled on <see cref="Claude.ClaudeCliSession"/>:
 /// one process per turn, JSONL on stdout, structure demanded rather than negotiated.
 /// </summary>
-internal sealed class CodexCliSession : IVendorSession
+internal sealed partial class CodexCliSession : IVendorSession
 {
     internal const string SELF_PLUGIN_DISABLE ="plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false";
+
+    /// <summary>
+    /// How codex reports a command it could not start, pinned by codex's own
+    /// <c>unified_exec_launch_failure_tests.rs</c>: status <c>failed</c>, exit code -1, and output that
+    /// opens with this text. Measured against codex-cli 0.162.1 on 2026-10-12, when a failed sandbox
+    /// setup kept every command from starting. See CONTEXT.md and docs/adr/0031.
+    /// </summary>
+    private const string LAUNCH_FAILURE = "Failed to create unified exec process:";
+
+    private const int QUOTE_LIMIT = 400;
 
     private readonly RoleSpec _role;
     private readonly Selection _selection;
     private readonly string? _workingDirectory;
     private readonly IReadOnlyList<string> _grantedServers;
-    private readonly ShellHealth _shellHealth;
     private readonly Channel<VendorEvent> _events = Channel.CreateUnbounded<VendorEvent>();
 
     // Set on the first run so a resumable role's later calls resume the same thread.
@@ -37,25 +47,23 @@ internal sealed class CodexCliSession : IVendorSession
     private int _commandsUnstarted;
     private string? _launchFailure;
 
+    /// <summary>Prepares one codex conversation; no process starts until its first turn.</summary>
     /// <param name="role">The worker role and its contract.</param>
     /// <param name="selection">The selected model and effort.</param>
     /// <param name="workingDirectory">The workspace the worker runs in.</param>
     /// <param name="resumeToken">The builder or Scout thread to resume, when one exists.</param>
     /// <param name="grantedServers">The MCP servers this worker may call unasked, as codex lists them.</param>
-    /// <param name="shellHealth">Where a sandboxed run's shell outcome is recorded; the process-wide one when null.</param>
     public CodexCliSession(RoleSpec role,
                            Selection selection,
                            string? workingDirectory,
                            string? resumeToken = null,
-                           IReadOnlyList<string>? grantedServers = null,
-                           ShellHealth? shellHealth = null)
+                           IReadOnlyList<string>? grantedServers = null)
     {
         _role = role;
         _selection = selection;
         _workingDirectory = workingDirectory;
         _sessionId = resumeToken;
         _grantedServers = grantedServers ?? [];
-        _shellHealth = shellHealth ?? ShellHealth.Process;
     }
 
     public IAsyncEnumerable<VendorEvent> Events => _events.Reader.ReadAllAsync();
@@ -107,7 +115,7 @@ internal sealed class CodexCliSession : IVendorSession
                     using (document) Observe(document.RootElement, attempt);
                 }
 
-                var noShell = JudgeShell(() => CodexSandbox.LastSetupError());
+                var noShell = JudgeShell();
 
                 if (_turnFailed)
                 {
@@ -175,35 +183,34 @@ internal sealed class CodexCliSession : IVendorSession
     /// The failure to report when the run tried commands and codex started none of them, or null
     /// when it started one or tried none. A codex Worker reads the repository through its shell, so
     /// such a run answered blind — in run 20261012-163837-6fc7b1 every Critic and Scout did, behind a
-    /// sandbox setup that failed before each command. A sandboxed run's outcome is recorded in
-    /// <see cref="ShellHealth"/> whatever else becomes of the turn, since a usage limit after a
-    /// started command still proves the sandbox works. Internal so the tests can drive it after
+    /// sandbox setup that failed before each command. Internal so the tests can drive it after
     /// <see cref="Observe(JsonElement)"/>.
     /// </summary>
-    /// <param name="setupError">
-    /// Reads what codex's sandbox log last recorded against its setup; called only for a sandboxed
-    /// role that failed, since a Builder runs outside the sandbox.
-    /// </param>
-    internal NoShellException? JudgeShell(Func<string?> setupError)
+    internal NoShellException? JudgeShell()
     {
-        var sandboxed = _role.Role is not VendorRole.Builder;
-        if (_commandsStarted > 0 || _launchFailure is null)
-        {
-            if (sandboxed && _commandsStarted > 0) _shellHealth.Started("codex");
-            return null;
-        }
+        if (_commandsStarted > 0 || _launchFailure is null) return null;
 
-        var setup = sandboxed ? setupError() : null;
         var at = DateTimeOffset.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
         var diagnosis = $"codex could not start a shell for the {_role.Role} at {at}, so its answer was not used: "
-                        + $"none of the {_commandsUnstarted} command(s) it tried started — \"{_launchFailure}\""
-                        + (setup is null ? "." : $"; codex's sandbox log last recorded \"{setup}\".");
-        var remedy = sandboxed
-            ? "Retry once codex can start a sandboxed command; `codex doctor --json` reports the sandbox setup under sandbox.helpers."
-            : "Retry once codex can start a command.";
+                        + $"none of the {_commandsUnstarted} command(s) it tried started — \"{_launchFailure}\".";
 
-        if (sandboxed) _shellHealth.Failed("codex", diagnosis);
-        return new NoShellException(diagnosis, remedy, CodexSandbox.ErrorCode(_launchFailure));
+        return new NoShellException(diagnosis, "Retry once codex can start a command.", ErrorCode(_launchFailure));
+    }
+
+    /// <summary>
+    /// The error code a launch diagnostic carries after its fixed opening —
+    /// <c>helper_unknown_error</c> in "Failed to create unified exec process: helper_unknown_error:
+    /// setup refresh had errors" — or null when what follows is not a bare identifier.
+    /// </summary>
+    /// <param name="diagnostic">A launch diagnostic, as <see cref="IsLaunchFailure"/> returned it.</param>
+    internal static string? ErrorCode(string diagnostic)
+    {
+        if (!diagnostic.StartsWith(LAUNCH_FAILURE, StringComparison.Ordinal)) return null;
+
+        var rest = diagnostic[LAUNCH_FAILURE.Length..].TrimStart();
+        var end = rest.IndexOf(':');
+        var candidate = end < 0 ? rest : rest[..end];
+        return Identifier().IsMatch(candidate) ? candidate : null;
     }
 
     public ValueTask DisposeAsync()
@@ -271,17 +278,9 @@ internal sealed class CodexCliSession : IVendorSession
         arguments.Add("-c");
         arguments.Add(SELF_PLUGIN_DISABLE);
 
-        // Builders use the launching process's permissions on fresh and resumed turns. Critic and
-        // Scout keep a read-only sandbox; the config key also works on exec resume. See docs/adr/0028.
-        if (role.Role is VendorRole.Builder)
-        {
-            arguments.Add("--dangerously-bypass-approvals-and-sandbox");
-        }
-        else
-        {
-            arguments.Add("-c");
-            arguments.Add("sandbox_mode=" + TomlValue.String("read-only"));
-        }
+        // Every role uses the launching process's permissions on fresh and resumed turns; Critic and
+        // Scout stay read-only by their contracts alone. See docs/adr/0028 and docs/adr/0033.
+        arguments.Add("--dangerously-bypass-approvals-and-sandbox");
 
         // `codex exec` has nobody to approve an MCP call, so one nothing approved fails (issue #90).
         // The key is per server and merges into the server codex already knows; naming one it does
@@ -364,7 +363,7 @@ internal sealed class CodexCliSession : IVendorSession
                 {
                     attempt?.ToolCompleted(TryRead(completedItem, "id", out var itemId) && itemId.ValueKind is JsonValueKind.String
                         ? itemId.GetString() : null);
-                    if (CodexSandbox.IsLaunchFailure(completedItem, out var launchFailure))
+                    if (IsLaunchFailure(completedItem, out var launchFailure))
                     {
                         _commandsUnstarted++;
                         _launchFailure ??= launchFailure;
@@ -443,6 +442,44 @@ internal sealed class CodexCliSession : IVendorSession
 
         return detail;
     }
+
+    /// <summary>
+    /// Whether a completed <c>command_execution</c> item is a command codex could not start, and if so
+    /// what codex said instead of its output.
+    /// </summary>
+    /// <param name="item">A completed <c>command_execution</c> item.</param>
+    /// <param name="diagnostic">Receives codex's launch diagnostic, on one line and bounded.</param>
+    private static bool IsLaunchFailure(JsonElement item, out string diagnostic)
+    {
+        diagnostic = string.Empty;
+        if (item.ValueKind is not JsonValueKind.Object) return false;
+
+        if (!item.TryGetProperty("status", out var status) || status.ValueKind is not JsonValueKind.String
+            || status.GetString() is not "failed")
+            return false;
+
+        if (!item.TryGetProperty("exit_code", out var exitCode) || exitCode.ValueKind is not JsonValueKind.Number
+            || !exitCode.TryGetInt32(out var code) || code != -1)
+            return false;
+
+        if (!item.TryGetProperty("aggregated_output", out var output) || output.ValueKind is not JsonValueKind.String
+            || output.GetString() is not { } text || !text.StartsWith(LAUNCH_FAILURE, StringComparison.Ordinal))
+            return false;
+
+        diagnostic = Quote(text);
+        return true;
+    }
+
+    /// <summary>One line, bounded, so a quoted diagnostic cannot carry a whole command's output.</summary>
+    /// <param name="text">The diagnostic as codex wrote it.</param>
+    private static string Quote(string text)
+    {
+        var line = text.ReplaceLineEndings(" ").Trim();
+        return line.Length <= QUOTE_LIMIT ? line : line[..QUOTE_LIMIT] + "…";
+    }
+
+    [GeneratedRegex("^[a-z][a-z0-9_]{0,63}$")]
+    private static partial Regex Identifier();
 
     /// <summary>
     /// An MCP call named the way claude names its tools, so one grep finds a Roslyn call in either

@@ -13,7 +13,7 @@ internal sealed class CodexCliVendor : IVendor
 {
     private static readonly TimeSpan PROBE_TIMEOUT = TimeSpan.FromSeconds(30);
 
-    // The doctor check that reads codex's record of its last sandbox setup.
+    // The doctor check that reads codex's record of its last sandbox setup, which no Worker runs in.
     private const string SANDBOX_HELPERS = "sandbox.helpers";
 
     // codex-rs MAX_USER_INPUT_TEXT_CHARS: turn/start refuses a turn whose text input — the prompt
@@ -88,15 +88,10 @@ internal sealed class CodexCliVendor : IVendor
             }
 
             string? warning;
-            string? degraded;
             using (document)
             {
                 (var refusal, warning) = JudgeDoctor(document.RootElement);
                 if (refusal is not null) return refusal;
-
-                degraded = SandboxSetupFailure(document.RootElement);
-                if (degraded is not null && CodexSandbox.LastSetupError() is { } setup)
-                    degraded = $"{degraded}; codex's sandbox log last recorded \"{setup}\"";
             }
 
             var modelsSpec = command.CreateProcess(["debug", "models"], _workingDirectory, string.Empty, environment);
@@ -106,7 +101,7 @@ internal sealed class CodexCliVendor : IVendor
             Catalog = new VendorCatalog(ParseModels(modelsDocument.RootElement), CatalogSource.Live);
 
             var detail = $"{Catalog.Models.Count} models";
-            return new VendorReadiness(true, warning is null ? detail : $"{detail}; {warning}", degraded);
+            return new VendorReadiness(true, warning is null ? detail : $"{detail}; {warning}");
         }
         catch (Exception error) when (error is VendorException or JsonException or OperationCanceledException
                                             or KeyNotFoundException or InvalidOperationException)
@@ -143,8 +138,8 @@ internal sealed class CodexCliVendor : IVendor
     /// codex-cli 0.154.0 on 2026-09-17: that version reported `overallStatus: fail` and exited 1
     /// for a failed `sandbox.helpers` alone, while `codex exec --sandbox read-only` answered.
     /// Sign-in must be `ok`; `installation` and `config.load` must not `fail`. `sandbox.helpers` is
-    /// left to <see cref="SandboxSetupFailure"/>, and any other failed check is returned as a
-    /// warning for the readiness detail instead of withholding codex.
+    /// ignored, since no Worker runs in the sandbox (docs/adr/0033), and any other failed check is
+    /// returned as a warning for the readiness detail instead of withholding codex.
     /// </summary>
     /// <param name="root">The parsed <c>codex doctor --json</c> report.</param>
     internal static (VendorReadiness? Refusal, string? Warning) JudgeDoctor(JsonElement root)
@@ -176,33 +171,6 @@ internal sealed class CodexCliVendor : IVendor
         }
 
         return (null, warnings.Count == 0 ? null : $"codex doctor warns: {string.Join("; ", warnings)}");
-    }
-
-    /// <summary>
-    /// Why codex's sandboxed Workers may not start a shell, from doctor's <c>sandbox.helpers</c>, or
-    /// null when that check did not fail. Measured against codex-cli 0.162.1 on 2026-10-12: the check
-    /// fails with <c>details["error code"]</c> while <c>CODEX_HOME/.sandbox/setup_error.json</c>
-    /// exists, and codex deletes that file before every setup refresh and after a successful one, so
-    /// it describes the last refresh any codex on the machine ran — the desktop app's included. A
-    /// failure here is a strong sign, not proof; the Worker's own commands decide. See
-    /// docs/adr/0031.
-    /// </summary>
-    /// <param name="root">The parsed <c>codex doctor --json</c> report.</param>
-    internal static string? SandboxSetupFailure(JsonElement root)
-    {
-        if (!root.TryGetProperty("checks", out var checks) || checks.ValueKind is not JsonValueKind.Object
-            || !checks.TryGetProperty(SANDBOX_HELPERS, out var helpers) || helpers.ValueKind is not JsonValueKind.Object
-            || OptionalString(helpers, "status") is not "fail")
-            return null;
-
-        var code = helpers.TryGetProperty("details", out var details) && details.ValueKind is JsonValueKind.Object
-            ? OptionalString(details, "error code")
-            : null;
-        var summary = OptionalString(helpers, "summary") ?? "the sandbox helpers check failed";
-
-        return code is null
-            ? $"codex doctor reports the last sandbox setup failed: {summary}"
-            : $"codex doctor reports the last sandbox setup failed ({code}): {summary}";
     }
 
     /// <summary>
