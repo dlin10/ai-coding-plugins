@@ -1,5 +1,17 @@
 # Plan Forge Flow releases
 
+## 0.47.1
+
+`telemetry.json` records stand in the order they opened. See `docs/adr/0032`.
+
+- A record is written after the last element whose `at` — its opening — is no later, instead of at the
+  end of the file. A phase closes when the next is declared, so `plan_revision` round N used to follow
+  the `plan_review` round N+1 that began inside it; it now stands between rounds N and N+1.
+- An element without a text `at` stops the walk and an element already in the file is never moved, so
+  a file written by an earlier version keeps its order and a file this server did not write is safe.
+- No field changes. `at` was already the opening for both kinds; sum `duration`, not `wallDuration`,
+  across Orchestrator and Worker records, as a phase's `wallDuration` includes the Workers inside it.
+
 ## 0.47.0
 
 Codex Critics and Scouts run without Codex's sandbox, as Builders already did. See

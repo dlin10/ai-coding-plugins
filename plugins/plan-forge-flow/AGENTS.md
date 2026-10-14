@@ -240,7 +240,9 @@ starting at one millisecond doubled the suite's running time and starved the tas
 `telemetry.json` holds two kinds of record: `vendor.usage`, one per Worker attempt, and
 `orchestrator.usage`, one per closed Orchestrator phase (`Orchestration/OrchestratorPhases.cs`).
 Resumed-attempt growth reads `vendor.usage` records only, and neither writer may disturb the other
-kind or a file that is not a JSON array of objects. The open phase lives in its own run file,
+kind or a file that is not a JSON array of objects. A record is placed by its `at`, its opening,
+not at the end of the file, so any record kind you add must stamp `at` with its opening. The open
+phase lives in its own run file,
 `orchestrator-phase.json`, not in `state.json`, which a background Job rewrites while a poll runs;
 a later server process closes the phase from it — see
 [docs/adr/0032](docs/adr/0032-record-the-orchestrator-per-declared-phase.md).

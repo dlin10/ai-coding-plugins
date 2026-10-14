@@ -277,8 +277,10 @@ internal sealed record OrchestratorUsageRecord(string At,
                                                string? UsageMissing);
 
 /// <summary>
-/// The one owner of <c>telemetry.json</c>: every record of either kind is appended here, under one
-/// gate per file. Elements already in the file are kept as they are, whatever their <c>event</c>.
+/// The one owner of <c>telemetry.json</c>: every record of either kind is written here, under one
+/// gate per file, at the place its <c>at</c> — its opening — gives it, which is after the elements
+/// that opened no later. Elements already in the file are kept as they are, in the order they are in,
+/// whatever their <c>event</c>.
 /// </summary>
 internal static class WorkerTelemetryFile
 {
@@ -286,7 +288,10 @@ internal static class WorkerTelemetryFile
 
     private static readonly ConcurrentDictionary<string, object> Writers = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Appends a Worker record, built from the <c>vendor.usage</c> records already in the file.</summary>
+    /// <summary>
+    /// Writes a Worker record, built from the <c>vendor.usage</c> records already in the file, after the
+    /// elements that opened no later than it.
+    /// </summary>
     /// <param name="context">The run's telemetry destination and act identity.</param>
     /// <param name="turnId">The session call the record belongs to, named if the write fails.</param>
     /// <param name="attempt">The process attempt within that call, named if the write fails.</param>
@@ -296,19 +301,43 @@ internal static class WorkerTelemetryFile
                               int attempt,
                               Func<IReadOnlyList<WorkerUsageRecord>, WorkerUsageRecord> record) =>
         Append(context.Path, context.Log,
-               elements => record(VendorRecords(elements)), TelemetryJson.Default.WorkerUsageRecord,
+               elements => record(VendorRecords(elements)), added => added.At,
+               TelemetryJson.Default.WorkerUsageRecord,
                ("turnId", turnId), ("attempt", attempt.ToString(CultureInfo.InvariantCulture)));
 
-    /// <summary>Appends an Orchestrator record.</summary>
+    /// <summary>
+    /// Writes an Orchestrator record, which a phase closes long after it opened, after the elements
+    /// that opened no later than it.
+    /// </summary>
     /// <param name="path">The run's <c>telemetry.json</c>.</param>
     /// <param name="log">The run's log, which names a failed write.</param>
-    /// <param name="record">The record to append.</param>
+    /// <param name="record">The record to write.</param>
     public static void Append(string path, RunLog log, OrchestratorUsageRecord record) =>
-        Append(path, log, _ => record, TelemetryJson.Default.OrchestratorUsageRecord, ("event", record.Event));
+        Append(path, log, _ => record, added => added.At,
+               TelemetryJson.Default.OrchestratorUsageRecord, ("event", record.Event));
+
+    /// <summary>
+    /// Where a record opened at <paramref name="at"/> goes: after the last element that opened no
+    /// later, found by stepping back from the end. An element whose <c>at</c> is not text is a
+    /// boundary, and the walk does not pass it, so a file this server did not write is never reordered.
+    /// </summary>
+    /// <param name="elements">The file's elements, in the order they are in.</param>
+    /// <param name="at">The record's opening, in the format of <see cref="VendorAttempt.FormatLocalTimestamp"/>.</param>
+    private static int InsertionIndex(JsonElement[] elements, string at)
+    {
+        var index = elements.Length;
+        while (index > 0
+               && elements[index - 1].TryGetProperty("at", out var opened)
+               && opened.ValueKind == JsonValueKind.String
+               && string.CompareOrdinal(opened.GetString(), at) > 0)
+            index--;
+        return index;
+    }
 
     private static void Append<T>(string path,
                                   RunLog log,
                                   Func<IReadOnlyList<JsonElement>, T> record,
+                                  Func<T, string> openedAt,
                                   JsonTypeInfo<T> type,
                                   params (string Name, string? Value)[] identity)
     {
@@ -329,6 +358,7 @@ internal static class WorkerTelemetryFile
                 }
 
                 var added = record(elements);
+                var position = InsertionIndex(elements, openedAt(added));
 
                 // The serializer's own options decide the layout and encoder, so a record is written
                 // as it always was, and an element already in the file is rewritten with its values.
@@ -344,8 +374,12 @@ internal static class WorkerTelemetryFile
                        }))
                 {
                     writer.WriteStartArray();
-                    foreach (var element in elements) element.WriteTo(writer);
-                    JsonSerializer.Serialize(writer, added, type);
+                    for (var index = 0; index <= elements.Length; index++)
+                    {
+                        if (index == position) JsonSerializer.Serialize(writer, added, type);
+                        if (index < elements.Length) elements[index].WriteTo(writer);
+                    }
+
                     writer.WriteEndArray();
                 }
 
