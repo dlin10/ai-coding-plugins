@@ -342,7 +342,8 @@ public sealed class UsageAttributionMatrixTests : IAsyncLifetime
     {
         _collector = TelemetryCollectorTests.Running.Start();
         var source = new TelemetryUsageSource(new ExportEndpoint("127.0.0.1", _collector.Port, TimeSpan.Zero),
-                                              _ => new CollectorStart(CollectorStartOutcome.Failed), TimeProvider.System);
+                                              _ => new CollectorStart(CollectorStartOutcome.Failed),
+                                              TelemetryCollectorTests.SlowTimers.Instance);
         var session = codex ? new HostSession(HostSessions.CODEX, _thread) : new HostSession(HostSessions.CLAUDE_CODE, _session);
         var registeredAt = await source.RegisterAsync(session, CancellationToken.None);
         var t0 = new DateTimeOffset(registeredAt.UtcTicks - registeredAt.UtcTicks % TimeSpan.TicksPerSecond, TimeSpan.Zero).AddSeconds(10);

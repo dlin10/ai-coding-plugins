@@ -685,7 +685,8 @@ public sealed class RegistrationOrderMatrixTests : IAsyncLifetime
         /// <summary>Registers the session as an earlier server process would.</summary>
         public Task RegisterAsync() =>
             new TelemetryUsageSource(new ExportEndpoint("127.0.0.1", Port, TimeSpan.Zero), _ => new CollectorStart(CollectorStartOutcome.Failed),
-                                     TimeProvider.System).RegisterAsync(new HostSession(HostSessions.CLAUDE_CODE, Session), CancellationToken.None);
+                                     TelemetryCollectorTests.SlowTimers.Instance).RegisterAsync(new HostSession(HostSessions.CLAUDE_CODE, Session),
+                                                                                                CancellationToken.None);
 
         /// <summary>Posts one API request of the session at <paramref name="at"/>.</summary>
         /// <param name="at">The event time.</param>

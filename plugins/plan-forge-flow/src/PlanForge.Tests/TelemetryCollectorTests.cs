@@ -830,10 +830,11 @@ public sealed partial class TelemetryCollectorTests
     [Fact]
     public async Task A_registration_during_the_grace_keeps_the_collector_alive()
     {
-        await using var collector = Running.Start(SHORT_GRACE);
+        // The server process starts first and registers at once: on a slow runner its start alone can
+        // outlast the grace, which runs from the collector's start.
         using var server = Waiter.Start();
+        await using var collector = Running.Start(SHORT_GRACE);
 
-        await Task.Delay(SHORT_GRACE / 2);
         await RegisterAsync(collector.Port, Guid.NewGuid().ToString(), server.Process);
         await Task.Delay(SHORT_GRACE + TimeSpan.FromSeconds(1));
         await AssertAnsweringAsync(collector);
@@ -1348,6 +1349,32 @@ public sealed partial class TelemetryCollectorTests
         {
             TelemetryCollectorTests.Kill(Process);
             Process.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// System time whose timers fire fifteen times later, for a test that talks to a real collector but
+    /// is not about a deadline: on a loaded CI runner one loopback request can outlast R10's 2 seconds.
+    /// </summary>
+    internal sealed class SlowTimers : TimeProvider
+    {
+        private const int STRETCH = 15;
+
+        public static SlowTimers Instance { get; } = new();
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            new Stretched(TimeProvider.System.CreateTimer(callback, state, Stretch(dueTime), Stretch(period)));
+
+        private static TimeSpan Stretch(TimeSpan span) =>
+            span == Timeout.InfiniteTimeSpan || span <= TimeSpan.Zero ? span : span * STRETCH;
+
+        private sealed class Stretched(ITimer inner) : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => inner.Change(Stretch(dueTime), Stretch(period));
+
+            public void Dispose() => inner.Dispose();
+
+            public ValueTask DisposeAsync() => inner.DisposeAsync();
         }
     }
 
