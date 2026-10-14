@@ -193,7 +193,7 @@ internal sealed class UsageSourceChoice : IUsageSource
             // Reading and parsing the profile are synchronous: run off this flow, so the deadline bounds them too.
             var verdict = await Task.Run(() => claude
                                              ? ExportProfile.Claude(_readFile(ProfilePath(CLAUDE_SETTINGS_VARIABLE, ClaudeConfigDirectory.Resolve(_environment), "settings.json")))
-                                             : ExportProfile.Codex(_readFile(ProfilePath(CODEX_CONFIG_VARIABLE, CodexSandbox.Home(_environment), "config.toml"))),
+                                             : ExportProfile.Codex(_readFile(ProfilePath(CODEX_CONFIG_VARIABLE, CodexLaunch.Home(_environment), "config.toml"))),
                                      CancellationToken.None)
                                     .WaitAsync(deadline.Token)
                                     .ConfigureAwait(false);

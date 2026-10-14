@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.46.0
+# Plan Forge Flow 0.47.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -10,14 +10,13 @@ rounds, because it is the only participant holding the interview context. The Cr
 Scout are separate model processes. Critic reviews and Builder implements against the plan; Scout is
 a read-only bounded-reconnaissance process, and none of the three revises the plan.
 
-Codex Builders run without Codex's sandbox or approval prompts for implementation and review fixes,
-including resumed retries. Codex Critic and Scout retain their read-only sandbox. Builder access
-uses the launching process's permissions; `builderRoots` is accepted for compatibility and does
-not restrict access.
+Every Codex worker — Builder, Critic and Scout — runs without Codex's sandbox or approval prompts,
+including resumed retries, with the launching process's permissions. Codex Critic and Scout stay
+read-only by their contracts alone. `builderRoots` is accepted for compatibility and does not
+restrict access.
 
 A worker turn that tried commands and started none answered without reading the repository, so its
-answer is not used: the act fails, quoting the vendor, and no review round is spent. A vendor whose
-Critic and Scout cannot start a shell is reported as `degraded` and offered for the Builder only.
+answer is not used: the act fails, quoting the vendor, and no review round is spent.
 
 ## Workflow
 
@@ -26,7 +25,7 @@ Critic and Scout cannot start a shell is reported as `degraded` and offered for 
 | Tool | What it does |
 |---|---|
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
-| `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable, `degraded` when its Critic and Scout cannot start a shell, and the efforts each model offers at Fast speed |
+| `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable, and the efforts each model offers at Fast speed |
 | `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort/Fast selection or an explicit decision to continue without Scout |
 | `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `SCOUT.md` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |

@@ -62,7 +62,7 @@ sentences of explanation and no code.
 | Tool | When |
 |---|---|
 | `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic, builder, and scout may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — all three roles get the same grant. |
-| `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not, and `degraded` when its Critic and Scout cannot start a shell; successful entries are served from `CatalogCache`, while unavailable and degraded entries are probed again. |
+| `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not; successful entries are served from `CatalogCache`, while unavailable entries are probed again. |
 | `forge.scout.select` | Once, just in time when broad reconnaissance first becomes necessary. Persists one exact Scout Vendor/model/effort selection or the explicit decline to continue without Scout; a later enabling call must also be explicit. |
 | `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the complete Scout answer under `scout`, unclipped, and appends it to `SCOUT.md`. |
 | `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
@@ -224,8 +224,7 @@ Scout. Never silently choose session continuity and never fall back to another V
 `no_shell` failure is the exception to retrying at once: the Scout's commands never started, so it
 read nothing, and the same selection fails the same way until its vendor is repaired. Tell the user
 what the failure says, and ask whether to repair the vendor and retry, reselect, or continue without
-Scout. Never offer a vendor as Scout while its `forge.models` entry has `degraded` set. Scout may
-use already available internet without per-call authorization or a widened grant. Require typed
+Scout. Scout may use already available internet without per-call authorization or a widened grant. Require typed
 repository citations (path plus positive line or non-empty symbol) and external citations (an
 absolute HTTP(S) URL). Surface `SCOUT.md` only after each successful Scout call.
 Do not copy Scout's report into Critic or Builder prompts automatically; only derived conclusions
@@ -447,7 +446,7 @@ Write gate commands as follows:
   Plan their required edits directly, including top-level `.git`, `.codex`, and `.agents` when
   those edits belong to the approved scope. Access depends on the launching process's permissions.
   `builderRoots` is accepted for compatibility and does not control access. Codex Critic and Scout
-  retain their read-only sandbox.
+  run without the sandbox too, and stay read-only by their contracts alone.
 
 ```markdown
 Builder: cursor / gpt-5.3-codex / high
@@ -1081,11 +1080,6 @@ one follow-up question about the part that does not fit before that role's selec
 1. The vendor question offers only vendors the catalogue reports `available: true`. Never offer a
    vendor with `available: false`; its `detail` names the cause — a missing CLI, a sign-in — so
    tell the user why it is out and what would bring it back.
-   - A vendor with `degraded` set is offered for the Builder only. `degraded` says why that
-     vendor's Critic and Scout cannot start a shell in their read-only sandbox, so they would judge
-     without reading the repository; tell the user what it says before the critic's vendor
-     question, and leave that vendor out of it. If that leaves the critic no vendor, stop and relay
-     it as you would for none available, then declare `phase: "done"`.
    - If none is available, stop and relay what each probe reported; no act can run without a
      working vendor CLI. Then declare `phase: "done"`.
    - If exactly one is available, do not ask either vendor question. Tell the user which vendor

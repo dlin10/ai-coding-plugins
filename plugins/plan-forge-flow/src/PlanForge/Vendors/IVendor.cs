@@ -89,11 +89,7 @@ internal sealed record Selection(string Model, string? Effort, bool Fast = false
 /// <summary>What a vendor's probe found.</summary>
 /// <param name="Available">Whether the vendor can do the work at all.</param>
 /// <param name="Detail">The catalogue's size and any warnings, or why the vendor is unavailable.</param>
-/// <param name="Degraded">
-/// Why the vendor's sandboxed Workers — Critic and Scout — may not start a shell, or null when the
-/// probe found nothing to say so. The Builder is unaffected. See docs/adr/0031.
-/// </param>
-internal sealed record VendorReadiness(bool Available, string Detail, string? Degraded = null);
+internal sealed record VendorReadiness(bool Available, string Detail);
 
 /// <param name="Source">Where the catalogue came from. The interview tells the user which kind it is offering.</param>
 internal sealed record VendorCatalog(IReadOnlyList<VendorModel> Models, CatalogSource Source);
@@ -179,9 +175,6 @@ internal class VendorException(string message, int? exitCode = null, Exception? 
 internal sealed class NoShellException(string diagnosis, string remedy, string? errorCode)
     : VendorException($"{diagnosis} {remedy}")
 {
-    /// <summary>What the Worker tried and what the vendor said; <c>forge.models</c> repeats it as <c>degraded</c>.</summary>
-    public string Diagnosis { get; } = diagnosis;
-
     /// <summary>The vendor's error code when it is a bare identifier; null otherwise.</summary>
     public string? ErrorCode { get; } = errorCode;
 }

@@ -1,5 +1,18 @@
 # Plan Forge Flow releases
 
+## 0.47.0
+
+Codex Critics and Scouts run without Codex's sandbox, as Builders already did. See
+`docs/adr/0033`.
+
+- Every codex launch, fresh or resumed, passes `--dangerously-bypass-approvals-and-sandbox` instead
+  of `-c sandbox_mode="read-only"`. A codex Critic or Scout is read-only by its role contract alone,
+  with the launching process's permissions.
+- `forge.models` no longer reports `degraded`, and the forge skill no longer withholds a vendor from
+  Critic or Scout on that ground: no Worker runs in the sandbox, so its setup blocks none of them.
+- A codex turn that tried commands and started none still fails, quoting codex's launch diagnostic
+  without the sandbox log.
+
 ## 0.46.0
 
 The Orchestrator's own time and tokens reach `telemetry.json`. Until now the file recorded Workers

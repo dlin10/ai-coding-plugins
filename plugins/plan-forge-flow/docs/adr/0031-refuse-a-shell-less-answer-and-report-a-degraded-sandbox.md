@@ -4,6 +4,10 @@ status: accepted
 
 # Refuse a shell-less answer, and report a sandbox that cannot start a shell
 
+The Degraded vendor half is superseded by
+[0033](0033-run-codex-critics-and-scouts-without-a-sandbox.md): no Worker runs in the sandbox, so
+`forge.models` reports no `degraded`. The refusal of a Shell-less answer stands.
+
 In run `20261012-163837-6fc7b1` every command the codex Critics and Scouts tried failed before it
 started: codex-cli 0.162.1's sandbox setup refresh failed on the desktop app's `node_repl.exe`, and
 each command came back as "Failed to create unified exec process: helper_unknown_error: setup
