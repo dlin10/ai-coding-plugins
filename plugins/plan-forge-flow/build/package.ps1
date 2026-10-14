@@ -338,7 +338,7 @@ function Test-PublishedServer([string]$Executable) {
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
             'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')
             'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate')
-            'forge.log.append'  = @('level', 'detail')
+            'forge.log.append'  = @('level', 'detail', 'phase')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
             # had to send them together could not correct one without restating the other.
             'forge.instructions.set' = @('criticInstructions', 'builderInstructions')
