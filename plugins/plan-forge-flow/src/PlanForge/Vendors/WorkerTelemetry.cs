@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
 
@@ -254,41 +255,127 @@ internal sealed record WorkerUsageRecord(string At,
                                          WorkerUsage? SessionTotal,
                                          IReadOnlyList<string>? MalformedUsageFields);
 
+internal sealed record OrchestratorUsageRecord(string At,
+                                               string Event,
+                                               string Phase,
+                                               int? Round,
+                                               int? TaskNumber,
+                                               int? TaskCount,
+                                               string? Host,
+                                               string? HostSessionId,
+                                               string? UsageSource,
+                                               string Duration,
+                                               string WallDuration,
+                                               string ToolDuration,
+                                               long? InputTokens,
+                                               long? CacheReadTokens,
+                                               long? CacheCreationTokens,
+                                               long? OutputTokens,
+                                               long? ReasoningTokens,
+                                               double? CostUsd,
+                                               [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool UsageIncomplete,
+                                               string? UsageMissing);
+
+/// <summary>
+/// The one owner of <c>telemetry.json</c>: every record of either kind is appended here, under one
+/// gate per file. Elements already in the file are kept as they are, whatever their <c>event</c>.
+/// </summary>
 internal static class WorkerTelemetryFile
 {
+    private const string VENDOR_EVENT = "vendor.usage";
+
     private static readonly ConcurrentDictionary<string, object> Writers = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Appends a Worker record, built from the <c>vendor.usage</c> records already in the file.</summary>
+    /// <param name="context">The run's telemetry destination and act identity.</param>
+    /// <param name="turnId">The session call the record belongs to, named if the write fails.</param>
+    /// <param name="attempt">The process attempt within that call, named if the write fails.</param>
     /// <param name="record">Builds the record from the ones already in the file.</param>
     public static void Append(WorkerTelemetryContext context,
                               string turnId,
                               int attempt,
-                              Func<IReadOnlyList<WorkerUsageRecord>, WorkerUsageRecord> record)
+                              Func<IReadOnlyList<WorkerUsageRecord>, WorkerUsageRecord> record) =>
+        Append(context.Path, context.Log,
+               elements => record(VendorRecords(elements)), TelemetryJson.Default.WorkerUsageRecord,
+               ("turnId", turnId), ("attempt", attempt.ToString(CultureInfo.InvariantCulture)));
+
+    /// <summary>Appends an Orchestrator record.</summary>
+    /// <param name="path">The run's <c>telemetry.json</c>.</param>
+    /// <param name="log">The run's log, which names a failed write.</param>
+    /// <param name="record">The record to append.</param>
+    public static void Append(string path, RunLog log, OrchestratorUsageRecord record) =>
+        Append(path, log, _ => record, TelemetryJson.Default.OrchestratorUsageRecord, ("event", record.Event));
+
+    private static void Append<T>(string path,
+                                  RunLog log,
+                                  Func<IReadOnlyList<JsonElement>, T> record,
+                                  JsonTypeInfo<T> type,
+                                  params (string Name, string? Value)[] identity)
     {
         try
         {
-            var path = Path.GetFullPath(context.Path);
-            lock (Writers.GetOrAdd(path, _ => new object()))
+            var fullPath = Path.GetFullPath(path);
+            lock (Writers.GetOrAdd(fullPath, _ => new object()))
             {
-                var records = File.Exists(path)
-                    ? JsonSerializer.Deserialize(AtomicFile.Read(path), TelemetryJson.Default.ListWorkerUsageRecord)
-                      ?? throw new JsonException("telemetry root must be a JSON array")
-                    : [];
-                if (records.Any(item => item is null))
-                    throw new JsonException("telemetry array entries must be objects");
+                using var document = File.Exists(fullPath) ? Parse(AtomicFile.Read(fullPath)) : null;
+                JsonElement[] elements = [];
+                if (document is not null)
+                {
+                    if (document.RootElement.ValueKind != JsonValueKind.Array)
+                        throw new JsonException("telemetry root must be a JSON array");
+                    elements = [.. document.RootElement.EnumerateArray()];
+                    if (elements.Any(item => item.ValueKind != JsonValueKind.Object))
+                        throw new JsonException("telemetry array entries must be objects");
+                }
 
-                records.Add(record(records));
-                AtomicFile.Write(path, JsonSerializer.Serialize(records, TelemetryJson.Default.ListWorkerUsageRecord));
+                var added = record(elements);
+
+                // The serializer's own options decide the layout and encoder, so a record is written
+                // as it always was, and an element already in the file is rewritten with its values.
+                var options = TelemetryJson.Default.Options;
+                using var buffer = new MemoryStream();
+                using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions
+                       {
+                           Indented = options.WriteIndented,
+                           IndentCharacter = options.IndentCharacter,
+                           IndentSize = options.IndentSize,
+                           NewLine = options.NewLine,
+                           Encoder = options.Encoder,
+                       }))
+                {
+                    writer.WriteStartArray();
+                    foreach (var element in elements) element.WriteTo(writer);
+                    JsonSerializer.Serialize(writer, added, type);
+                    writer.WriteEndArray();
+                }
+
+                AtomicFile.Write(fullPath, Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length));
             }
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException
                                       or NotSupportedException or JsonException)
         {
-            context.Log.Write("error", "telemetry", "telemetry.write.failed",
-                ("turnId", turnId),
-                ("attempt", attempt.ToString(CultureInfo.InvariantCulture)),
-                ("error", error.GetType().Name));
+            log.Write("error", "telemetry", "telemetry.write.failed",
+                      [.. identity, ("error", error.GetType().Name)]);
         }
     }
+
+    /// <summary>
+    /// The reader throws an internal subclass; the log names the failure as the serializer always did.
+    /// </summary>
+    /// <param name="json">The file's text.</param>
+    private static JsonDocument Parse(string json)
+    {
+        try { return JsonDocument.Parse(json); }
+        catch (JsonException error) { throw new JsonException(error.Message, error); }
+    }
+
+    private static List<WorkerUsageRecord> VendorRecords(IEnumerable<JsonElement> elements) =>
+        [.. elements.Where(element => element.TryGetProperty("event", out var name)
+                                      && name.ValueKind == JsonValueKind.String
+                                      && name.ValueEquals(VENDOR_EVENT))
+                    .Select(element => element.Deserialize(TelemetryJson.Default.WorkerUsageRecord)
+                                       ?? throw new JsonException("telemetry array entries must be objects"))];
 
     /// <summary>
     /// What a session's latest recorded attempts reported, counter by counter: the running total a
@@ -316,5 +403,6 @@ internal static class WorkerTelemetryFile
 [JsonSourceGenerationOptions(WriteIndented = true,
                              PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
                              DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<WorkerUsageRecord>))]
+[JsonSerializable(typeof(WorkerUsageRecord))]
+[JsonSerializable(typeof(OrchestratorUsageRecord))]
 internal sealed partial class TelemetryJson : JsonSerializerContext;

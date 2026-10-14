@@ -53,34 +53,57 @@ internal sealed class ForgeTools
                                            SessionRoots roots,
                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                            CancellationToken ct,
-                                           [Description("MCP server names, `*` matching any run of characters, that the run's workers may call without being asked — a headless worker is refused every call nothing granted. Omit for [\"roslyn-*\"]; pass [] for none. Name only servers that do not change files: Critic, Builder, and Scout get the same grant.")] string[]? workerTools = null)
+                                           [Description("MCP server names, `*` matching any run of characters, that the run's workers may call without being asked — a headless worker is refused every call nothing granted. Omit for [\"roslyn-*\"]; pass [] for none. Name only servers that do not change files: Critic, Builder, and Scout get the same grant.")] string[]? workerTools = null) =>
+        await Begin(roots, ClientName(server), CapabilityProfileDetector.Detect(server.ClientCapabilities),
+                    catalogs.BeginProbing, workspaceRoot, ct, workerTools);
+
+    /// <summary>
+    /// <c>forge.begin</c> without an <see cref="McpServer"/>: what the handshake would say is passed
+    /// in, and so is the catalogue probe, so a test can begin a Run without a billed probe.
+    /// </summary>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="client">The MCP client's name from the handshake.</param>
+    /// <param name="profile">The host's capability profile.</param>
+    /// <param name="beginProbing">Starts the catalogue probes for the workspace, without waiting.</param>
+    /// <param name="workspaceRoot">The workspace root of the new Run.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="workerTools">The MCP servers the Run's workers may call unasked, or null for the default.</param>
+    internal static async Task<string> Begin(SessionRoots roots,
+                                             string client,
+                                             CapabilityProfile profile,
+                                             Action<string> beginProbing,
+                                             string workspaceRoot,
+                                             CancellationToken ct,
+                                             string[]? workerTools = null)
     {
+        using var scope = OrchestratorCall.Join(workspaceRoot, null);
         var granted = WorkerTools.Effective(WorkerTools.Validate(workerTools));
-        var profile = CapabilityProfileDetector.Detect(server.ClientCapabilities);
         var runId = NewRunId();
         var run = await RunDirectory.CreateAsync(roots, workspaceRoot, runId, ct);
+        scope.Call.Attach(workspaceRoot, runId);
 
         // The run folder has to exist before anything can be logged, so this is the one tool whose
         // record starts after its first side effect rather than before it. `sessionRoot` is null
         // for a host that declares no roots, which is the one thing the run path alone cannot say.
-        return await LoggedAsync(run, "forge.begin",
+        return await LoggedAsync(run, workspaceRoot, "forge.begin",
             [("workspaceRoot", workspaceRoot), ("sessionRoot", await roots.DirectoryAsync(ct)),
-             ("client", ClientName(server)), ("profile", profile.ToString()),
+             ("client", client), ("profile", profile.ToString()),
              ("workerTools", string.Join(", ", granted))],
             async () =>
             {
                 // Fire-and-forget: by the time the interview reaches the vendor question,
                 // forge.models finds the catalogues already fetched.
-                catalogs.BeginProbing(workspaceRoot);
+                beginProbing(workspaceRoot);
 
                 var baseline = await Baseline.CaptureAsync(new GitClient(workspaceRoot), ct);
                 run.WriteBaseline(baseline);
                 run.WriteState(new RunState(runId, workspaceRoot, profile.ToString(), DateTimeOffset.Now,
                     ReviewRounds: 0, ReviewRoundCap: DEFAULT_REVIEW_ROUND_CAP, BaselineHead: baseline.Head,
                     CodeReviewRoundCap: DEFAULT_CODE_REVIEW_CAP, WorkerTools: granted));
+                await scope.Call.Phases.BeginAsync(run, scope.Call, ct);
 
                 return JsonSerializer.Serialize(
-                    new BeginResult(runId, run.Path, profile.ToString(), baseline.Head, ClientName(server)),
+                    new BeginResult(runId, run.Path, profile.ToString(), baseline.Head, client),
                     ForgeToolJson.Default.BeginResult);
             });
     }
@@ -113,7 +136,7 @@ internal sealed class ForgeTools
                                             [Description("Vendor: claude, codex or cursor. Omit for all of them.")] string? vendor = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.models", [("vendor", vendor)],
+        return await LoggedAsync(run, workspaceRoot, "forge.models", [("vendor", vendor)],
             async () =>
             {
                 string[] ids = vendor is { Length: > 0 } ? [vendor] : CatalogCache.KnownVendors;
@@ -149,7 +172,7 @@ internal sealed class ForgeTools
                                                  [Description(FAST_DESCRIPTION + " Confirmed now and kept with the selection; forbidden when enabled is false.")] bool fast = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.scout.select",
+        return await LoggedAsync(run, workspaceRoot, "forge.scout.select",
             [("enabled", enabled ? "true" : "false"), ("vendor", vendor), ("model", model), ("effort", effort),
              ("fast", Flag(fast))],
             async () =>
@@ -191,7 +214,7 @@ internal sealed class ForgeTools
                                                 PromptLibrary? prompts = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.scout.run", [("sessionMode", sessionMode)],
+        return await LoggedAsync(run, workspaceRoot, "forge.scout.run", [("sessionMode", sessionMode)],
             async () =>
             {
                 Scout.ValidateQuestion(question);
@@ -228,7 +251,7 @@ internal sealed class ForgeTools
                                                      [Description("What the user wants the builder of this run told, verbatim — e.g. a skill to use, or a house style. Appended to the first prompt of each builder session. Omit to leave it unchanged; pass \"\" to clear it. A code-review critic is shown this text as context for judging the diff.")] string? builderInstructions = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.instructions.set",
+        return await LoggedAsync(run, workspaceRoot, "forge.instructions.set",
             [("criticInstructions", criticInstructions), ("builderInstructions", builderInstructions)],
             () =>
             {
@@ -260,7 +283,7 @@ internal sealed class ForgeTools
                                                CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.plan.write", [("planDraft", planDraft)],
+        return await LoggedAsync(run, workspaceRoot, "forge.plan.write", [("planDraft", planDraft)],
             () =>
             {
                 PlanReview.Write(run, planDraft);
@@ -305,7 +328,7 @@ internal sealed class ForgeTools
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.plan.review",
+        return await LoggedAsync(run, workspaceRoot, "forge.plan.review",
             [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)), ("planDraft", planDraft),
              ("revision", revision), ("deferred", deferred),
              ("userGrantedRound", userGrantedRound ? "true" : "false"),
@@ -350,7 +373,7 @@ internal sealed class ForgeTools
                                               CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.plan.show", [("plan", plan)],
+        return await LoggedAsync(run, workspaceRoot, "forge.plan.show", [("plan", plan)],
             async () =>
             {
                 var state = run.ReadState();
@@ -394,7 +417,7 @@ internal sealed class ForgeTools
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         // The gate environment is logged by name only: a connection string is exactly what it holds.
-        return await LoggedAsync(run, "forge.plan.confirm",
+        return await LoggedAsync(run, workspaceRoot, "forge.plan.confirm",
             [("approved", approved.ToString()), ("plan", plan),
              ("gateEnvironment", gateEnvironment is { Count: > 0 } ? string.Join(", ", gateEnvironment.Keys) : null),
              ("builderRoots", builderRoots is { Length: > 0 } ? string.Join(", ", builderRoots) : null),
@@ -466,7 +489,7 @@ internal sealed class ForgeTools
                                                [Description(FAST_DESCRIPTION)] bool fast = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.build.next",
+        return await LoggedAsync(run, workspaceRoot, "forge.build.next",
             [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast))],
             async () =>
             {
@@ -514,7 +537,7 @@ internal sealed class ForgeTools
                                                 [Description(UNTRACKED_BY_REFERENCE_DESCRIPTION)] bool untrackedByReference = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.review.code",
+        return await LoggedAsync(run, workspaceRoot, "forge.review.code",
             [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
              ("userGrantedRound", userGrantedRound ? "true" : "false"),
              ("excludePaths", excludePaths is { Length: > 0 } ? string.Join(", ", excludePaths) : null),
@@ -551,7 +574,7 @@ internal sealed class ForgeTools
                                                [Description("Fix verification: exactly full (default) or targeted (case-sensitive). Requires non-empty fixFindingIds.")] string? gate = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.review.fix",
+        return await LoggedAsync(run, workspaceRoot, "forge.review.fix",
             [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
              ("decisionBatchId", decisions?.DecisionBatchId), ("fixAttemptId", fixAttemptId),
              ("fixFindingIds", fixFindingIds is { Length: > 0 } ? string.Join(", ", fixFindingIds) : null),
@@ -663,7 +686,7 @@ internal sealed class ForgeTools
     {
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.work.start",
+        return await LoggedAsync(run, workspaceRoot, "forge.work.start",
             [("act", act), ("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
              ("planDraft", planDraft), ("findings", findings), ("deferred", deferred),
              ("revision", revision), ("userGrantedRound", userGrantedRound ? "true" : "false"),
@@ -747,7 +770,7 @@ internal sealed class ForgeTools
                                                 CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.work.poll", [("jobId", jobId)],
+        return await LoggedAsync(run, workspaceRoot, "forge.work.poll", [("jobId", jobId)],
             async () =>
             {
                 ValidateJobId(jobId);
@@ -769,7 +792,7 @@ internal sealed class ForgeTools
                                                  CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.work.cancel", [("jobId", jobId)],
+        return await LoggedAsync(run, workspaceRoot, "forge.work.cancel", [("jobId", jobId)],
             () =>
             {
                 ValidateJobId(jobId);
@@ -790,7 +813,7 @@ internal sealed class ForgeTools
                                                CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.work.fetch", [("jobId", jobId)],
+        return await LoggedAsync(run, workspaceRoot, "forge.work.fetch", [("jobId", jobId)],
             () =>
             {
                 ValidateJobId(jobId);
@@ -820,7 +843,7 @@ internal sealed class ForgeTools
                                             CancellationToken ct)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, "forge.status", [],
+        return await LoggedAsync(run, workspaceRoot, "forge.status", [],
             async () =>
             {
                 var state = run.ReadState();
@@ -856,6 +879,7 @@ internal sealed class ForgeTools
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     /// <param name="level">The optional diagnostic level.</param>
     /// <param name="detail">Optional longer diagnostic detail.</param>
+    /// <param name="phase">The Orchestrator phase this call begins, or null to declare none.</param>
     [McpServerTool(Name = "forge.log.append"), Description("Appends one entry to the run's diagnostic log at `.forge/<runId>/forge.log`. Use it to record what you selected, retried, or decided; never edit the file directly.")]
     public static async Task<string> AppendLog(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -863,10 +887,18 @@ internal sealed class ForgeTools
                                                [Description("What happened, in one line.")] string message,
                                                CancellationToken ct,
                                                [Description("Optional level: info, warn or error. Defaults to info.")] string? level = null,
-                                               [Description("Optional longer detail — a command line, an error, a decision's reasoning.")] string? detail = null)
+                                               [Description("Optional longer detail — a command line, an error, a decision's reasoning.")] string? detail = null,
+                                               [Description("Optional Orchestrator phase this call begins, exactly one of interview, planning, plan_revision, approval, build, code_review, wrap_up or done (case-sensitive). It closes the phase open until now and opens this one; done closes it and opens none.")] string? phase = null)
     {
+        using var scope = OrchestratorCall.Join(workspaceRoot, runId);
+        if (phase is not null) OrchestratorPhases.Validate(phase);
+
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
+
+        // Served whether or not a phase is declared, so a choice this call decides lands in the Run's own log (R6).
+        scope.Call.Serve(run);
         run.Log.Write(Level(level), "orchestrator", "note", ("message", message), ("detail", detail));
+        if (phase is not null) await scope.Call.Phases.DeclareAsync(run, scope.Call, phase, ct);
 
         return run.DiagnosticLogPath;
     }
@@ -997,14 +1029,19 @@ internal sealed class ForgeTools
     /// of every signature between here and a process launch.
     /// </remarks>
     /// <param name="run">The run whose diagnostic log receives the call.</param>
+    /// <param name="workspaceRoot">The call's <c>workspaceRoot</c>, which with the run id names the Run's call clock.</param>
     /// <param name="tool">The MCP tool name.</param>
     /// <param name="arguments">The tool arguments safe to record.</param>
     /// <param name="act">The operation that produces the serialized tool result.</param>
     private static async Task<string> LoggedAsync(RunDirectory run,
+                                                  string workspaceRoot,
                                                   string tool,
                                                   (string Name, string? Value)[] arguments,
                                                   Func<Task<string>> act)
     {
+        // A call that passed the filter is in the clock already; one that did not enters it here.
+        using var timing = OrchestratorCall.Join(workspaceRoot, run.RunId);
+        timing.Call.Serve(run);
         var log = run.Log;
         using var scope = RunLog.Serve(log);
 

@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.45.0
+# Plan Forge Flow 0.46.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -42,7 +42,7 @@ Critic and Scout cannot start a shell is reported as `degraded` and offered for 
 | `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call, and reports its latest stdout activity and recognised event |
 | `forge.work.cancel` | Requests cancellation of a background worker act; terminal jobs are unchanged and running jobs finish as failed |
 | `forge.work.fetch` | Fetches the historical terminal snapshot of a background worker act; status and new fix replay show current pending |
-| `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log |
+| `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log; its optional `phase` declares the Orchestrator phase that begins, closing the open one and recording it in `telemetry.json` |
 
 The draft the critic reads states its own intent: a `## Requirements` section above the tasks,
 numbered and cited by the tasks that serve them, and the checks that would catch a requirement being
@@ -254,7 +254,8 @@ instead.
     SCOUT.md              # every successful Scout answer of the run, appended as numbered sections
     flow_log.md           # the user-facing audit; never Worker input
     forge.log
-    telemetry.json        # per-Worker timing and provider-reported token counters
+    telemetry.json        # per-Worker and per-Orchestrator-phase timing and token counters
+    orchestrator-phase.json   # the open Orchestrator phase, so a later server process can close it
     baseline.patch
 ```
 
@@ -286,6 +287,100 @@ Every counter is the attempt's own, including on a resumed Builder or Scout sess
 its tokens, and Claude its tokens and cost, as a running total for the whole session, so a resumed
 attempt records what that total grew by and keeps the reported total in `sessionTotal`. Claude's
 tokens include what the Worker's subagents and context compaction used.
+
+### The Orchestrator's records
+
+The file holds two kinds of record: `vendor.usage`, one per Worker attempt, as above, and
+`orchestrator.usage`, one per Orchestrator phase. `forge.begin` opens the `interview` phase, and
+the Orchestrator declares each later one — `planning`, `plan_revision`, `approval`, `build`,
+`code_review`, `wrap_up` — through the `phase` argument of `forge.log.append` when it begins it;
+`done` closes the last. Each declaration closes the open phase and appends its record. The open
+phase is kept in `orchestrator-phase.json`, so a phase opened before a host restart is closed by the
+next server process. A phase never closed has no record, and a missed declaration only makes the
+records less accurate.
+
+An `orchestrator.usage` record carries, absent values omitted:
+
+- `at`, the phase's opening in local time, `phase`, and where the run stood: `round` for
+  `plan_revision` and `code_review`, `taskNumber` and `taskCount` for `build`;
+- `host`, the MCP client's name, `hostSessionId` and `usageSource` (`telemetry` or `transcript`);
+- `wallDuration`, the phase's length; `toolDuration`, the time inside Plan Forge's own tool calls
+  of the run, overlapping calls counted once; and `duration`, their difference: the Orchestrator's
+  own time, waits for the user included. All three are `hh:mm:ss`;
+- the token counters, normalized as for Workers: `inputTokens` with its `cacheReadTokens` and
+  `cacheCreationTokens` subsets, `outputTokens` with its `reasoningTokens` subset, and `costUsd`
+  where the telemetry export reports it;
+- `usageIncomplete: true` when the counters may be short — the Host session changed during the
+  phase, the collector began covering the session after the phase opened, a counter was malformed
+  — and `usageMissing` when there are no counters at all: `no_host_session`, `source_failed` or
+  `no_telemetry_events`.
+
+The Host session is what the counters are read for. Under Claude Code it is the session the server
+was started for (`CLAUDE_CODE_SESSION_ID`); under Codex it is the thread its tool calls name
+(`_meta.threadId`). Cursor gives the server neither, so a host with no Host session gets time only,
+with `usageMissing: "no_host_session"`.
+
+The tokens come from one of two Usage sources, chosen once per server process when its Host session
+first becomes known and written to `forge.log`:
+
+- **The telemetry export**, when the host's own profile sends OpenTelemetry logs as OTLP/JSON over
+  HTTP to a loopback endpoint ending in `/v1/logs`. Plan Forge starts a Telemetry collector on that
+  port — `planforge.exe` in a second mode, shared by every server pointed at it — which keeps only
+  the API-request events of the sessions servers registered with it, and only their usage fields:
+  never a prompt or an account. Under Claude Code it sees every model request of the session, the
+  Orchestrator's subagents included, and Claude's reported cost; under Codex it sees the
+  Orchestrator's own thread only, since a Codex subagent runs in a thread of its own that no server
+  registers. A response counts in the phase it began in, because both hosts stamp it when the
+  response ends, after they have already run the tool call that response made: a Claude request at
+  its event time less its `duration_ms`, a Codex response at the time of its thread's latest request
+  start before it (`codex.websocket_request`, or `codex.api_request` less its `duration_ms`), or at
+  its own time when there is none; of a request start the collector keeps only its time. Before reading a
+  phase it waits the host's export interval plus a second — Claude's `OTEL_LOGS_EXPORT_INTERVAL`,
+  5 s by default and at most 10 s; Codex 5 s.
+- **The transcript** otherwise: Claude Code's session `.jsonl` and its subagents' files, each
+  response counted once, in the phase of its earliest line, or the Codex thread's rollout file, as
+  the growth of its running total.
+  It carries no cost. Before reading a phase it waits 2 s for the host to finish writing.
+
+A source that fails leaves the counters absent with `usageMissing: "source_failed"` and a `warn`
+entry in `forge.log`; it never changes a tool's result.
+
+The collector is started outside the host's Windows job object where that job object permits it.
+Under a host whose job object refuses breakaway, such as Claude desktop, Codex desktop and
+`codex exec`, it runs inside that job object instead and ends with it, taking what it held — under a
+job object that ends its processes when its last handle closes, as `codex exec`'s does, that is when
+the host's session ends. The next phase opening of a server that chose the export starts it again,
+and that restart is logged. The choice entry and the restart entry say whether the collector runs
+inside the job object and whether that job object ends it on close.
+
+To turn the export on for Claude Code, add the `env` keys to `settings.json` in your Claude config
+directory (`CLAUDE_CONFIG_DIR`, else `%USERPROFILE%\.claude`), merging them into an `env` object
+already there. Pick any free loopback port; 47318 here:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_LOGS_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/json",
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://127.0.0.1:47318/v1/logs"
+  }
+}
+```
+
+For Codex, add the `[otel]` table to `config.toml` in Codex's home (`CODEX_HOME`, else
+`%USERPROFILE%\.codex`). The exporter must stay on one line, or be written as an
+`[otel.exporter.otlp-http]` table with the same two keys:
+
+```toml
+[otel]
+exporter = { otlp-http = { endpoint = "http://127.0.0.1:47318/v1/logs", protocol = "json" } }
+```
+
+Only these files are read. Settings given in the shell environment, in managed settings or through
+`--settings` are not seen, and the run then reads the transcript. Restart the host after the change:
+the host reads its profile when it starts, and each server process chooses its source only once. Workers export too when the profile is on; the collector
+drops their events.
 
 Approval is not the file's existence — it is `approved` in `state.json`, and a review round run
 after an approval takes that flag back.

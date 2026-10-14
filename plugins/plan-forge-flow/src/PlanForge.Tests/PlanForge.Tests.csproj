@@ -6,6 +6,10 @@
     <RootNamespace>PlanForge.Tests</RootNamespace>
     <PublishSingleFile>false</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
+    <!-- TestHelperProgram is the entry point: the collector tests run this assembly as a helper process. -->
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <!-- LibraryImport's generated marshalling: job objects for the collector starter's tests. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

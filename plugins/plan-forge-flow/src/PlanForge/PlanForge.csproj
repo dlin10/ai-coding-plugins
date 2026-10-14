@@ -6,6 +6,8 @@
     <!-- MCPEXP003: MCP Apps are experimental. Used to detect the canvas capability and to serve
          the plan document to hosts that negotiate it — see docs/adr/0008. -->
     <NoWarn>$(NoWarn);MCPEXP003</NoWarn>
+    <!-- LibraryImport's generated marshalling: CreateProcessW for the detached collector. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

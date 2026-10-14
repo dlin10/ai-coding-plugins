@@ -1,5 +1,32 @@
 # Plan Forge Flow releases
 
+## 0.46.0
+
+The Orchestrator's own time and tokens reach `telemetry.json`. Until now the file recorded Workers
+only, so a run's cost had a hole the size of its most expensive participant. See `docs/adr/0032`.
+
+- `forge.log.append` takes an optional `phase`: `interview`, `planning`, `plan_revision`,
+  `approval`, `build`, `code_review`, `wrap_up` or `done`. `forge.begin` opens `interview`; each
+  declaration closes the open phase and opens the next, and any other value is refused. The open
+  phase is kept in the run folder's `orchestrator-phase.json`, so a later server process closes it.
+- Each closed phase appends one `orchestrator.usage` record beside the `vendor.usage` records: the
+  round or task the run was at, the host and its session, the phase's wall time less the time inside
+  Plan Forge's own tool calls, and the tokens the Orchestrator used in it — or `usageMissing` with
+  the reason, and `usageIncomplete` when they may be short.
+- Tokens come from the host's OpenTelemetry export when the user's Claude Code `settings.json` or
+  Codex `config.toml` sends OTLP/JSON logs to a loopback `/v1/logs` endpoint, and from the session's
+  transcript otherwise; the export also carries Claude's cost. Cursor gives the server no session,
+  so its records carry time only. The README shows both configurations.
+- `planforge.exe --telemetry-collector --port <n>` is the Telemetry collector the export reaches: a
+  second mode of the same binary, started detached by the first server that needs it, keeping only
+  the usage fields of the sessions servers registered. Under Claude desktop, Codex desktop and
+  `codex exec`, whose job objects refuse breakaway, it runs inside the host's job object and the next
+  phase opening restarts it after the host ends it.
+- Nothing about this changes a tool's result: a failing source, collector or phase file leaves the
+  record short or absent and writes one `warn` entry to `forge.log`.
+- The forge skill declares each phase where it begins, again on every return to it, and `done`
+  wherever the run ends or stops.
+
 ## 0.45.0
 
 A worker whose commands never started no longer passes for one that read the repository. In run

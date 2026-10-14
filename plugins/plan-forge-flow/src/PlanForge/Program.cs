@@ -8,8 +8,13 @@ using ModelContextProtocol.Server;
 using PlanForge.Diagnostics;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
+using PlanForge.Orchestration;
 using PlanForge.Run;
 using PlanForge.Vendors;
+
+// The binary's second entry point, the Telemetry collector (docs/adr/0032), serves no MCP, so it
+// branches off before the host is built.
+if (TelemetryCollector.IsCommand(args)) return await TelemetryCollector.RunAsync(args);
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.ClearProviders();   // stdout carries the protocol
@@ -23,6 +28,12 @@ builder.Logging.AddProvider(new RunFileLoggerProvider());
 // releases, advertising a version that never shipped. Debug builds pass no version and report 1.0.0.
 var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
 
+// The one owner of Orchestrator phases and the call clock in this process. The server is the only
+// place that reads the real environment and profile for the Host session and its Usage source; see
+// docs/adr/0032.
+var phases = new OrchestratorPhases(TimeProvider.System, UsageSourceChoice.ForProcess(), Environment.GetEnvironmentVariable);
+OrchestratorPhases.Process = phases;
+
 builder.Services
     .AddSingleton<JobRegistry>()
     .AddSingleton<CatalogCache>()
@@ -35,6 +46,8 @@ builder.Services
     .AddMcpServer(o =>
     {
         o.ServerInfo = new Implementation { Name = "planforge", Version = version };
+        // Outermost, so every call counts in the Run's clock from its arrival, however it ends.
+        o.Filters.Request.CallToolFilters.Add(OrchestratorCall.Filter(phases));
         o.Filters.Request.CallToolFilters.Add(ToolErrors.Surfaced);
     })
     .WithStdioServerTransport()
@@ -48,3 +61,4 @@ builder.Services
     .WithMcpApps();
 
 await builder.Build().RunAsync();
+return 0;
