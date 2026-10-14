@@ -11,6 +11,11 @@ namespace PlanForge.Tests;
 /// </summary>
 public sealed class TelemetryFileKindsTests : IDisposable
 {
+    // A Vendor record's `at` is the machine's own clock, so a test that compares it with an
+    // Orchestrator record names a time on either side of any real one.
+    private const string EARLIEST = "2000-01-01 00:00:00";
+    private const string LATEST = "9999-12-31 23:59:59";
+
     private readonly string _root = Path.Combine(Path.GetTempPath(), "planforge-telemetry-kinds", Guid.NewGuid().ToString("n"));
 
     public TelemetryFileKindsTests() => Directory.CreateDirectory(_root);
@@ -25,7 +30,8 @@ public sealed class TelemetryFileKindsTests : IDisposable
     public void A_vendor_record_appended_after_an_orchestrator_record_leaves_both_intact()
     {
         var context = Context();
-        WorkerTelemetryFile.Append(context.Path, context.Log, Orchestrator("interview", inputTokens: 12));
+        WorkerTelemetryFile.Append(context.Path, context.Log,
+                                   Orchestrator("interview", inputTokens: 12, at: EARLIEST));
         Vendor(context, "session-1", 7);
 
         var records = Records(context);
@@ -46,7 +52,7 @@ public sealed class TelemetryFileKindsTests : IDisposable
         Vendor(context, "session-2", 9);
         var before = File.ReadAllText(context.Path);
 
-        WorkerTelemetryFile.Append(context.Path, context.Log, Orchestrator("planning"));
+        WorkerTelemetryFile.Append(context.Path, context.Log, Orchestrator("planning", at: LATEST));
 
         var after = File.ReadAllText(context.Path);
         var vendorText = before[..before.LastIndexOf(']')].TrimEnd();
@@ -156,6 +162,82 @@ public sealed class TelemetryFileKindsTests : IDisposable
         Assert.False(File.Exists(LogPath));
     }
 
+    [Fact]
+    public void A_record_opened_before_records_already_in_the_file_is_placed_before_them()
+    {
+        var context = Context();
+        File.WriteAllText(context.Path,
+                          """
+                          [{"at":"2026-10-14 20:56:55","event":"vendor.usage","act":"plan_review","round":1},
+                           {"at":"2026-10-14 21:24:41","event":"vendor.usage","act":"plan_review","round":2}]
+                          """);
+
+        WorkerTelemetryFile.Append(context.Path, context.Log,
+                                   Orchestrator("plan_revision", round: 1, at: "2026-10-14 21:12:19"));
+
+        Assert.Equal(["2026-10-14 20:56:55", "2026-10-14 21:12:19", "2026-10-14 21:24:41"], Opened(context));
+        Assert.Equal("plan_revision", Records(context)[1].GetProperty("phase").GetString());
+    }
+
+    [Fact]
+    public void A_vendor_record_is_placed_by_its_opening_too()
+    {
+        var context = Context();
+        WorkerTelemetryFile.Append(context.Path, context.Log, Orchestrator("planning", at: "2026-10-14 09:00:00"));
+        WorkerTelemetryFile.Append(context.Path, context.Log, Orchestrator("plan_revision", round: 1, at: "2026-10-14 11:00:00"));
+
+        IReadOnlyList<WorkerUsageRecord>? seen = null;
+        WorkerTelemetryFile.Append(context, "turn", 1, earlier =>
+        {
+            seen = earlier;
+            return VendorRecord("session", 1, at: "2026-10-14 10:00:00");
+        });
+
+        Assert.Empty(seen!);
+        Assert.Equal(["2026-10-14 09:00:00", "2026-10-14 10:00:00", "2026-10-14 11:00:00"], Opened(context));
+        Assert.Equal(["orchestrator.usage", "vendor.usage", "orchestrator.usage"],
+                     Records(context).Select(record => record.GetProperty("event").GetString()));
+    }
+
+    [Fact]
+    public void A_record_opened_at_the_same_second_goes_after_the_ones_already_there()
+    {
+        var context = Context();
+        WorkerTelemetryFile.Append(context.Path, context.Log, Orchestrator("planning", at: "2026-10-14 09:00:00"));
+        WorkerTelemetryFile.Append(context.Path, context.Log, Orchestrator("approval", at: "2026-10-14 09:00:00"));
+
+        Assert.Equal(["planning", "approval"],
+                     Records(context).Select(record => record.GetProperty("phase").GetString()));
+    }
+
+    [Theory]
+    [InlineData("""[{"at":"2026-10-14 21:00:00","event":"vendor.usage"},{"event":"future.kind"}]""")]
+    [InlineData("""[{"at":"2026-10-14 21:00:00","event":"vendor.usage"},{"at":5,"event":"future.kind"}]""")]
+    public void An_element_without_a_text_at_is_a_boundary_the_record_is_not_moved_past(string existing)
+    {
+        var context = Context();
+        File.WriteAllText(context.Path, existing);
+
+        WorkerTelemetryFile.Append(context.Path, context.Log, Orchestrator("planning", at: "2026-10-14 10:00:00"));
+
+        var records = Records(context);
+        Assert.Equal(3, records.Length);
+        Assert.Equal("future.kind", records[1].GetProperty("event").GetString());
+        Assert.Equal("planning", records[2].GetProperty("phase").GetString());
+    }
+
+    [Fact]
+    public void Records_already_out_of_order_stay_where_they_are()
+    {
+        var context = Context();
+        File.WriteAllText(context.Path,
+                          """[{"at":"2026-10-14 12:00:00","event":"a"},{"at":"2026-10-14 11:00:00","event":"b"}]""");
+
+        WorkerTelemetryFile.Append(context.Path, context.Log, Orchestrator("planning", at: "2026-10-14 11:30:00"));
+
+        Assert.Equal(["2026-10-14 12:00:00", "2026-10-14 11:00:00", "2026-10-14 11:30:00"], Opened(context));
+    }
+
     private static void Vendor(WorkerTelemetryContext context, string sessionId, long inputTokens)
     {
         var role = new RoleSpec(VendorRole.Builder, "role", Telemetry: context);
@@ -164,16 +246,19 @@ public sealed class TelemetryFileKindsTests : IDisposable
         attempt.Finish(new WorkerUsage(InputTokens: inputTokens), sessionId);
     }
 
-    private static WorkerUsageRecord VendorRecord(string sessionId, long inputTokens) =>
-        new("2026-10-14 09:00:00", "vendor.usage", "build", null, 1, 1, "codex", "builder", "model", "high",
+    private static WorkerUsageRecord VendorRecord(string sessionId,
+                                                  long inputTokens,
+                                                  string at = "2026-10-14 09:00:00") =>
+        new(at, "vendor.usage", "build", null, 1, 1, "codex", "builder", "model", "high",
             false, null, "resumed", sessionId, "turn", 1, "succeeded", "00:00:00", "00:00:00", null, 1,
             inputTokens, null, null, null, null, null, null, null);
 
     private static OrchestratorUsageRecord Orchestrator(string phase,
                                                         int? round = null,
                                                         string? hostSessionId = null,
-                                                        long? inputTokens = null) =>
-        new("2026-10-14 09:00:00", "orchestrator.usage", phase, round, null, null, "claude-code", hostSessionId,
+                                                        long? inputTokens = null,
+                                                        string at = "2026-10-14 09:00:00") =>
+        new(at, "orchestrator.usage", phase, round, null, null, "claude-code", hostSessionId,
             null, "00:00:00", "00:00:00", "00:00:00", inputTokens, null, null, null, null, null, false, null);
 
     private static JsonElement[] Records(WorkerTelemetryContext context)
@@ -181,6 +266,9 @@ public sealed class TelemetryFileKindsTests : IDisposable
         using var document = JsonDocument.Parse(File.ReadAllText(context.Path));
         return [.. document.RootElement.Clone().EnumerateArray()];
     }
+
+    private static IEnumerable<string?> Opened(WorkerTelemetryContext context) =>
+        Records(context).Select(record => record.GetProperty("at").GetString());
 
     private string LogPath => Path.Combine(_root, "forge.log");
 
