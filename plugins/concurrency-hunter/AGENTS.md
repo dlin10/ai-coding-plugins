@@ -97,6 +97,11 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   `bin/win-x64/concurrency-hunter.exe`, checks that it reports the manifests' version, and runs the
   full suite with `CONCURRENCYHUNTER_REQUIRE_E2E=1`. A host session with the plugin loaded holds that
   exe open, and the publish fails with access denied until its MCP server stops.
+- `build/package.ps1` and `build/check-test-baseline.ps1` isolate .NET bundle extraction in a unique
+  temporary directory inherited by their child processes, remove it in `finally`, and restore the
+  caller's `DOTNET_BUNDLE_EXTRACT_BASE_DIR`. Direct `dotnet test` calls do not use this isolation.
+- `build/test-bundle-extraction.ps1` checks both wrappers' child environment, cleanup on success and
+  failure, exit status, and preservation of the caller's extraction cache without running a build.
 - `build/bench-corelib.ps1 -Label <name>` appends one CoreLib engine measurement to
   `skills/hunt/evals/metrics/corelib-bench.json`; its log goes to `scratch/`.
 - `build/generate-corelib.ps1` generates every public member of the installed

@@ -29,6 +29,9 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: Check bundle extraction isolation
+        shell: pwsh
+        run: ./build/test-bundle-extraction.ps1
       - name: Publish and test
         shell: pwsh
         run: ./build/package.ps1
