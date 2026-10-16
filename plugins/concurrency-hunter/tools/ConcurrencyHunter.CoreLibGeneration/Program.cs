@@ -1,6 +1,6 @@
 // Generates every public member of the installed System.Private.CoreLib and compares generation snapshots; build/generate-corelib.ps1
 // drives it.
-//   generate --out <dir> [--major 8] [--parallelism N] [--members <file>] [--timeout-minutes 5]
+//   generate --out <dir> [--major 8] [--parallelism N] [--members <file>] [--timeout-minutes 5] [--commit <sha>]
 //   compare <before.tsv> <after.tsv> [--examples 5] [--members <file>]
 // generate resumes: a member already in <out>/results.tsv is not generated again.
 using System.Diagnostics;
@@ -23,7 +23,7 @@ return args switch
 
 static int Usage()
 {
-    Console.Error.WriteLine("usage: generate --out <dir> [--major 8] [--parallelism N] [--members <file>] [--timeout-minutes 5]");
+    Console.Error.WriteLine("usage: generate --out <dir> [--major 8] [--parallelism N] [--members <file>] [--timeout-minutes 5] [--commit <sha>]");
     Console.Error.WriteLine("       compare <before.tsv> <after.tsv> [--examples 5] [--members <file>]");
     return 2;
 }
@@ -110,7 +110,9 @@ static int Generate(IReadOnlyDictionary<string, string> options)
     var wanted = members.ToHashSet(StringComparer.Ordinal);
     var rows = File.ReadLines(resultsPath).Select(GenerationSnapshotRow.Parse).Where(row => wanted.Contains(row.Member))
                    .DistinctBy(row => row.Member, StringComparer.Ordinal).ToArray();
-    var snapshot = new GenerationSnapshot(implementation, rows);
+    // The commit the generator was built from goes into the header, so the owner can see what changed since and decide whether to
+    // generate again.
+    var snapshot = new GenerationSnapshot(implementation, rows, options.GetValueOrDefault("commit", ""));
     File.WriteAllLines(Path.Combine(outDir, "snapshot.tsv"), snapshot.Lines);
     foreach (var group in rows.GroupBy(row => row.Outcome, StringComparer.Ordinal).OrderByDescending(group => group.Count()))
         Log($"{group.Key,-26} {group.Count(),6}");

@@ -12,14 +12,23 @@ cause, and <out>/failures.txt the members whose generation threw.
 -Record copies the snapshot of a run over every member over the committed one, and refuses a run over -Members or one with a
 `timeout` or `threw` row, whose rows depend on the machine. Account for every moved line before re-recording.
 
-Exit code: 0 when the snapshots are the same or after -Record, 1 when they differ or the run failed.
+The snapshot's header names the commit the generator was built from (`# commit <sha>`). Whether to generate again is the owner's
+decision, and the commit is what it rests on. -Record therefore refuses, before building, a working tree with uncommitted changes to
+anything the generator is built from, and a resumed -Out that a run on another commit started.
+
+-Since generates nothing: it reads the recorded commit and lists the commits and files changed since, in three groups: the
+generator, the engine whose accesses the generator reads, and the build inputs (package versions, SDK). A change of the engine can
+move models as surely as a change of the generator; -Members over the members it touches shows whether it did.
+
+Exit code: 0 when the snapshots are the same, after -Record and after -Since, 1 when they differ or the run failed.
 #>
 [CmdletBinding()]
 param(
     [string]$Out = '',
     [int]$Parallelism = 0,
     [string]$Members = '',
-    [switch]$Record
+    [switch]$Record,
+    [switch]$Since
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +36,56 @@ $PSNativeCommandUseErrorActionPreference = $false
 $root = (Resolve-Path "$PSScriptRoot/..").Path
 $committed = Join-Path $root 'skills/hunt/evals/models/corelib-generation.tsv'
 $project = Join-Path $root 'tools/ConcurrencyHunter.CoreLibGeneration/ConcurrencyHunter.CoreLibGeneration.csproj'
+
+# What the generator is built from, by group, as git pathspecs relative to the plugin. The generator's own code sits inside Core.
+$generation = 'src/ConcurrencyHunter.Core/Providers/LibraryModels/Generation'
+$groups = [ordered]@{
+    'generator' = @($generation, 'tools/ConcurrencyHunter.CoreLibGeneration')
+    'engine'    = @('src/ConcurrencyHunter.Analysis', 'src/ConcurrencyHunter.Core', ":(exclude)$generation")
+    'build'     = @('../Directory.Build.props', '../Directory.Packages.props', 'global.json')
+}
+$inputs = @($groups.Values | ForEach-Object { $_ } | Where-Object { -not $_.StartsWith(':(exclude)') })
+
+if ($Since) {
+    if (-not (Test-Path -LiteralPath $committed)) {
+        Write-Output "No committed snapshot at $committed; record a run over every member with -Record."
+        exit 1
+    }
+    $line = Get-Content -LiteralPath $committed -TotalCount 5 | Where-Object { $_.StartsWith('# commit ') } | Select-Object -First 1
+    if (-not $line) {
+        Write-Output "$committed names no commit; it was recorded before the snapshot carried one."
+        exit 1
+    }
+    $base = $line.Substring('# commit '.Length)
+    git -C $root cat-file -e "$base^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "The recorded commit $base is not in this clone; fetch it first."
+        exit 1
+    }
+    Write-Output "Recorded on $base; HEAD is $(git -C $root rev-parse HEAD)."
+    foreach ($group in $groups.Keys) {
+        $log = @(git -C $root log --oneline "$base..HEAD" -- @($groups[$group]))
+        Write-Output ''
+        if ($log.Count -eq 0) {
+            Write-Output "${group}: unchanged"
+            continue
+        }
+        Write-Output "${group}: $($log.Count) commit(s)"
+        $log | ForEach-Object { Write-Output "  $_" }
+        git -C $root diff --stat "$base..HEAD" -- @($groups[$group]) | ForEach-Object { Write-Output "  $_" }
+    }
+    exit 0
+}
+
+$commit = (git -C $root rev-parse HEAD).Trim()
+if ($Record) {
+    $dirty = @(git -C $root status --porcelain -- @($inputs))
+    if ($dirty.Count -ne 0) {
+        Write-Output "Uncommitted changes to what the generator is built from; commit them, so the snapshot's commit names the code that ran:"
+        $dirty | ForEach-Object { Write-Output "  $_" }
+        exit 1
+    }
+}
 
 if ($Record -and $Members) {
     Write-Output 'A run over -Members is no snapshot to record.'
@@ -38,6 +97,21 @@ if (-not $Out) {
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 $Out = (Resolve-Path $Out).Path
 
+# A resumed run keeps the rows of the commit that started it; one record names one commit.
+$started = Join-Path $Out 'commit.txt'
+if (Test-Path -LiteralPath $started) {
+    $first = (Get-Content -LiteralPath $started -Raw).Trim()
+    if ($first -ne $commit) {
+        if ($Record) {
+            Write-Output "$Out was started on $first, and HEAD is $commit; record a run started on one commit."
+            exit 1
+        }
+        Write-Output "Warning: $Out was started on $first, and HEAD is $commit; its rows mix both."
+    }
+} else {
+    [IO.File]::WriteAllText($started, $commit)
+}
+
 $buildLog = Join-Path $Out 'build.log'
 dotnet build $project -c Release --disable-build-servers -nodeReuse:false *> $buildLog
 if ($LASTEXITCODE -ne 0) {
@@ -46,7 +120,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$generate = @('generate', '--out', $Out)
+$generate = @('generate', '--out', $Out, '--commit', $commit)
 $compare = @()
 if ($Parallelism -gt 0) {
     $generate += @('--parallelism', $Parallelism)

@@ -88,6 +88,20 @@ public sealed class CoreLibGenerationTests
     }
 
     [Fact]
+    public void A_snapshot_reads_back_its_commit_and_the_comparison_leaves_it_out()
+    {
+        var before = new GenerationSnapshot("CoreLib 8.0.0.0", [Row("a", "not-a-candidate")], "1111111");
+        var after = before with { Commit = "2222222" };
+
+        var read = GenerationSnapshot.Parse(before.Lines);
+
+        Assert.Equal(["# CoreLib 8.0.0.0", "# commit 1111111", Row("a", "not-a-candidate").Line], before.Lines);
+        Assert.Equal("CoreLib 8.0.0.0", read.Implementation);
+        Assert.Equal("1111111", read.Commit);
+        Assert.Empty(CoreLibGeneration.Compare(before, after, 5));
+    }
+
+    [Fact]
     public void A_member_twice_in_a_snapshot_is_refused()
     {
         var lines = new[] { "# CoreLib", Row("a", "model").Line, Row("a", "vocabulary").Line };

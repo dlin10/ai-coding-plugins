@@ -41,33 +41,46 @@ internal sealed record GenerationSnapshotRow(string Member, string Outcome, IRea
     }
 }
 
-/// <summary>A CoreLib generation snapshot: the implementation it read and one row per member.</summary>
+/// <summary>A CoreLib generation snapshot: the implementation it read, the commit it was generated on and one row per member.</summary>
 /// <param name="Implementation">The implementation assembly, as the header line names it.</param>
 /// <param name="Rows">The rows, sorted by member.</param>
-internal sealed record GenerationSnapshot(string Implementation, IReadOnlyList<GenerationSnapshotRow> Rows)
+/// <param name="Commit">The commit of the repository the generator was built from, or empty when the run did not name one. The
+/// comparison leaves it out: it says what to diff when deciding whether to generate again, not what the generator answered.</param>
+internal sealed record GenerationSnapshot(string Implementation, IReadOnlyList<GenerationSnapshotRow> Rows, string Commit = "")
 {
     private const string HEADER = "# ";
+    private const string COMMIT = HEADER + "commit ";
 
-    /// <summary>The snapshot's lines: the header, then the rows sorted by member.</summary>
-    public IEnumerable<string> Lines => Rows.OrderBy(row => row.Member, StringComparer.Ordinal).Select(row => row.Line).Prepend(HEADER + Implementation);
+    /// <summary>The snapshot's lines: the header, the commit when there is one, then the rows sorted by member.</summary>
+    public IEnumerable<string> Lines
+    {
+        get
+        {
+            string[] header = Commit.Length == 0 ? [HEADER + Implementation] : [HEADER + Implementation, COMMIT + Commit];
+            return header.Concat(Rows.OrderBy(row => row.Member, StringComparer.Ordinal).Select(row => row.Line));
+        }
+    }
 
     /// <summary>Reads a snapshot from its lines.</summary>
-    /// <param name="lines">The lines: a header line starting with <c>#</c>, then one row per line.</param>
+    /// <param name="lines">The lines: header lines starting with <c>#</c>, the commit's among them, then one row per line.</param>
     /// <exception cref="FormatException">A row does not have four parts, or a member stands twice.</exception>
     public static GenerationSnapshot Parse(IEnumerable<string> lines)
     {
         var implementation = "";
+        var commit = "";
         var rows = new List<GenerationSnapshotRow>();
         foreach (var line in lines.Where(line => line.Length != 0))
         {
-            if (line.StartsWith(HEADER, StringComparison.Ordinal))
+            if (line.StartsWith(COMMIT, StringComparison.Ordinal))
+                commit = line[COMMIT.Length..];
+            else if (line.StartsWith(HEADER, StringComparison.Ordinal))
                 implementation = line[HEADER.Length..];
             else
                 rows.Add(GenerationSnapshotRow.Parse(line));
         }
         if (rows.GroupBy(row => row.Member, StringComparer.Ordinal).FirstOrDefault(group => group.Count() > 1) is { } twice)
             throw new FormatException($"{twice.Key} stands twice in the snapshot");
-        return new GenerationSnapshot(implementation, rows.OrderBy(row => row.Member, StringComparer.Ordinal).ToArray());
+        return new GenerationSnapshot(implementation, rows.OrderBy(row => row.Member, StringComparer.Ordinal).ToArray(), commit);
     }
 }
 

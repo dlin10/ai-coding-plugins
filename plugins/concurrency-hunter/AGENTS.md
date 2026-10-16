@@ -108,7 +108,9 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   `System.Private.CoreLib` 8.0 with `tools/ConcurrencyHunter.CoreLibGeneration` (about two hours)
   and compares the snapshot with `skills/hunt/evals/models/corelib-generation.tsv`. `-Members <file>`
   generates and compares only the declaration ids listed; the same `-Out` resumes a run cut short.
-  `<out>/answers.jsonl` keeps every answer with the words of its causes.
+  `<out>/answers.jsonl` keeps every answer with the words of its causes. `-Since` generates nothing
+  and lists what changed in the generator, the engine and the build inputs since the commit the
+  snapshot was recorded on (ADR 0022).
 - `skills/hunt/evals/run-hosts.ps1 [-Hosts claude-code,codex,cursor]` runs the hunt skill headless on
   the demo and writes `skills/hunt/evals/<host>/run.json`. It first mirrors `bin` into the installed
   Codex plugin cache; robocopy exit 8 there means a `concurrency-hunter.exe` started from that cache
@@ -164,10 +166,13 @@ the unified diff. There is no record mode. To rewrite one:
    none.
 
 `skills/hunt/evals/models/corelib-generation.tsv` is the generator's snapshot of CoreLib: a header
-naming the implementation it read, then one line per public member with its outcome, the codes of
-its causes and its model entry. No test reads it; `build/generate-corelib.ps1` compares a run with
-it and `-Record` rewrites it, only from a run over every member with no `timeout` or `threw` line.
-A different implementation in the header explains differences the generator did not make.
+naming the implementation it read and the commit the generator was built from, then one line per
+public member with its outcome, the codes of its causes and its model entry. No test reads it;
+`build/generate-corelib.ps1` compares a run with it and `-Record` rewrites it, only from a run over
+every member with no `timeout` or `threw` line, on a working tree with nothing uncommitted in what the
+generator is built from. A different implementation in the header explains differences the generator
+did not make; the comparison leaves the commit out. Whether CoreLib is generated again is the owner's
+call (ADR 0022): run `-Since` and ask before regenerating.
 
 Account for every number that moved before re-recording. A green eShop snapshot proves that every
 eShop finding's identity is unchanged, but no eShop pair is skipped as `ordered`: a change to the
