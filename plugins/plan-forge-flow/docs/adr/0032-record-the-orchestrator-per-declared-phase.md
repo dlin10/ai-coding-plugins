@@ -37,6 +37,15 @@ in the run folder so that a later server process can close it — not in `state.
 background Job rewrites while a poll is running — and appends an `orchestrator.usage` record to the
 same `telemetry.json` when the phase closes. An unknown phase name is refused.
 
+**A record stands where it opened, not where it was written.** Every record's `at` is its opening:
+a Worker attempt's process start, an Orchestrator phase's declaration. A phase is written when the
+next is declared, so one that was open while a Critic round ran would otherwise follow that round's
+record although it opened first. The file therefore places each record after the last element
+whose `at` is no later, found by stepping back from the end; an element without a text `at` stops
+the walk, and elements already in the file are never moved (0.47.1). A phase's `wallDuration`
+still covers the Workers that ran inside it, which `toolDuration` takes out of `duration`; sum
+`duration`, not `wallDuration`, across the two kinds.
+
 **Orchestrator time is the phase's wall time less the union of Plan Forge's own tool calls in it.**
 While a call runs the server works and the Orchestrator waits. What remains includes waits for the
 user, which nothing here can separate.
@@ -108,7 +117,9 @@ handshake; the collector mode is a second one, started only by the server itself
 ## Consequences
 
 `telemetry.json` now holds two kinds of record, and a script that sums every record without looking
-at `event` changes its meaning. The Claude and Codex identities the transcript source relies on are
+at `event` changes its meaning. `at` is local time without an offset, so across a clock change an
+hour repeats and a record written in its second pass may be placed among those of the first; files
+written before 0.47.1 keep their append order. The Claude and Codex identities the transcript source relies on are
 observed behaviour, not documented contracts; a host upgrade that drops them leaves tokens absent
 with a reason rather than failing the run. A `/clear` or a resume that changes the Host session
 under a running server is unmeasured. A run abandoned before `done` has no record for its open

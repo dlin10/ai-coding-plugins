@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.47.0
+# Plan Forge Flow 0.47.1
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -293,10 +293,16 @@ The file holds two kinds of record: `vendor.usage`, one per Worker attempt, as a
 `orchestrator.usage`, one per Orchestrator phase. `forge.begin` opens the `interview` phase, and
 the Orchestrator declares each later one — `planning`, `plan_revision`, `approval`, `build`,
 `code_review`, `wrap_up` — through the `phase` argument of `forge.log.append` when it begins it;
-`done` closes the last. Each declaration closes the open phase and appends its record. The open
+`done` closes the last. Each declaration closes the open phase and writes its record. The open
 phase is kept in `orchestrator-phase.json`, so a phase opened before a host restart is closed by the
 next server process. A phase never closed has no record, and a missed declaration only makes the
 records less accurate.
+
+Records stand in the order they opened, whichever kind they are: a record goes after the last one
+whose `at` is no later, not at the end of the file. A phase closes when the next is declared, so it
+is written after the records of the Workers that began inside it — `plan_revision` after the Critic's
+next round — and is placed before them, where it opened. An element without a text `at` is a
+boundary the record is not moved past, and an element already in the file is never moved.
 
 An `orchestrator.usage` record carries, absent values omitted:
 
