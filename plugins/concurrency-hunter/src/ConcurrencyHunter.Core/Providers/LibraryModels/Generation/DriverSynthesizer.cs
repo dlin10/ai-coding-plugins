@@ -464,6 +464,14 @@ public static class DriverSynthesizer
         private static readonly string[] ProbeFields = ["Ref0", "Ref1"];
 
         private readonly IReadOnlySet<string> _openedFields = openedFields;
+
+        /// <summary>Whether the library's copy names the driver's assembly a friend, as every opened copy does
+        /// (<see cref="LibraryFieldOpening"/>): C# then requires an override of the library's <c>protected internal</c> member to keep
+        /// both modifiers, where an assembly that does not see its internals writes <c>protected</c>.</summary>
+        private readonly bool _friend = library.Assembly.GetAttributes().Any(attribute =>
+            attribute.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InternalsVisibleToAttribute" &&
+            attribute.ConstructorArguments is [{ Value: ASSEMBLY }]);
+
         private readonly Dictionary<ITypeParameterSymbol, string> _probeTypes = new(SymbolEqualityComparer.Default);
 
         /// <summary>The probe structs among the probe types, by name, each with the probe class of the objects it holds (R9).</summary>
@@ -1190,8 +1198,9 @@ public static class DriverSynthesizer
                 _seedTypeKeys.Add(type);
                 if (delegateType.DelegateInvokeMethod is not { } invoke)
                     return null;
-                _types.Add($"public unsafe sealed class {factory} {{ {MethodWitness("public ", invoke)} }}");
-                _methods.Add($"internal static {R(type)} {factory}() => new {factory}().Invoke;");
+                // Internal: the delegate's signature may name a type only the friend sees.
+                _types.Add($"internal unsafe sealed class {factory} {{ {MethodWitness("public ", invoke)} }}");
+                _methods.Add($"internal static {(HasPointer(invoke) ? "unsafe " : "")}{R(type)} {factory}() => new {factory}().Invoke;");
                 return $"{factory}()";
             }
             if (type is not INamedTypeSymbol named || named.TypeKind == TypeKind.Interface && !Implementable(named) ||
@@ -1555,7 +1564,9 @@ public static class DriverSynthesizer
                 lines.Add(after);
             var isAsync = lines.Any(line => line.Contains("await ", StringComparison.Ordinal));
             var text = new StringBuilder();
-            text.Append(isAsync ? $"    public static async global::System.Threading.Tasks.Task {name}()\n" : $"    public static void {name}()\n");
+            // An async action cannot be unsafe, and a member it awaits returns no pointer.
+            text.Append(isAsync ? $"    public static async global::System.Threading.Tasks.Task {name}()\n"
+                                : $"    public static {(HasPointer(member) ? "unsafe " : "")}void {name}()\n");
             text.Append("    {\n");
             foreach (var line in lines)
                 text.Append("        ").Append(line).Append('\n');
@@ -2221,7 +2232,7 @@ public static class DriverSynthesizer
         /// <param name="self">The type parameter whose probe struct declares the witness, or <c>null</c> for a class.</param>
         private string Override(ISymbol overridden, ITypeParameterSymbol? self)
         {
-            var access = overridden.DeclaredAccessibility == Accessibility.Public ? "public" : "protected";
+            var access = OverrideAccess(overridden);
             return overridden switch
             {
                 IMethodSymbol method => MethodWitness($"{access} override ", method, self: self),
@@ -2230,6 +2241,24 @@ public static class DriverSynthesizer
                 _ => ""
             };
         }
+
+        /// <summary>Whether naming the method needs an unsafe context: its return or a parameter is a pointer.</summary>
+        /// <param name="method">The method.</param>
+        private static bool HasPointer(IMethodSymbol method) => IsPointer(method.ReturnType) || method.Parameters.Any(parameter => IsPointer(parameter.Type));
+
+        /// <summary>Whether the type is a pointer or a function pointer.</summary>
+        /// <param name="type">The type.</param>
+        private static bool IsPointer(ITypeSymbol type) => type.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer;
+
+        /// <summary>The access modifier of an override of a member or accessor a subclass in the driver's assembly sees.</summary>
+        /// <param name="overridden">The member or accessor.</param>
+        private string OverrideAccess(ISymbol overridden) => overridden.DeclaredAccessibility switch
+        {
+            Accessibility.Public => "public",
+            Accessibility.ProtectedOrInternal when _friend && SymbolEqualityComparer.Default.Equals(overridden.ContainingAssembly, library.Assembly)
+                => "protected internal",
+            _ => "protected"
+        };
 
         /// <summary>An explicit witness implementation of an interface member.</summary>
         /// <param name="interface">The interface.</param>
@@ -2264,7 +2293,7 @@ public static class DriverSynthesizer
                 if (accessor is null || !explicitly && !Derivation.IsVisibleToSubclass(accessor.DeclaredAccessibility))
                     continue;
                 var accessorModifier = explicitly || accessor.DeclaredAccessibility == property.DeclaredAccessibility ? ""
-                    : accessor.DeclaredAccessibility == Accessibility.Public ? "public " : "protected ";
+                    : OverrideAccess(accessor) + " ";
                 var keyword = accessor.MethodKind == MethodKind.PropertyGet ? "get" : accessor.IsInitOnly ? "init" : "set";
                 var body = WitnessBody(accessor, accessor.ReturnType, accessor.ReturnsByRef, accessor.ReturnsByRefReadonly,
                                        index => accessor.MethodKind == MethodKind.PropertySet && index == accessor.Parameters.Length - 1 ? "value" : $"p{index}",

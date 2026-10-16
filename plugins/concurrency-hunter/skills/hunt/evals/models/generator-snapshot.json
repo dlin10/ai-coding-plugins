@@ -3187,7 +3187,7 @@
         "mvid": "6fad814b-5aad-436c-b0f4-2c996bdf3dc0"
       },
       "classified": null,
-      "reason": "driver-not-synthesized",
+      "reason": "overridable",
       "model": null,
       "modelReason": null,
       "reachedBodies": 0
@@ -3200,7 +3200,7 @@
         "mvid": "6fad814b-5aad-436c-b0f4-2c996bdf3dc0"
       },
       "classified": null,
-      "reason": "driver-not-synthesized",
+      "reason": "overridable",
       "model": null,
       "modelReason": null,
       "reachedBodies": 0
