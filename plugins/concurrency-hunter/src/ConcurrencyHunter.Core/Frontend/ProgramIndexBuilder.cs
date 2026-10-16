@@ -5,6 +5,7 @@ using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace ConcurrencyHunter.Frontend;
@@ -47,6 +48,7 @@ public static class ProgramIndexBuilder
         }
 
         var closedTypes = new Dictionary<string, ClosedGenericType>(StringComparer.Ordinal);
+        var symbols = types.ToDictionary(pair => pair.Key, pair => (ITypeSymbol)pair.Value, StringComparer.Ordinal);
         var variantTypes = new Dictionary<string, ProgramVariantType>(StringComparer.Ordinal);
         foreach (var type in sourceTypes)
         {
@@ -72,6 +74,7 @@ public static class ProgramIndexBuilder
         {
             foreach (var mentioned in Mentions.GetValue(compilation, key => Mentioned(key, cancellationToken)))
             {
+                symbols.TryAdd(SymbolNames.TypeKey(mentioned.Type), mentioned.Type);
                 if (mentioned.Immutable)
                     AddImmutable(mentioned.Type);
                 if (mentioned.Closed)
@@ -162,13 +165,103 @@ public static class ProgramIndexBuilder
                                                                    SymbolNames.TypeKey(@event.Type))));
         }
 
+        foreach (var (key, type) in types)
+            symbols.TryAdd(key, type);
+
         return new ProgramIndex(scopeId,
                                 types.Select(pair => Type(pair.Key, pair.Value, sourceCompilations.GetValueOrDefault(pair.Value), cancellationToken))
                                      .ToArray(),
                                 methods.Values.ToArray(), fields, closedTypes.Values.ToArray(), interfaceMappings,
                                 variantTypes.Values.ToArray())
         {
-            ImmutableTypeKeys = immutableTypeKeys
+            ImmutableTypeKeys = immutableTypeKeys,
+            ImplementsSelfInterface = SelfInterfaceConversions(compilations, symbols)
+        };
+    }
+
+    /// <summary>The compiler's answer to CoreLib's assignability test, including variance inside the comparable argument. The callback
+    /// is shared by reachability and heap selection through <see cref="DefaultComparers"/>. Constructed bindings not written in syntax
+    /// are reconstructed from their known definitions and arguments, arrays of any rank through <c>CreateArrayTypeSymbol</c>, and Nullable
+    /// and tuple definitions through the compilation's own type parts. Only a type key no symbol can be built for leaves the index's
+    /// structural fallback.</summary>
+    /// <param name="compilations">The scope's compilations.</param>
+    /// <param name="symbols">The definitions and constructed types the scope names.</param>
+    private static Func<string, string, bool?> SelfInterfaceConversions(IReadOnlyList<Compilation> compilations,
+                                                                        IReadOnlyDictionary<string, ITypeSymbol> symbols)
+    {
+        IEnumerable<ITypeSymbol> Parts(ITypeSymbol type)
+        {
+            yield return type;
+            if (type is IArrayTypeSymbol array)
+                foreach (var part in Parts(array.ElementType))
+                    yield return part;
+            if (type is INamedTypeSymbol named)
+            {
+                if (named.ContainingType is { } containing)
+                    foreach (var part in Parts(containing))
+                        yield return part;
+                foreach (var argument in named.TypeArguments.Where(argument => argument.TypeKind != TypeKind.TypeParameter))
+                    foreach (var part in Parts(argument))
+                        yield return part;
+            }
+        }
+        var available = symbols.Values.SelectMany(Parts).Distinct<ITypeSymbol>(SymbolEqualityComparer.Default).ToArray();
+        var definitions = available.OfType<INamedTypeSymbol>().Select(type => type.OriginalDefinition)
+                                 .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default)
+                                 .GroupBy(type => ProgramIndex.Shape(SymbolNames.TypeKey(type)).Shape, StringComparer.Ordinal)
+                                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var resolved = new ConcurrentDictionary<string, ITypeSymbol>(available.GroupBy(SymbolNames.TypeKey, StringComparer.Ordinal)
+                                                                            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal),
+                                                                     StringComparer.Ordinal);
+        var answers = new ConcurrentDictionary<(string Type, string Interface), bool>();
+        INamedTypeSymbol Construct(INamedTypeSymbol definition, ITypeSymbol[] arguments, ref int offset)
+        {
+            var type = definition.ContainingType is { } containing
+                ? Construct(containing, arguments, ref offset).GetTypeMembers(definition.Name, definition.Arity).Single()
+                : definition;
+            var own = arguments.Skip(offset).Take(definition.Arity).ToArray();
+            offset += definition.Arity;
+            return own.Length == 0 ? type : type.Construct(own);
+        }
+        ITypeSymbol? Resolve(string key)
+        {
+            if (resolved.TryGetValue(key, out var known))
+                return known;
+            if (key.EndsWith(']') && key.LastIndexOf('[') is var rankStart && rankStart > 0 &&
+                key.AsSpan(rankStart + 1, key.Length - rankStart - 2).IndexOfAnyExcept(',') < 0)
+            {
+                if (Resolve(key[..rankStart]) is not { } element || compilations.FirstOrDefault() is not { } compilation)
+                    return null;
+                var array = compilation.CreateArrayTypeSymbol(element, key.Length - rankStart - 1);
+                resolved.TryAdd(key, array);
+                return array;
+            }
+            var (shape, arguments) = ProgramIndex.Shape(key);
+            if (!definitions.TryGetValue(shape, out var definition) || arguments.Count == 0)
+                return null;
+            var bound = arguments.Select(Resolve).ToArray();
+            if (bound.Any(argument => argument is null) || bound.Length != TypeArguments(definition).Count())
+                return null;
+            var offset = 0;
+            var constructed = Construct(definition, bound!, ref offset);
+            resolved.TryAdd(key, constructed);
+            return constructed;
+        }
+        return (key, name) =>
+        {
+            if (answers.TryGetValue((key, name), out var answer))
+                return answer;
+            if (Resolve(key) is not { } type)
+                return null;
+            // The symbol's declaring compilation also sees its bases and interfaces, including source in another project.
+            var compilation = compilations.FirstOrDefault(candidate => candidate.Assembly.Name == type.ContainingAssembly?.Name)
+                              ?? compilations.FirstOrDefault();
+            if (compilation is not CSharpCompilation csharp || csharp.GetTypeByMetadataName(name) is not { } @interface)
+                return null;
+            var conversion = csharp.ClassifyConversion(type, @interface.Construct(type));
+            answer = conversion.IsImplicit && (conversion.IsIdentity || conversion.IsReference || conversion.IsBoxing);
+            answers.TryAdd((key, name), answer);
+            return answer;
         };
     }
 

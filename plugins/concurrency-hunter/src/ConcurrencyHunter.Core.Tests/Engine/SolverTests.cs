@@ -11,7 +11,7 @@ namespace ConcurrencyHunter.Core.Tests.Engine;
 /// The last filter of the pipeline and what it is allowed to do (TD-093, TD-094, ADR 0004): only an unsatisfiable answer takes a
 /// candidate away, numbers are decided in the width of their own types so a conversion and its overflow are decided as the
 /// language runs them, values of independent executions are independent unknowns, and a solver that cannot answer — because it
-/// never started, because it ran out of time, or because the run's budget is spent — leaves every candidate where it was.
+/// never started, because it ran out of its limit, or because the run's budget is spent — leaves every candidate where it was.
 /// </summary>
 public sealed class SolverTests
 {
@@ -92,20 +92,18 @@ public sealed class SolverTests
     }
 
     [Fact]
-    public void A_query_that_runs_out_of_time_leaves_the_candidate()
+    public void A_query_that_runs_out_of_its_limit_leaves_the_candidate()
     {
         var refined = Refined(Query(Cell(0), Cell(1)),
-                              new StubSolver(limit =>
-                              {
-                                  Thread.Sleep(limit + TimeSpan.FromMilliseconds(5));
-                                  return SolverOutcome.Unknown("the query ran out of time");
-                              }));
+                              new StubSolver(limit => SolverOutcome.Unknown("the query ran out of its limit", SolverStop.ResourceLimit, limit.Work)));
 
         Assert.Single(refined.Pairs.Pairs);
         Assert.Equal(1, refined.Counters.GetValueOrDefault(SolverCounters.UNKNOWN));
+        Assert.DoesNotContain(SolverCounters.SAFEGUARD_TIMEOUT, refined.Counters.Keys);
     }
 
-    /// <summary>The per-query limit is the server's own constant, and it is what the solver is given (TD-094).</summary>
+    /// <summary>The per-query limit is the server's own constant, in the solver's work units with a two-second safeguard, and it
+    /// is what the solver is given (TD-094, ADR 0021).</summary>
     [Fact]
     public void Every_query_is_given_the_per_query_limit()
     {
@@ -114,40 +112,33 @@ public sealed class SolverTests
         SolverRefinement.Refine(Analysis(Pair(Query(Cell(0), Cell(1))), Pair(Query(Cell(2), Cell(3)))), solver);
 
         Assert.Equal([SolverPolicy.QueryLimit, SolverPolicy.QueryLimit], solver.Limits);
-        Assert.Equal(TimeSpan.FromMilliseconds(150), SolverPolicy.QueryLimit);
+        Assert.Equal(new SolverLimit(SolverPolicy.QUERY_WORK, TimeSpan.FromSeconds(2)), SolverPolicy.QueryLimit);
+        Assert.True(SolverPolicy.QUERY_WORK > 0, "The per-query work limit must be calibrated.");
     }
 
     /// <summary>And the run's own budget stops the asking: the candidates past it stand, counted, rather than being asked
-    /// past the share of the deadline the solver is allowed.</summary>
+    /// past the budget the solver is allowed, which is 1,200 whole query limits.</summary>
     [Fact]
     public void The_run_stops_asking_once_its_budget_is_spent()
     {
-        var solver = new StubSolver(_ =>
-        {
-            Thread.Sleep(TimeSpan.FromMilliseconds(20));
-            return SolverOutcome.Unknown("stub");
-        });
+        var solver = new StubSolver(_ => SolverOutcome.Unknown("stub"));
         var pairs = Analysis(Pair(Query(Cell(0), Cell(1))), Pair(Query(Cell(2), Cell(3))), Pair(Query(Cell(4), Cell(5))));
 
-        var refined = SolverRefinement.Refine(pairs, solver, TimeSpan.FromMilliseconds(10), SolverPolicy.QueryLimit);
+        var refined = SolverRefinement.Refine(pairs, solver, SolverPolicy.QUERY_WORK, SolverPolicy.QueryLimit);
 
         Assert.Single(solver.Limits);
         Assert.Equal(2, refined.Counters.GetValueOrDefault(SolverCounters.BUDGET_EXHAUSTED));
         Assert.Equal(3, refined.Pairs.Pairs.Count);
-        Assert.Equal(TimeSpan.FromMinutes(3), SolverPolicy.Budget);
+        Assert.Equal(1_200UL * SolverPolicy.QUERY_WORK, SolverPolicy.Budget);
     }
 
-    /// <summary>The share of the deadline belongs to the run and not to each of its scopes: a run of many projects asks its
-    /// questions out of one budget, and a scope that starts after it is spent asks none (TD-094).</summary>
+    /// <summary>The budget belongs to the run and not to each of its scopes: a run of many projects asks its questions out of
+    /// one budget, and a scope that starts after it is spent asks none (TD-094).</summary>
     [Fact]
     public void The_budget_is_the_whole_run_and_not_each_scope()
     {
-        var solver = new StubSolver(_ =>
-        {
-            Thread.Sleep(TimeSpan.FromMilliseconds(20));
-            return SolverOutcome.Unknown("stub");
-        });
-        var budget = new SolverBudget(TimeSpan.FromMilliseconds(10));
+        var solver = new StubSolver(_ => SolverOutcome.Unknown("stub"));
+        var budget = new SolverBudget(SolverPolicy.QUERY_WORK);
 
         var first = SolverRefinement.Refine(Analysis(Pair(Query(Cell(0), Cell(1)))), solver, budget, SolverPolicy.QueryLimit);
         var second = SolverRefinement.Refine(Analysis(Pair(Query(Cell(2), Cell(3)))), solver, budget, SolverPolicy.QueryLimit);
@@ -157,17 +148,19 @@ public sealed class SolverTests
         Assert.Equal(1, second.Counters.GetValueOrDefault(SolverCounters.BUDGET_EXHAUSTED));
     }
 
-    /// <summary>A query never outlives the run: the last one asked is given what is left and no more.</summary>
+    /// <summary>No query is cut to a remainder: while the budget holds a whole limit the query is given all of it, and what is
+    /// left past the last whole limit asks nothing (ADR 0021).</summary>
     [Fact]
-    public void The_last_query_is_cut_to_what_is_left_of_the_run()
+    public void The_last_query_is_given_the_whole_limit_while_the_budget_lasts()
     {
         var solver = new StubSolver(_ => SolverOutcome.Unknown("stub"));
-        var remaining = TimeSpan.FromMilliseconds(20);
+        var budget = new SolverBudget(SolverPolicy.QUERY_WORK + SolverPolicy.QUERY_WORK / 2);
 
-        SolverRefinement.Refine(Analysis(Pair(Query(Cell(0), Cell(1)))), solver, new SolverBudget(remaining), SolverPolicy.QueryLimit);
+        var refined = SolverRefinement.Refine(Analysis(Pair(Query(Cell(0), Cell(1))), Pair(Query(Cell(2), Cell(3)))), solver, budget,
+                                              SolverPolicy.QueryLimit);
 
-        Assert.Equal([remaining], solver.Limits);
-        Assert.True(remaining < SolverPolicy.QueryLimit, "The fixture must leave less than one query's limit.");
+        Assert.Equal([SolverPolicy.QueryLimit], solver.Limits);
+        Assert.Equal(1, refined.Counters.GetValueOrDefault(SolverCounters.BUDGET_EXHAUSTED));
     }
 
     /// <summary>The budget is spent on the candidates that are worth the most, and the same way on every run (TD-094).</summary>
@@ -238,22 +231,22 @@ public sealed class SolverTests
             return SolverRefinement.Refine(Analysis(Pair(query)), solver);
     }
 
-    private static SolverQuery Query(ValueTerm first, ValueTerm second) => new([], first, second);
+    internal static SolverQuery Query(ValueTerm first, ValueTerm second) => new([], first, second);
 
     private static PathPredicate Predicate(string subject, PathRelation relation, string value) =>
         new($"canon|{subject}", relation, value, subject);
 
-    private static ValueTerm Cell(long index) => new ConstantTerm(index, 32);
+    internal static ValueTerm Cell(long index) => new ConstantTerm(index, 32);
 
-    private static ValueTerm Variable(string identity) => new VariableTerm(identity, 32);
+    internal static ValueTerm Variable(string identity) => new VariableTerm(identity, 32);
 
     /// <summary>A cast to a byte, which is where an index that wraps stops being the number it was.</summary>
     private static ValueTerm Narrowed(ValueTerm term) => new ConvertTerm(term, 8, false);
 
-    private static PairAnalysis Analysis(params AccessPair[] pairs) =>
+    internal static PairAnalysis Analysis(params AccessPair[] pairs) =>
         new(pairs, pairs.Length, 0, new SortedDictionary<string, int>(StringComparer.Ordinal));
 
-    private static AccessPair Pair(SolverQuery query, string resource = "R", bool wildcard = false) =>
+    internal static AccessPair Pair(SolverQuery query, string resource = "R", bool wildcard = false) =>
         new(Access(query.FirstSelector, resource, wildcard), Access(query.SecondSelector, resource, wildcard), PairProtection.UNPROTECTED)
         {
             Uncertainties = []
@@ -276,15 +269,16 @@ public sealed class SolverTests
     }
 
     /// <summary>A solver of the test's own: the seam that lets a run be measured as if the shipped one behaved otherwise.</summary>
-    private sealed class StubSolver(Func<TimeSpan, SolverOutcome> answer) : IConstraintSolver
+    /// <param name="answer">What the solver answers a query asked with a limit.</param>
+    private sealed class StubSolver(Func<SolverLimit, SolverOutcome> answer) : IConstraintSolver
     {
-        public List<TimeSpan> Limits { get; } = [];
+        public List<SolverLimit> Limits { get; } = [];
 
         public List<string> Resources { get; } = [];
 
         public bool IsAvailable => true;
 
-        public SolverOutcome Decide(SolverQuery query, TimeSpan limit)
+        public SolverOutcome Decide(SolverQuery query, SolverLimit limit)
         {
             Limits.Add(limit);
             Resources.Add(Name(query.FirstSelector));

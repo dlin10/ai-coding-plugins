@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
@@ -564,10 +565,10 @@ public static class IrLowering
                             break;
                         // A box is an object of the struct it holds, numbered among the boxes of that struct.
                         case IConversionOperation conversion when Microsoft.CodeAnalysis.CSharp.CSharpExtensions.GetConversion(conversion).IsBoxing &&
-                                                                  BodyLowerer.StructTypeKey(conversion.Operand.Type) is { } boxed:
+                                                                  BodyLowerer.HeldStructTypeKey(conversion.Operand.Type) is { } boxed:
                             Number(BOX + boxed);
                             break;
-                        case IMethodReferenceOperation { Instance: { } instance } when BodyLowerer.StructTypeKey(instance.Type) is { } bound:
+                        case IMethodReferenceOperation { Instance: { } instance } when BodyLowerer.HeldStructTypeKey(instance.Type) is { } bound:
                             Number(BOX + bound);
                             break;
                     }
@@ -674,9 +675,8 @@ public static class IrLowering
         private readonly Dictionary<SsaToken, int> _tokenValues = [];
         private readonly Dictionary<SsaVariable, int> _definitionPositions = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<(SyntaxTree Tree, int Start, int Length), int> _coalesceLoads = [];
-        private readonly Dictionary<CaptureId, IOperation> _capturedTargets = [];
-
-        /// <summary>The write of each captured assignable target, through the receiver and indices its capture evaluated.</summary>
+        /// <summary>The write of each captured assignable target, through the receiver and indices its capture evaluated
+        /// (<see cref="LowerCapture"/>).</summary>
         private readonly Dictionary<CaptureId, Action<int, IOperation, string>> _capturedLongForms = [];
 
         /// <summary>The captures of a conditional `ref`'s branches, which hold the reference the branch takes, and whether a branch names
@@ -720,6 +720,10 @@ public static class IrLowering
         private SsaPlan _ssaPlan = null!;
         private int _offset;
         private List<IrOperation> _operations = [];
+
+        /// <summary>The ordinary variables whose storage a ref binding names. Reads of them load that storage so the summary's
+        /// reference-write tracking sees writes made through either name.</summary>
+        private readonly HashSet<ISymbol> _referencedVariables = new(SymbolEqualityComparer.Default);
         private int _currentBlockOrdinal;
         private int? _receiverValue;
         private int? _patternInputValue;
@@ -954,7 +958,7 @@ public static class IrLowering
                     {
                         var value = variable.Symbol is { } symbol && current.TryGetValue(symbol, out var carried)
                             ? carried
-                            : AddValue(variable.Kind, variable.Type, variable.Name, 0, KeyOf(variable), IsReference(variable, incoming: true));
+                            : AddValue(variable.Kind, variable.Type, variable.Name, 0, KeyOf(variable), IsReference(variable));
                         _tokenValues.Add(variable.Incoming, value);
                     }
 
@@ -1046,8 +1050,23 @@ public static class IrLowering
             _graph = segment.Graph;
             _flowGraph = EffectiveFlowGraph.Create(_graph);
             _ssaPlan = SsaPlan.Create(_method, _graph, _flowGraph, segment.InitializerOwner);
+            _referencedVariables.Clear();
+            foreach (var operation in _graph.Blocks.SelectMany(block => block.Operations).SelectMany(operation => operation.DescendantsAndSelf()))
+            {
+                var target = operation switch
+                {
+                    IVariableDeclaratorOperation { Symbol.RefKind: not RefKind.None, Initializer: { } initializer } => initializer.Value,
+                    ISimpleAssignmentOperation { IsRef: true } assignment => assignment.Value,
+                    _ => null
+                };
+                var referent = target is not null ? UnwrapTarget(target)
+                    : operation.Syntax.Parent is RefExpressionSyntax ? operation : null;
+                if (referent is ILocalReferenceOperation { Local.RefKind: RefKind.None } local)
+                    _referencedVariables.Add(local.Local);
+                if (referent is IParameterReferenceOperation { Parameter.RefKind: RefKind.None } parameter)
+                    _referencedVariables.Add(parameter.Parameter);
+            }
             _offset = offset;
-            _capturedTargets.Clear();
             _capturedLongForms.Clear();
             _referenceCaptures.Clear();
             _nestedAssigned.Clear();
@@ -1078,7 +1097,7 @@ public static class IrLowering
 
             foreach (var variable in _ssaPlan.Variables.Where(variable => variable.IsIncoming))
             {
-                var value = AddValue(variable.Kind, variable.Type, variable.Name, 0, KeyOf(variable), IsReference(variable, incoming: true));
+                var value = AddValue(variable.Kind, variable.Type, variable.Name, 0, KeyOf(variable), IsReference(variable));
                 _tokenValues.Add(variable.Incoming, value);
                 if (variable.Symbol is IParameterSymbol parameter && SymbolEqualityComparer.Default.Equals(parameter.ContainingSymbol, _method))
                     _parameterValues[parameter] = value;
@@ -1460,7 +1479,7 @@ public static class IrLowering
                 IDefaultValueOperation { Type.IsValueType: true } value when Bcl.IsTask(value.Type, withValueTask: true) =>
                     Constant(value, null, "default-value-task"),
                 // A struct's default is a value of its own whose reference fields hold nothing; a Nullable's is null, which holds no struct.
-                IDefaultValueOperation value when StructTypeKey(value.Type) is not null =>
+                IDefaultValueOperation value when HeldStructTypeKey(value.Type) is not null =>
                     AddValue(IrValueKind.Constant, value.Type,
                              value.Type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } ? "null" : "default", 0),
                 // A lambda no delegate creation stands over is an expression tree's: data a library may compile and run, so what the
@@ -1473,11 +1492,18 @@ public static class IrLowering
 
         private int LowerAssignment(ISimpleAssignmentOperation assignment)
         {
-            var bindsReference = UnwrapTarget(assignment.Target) is ILocalReferenceOperation { Local.RefKind: not RefKind.None } &&
-                                 (assignment.Syntax is VariableDeclaratorSyntax or AssignmentExpressionSyntax { Right: RefExpressionSyntax });
-            var value = bindsReference ? LowerAddress(assignment.Value) : LowerValue(assignment.Value);
-            if (bindsReference && UnwrapTarget(assignment.Target) is ILocalReferenceOperation local)
-                return StoreSymbol(local.Local, value, assignment, "ref-assignment");
+            // A binding of a `ref` local or parameter is its new version (SsaPlan.DefinesVersion); every other write goes to LowerStore.
+            ISymbol? bound = SsaPlan.Binds(assignment)
+                ? UnwrapTarget(assignment.Target) switch
+                {
+                    ILocalReferenceOperation local => local.Local,
+                    IParameterReferenceOperation parameter => parameter.Parameter,
+                    _ => null
+                }
+                : null;
+            var value = bound is not null ? LowerAddress(assignment.Value) : LowerValue(assignment.Value);
+            if (bound is not null)
+                return StoreSymbol(bound, value, assignment, "ref-assignment");
             return LowerStore(assignment.Target, value, assignment, "assignment");
         }
 
@@ -1486,6 +1512,10 @@ public static class IrLowering
             target = UnwrapTarget(target);
             switch (target)
             {
+                // A Nullable's value is the Nullable itself (NullableFieldOf): the receiver of a struct's member is its storage, any other
+                // holder its own address.
+                case IFieldReferenceOperation field when NullableFieldOf(field) == NullableField.Value:
+                    return field.Instance is IInstanceReferenceOperation ? LowerValue(field.Instance) : LowerAddress(field.Instance!);
                 case IFieldReferenceOperation field:
                 {
                     var location = GetFieldLocation(field);
@@ -1520,6 +1550,10 @@ public static class IrLowering
                                                                   Provenance(property, "address")));
                     return address;
                 }
+                // The `Current` of a `foreach` enumeration that hands back a reference is the cell the iteration variable binds, which the
+                // summary names by the collection enumerated: the getter's result is that reference (R1).
+                case IPropertyReferenceOperation property when IsReferenceCurrent(property):
+                    return MarkReference(CallGetter(property, LowerValue(property.Instance!), LowerArguments(property.Arguments)));
                 // A property or an indexer whose getter hands back a reference is called on its receiver's storage, as a member of a struct
                 // kept there is (R1).
                 case IPropertyReferenceOperation property when HandsBackReference(property):
@@ -1537,14 +1571,13 @@ public static class IrLowering
                 case ILocalReferenceOperation local when local.Local.RefKind != RefKind.None:
                     return GetSymbolValue(local.Local);
                 case IParameterReferenceOperation parameter when parameter.Parameter.RefKind != RefKind.None:
-                    return _parameterValues[parameter.Parameter];
+                    return GetSymbolValue(parameter.Parameter);
                 // A struct a local or a by-value parameter holds is a copy, or a captured variable's cell: the storage a reference to the
                 // variable names (R1, R2).
-                case ILocalReferenceOperation local when IsPlaceOrCopy(local.Type):
-                    return ReferenceTo(ReadSymbol(local.Local, local), local);
-                case IParameterReferenceOperation parameter when IsPlaceOrCopy(parameter.Type) &&
-                                                                 !IsPrimaryConstructorParameter(parameter.Parameter):
-                    return ReferenceTo(LowerParameter(parameter), parameter);
+                case ILocalReferenceOperation local:
+                    return ReferenceTo(GetSymbolValue(local.Local), local);
+                case IParameterReferenceOperation parameter when !IsPrimaryConstructorParameter(parameter.Parameter):
+                    return ReferenceTo(GetSymbolValue(parameter.Parameter), parameter);
                 case IFlowCaptureReferenceOperation capture:
                     return LowerCaptureReference(capture);
                 default:
@@ -1552,7 +1585,7 @@ public static class IrLowering
             }
         }
 
-        /// <summary>A reference to the storage a struct value of a variable stands for: the variable's copy, or its capture cell.</summary>
+        /// <summary>A reference to a variable's storage: its local value, struct copy, or capture cell.</summary>
         /// <param name="value">The variable's value.</param>
         /// <param name="source">The operation naming the variable.</param>
         private int ReferenceTo(int value, IOperation source)
@@ -1569,12 +1602,12 @@ public static class IrLowering
             return result;
         }
 
-        private int LowerReferencedParameter(IParameterReferenceOperation parameter)
-        {
-            var loaded = LowerReferenceLoad(_parameterValues[parameter.Parameter], parameter);
-            var current = GetSymbolValue(parameter.Parameter);
-            return current == _parameterValues[parameter.Parameter] ? loaded : current;
-        }
+        /// <summary>A read of a ref, in or out parameter always loads the storage its binding names, even after a write through it.
+        /// The summary's WrittenBefore preserves assigned values alongside the storage's possible contents; forwarding an assigned
+        /// value here would erase the shared-storage read. LowerValue routes parameter reads here; compound reads use LowerReferenceLoad.</summary>
+        /// <param name="parameter">The parameter read.</param>
+        private int LowerReferencedParameter(IParameterReferenceOperation parameter) =>
+            LowerReferenceLoad(GetSymbolValue(parameter.Parameter), parameter);
 
         private int LowerCompoundAssignment(ICompoundAssignmentOperation compound)
         {
@@ -1842,9 +1875,12 @@ public static class IrLowering
                 : deconstruction.Syntax.AncestorsAndSelf().OfType<ForEachVariableStatementSyntax>().FirstOrDefault() is { } loop
                     ? model.GetDeconstructionInfo(loop)
                     : default;
+            // C# evaluates every target's receiver and indices, left to right, before the value; each store goes through them (R8).
+            var writes = new List<Action<int, IOperation, string>>();
+            CollectTargetPlaces(deconstruction.Target, writes);
             CollectDeconstruction(deconstruction.Target, deconstruction.Value, null, deconstruction, info, stores);
-            foreach (var (target, value) in stores)
-                LowerStore(target, value, deconstruction, "deconstruction");
+            for (var index = 0; index < stores.Count; index++)
+                writes[index](stores[index].Value, deconstruction, "deconstruction");
             if (stores.Count == 0)
                 return Unknown(deconstruction, "unsupported");
             return stores[^1].Value;
@@ -1872,10 +1908,13 @@ public static class IrLowering
                 return;
             }
 
-            var tupleValue = sourceValue ?? LowerValue(source!);
-            var outputs = info.Method is { } method && SourceDeconstruct(method)
-                ? CallDeconstruct(deconstruction, method, tupleValue)
-                : null;
+            // A Deconstruct of the source's own runs on the source as any member call does: on struct storage in place, or on the defensive
+            // copy a member that is not readonly takes of readonly storage (R3).
+            var deconstruct = info.Method is { } method && SourceDeconstruct(method) ? method : null;
+            var tupleValue = sourceValue ?? (deconstruct is { IsExtensionMethod: false, ReducedFrom: null }
+                ? LowerStructOperand(source!, StructUse.MemberCall, deconstruct.IsReadOnly)
+                : LowerValue(source!));
+            var outputs = deconstruct is not null ? CallDeconstruct(deconstruction, deconstruct, tupleValue) : null;
             for (var index = 0; index < targetTuple.Elements.Length; index++)
             {
                 var element = targetTuple.Elements[index];
@@ -1886,11 +1925,30 @@ public static class IrLowering
             }
         }
 
+        /// <summary>The write of every target leaf of a deconstruction, in the order <see cref="CollectDeconstruction"/> pairs the leaves
+        /// with their values, each with its receiver and indices evaluated now (<see cref="LowerCapturedStorePlace"/>).</summary>
+        /// <param name="target">The deconstruction's target, or a tuple nested in it.</param>
+        /// <param name="writes">The writes collected so far.</param>
+        private void CollectTargetPlaces(IOperation target, List<Action<int, IOperation, string>> writes)
+        {
+            if (TupleOf(target) is not { } tuple)
+            {
+                writes.Add(LowerCapturedStorePlace(target));
+                return;
+            }
+
+            foreach (var element in tuple.Elements)
+                CollectTargetPlaces(element, writes);
+        }
+
         private static DeconstructionInfo NestedInfo(DeconstructionInfo info, int index) =>
             index < info.Nested.Length ? info.Nested[index] : default;
 
+        /// <summary>Whether a deconstruction calls its <c>Deconstruct</c>: one declared in source, an interface's or an abstract one included,
+        /// which the call dispatches to the receiver's own (R3).</summary>
+        /// <param name="method">The <c>Deconstruct</c> method.</param>
         private static bool SourceDeconstruct(IMethodSymbol method) =>
-            method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern && !method.IsAbstract;
+            method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern;
 
         private int TupleElement(IOperation source, int tuple, ITypeSymbol? type, int index)
         {
@@ -1937,6 +1995,12 @@ public static class IrLowering
             target = UnwrapTarget(target);
             switch (target)
             {
+                // A write of a Nullable's field is part of its holder's whole write (NullableFieldOf): the constructor's is the creation's
+                // conversion, and a write of another holder's value writes that holder.
+                case IFieldReferenceOperation field when NullableFieldOf(field) != NullableField.None:
+                    return NullableFieldOf(field) == NullableField.Value && field.Instance is not IInstanceReferenceOperation
+                        ? LowerStore(field.Instance!, value, source, transformation)
+                        : value;
                 case IFieldReferenceOperation field:
                 {
                     var location = GetFieldLocation(field);
@@ -1999,8 +2063,6 @@ public static class IrLowering
                         NextOperation(), receiver, indices, value, Provenance(source, transformation)));
                     return value;
                 }
-                case IFlowCaptureReferenceOperation capture when _capturedTargets.TryGetValue(capture.Id, out var captured):
-                    return LowerStore(captured, value, source, transformation);
                 // A conditional `ref` is written through the reference its branch took (R1).
                 case IFlowCaptureReferenceOperation capture when _referenceCaptures.ContainsKey(capture.Id):
                     _operations.Add(new IrStoreReferenceOperation(NextOperation(), LowerCaptureReference(capture), value, null,
@@ -2010,8 +2072,10 @@ public static class IrLowering
                 case IFlowCaptureReferenceOperation capture when _capturedLongForms.TryGetValue(capture.Id, out var write):
                     write(value, source, transformation);
                     return value;
+                // A store to a `ref` local or parameter writes through the reference it is bound to, and is no version of it
+                // (SsaPlan.DefinesVersion).
                 case ILocalReferenceOperation local:
-                    if (local.Local.RefKind != RefKind.None)
+                    if (!SsaPlan.DefinesVersion(local.Local, binds: false))
                     {
                         _operations.Add(new IrStoreReferenceOperation(NextOperation(), GetSymbolValue(local.Local), value, null,
                                                                      Provenance(source, transformation)));
@@ -2019,11 +2083,10 @@ public static class IrLowering
                     }
                     return StoreSymbol(local.Local, value, source, transformation);
                 case IParameterReferenceOperation parameter:
-                    if (parameter.Parameter.RefKind != RefKind.None)
+                    if (!SsaPlan.DefinesVersion(parameter.Parameter, binds: false))
                     {
-                        _operations.Add(new IrStoreReferenceOperation(NextOperation(), _parameterValues[parameter.Parameter], value, null,
-                                                                     Provenance(source, transformation)));
-                        StoreSymbol(parameter.Parameter, value, source, transformation);
+                        var address = GetSymbolValue(parameter.Parameter);
+                        _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, value, null, Provenance(source, transformation)));
                         return value;
                     }
                     if (!IsPrimaryConstructorParameter(parameter.Parameter))
@@ -2123,6 +2186,15 @@ public static class IrLowering
 
         private int LowerFieldLoad(IFieldReferenceOperation field, string transformation)
         {
+            switch (NullableFieldOf(field))
+            {
+                case NullableField.Value:
+                    return NullableValue(LowerValue(field.Instance!), field);
+                case NullableField.HasValue:
+                    LowerValue(field.Instance!);
+                    return AddValue(IrValueKind.Constant, field.Type, "has-value", 0);
+            }
+
             var location = GetFieldLocation(field);
             var result = AddTemporary(field.Type);
             var operationId = NextOperation();
@@ -2148,7 +2220,7 @@ public static class IrLowering
         private int LowerPropertyLoad(IPropertyReferenceOperation property)
         {
             if (property.Instance is { } nullable && property.Property.GetMethod is { } getter && HandsBackNullableValue(getter))
-                return NullableValue(LowerValue(nullable), property);
+                return NullableValue(RunNullableBody(property, getter, LowerValue(nullable), LoweredArguments.None), property);
             // Reading through a ref-returning indexer reads one cell of the receiver's own storage (TD-043), and through a ref-returning
             // property the storage it hands back.
             if (HandsBackReference(property))
@@ -2296,26 +2368,50 @@ public static class IrLowering
                 reference.GetSyntax(_cancellationToken) is ParameterSyntax { Parent.Parent: TypeDeclarationSyntax });
         }
 
+        /// <summary>A value Roslyn takes before a branch: a reference a conditional <c>ref</c> takes, the target of an assignment, or a
+        /// value. An assignment's target is taken before its value, and C# evaluates its receiver and indices there, once (R8, TD-012):
+        /// the capture evaluates them now and keeps the write of the target through them, which every store into the captured target
+        /// goes through (<see cref="LowerStore"/>, <see cref="LowerCompoundAssignment"/>). The saved write is the owner of that order; it is
+        /// built by <see cref="LowerCapturedStorePlace"/> for a target an assignment only writes, by <see cref="LowerLongFormRead"/> or
+        /// <see cref="LowerCapturedStorageRead"/> for one a compound assignment or <c>??=</c> reads first, and by the unknowns of a
+        /// <c>dynamic</c> target; <see cref="LowerDeconstruction"/> builds one for each target of a deconstruction, which Roslyn does not
+        /// take. Only a local, a parameter or a target none of them models is lowered again where it is written.</summary>
+        /// <param name="capture">The capture.</param>
         private int LowerCapture(IFlowCaptureOperation capture)
         {
-            var captured = UnwrapTarget(capture.Value);
-            if (captured is IFieldReferenceOperation or IPropertyReferenceOperation ||
-                captured is IParameterReferenceOperation parameter && IsPrimaryConstructorParameter(parameter.Parameter))
-            {
-                _capturedTargets[capture.Id] = capture.Value;
-            }
             int sourceValue;
-            if (capture.Syntax.Parent is RefExpressionSyntax)
+            if (IsStructWithClone(capture))
+            {
+                // The clone a `with` makes of a struct is a copy of what its operand names, which the initializer then writes: a read of
+                // the whole storage, never the storage or a reference to it (R2, R3). A value of its own holds the copy of a variable's
+                // or a load's value, as a local copied into does.
+                if (capture.Syntax.Parent is RefExpressionSyntax)
+                {
+                    sourceValue = LowerReferenceLoad(LowerAddress(capture.Value), capture.Value);
+                }
+                else
+                {
+                    var operand = LowerValue(capture.Value);
+                    sourceValue = AddValue(IrValueKind.Local, capture.Value.Type, $"clone{_nextValueId}", 0);
+                    _operations.Add(new IrAssignOperation(NextOperation(), sourceValue, operand, Provenance(capture.Value, "with-clone")));
+                }
+            }
+            else if (capture.Syntax.Parent is RefExpressionSyntax)
             {
                 sourceValue = LowerAddress(capture.Value);
                 // A conditional `ref` hands back the reference its branch takes, read where it is used as a value (R1, R2).
                 _referenceCaptures[capture.Id] = _referenceCaptures.GetValueOrDefault(capture.Id) || StructOperandOf(capture.Value) is { IsReadOnly: true };
             }
-            else if (StructTypeKey(capture.Value.Type) is not null && IsWholeStoreTarget(capture.Value))
+            else if (DynamicTarget(capture.Value) is { } dynamicTarget)
             {
-                // A struct an assignment stores whole is written and never read: its target's receiver and indices are evaluated here,
-                // before the value, and the store after the value goes through them (R2).
-                _capturedTargets.Remove(capture.Id);
+                sourceValue = Unknown(capture.Value, "unsupported", dynamicTarget.Operands, dynamicTarget.Get);
+                _capturedLongForms[capture.Id] = (written, source, _) =>
+                    Unknown(source, "unsupported", [.. dynamicTarget.Operands, written], dynamicTarget.Set);
+            }
+            else if (IsWholeStoreTarget(capture.Value))
+            {
+                // A value an assignment stores is written and never read — a struct whole, an object, a number: its target's receiver
+                // and indices are evaluated here, before the value, and the store after the value goes through them (R2, R8).
                 _capturedLongForms[capture.Id] = LowerCapturedStorePlace(capture.Value);
                 sourceValue = Constant(capture.Value, null, "assignment-target");
             }
@@ -2326,12 +2422,6 @@ public static class IrLowering
                 (sourceValue, var write) = LowerLongFormRead(capture.Value);
                 _capturedLongForms[capture.Id] = write;
             }
-            else if (DynamicTarget(capture.Value) is { } dynamicTarget)
-            {
-                sourceValue = Unknown(capture.Value, "unsupported", dynamicTarget.Operands, dynamicTarget.Get);
-                _capturedLongForms[capture.Id] = (written, source, _) =>
-                    Unknown(source, "unsupported", [.. dynamicTarget.Operands, written], dynamicTarget.Set);
-            }
             else if (LowerCapturedStorageRead(capture.Value) is { } storage)
             {
                 (sourceValue, var write) = storage;
@@ -2340,8 +2430,10 @@ public static class IrLowering
             else
             {
                 sourceValue = LowerValue(capture.Value);
-                // A local or a parameter such a compound assignment takes is written as its long form writes it (R1).
-                if (UnwrapTarget(capture.Value) is ILocalReferenceOperation or IParameterReferenceOperation)
+                // A local or a parameter such a compound assignment takes is written as its long form writes it (R1); a field or a
+                // property no saved write models is lowered again where it is written.
+                if (UnwrapTarget(capture.Value) is ILocalReferenceOperation or IParameterReferenceOperation or IFieldReferenceOperation
+                                                    or IPropertyReferenceOperation)
                 {
                     var target = capture.Value;
                     _capturedLongForms[capture.Id] = (written, source, transformation) => LowerStore(target, written, source, transformation);
@@ -2355,6 +2447,31 @@ public static class IrLowering
                 NextOperation(), targetValue, sourceValue, Provenance(capture, "flow-capture")));
             Carry(sourceValue, targetValue);
             return targetValue;
+        }
+
+        /// <summary>Whether a capture is the clone a <c>with</c> makes of a struct, which its initializer writes: the capture of the
+        /// operand, or of each branch of a conditional that is the operand, <c>ref</c> or not, as Roslyn takes the conditional's result as
+        /// the clone.</summary>
+        /// <param name="capture">The capture.</param>
+        private static bool IsStructWithClone(IFlowCaptureOperation capture)
+        {
+            if (HeldStructTypeKey(capture.Value.Type) is null)
+                return false;
+            var syntax = capture.Syntax;
+            while (true)
+            {
+                switch (syntax.Parent)
+                {
+                    case RefExpressionSyntax or ParenthesizedExpressionSyntax:
+                    case ConditionalExpressionSyntax conditional when conditional.WhenTrue == syntax || conditional.WhenFalse == syntax:
+                        syntax = syntax.Parent;
+                        continue;
+                    case WithExpressionSyntax with:
+                        return with.Expression == syntax;
+                    default:
+                        return false;
+                }
+            }
         }
 
         /// <summary>A captured target that is storage — a field, an automatic property, a primary-constructor parameter, the cell a
@@ -2384,9 +2501,11 @@ public static class IrLowering
                         RememberCoalesceLoad(captured, loadId);
                     return (loaded, (written, source, transformation) =>
                     {
+                        // `??=` writes what it read and found null: the store names that load.
+                        var coalesceLoad = CoalesceLoad(captured);
                         var storeId = NextOperation();
-                        var storeProvenance = Provenance(source, transformation);
-                        _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, written, null, storeProvenance));
+                        var storeProvenance = Provenance(source, coalesceLoad is null ? transformation : "coalesce-assignment");
+                        _operations.Add(new IrStoreFieldOperation(storeId, location.Receiver, location.Field, written, coalesceLoad, storeProvenance));
                         if (captured is IFieldReferenceOperation)
                             MarkVolatile(location.Field, storeId, IrAtomicEffect.Write, storeProvenance);
                     });
@@ -2415,10 +2534,11 @@ public static class IrLowering
             }
         }
 
-        /// <summary>The write of a struct an assignment stores whole into a captured target (<see cref="IsWholeStoreTarget"/>): the target's
-        /// receiver and indices are evaluated now, where Roslyn takes the target, before the value is, as C# evaluates an assignment's target
-        /// first; the store of the value goes through them and reads nothing (R1, R2).</summary>
-        /// <param name="captured">The captured target.</param>
+        /// <summary>The write of a value an assignment stores into a target it does not read — a captured target
+        /// (<see cref="IsWholeStoreTarget"/>) or a target of a deconstruction: the target's receiver and indices are evaluated now, before
+        /// the value is, as C# evaluates an assignment's target first; the store of the value goes through them and reads nothing (R1, R2,
+        /// R8).</summary>
+        /// <param name="captured">The target.</param>
         private Action<int, IOperation, string> LowerCapturedStorePlace(IOperation captured)
         {
             var target = UnwrapTarget(captured);
@@ -2478,7 +2598,7 @@ public static class IrLowering
             !IsAutomatic(property.Property) && !IsElementIndexer(property);
 
         /// <summary>Whether a captured operation is the target of a simple assignment of a value, which writes it without reading it: the
-        /// target Roslyn takes before an object initializer runs.</summary>
+        /// target Roslyn takes before an object initializer runs or before a value that branches.</summary>
         /// <param name="captured">The captured operation.</param>
         private static bool IsWholeStoreTarget(IOperation captured)
         {
@@ -2511,7 +2631,7 @@ public static class IrLowering
             if (!asAddress && DelegateCombination.Of(invocation) is { } combination)
                 return LowerCombinationCall(invocation, combination);
             if (invocation.Instance is { } nullable && HandsBackNullableValue(method))
-                return NullableValue(LowerValue(nullable), invocation);
+                return NullableValue(RunNullableBody(invocation, method, LowerValue(nullable), LoweredArguments.None), invocation);
             if (PairConstructor(method) is { } constructor)
                 return LowerPairCreation(invocation, constructor);
 
@@ -2524,7 +2644,8 @@ public static class IrLowering
             var call = AsBaseCall((IrCallOperation)_operations[^1], invocation.IsVirtual);
             call = WithNullableDefault(AnnotateLibraryCall(call, method, invocation.Arguments, arguments), method) with
             {
-                CreatedArrayArguments = CreatedArrays(invocation.Arguments)
+                CreatedArrayArguments = CreatedArrays(invocation.Arguments),
+                DefaultComparer = DefaultComparerOf(invocation)
             };
             _operations[^1] = call;
 
@@ -2553,8 +2674,11 @@ public static class IrLowering
             {
                 if (arguments.At(argument.Parameter!.Ordinal) is not int address)
                     continue;
-                var written = HasOutput(argument) ? arguments.RefResults[argument.Parameter.Ordinal] : Unknown(argument, "opaque-out-value");
-                _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, written, null, Provenance(argument, "opaque-out")));
+                var written = HasOutput(argument) ? arguments.RefResults[argument.Parameter.Ordinal] : Unknown(argument.Value, "opaque-out-value");
+                _operations.Add(new IrStoreReferenceOperation(NextOperation(), address, written, null, Provenance(argument, "opaque-out"))
+                {
+                    IsUnseenOutput = true
+                });
             }
         }
 
@@ -2578,16 +2702,7 @@ public static class IrLowering
             int? result = resultType is null || resultType.SpecialType == SpecialType.System_Void
                 ? null
                 : AddTemporary(resultType);
-            var role = source.IsImplicit && source.Syntax.AncestorsAndSelf().OfType<CommonForEachStatementSyntax>().Any()
-                ? method.Name switch
-                {
-                    "GetEnumerator" => IrEnumerationRole.GetEnumerator,
-                    "MoveNext" => IrEnumerationRole.MoveNext,
-                    "get_Current" => IrEnumerationRole.Current,
-                    "Dispose" => IrEnumerationRole.Dispose,
-                    _ => IrEnumerationRole.None
-                }
-                : IrEnumerationRole.None;
+            var role = EnumerationRoleOf(source, method);
             var call = Call(result, method, receiver, arguments, Provenance(source, "call"));
             _operations.Add(call with
             {
@@ -2603,6 +2718,29 @@ public static class IrLowering
             });
             return result ?? Constant(source, null, "void");
         }
+
+        /// <summary>The part a call plays in the enumeration of a <c>foreach</c>: a member of the enumeration the statement makes
+        /// implicitly, by its name; none for any other call.</summary>
+        /// <param name="source">The operation the call is lowered from.</param>
+        /// <param name="method">The member called.</param>
+        private static IrEnumerationRole EnumerationRoleOf(IOperation source, IMethodSymbol method) =>
+            source.IsImplicit && source.Syntax.AncestorsAndSelf().OfType<CommonForEachStatementSyntax>().Any()
+                ? method.Name switch
+                {
+                    "GetEnumerator" => IrEnumerationRole.GetEnumerator,
+                    "MoveNext" => IrEnumerationRole.MoveNext,
+                    "get_Current" => IrEnumerationRole.Current,
+                    "Dispose" => IrEnumerationRole.Dispose,
+                    _ => IrEnumerationRole.None
+                }
+                : IrEnumerationRole.None;
+
+        /// <summary>Whether a property reference is the <c>Current</c> of a <c>foreach</c> enumeration that hands back a reference, as
+        /// a span's enumerator does: what a <c>ref</c> or <c>ref readonly</c> iteration variable binds is the cell itself (R1).</summary>
+        /// <param name="property">The property reference to test.</param>
+        private static bool IsReferenceCurrent(IPropertyReferenceOperation property) =>
+            property.Property is { RefKind: RefKind.Ref or RefKind.RefReadOnly, GetMethod: { } getter } &&
+            EnumerationRoleOf(property, getter) == IrEnumerationRole.Current;
 
         /// <summary>Whether the value of <paramref name="operation"/> is awaited in the same expression, directly or through a
         /// task's <c>ConfigureAwait</c>. A conditional, a <c>??</c> or a <c>switch</c> expression does not reach the await this way: the
@@ -3064,8 +3202,8 @@ public static class IrLowering
                                            : method.Name is "AsSpan" or "AsMemory" or "Slice")) ||
             IsFrameworkAwaiterMember(method);
 
-        /// <summary>Whether a call is of a member of a framework awaiter or configured awaitable that the lowering recognizes: one the
-        /// owner claims, of a type declared outside source, so a same-named user type is an ordinary call.</summary>
+        /// <summary>Whether a call is of a member of a framework awaiter or configured awaitable, or of a default-comparer factory, that the
+        /// lowering recognizes: one the owner claims, of a type declared outside source, so a same-named user type is an ordinary call.</summary>
         /// <param name="method">The method called.</param>
         private static bool IsFrameworkAwaiterMember(IMethodSymbol method) =>
             RecognizerOf(method) is not null && !method.ContainingType.OriginalDefinition.Locations.Any(location => location.IsInSource);
@@ -3300,7 +3438,8 @@ public static class IrLowering
             effect == IrAtomicEffect.CompareAndSwap ? arguments.At(Atomics.COMPARAND) : null;
 
         /// <summary>Lowers the arguments in evaluation order, then defines a new version of every local or parameter passed by
-        /// <c>ref</c> or <c>out</c>, keyed by the parameter it binds.</summary>
+        /// <c>ref</c> or <c>out</c>, keyed by the parameter it binds. A <c>ref</c> local or parameter passed on is written through
+        /// and gets no version (<see cref="SsaPlan.DefinesVersion"/>): what the call writes there is a result of its own.</summary>
         /// <param name="arguments">The arguments to lower in evaluation order.</param>
         private LoweredArguments LowerArguments(IEnumerable<IArgumentOperation> arguments)
         {
@@ -3320,10 +3459,10 @@ public static class IrLowering
                 var output = argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } parameter &&
                              _context.LibraryModels.Find((IMethodSymbol)parameter.ContainingSymbol) is { Kind: LibraryMatchKind.Known } model &&
                              model.Outputs.ContainsKey(parameter.Name);
-                if (argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out && RefArgumentSymbol(argument) is { } symbol &&
-                    !(output && symbol is ILocalSymbol { RefKind: not RefKind.None }))
-                    passedByReference.Add((ordinal, symbol));
-                else if (output)
+                var passed = argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out ? RefArgumentSymbol(argument) : null;
+                if (passed is not null && SsaPlan.DefinesVersion(passed, binds: false))
+                    passedByReference.Add((ordinal, passed));
+                else if (output || passed is not null)
                     refResults[ordinal] = AddTemporary(argument.Parameter!.Type);
             }
 
@@ -3356,10 +3495,12 @@ public static class IrLowering
             var target = UnwrapTarget(argument.Value);
             if (IsPlaceOrCopy(argument.Value.Type))
             {
-                // An `in` argument that names no storage passes a temporary copy of its value (R2); one that does passes that storage.
-                return StructOperandOf(argument.Value) is null or { Operand: StructOperand.Result or StructOperand.Creation }
-                    ? ReferenceTo(LowerValue(argument.Value), argument.Value)
-                    : LowerAddress(argument.Value);
+                // An argument that names storage passes that storage (R1); one that names a copy passes a reference to it — a local's or
+                // a parameter's own, or, for a value no variable holds, a temporary copy (R2).
+                return StructOperandOf(argument.Value) is { } named &&
+                       StructStorage.IsPlace(named.Operand, StructUse.ReferenceArgument, named.IsReadOnly, isReadOnlyMember: false)
+                    ? LowerAddress(argument.Value)
+                    : ReferenceTo(LowerValue(argument.Value), argument.Value);
             }
             if (target is ILocalReferenceOperation { Local.RefKind: RefKind.None } local)
             {
@@ -3392,7 +3533,13 @@ public static class IrLowering
         private int LowerObjectCreation(IObjectCreationOperation creation)
         {
             if (HoldsObjects(creation.Type) && creation.Arguments is [var held])
-                return NullableValue(LowerValue(held.Value), creation);
+            {
+                var value = LowerValue(held.Value);
+                var created = NullableValue(value, creation);
+                if (creation.Constructor is { } constructor)
+                    RunNullableBody(creation, constructor, created, LoweredArguments.None with { Values = [value], Ordinals = [0] });
+                return created;
+            }
             _context.RecordMetadataSupertypes(creation.Type);
             var result = AddTemporary(creation.Type);
             var provenance = Provenance(creation, "object-creation");
@@ -3455,6 +3602,75 @@ public static class IrLowering
                                                    Provenance(source, "nullable-value")));
             Carry(value, result);
             return result;
+        }
+
+        /// <summary>Calls the body of a member of <c>Nullable</c> the run has in source — CoreLib's own, in its generation — on what the
+        /// <c>Nullable</c> holds, where the member is called; the conversion <see cref="NullableValue"/> makes still gives the value. A
+        /// member from metadata has no body to run and stays the conversion alone. Its body reads and writes the <c>Nullable</c>'s fields
+        /// as <see cref="NullableFieldOf"/> says.</summary>
+        /// <param name="source">The operation calling the member.</param>
+        /// <param name="member">The constructor, <c>Value</c>'s getter or <c>GetValueOrDefault()</c>.</param>
+        /// <param name="receiver">What the <c>Nullable</c> holds, which the member runs on.</param>
+        /// <param name="arguments">The member's arguments.</param>
+        /// <returns>The receiver, which the caller converts.</returns>
+        private int RunNullableBody(IOperation source, IMethodSymbol member, int receiver, LoweredArguments arguments)
+        {
+            if (member.Locations.Any(location => location.IsInSource))
+                AddCall(source, member, receiver, arguments, null);
+            return receiver;
+        }
+
+        /// <summary>Which field of <c>System.Nullable&lt;T&gt;</c> a reference names, which only CoreLib's own bodies reference: a
+        /// <c>Nullable&lt;S&gt;</c> is the S it holds, as <see cref="NullableValue"/> makes it, so a read of <c>value</c> is the receiver
+        /// itself, a read of <c>hasValue</c> a <c>bool</c> that names no object, and a write of either is part of the holder's whole write
+        /// — the constructor's, which the creation's conversion makes (<see cref="LowerObjectCreation"/>) — and makes no field store. It is
+        /// the engine's representation of <c>Nullable</c>, no recognizer of a CoreLib type. The places that decide by it: a load
+        /// (<see cref="LowerFieldLoad"/>), an address (<see cref="LowerAddress"/>), a struct operand such as a member call's receiver
+        /// (<see cref="LowerStructOperand"/>), a write (<see cref="LowerStore"/>), and the field location a compound assignment, an
+        /// increment or a captured target writes through (<see cref="TryLocation"/>), which a <c>Nullable</c>'s field never is. The member
+        /// bodies run on what a <c>Nullable</c> holds: the lowering calls a member with a source body besides the conversion it makes
+        /// (<see cref="RunNullableBody"/>), the heap takes a region of S as a receiver of a member of <c>Nullable&lt;S&gt;</c>
+        /// (<c>TypeSafety.CannotBe</c>, which <c>DeadReceiver</c> and <c>EligibleReceivers</c> ask) and binds the instance's type arguments
+        /// from the type the call names (<c>WholeProgram</c>'s <c>ReceiverSubstitution</c>).</summary>
+        /// <param name="field">The field reference.</param>
+        private static NullableField NullableFieldOf(IFieldReferenceOperation field) =>
+            field.Field.ContainingType.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T || field.Instance is null
+                ? NullableField.None
+                : field.Field.Name switch
+                {
+                    "value" => NullableField.Value,
+                    "hasValue" => NullableField.HasValue,
+                    _ => NullableField.None
+                };
+
+        /// <summary>The comparer a call makes when it is a call of CoreLib's default-comparer factory with a <c>typeof</c> argument, of a
+        /// closed type or of a type parameter (<see cref="DefaultComparers"/>); null for any other call, a call of the factory with another
+        /// argument among them, which stays the call it is.</summary>
+        /// <param name="invocation">The call.</param>
+        private static IrDefaultComparer? DefaultComparerOf(IInvocationOperation invocation) =>
+            ComparerFactory(invocation.TargetMethod) is { } kind &&
+            invocation.Arguments is [{ Value: var argument }] && WithoutConversions(argument) is ITypeOfOperation typeOf &&
+            (typeOf.TypeOperand is ITypeParameterSymbol || !NamesTypeParameter(typeOf.TypeOperand))
+                ? new IrDefaultComparer(kind, SymbolNames.TypeKey(typeOf.TypeOperand))
+                : null;
+
+        /// <summary>Whether a type names a type parameter anywhere in it: its element, its type arguments or its containing types'.</summary>
+        /// <param name="type">The type.</param>
+        private static bool NamesTypeParameter(ITypeSymbol type) => type switch
+        {
+            ITypeParameterSymbol => true,
+            IArrayTypeSymbol array => NamesTypeParameter(array.ElementType),
+            IPointerTypeSymbol pointer => NamesTypeParameter(pointer.PointedAtType),
+            INamedTypeSymbol named => named.TypeArguments.Any(NamesTypeParameter) || named.ContainingType is { } containing && NamesTypeParameter(containing),
+            _ => false
+        };
+
+        /// <summary>A field of <c>System.Nullable&lt;T&gt;</c> (<see cref="NullableFieldOf"/>).</summary>
+        private enum NullableField
+        {
+            None,
+            Value,
+            HasValue
         }
 
         /// <summary>The constructor of the pair <c>KeyValuePair.Create(key, value)</c> makes, which makes the same pair; null for any other
@@ -3738,11 +3954,18 @@ public static class IrLowering
         }
 
         /// <summary>The value a pattern's designation takes: a struct a reference matched as is unboxed, a copy taken out of the box, which
-        /// reads the box's whole storage as the unboxing conversion does (R2); any other input as it is.</summary>
+        /// reads the box's whole storage as the unboxing conversion does (R2); a struct or a <c>Nullable</c> matched as a reference type —
+        /// an interface, <c>object</c> — is boxed, as the boxing conversion boxes it, a <c>Nullable</c> into a box only where it holds a
+        /// struct (R2, R3, R9); any other input as it is.</summary>
         /// <param name="pattern">The declaration or recursive pattern.</param>
         /// <param name="input">The pattern's input.</param>
         private int Designated(IPatternOperation pattern, int input)
         {
+            if (pattern.InputType is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable &&
+                pattern.NarrowedType is { IsReferenceType: true } && StructTypeKey(nullable) is { } boxed)
+                return Box(input, boxed, pattern, pattern.NarrowedType);
+            if (pattern.NarrowedType is { IsReferenceType: true } && HeldStructTypeKey(pattern.InputType) is { } held)
+                return Box(input, held, pattern, pattern.NarrowedType);
             if (pattern.InputType is not { IsValueType: false } || StructTypeKey(pattern.NarrowedType) is null)
                 return input;
             var result = AddTemporary(pattern.NarrowedType);
@@ -3903,11 +4126,13 @@ public static class IrLowering
 
         private int LowerConversion(IConversionOperation conversion)
         {
-            var operand = LowerValue(conversion.Operand);
+            var classified = Microsoft.CodeAnalysis.CSharp.CSharpExtensions.GetConversion(conversion);
+            var boxed = classified.IsBoxing ? HeldStructTypeKey(conversion.Operand.Type) : null;
+            // A box holds a copy of the struct it is made from (R2).
+            var operand = boxed is not null ? LowerStructOperand(conversion.Operand, StructUse.Copy) : LowerValue(conversion.Operand);
             if (SourceOperator(conversion.OperatorMethod) is { } method)
                 return OperatorCall(conversion, method, [operand]);
-            var classified = Microsoft.CodeAnalysis.CSharp.CSharpExtensions.GetConversion(conversion);
-            if (classified.IsBoxing && StructTypeKey(conversion.Operand.Type) is { } boxed)
+            if (boxed is not null)
                 return Box(operand, boxed, conversion, conversion.Type);
             var result = AddTemporary(conversion.Type);
             var kind = classified.IsIdentity ? IrConversionKind.Identity
@@ -3975,9 +4200,9 @@ public static class IrLowering
                         // A method group named through `base` binds the base member itself, as a base call runs it (R1).
                         isNonVirtual = !IsVirtualAccess(methodReference) && CallKind(target) == IrCallKind.Virtual;
                     }
-                    receiver = methodReference.Instance is null ? null : LowerValue(methodReference.Instance);
-                    // A method group of a struct's member is bound to a box holding a copy of the struct, as C# binds it.
-                    if (receiver is int bound && methodReference.Instance is { } instance && StructTypeKey(instance.Type) is { } boxed)
+                    // A method group of a struct's member is bound to a box holding a copy of the struct, as C# binds it (R2).
+                    receiver = methodReference.Instance is null ? null : LowerStructOperand(methodReference.Instance, StructUse.Copy);
+                    if (receiver is int bound && methodReference.Instance is { } instance && HeldStructTypeKey(instance.Type) is { } boxed)
                         receiver = Box(bound, boxed, methodReference, _context.Compilation.GetSpecialType(SpecialType.System_Object));
                     break;
             }
@@ -4130,7 +4355,7 @@ public static class IrLowering
             target = UnwrapTarget(target);
             switch (target)
             {
-                case IFieldReferenceOperation field:
+                case IFieldReferenceOperation field when NullableFieldOf(field) == NullableField.None:
                     location = GetFieldLocation(field);
                     return true;
                 case IEventReferenceOperation reference when FieldLikeEvents.Is(reference.Event):
@@ -4171,6 +4396,9 @@ public static class IrLowering
         /// <param name="isReadOnlyMember">Whether a member called on it is <c>readonly</c>.</param>
         private int LowerStructOperand(IOperation operand, StructUse use, bool isReadOnlyMember = false)
         {
+            // A Nullable's value is the Nullable itself (NullableFieldOf).
+            if (operand is IFieldReferenceOperation field && NullableFieldOf(field) == NullableField.Value)
+                return LowerStructOperand(field.Instance!, use, isReadOnlyMember);
             if (!IsPlaceOrCopy(operand.Type) || StructOperandOf(operand) is not { } named)
                 return LowerValue(operand);
             var isSelf = named.Operand is StructOperand.Capture or StructOperand.Receiver;
@@ -4184,8 +4412,7 @@ public static class IrLowering
         /// follows (<see cref="StructTypeKey"/>), or a type parameter constrained to <c>struct</c>, whose value is a struct wherever it
         /// stands (R1, R2).</summary>
         /// <param name="type">The operand's type.</param>
-        private static bool IsPlaceOrCopy(ITypeSymbol? type) =>
-            StructTypeKey(type) is not null || type is ITypeParameterSymbol { HasValueTypeConstraint: true };
+        private static bool IsPlaceOrCopy(ITypeSymbol? type) => HeldStructTypeKey(type) is not null;
 
         /// <summary>What names a struct operand, and whether the storage it names is read-only where it stands; null for an operand that
         /// is a value the lowering computes.</summary>
@@ -4198,7 +4425,7 @@ public static class IrLowering
                                                field.Instance is { } holder && StructTypeKey(holder.Type) is not null &&
                                                StructOperandOf(holder) is { IsReadOnly: true }),
             IArrayElementReferenceOperation => (StructOperand.Element, false),
-            IPropertyReferenceOperation property when IsElementIndexer(property) || HandsBackReference(property) =>
+            IPropertyReferenceOperation property when IsElementIndexer(property) || HandsBackReference(property) || IsReferenceCurrent(property) =>
                 (StructOperand.ReferenceReturn, property.Property.RefKind == RefKind.RefReadOnly),
             IInvocationOperation invocation when invocation.TargetMethod.ReturnsByRef || invocation.TargetMethod.ReturnsByRefReadonly =>
                 (StructOperand.ReferenceReturn, invocation.TargetMethod.ReturnsByRefReadonly),
@@ -4242,7 +4469,8 @@ public static class IrLowering
         /// that returns by <c>ref</c> or <c>ref readonly</c>, save one naming one cell of a span, which is that cell
         /// (<see cref="NamesOneCell"/>), and such a property the source declares (R1). A library property that is no indexer stays the call
         /// it is: a reference into storage a library member returns is not followed (questions 162, 164), and the <c>Current</c> of a span's
-        /// enumerator is what the recognizer of a <c>foreach</c> models.</summary>
+        /// enumerator is what the recognizer of a <c>foreach</c> models, the cell a <c>ref</c> iteration variable binds
+        /// (<see cref="IsReferenceCurrent"/>).</summary>
         /// <param name="property">The property reference to test.</param>
         private static bool HandsBackReference(IPropertyReferenceOperation property) =>
             property.Property.RefKind is RefKind.Ref or RefKind.RefReadOnly &&
@@ -4293,7 +4521,7 @@ public static class IrLowering
         {
             var value = GetSymbolValue(symbol);
             if (!_nestedAssigned.Contains(symbol))
-                return value;
+                return _referencedVariables.Contains(symbol) ? LowerReferenceLoad(ReferenceTo(value, read), read) : value;
             AccountOperations();
             if (!_reassigned.Contains(symbol) || !_ssaPlan.TryGetVariable(symbol, out var variable))
                 return value;
@@ -4401,16 +4629,14 @@ public static class IrLowering
                 _ssaVersions[variable] = version;
             }
 
-            return AddValue(variable.Kind, variable.Type, variable.Name, version, KeyOf(variable), IsReference(variable, incoming: false));
+            return AddValue(variable.Kind, variable.Type, variable.Name, version, KeyOf(variable), IsReference(variable));
         }
 
-        /// <summary>Whether a variable's value is a reference to storage: every version of a <c>ref</c> local, and the incoming value
-        /// of a <c>ref</c>, <c>in</c> or <c>out</c> parameter, whose later versions are what a store through it wrote.</summary>
+        /// <summary>Whether a variable's value is a reference to storage: every version of a <c>ref</c> local and of a <c>ref</c>,
+        /// <c>in</c> or <c>out</c> parameter, since only a binding defines one (<see cref="SsaPlan.DefinesVersion"/>).</summary>
         /// <param name="variable">The variable.</param>
-        /// <param name="incoming">Whether the value is the one the variable has on entry.</param>
-        private static bool IsReference(SsaVariable variable, bool incoming) =>
-            variable.Symbol is ILocalSymbol { RefKind: not RefKind.None } ||
-            incoming && variable.Symbol is IParameterSymbol { RefKind: not RefKind.None };
+        private static bool IsReference(SsaVariable variable) =>
+            variable.Symbol is ILocalSymbol { RefKind: not RefKind.None } or IParameterSymbol { RefKind: not RefKind.None };
 
         private int AddTemporary(ITypeSymbol? type) =>
             AddValue(IrValueKind.Temporary, type, $"t{_nextValueId}", 0);
@@ -4435,7 +4661,7 @@ public static class IrLowering
             _values.Add(new IrValue(id, kind, TypeName(type), name, version)
             {
                 SymbolKey = symbolKey,
-                StructTypeKey = StructTypeKey(type),
+                StructTypeKey = HeldStructTypeKey(type),
                 ObjectTypeKey = type is { IsValueType: false } and not (IPointerTypeSymbol or IFunctionPointerTypeSymbol) ? TypeKeyOf(type) : null,
                 IsReference = isReference
             });
@@ -4454,6 +4680,20 @@ public static class IrLowering
                    named.OriginalDefinition.DeclaringSyntaxReferences.Length != 0 && !Bcl.IsTask(named, withValueTask: true)
                 ? SymbolNames.TypeKey(named)
                 : null;
+        }
+
+        /// <summary>The type key a value of a type is held under as a struct (<see cref="StructStorage"/>): a struct the analysis follows
+        /// (<see cref="StructTypeKey"/>), or a type parameter constrained to <c>struct</c>, whose value is a struct wherever it stands and
+        /// whose own key the heap substitutes per instance (R1, R2). Every value, box and default of such a type takes it, so a value of the
+        /// type parameter, including a Nullable holding it, is copied, boxed and used in place as the struct it stands for is. The consumers
+        /// are <c>AddValue</c>, <c>IsPlaceOrCopy</c>, <c>LowerValue</c>, <c>IsStructWithClone</c>, conversion boxing (<c>LowerConversion</c>),
+        /// pattern boxing (<c>Designated</c>), method-group boxing (<c>LowerDelegateCreation</c>) and <c>SiteOrdinals</c>. Null for any other type.</summary>
+        /// <param name="type">The type of a value.</param>
+        internal static string? HeldStructTypeKey(ITypeSymbol? type)
+        {
+            if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T, TypeArguments: [var held] })
+                type = held;
+            return StructTypeKey(type) ?? (type is ITypeParameterSymbol { HasValueTypeConstraint: true } ? SymbolNames.TypeKey(type) : null);
         }
 
         private string? KeyOf(SsaVariable variable) => variable.Symbol is null ? null : SymbolKey(variable.Symbol);
@@ -4635,11 +4875,24 @@ public static class IrLowering
         : null;
 
     /// <summary>The recognizer of the lowering that claims a member of a type it does not claim whole, wherever the type is declared:
-    /// <c>recognized</c> for <c>GetResult()</c> of a task's awaiter and <c>GetAwaiter()</c> of a configured awaitable (R3); <c>null</c>
-    /// for every other member, <c>OnCompleted</c> and <c>UnsafeOnCompleted</c> among them, whose callbacks stay unresolved handoffs.
-    /// The lowering's recognition and the generator's claims both ask it.</summary>
+    /// <c>recognized</c> for <c>GetResult()</c> of a task's awaiter and <c>GetAwaiter()</c> of a configured awaitable (R3), and for the two
+    /// default-comparer factories of CoreLib's <c>ComparerHelpers</c> (<see cref="ComparerFactory"/>) and no other member of that type;
+    /// <c>null</c> for every other member, <c>OnCompleted</c> and <c>UnsafeOnCompleted</c> among them, whose callbacks stay unresolved
+    /// handoffs. The lowering's recognition and the generator's claims both ask it.</summary>
     /// <param name="method">The method, from metadata or from source.</param>
-    internal static string? RecognizerOf(IMethodSymbol method) => Awaiters.Claims(method) ? "recognized" : null;
+    internal static string? RecognizerOf(IMethodSymbol method) =>
+        Awaiters.Claims(method) || ComparerFactory(method) is not null ? "recognized" : null;
+
+    /// <summary>The comparer a method makes when it is one of CoreLib's two default-comparer factories, by its declaration: a member of
+    /// <c>System.Collections.Generic.ComparerHelpers</c> of the assembly <c>System.Private.CoreLib</c>, whether its body is source, as in
+    /// CoreLib's generation, or metadata (<see cref="DefaultComparers.FactoryOf"/>); null for any other method, a same-named one of
+    /// another assembly among them.</summary>
+    /// <param name="method">The method.</param>
+    internal static IrComparerKind? ComparerFactory(IMethodSymbol method) =>
+        method.ContainingType is { ContainingType: null } type && method.ContainingAssembly is { } assembly
+            ? DefaultComparers.FactoryOf(type.ContainingNamespace is { IsGlobalNamespace: false } ns ? $"{ns.ToDisplayString()}.{type.MetadataName}" : type.MetadataName,
+                                         assembly.Name, method.Name, method.Parameters.Length)
+            : null;
 
     /// <summary>The task, thread, parallel and timer members of the BCL the lowering recognizes, by the metadata name of the type
     /// declaring the called member. A type declared in source never matches, so a same-named user type is an ordinary call, and a

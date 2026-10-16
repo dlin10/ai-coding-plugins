@@ -281,7 +281,8 @@ public sealed record IrValue(int Id, IrValueKind Kind, string Type, string Name,
 
     /// <summary>The type key of the struct whose storage the value names or whose copy it holds, where the analysis follows that
     /// struct field by field (<see cref="StructStorage"/>): a struct of the program, or a <c>Nullable</c> of one, which keeps the
-    /// struct inline. Null for any other type.</summary>
+    /// struct inline, or a type parameter constrained to <c>struct</c>, whose key the heap substitutes per instance. Null for any other
+    /// type.</summary>
     public string? StructTypeKey { get; init; }
 
     /// <summary>The type key of the object the value refers to, where its type is a reference type or a type parameter not known to be a

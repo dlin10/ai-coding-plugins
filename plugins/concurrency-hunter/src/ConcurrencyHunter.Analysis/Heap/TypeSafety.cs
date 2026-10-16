@@ -67,6 +67,11 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
             declaring.EndsWith("]System.Object", StringComparison.Ordinal))
             return false;
 
+        // A Nullable is the value it holds, so a member of Nullable<S> runs on a region of S, or of the type a generic instance binds to
+        // its T; a T no instance binds yet may be any.
+        if (NullableValueType(declaringTypeKey) is { } held && (held == region.TypeKey || program.IsOpen(held)))
+            return false;
+
         var definition = DefinitionOf(region.TypeKey);
         // A span made from an array is the array: the conversion carries it, so a member of the span runs on the array's region.
         if (definition == "[]" && (declaring.EndsWith(":System.Span`1", StringComparison.Ordinal) ||
@@ -89,6 +94,16 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
         return !StandsForAnyType(region.TypeKey) ||
                program.Type(declaringTypeKey) is { IsSealed: true } or { IsValueType: true } or { IsVisibleOutside: false };
     }
+
+    /// <summary>The type a <c>Nullable&lt;S&gt;</c> holds, S, or null for any other type. The engine holds a <c>Nullable</c> as the value it
+    /// holds, so a region of S is the receiver of a member of <c>Nullable&lt;S&gt;</c> (<see cref="CannotBe"/>), and the instance such a
+    /// call binds takes its type arguments from the type the call names (<c>WholeProgram</c>'s <c>ReceiverSubstitution</c>).</summary>
+    /// <param name="typeKey">The type key.</param>
+    public static string? NullableValueType(string typeKey) =>
+        DefinitionOf(typeKey) is var definition && (definition == "System.Nullable`1" || definition.EndsWith(":System.Nullable`1", StringComparison.Ordinal)) &&
+        ProgramIndex.Shape(typeKey).Arguments is [var held]
+            ? held
+            : null;
 
     /// <summary>Whether an object of the type stands for an object of any type: the type belongs to an open-world assembly.</summary>
     /// <param name="typeKey">The object's type.</param>

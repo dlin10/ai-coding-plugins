@@ -77,6 +77,34 @@ public enum StructUse
 /// back, and a temporary an assignment, a phi or a conversion defines is the value it was given — and moved into storage at each
 /// transfer that puts one there — a field, element or reference store, a boxing. Each such transfer
 /// moves what every reference field of the struct holds, and nothing else: no transfer ever puts the copy itself into a slot.</para>
+/// <para>The places that decide, layer by layer. The lowering (<c>IrLowering</c>) classifies a Roslyn operand only through
+/// <c>StructOperandOf</c>, and a type is held as a struct where <c>HeldStructTypeKey</c> names it — a struct the analysis follows, or a
+/// type parameter constrained to <c>struct</c>, whose key the heap substitutes per instance. <c>LowerStructOperand</c> asks
+/// <see cref="IsPlace"/> for the receiver of a field, event or property access and of a member call, for the operand a boxing
+/// conversion boxes and for the receiver a method-group delegate boxes (<see cref="StructUse.Copy"/>); <c>LowerArgument</c> asks it for
+/// a <c>ref</c>, <c>out</c> or <c>in</c> argument; <c>LowerAddress</c> takes the address of what such an operand names, the
+/// <c>Current</c> a <c>ref foreach</c> binds included (<c>IsReferenceCurrent</c>, a <see cref="StructOperand.ReferenceReturn"/>);
+/// <c>LowerCapture</c> keeps whether a conditional reference is read-only as <c>StructOperandOf</c> says. A deconstruction whose
+/// <c>Deconstruct</c> is the source's own instance member (<c>CollectDeconstruction</c>, then <c>CallDeconstruct</c>) runs it as any member
+/// call does, its source lowered by <c>LowerStructOperand</c> with <see cref="StructUse.MemberCall"/>: on struct storage in place, on a
+/// defensive copy where C# makes one — readonly storage, an <c>in</c> or <c>ref readonly</c> reference, a <c>ReadOnlySpan</c> cell, the
+/// member not <c>readonly</c> —, and on a copy only where the source is one; an extension <c>Deconstruct</c>, a tuple and a pair take the
+/// source by value. A pattern's designation (<c>Designated</c>) boxes a struct or a <c>Nullable</c> it designates as a reference type, as
+/// the boxing conversion does, unboxes a copy out of a box, and takes any other input as it is.
+/// The summary (<c>MethodSummaryBuilder</c>) classifies an IR value only through its <c>StructOperandOf</c>: <c>IsStructCopy</c>
+/// asks <see cref="IsStorage"/> and <c>CopySources</c> fills each copy it makes; <c>WorksOnStorage</c> asks
+/// <see cref="GoesThroughStorage"/> for the use an operation makes, which <c>CellAccesses</c>, <c>ReceiverCopies</c> and
+/// <c>ReadsCell</c> follow; <c>EvaluatePoints</c> asks <see cref="IsStorage"/> before <c>StoragePlaces</c> names the storage a reference
+/// to a field, a cell or a <c>ref foreach</c>'s <c>Current</c> names; <c>References</c>, <c>IsCopyReference</c> and
+/// <c>StorageCell</c> follow those values. The heap (<c>WholeProgram.Eval</c>) makes a <c>StructPlaceValue</c> a storage region
+/// (<c>Storage</c>) and a <c>StructCopyValue</c> a copy region (<c>CopyRegion</c>), and <c>CopyStruct</c>, <c>HoldsStruct</c> and
+/// <c>HeapSolution.Located</c> decide by those regions alone. The accesses (<c>InterproceduralAccesses.Place</c>,
+/// <c>IsUnresolvedBase</c>) and the generator (<c>EffectReader.StoreTargets</c>, <c>ReferenceStructStores</c>,
+/// <c>ValueProvenance</c>) go through <c>Located</c>; <c>EffectReader.StructStorageStore</c> asks <see cref="IsStorage"/> of the
+/// operand a struct input is. Two places read a type because no summary stands behind what they decide: <c>DeepReadAccesses</c>
+/// follows the fields a field's declared struct type gives in storage unseen code reaches, and the callers of
+/// <c>IsUnresolvedBase</c> tell a value type's operand apart. What a driver may seed in place (<c>SeedableFields</c>,
+/// <c>DriverSynthesizer.SeedStruct</c>, <c>SeedMember</c>) is another question.</para>
 /// </summary>
 public static class StructStorage
 {
@@ -95,8 +123,13 @@ public static class StructStorage
     /// <param name="isReadOnlyStorage">Whether the storage the operand names is read-only where the operation stands.</param>
     /// <param name="isReadOnlyMember">Whether a member called on it is <c>readonly</c>; ignored for any other use.</param>
     public static bool IsPlace(StructOperand operand, StructUse use, bool isReadOnlyStorage, bool isReadOnlyMember) =>
-        use != StructUse.Copy && IsStorage(operand) &&
+        GoesThroughStorage(use) && IsStorage(operand) &&
         !(use == StructUse.MemberCall && isReadOnlyStorage && !isReadOnlyMember);
+
+    /// <summary>Whether a use goes through the storage of the struct it names rather than taking its value: a field access, a member
+    /// call and a reference argument do, a copy does not.</summary>
+    /// <param name="use">How an operation uses a struct operand.</param>
+    public static bool GoesThroughStorage(StructUse use) => use != StructUse.Copy;
 
     /// <summary>The whole storage of a box holding a struct of <paramref name="typeKey"/>: what an access names when it takes the struct
     /// out of the box as one, whose access path is empty (R3). It is no field of the struct; its name is empty.</summary>

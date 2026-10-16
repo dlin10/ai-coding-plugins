@@ -67,6 +67,12 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   Run A4 adds the cause `completion-value`: the answer changed because the run now follows the value a task completes
   with — through `await`, `.Result`, `FromResult`, `ValueTask` and `task(…)` results — where it lost it before; each
   such answer is named in `docs/runs/5d-A4.md`.
+  Run A10 adds six causes of the model of struct storage and of CoreLib (SPEC TD-041, TD-034b): a route to struct
+  storage through a construction that yields a reference to it (`ref` returns, conditional `ref`, `ref` locals and
+  parameters, span cells, `ref foreach`, captures); a copy of a struct (a by-value value, a `Nullable`'s or a pair's
+  content, `with`, a box); storage possibly filled by a write the analysis does not see; the default comparer a heap
+  instance makes; a value type of the driver constructed where it is created; and a `Nullable` that is its value in
+  CoreLib's own bodies. Each such answer is named in `docs/runs/5d-A10.md`.
 - **Verdict report.** When `CH_MODEL_EVALS_REPORT` names a folder, `ModelEvalTests`, `EffectsEvalTests`,
   `LinqOracleTests` and `AccessorEvalTests` write `members.json`, `effects.json`, `linq.json` and `accessors.json`
   there: one line per unit the set's recorded count counts, each with its declaration id and its verdict — `exact`,

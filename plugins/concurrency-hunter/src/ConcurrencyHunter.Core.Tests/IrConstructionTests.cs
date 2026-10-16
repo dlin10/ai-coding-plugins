@@ -127,10 +127,12 @@ public sealed class IrConstructionTests
         var parameter = Assert.Single(body.Parameters, candidate => candidate.Name == "value");
         Assert.Equal((IrRefKind.Ref, 0, 0), (parameter.RefKind, parameter.Ordinal, Value(body, parameter.Value).SsaVersion));
         Assert.Equal(IrRefKind.None, body.Parameters[1].RefKind);
-        var returnBlock = Assert.Single(body.Blocks, block => block.Operations.OfType<IrReturnOperation>().Any());
-        var final = ValueAtEnd(body, returnBlock, Value(body, parameter.Value).SymbolKey!);
-        var phi = Assert.IsType<IrPhiOperation>(Definition(body, final));
-        Assert.Equal([1, 2], phi.Inputs.Select(input => Value(body, input.Value).SsaVersion).Order());
+        // A write through the parameter is no version of it (question 169): each branch stores through the reference the caller passed,
+        // and the summary reads what reaches the return from those stores.
+        var stores = Operations<IrStoreReferenceOperation>(body);
+        Assert.All(stores, store => Assert.Equal(parameter.Value, store.AddressValue));
+        Assert.Equal(["1", "2"], stores.Select(store => Value(body, store.Value).Name).Order(StringComparer.Ordinal));
+        Assert.Single(body.Values, value => value.SymbolKey == Value(body, parameter.Value).SymbolKey);
     }
 
     [Fact]
@@ -392,17 +394,4 @@ public sealed class IrConstructionTests
 
     private static IrOperation? Definition(IrBody body, int value) =>
         body.Blocks.SelectMany(block => block.Operations).FirstOrDefault(operation => operation.DefinedValues.Contains(value));
-
-    /// <summary>The version of a variable when <paramref name="block"/> ends: its last definition there, else its phi there, else
-    /// its version when a flow predecessor ends, else its incoming value.</summary>
-    private static int ValueAtEnd(IrBody body, IrBlock block, string symbolKey)
-    {
-        var defined = block.Operations.SelectMany(operation => operation.DefinedValues)
-                           .LastOrDefault(value => Value(body, value).SymbolKey == symbolKey, -1);
-        if (defined >= 0)
-            return defined;
-        if (block.FlowPredecessors.Count == 0)
-            return body.Values.First(value => value.SymbolKey == symbolKey && value.SsaVersion == 0).Id;
-        return ValueAtEnd(body, body.Blocks[block.FlowPredecessors[0].BlockOrdinal], symbolKey);
-    }
 }

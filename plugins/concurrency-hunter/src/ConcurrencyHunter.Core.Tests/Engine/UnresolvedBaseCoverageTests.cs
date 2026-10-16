@@ -1,4 +1,5 @@
 using ConcurrencyHunter.Accesses;
+using ConcurrencyHunter.Ir;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
 
@@ -102,11 +103,38 @@ public sealed class UnresolvedBaseCoverageTests
         Assert.Equal(0, Count($"{SERIALIZE}(text); {WRITE_LINE}(text);", "") - Empty.Value);
     }
 
+    [Fact]
+    public void Created_elements_keep_each_elements_value_and_type()
+    {
+        // The array holds objects; each element keeps the value it is before that conversion and the static type of that value (TD-124).
+        var run = Solve(Source("Holder.Keep(unseen, text, new Item());", ""));
+        var (id, body) = Assert.Single(run.Program.Result.Bodies, pair => pair.Key.Contains(":M:CaseController.Post(", StringComparison.Ordinal));
+        var call = Assert.Single(run.Summaries.Get(id)!.Calls, call => call.Target.Contains("Holder.Keep", StringComparison.Ordinal));
+        var elements = Assert.Single(call.Arguments).CreatedElements!;
+        var values = body.Values.ToDictionary(value => value.Id);
+        var stores = body.Blocks.SelectMany(block => block.Operations).OfType<IrStoreElementOperation>().ToArray();
+        var created = body.Blocks.SelectMany(block => block.Operations).OfType<IrAllocateOperation>()
+                          .Single(allocation => allocation.AllocatedTypeKey == "Fixture:Item").ResultValue;
+
+        Assert.Equal([body.Parameters[0].Value, body.Parameters[3].Value, created], elements.Select(element => element.ValueId));
+        Assert.Equal(["Fixture:Box", values[body.Parameters[3].Value].ObjectTypeKey, "Fixture:Item"], elements.Select(element => element.ObjectTypeKey));
+        Assert.Equal(3, stores.Length);
+        Assert.All(stores.Zip(elements), pair => Assert.NotEqual(values[pair.First.Value].ObjectTypeKey, pair.Second.ObjectTypeKey));
+        Assert.All(elements, element => Assert.False(element.IsReference));
+        Assert.All(elements, element => Assert.NotEmpty(element.Values));
+    }
+
     /// <summary>The unresolved-base counter of a run of one action whose body is <paramref name="body"/>, with
     /// <paramref name="constructor"/> as the body of <c>Built</c>'s constructor.</summary>
     /// <param name="body">The action's body.</param>
     /// <param name="constructor">The body of <c>Built</c>'s constructor.</param>
-    private static int Count(string body, string constructor) => Analyze($$"""
+    private static int Count(string body, string constructor) => Analyze(Source(body, constructor)).Counter(CoverageCounters.UNRESOLVED_BASE);
+
+    /// <summary>The case's source: one action whose body is <paramref name="body"/>, with <paramref name="constructor"/> as the body of
+    /// <c>Built</c>'s constructor.</summary>
+    /// <param name="body">The action's body.</param>
+    /// <param name="constructor">The body of <c>Built</c>'s constructor.</param>
+    private static string Source(string body, string constructor) => $$"""
         public sealed class Item { public int N; }
 
         public struct S
@@ -136,6 +164,7 @@ public sealed class UnresolvedBaseCoverageTests
             public static void Touch(in S s) { s.Bump(); }
             public static void Set(ref int target) { target = 1; }
             public static void Fill(int[] array) { array[0] = 1; }
+            public static void Keep(params object[] items) { }
         }
 
         public class CaseController : ControllerBase
@@ -145,5 +174,5 @@ public sealed class UnresolvedBaseCoverageTests
                 {{body}}
             }
         }
-        """ + Startup()).Counter(CoverageCounters.UNRESOLVED_BASE);
+        """ + Startup();
 }

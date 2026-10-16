@@ -57,6 +57,9 @@ internal sealed record StoragePath(IReadOnlyList<IrFieldRef> Fields, int Cell, s
 public sealed record AccessResource(string Assembly, string Scope, string Region, IReadOnlyList<string> AccessPath, MemberKey Member,
                                     string? RegionId = null, bool IsWildcard = false)
 {
+    /// <summary>The readonly root fields excluded from an ordinary unknown effect's wildcard write. Reads and reflection exclude none.</summary>
+    internal IReadOnlySet<string> WildcardExclusions { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
     /// <summary>The fields of the structs the access goes on through below <see cref="Member"/>, or below the cell of the collection it
     /// holds, outermost first (R1): a struct kept in the region's storage is part of it, and a field of it is the region's resource with
     /// the whole path. Empty for a field, a collection or a cell itself.</summary>
@@ -109,11 +112,27 @@ public sealed record ReadSource(string Symbol, SourceSpan Source, IReadOnlyList<
 
 /// <summary>An access as one execution runs it on one resource. It carries its region's ownership and evidence chain; a construction-local
 /// access touches the object its construction builds and never pairs; a read-modify-write lists the loads it depends on.</summary>
+/// <param name="Resource">The storage this access touches.</param>
+/// <param name="Operation">What the access does to that storage.</param>
+/// <param name="Root">The root whose execution runs the access.</param>
+/// <param name="Symbol">The member containing the access.</param>
+/// <param name="Source">The access's source span.</param>
+/// <param name="HeldProtection">The displayed protections held over the access.</param>
+/// <param name="HeldProtectionIds">The identities of the objects those protections hold.</param>
+/// <param name="BindingEvidence">The evidence for the resource's binding.</param>
+/// <param name="CodeFlow">The steps reaching the access.</param>
+/// <param name="Uncertainties">The uncertainty labels the access carries.</param>
 public sealed record Access(AccessResource Resource, AccessOperation Operation, AccessRoot Root, string Symbol, SourceSpan Source,
                             IReadOnlyList<string> HeldProtection, IReadOnlyList<string> HeldProtectionIds,
                             IReadOnlyList<BindingEvidence> BindingEvidence, IReadOnlyList<CodeFlowStep> CodeFlow,
                             IReadOnlyList<string> Uncertainties)
 {
+    /// <summary>The emitted unseen write before ownership makes an unknown effect a read; null for accesses that are no unseen write.</summary>
+    internal AccessOperation? UnseenWriteOperation { get; init; }
+
+    /// <summary>Whether that unseen write replaces the struct storage whole, including its presence.</summary>
+    internal bool WritesWholeStruct { get; init; }
+
     public string ExecutionId { get; init; } = "";
     public OwnershipKind Ownership { get; init; } = OwnershipKind.Unknown;
     public IReadOnlyList<string> OwnershipEvidence { get; init; } = [];

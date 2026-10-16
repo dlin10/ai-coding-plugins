@@ -15,7 +15,8 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 public sealed class CoreLibGenerationEvalTests
 {
     private const string CORELIB = "System.Private.CoreLib";
-    private static readonly Lazy<LibraryCompilationResult> Library = new(Compile);
+    /// <summary>CoreLib 8.0 decompiled and compiled as its generation compiles it, once per process.</summary>
+    internal static readonly Lazy<LibraryCompilationResult> Library = new(Compile);
     private static readonly string[] Candidates =
     [
         "M:System.ApplicationId.Equals(System.Object)",
@@ -149,25 +150,43 @@ public sealed class CoreLibGenerationEvalTests
         }
     }
 
-    /// <summary>The Nullable comparers that call the default comparer of T, which CoreLib builds by reflection through an extern, make a
-    /// call on a receiver the analysis cannot follow, so each is refused rather than given a model that leaves the user's comparison out.
-    /// <c>NullableEqualityComparer&lt;T&gt;.GetHashCode(T?)</c> calls <c>obj.GetHashCode()</c> and no default comparer, so it is not
-    /// among them.</summary>
+    /// <summary>The Nullable comparers answer as their generic twins, argument for argument (R11): the default comparer CoreLib's selection
+    /// makes for the probe, which implements the comparison interface its closure needs, compares what the Nullable holds, and the
+    /// probe's member runs on that value. Each of the six reads each argument deep and calls the comparison member on the first, with the
+    /// second its input where it takes one.</summary>
     [RequiresModelEvalsFact]
-    public void Every_Nullable_comparer_calling_the_default_comparer_is_refused()
+    public void Every_Nullable_comparer_calling_the_default_comparer_answers_as_its_Generic_twin()
     {
-        string[] members =
+        (string Nullable, string Twin, string Member, string[] Arguments)[] pairs =
         [
-            "M:System.Collections.Generic.NullableComparer`1.Compare(System.Nullable{`0},System.Nullable{`0})",
-            "M:System.Collections.Generic.NullableEqualityComparer`1.Equals(System.Nullable{`0},System.Nullable{`0})"
+            ("M:System.Collections.Generic.NullableComparer`1.Compare(System.Nullable{`0},System.Nullable{`0})",
+             "M:System.Collections.Generic.GenericComparer`1.Compare(`0,`0)", "CompareTo", ["x", "y"]),
+            ("M:System.Collections.Generic.NullableEqualityComparer`1.Equals(System.Nullable{`0},System.Nullable{`0})",
+             "M:System.Collections.Generic.GenericEqualityComparer`1.Equals(`0,`0)", "Equals", ["x", "y"]),
+            ("M:System.Collections.Generic.NullableEqualityComparer`1.GetHashCode(System.Nullable{`0})",
+             "M:System.Collections.Generic.GenericEqualityComparer`1.GetHashCode(`0)", "GetHashCode", ["obj"])
         ];
 
-        foreach (var member in members)
+        foreach (var (nullable, twin, member, arguments) in pairs)
         {
-            var answer = Trace(member).Answer;
-            Assert.True(answer.Model is null && answer.ModelReason == ModelReasons.UNKNOWN_TOUCH,
-                        $"{member}: {answer.Reason} / {answer.ModelReason}: {answer.Detail}");
-            Assert.Contains(answer.Causes, cause => cause.Code == ModelCauses.CALL_RECEIVER_UNFOLLOWED);
+            var entries = new List<System.Text.Json.Nodes.JsonNode>();
+            foreach (var id in new[] { nullable, twin })
+            {
+                var answer = Trace(id).Answer;
+                Assert.True(answer.Model is not null, $"{id}: {answer.Reason} / {answer.ModelReason}: {answer.Detail}");
+                var entry = ModelEntryWriter.Write(answer.Model with { Id = "M" });
+                var effects = entry["effects"]!.AsObject();
+                Assert.Equal(arguments, effects.Select(effect => effect.Key).Order(StringComparer.Ordinal));
+                Assert.All(arguments, argument => Assert.Equal(["reads-deep"], effects[argument]!.AsArray().Select(kind => (string)kind!)));
+                var call = Assert.Single(entry["calls"]!.AsArray())!;
+                Assert.Equal(member, (string)call["member"]!);
+                Assert.Equal($"arg:{arguments[0]}", (string)call["on"]!);
+                Assert.Equal(arguments.Length == 2 ? "[[\"arg:y\"]]" : null, call["inputs"]?.ToJsonString());
+                entries.Add(entry);
+            }
+
+            // The parameters of a Nullable member and its twin carry the same names, so the twin's entry is the Nullable member's.
+            Assert.Equal(entries[1].ToJsonString(), entries[0].ToJsonString());
         }
     }
 

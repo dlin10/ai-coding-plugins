@@ -305,6 +305,8 @@ public sealed class WorklistTests
         AssertFixture(Recursive(), new(MaxSccIterations: 1));
     }
 
+    /// <summary>Mutable solver facts track their readers; append-only scheduling data read only between propagation rounds is named
+    /// explicitly alongside the existing caches and identity tables.</summary>
     [Fact]
     public void Every_solver_field_is_tracked_or_named_untracked()
     {
@@ -315,6 +317,8 @@ public sealed class WorklistTests
             "_counters", "_changes", "_changedRounds", "_sccHandled", "_reachIndex",
             "_worklistOptions", "_writes", "_history", "_reads", "_writeClock", "_suspendReads", "_auditing", "_rebuilding",
             "_named", "_queries",
+            // Only the outer loop reads these starts. Recording a start during Process decides no heap fact and invalidates no reader.
+            "_unseenStarts",
             // Memos of a union and of a copy: each use still reads the tracked sets they were made from and checks them grown or not.
             "_loadedUnions", "_copiedSlots",
             // Names, not facts: the interned region identities, a region's links read only after the region itself, and whether a query

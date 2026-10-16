@@ -10,4 +10,4 @@ kind: InterpolatedStringText | demo: 0 | eshop: 114 | question: 69
 kind: Interpolation | demo: 0 | eshop: 83 | question: 69
 kind: SimpleAssignment | demo: 9 | eshop: 17 | question: 63
 kind: Tuple | demo: 0 | eshop: 6 | question: 70
-kind: TypeOf | demo: 1 | eshop: 19 | question: 64
+kind: TypeOf | demo: 4 | eshop: 19 | question: 64

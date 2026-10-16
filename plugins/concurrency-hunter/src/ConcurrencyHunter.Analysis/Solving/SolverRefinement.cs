@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using ConcurrencyHunter.Accesses;
 
 namespace ConcurrencyHunter.Analysis;
@@ -23,12 +22,16 @@ public static class SolverRefinement
     public static SolverRefinementResult Refine(PairAnalysis pairs, IConstraintSolver solver) =>
         Refine(pairs, solver, SolverPolicy.Budget, SolverPolicy.QueryLimit);
 
-    public static SolverRefinementResult Refine(PairAnalysis pairs, IConstraintSolver solver, TimeSpan budget, TimeSpan queryLimit) =>
+    public static SolverRefinementResult Refine(PairAnalysis pairs, IConstraintSolver solver, ulong budget, SolverLimit queryLimit) =>
         Refine(pairs, solver, new SolverBudget(budget), queryLimit);
 
-    /// <summary>The same, spending a budget the caller holds: a run is many scopes and the share of the deadline is the run's,
-    /// so the one budget is carried from scope to scope (TD-094).</summary>
-    public static SolverRefinementResult Refine(PairAnalysis pairs, IConstraintSolver solver, SolverBudget budget, TimeSpan queryLimit)
+    /// <summary>The same, spending a budget the caller holds: a run is many scopes and the budget is the run's, so the one
+    /// budget is carried from scope to scope (TD-094). Every query asked is given and charged its whole limit (ADR 0021).</summary>
+    /// <param name="pairs">The scope's candidates the cheap filters left.</param>
+    /// <param name="solver">The solver behind the last filter.</param>
+    /// <param name="budget">What is left of the run's budget.</param>
+    /// <param name="queryLimit">The limit each query runs under.</param>
+    public static SolverRefinementResult Refine(PairAnalysis pairs, IConstraintSolver solver, SolverBudget budget, SolverLimit queryLimit)
     {
         var counters = new SortedDictionary<string, int>(StringComparer.Ordinal)
         {
@@ -46,18 +49,17 @@ public static class SolverRefinement
                 continue;
             }
 
-            if (budget.IsSpent)
+            if (!budget.Holds(queryLimit))
             {
                 counters[SolverCounters.BUDGET_EXHAUSTED] = counters.GetValueOrDefault(SolverCounters.BUDGET_EXHAUSTED) + 1;
                 kept[index] = Undecided(pair, "the run's solver budget was spent");
                 continue;
             }
 
-            var watch = Stopwatch.StartNew();
-            // A query never outlives what is left of the run: the last question asked is cut short rather than the budget
-            // overrun by a whole query limit.
-            var outcome = solver.Decide(query, budget.LimitOf(queryLimit));
-            budget.Spend(watch.Elapsed);
+            // Charged the whole limit whatever work it used, so the budget runs out at the same candidate on every run, and
+            // never cut to a remainder, so a query's answer never depends on the ones asked before it (ADR 0021).
+            var outcome = solver.Decide(query, queryLimit);
+            budget.Charge(queryLimit);
             counters[SolverCounters.QUERIES] = counters.GetValueOrDefault(SolverCounters.QUERIES) + 1;
             switch (outcome.Answer)
             {
@@ -72,6 +74,9 @@ public static class SolverRefinement
                     break;
                 default:
                     counters[SolverCounters.UNKNOWN] = counters.GetValueOrDefault(SolverCounters.UNKNOWN) + 1;
+                    // The one answer the clock decided: counted apart, so a run that depended on the machine's load says so.
+                    if (outcome.Stop == SolverStop.Safeguard)
+                        counters[SolverCounters.SAFEGUARD_TIMEOUT] = counters.GetValueOrDefault(SolverCounters.SAFEGUARD_TIMEOUT) + 1;
                     kept[index] = Undecided(pair, outcome.Trace);
                     break;
             }

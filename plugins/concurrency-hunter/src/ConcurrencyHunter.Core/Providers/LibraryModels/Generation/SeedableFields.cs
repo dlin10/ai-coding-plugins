@@ -21,8 +21,15 @@ public static class SeedableFields
                         .Concat(loads.Select(access => access.Access.Field))
                         .Concat(loads.SelectMany(access => access.Access.Bases).SelectMany(StaticStorageOf))
                         .Concat(ReferenceLoads(run));
+        // A struct a static field keeps loads that static's storage wherever a load reaches it, through a member called on the storage
+        // or a reference to it too, where the load names the struct's own field: the static's slot is the first of the path (R1).
+        var storages = loads.Where(access => access.RegionId is { } region && run.Heap?.Regions.TryGetValue(region, out var held) == true &&
+                                             held.Kind == HeapRegionKind.Static && access.Slot.Contains(FieldSlot.PATH_SEPARATOR))
+                            .Select(access => FieldSlot.Root(access.Slot))
+                            .Select(root => (run.Program.Decompose(FieldSlot.DeclaringTypeKey(root)).DefinitionKey, FieldSlot.Name(root)));
         return fields.Where(field => field.IsStatic)
                      .Select(field => (run.Program.Decompose($"{field.Assembly}:{field.ContainingTypeId}").DefinitionKey, field.Name))
+                     .Concat(storages)
                      .ToHashSet();
     }
 

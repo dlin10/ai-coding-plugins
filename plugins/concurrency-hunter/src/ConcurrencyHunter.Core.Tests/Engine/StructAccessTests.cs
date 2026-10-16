@@ -452,6 +452,22 @@ public sealed class StructAccessTests
         Assert.Contains(run.Pairs.Pairs, pair => string.Join(".", pair.Resource.AccessPath) == first);
     }
 
+    [Fact]
+    public void Reading_the_key_of_a_pair_field_reads_the_whole_field()
+    {
+        // A pair hands out its key as it hands out its value, by a copy taken from the whole field, whichever part is named (R2).
+        var run = Run("private KeyValuePair<int, Cell> _p; public void Key() { _ = _p.Key; } " +
+                      "public void Store() => _p = new KeyValuePair<int, Cell>(1, new Cell());",
+                      "_holder.Key();", "_holder.Store();");
+
+        var taken = run.Collection.Accesses.Where(access => access.Resource.Region == HOLDER && access.Operation != AccessOperation.Write && !access.IsConstructionLocal)
+                       .Select(access => (Path(access), access.Operation))
+                       .Distinct()
+                       .ToArray();
+        Assert.Equal([("_p", AccessOperation.Read)], taken);
+        Assert.Contains(run.Pairs.Pairs, pair => string.Join(".", pair.Resource.AccessPath) == "_p");
+    }
+
     private static string Path(Access access) => string.Join(".", access.Resource.AccessPath);
 
     private static Access[] Of(EngineRun run, string member) =>

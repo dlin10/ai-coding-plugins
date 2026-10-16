@@ -2585,6 +2585,237 @@
         { "symbol": "Demo.Web.Cases.SpawnedWorkObjectPublished.TallyController.Post()", "operation": "write" },
         { "symbol": "Demo.Web.Cases.SpawnedWorkObjectPublished.TallyController.Post()", "operation": "write" }
       ]
+    },
+    {
+      "id": "lambda-variable-captured-by-local-function",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LambdaVariableCapturedByLocalFunction.Tally@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LambdaVariableCapturedByLocalFunction.TallyController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.LambdaVariableCapturedByLocalFunction.TallyController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "lambda-variable-captured-by-local-function/cell",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "closure:Demo.Web.Cases.LambdaVariableCapturedByLocalFunction.TallyController.Mark()", "accessPath": ["marks"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LambdaVariableCapturedByLocalFunction.TallyController.Mark()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.LambdaVariableCapturedByLocalFunction.TallyController.Mark()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "nullable-filled-by-unseen-write",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.NullableFilledByUnseenWrite.Counter", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.NullableFilledByUnseenWrite.Mark.Bump()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.NullableFilledByUnseenWrite.Mark.Bump()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "nullable-filled-by-unseen-write/state",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.NullableFilledByUnseenWrite.Store@Singleton", "accessPath": ["_state"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.NullableFilledByUnseenWrite.Store.Refresh()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.NullableFilledByUnseenWrite.Store.Refresh()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "nullable-filled-by-unseen-write/state-written-twice",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.NullableFilledByUnseenWrite.Store@Singleton", "accessPath": ["_state"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.NullableFilledByUnseenWrite.Store.Refresh()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.NullableFilledByUnseenWrite.Store.Refresh()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "struct-cell-written-by-ref-foreach",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructCellWrittenByRefForeach.Board@Singleton", "accessPath": ["_slots", "[?]", "Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructCellWrittenByRefForeach.Board.HitAll()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructCellWrittenByRefForeach.Board.HitAll()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "struct-copied-through-type-parameter",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructCopiedThroughTypeParameter.Tally@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructCopiedThroughTypeParameter.Handle.Touch()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructCopiedThroughTypeParameter.Handle.Touch()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "struct-boxed-by-pattern",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.StructBoxedByPattern.Counter", "accessPath": ["Total"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructBoxedByPattern.Probe.Bump()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructBoxedByPattern.Probe.Bump()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "struct-deconstructed-in-place",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructDeconstructedInPlace.Meter@Singleton", "accessPath": ["_reading", "Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructDeconstructedInPlace.Reading.Deconstruct(int, int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructDeconstructedInPlace.Reading.Deconstruct(int, int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "struct-deconstructed-through-interface",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.StructDeconstructedThroughInterface.Panel..ctor()#Demo.Web.Cases.StructDeconstructedThroughInterface.Reading", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructDeconstructedThroughInterface.Reading.Deconstruct(int, int)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructDeconstructedThroughInterface.Reading.Deconstruct(int, int)", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "pair-value-read-from-field",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.PairValueReadFromField.Cache@Singleton", "accessPath": ["_pair"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PairValueReadFromField.Cache.Peek()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.PairValueReadFromField.Cache.Replace(int)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "metadata-base-nullable-filled-by-unseen-write",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": {"region": "static:Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite.Counter", "accessPath": ["Hits"]},
+      "accesses": [
+        {"symbol": "Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite.Mark.Bump()", "operation": "read-modify-write"},
+        {"symbol": "Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite.Mark.Bump()", "operation": "read-modify-write"}
+      ]
+    },
+    {
+      "id": "metadata-base-nullable-filled-by-unseen-write/state",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": {"region": "di:Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite.Store@Singleton", "accessPath": ["Value"]},
+      "accesses": [
+        {"symbol": "Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite.Store.Refresh()", "operation": "read"},
+        {"symbol": "Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite.Store.Refresh()", "operation": "unknown-effect"}
+      ]
+    },
+    {
+      "id": "metadata-base-nullable-filled-by-unseen-write/state-written-twice",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": {"region": "di:Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite.Store@Singleton", "accessPath": ["Value"]},
+      "accesses": [
+        {"symbol": "Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite.Store.Refresh()", "operation": "unknown-effect"},
+        {"symbol": "Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite.Store.Refresh()", "operation": "unknown-effect"}
+      ]
+    },
+    {
+      "id": "generic-nullable-filled-by-unseen-write",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": {"region": "static:Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Counter", "accessPath": ["Hits"]},
+      "accesses": [
+        {"symbol": "Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Mark.Bump()", "operation": "read-modify-write"},
+        {"symbol": "Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Mark.Bump()", "operation": "read-modify-write"}
+      ]
+    },
+    {
+      "id": "generic-nullable-filled-by-unseen-write/state",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": {"region": "di:Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Store<Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Mark>@Singleton", "accessPath": ["_state"]},
+      "accesses": [
+        {"symbol": "Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Store<T>.Refresh()", "operation": "read"},
+        {"symbol": "Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Store<T>.Refresh()", "operation": "unknown-effect"}
+      ]
+    },
+    {
+      "id": "generic-nullable-filled-by-unseen-write/state-written-twice",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": {"region": "di:Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Store<Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Mark>@Singleton", "accessPath": ["_state"]},
+      "accesses": [
+        {"symbol": "Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Store<T>.Refresh()", "operation": "unknown-effect"},
+        {"symbol": "Demo.Web.Cases.GenericNullableFilledByUnseenWrite.Store<T>.Refresh()", "operation": "unknown-effect"}
+      ]
+    },
+    {
+      "id": "struct-read-through-written-ref-parameter/write",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructReadThroughWrittenRefParameter.Desk@Singleton", "accessPath": ["Slot"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructReadThroughWrittenRefParameter.Desk.ReadThrough(S)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.StructReadThroughWrittenRefParameter.Desk.Publish()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "struct-read-through-written-ref-parameter/read",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructReadThroughWrittenRefParameter.Desk@Singleton", "accessPath": ["Slot"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructReadThroughWrittenRefParameter.Desk.ReadThrough(S)", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.StructReadThroughWrittenRefParameter.Desk.Publish()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "struct-read-through-written-ref-parameter/contents",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.StructReadThroughWrittenRefParameter.Tally@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.StructReadThroughWrittenRefParameter.Desk.ReadThrough(S)", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.StructReadThroughWrittenRefParameter.Desk.Publish()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "local-value-written-through-ref",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.LocalValueWrittenThroughRef.Tally@Singleton", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.LocalValueWrittenThroughRef.Desk.Use()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.LocalValueWrittenThroughRef.Desk.Publish()", "operation": "read-modify-write" }
+      ]
     }
   ],
   "notDefects": [
@@ -3153,6 +3384,31 @@
       "id": "captured-counter-one-task",
       "phase": "5d",
       "resource": { "region": "closure:Demo.Web.Cases.CapturedCounterOneTask.CounterController.Post()", "accessPath": ["count"] }
+    },
+    {
+      "id": "captured-target-evaluated-before-value",
+      "phase": "5d",
+      "resource": { "region": "alloc:Demo.Web.Cases.CapturedTargetEvaluatedBeforeValue.LabelController.Post()#Demo.Web.Cases.CapturedTargetEvaluatedBeforeValue.Box", "accessPath": ["N"] }
+    },
+    {
+      "id": "struct-boxed-by-pattern/holder",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.StructBoxedByPattern.Gauge@Singleton", "accessPath": ["_probe", "Hits"] }
+    },
+    {
+      "id": "struct-boxed-by-pattern/captured",
+      "phase": "5d",
+      "resource": { "region": "closure:Demo.Web.Cases.StructBoxedByPattern.MarkController.Post()", "accessPath": ["tag", "Seen"] }
+    },
+    {
+      "id": "struct-with-copies-captured-variable",
+      "phase": "5d",
+      "resource": { "region": "closure:Demo.Web.Cases.StructWithCopiesCapturedVariable.StateController.Post()", "accessPath": ["state", "Count"] }
+    },
+    {
+      "id": "readonly-struct-past-depth-bound",
+      "phase": "5d",
+      "resource": {"region": "di:Demo.Web.Cases.ReadonlyStructPastDepthBound.Leaf@Singleton", "accessPath": ["*"]}
     }
   ]
 }

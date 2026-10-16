@@ -70,6 +70,7 @@ public sealed class ProgramIndex
     private readonly HashSet<string> _typeParameterKeys;
     private readonly Dictionary<string, ProgramInterfaceMapping[]> _interfaceMappingsByType;
     private readonly Dictionary<string, ProgramVariantType> _variantTypes;
+    private readonly Dictionary<string, ProgramMethod> _membersOfNestedBodies;
     private readonly ConcurrentDictionary<string, IReadOnlyList<IrFieldRef>?> _instanceFields = new(StringComparer.Ordinal);
 
     public ProgramIndex(string scopeId, IReadOnlyList<ProgramType> types, IReadOnlyList<ProgramMethod> methods,
@@ -97,6 +98,12 @@ public sealed class ProgramIndex
         _interfaceMappingsByType = InterfaceMappings.GroupBy(mapping => mapping.TypeDefinitionKey, StringComparer.Ordinal)
                                                      .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
         _variantTypes = (variantTypes ?? []).ToDictionary(type => type.TypeKey, StringComparer.Ordinal);
+        _membersOfNestedBodies = new Dictionary<string, ProgramMethod>(StringComparer.Ordinal);
+        foreach (var method in methods)
+        {
+            foreach (var nested in method.NestedBodyIds)
+                _membersOfNestedBodies.TryAdd(nested, method);
+        }
     }
 
     public string ScopeId { get; }
@@ -110,7 +117,17 @@ public sealed class ProgramIndex
     /// (the library model's immutable types): a known call's effect on such an object touches nothing (R3).</summary>
     public IReadOnlySet<string> ImmutableTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 
+    /// <summary>The frontend's compiler classification of a type's implicit conversion to a generic interface over itself, by type key
+    /// and interface metadata name; null when no symbol is available. Default-comparer selection uses this for nested variance without
+    /// introducing a compiler dependency into Analysis.</summary>
+    public Func<string, string, bool?>? ImplementsSelfInterface { get; init; }
+
     public ProgramMethod? Method(string methodId) => _methods.GetValueOrDefault(methodId);
+
+    /// <summary>The ordinary member whose body holds a lambda or a local function, at any depth; null for a body no member lists among
+    /// its <see cref="ProgramMethod.NestedBodyIds"/>.</summary>
+    /// <param name="bodyId">The lambda's or local function's body id.</param>
+    public ProgramMethod? MemberOfNestedBody(string bodyId) => _membersOfNestedBodies.GetValueOrDefault(bodyId);
 
     /// <summary>The instance fields of an object of <paramref name="typeKey"/>, its own and those of its source base types, each
     /// named for the closed type that holds it; null when the type itself is not declared in source. A base from metadata ends
@@ -302,18 +319,24 @@ public sealed class ProgramIndex
     private static bool IsVoid(string typeKey) => typeKey.EndsWith(":void", StringComparison.Ordinal);
 
     /// <summary>A type key with every outermost type-argument list replaced by its argument count, and those arguments in
-    /// order, containing types first.</summary>
+    /// order, containing types first. Array-rank commas remain inside their argument. The constructor's definition index,
+    /// <c>Decompose</c>, reachable binding traversal, Nullable classification, heap graph traversal, default-comparer interface checks
+    /// and the frontend's self-interface conversion resolver all use this parser, as do the reachable walker's display/delegate shapes
+    /// and access matching's field-definition identities.</summary>
     /// <param name="typeKey">The constructed type key to decompose by shape.</param>
     internal static (string Shape, IReadOnlyList<string> Arguments) Shape(string typeKey)
     {
         var shape = new StringBuilder();
         var arguments = new List<string>();
         var depth = 0;
+        var arrayDepth = 0;
         var start = 0;
         var count = 0;
         for (var index = 0; index < typeKey.Length; index++)
         {
             var character = typeKey[index];
+            if (character == '[') arrayDepth++;
+            else if (character == ']') arrayDepth--;
             if (character == '<')
             {
                 if (depth++ == 0)
@@ -327,7 +350,7 @@ public sealed class ProgramIndex
                     shape.Append('<').Append(count).Append('>');
                 }
             }
-            else if (character == ',' && depth == 1)
+            else if (character == ',' && depth == 1 && arrayDepth == 0)
             {
                 arguments.Add(typeKey[start..index].Trim());
                 (start, count) = (index + 1, count + 1);

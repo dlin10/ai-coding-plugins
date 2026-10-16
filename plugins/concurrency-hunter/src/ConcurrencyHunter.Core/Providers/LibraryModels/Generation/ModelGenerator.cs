@@ -184,6 +184,7 @@ public static class ModelGenerator
 
         models ??= ModelsOutside(compilation.AssemblyName!);
         var loadedStatics = new HashSet<(string Type, string Name)>();
+        var witnesses = new ComparisonWitnesses();
         var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
         // The driver's probes, subclasses and seeds stand for the user's objects, of whatever type they are.
         var reachability = (corelib
@@ -204,12 +205,17 @@ public static class ModelGenerator
                 dropped.UnionWith(run.LoweringDiagnostics);
                 run = run with { LoweringDiagnostics = dropped.ToArray() };
                 var previousCount = loadedStatics.Count;
-                loadedStatics.UnionWith(SeedableFields.LoadedStatics(run).Where(field =>
-                    field.Type.StartsWith(compilation.AssemblyName + ":", StringComparison.Ordinal)));
-                if (run.Stopped || loadedStatics.Count == previousCount)
+                // A pass the bound stopped loads what a closure past the bound reaches, which the next pass's need not.
+                if (!run.Stopped)
+                    loadedStatics.UnionWith(SeedableFields.LoadedStatics(run).Where(field =>
+                        field.Type.StartsWith(compilation.AssemblyName + ":", StringComparison.Ordinal)));
+                // A probe whose closure reaches a default comparer implements its comparison interface on the next pass, a pass the
+                // closure bound stopped included: the comparer CoreLib selects for a probe without the interface may be what passed it.
+                var needsGrew = witnesses.Add(run, driver);
+                if (!needsGrew && (run.Stopped || loadedStatics.Count == previousCount))
                     break;
                 synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields, loadedStatics,
-                                                         cancellationToken, library.ReplacedMembers);
+                                                         witnesses, cancellationToken, library.ReplacedMembers);
                 if (synthesis.Driver is not { } seededDriver)
                     return facts.Refused(synthesis.Reason!, synthesis.Detail);
                 driver = seededDriver;

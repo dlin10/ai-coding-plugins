@@ -10,7 +10,9 @@ on first run the same way Roslyn's build host is. The supported theory is fixed 
 integer selectors and guards, so `i + 1 == j` is decided under the exact `int` semantics, and `QF_UF`
 for opaque values and unknown comparers; no strings and no array theory, because a collection's
 structure is modeled as its own resource by TD-070. The 150 ms per-query limit of TD-094 is Z3's own
-timeout. When the native library fails to load, every query answers `Unknown`, the coverage section
+timeout — a sentence superseded by
+[ADR 0021](0021-a-solver-query-is-limited-by-z3s-resource-count-not-by-time.md): a query is limited by
+Z3's resource count, and a wall-clock timeout stays only as a safeguard. When the native library fails to load, every query answers `Unknown`, the coverage section
 says the solver was unavailable, and the run completes: the solver is last-mile refinement by
 TD-091, and `Unknown` is already its ordinary answer.
 

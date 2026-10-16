@@ -25,8 +25,6 @@ public sealed class DelegateCombinationMatrixTests(ClassCache cache) : IClassFix
     /// <summary>The line the invocation of a cell's or a twin's result stands on.</summary>
     private const string INVOKED = "/*I*/";
 
-    private const string REF_LOCAL = "a store through a ref local does not reach the later read through it";
-
     private Matrix Results => cache.Get("results", Run);
 
     /// <summary>A form that combines or removes delegates.</summary>
@@ -132,13 +130,7 @@ public sealed class DelegateCombinationMatrixTests(ClassCache cache) : IClassFix
 
     /// <summary>The cells a <c>Known</c> operand's twin of which writes nothing, by name with their place's reason: they cannot show
     /// that operand's writes in the combination, and their expectation still holds over the twins.</summary>
-    private static readonly IReadOnlyDictionary<string, string> Unobservable = Listed(
-        (REF_LOCAL, [
-            "T1_RefLocalCompound_Known_Known", "T1_RefLocalCompound_Known_Null", "T1_RefLocalCompound_Known_Unknown",
-            "T1_RefLocalCompound_Null_Known", "T1_RefLocalCompound_Unknown_Known",
-            "T1_RefLocalRemove_Known_Known", "T1_RefLocalRemove_Known_Null", "T1_RefLocalRemove_Known_Unknown",
-            "T1_RefLocalRemove_Null_Known", "T1_RefLocalRemove_Unknown_Known"
-        ]));
+    private static readonly IReadOnlyDictionary<string, string> Unobservable = Listed();
 
     private ConcurrentDictionary<string, Observed> Observations => cache.Get("observations", () => new ConcurrentDictionary<string, Observed>(StringComparer.Ordinal));
 

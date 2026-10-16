@@ -1,4 +1,3 @@
-using System.Text;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Ir;
@@ -19,6 +18,10 @@ public sealed record ReachabilityInput(ProgramIndex Program, IReadOnlyList<Execu
 {
     /// <summary>How a call that dispatches reaches its targets, and the types whose bodies the set never enters.</summary>
     public ReachabilityRules Rules { get; init; } = ReachabilityRules.ClassHierarchy;
+
+    /// <summary>The limits the heap solves under: how many contexts a body has before the heap merges them, which leaves its type
+    /// parameters open (<see cref="DefaultComparers"/>).</summary>
+    public Heap.AnalysisLimits Limits { get; init; } = Heap.AnalysisLimits.Default;
 }
 
 /// <summary>How a call that dispatches — a virtual or interface call, a delegate created on a virtual or interface method, a
@@ -29,7 +32,8 @@ public enum DispatchRule
     ClassHierarchy,
 
     /// <summary>Only the overrides of a type the run constructs, or a type derived from it, and of a value type once a reached body
-    /// boxes it; an override whose type is constructed later is reached then (ADR 0019).</summary>
+    /// boxes it — or creates it, for a value type of an open-world assembly; an override whose type is constructed later is reached then
+    /// (ADR 0019).</summary>
     ConstructedTypes
 }
 
@@ -123,6 +127,20 @@ public sealed record ReachableSetResult(IReadOnlyList<ReachedMember> Members, IR
 
     /// <summary>The assemblies whose objects stand for an object of any type (<see cref="ReachabilityRules.OpenWorldAssemblies"/>).</summary>
     public IReadOnlySet<string> OpenWorldAssemblies { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Each closed type a mark of CoreLib's default-comparer factory was reached for, with the factory's kind: the X of every
+    /// <c>Comparer&lt;X&gt;.Default</c> or <c>EqualityComparer&lt;X&gt;.Default</c> the set's closure fills (<see cref="DefaultComparers"/>).
+    /// The set holds it whether or not the run stops at its bound, which leaves no heap to ask.</summary>
+    public IReadOnlySet<(IrComparerKind Kind, string TypeKey)> DefaultComparerTypes { get; init; } = new HashSet<(IrComparerKind, string)>();
+
+    /// <summary>The closed bindings of each marked factory call's type, keyed by its body and operation. Merged heap instances use
+    /// only the bindings of their own mark (<see cref="DefaultComparers.Bindings"/>).</summary>
+    public IReadOnlyDictionary<(string BodyId, int Operation), IReadOnlySet<string>> DefaultComparerBindings { get; init; } =
+        new Dictionary<(string, int), IReadOnlySet<string>>();
+
+    /// <summary>The marked factory calls whose binding can stay open: only these retain the ordinary factory call in the heap,
+    /// including when receiver contexts merge and erase an otherwise closed substitution.</summary>
+    public IReadOnlySet<(string BodyId, int Operation)> OpenDefaultComparerCalls { get; init; } = new HashSet<(string, int)>();
 
     /// <summary>Whether a member has a body in this run, which the lowering's, the summaries' and the heap's callees are decided by:
     /// a source body under class-hierarchy dispatch, and a body among <see cref="Bodies"/> under constructed types, so a member the
@@ -260,6 +278,17 @@ public static class ReachableSet
         private readonly Dictionary<(string Owner, int Ordinal), HashSet<string>> _parameterBindings = new();
         private readonly Dictionary<(string Owner, int Ordinal), HashSet<(string Owner, int Ordinal)>> _parameterEdges = new();
         private readonly HashSet<(string Owner, int Ordinal)> _boxedParameters = new();
+        private readonly Dictionary<(string Owner, int Ordinal), HashSet<string>> _closedBindings = new();
+        private readonly Dictionary<(string Owner, int Ordinal), List<ClosedEdge>> _closedEdges = new();
+        private readonly Dictionary<(string Owner, int Ordinal), List<Action<string>>> _bindingWatchers = new();
+        private readonly HashSet<(IrComparerKind Kind, string TypeKey)> _comparerTypes = new();
+        private readonly HashSet<(string BodyId, int Operation)> _openComparerCalls = new();
+
+        private readonly Dictionary<(string BodyId, int Operation), HashSet<string>> _comparerBindings = new();
+
+        /// <summary>The type parameters that can stay open in an instance of the heap (<see cref="MarkOpen"/>).</summary>
+        private readonly HashSet<(string Owner, int Ordinal)> _openParameters = new();
+        private readonly Dictionary<(string Owner, int Ordinal), List<Action>> _openWatchers = new();
         private readonly HashSet<string> _instantiated = new(StringComparer.Ordinal);
         private readonly HashSet<string> _constructedTypes = new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<(string Target, Action<string> Reach)>> _waiting = new(StringComparer.Ordinal);
@@ -341,8 +370,18 @@ public static class ReachableSet
                     Resolve(_input.DiIndex.Resolve(parameter.TypeKey!), trigger, ResolutionContext.Execution);
             }
 
-            while (_pending.TryDequeue(out var bodyId))
-                Process(bodyId);
+            while (true)
+            {
+                while (_pending.TryDequeue(out var bodyId))
+                    Process(bodyId);
+                // With the reached closure exhausted, a watched parameter no context bound stays open as well.
+                var unbound = _bindingWatchers.Keys.Where(parameter => !_openParameters.Contains(parameter) &&
+                                                                      (_closedBindings.GetValueOrDefault(parameter)?.Count ?? 0) == 0).ToArray();
+                if (unbound.Length == 0)
+                    break;
+                foreach (var parameter in unbound)
+                    MarkOpen(parameter);
+            }
 
             return Result();
         }
@@ -382,7 +421,10 @@ public static class ReachableSet
                                           unanalysed)
             {
                 Dispatch = _input.Rules.Dispatch,
-                OpenWorldAssemblies = _input.Rules.OpenWorldAssemblies
+                OpenWorldAssemblies = _input.Rules.OpenWorldAssemblies,
+                DefaultComparerTypes = _comparerTypes,
+                DefaultComparerBindings = _comparerBindings.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value),
+                OpenDefaultComparerCalls = _openComparerCalls
             };
         }
 
@@ -492,19 +534,28 @@ public static class ReachableSet
             }
 
             var work = WorkOfCalls(operations);
+            // A `default` of a value type that stands for a user's value creates it (StandsForUserValue).
+            if (_input.Rules.Dispatch == DispatchRule.ConstructedTypes)
+            {
+                foreach (var created in body.Values.Where(value => value is { Kind: IrValueKind.Constant, Name: "default", StructTypeKey: { } key } &&
+                                                                   StandsForUserValue(key)))
+                    Instantiate(created.StructTypeKey!);
+            }
 
             foreach (var operation in operations)
             {
                 var reason = $"call:{bodyId}:{operation.Id}";
-                if (_input.Rules.Dispatch == DispatchRule.ConstructedTypes)
-                    Instantiate(operation, values, bodyId);
+                Instantiate(operation, values, bodyId);
                 switch (operation)
                 {
+                    // A static field's type is bound as a call's type is, for the comparers its type initializer makes (ReachComparers).
                     case IrLoadFieldOperation { Field.IsStatic: true } load:
                         Reference(DiIndex.TypeKey(load.Field.Assembly, load.Field.ContainingTypeId), bodyId);
+                        SeeType(DiIndex.TypeKey(load.Field.Assembly, load.Field.ContainingTypeId), Owner(bodyId), forBoxing: false);
                         break;
                     case IrStoreFieldOperation { Field.IsStatic: true } store:
                         Reference(DiIndex.TypeKey(store.Field.Assembly, store.Field.ContainingTypeId), bodyId);
+                        SeeType(DiIndex.TypeKey(store.Field.Assembly, store.Field.ContainingTypeId), Owner(bodyId), forBoxing: false);
                         break;
                     case IrCallOperation { CallKind: IrCallKind.LocalFunction } call:
                         ReachBody(call.Method, reason);
@@ -577,7 +628,16 @@ public static class ReachableSet
                                                         .Select(value => DelegateCreation(value, definitions)).OfType<IrCreateDelegateOperation>())
                                 ReachDelegateTargets(untyped, reason);
                         }
-                        ReachTargets(targets, dispatched, target => ReachBody(target, reason));
+                        // A mark whose type stays closed is the comparer it makes, and the call it replaced runs only where the type can
+                        // stay open, now or once the walk learns it can.
+                        if (call.DefaultComparer is not { } comparer)
+                            ReachTargets(targets, dispatched, target => ReachBody(target, reason));
+                        else
+                            ReachComparers(comparer, bodyId, call.Id, reason, () =>
+                            {
+                                _openComparerCalls.Add((bodyId, call.Id));
+                                ReachTargets(targets, dispatched, target => ReachBody(target, reason));
+                            });
                         if (call.CallKind is IrCallKind.Static or IrCallKind.Constructor && _program.Method(targetId) is { } method)
                             Reference(method.ContainingTypeKey, bodyId);
                         break;
@@ -595,6 +655,65 @@ public static class ReachableSet
                 }
             }
         }
+
+        /// <summary>Reaches, at a call of CoreLib's default-comparer factory, the comparer the heap makes there for each closed type the mark's
+        /// type is: the type itself where it is closed, and each closed type its type parameter is bound to (<see cref="Watch"/>), now and
+        /// later, where it is one. It reaches no comparer for no binding. The call the mark replaced runs where the mark's type can stay open
+        /// in an instance of the heap: a type parameter that can (<see cref="MarkOpen"/>), now or later, or a type that names type parameters
+        /// and is none.</summary>
+        /// <param name="mark">The comparer the call makes.</param>
+        /// <param name="bodyId">The body making the call.</param>
+        /// <param name="operation">The marked call.</param>
+        /// <param name="reason">The reason the constructors are reached.</param>
+        /// <param name="reachCall">Reaches the call the mark replaced.</param>
+        private void ReachComparers(IrDefaultComparer mark, string bodyId, int operation, string reason, Action reachCall)
+        {
+            if (Parameter(mark.TypeKey, Owner(bodyId)) is { } parameter)
+            {
+                Watch(parameter, Record);
+                WatchOpen(parameter, reachCall);
+                return;
+            }
+
+            if (_program.IsOpen(mark.TypeKey))
+            {
+                reachCall();
+                return;
+            }
+            Record(mark.TypeKey);
+
+            void Record(string binding)
+            {
+                if (!_comparerBindings.TryGetValue((bodyId, operation), out var bindings))
+                    _comparerBindings[(bodyId, operation)] = bindings = new(StringComparer.Ordinal);
+                if (bindings.Add(binding))
+                    ReachComparer(mark.Kind, binding, bodyId, reason);
+            }
+        }
+
+        /// <summary>Reaches the comparer the factory of <paramref name="kind"/> makes for a closed type (<see cref="DefaultComparers.Of"/>) as a
+        /// constructor call of it would: its parameterless constructor, its type initializer and its type arguments' bindings, and, under
+        /// <see cref="DispatchRule.ConstructedTypes"/>, its type counted constructed.</summary>
+        /// <param name="kind">The factory.</param>
+        /// <param name="typeKey">The closed type the factory is asked for.</param>
+        /// <param name="bodyId">The body making the call.</param>
+        /// <param name="reason">The reason the constructor is reached.</param>
+        private void ReachComparer(IrComparerKind kind, string typeKey, string bodyId, string reason)
+        {
+            _comparerTypes.Add((kind, typeKey));
+            var comparer = DefaultComparers.Of(_program, kind, typeKey);
+            if (_program.Type(comparer) is not { } type)
+                return;
+            foreach (var constructor in _program.Constructors(type.TypeKey).Where(constructor => constructor is { HasSourceBody: true, Parameters.Count: 0 }))
+                ReachBody(constructor.MethodId, reason);
+            Reference(type.TypeKey, bodyId);
+            SeeType(comparer, null, forBoxing: true);
+            Instantiate(type.TypeKey);
+        }
+
+        /// <summary>The member a reached body belongs to, which owns the type parameters its keys name.</summary>
+        /// <param name="bodyId">The body.</param>
+        private ProgramMethod? Owner(string bodyId) => _program.Method(_memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId);
 
         /// <summary>The work a spawn, a thread constructor or a timer runs: each work or callback value, with the method a spawn
         /// calls on it instead of invoking it.</summary>
@@ -727,19 +846,17 @@ public static class ReachableSet
             }
         }
 
-        /// <summary>Records what an operation constructs under <see cref="DispatchRule.ConstructedTypes"/>: the type a constructor call
-        /// creates, unless it is a value type, and the value type a boxing conversion boxes or a delegate created on a value's method
-        /// binds, which boxes it with no conversion lowered. Boxing a type parameter admits only value types bound to that
+        /// <summary>Binds the type parameters an operation's target names to its type arguments, under either dispatch rule, and records what
+        /// it constructs under <see cref="DispatchRule.ConstructedTypes"/>: the type a constructor call
+        /// creates, unless it is a value type that does not stand for a user's value (<see cref="StandsForUserValue"/>), and the value
+        /// type a boxing conversion boxes or a delegate created on a value's method binds, which boxes it with no conversion lowered. Boxing a type parameter admits only value types bound to that
         /// owner's parameter, including bindings and parameter-to-parameter edges discovered after the boxing.</summary>
         /// <param name="operation">The operation of a reached body.</param>
         /// <param name="values">The body's values by id.</param>
         /// <param name="bodyId">The reached body whose method and containing types own its type parameters.</param>
         private void Instantiate(IrOperation operation, IReadOnlyDictionary<int, IrValue> values, string bodyId)
         {
-            if (_input.Rules.Dispatch != DispatchRule.ConstructedTypes)
-                return;
-
-            var owner = _program.Method(_memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId);
+            var owner = Owner(bodyId);
             var (methodId, containingType, arguments) = operation switch
             {
                 IrCallOperation call => (call.TargetMethodId, call.TargetContainingTypeKey, call.TargetMethodTypeArgumentKeys),
@@ -754,17 +871,23 @@ public static class ReachableSet
                 // Bind even targets still waiting for construction: their parameter edges must also receive later bindings.
                 foreach (var target in Targets(methodId, dispatch).Prepend(method).DistinctBy(target => target.MethodId))
                     for (var ordinal = 0; ordinal < Math.Min(arguments.Count, target.TypeParameterKeys.Count); ordinal++)
-                        Bind((target.MethodId, ordinal), arguments[ordinal]);
+                        Bind((target.MethodId, ordinal), arguments[ordinal], owner, forBoxing: true);
             }
             if (containingType is not null)
-                SeeType(containingType);
+                SeeType(containingType, owner, forBoxing: true);
+            if (_input.Rules.Dispatch != DispatchRule.ConstructedTypes)
+                return;
 
             switch (operation)
             {
                 case IrCallOperation { CallKind: IrCallKind.Constructor } call
                     when (call.TargetContainingTypeKey ?? (call.TargetMethodId is { } id ? _program.Method(id)?.ContainingTypeKey : null)) is { } typeKey &&
-                         _program.Type(typeKey) is not { IsValueType: true }:
+                         (_program.Type(typeKey) is not { IsValueType: true } || StandsForUserValue(typeKey)):
                     Instantiate(typeKey);
+                    break;
+                case IrAllocateOperation { AllocatedTypeKey: { } allocated } when _program.Type(allocated) is { IsValueType: true } &&
+                                                                                 StandsForUserValue(allocated):
+                    Instantiate(allocated);
                     break;
                 case IrConvertOperation { ConversionKind: IrConversionKind.Boxing } boxing when values.TryGetValue(boxing.OperandValue, out var boxed):
                     Box(boxed.Type);
@@ -776,37 +899,6 @@ public static class ReachableSet
                 case IrCreateDelegateOperation { ReceiverValue: int receiver } when values.TryGetValue(receiver, out var bound):
                     Box(bound.Type);
                     break;
-            }
-
-            void SeeType(string key)
-            {
-                var typeArguments = ProgramIndex.Shape(key).Arguments;
-                var types = _program.Type(key) is { } type ? [type] : _typesByDisplayShape.GetValueOrDefault(Shape(key)) ?? [];
-                foreach (var definition in types)
-                    for (var ordinal = 0; ordinal < Math.Min(typeArguments.Count, definition.TypeParameterKeys.Count); ordinal++)
-                        Bind(TypeParameter(definition, ordinal), typeArguments[ordinal]);
-                foreach (var argument in typeArguments)
-                    SeeType(argument);
-            }
-
-            void Bind((string Owner, int Ordinal) parameter, string key)
-            {
-                key = UnwrapNullable(key);
-                if (Parameter(key, owner) is { } source)
-                {
-                    if (!_parameterEdges.TryGetValue(source, out var edges))
-                        _parameterEdges[source] = edges = [];
-                    if (edges.Add(parameter))
-                        foreach (var binding in (_parameterBindings.GetValueOrDefault(source) ?? []).ToArray())
-                            BindValue(parameter, binding);
-                }
-                else
-                {
-                    var candidates = _program.Type(key) is { IsValueType: true } type
-                        ? [type.TypeKey] : _valueTypeKeys.GetValueOrDefault(Shape(key)) ?? [];
-                    foreach (var candidate in candidates)
-                        BindValue(parameter, candidate);
-                }
             }
 
             void Box(string type)
@@ -825,6 +917,218 @@ public static class ReachableSet
                 }
             }
         }
+
+        /// <summary>Binds the type parameters of the types a key names, its type arguments' included, to the arguments it gives them.</summary>
+        /// <param name="key">The type key, as the body names it.</param>
+        /// <param name="owner">The member whose type parameters the key may name.</param>
+        /// <param name="forBoxing">Whether the value types bound serve the boxing rule as well as the closed bindings (<see cref="Bind"/>).</param>
+        private void SeeType(string key, ProgramMethod? owner, bool forBoxing)
+        {
+            var typeArguments = ProgramIndex.Shape(key).Arguments;
+            var types = _program.Type(key) is { } type ? [type] : _typesByDisplayShape.GetValueOrDefault(Shape(key)) ?? [];
+            foreach (var definition in types)
+                for (var ordinal = 0; ordinal < Math.Min(typeArguments.Count, definition.TypeParameterKeys.Count); ordinal++)
+                    Bind(TypeParameter(definition, ordinal), typeArguments[ordinal], owner, forBoxing);
+            foreach (var argument in typeArguments)
+                SeeType(argument, owner, forBoxing);
+        }
+
+        /// <summary>Binds a type parameter to a type argument, twice over: the closed type it is, or the template it is of the owner's type
+        /// parameters, for the comparers a mark makes (<see cref="BindClosed"/>); and, for the boxing rule, the value types it may be with any
+        /// <c>Nullable</c> unwrapped, or an edge from the owner's type parameter it names.</summary>
+        /// <param name="parameter">The type parameter bound.</param>
+        /// <param name="key">The type argument, as the body names it.</param>
+        /// <param name="owner">The member whose type parameters the argument may name.</param>
+        /// <param name="forBoxing">Whether to bind for the boxing rule too; a static field's type binds only the closed bindings, as no call
+        /// of the type's members boxes through it.</param>
+        private void Bind((string Owner, int Ordinal) parameter, string key, ProgramMethod? owner, bool forBoxing)
+        {
+            BindClosed(parameter, key.Trim(), owner);
+            if (!forBoxing)
+                return;
+
+            key = UnwrapNullable(key);
+            if (Parameter(key, owner) is { } source)
+            {
+                if (!_parameterEdges.TryGetValue(source, out var edges))
+                    _parameterEdges[source] = edges = [];
+                if (edges.Add(parameter))
+                    foreach (var binding in (_parameterBindings.GetValueOrDefault(source) ?? []).ToArray())
+                        BindValue(parameter, binding);
+            }
+            else
+            {
+                var candidates = _program.Type(key) is { IsValueType: true } type
+                    ? [type.TypeKey] : _valueTypeKeys.GetValueOrDefault(Shape(key)) ?? [];
+                foreach (var candidate in candidates)
+                    BindValue(parameter, candidate);
+            }
+        }
+
+        /// <summary>Binds a type parameter to every closed type an argument may be, reference types and <c>Nullable</c> included: the argument
+        /// itself where it is closed, and where it names the owner's type parameters, a template each combination of their closed bindings,
+        /// now and later, is substituted into. The context-count limit in <see cref="AddClosedBinding"/> keeps recursive widening finite.</summary>
+        /// <param name="parameter">The type parameter bound.</param>
+        /// <param name="key">The type argument, as the body names it.</param>
+        /// <param name="owner">The member whose type parameters the argument may name.</param>
+        private void BindClosed((string Owner, int Ordinal) parameter, string key, ProgramMethod? owner)
+        {
+            var sources = ParametersIn(key, owner);
+            if (sources.Count == 0)
+            {
+                if (!_program.IsOpen(key))
+                    AddClosedBinding(parameter, key);
+                return;
+            }
+
+            if (_closedEdges.GetValueOrDefault(sources[0].Parameter)?.Any(known => known.Target == parameter && known.Template == key) == true)
+                return;
+            var edge = new ClosedEdge(parameter, key, sources);
+            foreach (var (_, source) in sources)
+            {
+                if (!_closedEdges.TryGetValue(source, out var edges))
+                    _closedEdges[source] = edges = [];
+                edges.Add(edge);
+            }
+
+            Forward(edge, null, null);
+            // A template over a type parameter that can stay open can too.
+            if (sources.Any(source => _openParameters.Contains(source.Parameter)))
+                MarkOpen(parameter);
+        }
+
+        /// <summary>Substitutes the combinations of the closed bindings of a template's type parameters into it and binds its target to each
+        /// closed result: every combination, or those holding one new binding.</summary>
+        /// <param name="edge">The template edge.</param>
+        /// <param name="source">The source parameter that has a new binding, or null for every combination.</param>
+        /// <param name="binding">The new binding of <paramref name="source"/>.</param>
+        private void Forward(ClosedEdge edge, (string Owner, int Ordinal)? source, string? binding)
+        {
+            IEnumerable<Dictionary<string, string>> substitutions = [new(StringComparer.Ordinal)];
+            foreach (var (written, parameter) in edge.Sources)
+            {
+                var bindings = source is { } changed && changed == parameter ? [binding!] : _closedBindings.GetValueOrDefault(parameter)?.ToArray() ?? [];
+                substitutions = substitutions.SelectMany(substitution => bindings.Select(bound =>
+                    new Dictionary<string, string>(substitution, StringComparer.Ordinal) { [written] = bound })).ToArray();
+            }
+
+            foreach (var substitution in substitutions)
+            {
+                var bound = ProgramIndex.Substitute(edge.Template, substitution);
+                if (!_program.IsOpen(bound))
+                    AddClosedBinding(edge.Target, bound);
+            }
+        }
+
+        /// <summary>Records a closed binding and forwards it to its watchers and templates. Once the parameter has more closed types
+        /// than <see cref="Heap.AnalysisLimits.MaxContextsPerMethod"/>, it can stay open in a merged heap instance (<see cref="MarkOpen"/>)
+        /// and records no further bindings. Type nesting never discards a closed binding.</summary>
+        /// <param name="parameter">The type parameter.</param>
+        /// <param name="typeKey">The closed type it is bound to.</param>
+        private void AddClosedBinding((string Owner, int Ordinal) parameter, string typeKey)
+        {
+            if (!_closedBindings.TryGetValue(parameter, out var bindings))
+                _closedBindings[parameter] = bindings = new(StringComparer.Ordinal);
+            if (bindings.Contains(typeKey))
+                return;
+            if (bindings.Count > _input.Limits.MaxContextsPerMethod)
+            {
+                MarkOpen(parameter);
+                return;
+            }
+            bindings.Add(typeKey);
+            if (bindings.Count > _input.Limits.MaxContextsPerMethod)
+                MarkOpen(parameter);
+            foreach (var watcher in _bindingWatchers.GetValueOrDefault(parameter)?.ToArray() ?? [])
+                watcher(typeKey);
+            foreach (var edge in _closedEdges.GetValueOrDefault(parameter)?.ToArray() ?? [])
+                Forward(edge, parameter, typeKey);
+        }
+
+        /// <summary>Records that a type parameter can stay open in an instance of the heap, runs what waits for that, and passes it on to every
+        /// template over the parameter (<see cref="ClosedEdge"/>): a type argument naming a parameter that can stay open can too.</summary>
+        /// <param name="parameter">The type parameter.</param>
+        private void MarkOpen((string Owner, int Ordinal) parameter)
+        {
+            if (!_openParameters.Add(parameter))
+                return;
+            foreach (var watcher in _openWatchers.GetValueOrDefault(parameter)?.ToArray() ?? [])
+                watcher();
+            foreach (var edge in _closedEdges.GetValueOrDefault(parameter)?.ToArray() ?? [])
+                MarkOpen(edge.Target);
+        }
+
+        /// <summary>Runs an action once a type parameter can stay open (<see cref="MarkOpen"/>): now where it already can, else when it does.</summary>
+        /// <param name="parameter">The type parameter.</param>
+        /// <param name="onOpen">What to do.</param>
+        private void WatchOpen((string Owner, int Ordinal) parameter, Action onOpen)
+        {
+            if (_openParameters.Contains(parameter))
+            {
+                onOpen();
+                return;
+            }
+            if (!_openWatchers.TryGetValue(parameter, out var watchers))
+                _openWatchers[parameter] = watchers = [];
+            watchers.Add(onOpen);
+        }
+
+        /// <summary>Hands each closed type a type parameter is bound to, now and later, to an action.</summary>
+        /// <param name="parameter">The type parameter.</param>
+        /// <param name="onBinding">What to do with each binding.</param>
+        private void Watch((string Owner, int Ordinal) parameter, Action<string> onBinding)
+        {
+            if (!_bindingWatchers.TryGetValue(parameter, out var watchers))
+                _bindingWatchers[parameter] = watchers = [];
+            watchers.Add(onBinding);
+            foreach (var binding in _closedBindings.GetValueOrDefault(parameter)?.ToArray() ?? [])
+                onBinding(binding);
+        }
+
+        /// <summary>The owner's type parameters a binding template names at any position, including array elements of any rank and
+        /// nested generic, Nullable and tuple arguments, each with its key as written. <c>BindClosed</c> uses this one traversal to
+        /// register the source parameters of every closed-binding edge.</summary>
+        /// <param name="key">The type key.</param>
+        /// <param name="owner">The member whose type parameters the key may name.</param>
+        private List<(string Written, (string Owner, int Ordinal) Parameter)> ParametersIn(string key, ProgramMethod? owner)
+        {
+            var found = new List<(string Written, (string Owner, int Ordinal) Parameter)>();
+            Collect(key);
+            return found;
+
+            void Collect(string current)
+            {
+                if (Parameter(current, owner) is { } parameter)
+                {
+                    if (found.All(known => known.Written != current))
+                        found.Add((current, parameter));
+                    return;
+                }
+
+                if (Heap.UnseenWrites.ElementTypeKey(current) is { } element)
+                    Collect(element);
+                else
+                    foreach (var argument in ProgramIndex.Shape(current).Arguments)
+                        Collect(argument);
+            }
+        }
+
+        /// <summary>A binding of <see cref="Target"/> to a template over other type parameters, made again for each of their closed
+        /// bindings.</summary>
+        /// <param name="Target">The type parameter bound.</param>
+        /// <param name="Template">The type argument, naming the source parameters.</param>
+        /// <param name="Sources">The source parameters, each with its key as the template writes it.</param>
+        private sealed record ClosedEdge((string Owner, int Ordinal) Target, string Template,
+                                         IReadOnlyList<(string Written, (string Owner, int Ordinal) Parameter)> Sources);
+
+        /// <summary>Whether a value type is one of an assembly <see cref="ReachabilityRules.OpenWorldAssemblies"/> names — the driver's
+        /// probes —, which stands for a user's value any code may box: it counts as constructed where a reached body creates it, by a
+        /// constructor call, an object creation with or without an initializer, or <c>default</c>, as a class does. A value type of any
+        /// other assembly counts only where a reached body boxes it (ADR 0019).</summary>
+        /// <param name="typeKey">The value type.</param>
+        private bool StandsForUserValue(string typeKey) =>
+            _input.Rules.OpenWorldAssemblies.Count != 0 && typeKey.IndexOf(':') is > 0 and var colon &&
+            _input.Rules.OpenWorldAssemblies.Contains(typeKey[..colon]);
 
         private static string UnwrapNullable(string key)
         {
@@ -1091,36 +1395,9 @@ public static class ReachableSet
                 ? null
                 : _program.MethodsOf(typeKey).FirstOrDefault(method => method is { Kind: ProgramMethodKind.TypeInitializer, HasSourceBody: true });
 
-        /// <summary>A delegate type's name with each type-argument list reduced to its arity: a delegate of <c>Func&lt;T&gt;</c>
-        /// created in generic code is invoked as <c>Func&lt;Order&gt;</c>.</summary>
-        private static string Shape(string type)
-        {
-            var shape = new StringBuilder();
-            var depth = 0;
-            var count = 0;
-            foreach (var character in type)
-            {
-                switch (character)
-                {
-                    case '<':
-                        if (depth++ == 0)
-                            count = 1;
-                        break;
-                    case '>':
-                        if (--depth == 0)
-                            shape.Append('<').Append(count).Append('>');
-                        break;
-                    case ',' when depth == 1:
-                        count++;
-                        break;
-                    default:
-                        if (depth == 0)
-                            shape.Append(character);
-                        break;
-                }
-            }
-
-            return shape.ToString();
-        }
+        /// <summary>A type's name with each type-argument list reduced to its arity, using the shared type-key parser so array-rank
+        /// commas are never counted as type arguments. Delegate matching, type binding and boxed-type lookup all use this shape.</summary>
+        /// <param name="type">The type key or display name.</param>
+        private static string Shape(string type) => ProgramIndex.Shape(type).Shape;
     }
 }

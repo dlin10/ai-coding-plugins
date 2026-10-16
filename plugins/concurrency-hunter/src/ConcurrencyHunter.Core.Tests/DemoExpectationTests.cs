@@ -42,6 +42,27 @@ public sealed class DemoExpectationTests
             $"Confidence mismatches: {string.Join(", ", report.ConfidenceMismatches)}");
     }
 
+    /// <summary>A solver query is limited by Z3's work, not by time (ADR 0021): the demo analysed while a busy thread loads every
+    /// core reports what an idle analysis reports, findings and every scope's coverage counters alike, and the safeguard stopped
+    /// no query in either.</summary>
+    [Fact]
+    public async Task Demo_findings_do_not_depend_on_the_machines_load()
+    {
+        var idle = await AnalyzeDemoAsync();
+        AnalysisResult loaded;
+        using (new BusyCores())
+            loaded = await AnalyzeDemoAsync();
+
+        Assert.Equal(JsonSerializer.Serialize(idle.Findings, JsonOptions), JsonSerializer.Serialize(loaded.Findings, JsonOptions));
+        Assert.Equal(Counters(idle), Counters(loaded));
+        Assert.All(idle.Coverage.Concat(loaded.Coverage),
+                   scope => Assert.DoesNotContain(SolverCounters.SAFEGUARD_TIMEOUT, scope.Skips.Keys));
+
+        static string[] Counters(AnalysisResult result) =>
+            [.. result.Coverage.SelectMany(scope => scope.Skips.OrderBy(counter => counter.Key, StringComparer.Ordinal)
+                                                               .Select(counter => $"{scope.ScopeId} {counter.Key} {counter.Value}"))];
+    }
+
     [Fact]
     public async Task Demo_test_project_is_not_a_process_scope()
     {

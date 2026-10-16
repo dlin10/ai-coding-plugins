@@ -75,12 +75,49 @@ public sealed record SolverQuery(IReadOnlyList<PathPredicate> Conditions, ValueT
     public bool IsEmpty => Conditions.Count(condition => condition.IsSupported) < 2 && (FirstSelector is null || SecondSelector is null);
 }
 
+/// <summary>Why a query stopped without deciding (ADR 0021): only <see cref="Safeguard"/> depends on the clock, which is why
+/// coverage counts it apart.</summary>
+public enum SolverStop
+{
+    /// <summary>The query was decided.</summary>
+    None,
+
+    /// <summary>The solver spent the query's whole work limit.</summary>
+    ResourceLimit,
+
+    /// <summary>The wall-clock safeguard stopped the solver before its work limit did.</summary>
+    Safeguard,
+
+    /// <summary>The solver gave up on its own: a theory it does not carry, a failure, or a solver that never started.</summary>
+    Solver
+}
+
 /// <summary>An answer with what the solver said about it: the unsatisfiable core for a suppression, the model for a candidate
 /// that stands, and the reason for an answer that decided nothing (TD-093).</summary>
+/// <param name="Answer">What the query decided.</param>
+/// <param name="Trace">The core, the model or the reason, as the run's diagnostics and an undecided finding carry it.</param>
 public sealed record SolverOutcome(SolverAnswer Answer, string Trace)
 {
-    public static SolverOutcome Unknown(string reason) => new(SolverAnswer.Unknown, reason);
+    /// <summary>The solver's work units the query used, as the solver counts them (ADR 0021).</summary>
+    public ulong Work { get; init; }
+
+    /// <summary>Why an <see cref="SolverAnswer.Unknown"/> answer stopped; <see cref="SolverStop.None"/> for a decided one.</summary>
+    public SolverStop Stop { get; init; }
+
+    /// <summary>An answer that decided nothing.</summary>
+    /// <param name="reason">Why, as the finding's uncertainty carries it.</param>
+    /// <param name="stop">What stopped the query; the solver's own answer unless a limit did.</param>
+    /// <param name="work">The work units the query used.</param>
+    public static SolverOutcome Unknown(string reason, SolverStop stop = SolverStop.Solver, ulong work = 0) =>
+        new(SolverAnswer.Unknown, reason) { Stop = stop, Work = work };
 }
+
+/// <summary>What one query may spend (TD-094, ADR 0021). The work limit, in the solver's own units, is what decides the answer,
+/// so the same query gets the same answer under any load; the wall-clock safeguard only stops a pathological query, well past
+/// what a query at its work limit takes.</summary>
+/// <param name="Work">The solver's work units the query may use.</param>
+/// <param name="Safeguard">The wall-clock time after which the solver is stopped whatever work it used.</param>
+public sealed record SolverLimit(uint Work, TimeSpan Safeguard);
 
 /// <summary>
 /// The solver as the analysis sees it, with no type of any solver in the signature: this is the seam a test replaces to run the
@@ -91,7 +128,11 @@ public interface IConstraintSolver : IDisposable
     /// <summary>Whether the solver is there at all. An unavailable solver still answers, and answers <c>Unknown</c>.</summary>
     bool IsAvailable { get; }
 
-    SolverOutcome Decide(SolverQuery query, TimeSpan limit);
+    /// <summary>Decides one query within its limit, reporting the work it used and, for an undecided answer, what stopped
+    /// it.</summary>
+    /// <param name="query">The candidate's question.</param>
+    /// <param name="limit">The work limit and the safeguard the query runs under.</param>
+    SolverOutcome Decide(SolverQuery query, SolverLimit limit);
 }
 
 /// <summary>A solver that never started: every query is unknown, and the run goes on without it (ADR 0004).</summary>
@@ -101,7 +142,7 @@ public sealed class UnavailableSolver(string reason) : IConstraintSolver
 
     public bool IsAvailable => false;
 
-    public SolverOutcome Decide(SolverQuery query, TimeSpan limit) => SolverOutcome.Unknown(reason);
+    public SolverOutcome Decide(SolverQuery query, SolverLimit limit) => SolverOutcome.Unknown(reason);
 
     public void Dispose()
     {
@@ -109,34 +150,41 @@ public sealed class UnavailableSolver(string reason) : IConstraintSolver
 }
 
 /// <summary>
-/// What is left of one run's whole share of its deadline (TD-094). The share belongs to the run and not to each of its scopes:
-/// a budget that started again for every project would let a run of ten projects spend ten times the allowance, so the one
-/// budget is carried from scope to scope and every query is cut to what is left of it.
+/// What is left of one run's whole solver budget (TD-094, ADR 0021). The budget belongs to the run and not to each of its
+/// scopes: a budget that started again for every project would let a run of ten projects spend ten times the allowance, so the
+/// one budget is carried from scope to scope. Every query is charged its whole work limit, whatever work it used, so the budget
+/// is a number of queries: a query that stopped early or late moves no later query, and no query is given less than its whole
+/// limit.
 /// </summary>
-public sealed class SolverBudget(TimeSpan total)
+/// <param name="total">The run's whole budget, in the solver's work units.</param>
+public sealed class SolverBudget(ulong total)
 {
-    public TimeSpan Remaining { get; private set; } = total;
+    public ulong Remaining { get; private set; } = total;
 
-    public bool IsSpent => Remaining <= TimeSpan.Zero;
+    /// <summary>Whether what is left still holds one more query's whole limit.</summary>
+    /// <param name="limit">The limit the next query runs under.</param>
+    public bool Holds(SolverLimit limit) => Remaining >= limit.Work;
 
-    /// <summary>What one query may take: its own limit, or the rest of the run where that is less.</summary>
-    public TimeSpan LimitOf(TimeSpan queryLimit) => Remaining < queryLimit ? Remaining : queryLimit;
-
-    public void Spend(TimeSpan elapsed) => Remaining -= elapsed;
+    /// <summary>Charges a query its whole work limit.</summary>
+    /// <param name="limit">The limit the query ran under.</param>
+    public void Charge(SolverLimit limit) => Remaining -= limit.Work;
 }
 
-/// <summary>The limits the server runs the solver under, which are constants of the server and of no caller's (TD-094): a
-/// query has 150 ms, and every query of a run together has a tenth of the run's deadline.</summary>
+/// <summary>The limits the server runs the solver under, which are constants of the server and of no caller's (TD-094, ADR
+/// 0021): a query has a work limit calibrated on Z3 4.12.2 as the work it does in 150 ms on a query that does not finish, and a
+/// two-second safeguard; the run's budget is 1,200 such limits, what a tenth of the 30-minute deadline bought at 150 ms a query.
+/// A change of the shipped Z3 is a re-calibration.</summary>
 public static class SolverPolicy
 {
-    public static TimeSpan QueryLimit { get; } = TimeSpan.FromMilliseconds(150);
+    public const uint QUERY_WORK = 390_000;
 
-    /// <summary>The run deadline the budget is a share of; the same 30 minutes the run registry gives a run.</summary>
-    public static TimeSpan Deadline { get; } = TimeSpan.FromMinutes(30);
+    public const int BUDGET_QUERIES = 1_200;
 
-    public const double DeadlineShare = 0.10;
+    public static TimeSpan Safeguard { get; } = TimeSpan.FromSeconds(2);
 
-    public static TimeSpan Budget { get; } = Deadline * DeadlineShare;
+    public static SolverLimit QueryLimit { get; } = new(QUERY_WORK, Safeguard);
+
+    public static ulong Budget { get; } = (ulong)QUERY_WORK * BUDGET_QUERIES;
 }
 
 /// <summary>What the solver did to a scope's candidates, as coverage reports it (TD-093).</summary>
@@ -149,4 +197,5 @@ public static class SolverCounters
     public const string SAT = "solver-sat";
     public const string UNKNOWN = "solver-unknown";
     public const string BUDGET_EXHAUSTED = "solver-budget-exhausted";
+    public const string SAFEGUARD_TIMEOUT = "solver-safeguard-timeout";
 }

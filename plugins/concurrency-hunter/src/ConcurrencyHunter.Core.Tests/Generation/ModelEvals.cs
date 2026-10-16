@@ -21,6 +21,15 @@ public sealed class RequiresModelEvalsFactAttribute : FactAttribute
     }
 }
 
+/// <summary>A theory that runs only when <c>CH_MODEL_EVALS=1</c>, skipped with <see cref="RequiresModelEvalsFactAttribute"/>'s reason.</summary>
+public sealed class RequiresModelEvalsTheoryAttribute : TheoryAttribute
+{
+    public RequiresModelEvalsTheoryAttribute()
+    {
+        Skip = new RequiresModelEvalsFactAttribute().Skip;
+    }
+}
+
 /// <summary>A gold member (<c>skills/hunt/evals/models/gold.json</c>).</summary>
 /// <param name="Key">The member's short key.</param>
 /// <param name="Id">The declaration id.</param>

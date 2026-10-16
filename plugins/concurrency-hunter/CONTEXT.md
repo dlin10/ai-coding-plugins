@@ -175,11 +175,13 @@ _Avoid_: contents, items, elements (bare)
 **Capture cell**:
 The storage of a variable that a lambda or a local function captures: a field of the closure each
 invocation of the body declaring the variable creates — the declaring member, or the lambda or local
-function the variable is declared in — shared by that invocation and every delegate made in it. The
-closure is a heap region named after the declaring member, owned like an object that invocation
-created, and the cell's path is the variable's name, numbered `#n` for the n-th variable of that name
-the member declares after the first. Two delegates of one invocation running in two executions
-share the cell; two invocations never do.
+function the variable is declared in — shared by that invocation and every nested body that captures
+the variable, whether a delegate, a local function called directly or a lambda calling one. Every read
+and write of the variable by such a body is an access on the cell, and what the variable holds is
+reached through it. The closure is a heap region named after the declaring member, owned like an
+object that invocation created, and the cell's path is the variable's name, numbered `#n` for the
+n-th variable of that name the member declares after the first. Two nested bodies of one invocation
+running in two executions share the cell; two invocations never do.
 _Avoid_: display class (the compiler's type for it), captured local (the variable, not its storage)
 
 **Completion value**:
@@ -321,7 +323,12 @@ the collection's own members. On a region that belongs to one execution — `Own
 — it only reads: the call neither changes such an object nor keeps it. A `readonly` field of an
 object it only reads too, since nothing outside the object's construction can assign one but
 reflection, whose calls get the whole effect there as well; what the field points to gets the whole
-effect.
+effect. Struct storage it may write may hold a value afterwards, as after a copy, so a `Nullable`
+read from there boxes. Which slots it may write is one rule the heap and the accesses share — the
+receiver restriction, the `readonly` rule and the depth bound above, and the same for a library
+model's writes and outputs; the heap applies it before ownership exists, so storage of a region one
+execution owns is marked as possibly holding a value although the access the effect makes there is
+a read.
 _Avoid_: havoc, unknown write, opaque write
 
 **Semantic gap**:

@@ -86,7 +86,13 @@ public sealed record InterproceduralCoverage(string ScopeId, IReadOnlyDictionary
     public IReadOnlyList<SemanticGap> Gaps { get; init; } = [];
 }
 
-public sealed record InterproceduralCollection(IReadOnlyList<Access> Accesses, InterproceduralCoverage Coverage);
+public sealed record InterproceduralCollection(IReadOnlyList<Access> Accesses, InterproceduralCoverage Coverage)
+{
+    /// <summary>The struct storage the unknown effects and model writes of the scope may put a value into, before an unknown effect on an
+    /// object one execution owns is made a read: what the heap's walk of the same writes marks (<see cref="HeapSolution.UnseenFilledStorage"/>,
+    /// R9).</summary>
+    public IReadOnlySet<string> UnseenFilledStorage { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+}
 
 public sealed record InterproceduralInput(ScopeProgram Scope, HeapSolution Heap, ExecutionAnalysis Executions);
 
@@ -114,6 +120,7 @@ public static partial class InterproceduralAccesses
         var unproven = new HashSet<(string Body, int Operation)>();
         var folded = new HashSet<(string Body, int Operation)>();
         var unresolved = new HashSet<(string Body, int Operation)>();
+        var filled = new HashSet<string>(StringComparer.Ordinal);
         var graph = new WalkGraph(input);
         var discoveries = Discoveries(input, graph);
         var holders = new Lazy<IReadOnlyDictionary<string, CollectionHolder>>(() => Holders(input));
@@ -145,6 +152,7 @@ public static partial class InterproceduralAccesses
                     unproven.UnionWith(collector.UnprovenReferences);
                     folded.UnionWith(collector.FoldedReferences);
                     unresolved.UnionWith(collector.UnresolvedBases);
+                    filled.UnionWith(collector.UnseenFilled);
                 }
 
                 collected++;
@@ -160,7 +168,10 @@ public static partial class InterproceduralAccesses
         }
 
         // The gaps are the same calls now; their materiality counts what the unknown executions of their delegates touched (R4).
-        return new InterproceduralCollection(accesses, Coverage(input, accesses, unproven, folded, unresolved, SemanticGaps.Find(input, accesses)));
+        return new InterproceduralCollection(accesses, Coverage(input, accesses, unproven, folded, unresolved, SemanticGaps.Find(input, accesses)))
+        {
+            UnseenFilledStorage = filled
+        };
     }
 
     /// <summary>The executions running work without a body: those whose work sites start one, and the unknown execution of a handed
@@ -1902,8 +1913,9 @@ public static partial class InterproceduralAccesses
         /// <param name="IsReference">Whether the access is made through a reference.</param>
         /// <param name="IsStable">Whether the access is the same object on every visit, the summary's own or one this collector keeps,
         /// so that its resources are worked out once; one made anew for the visit is worked out again.</param>
+        /// <param name="IsUnseenWrite">Whether the visit comes from an unknown effect or a model effect, whose write kind is kept before ownership downgrades.</param>
         private readonly record struct VisitAccess(SummaryAccess Access, MethodInstance Source, PathNode SourceNode, bool IsReference,
-                                                   bool IsStable);
+                                                   bool IsStable, bool IsUnseenWrite = false);
 
         /// <summary>What the emission tells accesses apart by, besides their guards.</summary>
         /// <param name="BodyId">The body making the access.</param>
@@ -2020,6 +2032,16 @@ public static partial class InterproceduralAccesses
                 CheckCancellation();
                 var instance = _heap.Instances[node.State.Instance];
                 var hosted = _hosts.TryGetValue(node, out var enumerates);
+                // Outputs with no visible body write their target whole, independently of argument and unknown effects (R9).
+                foreach (var copy in instance.Summary.StructCopies.Where(copy => copy.IsUnseenOutput && !hosted &&
+                             input.Executions.Runs(instance.BodyId, node.State.Segment, copy.OperationId)))
+                foreach (var target in copy.Targets.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal))
+                {
+                    if (_heap.Regions[target].Kind is not (HeapRegionKind.StructStorage or HeapRegionKind.StructCopy))
+                        continue;
+                    foreach (var slot in UnseenWrites.OutputSlots(input.Scope.Program, _heap.Regions[target].TypeKey))
+                        UnseenFilled.Add(_heap.StorageIdentity(target, slot));
+                }
                 var direct = instance.Summary.Accesses
                     .Where(access => !hosted && input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId))
                     .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: true));
@@ -2077,7 +2099,7 @@ public static partial class InterproceduralAccesses
                                                     _ => throw new System.Diagnostics.UnreachableException($"Unknown effect kind {effect.Kind}.")
                                                 })
                                                 .ToArray()))
-                                        .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: false))
+                                        .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: false, IsUnseenWrite: true))
                                         .ToArray();
                 // An unresolved call's unknown effect is a read and a write of every field it reaches, made where the call stands (R1).
                 var unknownEffects = (unknownCalls.GetValueOrDefault(instance.Id) ?? [])
@@ -2086,11 +2108,11 @@ public static partial class InterproceduralAccesses
                                                         : call.EnumeratedSequence is null && call.Work is null &&
                                                           input.Executions.Runs(instance.BodyId, node.State.Segment, call.OperationId))
                                      .SelectMany(call => UnknownEffectAccesses(call, instance, node))
-                                     .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: true))
+                                     .Select(access => new VisitAccess(access, instance, node, IsReference: false, IsStable: true, IsUnseenWrite: true))
                                      .ToArray();
                 // What the enumerations along the path hold is the same for every access the visit makes.
                 (bool Known, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? Locks) pathLocks = default;
-                foreach (var (access, source, sourceNode, isReference, isStable) in direct.Concat(references).Concat(deepReads).Concat(unknownEffects))
+                foreach (var (access, source, sourceNode, isReference, isStable, isUnseenWrite) in direct.Concat(references).Concat(deepReads).Concat(unknownEffects))
                 {
                     var term = access.SelectorTerm is { } selectorTerm ? isReference ? selectorTerm : Bind(selectorTerm, source, sourceNode) : null;
                     var selector = term is ConstantTerm constant ? ElementSelector.Exact(constant.Value) : access.Selector;
@@ -2117,14 +2139,16 @@ public static partial class InterproceduralAccesses
                             ? AccessOperation.ReadModifyWrite
                             : Operation(access, sources is { Count: > 0 },
                                         verified.Contains((instance.Id, access.OperationId, identity)));
+                        var unseenWrite = operation is not (AccessOperation.Read or AccessOperation.AtomicRead) &&
+                            (isUnseenWrite ||
+                             instance.Summary.StructCopies.Any(copy => copy.IsUnseenOutput && copy.OperationId == access.OperationId))
+                            ? operation : (AccessOperation?)null;
                         // An unresolved call neither changes nor keeps an object of one execution: there its unknown effect only reads,
-                        // and the decision is the region's own, so a shared object it reaches still gets the whole effect (R1, R2). Nor
-                        // can it assign a readonly field of the object, unless it is reflection; what the field points to still gets the
-                        // whole effect.
+                        // and the decision is the region's own, so a shared object it reaches still gets the whole effect (R1, R2). Where
+                        // it cannot assign a readonly field of the object, its walk made the access a read already (UnseenWrites).
                         if (operation.IsUnknownEffect() &&
-                            (input.Executions.Ownership.GetValueOrDefault(resource.CollectionId ?? resource.RegionId!)?.Kind is OwnershipKind.Owned
-                                                                                                                                   or OwnershipKind.ThreadConfined ||
-                             IsOwnReadonlyField(instance, access, resource)))
+                            input.Executions.Ownership.GetValueOrDefault(resource.CollectionId ?? resource.RegionId!)?.Kind is OwnershipKind.Owned
+                                                                                                                                  or OwnershipKind.ThreadConfined)
                             operation = operation == AccessOperation.AtomicUnknownEffect ? AccessOperation.AtomicRead : AccessOperation.Read;
                         // Two paths of one body under different guards are two accesses, whatever they touch: keeping one path's
                         // guards for both would let them decide a pair the other path is part of (R1, R8). A path under every guard
@@ -2191,6 +2215,8 @@ public static partial class InterproceduralAccesses
                                                                              .Distinct()
                                                                              .ToArray(),
                                                                     StringComparer.Ordinal),
+                                UnseenWriteOperation = unseenWrite,
+                                WritesWholeStruct = unseenWrite is not null && StructStorage.IsWholeStorage(access.Field),
                                 ExecutionId = execution.Id,
                                 Ownership = ownership?.Kind ?? OwnershipKind.Unknown,
                                 OwnershipEvidence = ownership?.Evidence ?? [],
@@ -2336,18 +2362,21 @@ public static partial class InterproceduralAccesses
 
         /// <summary>Whether a receiver or an argument an unknown effect starts from resolves to no region, so that the effect makes no
         /// access through it, and the access is the unresolved-base counter's (<see cref="IsUnresolvedBase"/>, R6). An array the call
-        /// creates for its arguments is judged by its elements, whose values are one set and no operand of the call.</summary>
+        /// creates for its arguments is no operand: each of its elements is one, judged by its own value and static type
+        /// (<see cref="CreatedElement"/>, TD-124), so the operation counts once whichever of them resolves to no region.</summary>
         /// <param name="call">The unresolved call.</param>
         /// <param name="instance">The instance the call stands in.</param>
         private bool HasUnresolvedOperand(UnknownCall call, MethodInstance instance)
         {
             var operation = CallOperation(instance, call.OperationId);
-            var operands = call.Arguments.Where(argument => argument.CreatedElements is null)
-                               .Select(argument => (argument.Values, ValueId: operation?.ArgumentAt(argument.ParameterOrdinal), argument.IsFresh))
-                               .Prepend((Values: call.Receivers, ValueId: operation?.ReceiverValue, IsFresh: false));
+            var operands = call.Arguments.SelectMany(argument => argument.CreatedElements is { } elements
+                                   ? elements.Select(element => (element.Values, Handed: (Func<HandedValue>)(() => Handed(instance, element.ObjectTypeKey, element.IsReference)),
+                                                                 IsFresh: false))
+                                   : [(argument.Values, Handed: () => Handed(instance, operation?.ArgumentAt(argument.ParameterOrdinal)), argument.IsFresh)])
+                               .Prepend((Values: call.Receivers, Handed: () => Handed(instance, operation?.ReceiverValue), IsFresh: false));
             return operands.Any(operand => operand.Values.Count != 0 &&
                                            !operand.Values.Any(value => _heap.Resolve(instance.Id, value).Count != 0) &&
-                                           Handed(instance, operand.ValueId) is { WouldBeAccessed: true } handed &&
+                                           operand.Handed() is { WouldBeAccessed: true } handed &&
                                            IsUnresolvedBase(instance, call.OperationId, [], handed.IsCopy, operand.IsFresh, isOnUnheldCollection: false));
         }
 
@@ -2367,8 +2396,19 @@ public static partial class InterproceduralAccesses
             if (valueId is not int id || !input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ||
                 (id < body.Values.Count && body.Values[id].Id == id ? body.Values[id] : body.Values.FirstOrDefault(value => value.Id == id)) is not { } value)
                 return new HandedValue(WouldBeAccessed: true, IsCopy: false);
-            if (value.ObjectTypeKey is not { } key)
-                return new HandedValue(WouldBeAccessed: !value.IsReference, IsCopy: !value.IsReference);
+            return Handed(instance, value.ObjectTypeKey, value.IsReference);
+        }
+
+        /// <summary>What a value handed to a call is, by the static type its body gives it: the one rule <see cref="Handed(MethodInstance,
+        /// int?)"/> applies to an operand of the call and <see cref="HasUnresolvedOperand"/> to an element of an array the call creates
+        /// (<see cref="CreatedElement"/>).</summary>
+        /// <param name="instance">The instance, whose substitution closes a type parameter.</param>
+        /// <param name="objectTypeKey">The value's <see cref="IrValue.ObjectTypeKey"/>, null for a value type.</param>
+        /// <param name="isReference">The value's <see cref="IrValue.IsReference"/>.</param>
+        private HandedValue Handed(MethodInstance instance, string? objectTypeKey, bool isReference)
+        {
+            if (objectTypeKey is not { } key)
+                return new HandedValue(WouldBeAccessed: !isReference, IsCopy: !isReference);
             var type = ProgramIndex.Substitute(key, instance.Substitution);
             return input.Scope.Program.Type(type) is { IsValueType: true }
                 ? new HandedValue(WouldBeAccessed: true, IsCopy: true)
@@ -2392,20 +2432,6 @@ public static partial class InterproceduralAccesses
 
             return operation;
         }
-
-        /// <summary>Whether an access is on storage readonly in the object it touches, which nothing outside that object's construction
-        /// can assign but reflection: exactly where the path's first field, the object's own, is readonly, and then every struct field
-        /// below it is readonly with it (R1). A readonly field below a struct field the object can replace whole is not, nor is a cell;
-        /// a field of the object a reference field there holds is that object's own resource.</summary>
-        /// <param name="instance">The instance making the access.</param>
-        /// <param name="access">The access, whose call is checked for reflection.</param>
-        /// <param name="resource">The resource the access touches.</param>
-        private bool IsOwnReadonlyField(MethodInstance instance, SummaryAccess access, AccessResource resource) =>
-            resource is { IsWildcard: false, Selector: null, CollectionId: null, Storage: { Cell: 0, Fields: [{ IsReadOnly: true } first, ..] } } &&
-            !(unknownCalls.GetValueOrDefault(instance.Id) ?? []).Any(call => call.OperationId == access.OperationId &&
-                                                                             call.Kind == SemanticGapKinds.REFLECTION) &&
-            _heap.Regions[resource.RegionId!].TypeKey is { } typeKey && input.Scope.Program.Type(typeKey) is { IsValueType: false } &&
-            (input.Scope.Program.InstanceFieldsOf(typeKey) ?? []).Any(field => FieldSlot.Key(field) == FieldSlot.Key(first));
 
         /// <summary>
         /// The unknown effect of an unresolved call (R1): one unknown-effect access of every field, collection structure and cell it
@@ -2444,7 +2470,7 @@ public static partial class InterproceduralAccesses
                 var reads = known.Starts[starts.Count].FirstOrDefault(candidate => candidate.Held.SequenceEqual(held));
                 if (reads is null)
                     known.Starts[starts.Count].Add(reads = new StartReads(held, DeepReadAccesses(effect, instance, objects, held, unknownEffect: true,
-                                                                                                start.DeclaringTypeKey)));
+                                                                                                start.DeclaringTypeKey, UnseenWrites.OfGap(call.Kind))));
                 starts.Add((fresh, reads));
             }
 
@@ -2509,7 +2535,10 @@ public static partial class InterproceduralAccesses
         /// fields read. A slice handed over ready is the cells of the storage it is cut from, and a slice nothing proves any storage of
         /// is counted and reads nothing. An object of another type from metadata is one wildcard read; an immutable one, none.
         /// No getter, converter or <c>ToString</c> runs: only fields are read. An unknown effect walks the same way with its own kind
-        /// of access, and without a wildcard on a library object, whose own state is no resource (R1).
+        /// of access, and without a wildcard on a library object, whose own state is no resource (R1). Where it cannot write a slot — storage
+        /// readonly in the object it touches, which only reflection writes — its access there is a read (<see cref="UnseenWrites"/>); a
+        /// struct's storage it starts from is written whole; each slot holding a <c>Nullable</c> it may write is recorded in
+        /// <see cref="UnseenFilled"/>, as the heap's walk of the same effect marks it (R9).
         /// </summary>
         /// <param name="read">The effect to expand.</param>
         /// <param name="instance">The instance making the call.</param>
@@ -2533,19 +2562,34 @@ public static partial class InterproceduralAccesses
         /// <param name="holdings">The storages of the collections the effect is handed ready (<see cref="HeldCollections"/>).</param>
         /// <param name="unknownEffect">Whether the effect is an unresolved call.</param>
         /// <param name="declaringTypeKey">The state visible through a restricted receiver.</param>
+        /// <param name="unseen">The unseen write an unresolved call's unknown effect is: reflection, or any other.</param>
         private IReadOnlyList<SummaryAccess> DeepReadAccesses(SummaryArgumentEffect read, MethodInstance instance, HashSet<string> objects,
-                                                              Holding[] holdings, bool unknownEffect, string? declaringTypeKey)
+                                                              Holding[] holdings, bool unknownEffect, string? declaringTypeKey,
+                                                              UnseenWriteKind unseen = UnseenWriteKind.UnknownEffect)
         {
             var kind = unknownEffect ? SummaryAccessKind.UnknownEffect : SummaryAccessKind.Load;
-            var limit = input.Scope.Summaries.Limits.MaxAccessPathDepth;
+            var program = input.Scope.Program;
             var accesses = new List<SummaryAccess>();
             var visited = new HashSet<string>(StringComparer.Ordinal);
             // A region waiting to be read, with the field that holds it where it is a collection: a collection in the cells of another
-            // is named by the field the outer one was reached by, its identity being the collection itself (ADR 0010).
-            var pending = new Queue<(string Region, int Depth, (AbstractValue Parent, IrFieldRef Field)? Holder)>();
+            // is named by the field the outer one was reached by, its identity being the collection itself (ADR 0010). A struct's storage
+            // is readonly where the first field of its path is readonly in the object holding it (UnseenWrites.IsOwnReadonly).
+            var pending = new Queue<(string Region, int Depth, (AbstractValue Parent, IrFieldRef Field)? Holder, bool Readonly)>();
             var held = new HashSet<string>(StringComparer.Ordinal);
             // The collections whose structure and cells are already read, under the cells a slice cuts.
             var structureRead = new HashSet<string>(StringComparer.Ordinal);
+
+            // An unknown effect writes a slot only where the rule lets it, and reads it elsewhere; each slot holding a Nullable it may write
+            // may hold a value afterwards (R9).
+            SummaryAccessKind KindAt(bool isReadonly) =>
+                unknownEffect && !UnseenWrites.MayWrite(unseen, isReadonly) ? SummaryAccessKind.Load : kind;
+            void Filled(string regionId, string? typeKey, string slot, bool isReadonly)
+            {
+                if (!unknownEffect || !UnseenWrites.MayWrite(unseen, isReadonly))
+                    return;
+                foreach (var presence in UnseenWrites.PresenceSlots(program, typeKey, slot))
+                    UnseenFilled.Add(_heap.StorageIdentity(regionId, presence));
+            }
 
             foreach (var (parent, field, collections, cells) in holdings)
             {
@@ -2553,7 +2597,7 @@ public static partial class InterproceduralAccesses
                 structureRead.UnionWith(collections);
                 accesses.AddRange(CollectionReads(read, new RegionValue(parent), field, collections, cells, withStructure: !read.IsSlice, kind));
                 foreach (var collection in collections)
-                    pending.Enqueue((collection, 0, (new RegionValue(parent), field)));
+                    pending.Enqueue((collection, 0, (new RegionValue(parent), field), false));
             }
 
             if (IsUnprovenSlice(read, held, objects))
@@ -2563,26 +2607,33 @@ public static partial class InterproceduralAccesses
             }
 
             // A collection no field holds is no resource of its own; the objects in it, and the fields of a type of the run's own
-            // deriving from it, still are.
+            // deriving from it, still are. A struct's storage handed over is written whole.
             foreach (var region in objects.Where(region => !held.Contains(region) && (!read.IsSlice || CollectionKind(region).IsCollection))
                                           .Order(StringComparer.Ordinal))
-                pending.Enqueue((region, 0, null));
+            {
+                var isReadonly = _heap.Regions[region].Kind == HeapRegionKind.StructStorage && OwnReadonlyRoot(region);
+                if (_heap.Regions[region].Kind == HeapRegionKind.StructStorage && unknownEffect && UnseenWrites.MayWrite(unseen, isReadonly))
+                {
+                    UnseenFilled.Add(_heap.StorageIdentity(region, ""));
+                    if (_heap.Regions[region].TypeKey is { } structType)
+                        accesses.Add(Access(read, KindAt(isReadonly), StructStorage.WholeStorage(structType), new RegionValue(region)));
+                }
+                pending.Enqueue((region, 0, null, isReadonly));
+            }
 
             while (pending.TryDequeue(out var item))
             {
-                var (regionId, depth, holder) = item;
+                var (regionId, depth, holder, isReadonly) = item;
                 if (!visited.Add(regionId))
                     continue;
-                var fields = _heap.Regions[regionId].TypeKey is { } key ? input.Scope.Program.InstanceFieldsOf(key) : null;
+                var isObject = _heap.Regions[regionId].Kind != HeapRegionKind.StructStorage;
+                var fields = _heap.Regions[regionId].TypeKey is { } key ? program.InstanceFieldsOf(key) : null;
                 // An object of the run's own also has the state its library bases give it, as far as the program names it (R1).
                 var receiverType = depth == 0 && holder is null && objects.Contains(regionId) ? declaringTypeKey : null;
-                if (unknownEffect && (fields is not null || receiverType is not null))
-                    fields = reach.FieldsOf(regionId, receiverType);
-                // Through the receiver of a member only the declaring type's state and its bases' is seen (R1).
-                if (fields is not null && receiverType is not null)
-                    fields = reach.Seen(fields, receiverType);
+                if (unknownEffect)
+                    fields = UnseenWrites.FieldsOf(program, _heap.Regions[regionId].TypeKey, reach.LibraryFieldsOf(regionId), receiverType);
                 foreach (var kept in _heap.PointsTo(regionId, PathValue.KEPT))
-                    pending.Enqueue((kept, depth + 1, null));
+                    pending.Enqueue((kept, depth + 1, null, false));
                 if (CollectionKind(regionId).IsCollection)
                 {
                     // A collection reached through a field or the cells of a held one is read as its holder's is; one handed over
@@ -2590,37 +2641,53 @@ public static partial class InterproceduralAccesses
                     var by = holder ?? (holders.Value.TryGetValue(regionId, out var found) ? (found.Base, found.Field) : null);
                     if (by is { } named && structureRead.Add(regionId))
                         accesses.AddRange(CollectionReads(read, named.Parent, named.Field, [regionId], ElementSelector.Unknown, withStructure: true, kind));
+                    Filled(regionId, UnseenWrites.ElementTypeKey(_heap.Regions[regionId].TypeKey), PathValue.ELEMENT, isReadonly: false);
                     foreach (var element in HeldBy(regionId))
-                        pending.Enqueue((element, depth + 1, by));
+                        pending.Enqueue((element, depth + 1, by, false));
                     // A library collection has no state of its own that is a resource; a type of the run's own deriving from one
                     // has its own fields.
                     if (fields is null)
                         continue;
                 }
 
-                if (_heap.Regions[regionId].TypeKey is { } typeKey && input.Scope.Program.ImmutableTypeKeys.Contains(typeKey))
+                if (_heap.Regions[regionId].TypeKey is { } typeKey && program.ImmutableTypeKeys.Contains(typeKey))
                     continue;
                 // An unknown effect runs no delegate it is handed: the delegate's own body is what reaches what it captures (ADR 0011).
                 if (unknownEffect && _heap.Regions[regionId].Kind == HeapRegionKind.Delegate)
                     continue;
-                if (fields is null || depth >= limit)
+                // A field readonly in the object it is the first field of, and everything below it, only reflection writes (R1).
+                bool IsReadonly(IrFieldRef field) => isReadonly || isObject && UnseenWrites.IsOwnReadonly(program, _heap.Regions[regionId].TypeKey, field);
+                var pastBound = UnseenWrites.IsPastBound(depth, input.Scope.Summaries.Limits);
+                if (fields is null || pastBound)
                 {
                     // Past what fields name the read loses its precision and not its reach: the objects the region points to are
                     // read in turn. A library object's own state is no resource, so an unknown effect has no wildcard on it and only
-                    // reaches what the heap knows it holds (R1).
+                    // reaches what the heap knows it holds (R1). The wildcard over a struct's readonly storage only reads it.
                     if (fields is not null || !unknownEffect)
-                        accesses.Add(Access(read, kind, WILDCARD_FIELD, new PathValue(new RegionValue(regionId), [PathValue.WILDCARD])));
-                    // What the heap knows of a library object is the fields the program names on its type (R1).
-                    else if (depth < limit)
-                        accesses.AddRange(reach.LibraryFieldsOf(regionId).Select(field => Access(read, kind, field, new RegionValue(regionId))));
+                    {
+                        var excluded = (fields ?? []).Where(field => unknownEffect && !UnseenWrites.MayWrite(unseen, IsReadonly(field))).ToArray();
+                        var wildcardKind = isObject && fields is { Count: > 0 } && excluded.Length == fields.Count
+                            ? SummaryAccessKind.Load : KindAt(isReadonly);
+                        accesses.Add(Access(read, wildcardKind, WILDCARD_FIELD,
+                                            new PathValue(new RegionValue(regionId), [PathValue.WILDCARD])) with
+                        {
+                            WildcardExclusions = wildcardKind == SummaryAccessKind.UnknownEffect
+                                ? excluded.Select(FieldSlot.Key).ToHashSet(StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal)
+                        });
+                        if (wildcardKind == SummaryAccessKind.UnknownEffect)
+                            accesses.AddRange(excluded.Select(field => Access(read, SummaryAccessKind.Load, field, new RegionValue(regionId))));
+                    }
+                    foreach (var field in fields ?? [])
+                        Filled(regionId, field.FieldTypeKey, FieldSlot.Key(field), IsReadonly(field));
                     foreach (var target in _heap.FieldsOf(regionId).SelectMany(slot => _heap.PointsTo(regionId, slot))
                                                 .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
-                        pending.Enqueue((target, depth + 1, null));
+                        pending.Enqueue((target, depth + 1, null, false));
                     continue;
                 }
 
                 foreach (var field in fields)
                 {
+                    Filled(regionId, field.FieldTypeKey, FieldSlot.Key(field), IsReadonly(field));
                     // A struct the object keeps is part of it: its fields are read through its storage, each with the whole path, one
                     // level deeper, and what they hold is reached as the object's own fields' is (R1).
                     if (StructFields(field).Count != 0 &&
@@ -2628,18 +2695,32 @@ public static partial class InterproceduralAccesses
                             { Count: > 0 } storages)
                     {
                         foreach (var storage in storages.Order(StringComparer.Ordinal))
-                            pending.Enqueue((storage, depth + 1, null));
+                            pending.Enqueue((storage, depth + 1, null, IsReadonly(field)));
                         continue;
                     }
 
-                    accesses.Add(Access(read, kind, field, new RegionValue(regionId)));
+                    accesses.Add(Access(read, KindAt(IsReadonly(field)), field, new RegionValue(regionId)));
                     foreach (var target in _heap.PointsTo(regionId, FieldSlot.Key(field)).Order(StringComparer.Ordinal))
-                        pending.Enqueue((target, depth + 1, (new RegionValue(regionId), field)));
+                        pending.Enqueue((target, depth + 1, (new RegionValue(regionId), field), false));
                 }
             }
 
             return accesses;
         }
+
+        /// <summary>Whether the first field of a struct's storage's path is readonly in the object holding it
+        /// (<see cref="UnseenWrites.IsOwnReadonly"/>); a cell is no field.</summary>
+        /// <param name="storage">The struct's storage.</param>
+        private bool OwnReadonlyRoot(string storage) =>
+            _heap.Located(storage, "") is { } located && _heap.Regions[located.Region].TypeKey is { } typeKey &&
+            (UnseenWrites.FieldsOf(input.Scope.Program, typeKey, reach.LibraryFieldsOf(located.Region)) ?? [])
+                .FirstOrDefault(field => FieldSlot.Key(field) == FieldSlot.Root(located.Slot)) is { } first &&
+            UnseenWrites.IsOwnReadonly(input.Scope.Program, typeKey, first);
+
+        /// <summary>The struct storage the unknown effects and model writes of this execution may put a value into: each slot holding a
+        /// <c>Nullable</c> they may write, by <see cref="HeapSolution.StorageIdentity"/>, before an unknown effect on an object one
+        /// execution owns is made a read (R9). The heap marks the same storage by its own walk (<see cref="HeapSolution.UnseenFilledStorage"/>).</summary>
+        internal HashSet<string> UnseenFilled { get; } = new(StringComparer.Ordinal);
 
         /// <summary>
         /// The reads a <c>foreach</c> makes of what it enumerates where no collection member models it (ADR 0010): the structure and
@@ -2679,10 +2760,28 @@ public static partial class InterproceduralAccesses
             return accesses;
         }
 
-        private IReadOnlyList<SummaryAccess> CellWriteAccesses(SummaryArgumentEffect write, MethodInstance instance, PathNode node) =>
-            EnumerationAccesses(write, instance, node).Where(access => access.Selector is not null)
+        /// <summary>The writes a model's <c>writes-cells</c> makes: every cell of each collection or array it is handed, where a field holds
+        /// it, as an enumeration reads them (<see cref="EnumerationAccesses"/>). Each cell of each array it may be that holds a
+        /// <c>Nullable</c>, and each one below the struct a cell holds, may hold a value afterwards (R9, <see cref="UnseenWrites"/>).</summary>
+        /// <param name="write">The model's write.</param>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="node">The visit, whose path the storage of a collection handed over ready is resolved along.</param>
+        private IReadOnlyList<SummaryAccess> CellWriteAccesses(SummaryArgumentEffect write, MethodInstance instance, PathNode node)
+        {
+            if (UnseenWrites.MayWrite(UnseenWriteKind.ModelCells, isOwnReadonly: false))
+            {
+                foreach (var region in write.Values.SelectMany(value => _heap.Resolve(instance.Id, value)))
+                {
+                    foreach (var presence in UnseenWrites.PresenceSlots(input.Scope.Program, UnseenWrites.ElementTypeKey(_heap.Regions[region].TypeKey),
+                                                                        PathValue.ELEMENT))
+                        UnseenFilled.Add(_heap.StorageIdentity(region, presence));
+                }
+            }
+
+            return EnumerationAccesses(write, instance, node).Where(access => access.Selector is not null)
                 .Select(access => access with { Kind = SummaryAccessKind.Store, Selector = ElementSelector.Unknown, Atomic = null, IsCompound = false })
                 .ToArray();
+        }
 
         /// <summary>The accesses a member of the table makes when no field of its body names the receiver: its own effects on the
         /// structure and on the cell its key names — every cell where it names none — of each collection the objects it may be are or
@@ -2889,36 +2988,39 @@ public static partial class InterproceduralAccesses
         /// The writes an argument write makes (R3): every field of the objects the argument may be, one level deep, since the call
         /// may set any of them and nothing below. A sequence of such objects, handed to a parameter that takes one, has its objects
         /// written and not itself: the call reads the sequence deep, but changes neither its structure nor its cells, nor any field
-        /// of a sequence type of the run's own. An object of a type from metadata
-        /// is one wildcard write; an immutable one, none.
+        /// of a sequence type of the run's own. Known metadata fields use the same field source as source fields
+        /// (<see cref="UnseenWrites.FieldsOf"/>); without known fields an object is one wildcard write; an immutable one, none.
+        /// A model writes what it says it writes, readonly fields included: each slot
+        /// holding a <c>Nullable</c> at or below a field it writes may hold a value afterwards (R9, <see cref="UnseenWrites"/>).
         /// </summary>
         /// <param name="write">The argument write effect.</param>
         /// <param name="instance">The instance making the call.</param>
         private IReadOnlyList<SummaryAccess> ArgumentWriteAccesses(SummaryArgumentEffect write, MethodInstance instance)
         {
-            var targets = new SortedSet<string>(StringComparer.Ordinal);
+            var program = input.Scope.Program;
             // What the parameter takes decides, not the type of what it is given: an entity is written itself, even when it is a
-            // collection type of the run's own, and a sequence of entities has its entities written and not itself.
-            foreach (var region in write.Values.SelectMany(value => _heap.Resolve(instance.Id, value)))
-            {
-                if (write.IsSequence)
-                    targets.UnionWith(SequenceElements(region));
-                else
-                    targets.Add(region);
-            }
+            // collection type of the run's own, and a sequence of entities has its entities written and not itself; a library sequence
+            // has what it yields written. The heap marks by the same rule (UnseenWrites.ModelArgumentTargets).
+            var targets = new SortedSet<string>(UnseenWrites.ModelArgumentTargets(program, write.Values.SelectMany(value => _heap.Resolve(instance.Id, value)),
+                                                                                   write.IsSequence, SolvedView),
+                                                StringComparer.Ordinal);
 
             var accesses = new List<SummaryAccess>();
             foreach (var regionId in targets)
             {
                 if (_heap.Regions[regionId].TypeKey is { } typeKey && input.Scope.Program.ImmutableTypeKeys.Contains(typeKey))
                     continue;
-                if ((_heap.Regions[regionId].TypeKey is { } key ? input.Scope.Program.InstanceFieldsOf(key) : null) is not { } fields)
+                if (UnseenWrites.FieldsOf(program, _heap.Regions[regionId].TypeKey, reach.LibraryFieldsOf(regionId)) is not { } fields)
                 {
                     accesses.Add(Access(write, SummaryAccessKind.Store, WILDCARD_FIELD, new PathValue(new RegionValue(regionId), [PathValue.WILDCARD])));
                     continue;
                 }
 
                 accesses.AddRange(fields.Select(field => Access(write, SummaryAccessKind.Store, field, new RegionValue(regionId))));
+                if (!UnseenWrites.MayWrite(UnseenWriteKind.ModelArgument, isOwnReadonly: false))
+                    continue;
+                foreach (var presence in fields.SelectMany(field => UnseenWrites.PresenceSlots(program, field.FieldTypeKey, FieldSlot.Key(field))))
+                    UnseenFilled.Add(_heap.StorageIdentity(regionId, presence));
             }
 
             return accesses;
@@ -2945,10 +3047,11 @@ public static partial class InterproceduralAccesses
         {
             switch (effect.Kind)
             {
+                // An argument write writes what a library sequence it is handed yields by its own rule (UnseenWrites.ModelArgumentTargets).
                 case IrLibraryEffectKind.WriteCells:
+                case IrLibraryEffectKind.WriteArgument:
                     return [effect];
                 case IrLibraryEffectKind.DeepRead:
-                case IrLibraryEffectKind.WriteArgument:
                 case IrLibraryEffectKind.Enumerate:
                     break;
                 default:
@@ -2968,14 +3071,12 @@ public static partial class InterproceduralAccesses
             foreach (var region in sequences.Where(visited.Add))
             {
                 var sequence = _heap.LibrarySequences[region];
-                if (effect.Kind is IrLibraryEffectKind.DeepRead or IrLibraryEffectKind.WriteArgument)
-                {
-                    var yielded = effect.Kind == IrLibraryEffectKind.DeepRead ? sequence.Yields.Concat(sequence.Keys) : sequence.Yields;
-                    expanded.AddRange(Expanded(effect with { Values = RegionValues(yielded), Collection = null, IsSlice = false, IsSequence = false },
+                if (effect.Kind == IrLibraryEffectKind.DeepRead)
+                    expanded.AddRange(Expanded(effect with { Values = RegionValues(sequence.Yields.Concat(sequence.Keys)), Collection = null, IsSlice = false,
+                                                             IsSequence = false },
                                                instance, visited));
-                }
 
-                if (effect.Kind == IrLibraryEffectKind.WriteArgument || sequence.IsGrouping)
+                if (sequence.IsGrouping)
                     continue;
                 // What the call that returned it does to its arguments happens here, and so does the enumeration of what its delegates
                 // returned, which no argument effect names; a sequence a value built enumerates its sources.
@@ -3035,47 +3136,17 @@ public static partial class InterproceduralAccesses
                 Conditions = effect.Conditions
             };
 
-        /// <summary>The objects a sequence may yield: a collection's or an array's own, and for a sequence type of the run's own that
-        /// is no collection, every object it reaches, however deep and through whatever holds it, of a type it enumerates. Its
-        /// enumerator may hand out any of them, and the call never runs it to learn which (R3). A sequence that names no element
-        /// type, or names <c>object</c>, may yield anything it reaches.</summary>
-        /// <param name="region">The sequence region.</param>
-        private IEnumerable<string> SequenceElements(string region)
-        {
-            if (CollectionKind(region).IsCollection)
-                return HeldBy(region);
-            var program = input.Scope.Program;
-            if (_heap.Regions[region].TypeKey is not { } key || program.Type(key) is not { IsSource: true })
-                return [];
+        /// <summary>The solved heap as <see cref="UnseenWrites.ModelArgumentTargets{TRegion}"/> asks of it.</summary>
+        private RegionView<string> SolvedView => _solvedView ??= new RegionView<string>(
+            region => _heap.LibrarySequences.TryGetValue(region, out var sequence) ? sequence.Yields : null,
+            region => CollectionKind(region).IsCollection,
+            region => _heap.Regions[region].TypeKey,
+            HeldBy,
+            region => _heap.FieldsOf(region),
+            (region, slot) => _heap.PointsTo(region, slot),
+            region => _heap.Regions[region].Kind == HeapRegionKind.Delegate);
 
-            var enumerated = program.Supertypes(key).Where(type => TypeName(type) == "System.Collections.Generic.IEnumerable")
-                                    .Select(type => type[(type.IndexOf('<') + 1)..type.LastIndexOf('>')].Trim())
-                                    .ToArray();
-            var anything = enumerated.Length == 0 || enumerated.Any(element => TypeName(element) == "object" || program.IsOpen(element));
-            var yielded = new SortedSet<string>(StringComparer.Ordinal);
-            var visited = new HashSet<string>(StringComparer.Ordinal) { region };
-            var pending = new Queue<string>(Reached(region));
-            while (pending.TryDequeue(out var current))
-            {
-                if (!visited.Add(current))
-                    continue;
-                if (_heap.Regions[current].TypeKey is { } type &&
-                    (anything || program.Supertypes(type).Any(supertype => enumerated.Contains(supertype, StringComparer.Ordinal))))
-                    yielded.Add(current);
-                foreach (var next in Reached(current))
-                    pending.Enqueue(next);
-            }
-
-            return yielded;
-
-            // What an object holds: the objects in a collection's cells, and what every field of it points to.
-            IEnumerable<string> Reached(string holder) =>
-                (CollectionKind(holder).IsCollection ? HeldBy(holder) : [])
-                    .Concat(_heap.FieldsOf(holder).Where(slot => !PathValue.IsStorage(slot) || slot == PathValue.KEPT).SelectMany(slot => _heap.PointsTo(holder, slot)))
-                    .Where(target => _heap.Regions[target].Kind != HeapRegionKind.Delegate);
-
-            static string TypeName(string typeKey) => FieldSlot.WithoutTypeArguments(typeKey[(typeKey.IndexOf(':') + 1)..]);
-        }
+        private RegionView<string>? _solvedView;
 
         /// <summary>The objects a collection or an array may hold: what the heap holds in its cells and, for a dictionary, its keys (ADR
         /// 0010, phase 5b second run).</summary>
@@ -3989,7 +4060,8 @@ public static partial class InterproceduralAccesses
         /// known-call accesses of a visit and its unknown effects (<see cref="Emit"/>, through <see cref="Resources"/>), each place a
         /// reference resolves to (<see cref="ReferenceAccess"/>), the reads that feed a write, and, through <see cref="ValueResources"/>,
         /// the construction of a readonly field (<see cref="ConstructedField"/>, <see cref="ConstructedFieldValue"/>, the loads of a
-        /// constructor's expression) and a guard's canonical subject (<see cref="Canonical"/>).
+        /// constructor's expression) and a guard's canonical subject (<see cref="Canonical"/>). Every field of the path takes this
+        /// instance's type substitution, so a visible access and an unseen write name the same closed generic storage.
         /// </summary>
         /// <param name="instance">The instance that makes the access, whose context resolves its bases.</param>
         /// <param name="access">The access whose resources are named.</param>
@@ -4005,10 +4077,21 @@ public static partial class InterproceduralAccesses
             {
                 if (Place(regionId, access, copies) is not { } place)
                     return;
+                var path = place.Path with
+                {
+                    Fields = place.Path.Fields.Select(field => field with
+                    {
+                        ContainingTypeIdentity = field.ContainingTypeIdentity is { } type ? ProgramIndex.Substitute(type, instance.Substitution) : null,
+                        FieldTypeKey = field.FieldTypeKey is { } held ? ProgramIndex.Substitute(held, instance.Substitution) : null
+                    }).ToArray()
+                };
                 // The depth bound of the path counts every struct field it goes through (TD-042).
                 foreach (var collection in place.Collections)
                 {
-                    var resource = Resource(place.RegionId, place.Path, wildcard || place.Path.Fields.Count > limit, place.Selector, collection);
+                    var resource = Resource(place.RegionId, path, wildcard || path.Fields.Count > limit, place.Selector, collection) with
+                    {
+                        WildcardExclusions = access.WildcardExclusions
+                    };
                     if (identities.Add(resource.Identity))
                         resources.Add(resource);
                 }
@@ -4595,7 +4678,7 @@ internal sealed class CandidateIndex
     /// <param name="heap">The heap whose regions say which are open and which group they are of.</param>
     internal static Meeting? Meets(AccessResource one, AccessResource other, HeapSolution heap)
     {
-        if (one.Scope != other.Scope)
+        if (one.Scope != other.Scope || !WildcardCovers(one, other) || !WildcardCovers(other, one))
             return null;
         if (one.Identity == other.Identity)
             return new Meeting(one.IsWildcard ? PairEnumeration.Wildcard : PairEnumeration.Resource, one, other, one);
@@ -4625,11 +4708,11 @@ internal sealed class CandidateIndex
         if (oneRegion.Group != otherRegion.Group || oneRegion.IsOpen == otherRegion.IsOpen)
             return null;
         var (open, closed) = oneRegion.IsOpen ? (one, other) : (other, one);
-        if (wildcard || open.Member.Identity == closed.Member.Identity && open.AccessPath.SequenceEqual(closed.AccessPath))
+        if (wildcard || MemberIdentity(open) == MemberIdentity(closed) && open.AccessPath.SequenceEqual(closed.AccessPath))
             return new Meeting(PairEnumeration.OpenRegion, open, closed, closed);
         // Two cells continue each other only below one field and one selector, as their paths up to the cell say.
         var continued = IsField(open) && IsField(closed) ||
-                        open.Selector is not null && closed.Selector is not null && open.Member.Identity == closed.Member.Identity &&
+                        open.Selector is not null && closed.Selector is not null && MemberIdentity(open) == MemberIdentity(closed) &&
                         open.AccessPath.Take(open.AccessPath.Count - open.StructPath.Count)
                             .SequenceEqual(closed.AccessPath.Take(closed.AccessPath.Count - closed.StructPath.Count));
         return continued && Length(open) != Length(closed) && Continues(open, closed)
@@ -4637,12 +4720,20 @@ internal sealed class CandidateIndex
             : null;
     }
 
+    /// <summary>Whether a wildcard includes the other resource's root storage field. The unknown-effect walk records the fields
+    /// <c>UnseenWrites.MayWrite</c> excludes; indexed enumeration (<c>Within</c> and <c>Across</c>) and the reference match (<c>Meets</c>) honor them.</summary>
+    /// <param name="wildcard">The possible wildcard.</param>
+    /// <param name="other">The resource it may meet.</param>
+    private static bool WildcardCovers(AccessResource wildcard, AccessResource other) =>
+        !wildcard.IsWildcard || other.Storage?.Fields.FirstOrDefault() is not { } field ||
+        !wildcard.WildcardExclusions.Contains(FieldSlot.Key(field));
+
     /// <summary>The collection a cell is of, without the cell or the struct fields below it: what two cells must share to meet.</summary>
     /// <param name="resource">A cell.</param>
     private static string CollectionKey(AccessResource resource) =>
         resource.CollectionId is { } collection
             ? $"{resource.Scope}|{collection}"
-            : $"{resource.Scope}|{resource.Assembly}|{resource.RegionId ?? resource.Region}|{resource.Member.Identity}";
+            : $"{resource.Scope}|{resource.Assembly}|{resource.RegionId ?? resource.Region}|{MemberIdentity(resource)}";
 
     /// <summary>Whether a resource is a field's storage on its region: no wildcard, no cell, no collection's structure.</summary>
     /// <param name="resource">The resource.</param>
@@ -4676,7 +4767,21 @@ internal sealed class CandidateIndex
     /// <param name="resource">The resource.</param>
     /// <param name="at">The position, from the outermost member.</param>
     private static string Link(AccessResource resource, int at) =>
-        at < Head(resource) ? resource.Member.Identity : resource.StructPath[at - Head(resource)].Identity;
+        resource.Storage is { } path
+            ? SlotIdentity(at < Head(resource) ? path.Member : path.Below.ElementAt(at - Head(resource)))
+            : at < Head(resource) ? resource.Member.Identity : resource.StructPath[at - Head(resource)].Identity;
+
+    /// <summary>The root member's storage identity when a path retains the declaring field. Region aliasing already decides whether
+    /// generic bindings may overlap, so an open frame and a closed one compare the same field definition here. The member and prefix
+    /// checks in <c>Meets</c>, <c>Link</c> and the fallback collection key share this rule.</summary>
+    /// <param name="resource">The resource whose field is compared.</param>
+    private static string MemberIdentity(AccessResource resource) =>
+        resource.Storage is { } path ? SlotIdentity(path.Member) : resource.Member.Identity;
+
+    /// <summary>A field's declaring definition shape and kind, independent of the current frame's type substitution. Arity and
+    /// containing-type nesting remain part of the definition.</summary>
+    /// <param name="field">The field retained by the storage path.</param>
+    private static string SlotIdentity(IrFieldRef field) => $"{field.Assembly}:{ProgramIndex.Shape(field.ContainingTypeId).Shape}.{field.Name}|{field.Kind}";
 
     /// <summary>The resource with the longer path of two whose paths differ in length.</summary>
     /// <param name="one">One resource.</param>
@@ -4708,7 +4813,8 @@ internal sealed class CandidateIndex
         for (var first = 0; first < bucket.Count; first++)
         {
             for (var second = first; second < bucket.Count; second++)
-                yield return new CandidatePair(bucket[first], bucket[second], bucket[first].Resource, [], enumeration);
+                if (WildcardCovers(bucket[first].Resource, bucket[second].Resource) && WildcardCovers(bucket[second].Resource, bucket[first].Resource))
+                    yield return new CandidatePair(bucket[first], bucket[second], bucket[first].Resource, [], enumeration);
         }
     }
 
@@ -4724,8 +4830,9 @@ internal sealed class CandidateIndex
         foreach (var first in firsts)
         {
             foreach (var second in seconds)
-                yield return new CandidatePair(first, second, reported(first, second),
-                                               uncertainties(first), enumeration);
+                if (WildcardCovers(first.Resource, second.Resource) && WildcardCovers(second.Resource, first.Resource))
+                    yield return new CandidatePair(first, second, reported(first, second),
+                                                   uncertainties(first), enumeration);
         }
     }
 }

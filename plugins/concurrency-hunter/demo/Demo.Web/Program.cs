@@ -1,4 +1,9 @@
-﻿using Demo.Web.Cases.ProjectModelKeptObject;
+﻿using Demo.Web.Cases.StructReadThroughWrittenRefParameter;
+using Demo.Web.Cases.LocalValueWrittenThroughRef;
+using Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite;
+using Demo.Web.Cases.GenericNullableFilledByUnseenWrite;
+using Demo.Web.Cases.ReadonlyStructPastDepthBound;
+using Demo.Web.Cases.ProjectModelKeptObject;
 using Demo.Web.Cases.ProjectModelTryGetValue;
 using Demo.Web.Cases.AwaitedResultShared;
 using Demo.Web.Cases.TaskRunResultShared;
@@ -14,6 +19,14 @@ using Demo.Web.Cases.StructTornWrite;
 using Demo.Web.Cases.SpawnedWorkObjectPublished;
 using Demo.Web.Cases.StructCopyNotShared;
 using Demo.Web.Cases.ReadonlyStructDefensiveCopy;
+using Demo.Web.Cases.LambdaVariableCapturedByLocalFunction;
+using Demo.Web.Cases.NullableFilledByUnseenWrite;
+using Demo.Web.Cases.StructCellWrittenByRefForeach;
+using Demo.Web.Cases.StructCopiedThroughTypeParameter;
+using Demo.Web.Cases.StructBoxedByPattern;
+using Demo.Web.Cases.StructDeconstructedInPlace;
+using Demo.Web.Cases.StructDeconstructedThroughInterface;
+using Demo.Web.Cases.PairValueReadFromField;
 // Only a list of calls: every registration, endpoint and startup write lives in its case file, so no
 // two cases share a line here that the analysis could mistake for shared state.
 using Demo.Web.Cases.ActionSelfOverlap;
@@ -402,7 +415,20 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddStructTornWrite()
                 .AddSpawnedWorkObjectPublished()
                 .AddStructCopyNotShared()
-                .AddReadonlyStructDefensiveCopy();
+                .AddReadonlyStructDefensiveCopy()
+                .AddLambdaVariableCapturedByLocalFunction()
+                .AddNullableFilledByUnseenWrite()
+                .AddStructCellWrittenByRefForeach()
+                .AddStructCopiedThroughTypeParameter()
+                .AddStructBoxedByPattern()
+                .AddStructDeconstructedInPlace()
+                .AddStructDeconstructedThroughInterface()
+                .AddPairValueReadFromField()
+                .AddGenericNullableFilledByUnseenWrite()
+                .AddMetadataBaseNullableFilledByUnseenWrite()
+                .AddReadonlyStructPastDepthBound()
+                .AddStructReadThroughWrittenRefParameter()
+                .AddLocalValueWrittenThroughRef();
 
 var app = builder.Build();
 

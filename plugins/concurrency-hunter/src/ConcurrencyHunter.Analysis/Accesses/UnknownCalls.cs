@@ -139,8 +139,7 @@ public static class UnknownCalls
             }
 
             bool HasLibrary(IReadOnlyList<IrImplementation> implementations, string region, string? method) =>
-                implementations.Any(implementation => implementation.Library is not null && implementation.Kind ==
-                    CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries, method));
+                DecidedByLibrary(implementations, CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries, method));
 
             void AddLibraryUnknown(SummaryOpaqueCall direct) => calls.Add(new UnknownCall(instance, direct.OperationId, direct.Callee,
                 KindOf(direct.Callee), direct.Receivers, direct.DeclaringTypeKey, direct.Arguments, direct.Delegates)
@@ -278,6 +277,14 @@ public static class UnknownCalls
         return calls.OrderBy(call => call.Instance.Id, StringComparer.Ordinal).ThenBy(call => call.OperationId).ToArray();
     }
 
+    /// <summary>Whether a receiver object of an unresolved dispatch is decided by a library implementation of the call, as a member of the
+    /// table on its kind of object: such a receiver is no unresolved one. The heap's marking of unseen writes asks it too
+    /// (<see cref="UnseenWrites"/>), so the two agree on which receivers the dispatch's unknown effect sees.</summary>
+    /// <param name="implementations">What the call is on each kind of receiver object without a body of its own.</param>
+    /// <param name="kind">The receiver object's kind (<see cref="CollectionObjects.KindOf"/>).</param>
+    internal static bool DecidedByLibrary(IReadOnlyList<IrImplementation> implementations, string? kind) =>
+        implementations.Any(implementation => implementation.Library is not null && implementation.Kind == kind);
+
     /// <summary>A library sequence and every library sequence enumerating it enumerates, through its sources.</summary>
     internal static IEnumerable<LibrarySequence> EnumeratedSequences(HeapSolution heap, string region, HashSet<string> visited)
     {
@@ -338,7 +345,9 @@ public static class UnknownCalls
     private const string MINIMAL_API = "minimal-api";
     private const string MAPPING_PREFIX = "Map";
 
-    private static string KindOf(string callee) =>
+    /// <summary>The semantic gap kind of an opaque call by its callee: reflection, or an unknown library member.</summary>
+    /// <param name="callee">The callee.</param>
+    internal static string KindOf(string callee) =>
         callee.StartsWith(REFLECTION_NAMESPACE, StringComparison.Ordinal) || callee.StartsWith(ACTIVATOR, StringComparison.Ordinal)
             ? SemanticGapKinds.REFLECTION
             : SemanticGapKinds.UNKNOWN_LIBRARY;
@@ -363,12 +372,12 @@ public static class UnknownCalls
         /// <param name="regionId">The receiver or argument region.</param>
         /// <param name="declaringTypeKey">The declaring type through which a receiver is seen, or null for an unrestricted object.</param>
         public IReadOnlyList<IrFieldRef> FieldsOf(string regionId, string? declaringTypeKey = null) =>
-            [.. ((declaringTypeKey ?? heap.Regions[regionId].TypeKey) is { } key ? scope.Program.InstanceFieldsOf(key) : null) ?? [],
-             .. LibraryFieldsOf(regionId)];
+            UnseenWrites.FieldsOf(scope.Program, heap.Regions[regionId].TypeKey, LibraryFieldsOf(regionId), declaringTypeKey) ?? [];
 
         /// <summary>The values an unknown effect starts from: the receivers it may see, and every argument, an array created for the
         /// call by its elements. Through a receiver of a member a type of the run's own declares, only that type's state and its bases'
         /// is seen: <see cref="Start.DeclaringTypeKey"/> names it.</summary>
+        /// <param name="call">The unresolved call whose unknown effect starts there.</param>
         public IEnumerable<Start> Starts(UnknownCall call)
         {
             var declaring = call.DeclaringTypeKey is { } key && scope.Program.Type(key) is { IsSource: true } ? key : null;
@@ -391,7 +400,7 @@ public static class UnknownCalls
 
             foreach (var argument in call.Arguments)
                 yield return argument.CreatedElements is { } elements
-                    ? new Start(elements, null, null)
+                    ? new Start(elements.SelectMany(element => element.Values).ToHashSet(), null, null)
                     : new Start(argument.Values, argument.Collection, null) { IsFresh = argument.IsFresh };
             foreach (var created in call.Delegates)
                 yield return new Start(new HashSet<AbstractValue> { created }, null, null);
@@ -425,18 +434,11 @@ public static class UnknownCalls
         }
 
         /// <summary>The fields of an object an unknown effect starting at it sees: all of them, or, through the receiver of a member a
-        /// type of the run's own declares, only those that type and its bases declare (R1).</summary>
-        public IReadOnlyList<IrFieldRef> Seen(IReadOnlyList<IrFieldRef> fields, string? declaringTypeKey)
-        {
-            if (declaringTypeKey is null)
-                return fields;
-            var declared = new HashSet<string>(StringComparer.Ordinal);
-            for (var key = declaringTypeKey; key is not null && declared.Add(FieldSlot.WithoutTypeArguments(key)); key = scope.Program.Type(key)?.BaseTypeKey)
-            {
-            }
-
-            return fields.Where(field => declared.Contains(FieldSlot.TypeKey(field.Assembly, field.ContainingTypeId))).ToArray();
-        }
+        /// type of the run's own declares, only those that type and its bases declare (R1, <see cref="UnseenWrites.Seen"/>).</summary>
+        /// <param name="fields">The object's fields.</param>
+        /// <param name="declaringTypeKey">The type declaring the member the object is the receiver of, or null for an object seen whole.</param>
+        public IReadOnlyList<IrFieldRef> Seen(IReadOnlyList<IrFieldRef> fields, string? declaringTypeKey) =>
+            UnseenWrites.Seen(scope.Program, fields, declaringTypeKey);
 
         /// <summary>The fields of types from metadata the program names on an object, its own or inherited: what the heap knows of the
         /// state a library type gives it (R1).</summary>
@@ -532,12 +534,8 @@ public static class UnknownCalls
         private static IReadOnlyDictionary<string, IReadOnlyList<IrFieldRef>> LibraryFields(ScopeProgram scope, HeapSolution heap)
         {
             var named = heap.Instances.Values.SelectMany(instance =>
-                    instance.Summary.Accesses.Select(access => (Instance: instance, access.Field, access.Bases))
-                            .Concat(instance.Summary.ReferenceAccesses.SelectMany(access => access.Targets).OfType<ReferenceCell>()
-                                            .Select(cell => cell.Leaf())
-                                            .Select(leaf => (Instance: instance, leaf.Field, leaf.Bases))))
-                .Where(item => !item.Field.IsStatic && item.Field.Kind == IrFieldKind.Field &&
-                               scope.Program.Type(FieldSlot.TypeKey(item.Field.Assembly, item.Field.ContainingTypeId))?.IsSource != true);
+                UnseenWrites.LibraryFields(scope.Program, instance.Summary, instance.Substitution)
+                            .Select(item => (Instance: instance, item.Field, item.Bases)));
             var fields = new Dictionary<string, Dictionary<string, IrFieldRef>>(StringComparer.Ordinal);
             foreach (var (instance, field, bases) in named)
             {

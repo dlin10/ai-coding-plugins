@@ -108,6 +108,10 @@ public sealed record IrLoadReferenceOperation(int Id, int ResultValue, int Addre
 public sealed record IrStoreReferenceOperation(int Id, int AddressValue, int Value, int? ReadModifyWriteOf,
                                                IrProvenance Provenance) : IrOperation(Id, Provenance)
 {
+    /// <summary>Whether the store is a call's <c>out</c> or <c>ref</c> output that no body the run has makes: an opaque member's, or what
+    /// a library model says it outputs. Struct storage it writes may hold a value whatever the stored value holds (R9).</summary>
+    public bool IsUnseenOutput { get; init; }
+
     public override IReadOnlyList<int> DefinedValues => [];
     public override IReadOnlyList<int> Operands => [AddressValue, Value];
 }
@@ -255,7 +259,25 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     /// <summary>Whether the call reads <c>IGrouping&lt;TKey, TElement&gt;.Key</c>: on a grouping a known call made, what its model says
     /// the key is (R5).</summary>
     public bool IsGroupingKey { get; init; }
+
+    /// <summary>For a call of CoreLib's default-comparer factory with a <c>typeof</c> argument, the comparer it makes, which the heap makes
+    /// in its place wherever the type is closed (<see cref="ConcurrencyHunter.CallGraph.DefaultComparers"/>); null for every other call.</summary>
+    public IrDefaultComparer? DefaultComparer { get; init; }
 }
+
+/// <summary>Which of CoreLib's two default comparers a factory makes: the one <c>Comparer&lt;T&gt;.Default</c> holds, or the one
+/// <c>EqualityComparer&lt;T&gt;.Default</c> holds.</summary>
+public enum IrComparerKind
+{
+    Ordering,
+    Equality
+}
+
+/// <summary>A call of <c>ComparerHelpers.CreateDefaultComparer(typeof(X))</c> or <c>CreateDefaultEqualityComparer(typeof(X))</c>: the kind
+/// of comparer and the type X as the calling body names it, possibly a type parameter.</summary>
+/// <param name="Kind">The comparer the factory makes.</param>
+/// <param name="TypeKey">The type the <c>typeof</c> names, in the calling body's own type parameters.</param>
+public sealed record IrDefaultComparer(IrComparerKind Kind, string TypeKey);
 
 public enum IrEnumerationRole
 {

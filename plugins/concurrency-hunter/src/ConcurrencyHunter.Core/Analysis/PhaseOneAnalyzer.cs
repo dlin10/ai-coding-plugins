@@ -84,7 +84,7 @@ public static class PhaseOneAnalyzer
                                                            CancellationToken cancellationToken)
     {
         using var solver = solverFactory();
-        // One budget for the whole run, spent scope by scope: the share of the deadline belongs to the run (TD-094).
+        // One budget for the whole run, spent scope by scope: the budget belongs to the run (TD-094).
         var solverBudget = new SolverBudget(SolverPolicy.Budget);
         var timings = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
         var sizes = new List<ScopeSize>();
@@ -163,7 +163,7 @@ public static class PhaseOneAnalyzer
             scopePairs = scopePairs with { Pairs = GapDecisions.Mark(scopePairs.Pairs, run.Interprocedural, collection.Coverage.Gaps) };
             Record(timings, PAIRING, step);
             // The solver is the last filter (TD-091): what the cheap ones left, asked one candidate at a time and within the
-            // run's share of its deadline. A solver that never started answers every question Unknown (ADR 0004).
+            // run's solver budget (ADR 0021). A solver that never started answers every question Unknown (ADR 0004).
             var refined = SolverRefinement.Refine(scopePairs, solver, solverBudget, SolverPolicy.QueryLimit);
             scopePairs = refined.Pairs;
             diagnostics.AddRange(refined.Traces.Select(trace => $"solver: {trace}"));

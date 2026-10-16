@@ -80,7 +80,8 @@ public static class MethodSummaryBuilder
         private readonly Dictionary<string, IrClosureCell> _capturedKeys;
 
         /// <summary>Every capture cell the body knows, by symbol key: those it captures, those it reads back (question 153), those a
-        /// delegate it creates reaches, and, for the member's own body, those any lambda or local function of the member captures.</summary>
+        /// delegate it creates reaches, and those any lambda or local function of the ordinary member holding the body captures — the
+        /// member's own body, or a lambda or a local function declaring a variable that a body nested in it captures (TD-070).</summary>
         private readonly Dictionary<string, IrClosureCell> _cells;
         private readonly Dictionary<int, HashSet<AbstractValue>> _points = [];
         private readonly Dictionary<int, HashSet<ValueDependency>> _dependencies = [];
@@ -131,10 +132,14 @@ public static class MethodSummaryBuilder
             _capturedKeys = _operations.OfType<IrCaptureOperation>().Select(capture => capture.Cell).OfType<IrClosureCell>()
                                        .DistinctBy(cell => cell.SymbolKey, StringComparer.Ordinal)
                                        .ToDictionary(cell => cell.SymbolKey, StringComparer.Ordinal);
-            var nested = body.Kind == IrBodyKind.Method && bodies is not null
-                ? (index.Method(body.BodyId)?.NestedBodyIds ?? []).Select(bodies).OfType<IrBody>()
-                                                                  .SelectMany(inner => inner.Blocks).SelectMany(block => block.Operations)
-                                                                  .OfType<IrCaptureOperation>().Select(capture => capture.Cell)
+            // A lambda or a local function declares variables too, which a body nested in it may capture without any delegate this body
+            // creates: the cells of every body of the ordinary member are known to each of its bodies, keyed by symbol, so a body sees
+            // exactly the cells of its own variables and of those it captures.
+            var member = body.Kind == IrBodyKind.Method ? index.Method(body.BodyId) : index.MemberOfNestedBody(body.BodyId);
+            var nested = bodies is not null
+                ? (member?.NestedBodyIds ?? []).Select(bodies).OfType<IrBody>()
+                                               .SelectMany(inner => inner.Blocks).SelectMany(block => block.Operations)
+                                               .OfType<IrCaptureOperation>().Select(capture => capture.Cell)
                 : [];
             _cells = _capturedKeys.Values
                                   .Concat(_operations.OfType<IrLoadCapturedOperation>().Select(load => load.Cell))
@@ -262,7 +267,10 @@ public static class MethodSummaryBuilder
                         {
                             ReadModifyWriteOf = store.ReadModifyWriteOf
                         });
-                        copies.Add(new StructCopy(store.Id, Final(Points(store.AddressValue), delegates), Final(Points(store.Value), delegates)));
+                        copies.Add(new StructCopy(store.Id, Final(Points(store.AddressValue), delegates), Final(Points(store.Value), delegates))
+                        {
+                            IsUnseenOutput = store.IsUnseenOutput
+                        });
                         break;
                     case IrBoxOperation box:
                         copies.Add(new StructCopy(box.Id, Final(Points(box.ResultValue), delegates), Final(Points(box.OperandValue), delegates)));
@@ -500,7 +508,8 @@ public static class MethodSummaryBuilder
                             // edge; without them two helpers called from exclusive branches look reachable together (R8, TD-090).
                             Conditions = Conditions(call.Id),
                             Callee = call.Method,
-                            Provenance = call.Provenance
+                            Provenance = call.Provenance,
+                            DefaultComparer = ComparerAllocation(call)
                         });
                         break;
                     case IrUnknownOperation { DynamicCallee: { } callee } dynamic:
@@ -533,8 +542,10 @@ public static class MethodSummaryBuilder
                 }
 
                 // A `foreach` reads what it enumerates where no collection member says what that is: an array through the interface
-                // it is converted to, a slice, or a collection behind an interface (ADR 0010).
-                if (operation is IrCallOperation { EnumerationRole: IrEnumerationRole.GetEnumerator, Collection: null, ReceiverValue: int enumerated } enumeration)
+                // it is converted to, a slice, or a collection behind an interface (ADR 0010). One that binds each cell by reference
+                // reads none itself: what its body does through the reference is the access (R1).
+                if (operation is IrCallOperation { EnumerationRole: IrEnumerationRole.GetEnumerator, Collection: null, ReceiverValue: int enumerated } enumeration &&
+                    !BindsCells(enumeration))
                 {
                     argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, enumeration.Id, Final(Points(enumerated), delegates),
                                                                   Collection(enumerated), SpanTypes.Names(_values[enumerated].Type),
@@ -626,7 +637,7 @@ public static class MethodSummaryBuilder
             var refParameters = _body.Parameters.Where(parameter => parameter.RefKind is IrRefKind.Ref or IrRefKind.Out)
                                      .Select(parameter =>
                                      {
-                                         var atEnd = ValuesAtEnd(_body.Blocks.Count - 1, _values[parameter.Value].SymbolKey, parameter.Value).ToArray();
+                                         var atEnd = WrittenAtEnd(_body.Blocks.Count - 1, new WrittenVariable(parameter.Ordinal, null), parameter.Value).ToArray();
                                          return new RefParameterTransfer(parameter.Ordinal,
                                                                          Final(atEnd.SelectMany(value => _points[value]).ToHashSet(), delegates))
                                          {
@@ -746,7 +757,9 @@ public static class MethodSummaryBuilder
             }
         }
 
-        /// <summary>Whether this body declares the variable of a capture cell, so that its own run created the closure the cell is in (R4).</summary>
+        /// <summary>Whether this body declares the variable of a capture cell, so that its own run created the closure the cell is in (R4):
+        /// the owner of that question for a lambda and a local function as for the member. The heap answers the same <see cref="IrClosureCell.Body"/>
+        /// when it picks the run whose closure holds the cell (<see cref="WholeProgram.ClosureOwners"/>).</summary>
         /// <param name="cell">The capture cell.</param>
         private bool Declares(IrClosureCell cell) =>
             cell.Body is { } body ? body == _body.BodyId : _body.Kind == IrBodyKind.Method;
@@ -755,21 +768,26 @@ public static class MethodSummaryBuilder
         /// <param name="cell">The capture cell.</param>
         private static HashSet<AbstractValue> CellBases(IrClosureCell cell) => [new ClosureValue(cell.Member, cell.Body)];
 
-        /// <summary>Whether an operation goes through the storage of a struct a value names, rather than taking the value: the value is
-        /// the receiver of a field access or of a member call, or a reference to it is taken.</summary>
+        /// <summary>Whether an operation goes through the storage of a struct a value names, rather than taking the value, as
+        /// <see cref="StructStorage.GoesThroughStorage"/> decides for the use the operation makes of it.</summary>
         /// <param name="operation">The operation.</param>
         /// <param name="value">One of its operands.</param>
         private bool WorksOnStorage(IrOperation operation, int value) =>
-            _values[value].StructTypeKey is not null &&
-            operation switch
-            {
-                IrLoadFieldOperation load => load.ReceiverValue == value,
-                IrStoreFieldOperation store => store.ReceiverValue == value,
-                IrAddressFieldOperation address => address.ReceiverValue == value,
-                IrCallOperation call => call.ReceiverValue == value,
-                IrAssignOperation assign => assign.SourceValue == value && _values[assign.TargetValue].IsReference,
-                _ => false
-            };
+            _values[value].StructTypeKey is not null && StructStorage.GoesThroughStorage(UseOf(operation, value));
+
+        /// <summary>How an operation uses a struct operand: the receiver of a field access or of a member call, a reference taken to it,
+        /// or its value taken.</summary>
+        /// <param name="operation">The operation.</param>
+        /// <param name="value">One of its operands.</param>
+        private StructUse UseOf(IrOperation operation, int value) => operation switch
+        {
+            IrLoadFieldOperation load when load.ReceiverValue == value => StructUse.FieldAccess,
+            IrStoreFieldOperation store when store.ReceiverValue == value => StructUse.FieldAccess,
+            IrAddressFieldOperation address when address.ReceiverValue == value => StructUse.FieldAccess,
+            IrCallOperation call when call.ReceiverValue == value => StructUse.MemberCall,
+            IrAssignOperation assign when assign.SourceValue == value && _values[assign.TargetValue].IsReference => StructUse.ReferenceArgument,
+            _ => StructUse.Copy
+        };
 
         /// <summary>The read of the whole storage a struct member was called on that an operation makes when it takes a copy of <c>this</c>
         /// — assigns it to a variable, passes it by value, returns it, stores it, boxes it or binds a delegate to it — as a load of a struct
@@ -1171,7 +1189,7 @@ public static class MethodSummaryBuilder
         /// <param name="call">The interface call whose site names the storage.</param>
         /// <param name="ordinal">The ordinal of the <c>out</c> argument, or null for the call's result.</param>
         private string DecidedSlot(IrCallOperation call, int? ordinal) =>
-            $"[decided:{_body.BodyId}#{call.Id}{(ordinal is int argument ? $":{argument}" : "")}]";
+            $"{PathValue.DECIDED}{_body.BodyId}#{call.Id}{(ordinal is int argument ? $":{argument}" : "")}]";
 
         /// <summary>Whether an interface call hands anything out through its result, or through the <c>out</c> argument of
         /// <paramref name="ordinal"/>, on some object it decides.</summary>
@@ -1647,7 +1665,7 @@ public static class MethodSummaryBuilder
                     References = References(value),
                     Collection = Collection(value),
                     CreatedElements = call.CreatedArrayArguments.Contains(position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position)
-                        ? Final(CreatedElements(value), delegates)
+                        ? CreatedElements(value, delegates).ToArray()
                         : null,
                     Producers = Producers(value),
                     IsFresh = IsFresh(value),
@@ -1789,16 +1807,22 @@ public static class MethodSummaryBuilder
         }
 
         /// <summary>The elements of an array or collection expression created in an argument's place: the values stored into the
-        /// allocated array, or the operands of the collection expression.</summary>
+        /// allocated array, or the operands of the collection expression, each with the value and static type it has before the
+        /// conversion into the element type (<see cref="CreatedElement"/>).</summary>
         /// <param name="value">The argument value whose creating operation is inspected.</param>
-        private IEnumerable<AbstractValue> CreatedElements(int value) =>
-            Definition(Origin(value)) switch
+        /// <param name="delegates">The final delegate creations, by site.</param>
+        private IEnumerable<CreatedElement> CreatedElements(int value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
+            (Definition(Origin(value)) switch
             {
                 IrAllocateOperation => _operations.OfType<IrStoreElementOperation>().Where(store => Origin(store.ReceiverValue) == Origin(value))
-                                                  .SelectMany(store => _points[store.Value]),
-                IrUnknownOperation collection => collection.OperandValues.SelectMany(operand => _points[operand]),
-                _ => _points[value]
-            };
+                                                  .Select(store => store.Value),
+                IrUnknownOperation collection => collection.OperandValues,
+                _ => [value]
+            }).Select(element =>
+            {
+                var origin = _values[Origin(element)];
+                return new CreatedElement(origin.Id, origin.ObjectTypeKey, origin.IsReference, Final(_points[element], delegates));
+            });
 
         /// <summary>Solves the values and the dependencies of every IR value until neither changes.</summary>
         private void Solve()
@@ -1876,6 +1900,10 @@ public static class MethodSummaryBuilder
                 return [UnknownSource.Captured];
             if (_parameterOrdinals.ContainsKey(value.Id))
                 return [UnknownSource.Parameter];
+            // A copy of a struct the body makes is a region of its own, whatever it was taken from (R2): a call on it runs the member its
+            // struct declares, on that copy, and no object points-to does not follow stands in its place.
+            if (IsStructCopy(value))
+                return [];
             if (!_definitions.TryGetValue(value.Id, out var definition))
             {
                 return value switch
@@ -1894,7 +1922,8 @@ public static class MethodSummaryBuilder
                 IrCombineDelegatesOperation combine => combine.ContributingOperands.SelectMany(operand => _unknown[operand]).ToHashSet(),
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _unknown[input.Value]).ToHashSet(),
                 IrConvertOperation convert => [.. _unknown[convert.OperandValue]],
-                IrAllocateOperation or IrCreateDelegateOperation or IrComputeOperation or IrCompareOperation => [],
+                // A box is a new object of its own wherever its struct came from (R2), as an allocation is.
+                IrAllocateOperation or IrBoxOperation or IrCreateDelegateOperation or IrComputeOperation or IrCompareOperation => [],
                 IrLoadFieldOperation => [UnknownSource.FieldBeforeWrite],
                 IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _unknown[outer]],
                 IrCallOperation call when call.ResultValue == value.Id && _modeledCalls.Contains(call.Id) => [],
@@ -1911,10 +1940,16 @@ public static class MethodSummaryBuilder
         /// <param name="call">The call defining the value.</param>
         /// <param name="value">The value.</param>
         private static int? PairPartOf(IrCallOperation call, int value) =>
-            call is { ReceiverValue: int pair, Collection.Member: PAIR_KEY or PAIR_VALUE or PAIR_DECONSTRUCT } &&
-            (call.ResultValue == value || call.RefResults.Values.Contains(value))
+            call is { ReceiverValue: int pair } && HandsOutPairPart(call) && (call.ResultValue == value || call.RefResults.Values.Contains(value))
                 ? pair
                 : null;
+
+        /// <summary>Whether a call hands out a part of the pair it is called on — its key or its value, by <c>Key</c>, <c>Value</c> or
+        /// <c>Deconstruct</c> —, which it takes as a copy from the whole pair: the part comes from the pair (<see cref="PairPartOf"/>), and
+        /// the load of the field holding the pair is a read of that whole field, which the member, touching no collection, does not
+        /// replace (<see cref="CollectionAccesses"/>) (R2).</summary>
+        /// <param name="call">The call.</param>
+        private static bool HandsOutPairPart(IrCallOperation call) => call.Collection?.Member is PAIR_KEY or PAIR_VALUE or PAIR_DECONSTRUCT;
 
         private const string PAIR_KEY = "System.Collections.Generic.KeyValuePair`2.get_Key";
         private const string PAIR_VALUE = "System.Collections.Generic.KeyValuePair`2.get_Value";
@@ -2141,11 +2176,14 @@ public static class MethodSummaryBuilder
                 : holders.Select(holder => (AbstractValue)new StructPlaceValue(holder, slot, typeKey)).ToHashSet();
 
         /// <summary>The storage of a struct a field or element operation names: the field's slot in each object its receiver points to,
-        /// or the cell's in each array it is.</summary>
-        /// <param name="operation">An address, a load or a store of a field or an element.</param>
+        /// or the cell's in each array it is — the cell of the collection a <c>foreach</c> enumerates, for the reference its
+        /// <c>Current</c> hands back (R1).</summary>
+        /// <param name="operation">An address, a load or a store of a field or an element, or the <c>Current</c> of an enumeration.</param>
         /// <param name="typeKey">The struct's type key.</param>
         private HashSet<AbstractValue> StoragePlaces(IrOperation operation, string typeKey) => operation switch
         {
+            IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration }
+                when _enumerated.TryGetValue(enumeration, out var enumerated) => Places(Points(Slice(enumerated).Array), null, PathValue.ELEMENT, typeKey),
             IrAddressFieldOperation field => Places(Points(field.ReceiverValue), field.Field, FieldSlot.Key(field.Field), typeKey),
             IrLoadFieldOperation field => Places(Points(field.ReceiverValue), field.Field, FieldSlot.Key(field.Field), typeKey),
             IrStoreFieldOperation field => Places(Points(field.ReceiverValue), field.Field, FieldSlot.Key(field.Field), typeKey),
@@ -2156,8 +2194,9 @@ public static class MethodSummaryBuilder
         };
 
         /// <summary>What a copy of a struct held by value is taken from: the storage a load reads whole, the struct an assignment, a phi
-        /// or a conversion takes, the box an unboxing reads, what a by-value parameter is handed, what a captured variable holds. A new
-        /// value and a default are taken from nothing.</summary>
+        /// or a conversion takes, the box an unboxing reads — the cell a <c>foreach</c> enumerates where the box is what its
+        /// <c>Current</c> hands out —, what a by-value parameter is handed, what a captured variable holds. A new value and a default are
+        /// taken from nothing.</summary>
         /// <param name="value">A value <see cref="IsStructCopy"/> holds a copy in.</param>
         private HashSet<AbstractValue> CopySources(IrValue value)
         {
@@ -2166,9 +2205,13 @@ public static class MethodSummaryBuilder
             return _definitions.GetValueOrDefault(value.Id) switch
             {
                 IrLoadFieldOperation or IrLoadElementOperation => StoragePlaces(_definitions[value.Id], value.StructTypeKey!),
-                IrLoadReferenceOperation load => [.. _points[load.AddressValue]],
+                IrLoadReferenceOperation load => [.. _points[load.AddressValue], .. WrittenBefore(load).SelectMany(written => _points[written])],
                 IrAssignOperation assign => [.. _points[assign.SourceValue]],
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _points[input.Value]).ToHashSet(),
+                // The struct a foreach's Current hands out boxed is a copy of the cell it enumerates: taken from that cell's storage (R2).
+                IrConvertOperation { ConversionKind: IrConversionKind.Unboxing } convert
+                    when _definitions.GetValueOrDefault(convert.OperandValue) is IrCallOperation { EnumerationRole: IrEnumerationRole.Current } current =>
+                    [.. _points[convert.OperandValue], .. StoragePlaces(current, value.StructTypeKey!)],
                 IrConvertOperation convert => [.. _points[convert.OperandValue]],
                 IrLoadCapturedOperation { Cell: { } read } => [new CapturedValue(read)],
                 IrAllocateOperation or null => [],
@@ -2191,11 +2234,20 @@ public static class MethodSummaryBuilder
             // A Nullable copied from nothing that holds a struct is empty, as the null it was taken from.
             if (IsStructCopy(value))
                 return IsNullable(value) && CopySources(value).Count == 0 ? [] : [new StructCopyValue(value.Id, value.StructTypeKey!)];
-            if (value is { IsReference: true, StructTypeKey: { } stored } &&
-                _definitions.GetValueOrDefault(value.Id) is IrAddressFieldOperation or IrAddressElementOperation)
+            if (value.StructTypeKey is { } stored && StructStorage.IsStorage(StructOperandOf(value)) &&
+                _definitions.GetValueOrDefault(value.Id) is IrAddressFieldOperation or IrAddressElementOperation or
+                    IrCallOperation { EnumerationRole: IrEnumerationRole.Current })
                 return StoragePlaces(_definitions[value.Id], stored);
             return OwnPoints(value);
         }
+
+        /// <summary>The comparer a call of CoreLib's default-comparer factory makes, as the allocation it is: its site is the call, its type
+        /// the type the <c>typeof</c> names (<see cref="CallGraph.DefaultComparers"/>). Null for every other call.</summary>
+        /// <param name="call">The call.</param>
+        private AllocationValue? ComparerAllocation(IrCallOperation call) =>
+            call.DefaultComparer is { } mark
+                ? new AllocationValue(new CreationSite(_body.BodyId, call.Id, mark.TypeKey, 0)) { DefaultComparer = mark.Kind }
+                : null;
 
         /// <summary>The points of a value other than a struct's copy or storage: what it is, through the operation defining it.</summary>
         /// <param name="value">The value.</param>
@@ -2231,7 +2283,10 @@ public static class MethodSummaryBuilder
                 IrLoadFieldOperation { Field.IsStatic: true } load => [new StaticFieldValue(load.Field)],
                 IrLoadFieldOperation { ReceiverValue: int receiver } load => Extend(_points[receiver], FieldSlot.Key(load.Field)),
                 IrLoadElementOperation load => Extend(_points[load.ReceiverValue], PathValue.ELEMENT),
-                IrLoadReferenceOperation load => References(load.AddressValue).Select(target => (AbstractValue)new ReferenceLocationValue(target, Read: true)).ToHashSet(),
+                // A load through a reference reads the place it names, and, through a `ref` or `out` parameter, also what a write through it
+                // left on the way there: what the caller passed is a local as often as not, whose storage the heap does not hold (R6).
+                IrLoadReferenceOperation load => [.. References(load.AddressValue).Select(target => (AbstractValue)new ReferenceLocationValue(target, Read: true)),
+                                                  .. WrittenBefore(load).SelectMany(written => _points[written])],
                 // The object a `foreach` is at is one the storage it enumerates holds, whichever enumerator hands it out; a slice is
                 // the storage it is cut from (ADR 0010, TD-043).
                 // A dictionary's enumeration hands out pairs, each an object of its own holding a key and a value apart (ADR 0010,
@@ -2274,6 +2329,10 @@ public static class MethodSummaryBuilder
                 // Deconstructing a pair hands out its key and its value, each from its own storage.
                 IrComputeOperation { OperandValues: [var pair] } compute when PairElement(compute, pair) is { } slot =>
                     Extend(_points[pair], slot),
+                // The default-comparer factory's result is the comparer the heap makes in its place where the type is closed, and the
+                // call's own result where it is not.
+                IrCallOperation { DefaultComparer: not null } call when call.ResultValue == value.Id =>
+                    [new CallResultValue(call.Id), ComparerAllocation(call)!],
                 IrCallOperation call when call.ResultValue == value.Id => [new CallResultValue(call.Id)],
                 IrCallOperation call => call.RefResults.Where(pair => pair.Value == value.Id)
                                             .Select(pair => (AbstractValue)new RefResultValue(call.Id, pair.Key))
@@ -2664,11 +2723,10 @@ public static class MethodSummaryBuilder
                     outer.Cast<ReferenceCell>().Select(cell => (ReferenceTarget)(cell with { StructPath = [.. cell.StructPath, field.Field] })).ToArray(),
                 IrAddressFieldOperation field =>
                     [new ReferenceCell(field.Field, AccessBases(Points(field.ReceiverValue)), null, null, false)],
-                IrAddressElementOperation element when Cell(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } cell =>
-                    [new ReferenceCell(cell.Field, AccessBases(Points(cell.BaseValue)), cell.Selector, cell.Term, true)],
-                IrAddressElementOperation element when ParameterElement(element.ReceiverValue, element.IndexValues, element.NamesOneCell) is { } parameter =>
-                    [parameter],
-                IrAddressElementOperation element when CallCollection(element.ReceiverValue) is { } call => [call],
+                IrAddressElementOperation element => ElementReferences(element.ReceiverValue, element.IndexValues, element.NamesOneCell),
+                // The reference the `Current` of a `foreach` hands back names a cell of the collection enumerated, which no index names (R1).
+                IrCallOperation { EnumerationRole: IrEnumerationRole.Current, EnumerationId: int enumeration } current
+                    when current.ResultValue == value && _enumerated.TryGetValue(enumeration, out var enumerated) => ElementReferences(enumerated, [], false),
                 IrAssignOperation assign => References(assign.SourceValue, depth + 1, following),
                 // A reference to a struct copy names no location, which is no place left unproven either (R2). An input the walk is
                 // already following is no alternative of its own; a phi whose every input is one adds nothing.
@@ -2684,6 +2742,24 @@ public static class MethodSummaryBuilder
                 _ => []
             };
         }
+
+        /// <summary>Whether a <c>foreach</c> binds its iteration variable to each cell by reference: the <c>Current</c> of its enumeration
+        /// hands back a reference (R1).</summary>
+        /// <param name="enumerator">The <c>GetEnumerator</c> call of the <c>foreach</c>.</param>
+        private bool BindsCells(IrCallOperation enumerator) =>
+            _operations.Any(operation => operation is IrCallOperation { EnumerationRole: IrEnumerationRole.Current, ResultValue: int current } call &&
+                                         call.EnumerationId == enumerator.EnumerationId && _values[current].IsReference);
+
+        /// <summary>The places a reference to a cell of a collection may point to: the cell of the field the collection was read from, the
+        /// cell of a collection the body got by value, or one of a collection a call returned; none for any other collection.</summary>
+        /// <param name="receiver">The collection value.</param>
+        /// <param name="indices">The index values naming the cell.</param>
+        /// <param name="namesOneCell">Whether the indices name one cell; otherwise which cell stays unknown.</param>
+        private IReadOnlyList<ReferenceTarget> ElementReferences(int receiver, IReadOnlyList<int> indices, bool namesOneCell) =>
+            Cell(receiver, indices, namesOneCell) is { } cell ? [new ReferenceCell(cell.Field, AccessBases(Points(cell.BaseValue)), cell.Selector, cell.Term, true)]
+            : ParameterElement(receiver, indices, namesOneCell) is { } parameter ? [parameter]
+            : CallCollection(receiver) is { } call ? [call]
+            : [];
 
         /// <summary>Whether a value refers to nothing but copies of a struct held by value, which are no location.</summary>
         /// <param name="value">A value a reference is joined from.</param>
@@ -2803,6 +2879,7 @@ public static class MethodSummaryBuilder
 
             return Definition(origin) switch
             {
+                IrLoadReferenceOperation load when ForwardedReferenceValue(load) is int stored => Term(stored, depth + 1),
                 IrConvertOperation convert => new ConvertTerm(Term(convert.OperandValue, depth + 1), Width(convert.Type),
                                                               IsSigned(convert.Type)),
                 IrComputeOperation { Operator: "Add", OperandValues.Count: 2 } compute =>
@@ -2906,7 +2983,9 @@ public static class MethodSummaryBuilder
                 }
             }
 
-            return (accesses, named.Select(member => member.Load?.Id).OfType<int>().ToHashSet(), interfaceReceivers, standing);
+            // A pair's part is taken from the whole pair its field holds: that load stays the read it is (HandsOutPairPart).
+            return (accesses, named.Where(member => !HandsOutPairPart(member.Call)).Select(member => member.Load?.Id).OfType<int>().ToHashSet(),
+                    interfaceReceivers, standing);
         }
 
         /// <summary>The calls of the body that are members of the table, each with the load of the field naming its receiver where one does.
@@ -3322,17 +3401,23 @@ public static class MethodSummaryBuilder
                 : null;
 
         /// <summary>The value a number is read from, through the widening conversions the language inserts to compare or index
-        /// with two numeric types. A widening conversion hands on the number it is given, so a constant behind one is the same
+        /// with two numeric types, and through an immediately preceding definite reference write that ForwardedReferenceValue proves.
+        /// A widening conversion hands on the number it is given, so a constant behind one is the same
         /// constant; a narrowing one the compiler has not already folded is a number of its own and stops the walk.</summary>
         /// <param name="value">The value the number is read through.</param>
         private int NumericOrigin(int value)
         {
             var origin = Origin(value);
             var visited = new HashSet<int>();
-            while (visited.Add(origin) && Definition(origin) is IrConvertOperation { ConversionKind: IrConversionKind.Numeric } convert &&
-                   Width(TypeOf(origin)) >= Width(TypeOf(convert.OperandValue)))
+            while (visited.Add(origin))
             {
-                origin = Origin(convert.OperandValue);
+                if (Definition(origin) is IrLoadReferenceOperation load && ForwardedReferenceValue(load) is int stored)
+                    origin = Origin(stored);
+                else if (Definition(origin) is IrConvertOperation { ConversionKind: IrConversionKind.Numeric } convert &&
+                         Width(TypeOf(origin)) >= Width(TypeOf(convert.OperandValue)))
+                    origin = Origin(convert.OperandValue);
+                else
+                    break;
             }
 
             return origin;
@@ -3376,9 +3461,13 @@ public static class MethodSummaryBuilder
             return value;
         }
 
+        /// <summary>Whether a call runs no body the run has. A call of CoreLib's default-comparer factory the lowering marks is none, whether
+        /// or not the reachable set reached the factory's body: it is the comparer it makes where the type is closed, and the factory's call,
+        /// reached there, only where the type can stay open (<see cref="CallGraph.DefaultComparers"/>).</summary>
+        /// <param name="call">The call.</param>
         private bool IsOpaque(IrCallOperation call)
         {
-            if (call.CallKind is IrCallKind.LocalFunction or IrCallKind.Delegate || call.TargetMethodId is not { } methodId)
+            if (call.CallKind is IrCallKind.LocalFunction or IrCallKind.Delegate || call.TargetMethodId is not { } methodId || call.DefaultComparer is not null)
                 return false;
             if (_index.Method(methodId) is not { } method)
                 return true;
@@ -3394,12 +3483,55 @@ public static class MethodSummaryBuilder
                    _index.Types.Any(candidate => candidate.IsValueType && candidate.DisplayName == underlying);
         }
 
-        /// <summary>The IR values of a variable that may reach the end of a block: its last definition there, or its values at the end
-        /// of every flow predecessor, or its incoming value at the entry.</summary>
+        /// <summary>A variable whose writes the summary tracks: a ref parameter by ordinal, or ordinary local/by-value parameter storage by symbol key.</summary>
+        /// <param name="ParameterOrdinal">The ref parameter's ordinal, or null for an ordinary variable.</param>
+        /// <param name="SymbolKey">The ordinary local or by-value parameter's symbol key, or null for a ref parameter.</param>
+        private sealed record WrittenVariable(int? ParameterOrdinal, string? SymbolKey);
+
+        /// <summary>The variables a reference names. Heap locations stay in References; local-backed references retain their source
+        /// variable's symbol identity before following its value definition. WrittenBefore and WrittenThrough share this walk.</summary>
+        /// <param name="address">The reference whose bindings are followed.</param>
+        private HashSet<WrittenVariable> WrittenVariables(int address)
+        {
+            var variables = References(address).OfType<ReferenceParameter>()
+                                               .Select(parameter => new WrittenVariable(parameter.Ordinal, null)).ToHashSet();
+            var seen = new HashSet<int>();
+            var pending = new Stack<int>([address]);
+            while (pending.TryPop(out var value))
+            {
+                if (!seen.Add(value))
+                    continue;
+                if (_values[value] is { IsReference: false, SymbolKey: { } key })
+                {
+                    variables.Add(new WrittenVariable(null, key));
+                    continue;
+                }
+                switch (_definitions.GetValueOrDefault(value))
+                {
+                    case IrAssignOperation assign:
+                        pending.Push(assign.SourceValue);
+                        break;
+                    case IrPhiOperation phi:
+                        foreach (var input in phi.Inputs)
+                            pending.Push(input.Value);
+                        break;
+                    case IrConvertOperation convert:
+                        pending.Push(convert.OperandValue);
+                        break;
+                }
+            }
+            return variables;
+        }
+
+        /// <summary>The IR values a variable may hold at the end of a block, including writes made through its aliases: the last value written through
+        /// it there, joined with earlier and incoming values for a reference that may name other storage, or its values at the end of
+        /// every flow predecessor, or its incoming value at the entry. A write through the
+        /// parameter is no version of it (the lowering's <c>SsaPlan.DefinesVersion</c>), so what reaches its caller is read from the
+        /// writes themselves (<see cref="WrittenThrough"/>).</summary>
         /// <param name="ordinal">The ordinal of the block whose end is considered.</param>
-        /// <param name="symbolKey">The symbol key of the variable, or null when it has none.</param>
-        /// <param name="incoming">The variable's value on entry to the body.</param>
-        private HashSet<int> ValuesAtEnd(int ordinal, string? symbolKey, int incoming)
+        /// <param name="variable">The variable whose storage is read or written.</param>
+        /// <param name="incoming">The parameter's value on entry to the body, or null where only the writes count.</param>
+        private HashSet<int> WrittenAtEnd(int ordinal, WrittenVariable variable, int? incoming)
         {
             var result = new HashSet<int>();
             var visited = new HashSet<int>();
@@ -3410,20 +3542,141 @@ public static class MethodSummaryBuilder
                     continue;
 
                 var block = _body.Blocks[current];
-                var defined = block.Operations.SelectMany(operation => operation.DefinedValues)
-                                   .Where(value => symbolKey is not null && _values[value].SymbolKey == symbolKey)
-                                   .Select(value => (int?)value)
-                                   .LastOrDefault();
-                if (defined is int definedValue)
-                    result.Add(definedValue);
-                else if (block.FlowPredecessors.Count == 0)
-                    result.Add(incoming);
+                var written = LastWritten(block.Operations, variable);
+                if (written is { } writes)
+                    result.UnionWith(writes.Values);
+                if (written is { Definite: true })
+                    continue;
+                if (block.FlowPredecessors.Count == 0)
+                {
+                    if (incoming is int value)
+                        result.Add(value);
+                }
                 else
                     foreach (var predecessor in block.FlowPredecessors)
                         pending.Push(predecessor.BlockOrdinal);
             }
 
             return result;
+        }
+
+        /// <summary>The definite value written immediately before a reference read, across operations that cannot change storage.
+        /// NumericOrigin and Term retain its numeric fact without removing the read itself. WrittenThrough owns the variable identity,
+        /// as it does for points-to propagation; a weak write or any intervening effect leaves the read's numeric value unknown.</summary>
+        /// <param name="load">The load whose numeric value is considered.</param>
+        private int? ForwardedReferenceValue(IrLoadReferenceOperation load)
+        {
+            var variables = WrittenVariables(load.AddressValue);
+            if (variables.Count != 1 || !BlockOf.TryGetValue(load.Id, out var block))
+                return null;
+            foreach (var operation in _body.Blocks[block].Operations.TakeWhile(operation => operation.Id != load.Id).Reverse())
+            {
+                var writes = WrittenThrough(operation, variables.Single()).ToArray();
+                if (writes is [{ Value: var value, Definite: true }])
+                    return value;
+                if (writes.Length != 0 || operation is not (IrAssignOperation or IrComputeOperation or IrConvertOperation or
+                    IrLoadFieldOperation or IrLoadElementOperation or IrLoadReferenceOperation or IrAddressFieldOperation or IrAddressElementOperation))
+                    return null;
+            }
+            return null;
+        }
+
+        /// <summary>The IR values written into a variable, directly or through an alias, that may reach a load through its reference: the last write
+        /// before the load in its block, or what each flow predecessor leaves at its end (<see cref="WrittenAtEnd"/>), a loop's back edge
+        /// included, for each variable the loaded reference may name. OwnPoints and CopySources use this owner; WrittenAtEnd
+        /// also supplies outgoing parameter transfers. A possible write joins what was there before it; a definite
+        /// write kills earlier writes. A write through the parameter is no version of it
+        /// (the lowering's <c>SsaPlan.DefinesVersion</c>), so the load finds what it reads in the writes themselves, whatever separates
+        /// them: a branch join, a call, a loop. The answer depends on the body alone and is worked out once per load.</summary>
+        /// <param name="load">The load through a reference.</param>
+        private HashSet<int> WrittenBefore(IrLoadReferenceOperation load)
+        {
+            if (_writtenBefore.TryGetValue(load.Id, out var known))
+                return known;
+            var written = new HashSet<int>();
+            if (BlockOf.TryGetValue(load.Id, out var ordinalOfBlock))
+            {
+                var block = _body.Blocks[ordinalOfBlock];
+                foreach (var variable in WrittenVariables(load.AddressValue))
+                {
+                    var inBlock = LastWritten(block.Operations.TakeWhile(operation => operation.Id != load.Id), variable);
+                    if (inBlock is { } writes)
+                        written.UnionWith(writes.Values);
+                    if (inBlock is not { Definite: true })
+                    {
+                        var incoming = variable.SymbolKey is { } key
+                            ? _body.Parameters.FirstOrDefault(parameter => parameter.RefKind == IrRefKind.None &&
+                                                                           _values[parameter.Value].SymbolKey == key)?.Value
+                            : null;
+                        if (block.FlowPredecessors.Count == 0 && incoming is int value)
+                            written.Add(value);
+                        foreach (var predecessor in block.FlowPredecessors)
+                            written.UnionWith(WrittenAtEnd(predecessor.BlockOrdinal, variable, incoming));
+                    }
+                }
+            }
+
+            _writtenBefore.Add(load.Id, written);
+            return written;
+        }
+
+        /// <summary>What <see cref="WrittenBefore"/> found for each load, by the load's id.</summary>
+        private readonly Dictionary<int, HashSet<int>> _writtenBefore = [];
+
+        /// <summary>The values the last write into a variable among a block's operations may leave there, directly or through an alias, null
+        /// where they write none. One call is one write, whichever of its arguments it is handed the reference by; the stores of its outputs
+        /// through the reference that follow it (an opaque call's <c>out</c> arguments) are that write again. A reference that may name other
+        /// storage makes a weak update: its values join earlier writes, and flow predecessors still contribute unless a definite write
+        /// killed them. Both <see cref="WrittenBefore"/> and <see cref="WrittenAtEnd"/> use this answer.</summary>
+        /// <param name="operations">The block's operations, or those before a point in it.</param>
+        /// <param name="variable">The variable whose storage is read or written.</param>
+        private (HashSet<int> Values, bool Definite)? LastWritten(IEnumerable<IrOperation> operations, WrittenVariable variable)
+        {
+            HashSet<int>? last = null;
+            var definite = false;
+            IrCallOperation? lastCall = null;
+            foreach (var operation in operations)
+            {
+                var written = WrittenThrough(operation, variable).ToArray();
+                if (written.Length == 0 ||
+                    operation is IrStoreReferenceOperation store && lastCall is not null && lastCall.RefResults.Values.Contains(store.Value))
+                {
+                    continue;
+                }
+                last ??= [];
+                if (written.Any(write => write.Definite))
+                {
+                    last.Clear();
+                    definite = true;
+                }
+                last.UnionWith(written.Select(write => write.Value));
+                lastCall = operation as IrCallOperation;
+            }
+            return last is null ? null : (last, definite);
+        }
+
+        /// <summary>The values an operation writes into a variable, directly or through a reference: what a store through a reference naming
+        /// that parameter among any other locations stores, and what a call handed such a reference by <c>ref</c> or <c>out</c> writes
+        /// there. The update is definite only where the reference names that parameter alone; otherwise it is weak.</summary>
+        /// <param name="operation">The operation.</param>
+        /// <param name="variable">The variable whose storage is read or written.</param>
+        private IEnumerable<(int Value, bool Definite)> WrittenThrough(IrOperation operation, WrittenVariable variable)
+        {
+            IEnumerable<(int Value, bool Definite)> Write(int address, int value)
+            {
+                var references = References(address);
+                var variables = WrittenVariables(address);
+                return variables.Contains(variable)
+                    ? [(value, references.Count + variables.Count(candidate => candidate.SymbolKey is not null) == 1)] : [];
+            }
+            return operation switch
+            {
+                IrAssignOperation assign when variable.SymbolKey is { } key && !_values[assign.TargetValue].IsReference &&
+                                              _values[assign.TargetValue].SymbolKey == key => [(assign.SourceValue, true)],
+                IrStoreReferenceOperation store => Write(store.AddressValue, store.Value),
+                IrCallOperation call => call.RefResults.SelectMany(pair => call.ArgumentAt(pair.Key) is int argument ? Write(argument, pair.Value) : []),
+                _ => []
+            };
         }
 
         private IEnumerable<string> VariableKeys() =>

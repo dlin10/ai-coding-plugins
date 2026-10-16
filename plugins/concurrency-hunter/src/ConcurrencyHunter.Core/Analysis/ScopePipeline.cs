@@ -184,7 +184,8 @@ public static class ScopePipeline
 
             var reachable = ReachableSet.Build(new ReachabilityInput(program, roots, index, bindings, TimedMembers)
             {
-                Rules = rules
+                Rules = rules,
+                Limits = limits
             });
             var reachableSet = Complete() - lowering.Elapsed;
             completed[ScopeStep.ReachableSet] = reachableSet;

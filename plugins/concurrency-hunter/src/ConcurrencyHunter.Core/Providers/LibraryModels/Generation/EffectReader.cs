@@ -149,17 +149,25 @@ public sealed class EffectReader
                           IReadOnlyList<DriverProbe> probes)
     {
         var roots = new HashSet<string>(StringComparer.Ordinal);
+        // What the input itself is: what its field points to and the probes made for it. A struct kept in the field has no object of its
+        // own (TD-041): what the reference fields of its storage hold is reached from it, never it.
+        var own = new HashSet<string>(StringComparer.Ordinal);
         if (field is not null)
+        {
             roots.UnionWith(StaticTargets(DriverSynthesizer.DRIVER_TYPE, field));
+            own.UnionWith(OwnStaticTargets(DriverSynthesizer.DRIVER_TYPE, field));
+        }
         foreach (var factory in probes.Select(Allocations.ProbeBody))
         {
-            roots.UnionWith(_heap.Regions.Values.Where(region => region.SiteBodyId == factory).Select(region => region.Identity));
+            var made = _heap.Regions.Values.Where(region => region.SiteBodyId == factory).Select(region => region.Identity).ToArray();
+            roots.UnionWith(made);
+            own.UnionWith(made);
         }
 
         var reached = _reachability.From(roots);
         var probeGraph = _reachability.From(reached.Where(region => IsProbeObject(region) || Origin(region).Role == DriverRole.ProbeDelegate));
-        var ownProbeRoots = roots.Where(IsProbeObject).ToHashSet(StringComparer.Ordinal);
-        _inputs.Add(new Input(name, type, refKind, isReceiver, action, field, roots, reached, probeGraph, ownProbeRoots));
+        var ownProbeRoots = own.Where(IsProbeObject).ToHashSet(StringComparer.Ordinal);
+        _inputs.Add(new Input(name, type, refKind, isReceiver, action, field, roots, reached, probeGraph, ownProbeRoots) { Own = own });
     }
 
     private void BuildSpecialObjects()
@@ -375,9 +383,12 @@ public sealed class EffectReader
             }
             if (!input.OwnProbeRoots.Contains(region))
             {
-                if (input.Reached.Contains(region) && !input.Roots.Contains(region))
+                if (input.Reached.Contains(region) && !input.Own.Contains(region))
                 {
-                    if (input.IsReceiver)
+                    // A user object the receiver holds is no state of its own: a write into it has no form (TD-034b).
+                    if (input.IsReceiver && _receiverUserObjects.Contains(region))
+                        _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RECEIVER_OBJECT_WRITE, $"{FieldSlot.Key(field)} of {region}");
+                    else if (input.IsReceiver)
                         AddStateStore(region, action);
                     else
                         _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.ARGUMENT_GRAPH_WRITE, $"{input.Name}: {FieldSlot.Key(field)} of {region}");
@@ -393,7 +404,8 @@ public sealed class EffectReader
             handled = true;
         }
 
-        if (!handled && !_witnessObjects.Contains(region) && !_allocations.CreatedByCall(region))
+        // A seed no input reaches is a user object the library's own state holds, a static's: a write into it writes that state (R4).
+        if (!handled && (!_witnessObjects.Contains(region) || Origin(region).Role == DriverRole.Seed) && !_allocations.CreatedByCall(region))
             AddStateStore(region, action);
     }
 
@@ -416,7 +428,7 @@ public sealed class EffectReader
             return false;
         var slotObject = store.Field.IsStatic
             ? _heap.Regions.TryGetValue(region, out var held) && held.Kind == HeapRegionKind.Static
-            : _inputs.Any(input => input.IsReceiver && input.Roots.Contains(region));
+            : _inputs.Any(input => input.IsReceiver && input.Own.Contains(region));
         if (!slotObject)
             return false;
 
@@ -523,6 +535,18 @@ public sealed class EffectReader
         }
     }
 
+    /// <summary>The fields a library instance's stores through a reference write, other than a whole struct's (<see cref="ReferenceStructStores"/>),
+    /// each the object the field lies in, its slot and the field: where a store through an <c>out</c> or <c>ref</c> parameter, a <c>ref</c>
+    /// local or a <c>ref</c> return lands, as the same store made directly lands (R1).</summary>
+    /// <param name="instance">The library instance that stores.</param>
+    private IEnumerable<(string Region, string Slot, IrFieldRef Field)> ReferenceFieldStores(MethodInstance instance)
+    {
+        var copies = instance.Summary.StructCopies.Select(copy => copy.OperationId).ToHashSet();
+        return instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store && !copies.Contains(access.OperationId))
+                       .SelectMany(access => access.Targets).SelectMany(target => ValueProvenance.ReferenceFields(_heap, instance, target))
+                       .Where(place => !IsIgnoredDriverStatic(place.Field)).Distinct();
+    }
+
     /// <summary>The slots a library instance's stores write in a struct the driver's action constructs (<see cref="ConstructedStructs"/>):
     /// a field store on it or on a struct's storage within it, and a whole struct stored through a reference to it, as <c>this = …</c> in a
     /// constructor does; empty for the whole storage.</summary>
@@ -572,16 +596,18 @@ public sealed class EffectReader
         _staticStorage ??= _heap.Regions.Values.Where(region => region.Kind == HeapRegionKind.Static && region.TypeKey is not null)
                                 .ToLookup(region => FieldSlot.WithoutTypeArguments(region.TypeKey!), region => region.Identity, StringComparer.Ordinal);
 
-    /// <summary>The arrays a library instance's cell stores write into, directly or through a reference into a cell.</summary>
+    /// <summary>The arrays a library instance's cell stores write into, directly or through a reference into a cell. What an interface
+    /// call's site keeps on the objects it decides (<see cref="PathValue.IsDecided"/>) is the heap's record, which no code writes.</summary>
     /// <param name="instance">The library instance that stores.</param>
     /// <param name="slot">The storage the stores write, such as the cells; null for every storage, a dictionary's keys among them.</param>
     private IReadOnlySet<string> CellStoreTargets(MethodInstance instance, string? slot = null) =>
         instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores)
-                .Where(store => store.Kind == ElementOperationKind.Store && (slot is null || store.Slot == slot))
+                .Where(store => store.Kind == ElementOperationKind.Store && !PathValue.IsDecided(store.Slot) && (slot is null || store.Slot == slot))
                 .SelectMany(store => store.Arrays).SelectMany(value => _heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>Every object a library instance's own stores write into, whatever the kind of store: a field store, a cell store,
-    /// and a store through a reference into a cell or into a field (R6), with the slot a field store writes; null for the others. A
+    /// and a store through a reference into a cell or into a field (R6), with the full field slot from ValueProvenance.ReferenceFields;
+    /// null only where the reference projection names no field. ReferenceFieldStores uses the same projection. A
     /// field store <see cref="IsDelegateSlotStore"/> says is no state store writes no object here (task 11).</summary>
     /// <param name="instance">The library instance that stores.</param>
     /// <param name="unobserved">Whether a store through a reference has no proven place.</param>
@@ -597,7 +623,10 @@ public sealed class EffectReader
         foreach (var target in instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store)
                                        .SelectMany(access => access.Targets))
         {
-            targets.UnionWith(ValueProvenance.ReferenceStorage(_heap, instance, target, out var unproven).Select(region => (region, (string?)null)));
+            var fields = ValueProvenance.ReferenceFields(_heap, instance, target);
+            targets.UnionWith(fields.Select(place => (place.Region, (string?)place.Slot)));
+            targets.UnionWith(ValueProvenance.ReferenceStorage(_heap, instance, target, out var unproven)
+                                            .Where(region => fields.All(place => place.Region != region)).Select(region => (region, (string?)null)));
             unobserved |= unproven;
         }
         return targets;
@@ -625,6 +654,9 @@ public sealed class EffectReader
                 // A whole struct stored through a reference writes the storage it reaches, as the same store made directly does (R7).
                 foreach (var (region, slot, field) in ReferenceStructStores(instance))
                     ReadStore(region, slot, field, FieldSlot.Root(slot) == PathValue.ELEMENT, action);
+                // So does any other store through a reference into a field — an `out` or `ref` helper's, a `ref` local's (R1).
+                foreach (var (region, slot, field) in ReferenceFieldStores(instance))
+                    ReadStore(region, slot, field, cell: false, action);
 
                 var cells = CellStoreTargets(instance, PathValue.ELEMENT);
                 foreach (var region in CellStoreTargets(instance))
@@ -816,10 +848,19 @@ public sealed class EffectReader
                                                            root == HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.DRIVER_TYPE, field));
         if (input is null)
             return false;
-        if (input.IsReceiver || input.RefKind is RefKind.Ref or RefKind.Out or RefKind.In)
+        if (StructStorage.IsStorage(OperandOf(input)))
             _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.STRUCT_STORAGE_WRITE, $"{input.Name}: {slot}");
         return true;
     }
+
+    /// <summary>What names a struct input in the member's body, in the terms <see cref="StructStorage"/> decides on: the receiver, a
+    /// <c>ref</c> or <c>out</c> parameter, a read-only reference, or a by-value parameter.</summary>
+    /// <param name="input">The input.</param>
+    private static StructOperand OperandOf(Input input) =>
+        input.IsReceiver ? StructOperand.Receiver
+        : input.RefKind is RefKind.Ref or RefKind.Out ? StructOperand.ReferenceParameter
+        : input.RefKind != RefKind.None ? StructOperand.ReadOnlyReference
+        : StructOperand.Parameter;
 
     private void ReadWitnessesAndUnknownCalls()
     {
@@ -986,6 +1027,14 @@ public sealed class EffectReader
     private IReadOnlySet<string> StaticTargets(string type, string field) =>
         _reachability.Held(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, type, field));
 
+    /// <summary>What a driver's static field itself points to, without what the storage of a struct kept in it holds.</summary>
+    /// <param name="type">The driver's type.</param>
+    /// <param name="field">The field.</param>
+    private IReadOnlySet<string> OwnStaticTargets(string type, string field) =>
+        _reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, type, field)) is { } start
+            ? _reachability.Targets(start)
+            : new HashSet<string>(StringComparer.Ordinal);
+
     private Allocation Origin(string region) => _origins.TryGetValue(region, out var origin)
         ? origin
         : _origins[region] = _allocations.Of(region);
@@ -1080,11 +1129,15 @@ public sealed class EffectReader
     /// <param name="Roots">The objects the input is.</param>
     /// <param name="Reached">Every object reachable from <paramref name="Roots"/>.</param>
     /// <param name="ProbeGraph">Every object reachable from a probe the input reaches.</param>
-    /// <param name="OwnProbeRoots">The roots that are probe objects.</param>
+    /// <param name="OwnProbeRoots">The objects the input itself is (<see cref="Own"/>) that are probe objects.</param>
     private sealed record Input(string Name, ITypeSymbol Type, RefKind RefKind, bool IsReceiver, string Action, string? Field,
                                 IReadOnlySet<string> Roots, IReadOnlySet<string> Reached, IReadOnlySet<string> ProbeGraph,
                                 IReadOnlySet<string> OwnProbeRoots)
     {
+        /// <summary>The objects the input itself is: <paramref name="Roots"/> without what the storage of a struct kept in its field
+        /// holds, which is only reached from it (TD-041).</summary>
+        public IReadOnlySet<string> Own { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
         public bool IsArray => Type is IArrayTypeSymbol;
         public bool IsCollection => IsArray || Type is INamedTypeSymbol named && SeedableFields.Collection(named) is not null;
         public bool IsStruct => Type.TypeKind == TypeKind.Struct && TypeShape.Of(Type) is TypeShapeKind.PlainStruct or TypeShapeKind.StructWithReferences;

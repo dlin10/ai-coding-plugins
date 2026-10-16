@@ -59,6 +59,24 @@ internal sealed class SsaPlan
     internal bool TryGetVariable(ISymbol symbol, out SsaVariable variable) =>
         _symbols.TryGetValue(symbol, out variable!);
 
+    /// <summary>Whether a write of a local or a parameter defines a new version of it. A binding of a <c>ref</c> local or a
+    /// <c>ref</c>, <c>in</c> or <c>out</c> parameter (<c>ref T r = ref …</c>, <c>r = ref …</c>, a <c>foreach (ref var r in …)</c>
+    /// variable) does; a write through one — an assignment, a compound assignment, an increment, <c>??=</c>, a deconstruction into
+    /// it, passing it on as a <c>ref</c> or <c>out</c> argument — writes the storage it refers to and does not; every write of a
+    /// variable that is no reference does. This is the one owner of the rule. The plan asks it in <see cref="ScanTarget"/>,
+    /// <see cref="DefineTarget"/>, the flow-capture branch of <see cref="Scan"/> and <see cref="ScanCall"/>; the lowering's
+    /// consumers of planned definitions agree with it: <c>IrLowering.LowerAssignment</c> binds, <c>LowerStore</c> writes through,
+    /// and <c>LowerArguments</c> defines no version for a reference passed on.</summary>
+    /// <param name="variable">The local or parameter written.</param>
+    /// <param name="binds">Whether the write binds the variable to a reference (<see cref="Binds"/>) rather than writing a value.</param>
+    internal static bool DefinesVersion(ISymbol variable, bool binds) =>
+        binds || variable is not (ILocalSymbol { RefKind: not RefKind.None } or IParameterSymbol { RefKind: not RefKind.None });
+
+    /// <summary>Whether an assignment binds its target to a reference instead of writing a value: a <c>ref</c> assignment, as a
+    /// <c>ref</c> local's declaration and a <c>foreach (ref var …)</c> variable are in the flow graph.</summary>
+    /// <param name="assignment">The assignment.</param>
+    internal static bool Binds(ISimpleAssignmentOperation assignment) => assignment.IsRef;
+
     internal SsaVariable GetVariable(CaptureId capture) => _captures[capture];
 
     internal SsaToken Entry(int blockOrdinal, SsaVariable variable) => _entry[blockOrdinal][variable];
@@ -176,7 +194,7 @@ internal sealed class SsaPlan
                 return;
             case ISimpleAssignmentOperation assignment:
                 Scan(assignment.Value, blockOrdinal);
-                ScanTarget(assignment.Target, blockOrdinal);
+                ScanTarget(assignment.Target, blockOrdinal, Binds(assignment));
                 return;
             case ICompoundAssignmentOperation compound:
                 Scan(compound.Target, blockOrdinal);
@@ -219,12 +237,9 @@ internal sealed class SsaPlan
                 return;
             case IFlowCaptureOperation capture:
                 Scan(capture.Value, blockOrdinal);
-                // A reference local is written through, never redefined, as the lowering stores to it.
-                if (Unwrap(capture.Value) is not ILocalReferenceOperation { Local.RefKind: not RefKind.None } &&
-                    TryTargetVariable(Unwrap(capture.Value), out var captured))
-                {
+                // A write through the capture writes the variable it took; a reference is written through, never redefined.
+                if (TryTargetVariable(Unwrap(capture.Value), out var captured) && DefinesVersion(captured.Symbol!, binds: false))
                     _capturedVariables[capture.Id] = captured;
-                }
                 AddDefinition(blockOrdinal, GetVariable(capture.Id, capture.Value));
                 return;
             case IFlowCaptureReferenceOperation capture:
@@ -290,15 +305,21 @@ internal sealed class SsaPlan
     }
 
     /// <summary>A call defines a new version of every local or parameter it passes by <c>ref</c> or <c>out</c>, after its
-    /// receiver and arguments are evaluated.</summary>
+    /// receiver and arguments are evaluated, save a reference passed on, which the call writes through (<see cref="DefinesVersion"/>).</summary>
+    /// <param name="call">The invocation or object creation.</param>
+    /// <param name="arguments">Its arguments.</param>
+    /// <param name="blockOrdinal">The block the call stands in.</param>
     private void ScanCall(IOperation call, IEnumerable<IArgumentOperation> arguments, int blockOrdinal)
     {
         foreach (var child in call.ChildOperations)
             Scan(child, blockOrdinal);
         foreach (var argument in arguments)
         {
-            if (argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out && RefArgumentVariable(argument) is { } variable)
+            if (argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out && RefArgumentVariable(argument) is { } variable &&
+                DefinesVersion(variable.Symbol!, binds: false))
+            {
                 AddDefinition(blockOrdinal, variable);
+            }
         }
     }
 
@@ -311,19 +332,20 @@ internal sealed class SsaPlan
         _ => null
     };
 
-    private void ScanTarget(IOperation target, int blockOrdinal)
+    private void ScanTarget(IOperation target, int blockOrdinal, bool binds)
     {
         target = Unwrap(target);
         if (target is ITupleOperation tuple)
         {
             foreach (var element in tuple.Elements)
-                ScanTarget(element, blockOrdinal);
+                ScanTarget(element, blockOrdinal, binds: false);
             return;
         }
 
         if (TryTargetVariable(target, out var variable))
         {
-            AddDefinition(blockOrdinal, variable);
+            if (DefinesVersion(variable.Symbol!, binds))
+                AddDefinition(blockOrdinal, variable);
             return;
         }
 
@@ -355,7 +377,10 @@ internal sealed class SsaPlan
         }
 
         if (TryTargetVariable(target, out var variable))
-            AddDefinition(blockOrdinal, variable);
+        {
+            if (DefinesVersion(variable.Symbol!, binds: false))
+                AddDefinition(blockOrdinal, variable);
+        }
         // A compound assignment whose right-hand side branches writes the local or parameter its target's capture took.
         else if (target is IFlowCaptureReferenceOperation capture && _capturedVariables.TryGetValue(capture.Id, out var captured))
             AddDefinition(blockOrdinal, captured);

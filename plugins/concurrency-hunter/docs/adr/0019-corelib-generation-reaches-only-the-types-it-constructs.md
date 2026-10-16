@@ -17,7 +17,9 @@ The decision, for the generation of `System.Private.CoreLib` only:
 
 - A virtual or interface call reaches only the overrides of types the run constructs, by a constructor
   call in a reached body or by a construction the reachable set starts itself, and of a value type only
-  once a reached body boxes it. An override whose type is constructed later is reached then.
+  once a reached body boxes it — or, for a value type of an open-world assembly, the driver's, once a
+  reached body creates it: such a type stands for a user's value, and a constrained call reaches its
+  override with no box. An override whose type is constructed later is reached then.
 - The bodies of `System.SR` are never entered.
 - A body outside that set may still run, so a call the heap resolves into one is an opaque call: an
   unknown effect on what its receiver and arguments reach, and a delegate handed to it runs in an
@@ -38,7 +40,10 @@ program, the generation of a package and the `generate` command, which still ans
 CoreLib member, are unchanged. A member that hands a user object to an exception message gets an unknown
 effect on that object through `SR.Format`. A constrained call on a value the run creates but never boxes
 reaches no override, so the heap's resolution on that value is an opaque call where class-hierarchy
-dispatch would run the body.
+dispatch would run the body — unless the value type is of an open-world assembly, the driver's, which is
+constructed where a reached body creates it: a constrained call on the struct probe the driver creates
+with `new` (`value.GetHashCode()` in `Nullable<T>`, `x.CompareTo(y)` in `GenericComparer<T>`) reaches
+the probe's override.
 
 Rejected: generating bottom-up, the models of lower components replacing their bodies. 82% of the
 candidates lie in the component or above it, and a driver reaches it through `SR` and dispatch even from

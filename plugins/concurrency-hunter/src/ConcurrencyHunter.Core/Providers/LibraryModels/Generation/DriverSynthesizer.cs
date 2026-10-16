@@ -70,6 +70,11 @@ public sealed record Driver(IMethodSymbol Member, CSharpCompilation Compilation,
     /// <summary>The factory names of delegate seeds whose bodies are witnesses.</summary>
     public IReadOnlyList<string> SeedFactories { get; init; } = [];
 
+    /// <summary>The probe type each type parameter stands for, by the probe's name: the member's and its containing types', and those of
+    /// the generic static types the driver constructs.</summary>
+    public IReadOnlyDictionary<ITypeParameterSymbol, string> ProbeTypes { get; init; } =
+        new Dictionary<ITypeParameterSymbol, string>(SymbolEqualityComparer.Default);
+
     /// <summary>Whether the triggers cover a holder (A5): it has at least one trigger, and every member a caller could invoke on its
     /// static type has one.</summary>
     /// <param name="holder"><c>result</c> or <c>this</c>.</param>
@@ -195,6 +200,23 @@ public static class DriverSynthesizer
     public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
                                              IReadOnlySet<string> openedFields, IReadOnlySet<(string Type, string Name)> loadedStatics,
                                              CancellationToken cancellationToken, IReadOnlySet<string>? replacedMembers = null)
+        => Synthesize(library, member, externMembers, openedFields, loadedStatics, new ComparisonWitnesses(), cancellationToken, replacedMembers);
+
+    /// <summary>The driver with seeds only for static storage loaded by its reached closure, and probes that implement the comparison
+    /// interfaces the record says the member's closure needs.</summary>
+    /// <param name="library">The library compilation.</param>
+    /// <param name="member">The member to call.</param>
+    /// <param name="externMembers">The members whose bodies could not compile.</param>
+    /// <param name="openedFields">The fields and auto-properties opened for setup.</param>
+    /// <param name="loadedStatics">The static storage loaded by the closure, by declaring type definition and name.</param>
+    /// <param name="witnesses">The comparison witnesses each probe needs (<see cref="ComparisonWitnesses"/>).</param>
+    /// <param name="cancellationToken">Cancels the driver's compilation.</param>
+    /// <param name="replacedMembers">The documentation ids among <paramref name="externMembers"/> whose body is not the code the runtime
+    /// runs (<see cref="LibraryCompilationResult.ReplacedMembers"/>).</param>
+    public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
+                                             IReadOnlySet<string> openedFields, IReadOnlySet<(string Type, string Name)> loadedStatics,
+                                             ComparisonWitnesses witnesses, CancellationToken cancellationToken,
+                                             IReadOnlySet<string>? replacedMembers = null)
     {
         if (IsAccessor(member))
             return new DriverSynthesis(null, GenerationReasons.ACCESSOR, AccessorDetail(member));
@@ -210,7 +232,7 @@ public static class DriverSynthesizer
         }
 
         var definition = method.OriginalDefinition;
-        var writer = new Writer(library, definition, openedFields, loadedStatics);
+        var writer = new Writer(library, definition, openedFields, loadedStatics, witnesses);
         writer.Build();
         if (!writer.Candidate)
         {
@@ -259,7 +281,11 @@ public static class DriverSynthesizer
         var seeds = SeedOperations(compilation, tree, writer.SeedStatements, cancellationToken);
         return new DriverSynthesis(new Driver(definition, compilation, source, writer.Actions, writer.Parameters, writer.Triggers, writer.Uncovered,
                                               writer.Defaulted.Distinct().Order(StringComparer.Ordinal).ToArray(), writer.Unseeded.Keys.ToArray(),
-                                              writer.Unseeded.Values.ToArray(), seeds, writer.Enumerates) { SeedFactories = writer.SeedFactories },
+                                              writer.Unseeded.Values.ToArray(), seeds, writer.Enumerates)
+                                   {
+                                       SeedFactories = writer.SeedFactories,
+                                       ProbeTypes = writer.ProbeTypes
+                                   },
                                    null, "");
     }
 
@@ -422,8 +448,9 @@ public static class DriverSynthesizer
     /// <param name="member">The member's definition.</param>
     /// <param name="openedFields">The fields and auto-properties opened for setup.</param>
     /// <param name="loadedStatics">The static storage loaded by the reached closure.</param>
+    /// <param name="witnesses">The comparison witnesses each probe needs.</param>
     private sealed class Writer(CSharpCompilation library, IMethodSymbol member, IReadOnlySet<string> openedFields,
-                                IReadOnlySet<(string Type, string Name)> loadedStatics)
+                                IReadOnlySet<(string Type, string Name)> loadedStatics, ComparisonWitnesses witnesses)
     {
         /// <summary>The types whose members compare what they get, which the analysis takes to read it, as it takes <c>Equals</c>.</summary>
         private static readonly HashSet<string> ComparisonTypes = new(
@@ -489,6 +516,9 @@ public static class DriverSynthesizer
                                                                .Select(seed => seed.Value).ToArray();
 
         public SortedDictionary<string, ISymbol> Unseeded => _unseeded;
+
+        /// <inheritdoc cref="Driver.ProbeTypes"/>
+        public IReadOnlyDictionary<ITypeParameterSymbol, string> ProbeTypes => _probeTypes;
 
         public bool Candidate { get; private set; }
 
@@ -684,13 +714,16 @@ public static class DriverSynthesizer
         }
 
         /// <summary>The declarations of a type parameter's probe type: a sealed probe class meeting its base class and interfaces, or a
-        /// probe struct meeting its interfaces and the probe class of the objects the struct holds.</summary>
+        /// probe struct meeting its interfaces and the probe class of the objects the struct holds; either also implements the comparison
+        /// interfaces the member's closure needs of it (<see cref="ComparisonWitnesses"/>).</summary>
         /// <param name="parameter">The type parameter, named by <see cref="NameProbe"/>.</param>
         private IEnumerable<string> ProbeDeclarations(ITypeParameterSymbol parameter)
         {
             var name = _probeTypes[parameter];
             var classes = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(type => type.TypeKind == TypeKind.Class).ToArray();
-            var interfaces = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(type => type.TypeKind == TypeKind.Interface).ToArray();
+            var interfaces = parameter.ConstraintTypes.OfType<INamedTypeSymbol>().Where(type => type.TypeKind == TypeKind.Interface)
+                                      .Concat(witnesses.Interfaces(library, parameter))
+                                      .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default).ToArray();
             if (!_probeStructs.TryGetValue(name, out var held))
                 return [ClassDeclaration(name, classes.FirstOrDefault(), interfaces, fields: true, null, parameter.Name)];
             return [ClassDeclaration(name, null, interfaces, fields: true, null, parameter.Name, parameter),

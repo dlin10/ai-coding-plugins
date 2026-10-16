@@ -1163,6 +1163,22 @@ public sealed class ValueProvenance
         return ReferenceArrays(heap, instance, target, fields: true, [], ref unobserved);
     }
 
+    /// <summary>Finds every field a reference names, as <see cref="ReferenceStorage"/> follows it: each the object the field lies in — a
+    /// static field in the static storage of its declaring type —, the slot of it — through every struct field when the field is in a
+    /// struct's storage (R1), including a collection cell — and its leaf field. EffectReader.ReferenceFieldStores and its handoff
+    /// StoreTargets, and DirectStores consume this projection; ReferenceStorage and ReferenceArrays share its binding walk.</summary>
+    /// <param name="heap">The solved heap.</param>
+    /// <param name="instance">The instance expressing the reference.</param>
+    /// <param name="target">The reference location.</param>
+    internal static IReadOnlyList<(string Region, string Slot, IrFieldRef Field)> ReferenceFields(HeapSolution heap, MethodInstance instance,
+                                                                                                 ReferenceTarget target)
+    {
+        var unobserved = false;
+        var places = new List<(string Region, string Slot, IrFieldRef Field)>();
+        ReferenceArrays(heap, instance, target, fields: true, [], ref unobserved, places);
+        return places.Distinct().ToArray();
+    }
+
     /// <summary>Follows each reference binding once on its path to an array cell, or to a field when <paramref name="fields"/>.</summary>
     /// <param name="heap">The solved heap.</param>
     /// <param name="instance">The instance expressing the reference.</param>
@@ -1170,8 +1186,10 @@ public sealed class ValueProvenance
     /// <param name="fields">Whether a reference to a field names the object holding it.</param>
     /// <param name="seen">Bindings already visited.</param>
     /// <param name="unobserved">Whether any binding has no proven reference location.</param>
+    /// <param name="places">Where each field a reference names is added, with the object it lies in and its slot; <c>null</c> for none.</param>
     private static IReadOnlySet<string> ReferenceArrays(HeapSolution heap, MethodInstance instance, ReferenceTarget target, bool fields,
-                                                        HashSet<(string Instance, ReferenceTarget Target)> seen, ref bool unobserved)
+                                                        HashSet<(string Instance, ReferenceTarget Target)> seen, ref bool unobserved,
+                                                        List<(string Region, string Slot, IrFieldRef Field)>? places = null)
     {
         if (!seen.Add((instance.Id, target)))
             return new HashSet<string>(StringComparer.Ordinal);
@@ -1179,13 +1197,26 @@ public sealed class ValueProvenance
         {
             case ReferenceParameterElement element:
                 return instance.Parameters.GetValueOrDefault(element.Ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
-            case ReferenceCell { IsOnCollection: true } cell:
-                return cell.Bases.SelectMany(value => heap.Resolve(instance.Id, value))
-                           .SelectMany(region => heap.PointsTo(region, FieldSlot.Key(cell.Field))).ToHashSet(StringComparer.Ordinal);
-            // A base that is a struct's storage is its holder's, and one that is a struct copy no place at all (R1, R2).
-            case ReferenceCell cell when fields:
-                return cell.Bases.SelectMany(value => heap.Resolve(instance.Id, value)).Select(region => heap.Located(region, "")?.Region)
-                           .OfType<string>().ToHashSet(StringComparer.Ordinal);
+            // A field keeps its full slot and leaf, whether it lies directly in a holder or below an array cell (R4).
+            case ReferenceCell cell when cell.IsOnCollection || fields:
+            {
+                // A static field lies in the static storage of its declaring type, whatever construction of it.
+                var holders = cell.Field.IsStatic
+                    ? heap.Regions.Values.Where(region => region.Kind == HeapRegionKind.Static && region.TypeKey is { } type &&
+                                                          FieldSlot.WithoutTypeArguments(type) == FieldSlot.TypeKey(cell.Field.Assembly, cell.Field.ContainingTypeId))
+                          .Select(region => region.Identity)
+                    : cell.Bases.SelectMany(value => heap.Resolve(instance.Id, value));
+                var bases = (cell.IsOnCollection ? holders.SelectMany(region => heap.PointsTo(region, FieldSlot.Key(cell.Field))) : holders)
+                            .ToHashSet(StringComparer.Ordinal);
+                if (places is not null && (!cell.IsOnCollection || cell.StructPath.Count != 0))
+                {
+                    var field = cell.StructPath.LastOrDefault() ?? cell.Field;
+                    places.AddRange(bases.Select(region => heap.Located(region, cell.Slot)).OfType<(string Region, string Slot)>()
+                                         .Select(place => (place.Region, place.Slot, field)));
+                }
+                return cell.IsOnCollection ? bases
+                    : bases.Select(region => heap.Located(region, "")?.Region).OfType<string>().ToHashSet(StringComparer.Ordinal);
+            }
             case ReferenceParameter parameter:
             {
                 var arrays = new HashSet<string>(StringComparer.Ordinal);
@@ -1206,7 +1237,7 @@ public sealed class ValueProvenance
                             }
                         }
                         foreach (var reference in argument.References)
-                            arrays.UnionWith(ReferenceArrays(heap, caller, reference, fields, seen, ref unobserved));
+                            arrays.UnionWith(ReferenceArrays(heap, caller, reference, fields, seen, ref unobserved, places));
                     }
                 }
                 return arrays;
@@ -1223,7 +1254,7 @@ public sealed class ValueProvenance
                     if (callee.Summary.ReferenceReturns.Count == 0)
                         unobserved = true;
                     foreach (var reference in callee.Summary.ReferenceReturns)
-                        arrays.UnionWith(ReferenceArrays(heap, callee, reference, fields, seen, ref unobserved));
+                        arrays.UnionWith(ReferenceArrays(heap, callee, reference, fields, seen, ref unobserved, places));
                 }
                 return arrays;
             }
@@ -1460,7 +1491,8 @@ public sealed class ValueProvenance
             return false;
         }
 
-        /// <summary>The complete observations of values stored into an object's fields.</summary>
+        /// <summary>The complete observations of values stored into an object's fields, including fields a helper's reference names
+        /// through ReferenceFields, with the same stored-value observation DirectElementStores uses.</summary>
         /// <param name="object">The object region.</param>
         /// <param name="actions">The observed actions, or null for the member's call and enumeration.</param>
         public IReadOnlySet<string> DirectStores(string @object, IReadOnlySet<string>? actions = null)
@@ -1477,6 +1509,13 @@ public sealed class ValueProvenance
                         continue;
                     values.UnionWith(Held(ObserveValues(instance, store.Values, store.Producers, out _))
                                          .Where(value => !IsPlacedSlotSeed(@object, field ?? store.Field.Name, value)));
+                }
+                foreach (var access in instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store &&
+                    instance.Summary.ReferenceStores.All(store => store.OperationId != access.OperationId)))
+                {
+                    foreach (var place in access.Targets.SelectMany(target => ReferenceFields(Heap, instance, target))
+                                                       .Where(place => place.Region == @object && FieldCarriesObject(place.Field)))
+                        values.UnionWith(ReferenceStoredValues(instance, access).Where(value => !IsPlacedSlotSeed(@object, place.Slot, value)));
                 }
             }
             return values;
@@ -1499,6 +1538,37 @@ public sealed class ValueProvenance
 
         private bool FieldCarriesObject(IrFieldRef field) =>
             FieldSymbols.Of(field, _driver.Compilation) is not IFieldSymbol symbol || CanHoldObject(symbol.Type);
+
+        /// <summary>The observed objects a reference store writes, shared by DirectStores and DirectElementStores. The source variable
+        /// supplies its values; a parameter transfer supplies a value with no variable name. An unobserved source is refused.</summary>
+        /// <param name="instance">The instance storing through the reference.</param>
+        /// <param name="access">The reference store.</param>
+        private IReadOnlySet<string> ReferenceStoredValues(MethodInstance instance, SummaryReferenceAccess access)
+        {
+            var values = new HashSet<string>(StringComparer.Ordinal);
+            if (!Run.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
+                return values;
+            var store = body.Blocks.SelectMany(block => block.Operations).OfType<IrStoreReferenceOperation>()
+                            .FirstOrDefault(store => store.Id == access.OperationId);
+            if (store is null)
+                return values;
+            var symbol = body.Values[store.Value].SymbolKey;
+            var variable = symbol is null ? null : instance.Summary.Variables.FirstOrDefault(variable => variable.SymbolKey == symbol);
+            if (variable is not null)
+                values.UnionWith(Held(ObserveValues(instance, variable.Values, ValueOrigin.None, out _)));
+            else
+            {
+                var transfers = instance.Summary.RefParameters.Where(parameter => access.Targets.Contains(new ReferenceParameter(parameter.Ordinal))).ToArray();
+                foreach (var parameter in transfers)
+                    values.UnionWith(Held(ObserveValues(instance, parameter.Values, ValueOrigin.None, out _)));
+                if (transfers.Length == 0)
+                {
+                    Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
+                                                       $"no proven value in {instance.BodyId}#{access.OperationId}");
+                }
+            }
+            return values;
+        }
 
         /// <summary>The regions stored directly into cells of an array by the member.</summary>
         /// <param name="object">The array region.</param>
@@ -1528,27 +1598,7 @@ public sealed class ValueProvenance
                     }
                     if (!arrays.Contains(@object))
                         continue;
-                    if (!Run.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
-                        continue;
-                    var store = body.Blocks.SelectMany(block => block.Operations).OfType<IrStoreReferenceOperation>()
-                                    .FirstOrDefault(store => store.Id == access.OperationId);
-                    if (store is null)
-                        continue;
-                    var symbol = body.Values[store.Value].SymbolKey;
-                    var variable = symbol is null ? null : instance.Summary.Variables.FirstOrDefault(variable => variable.SymbolKey == symbol);
-                    if (variable is not null)
-                        values.UnionWith(Held(ObserveValues(instance, variable.Values, ValueOrigin.None, out _)));
-                    else
-                    {
-                        var transfers = instance.Summary.RefParameters.Where(parameter => access.Targets.Contains(new ReferenceParameter(parameter.Ordinal))).ToArray();
-                        foreach (var parameter in transfers)
-                            values.UnionWith(Held(ObserveValues(instance, parameter.Values, ValueOrigin.None, out _)));
-                        if (transfers.Length == 0)
-                        {
-                            Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
-                                                               $"no proven value in {instance.BodyId}#{access.OperationId}");
-                        }
-                    }
+                    values.UnionWith(ReferenceStoredValues(instance, access));
                 }
             }
             return values;

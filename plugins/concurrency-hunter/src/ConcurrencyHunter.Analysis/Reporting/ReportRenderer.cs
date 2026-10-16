@@ -51,7 +51,9 @@ public static class ReportRenderer
                                              "analysis does not see hands over, and which is therefore on no resource; an access to a struct copy, a " +
                                              "construction-local or fresh object, or a collection no field holds is left out on purpose and not counted",
         [CoverageCounters.SEMANTIC_GAP] = "callees the analysis could not reduce that touch a mutable region that is not owned, take a delegate or feed a " +
-                                          "shared region, by materiality: roots, regions, call sites"
+                                          "shared region, by materiality: roots, regions, call sites",
+        [SolverCounters.SAFEGUARD_TIMEOUT] = "solver queries the wall-clock safeguard stopped before their work limit, each answering unknown; " +
+                                             "only these answers may differ from another run of the same program"
     };
     private static readonly Regex HEADING_PATTERN = new(@"^( {0,3})(#{1,6})(?=[ \t]|$)");
     private static readonly Regex FENCE_PATTERN = new("^ {0,3}(`{3,}|~{3,})");

@@ -98,11 +98,13 @@ public sealed class EngineCounterTests
         Assert.Equal(run.Analysis.InstanceExecutions.Values.Sum(executions => executions.Count), run.Analysis.WalkVisits);
     }
 
+    /// <summary>Solver work, including grouped unseen-write rounds and visits, stays out of user-facing coverage.</summary>
     [Fact]
     public void Engine_counters_reach_no_coverage_key()
     {
         var run = Analyze(ParameterChain(9, "var o = slot; o.Touch();"));
-        string[] engineKeys = [HeapCounters.PROPAGATE_PASSES, HeapCounters.INSTANCE_PROCESSINGS, HeapCounters.REFERENCE_LOOKUPS, "walkVisits"];
+        string[] engineKeys = [HeapCounters.PROPAGATE_PASSES, HeapCounters.INSTANCE_PROCESSINGS, HeapCounters.REFERENCE_LOOKUPS,
+                               HeapCounters.UNSEEN_WRITE_ROUNDS, HeapCounters.UNSEEN_WALK_VISITS, "walkVisits"];
 
         Assert.True(run.Execution.Heap.Heap.Counters[HeapCounters.PROPAGATE_PASSES] > 0);
         Assert.True(run.Execution.Heap.Heap.Counters[HeapCounters.INSTANCE_PROCESSINGS] > 0);

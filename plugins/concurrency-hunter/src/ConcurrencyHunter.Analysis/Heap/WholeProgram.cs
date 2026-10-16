@@ -356,6 +356,12 @@ public static class HeapCounters
     public const string PROPAGATE_PASSES = "propagate-passes";
     public const string INSTANCE_PROCESSINGS = "instance-processings";
     public const string REFERENCE_LOOKUPS = "reference-lookups";
+
+    /// <summary>The grouped unseen-write rounds after propagation converges, including the final round that adds no storage.</summary>
+    public const string UNSEEN_WRITE_ROUNDS = "unseen-write-rounds";
+
+    /// <summary>The region/path states visited by unseen-write walks, independent of how often a start is recorded.</summary>
+    public const string UNSEEN_WALK_VISITS = "unseen-walk-visits";
 }
 
 /// <summary>The solved heap of one scope.</summary>
@@ -578,6 +584,23 @@ public sealed class HeapSolution
             (regionId, slot) = (region.Holder!, FieldSlot.Join(region.HolderSlot!, slot));
         return !copies && Regions.TryGetValue(regionId, out var holder) && holder.Kind == HeapRegionKind.StructCopy ? null : (regionId, slot);
     }
+
+    /// <summary>What separates a struct's storage from its holder in the storage's identity.</summary>
+    internal const string STORAGE_SEPARATOR = "&";
+
+    /// <summary>The identity of the struct storage at a slot of a region, which the solve gives it whether or not it made the region: the
+    /// storage of a struct's storage is its holder's slot below the storage's path (R1).</summary>
+    /// <param name="regionId">The region, a struct's storage or copy included.</param>
+    /// <param name="slot">The slot, a path below the region.</param>
+    public string StorageIdentity(string regionId, string slot) =>
+        Located(regionId, slot, copies: true) is { } located
+            ? $"{located.Region}{STORAGE_SEPARATOR}{located.Slot}"
+            : $"{regionId}{STORAGE_SEPARATOR}{slot}";
+
+    /// <summary>The struct storage the heap's walk of each unknown effect and model write marked as possibly holding a value (R9,
+    /// <see cref="UnseenWrites"/>), by <see cref="StorageIdentity"/>: what those writes write before an unknown effect on an object one
+    /// execution owns is made a read. Unseen outputs include their target storage and every nested Nullable slot their copy may fill.</summary>
+    public IReadOnlySet<string> UnseenFilledStorage { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 
     /// <summary>The regions a delegate region captures: its receiver, the closures it closes over and what their cells of the variables it
     /// closes over hold.</summary>
@@ -911,6 +934,7 @@ public static partial class WholeProgram
         private readonly TrackedMap<RegionRef, TrackedList<RegionRef>> _groups = [];
         private readonly TrackedMap<(RegionRef Region, string Field), TrackedSet<RegionRef>> _fields = [];
         private readonly TrackedMap<RegionRef, TrackedList<string>> _fieldsByRegion = [];
+        private readonly TrackedMap<RegionRef, TrackedMap<string, IrFieldRef>> _unseenLibraryFields = [];
 
         /// <summary>The unions <see cref="Load"/> made of a field over several regions of a group, by region and field. A field set and a
         /// group only grow while the solve runs, so a set whose size is the one it had when it was joined in adds nothing again. The
@@ -961,6 +985,8 @@ public static partial class WholeProgram
             [HeapCounters.PROPAGATE_PASSES] = 0,
             [HeapCounters.INSTANCE_PROCESSINGS] = 0,
             [HeapCounters.REFERENCE_LOOKUPS] = 0,
+            [HeapCounters.UNSEEN_WRITE_ROUNDS] = 0,
+            [HeapCounters.UNSEEN_WALK_VISITS] = 0,
         };
         private readonly TrackedMap<string, string> _rootInstances = new(StringComparer.Ordinal);
         private readonly TrackedMap<RegionRef, ResolutionScope> _providers = [];
@@ -997,14 +1023,23 @@ public static partial class WholeProgram
         /// a later call reads as <c>kept:…</c> of one of them may be such an object (R2).</summary>
         private readonly TrackedSet<RegionRef> _unfollowedKept = [];
 
-        /// <summary>The struct storage and the copies a copy put a struct into (<see cref="CopyStruct"/>): a <c>Nullable</c> kept there holds
-        /// a value only where one was stored, since storage nothing was stored into holds the default, an empty one, and a copy of it is as
-        /// empty (R2).</summary>
+        /// <summary>The struct storage and the copies a copy put a struct into (<see cref="CopyStruct"/>), and the struct storage code the
+        /// analysis does not see may write (<see cref="MarkUnseen"/>, R9): a <c>Nullable</c> kept there holds a value only where one was
+        /// stored, since storage nothing was stored into holds the default, an empty one, and a copy of it is as empty (R2). A storage nobody
+        /// named a region of yet is here by the identity it will have.</summary>
         private readonly TrackedSet<RegionRef> _filledStorage = [];
 
         /// <summary>The copies held by value that hold a struct only where a copy put one into them (<see cref="StructCopy.FollowsPresence"/>):
         /// any other copy holds one wherever it is made (R2).</summary>
         private readonly TrackedSet<RegionRef> _presenceCopies = [];
+
+        /// <summary>The struct storage the walk of an unknown effect or a model write marked in <see cref="_filledStorage"/>, for the export
+        /// only (<see cref="HeapSolution.UnseenFilledStorage"/>): no rule of the solve reads it.</summary>
+        private readonly TrackedSet<RegionRef> _unseenFilled = [];
+
+        /// <summary>The starts of unseen-write walks, shared across instances and passes by kind and receiver restriction. Recording
+        /// these starts changes no heap fact; <see cref="MarkUnseenWrites"/> reads them only after propagation converges.</summary>
+        private readonly Dictionary<(UnseenWriteKind Kind, string? Restriction), HashSet<RegionRef>> _unseenStarts = [];
 
         /// <summary>The keepers a known call made keep any value that may be an object the heap does not follow. Only a task's completion
         /// reads it: a synchronous <c>kept:…</c> keeps no unknown source of what it names, a rule this set leaves as it is (R2).</summary>
@@ -1124,6 +1159,7 @@ public static partial class WholeProgram
             _groups.Attach(new StateKey("_groups"), ReadState, WroteState);
             _fields.Attach(new StateKey("_fields"), ReadState, WroteState);
             _fieldsByRegion.Attach(new StateKey("_fieldsByRegion"), ReadState, WroteState);
+            _unseenLibraryFields.Attach(new StateKey("_unseenLibraryFields"), ReadState, WroteState);
             _keeperCalls.Attach(new StateKey("_keeperCalls"), ReadState, WroteState);
             _libraryKeeping.Attach(new StateKey("_libraryKeeping"), ReadState, WroteState);
             _keptFallbacks.Attach(new StateKey("_keptFallbacks"), ReadState, WroteState);
@@ -1173,6 +1209,7 @@ public static partial class WholeProgram
             _unfollowedKeptValues.Attach(new StateKey("_unfollowedKeptValues"), ReadState, WroteState);
             _filledStorage.Attach(new StateKey("_filledStorage"), ReadState, WroteState);
             _presenceCopies.Attach(new StateKey("_presenceCopies"), ReadState, WroteState);
+            _unseenFilled.Attach(new StateKey("_unseenFilled"), ReadState, WroteState);
             _completers.Attach(new StateKey("_completers"), ReadState, WroteState);
             _solvingState.Attach(new StateKey("_solvingState"), ReadState, WroteState);
         }
@@ -1196,6 +1233,9 @@ public static partial class WholeProgram
             }
         }
 
+        /// <summary>Solves the heap, then applies grouped unseen writes and escaped deferred writes in one outer fixed point.
+        /// Filled-storage membership reads are tracked, so a new mark invalidates its presence readers before propagation resumes.
+        /// Both mark sets only grow and are bounded by the scope's struct storage; fallbacks wait for those readers.</summary>
         internal HeapSolution Run()
         {
             try
@@ -1203,16 +1243,22 @@ public static partial class WholeProgram
                 CheckCancellation();
                 Initialize();
                 Seed();
-                do
+                HeapSolution result;
+                while (true)
                 {
                     CheckCancellation();
                     Propagate();
+                    // Presence readers must run before an empty receiver or keeper can acquire a fallback.
+                    if (MarkUnseenWrites())
+                        continue;
+                    if (DefaultEmptyRegistrations() || CreateReceiverlessFallbacks() || CreateKeeperFallbacks())
+                        continue;
+                    result = Result();
+                    if (!MarkEscapedDeferredWrites(result))
+                        break;
                 }
-                while (DefaultEmptyRegistrations() || CreateReceiverlessFallbacks() || CreateKeeperFallbacks());
-
                 if (_worklistOptions.VerifyConvergence)
                     VerifyConvergence();
-                var result = Result();
                 CheckCancellation();
                 return result;
             }
@@ -1590,6 +1636,7 @@ public static partial class WholeProgram
                                                                                          .Select(region => region.Identity).ToArray(),
                                                         StringComparer.Ordinal),
                 StartupRegions = Identities(_startupRegions),
+                UnseenFilledStorage = Identities(_unseenFilled),
                 UnfollowedCallResults = _instances.Values
                                                   .SelectMany(instance => instance.UnfollowedCallResults.Select(operation => (instance.Id, operation)))
                                                   .ToTrackedSet(),
@@ -2229,11 +2276,24 @@ public static partial class WholeProgram
             substitution.Count == 0 ? "" : "|" + string.Join(";", substitution.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                                                               .Select(pair => $"{pair.Key}={pair.Value}"));
 
+        /// <summary>Propagates one instance's transfers and records unseen-write starts without walking the heap. Model writes and
+        /// unseen outputs mark only their own targets here; <see cref="Run"/> applies transitive walks after propagation converges.</summary>
+        /// <param name="instance">The instance whose summary is processed.</param>
         private void Process(InstanceState instance)
         {
             CheckCancellation();
             _counters[HeapCounters.INSTANCE_PROCESSINGS]++;
             var summary = instance.Summary;
+            foreach (var (field, bases) in UnseenWrites.LibraryFields(_program, summary, instance.Substitution))
+            {
+                foreach (var region in Eval(instance, bases.Where(value => value is not PathValue { IsWildcard: true })))
+                {
+                    if (!_unseenLibraryFields.TryGetValue(region, out var fields))
+                        _unseenLibraryFields.Add(region, fields = new(StringComparer.Ordinal));
+                    if (fields.TryAdd(FieldSlot.Key(field), field))
+                        _changes++;
+                }
+            }
             var memberId = _memberOfNestedBody.GetValueOrDefault(instance.BodyId) ?? instance.BodyId;
             var capturedCells = CapturedCells(memberId);
             // Every version of a captured variable, and what a nested body assigns to it, goes into its capture cell: the slot of the
@@ -2252,7 +2312,8 @@ public static partial class WholeProgram
                 AddToCell(instance, store.Cell, Eval(instance, store.Values));
             }
 
-            foreach (var store in summary.Stores)
+            // A store through a reference writes the field or the cell the reference names, as a store to it does (R6).
+            foreach (var store in summary.Stores.Concat(summary.ReferenceStores))
             {
                 CheckCancellation();
                 var values = Eval(instance, store.Values);
@@ -2272,7 +2333,7 @@ public static partial class WholeProgram
                 CopyStruct(instance, copy);
             }
 
-            foreach (var element in summary.Elements.Where(element => element.Kind == ElementOperationKind.Store))
+            foreach (var element in summary.Elements.Where(element => element.Kind == ElementOperationKind.Store).Concat(summary.ReferenceElementStores))
             {
                 CheckCancellation();
                 // What an interface call does goes only into, and only comes from, the objects of the kinds whose member it is there, and
@@ -2484,15 +2545,34 @@ public static partial class WholeProgram
             }
             // What an unresolved call is handed it may run whenever it likes (R3); a call a recognizer or the table models is no such call.
             var modelled = Modelled ??= new UnknownCalls.Modelled(_scope);
+            // Its unknown effect, a dynamic operation's and a model's write may put a value into struct storage they reach (R9).
             foreach (var call in summary.OpaqueCalls.Where(call => !call.IsKnown && !modelled.Contains(instance.BodyId, call) && !DecidesEvery(instance, call)))
             {
                 CheckCancellation();
                 Handoff(instance, call.OperationId, call.Arguments.SelectMany(argument => argument.Values).Concat(call.Delegates));
+                MarkUnknownEffect(instance, call);
             }
             foreach (var dynamic in summary.DynamicOperations)
             {
                 CheckCancellation();
                 Handoff(instance, dynamic.OperationId, dynamic.Values);
+                RecordUnseenStarts(UnseenWriteKind.UnknownEffect, Eval(instance, dynamic.Values), null);
+            }
+            // A dispatch left unresolved is a member of the table on the library objects it is on, and one no model knows is an unresolved
+            // call there too (UnknownCalls.Of); the dispatch itself marks where the heap records it (MarkUnresolvedDispatch).
+            foreach (var direct in summary.Calls.Where(call => _rebuilding.UnresolvedDispatches.Contains((instance.Id, call.OperationId)))
+                                          .SelectMany(call => CollectionObjects.LibraryCalls(call, value => Identities(Eval(instance, value)),
+                                                                                             region => ObjectKind(Intern(region), call.Target)))
+                                          .Where(call => !call.IsKnown))
+            {
+                CheckCancellation();
+                MarkUnknownEffect(instance, direct);
+            }
+            foreach (var effect in summary.ArgumentEffects.Where(effect => effect is { IsDeferred: false, Member: null,
+                                                                                       Kind: IrLibraryEffectKind.WriteArgument or IrLibraryEffectKind.WriteCells }))
+            {
+                CheckCancellation();
+                MarkModelWrite(instance, effect);
             }
             foreach (var whenAll in summary.WhenAlls)
             {
@@ -3098,6 +3178,18 @@ public static partial class WholeProgram
             var containing = call.TargetContainingTypeKey is null ? null : ProgramIndex.Substitute(call.TargetContainingTypeKey, caller.Substitution);
             TrackedSet<RegionRef>? evaluatedReceivers = null;
             TrackedSet<RegionRef> Receivers() => evaluatedReceivers ??= Eval(caller, call.Receivers);
+            // Where the instance closes the type, the default-comparer factory makes the comparer the selection gives and nothing else.
+            if (call.DefaultComparer is { DefaultComparer: { } kind } mark)
+            {
+                foreach (var comparer in DefaultComparer(caller, mark.Site, kind))
+                    ConstructComparer(caller, call, comparer);
+                if (!_scope.Reachable.OpenDefaultComparerCalls.Contains((caller.BodyId, call.OperationId)) ||
+                    !_program.IsOpen(ProgramIndex.Substitute(mark.Site.TypeKey, caller.Substitution)) &&
+                    _scope.Reachable.DefaultComparerBindings.GetValueOrDefault((caller.BodyId, call.OperationId))?.Contains(ProgramIndex.Substitute(mark.Site.TypeKey, caller.Substitution)) == true)
+                {
+                    return;
+                }
+            }
             switch (call.Kind)
             {
                 case IrCallKind.LocalFunction:
@@ -3117,6 +3209,7 @@ public static partial class WholeProgram
                         NoReceiver(caller, call);
                         _rebuilding.UnresolvedDispatches.Add((caller.Id, call.OperationId));
                         Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
+                        MarkUnresolvedDispatch(caller, call, []);
                     }
                     UnresolvedTargets(caller, call);
                     foreach (var region in regions)
@@ -3140,6 +3233,7 @@ public static partial class WholeProgram
                             NoReceiver(caller, call);
                             _rebuilding.UnresolvedDispatches.Add((caller.Id, call.OperationId));
                             Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
+                            MarkUnresolvedDispatch(caller, call, []);
                         }
                     }
                     UnresolvedTargets(caller, call);
@@ -3182,7 +3276,7 @@ public static partial class WholeProgram
                     {
                         CheckCancellation();
                         var callee = Instance(call.Target, receiver + TypeArgumentText(typeArguments),
-                                              ReceiverSubstitution(_regions[receiver], method, typeArguments), [receiver], [], false);
+                                              ReceiverSubstitution(_regions[receiver], method, typeArguments, containing), [receiver], [], false);
                         Bind(caller, call, callee, "exact");
                     }
 
@@ -3819,11 +3913,52 @@ public static partial class WholeProgram
                         UnresolvedFate(consumer, invocation, receivers);
                     }
 
+                    // A model's write the call that returned the sequence defers to its enumeration happens here, on what the call was
+                    // handed, as the accesses make it there (R9).
+                    MarkDeferredWrites(sequence);
+
                     Consume(consumer, operationId, sequence.Sources, visited);
                 }
                 else if (_iteratorObjects.ContainsKey(region))
                     _rebuilding.IteratorEnumerations.Add((consumer.Id, operationId, region));
             }
+        }
+
+        /// <summary>Marks a sequence's deferred model writes by the same rule for a visible consumer (<see cref="Consume"/>) and an
+        /// unknown enumeration after escape (<see cref="MarkEscapedDeferredWrites"/>).</summary>
+        /// <param name="sequence">The sequence whose enumeration runs the writes.</param>
+        private void MarkDeferredWrites(SequenceState sequence)
+        {
+            if (sequence.IsNested || !_instances.TryGetValue(sequence.Creator, out var creator))
+                return;
+            foreach (var deferred in creator.Summary.ArgumentEffects.Where(effect => effect is { IsDeferred: true, Member: null,
+                                                                                                 Kind: IrLibraryEffectKind.WriteArgument or IrLibraryEffectKind.WriteCells } &&
+                                                                                      effect.OperationId == sequence.Operation))
+            {
+                CheckCancellation();
+                MarkModelWrite(creator, deferred);
+            }
+        }
+
+        /// <summary>Applies the deferred writes of sequences the solved heap says escape, including their sources. Presence only grows;
+        /// <see cref="Run"/> shares one outer fixed point with <see cref="MarkUnseenWrites"/>, resuming propagation while either adds
+        /// storage, before executions or ownership are built.</summary>
+        /// <param name="heap">The current solution, whose escape classification the unknown executions use.</param>
+        private bool MarkEscapedDeferredWrites(HeapSolution heap)
+        {
+            var before = _unseenFilled.Count;
+            var pending = new Stack<RegionRef>(heap.UnknownIterators.Select(Intern));
+            var visited = new HashSet<RegionRef>();
+            while (pending.TryPop(out var region))
+            {
+                CheckCancellation();
+                if (!visited.Add(region) || !_sequences.TryGetValue(region, out var sequence))
+                    continue;
+                MarkDeferredWrites(sequence);
+                foreach (var source in sequence.Sources)
+                    pending.Push(source);
+            }
+            return _unseenFilled.Count > before;
         }
 
         private RegionRef KeeperStore(SummaryOpaqueCall call, int ordinal) => StaticRegion(call.Library!.KeeperTypeKeys[ordinal]);
@@ -4919,12 +5054,13 @@ public static partial class WholeProgram
             known.UnionWith(receivers);
             Handoff(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
             EscapeHolders(caller, call.OperationId, call.Arguments.SelectMany(argument => argument.Values));
+            MarkUnresolvedDispatch(caller, call, receivers);
         }
 
         /// <summary>Records work the engine starts itself that resolves to a member without a body: an unresolved dispatch of that member
         /// in the execution running the work, which sees its receivers through the type declaring the member and what it is handed whole
         /// (question 145). Work that sees nothing is not recorded. The delegates it is handed run in an unknown execution of their own, as an
-        /// unresolved call's do (R3).</summary>
+        /// unresolved call's do (R3). Its unseen-write starts are recorded for grouped walks after propagation.</summary>
         /// <param name="caller">The instance starting the work.</param>
         /// <param name="operationId">The spawn, timer or handing operation.</param>
         /// <param name="kind">Where the work runs.</param>
@@ -4948,6 +5084,11 @@ public static partial class WholeProgram
             var values = handed.Select(region => (AbstractValue)new SolvedRegionValue(region)).ToArray();
             Handoff(caller, operationId, values);
             EscapeHolders(caller, operationId, values);
+            // Its unknown effect may put a value into struct storage it reaches (R9).
+            var unseen = UnseenWrites.OfGap(SemanticGapKinds.UNRESOLVED_DISPATCH);
+            foreach (var group in receivers.GroupBy(receiver => receiver.DeclaringTypeKey))
+                MarkUnseenReceivers(unseen, group.Select(receiver => (IEnumerable<RegionRef>)[receiver.Region]).ToArray(), group.Key);
+            RecordUnseenStarts(unseen, handed, null);
         }
 
         /// <summary>How work names the member it runs: its display, or, for a member from metadata the index does not know, its
@@ -5218,13 +5359,18 @@ public static partial class WholeProgram
                 _changes++;
         }
 
-        /// <summary>The substitution of a method running on a receiver region: the region's type projected onto the method's declaring
-        /// type, plus the call's method type arguments.</summary>
-        /// <param name="receiver">The receiver region.</param>
-        /// <param name="method">The method.</param>
-        /// <param name="typeArguments">The call's method type arguments.</param>
-        private IReadOnlyDictionary<string, string> ReceiverSubstitution(HeapRegion receiver, ProgramMethod method, IReadOnlyList<string> typeArguments) =>
-            Substitution(method, receiver.TypeKey is null ? null : _program.ConstructedBase(receiver.TypeKey, method.ContainingTypeKey), typeArguments);
+        /// <summary>The substitution of a member an object runs: the type arguments its type gives the member's declaring type, and the
+        /// member's own. A member of <c>Nullable&lt;S&gt;</c> runs on a region of the S it holds, which gives no <c>Nullable</c>, so it takes
+        /// them from the type the call names (<see cref="TypeSafety.NullableValueType"/>).</summary>
+        /// <param name="receiver">The object.</param>
+        /// <param name="method">The member.</param>
+        /// <param name="typeArguments">The member's own type arguments.</param>
+        /// <param name="containing">The declaring type as the call names it, substituted; null where the call names none.</param>
+        private IReadOnlyDictionary<string, string> ReceiverSubstitution(HeapRegion receiver, ProgramMethod method, IReadOnlyList<string> typeArguments,
+                                                                         string? containing = null) =>
+            Substitution(method, (receiver.TypeKey is null ? null : _program.ConstructedBase(receiver.TypeKey, method.ContainingTypeKey)) ??
+                                 (containing is not null && TypeSafety.NullableValueType(containing) is not null ? containing : null),
+                         typeArguments);
 
         private IReadOnlyDictionary<string, string> Substitution(ProgramMethod method, string? containingTypeKey, IReadOnlyList<string> typeArguments)
         {
@@ -5306,6 +5452,7 @@ public static partial class WholeProgram
             // A box of an empty Nullable is null: no box is made where no struct reaches the boxing, nor where the Nullable is read from
             // storage no struct was stored into (R2).
             AllocationValue { Present: { } present } when !Eval(instance, present).Any(HoldsStruct) => [],
+            AllocationValue { DefaultComparer: { } kind } allocation => DefaultComparer(instance, allocation.Site, kind),
             AllocationValue allocation => [AllocationRegion(instance, allocation.Site)],
             CallResultValue result => new TrackedSet<RegionRef>(CallResult(instance, result.OperationId)),
             LibraryKeeperValue keeper => _keeperCalls.TryGetValue((instance.Id, keeper.OperationId), out var keepingCalls)
@@ -5407,7 +5554,9 @@ public static partial class WholeProgram
                                                                    .ToArray();
 
         /// <summary>A copy of a struct (<see cref="StructCopy"/>): what each slot of each source holds goes into the same slot of each
-        /// target, so the reference fields of the copy keep pointing at the objects they held (R2).</summary>
+        /// target, so the reference fields of the copy keep pointing at the objects they held (R2). A target holds a struct where a source
+        /// does, and a <c>Nullable</c> below the struct holds one where it does in a source; an output no body the run has makes may put a
+        /// struct into its target and below whatever the sources hold (R9, <see cref="UnseenWrites"/>).</summary>
         /// <param name="instance">The instance making the copy.</param>
         /// <param name="copy">The copy.</param>
         private void CopyStruct(InstanceState instance, StructCopy copy)
@@ -5416,13 +5565,32 @@ public static partial class WholeProgram
             if (targets.Count == 0)
                 return;
             var sources = Eval(instance, copy.Sources);
+            var whole = targets.Where(target => TryGetRegion(target, out var region) &&
+                                                region.Kind is HeapRegionKind.StructStorage or HeapRegionKind.StructCopy)
+                               .ToArray();
+            // An output no body the run has makes may put a value into the storage it is handed, and into each Nullable below it, whatever
+            // its sources hold (R9).
+            if (copy.IsUnseenOutput && UnseenWrites.MayWrite(UnseenWriteKind.Output, isOwnReadonly: false))
+            {
+                foreach (var target in whole)
+                {
+                    foreach (var slot in UnseenWrites.OutputSlots(_program, TryGetRegion(target, out var region) ? region.TypeKey : null))
+                        MarkUnseen(target, slot, UnseenWriteKind.Output, isOwnReadonly: false);
+                }
+            }
             if (sources.Any(HoldsStruct))
             {
-                foreach (var target in targets.Where(target => TryGetRegion(target, out var region) &&
-                                                               region.Kind is HeapRegionKind.StructStorage or HeapRegionKind.StructCopy))
+                foreach (var target in whole)
+                    Fill(target);
+            }
+            // A Nullable below the struct holds a value in the target where it does in the source (R2).
+            foreach (var (source, below) in sources.Select(source => (source, TryGetRegion(source, out var region) ? PresenceSlots(region.TypeKey) : []))
+                                                   .Where(pair => pair.Item2.Length != 0))
+            {
+                foreach (var slot in below.Where(slot => !IsOverwritten(copy, slot) && Holds(StorageAt(source, slot))))
                 {
-                    if (_filledStorage.Add(target))
-                        _changes++;
+                    foreach (var target in targets.Where(target => target != source))
+                        Fill(StorageAt(target, slot));
                 }
             }
             foreach (var source in sources)
@@ -5447,9 +5615,10 @@ public static partial class WholeProgram
         }
 
         /// <summary>Whether a region a value of a struct reaches holds a struct: any region but a struct's storage or a copy that follows the
-        /// presence of what it is taken from; that storage where a copy put a struct into it or its slot holds one whole, as a collection or
-        /// a task holds a value it is handed; that copy where a copy put a struct into it. Storage nothing was stored into holds its default,
-        /// which for a <c>Nullable</c> is empty, and so does a copy taken only from such storage (R2).</summary>
+        /// presence of what it is taken from; that storage where a copy put a struct into it, code the analysis does not see may have written
+        /// it (<see cref="UnseenWrites"/>, R9) or its slot holds one whole, as a collection or a task holds a value it is handed; that copy
+        /// where a copy put a struct into it. Storage nothing was stored into holds its default, which for a <c>Nullable</c> is empty, and so
+        /// does a copy taken only from such storage (R2).</summary>
         /// <param name="regionId">The region.</param>
         private bool HoldsStruct(RegionRef regionId)
         {
@@ -5462,6 +5631,341 @@ public static partial class WholeProgram
                 _ => true
             };
         }
+
+        /// <summary>Marks struct storage as holding a struct (<see cref="HoldsStruct"/>).</summary>
+        /// <param name="storage">The storage, or a copy.</param>
+        private void Fill(RegionRef storage)
+        {
+            if (_filledStorage.Add(storage))
+                _changes++;
+        }
+
+        /// <summary>Whether struct storage below a struct holds a value: a copy or a code the analysis does not see put one there, or its
+        /// slot holds one whole. Storage nobody named holds its default.</summary>
+        /// <param name="storage">The storage.</param>
+        private bool Holds(RegionRef storage) =>
+            _filledStorage.Contains(storage) || TryGetRegion(storage, out var region) && region.Kind == HeapRegionKind.StructStorage &&
+            HeldWhole(storage, region).Any();
+
+        /// <summary>The struct storage at a slot below a region, by the identity <see cref="Storage"/> gives it, whether or not a region of
+        /// it was made.</summary>
+        /// <param name="region">The region, a struct's storage or copy included.</param>
+        /// <param name="slot">The slot, a path below it.</param>
+        private RegionRef StorageAt(RegionRef region, string slot)
+        {
+            var (holder, path) = Located(region, slot);
+            return Intern($"{holder}{STORAGE}{path}");
+        }
+
+        /// <summary>The slots below a struct of a type whose presence a write of its whole storage may change
+        /// (<see cref="UnseenWrites.PresenceSlotsBelow"/>).</summary>
+        /// <param name="typeKey">The struct's type.</param>
+        private string[] PresenceSlots(string? typeKey) => UnseenWrites.PresenceSlotsBelow(_program, typeKey);
+
+        /// <summary>Records the starts of an unresolved call's unknown effect (R9), without walking during propagation, as the accesses'
+        /// unknown effect starts (<see cref="UnknownCalls.Reach.Starts"/>): the receivers through the state of
+        /// the type declaring the member, each argument whole, an array the call creates for its arguments by its elements.</summary>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="call">The unresolved call.</param>
+        private void MarkUnknownEffect(InstanceState instance, SummaryOpaqueCall call)
+        {
+            var kind = UnseenWrites.OfGap(UnknownCalls.KindOf(call.Callee));
+            if (!call.IsConstructor)
+                MarkUnseenReceivers(kind, call.Receivers.Select(value => (IEnumerable<RegionRef>)Eval(instance, value)).ToArray(), call.DeclaringTypeKey);
+            MarkUnseenArguments(instance, kind, call.Arguments);
+        }
+
+        /// <summary>Records the starts of an unresolved dispatch's unknown effect (R9) for the grouped walk after propagation, as the
+        /// accesses make that effect (<c>UnknownCalls.Of</c>): each receiver object it runs no body on through the type declaring the
+        /// implementation it has, all of them grouped by that type, and what it is handed whole. A receiver a library implementation of the
+        /// call decides is no unresolved one (<see cref="UnknownCalls.DecidedByLibrary"/>), and a dispatch every receiver of which is so
+        /// decided records no start; one with no receiver object sees only what it is handed. The no-receiver dispatches of
+        /// <see cref="Call"/>, the receivers <see cref="Unresolved"/> records — those of a factory, a fated delegate and a library sequence's
+        /// iterator delegate included — and <see cref="RecordUnresolvedWork"/>'s work all record their starts through it.</summary>
+        /// <param name="instance">The instance making the dispatch.</param>
+        /// <param name="call">The dispatch, whose arguments are what it is handed.</param>
+        /// <param name="receivers">The receiver objects it runs no body on, each with the type of the run's own declaring the implementation.</param>
+        private void MarkUnresolvedDispatch(InstanceState instance, CallTransfer call, IReadOnlyCollection<(RegionRef Region, string? DeclaringTypeKey)> receivers)
+        {
+            var seen = receivers.Where(receiver => !UnknownCalls.DecidedByLibrary(call.Implementations, ObjectKind(receiver.Region, call.Target))).ToArray();
+            if (receivers.Count != 0 && seen.Length == 0)
+                return;
+            var kind = UnseenWrites.OfGap(SemanticGapKinds.UNRESOLVED_DISPATCH);
+            foreach (var group in seen.GroupBy(receiver => receiver.DeclaringTypeKey))
+                MarkUnseenReceivers(kind, group.Select(receiver => (IEnumerable<RegionRef>)[receiver.Region]).ToArray(), group.Key);
+            MarkUnseenArguments(instance, kind, call.Arguments);
+        }
+
+        /// <summary>Records the receiver starts of an unknown effect (R9), without a heap walk during propagation, as
+        /// <see cref="UnknownCalls.Reach.Starts"/> starts from them: through a member a type of the run's own declares, only that type's state and its bases'; through a library
+        /// member, an object of the run's own only through the state of the library type declaring it and a library object whole.</summary>
+        /// <param name="kind">The unseen write.</param>
+        /// <param name="receivers">The regions of each receiver value.</param>
+        /// <param name="declaringTypeKey">The type declaring the member, or null where none is known.</param>
+        private void MarkUnseenReceivers(UnseenWriteKind kind, IReadOnlyList<IEnumerable<RegionRef>> receivers,
+                                         string? declaringTypeKey)
+        {
+            if (declaringTypeKey is { } declaring && _program.Type(declaring) is { IsSource: true })
+            {
+                RecordUnseenStarts(kind, receivers.SelectMany(regions => regions), declaring);
+                return;
+            }
+
+            var own = receivers.Where(regions => regions.Any(IsSourceObject)).ToArray();
+            RecordUnseenStarts(kind, receivers.Except(own).SelectMany(regions => regions), null);
+            if (declaringTypeKey is { } library)
+                RecordUnseenStarts(kind, own.SelectMany(regions => regions), library);
+        }
+
+        /// <summary>Records the argument starts of an unknown effect (R9), deduplicated across instances and passes: each argument whole,
+        /// an array the call creates for its arguments by its elements (<see cref="UnknownCalls.Reach.Starts"/>).</summary>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="kind">The unseen write.</param>
+        /// <param name="arguments">The arguments.</param>
+        private void MarkUnseenArguments(InstanceState instance, UnseenWriteKind kind, IEnumerable<CallArgument> arguments)
+        {
+            foreach (var argument in arguments)
+                RecordUnseenStarts(kind, Eval(instance, argument.CreatedElements is { } elements ? elements.SelectMany(element => element.Values)
+                                                                                                         : argument.Values), null);
+        }
+
+        /// <summary>Whether a region is an object of a type of the run's own with state of its own.</summary>
+        /// <param name="regionId">The region.</param>
+        private bool IsSourceObject(RegionRef regionId) =>
+            TryGetRegion(regionId, out var region) && region.TypeKey is { } key && _program.InstanceFieldsOf(key) is { Count: > 0 };
+
+        /// <summary>Marks what a model's write may fill (R9): every slot holding a <c>Nullable</c> at or below each field of each object a
+        /// <c>writes-arg</c> argument writes (<see cref="UnseenWrites.ModelArgumentTargets{TRegion}"/>: what a library sequence yields, the
+        /// objects a sequence it is handed as one may yield) one level deep and a struct field whole; each cell of each array a
+        /// <c>writes-cells</c> argument may be, and below it.</summary>
+        /// <param name="instance">The instance whose values the write's are.</param>
+        /// <param name="effect">The model's write.</param>
+        private void MarkModelWrite(InstanceState instance, SummaryArgumentEffect effect)
+        {
+            var kind = effect.Kind == IrLibraryEffectKind.WriteCells ? UnseenWriteKind.ModelCells : UnseenWriteKind.ModelArgument;
+            var regions = Eval(instance, effect.Values);
+            var written = kind == UnseenWriteKind.ModelArgument
+                ? UnseenWrites.ModelArgumentTargets(_program, regions, effect.IsSequence, SolvingView).ToArray()
+                : regions.ToArray();
+            foreach (var region in written)
+            {
+                CheckCancellation();
+                if (!TryGetRegion(region, out var target))
+                    continue;
+                if (kind == UnseenWriteKind.ModelCells)
+                {
+                    foreach (var slot in UnseenWrites.PresenceSlots(_program, UnseenWrites.ElementTypeKey(target.TypeKey), PathValue.ELEMENT))
+                        MarkUnseen(region, slot, kind, isOwnReadonly: false);
+                    continue;
+                }
+
+                if (target.TypeKey is not { } typeKey || _program.ImmutableTypeKeys.Contains(typeKey))
+                    continue;
+                foreach (var field in UnseenWrites.FieldsOf(_program, typeKey, _unseenLibraryFields.GetValueOrDefault(region)?.Values ?? []) ?? [])
+                {
+                    foreach (var slot in UnseenWrites.PresenceSlots(_program, field.FieldTypeKey, FieldSlot.Key(field)))
+                        MarkUnseen(region, slot, kind, isOwnReadonly: false);
+                }
+            }
+        }
+
+        /// <summary>The heap being solved as <see cref="UnseenWrites.ModelArgumentTargets{TRegion}"/> asks of it; made for each ask, since the
+        /// solve keeps no mutable state it does not track.</summary>
+        private RegionView<RegionRef> SolvingView => new(
+            region => _sequences.TryGetValue(region, out var sequence) ? Load(sequence.Region, PathValue.ELEMENT)
+                      : _groupings.Contains(region) ? Load(region, PathValue.ELEMENT) : null,
+            region => InterproceduralAccesses.IsCollectionType(_program, RegionType(region)),
+            RegionType,
+            region => Load(region, PathValue.ELEMENT).Concat(Load(region, PathValue.KEYS)),
+            SlotsBelow,
+            Load,
+            region => TryGetRegion(region, out var found) && found.Kind == HeapRegionKind.Delegate);
+
+        /// <summary>Marks struct storage an unseen write reaches as possibly holding a value where <see cref="UnseenWrites.MayWrite"/> lets it
+        /// write there.</summary>
+        /// <param name="region">The region the slot is below, a struct's storage or copy included.</param>
+        /// <param name="slot">The slot.</param>
+        /// <param name="kind">The unseen write.</param>
+        /// <param name="isOwnReadonly">Whether the slot is readonly storage of the object it is in (<see cref="UnseenWrites.IsOwnReadonly"/>).</param>
+        private void MarkUnseen(RegionRef region, string slot, UnseenWriteKind kind, bool isOwnReadonly)
+        {
+            if (!UnseenWrites.MayWrite(kind, isOwnReadonly))
+                return;
+            var storage = slot.Length == 0 ? region : StorageAt(region, slot);
+            Fill(storage);
+            _unseenFilled.Add(storage);
+        }
+
+        /// <summary>Records each start once for its unseen-write kind and receiver restriction. No transitive walk runs while an
+        /// instance is processed; duplicate starts across instances and propagation passes cost only a set add.</summary>
+        /// <param name="kind">The unseen write.</param>
+        /// <param name="starts">The regions the write starts from.</param>
+        /// <param name="restriction">The receiver's declaring type, or null for unrestricted starts.</param>
+        private void RecordUnseenStarts(UnseenWriteKind kind, IEnumerable<RegionRef> starts, string? restriction)
+        {
+            foreach (var start in starts)
+            {
+                if (!_unseenStarts.TryGetValue((kind, restriction), out var group))
+                    _unseenStarts.Add((kind, restriction), group = []);
+                group.Add(start);
+            }
+        }
+
+        /// <summary>Walks all recorded starts once per kind and receiver restriction after propagation converges. One visited set per
+        /// group shares traversal across callers and passes. New presence marks invalidate tracked filled-storage readers; the outer
+        /// loop in <see cref="Run"/> propagates them again along with any escaped deferred writes.</summary>
+        private bool MarkUnseenWrites()
+        {
+            _counters[HeapCounters.UNSEEN_WRITE_ROUNDS]++;
+            var before = _unseenFilled.Count;
+            foreach (var (group, starts) in _unseenStarts)
+                MarkUnseenWalk(group.Kind, starts, group.Restriction);
+            return _unseenFilled.Count > before;
+        }
+
+        /// <summary>
+        /// The heap's grouped multi-source walk of an unknown effect after propagation (R9), as <c>InterproceduralAccesses.DeepReadAccesses</c> walks it: from each start, the
+        /// fields of an object — at the start only those a restricted receiver's declaring type sees — the fields of each struct one keeps
+        /// through its storage, one level deeper, each cell of an array and the objects every field and cell holds; no delegate, and no
+        /// immutable object but a collection. A struct's storage a start is is written whole. Past the depth bound a wildcard over the region
+        /// covers each slot holding a <c>Nullable</c> the rule lets it write, and the walk goes on through what the region points to. Each
+        /// slot holding a <c>Nullable</c> it may write is marked (<see cref="MarkUnseen"/>); a field readonly in the object it is the first
+        /// field of, and everything below it, only reflection writes.
+        /// </summary>
+        /// <param name="kind">The unseen write.</param>
+        /// <param name="starts">The regions the write starts from.</param>
+        /// <param name="seen">The type declaring the member a restricted receiver is seen through, or null for regions seen whole.</param>
+        private void MarkUnseenWalk(UnseenWriteKind kind, IEnumerable<RegionRef> starts, string? seen)
+        {
+            var visited = new HashSet<(RegionRef Holder, string Path)>();
+            var pending = new Queue<(RegionRef Holder, string Path, string? TypeKey, int Depth, bool Readonly, bool IsStart)>();
+            foreach (var start in starts)
+            {
+                CheckCancellation();
+                if (!TryGetRegion(start, out var region))
+                    continue;
+                if (region.Kind != HeapRegionKind.StructStorage)
+                {
+                    pending.Enqueue((start, "", region.TypeKey, 0, false, true));
+                    continue;
+                }
+
+                var holder = HolderOf(start, region);
+                var isReadonly = OwnReadonlyRoot(holder, region.HolderSlot!);
+                MarkUnseen(start, "", kind, isReadonly);
+                pending.Enqueue((holder, region.HolderSlot!, region.TypeKey, 0, isReadonly, true));
+            }
+
+            while (pending.TryDequeue(out var item))
+            {
+                CheckCancellation();
+                var (holder, path, typeKey, depth, isReadonly, isStart) = item;
+                if (!visited.Add((holder, path)))
+                    continue;
+                _counters[HeapCounters.UNSEEN_WALK_VISITS]++;
+                if (!TryGetRegion(holder, out var region))
+                    continue;
+                var restriction = isStart && path.Length == 0 ? seen : null;
+                var fields = UnseenWrites.FieldsOf(_program, typeKey,
+                    path.Length == 0 ? _unseenLibraryFields.GetValueOrDefault(holder)?.Values ?? [] : [], restriction);
+                if (path.Length == 0)
+                {
+                    foreach (var kept in ReadUnseenSlot(holder, PathValue.KEPT))
+                        pending.Enqueue((kept, "", RegionType(kept), depth + 1, false, false));
+                }
+
+                if (path.Length == 0 && InterproceduralAccesses.IsCollectionType(_program, typeKey))
+                {
+                    foreach (var slot in UnseenWrites.PresenceSlots(_program, UnseenWrites.ElementTypeKey(typeKey), PathValue.ELEMENT))
+                        MarkUnseen(holder, slot, kind, isOwnReadonly: false);
+                    foreach (var element in ReadUnseenSlot(holder, PathValue.ELEMENT).Concat(ReadUnseenSlot(holder, PathValue.KEYS)))
+                        pending.Enqueue((element, "", RegionType(element), depth + 1, false, false));
+                    if (fields is null)
+                        continue;
+                }
+
+                if (typeKey is not null && _program.ImmutableTypeKeys.Contains(typeKey) ||
+                    path.Length == 0 && region.Kind == HeapRegionKind.Delegate)
+                    continue;
+                if (fields is null || UnseenWrites.IsPastBound(depth, _limits))
+                {
+                    foreach (var field in fields ?? [])
+                    {
+                        var below = isReadonly || path.Length == 0 && UnseenWrites.IsOwnReadonly(_program, typeKey, field);
+                        foreach (var slot in UnseenWrites.PresenceSlots(_program, field.FieldTypeKey, FieldSlot.Join(path, FieldSlot.Key(field))))
+                            MarkUnseen(holder, slot, kind, below);
+                    }
+
+                    var prefix = path.Length == 0 ? "" : path + FieldSlot.PATH_SEPARATOR;
+                    foreach (var slot in (_fieldsByRegion.GetValueOrDefault(holder) ?? []).Where(slot => slot.StartsWith(prefix, StringComparison.Ordinal)))
+                    {
+                        foreach (var target in ReadUnseenSlot(holder, slot))
+                            pending.Enqueue((target, "", RegionType(target), depth + 1, false, false));
+                    }
+                    continue;
+                }
+
+                foreach (var field in fields)
+                {
+                    var slot = FieldSlot.Join(path, FieldSlot.Key(field));
+                    var below = isReadonly || path.Length == 0 && UnseenWrites.IsOwnReadonly(_program, typeKey, field);
+                    foreach (var presence in UnseenWrites.PresenceSlots(_program, field.FieldTypeKey, slot))
+                        MarkUnseen(holder, presence, kind, below);
+                    // A struct the object keeps is part of it: its fields are walked through its storage, one level deeper (R1).
+                    if (field.FieldTypeKey is { } fieldType && _program.Type(fieldType) is { IsValueType: true, IsSource: true } &&
+                        _program.InstanceFieldsOf(fieldType) is { Count: > 0 })
+                    {
+                        pending.Enqueue((holder, slot, fieldType, depth + 1, below, false));
+                        continue;
+                    }
+
+                    foreach (var target in ReadUnseenSlot(holder, slot))
+                        pending.Enqueue((target, "", RegionType(target), depth + 1, false, false));
+                }
+            }
+        }
+
+        /// <summary>Enumerates a slot for the converged unseen-write walk without copying or unioning sets just to iterate them.
+        /// The walk changes only presence, so field sets and group members remain stable. Struct storage reads its holder and the
+        /// copies stored there whole, as <see cref="Load"/> does; repeated targets are deduplicated by the walk's visited set.</summary>
+        /// <param name="regionId">The region whose slot is read.</param>
+        /// <param name="field">The slot path.</param>
+        private IEnumerable<RegionRef> ReadUnseenSlot(RegionRef regionId, string field)
+        {
+            if (!TryGetRegion(regionId, out var region))
+                yield break;
+            if (region.Kind == HeapRegionKind.StructStorage)
+            {
+                var holder = HolderOf(regionId, region);
+                foreach (var value in ReadUnseenSlot(holder, FieldSlot.Join(region.HolderSlot!, field)))
+                    yield return value;
+                foreach (var held in ReadUnseenSlot(holder, region.HolderSlot!))
+                    if (TryGetRegion(held, out var stored) && stored.Kind == HeapRegionKind.StructCopy)
+                        foreach (var value in ReadUnseenSlot(held, field))
+                            yield return value;
+                yield break;
+            }
+            if (!_groups.TryGetValue(GroupOf(regionId, region), out var members))
+                yield break;
+            foreach (var member in members)
+                if ((member == regionId || region.IsOpen || _regions[member].IsOpen) && _fields.GetValueOrDefault((member, field)) is { } values)
+                    foreach (var value in values)
+                        yield return value;
+        }
+
+        /// <summary>The type of a region, null for one the solve did not make.</summary>
+        /// <param name="regionId">The region.</param>
+        private string? RegionType(RegionRef regionId) => TryGetRegion(regionId, out var region) ? region.TypeKey : null;
+
+        /// <summary>Whether the first field of a slot path is readonly storage of the object holding it
+        /// (<see cref="UnseenWrites.IsOwnReadonly"/>); a cell is no field.</summary>
+        /// <param name="holder">The object.</param>
+        /// <param name="path">The slot path.</param>
+        private bool OwnReadonlyRoot(RegionRef holder, string path) =>
+            RegionType(holder) is { } typeKey && FieldSlot.Root(path) is var root &&
+            (UnseenWrites.FieldsOf(_program, typeKey, _unseenLibraryFields.GetValueOrDefault(holder)?.Values ?? []) ?? [])
+                .FirstOrDefault(field => FieldSlot.Key(field) == root) is { } first &&
+            UnseenWrites.IsOwnReadonly(_program, typeKey, first);
 
         /// <summary>Whether a slot of a struct is one a copy of it leaves out because the body overwrites it first
         /// (<see cref="StructCopy.Overwritten"/>): the slot itself or one below it.</summary>
@@ -5590,7 +6094,40 @@ public static partial class WholeProgram
                           merged: instance.IsMerged, site: site,
                           exactType: _scope.Reachable.Bodies.TryGetValue(site.BodyId, out var lowered) &&
                                      lowered.Blocks.SelectMany(block => block.Operations)
-                                            .Any(operation => operation is IrAllocateOperation allocation && allocation.Id == site.OperationId));
+                                            .Any(operation => operation.Id == site.OperationId &&
+                                                              operation is IrAllocateOperation or IrCallOperation { DefaultComparer: not null }));
+        }
+
+        /// <summary>The comparer a call of CoreLib's default-comparer factory makes in an instance (<see cref="DefaultComparers"/>): the
+        /// objects of the comparer types <see cref="DefaultComparers.Bindings"/> selects for the instance, created at the call's site.
+        /// Both allocation evaluation and constructor calls use this answer; merging cannot discard the recorded closed bindings.</summary>
+        /// <param name="instance">The calling instance.</param>
+        /// <param name="site">The call's site, with the type the <c>typeof</c> names.</param>
+        /// <param name="kind">The factory.</param>
+        private TrackedSet<RegionRef> DefaultComparer(InstanceState instance, CreationSite site, IrComparerKind kind)
+        {
+            var typeKey = ProgramIndex.Substitute(site.TypeKey, instance.Substitution);
+            return DefaultComparers.Bindings(_program, _scope.Reachable, site.BodyId, site.OperationId, typeKey)
+                                   .Select(binding => AllocationRegion(instance, site with { TypeKey = DefaultComparers.Of(_program, kind, binding) }))
+                                   .ToTrackedSet();
+        }
+
+        /// <summary>Runs the constructor of the comparer a factory call makes in place of the call (<see cref="DefaultComparer"/>): its
+        /// parameterless constructor on the new object, as a constructor call would, the factory's argument handed to nothing.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="call">The factory call.</param>
+        /// <param name="comparer">The comparer the call makes.</param>
+        private void ConstructComparer(InstanceState caller, CallTransfer call, RegionRef comparer)
+        {
+            var typeKey = _regions[comparer].TypeKey!;
+            foreach (var constructor in _program.Constructors(typeKey).Where(constructor => constructor.Parameters.Count == 0))
+            {
+                CheckCancellation();
+                var callee = Instance(constructor.MethodId, comparer.ToString(), ReceiverSubstitution(_regions[comparer], constructor, []), [comparer],
+                                      [], false);
+                Bind(caller, call with { Arguments = [] }, callee, "exact");
+            }
+            ActivateTypeInitializer(typeKey, caller, null);
         }
 
         /// <summary>The storage a struct occupies at <paramref name="slot"/> of a holder (R1): one handle per holder and slot path, whose
@@ -5627,7 +6164,7 @@ public static partial class WholeProgram
             _regions.TryGetValue(identity, out region) || Volatile.Read(ref _anyNamed) && _named.TryGetValue(identity.Identity, out region);
 
         /// <summary>What separates a struct's storage from its holder in the storage's identity and display.</summary>
-        private const string STORAGE = "&";
+        private const string STORAGE = HeapSolution.STORAGE_SEPARATOR;
 
         /// <summary>The copy of a struct a value of an instance holds by value (R2): a region of its own per instance and value, which no
         /// access reaches as a resource.</summary>

@@ -50,11 +50,18 @@ public sealed record AllocationValue(CreationSite Site) : AbstractValue
     /// creation, which is always made.</summary>
     public IReadOnlySet<AbstractValue>? Present { get; init; }
 
+    /// <summary>For the comparer a call of CoreLib's default-comparer factory makes, the kind of comparer: the site is the call and its type
+    /// the type the <c>typeof</c> names, and the heap makes <see cref="CallGraph.DefaultComparers.Of"/>'s comparer for it wherever an
+    /// instance closes that type. Where merging leaves it open, the heap creates the selected comparer for every closed binding recorded
+    /// for this mark; the ordinary factory call also runs where reachability recorded an open call. Null for every other creation.</summary>
+    public IrComparerKind? DefaultComparer { get; init; }
+
     /// <summary>Two creation values are one where their sites are and they need the same values present, compared as sets: the body's
     /// solve sees a box's <see cref="Present"/> grow as a change.</summary>
     /// <param name="other">The other creation value.</param>
     public bool Equals(AllocationValue? other) =>
-        other is not null && Site == other.Site && (Present is null ? other.Present is null : other.Present?.SetEquals(Present) == true);
+        other is not null && Site == other.Site && DefaultComparer == other.DefaultComparer &&
+        (Present is null ? other.Present is null : other.Present?.SetEquals(Present) == true);
 
     public override int GetHashCode() => Site.GetHashCode();
 
@@ -275,6 +282,14 @@ public sealed record PathValue(AbstractValue Base, IReadOnlyList<string> Segment
     /// <summary>The dictionary a live <c>Keys</c> or <c>Values</c> view of a <c>Dictionary</c> is of, for which it stands wherever it goes.</summary>
     public const string VIEWED = "[view]";
 
+    /// <summary>How the storage an interface call's site keeps on each object it decides starts: what the call hands out there, which the
+    /// heap records and no code writes.</summary>
+    public const string DECIDED = "[decided:";
+
+    /// <summary>Whether a slot is the storage an interface call's site keeps on the objects it decides (<see cref="DECIDED"/>).</summary>
+    /// <param name="slot">The heap slot.</param>
+    public static bool IsDecided(string? slot) => slot?.StartsWith(DECIDED, StringComparison.Ordinal) == true;
+
     /// <summary>Whether a slot holds objects without naming a field or an access path.</summary>
     /// <param name="slot">The heap slot to classify.</param>
     public static bool IsStorage(string slot) => slot is ELEMENT or KEYS or KEPT;
@@ -363,6 +378,9 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
                                    IrProvenance Provenance, IReadOnlyList<HeldLockValue> HeldLocks, int? ReadModifyWriteOf,
                                    IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
 {
+    /// <summary>The readonly root fields excluded from an ordinary unknown effect's wildcard write. Reads and reflection exclude none.</summary>
+    internal IReadOnlySet<string> WildcardExclusions { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
     /// <summary>What the atomic mark of this load or store says it does to the cell, null when it carries none (TD-082).</summary>
     public IrAtomicEffect? Atomic { get; init; }
 
@@ -557,6 +575,10 @@ public sealed record StructCopy(int OperationId, IReadOnlySet<AbstractValue> Tar
     /// <summary>Whether the target, a <c>Nullable</c> held by value, holds a struct only where one of the sources does: every source is
     /// storage, a copy or a box, whose presence the heap follows (R2). Otherwise the target holds one wherever it is a copy at all.</summary>
     public bool FollowsPresence { get; init; }
+
+    /// <summary>Whether the copy is a call's <c>out</c> or <c>ref</c> output no body the run has makes
+    /// (<see cref="Ir.IrStoreReferenceOperation.IsUnseenOutput"/>): each target may hold a value whatever the sources hold (R9).</summary>
+    public bool IsUnseenOutput { get; init; }
 }
 
 public sealed record ReturnTransfer(int OperationId, IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
@@ -612,9 +634,9 @@ public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractVal
     public ArgumentCollection? Collection { get; init; }
 
     /// <summary>The elements of an array or collection expression the call creates in the argument's place
-    /// (<see cref="IrCallOperation.CreatedArrayArguments"/>), by which a semantic gap judges the argument (R4); null for any other
-    /// argument.</summary>
-    public IReadOnlySet<AbstractValue>? CreatedElements { get; init; }
+    /// (<see cref="IrCallOperation.CreatedArrayArguments"/>), by which a semantic gap and the unresolved-base counter judge the argument
+    /// (R4, TD-124); null for any other argument.</summary>
+    public IReadOnlyList<CreatedElement>? CreatedElements { get; init; }
 
     /// <inheritdoc cref="SummaryValue.Producers"/>
     public ValueOrigin Producers { get; init; } = ValueOrigin.None;
@@ -633,6 +655,16 @@ public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractVal
     /// <inheritdoc cref="SummaryValue.Completions"/>
     public IReadOnlySet<int> Completions { get; init; } = new HashSet<int>();
 }
+
+/// <summary>One element of an array or collection expression a call creates in an argument's place, judged as an operand of its own:
+/// the value the body puts there before the conversion into the element type, and that value's static type, which the conversion to
+/// <c>object</c> would hide (TD-124).</summary>
+/// <param name="ValueId">The IR value the element is, through assignments and the conversions that keep it the same value.</param>
+/// <param name="ObjectTypeKey">That value's <see cref="IrValue.ObjectTypeKey"/>: the type of the object it refers to, null for a value
+/// type.</param>
+/// <param name="IsReference">That value's <see cref="IrValue.IsReference"/>.</param>
+/// <param name="Values">The values the element may be, as the array or collection holds it.</param>
+public sealed record CreatedElement(int ValueId, string? ObjectTypeKey, bool IsReference, IReadOnlySet<AbstractValue> Values);
 
 /// <summary>A collection handed over by value: <see cref="Collection"/> is a <see cref="ReferenceCell"/> of the field it was read
 /// from or a <see cref="ReferenceParameterElement"/> of the parameter it came in as, cut at <see cref="Shift"/> for
@@ -798,6 +830,10 @@ public sealed record CallTransfer(int OperationId, string Target, IrCallKind Kin
     /// <summary>What the call is on each kind of receiver object without a body of its own to dispatch to: a receiver object it decides
     /// is no unresolved one (ADR 0010, amendment of the phase 5b third run).</summary>
     public IReadOnlyList<IrImplementation> Implementations { get; init; } = [];
+
+    /// <summary>For a call of CoreLib's default-comparer factory, the comparer it makes (<see cref="AllocationValue.DefaultComparer"/>):
+    /// where an instance closes its type the heap creates it and runs its constructor in place of the call; null for every other call.</summary>
+    public AllocationValue? DefaultComparer { get; init; }
 }
 
 /// <summary>A call into a method without a source body; it transfers nothing, and the delegates passed to it are not invoked. The
