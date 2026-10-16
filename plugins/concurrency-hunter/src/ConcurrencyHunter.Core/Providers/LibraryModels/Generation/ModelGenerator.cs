@@ -188,7 +188,7 @@ public static class ModelGenerator
         var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
         // The driver's probes, subclasses and seeds stand for the user's objects, of whatever type they are.
         var reachability = (corelib
-            ? new ReachabilityRules(DispatchRule.ConstructedTypes, new HashSet<string>(StringComparer.Ordinal) { "System.Private.CoreLib:System.SR" })
+            ? new ReachabilityRules(DispatchRule.ConstructedTypes, CoreLibLeftOutTypeKeys(compilation, driver.Member))
             : ReachabilityRules.ClassHierarchy) with { OpenWorldAssemblies = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY } };
         ScopeRun Pipeline(bool triggers) =>
             ScopePipeline.Run(SCOPE_ID, [compilation, driver.Compilation], [], Path.GetTempPath(), new ProviderRegistry([new DriverRootProvider(triggers)]),
@@ -323,6 +323,21 @@ public static class ModelGenerator
     /// <param name="member">The member.</param>
     private static bool Overridable(IMethodSymbol member) =>
         (member.IsVirtual || member.IsOverride && !member.IsSealed) && !member.ContainingType.IsSealed;
+
+    /// <summary>The definition keys of the types whose bodies CoreLib's generation of a member never enters (ADR 0019): <c>System.SR</c>,
+    /// and each type a recognizer owns (<see cref="EngineClaims.RecognizedCoreLibTypeKeys"/>) but the one declaring the member, whose own
+    /// body is what the run analyses, as a task awaiter's <c>OnCompleted</c>, which no recognizer claims.</summary>
+    /// <param name="compilation">The compilation of CoreLib.</param>
+    /// <param name="member">The member generated.</param>
+    internal static IReadOnlySet<string> CoreLibLeftOutTypeKeys(Compilation compilation, IMethodSymbol member)
+    {
+        var keys = new HashSet<string>(EngineClaims.RecognizedCoreLibTypeKeys(compilation.Assembly), StringComparer.Ordinal)
+        {
+            "System.Private.CoreLib:System.SR"
+        };
+        keys.Remove(SymbolNames.TypeKey(member.ContainingType.OriginalDefinition));
+        return keys;
+    }
 
     /// <summary>Whether the member's own body ran in the tree of the driver's call or enumeration.</summary>
     /// <param name="driver">The driver.</param>

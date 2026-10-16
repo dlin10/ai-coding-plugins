@@ -5213,19 +5213,23 @@ public static partial class WholeProgram
                 return;
             }
 
+            // An object the call decides as a member of the table is decided whether its type's body is metadata or one the run leaves
+            // out, as CoreLib's own collections are in its generation (ADR 0010, amendment of the phase 5b third run; ADR 0019).
+            bool Decided() => CollectionObjects.Decision(call.Implementations, ObjectKind(receiver, methodId)) is not null;
             var leftOut = _program.Method(methodId) is { } method
                 ? ImplementationsWithoutBody(receiver, method, interfaceTypeKey, false) : [];
             if (leftOut.Count != 0)
             {
+                if (Decided())
+                    return;
                 NoReceiver(caller, call);
                 Unresolved(caller, call, leftOut.Select(implementation => (receiver, (string?)implementation.ContainingTypeKey)).ToArray());
                 return;
             }
 
             // A receiver whose type has no implementation with a body runs one the analysis cannot read: however many other types do,
-            // the call is unresolved for this one (R1), unless it is an object the call decides as a member of the table (ADR 0010,
-            // amendment of the phase 5b third run).
-            if (!dispatched && CollectionObjects.Decision(call.Implementations, ObjectKind(receiver, methodId)) is null)
+            // the call is unresolved for this one (R1), unless the call decides it.
+            if (!dispatched && !Decided())
             {
                 NoReceiver(caller, call);
                 var declaring = _regions[receiver].TypeKey is { } type ? _program.Implementation(type, methodId, interfaceTypeKey)?.ContainingTypeKey : null;

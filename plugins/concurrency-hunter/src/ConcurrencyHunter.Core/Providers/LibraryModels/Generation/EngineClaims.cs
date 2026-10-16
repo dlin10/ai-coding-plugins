@@ -47,6 +47,13 @@ public static class EngineClaims
         return null;
     }
 
+    /// <summary>The definition keys of the types of CoreLib a recognizer owns, those nested in them included
+    /// (<see cref="IrLowering.IsRecognizedCoreLibType"/>): CoreLib's generation leaves them without bodies and reads their calls as a
+    /// program reads them from metadata (question 144, ADR 0019). Empty for any other assembly.</summary>
+    /// <param name="assembly">The assembly the generation compiles.</param>
+    public static IEnumerable<string> RecognizedCoreLibTypeKeys(IAssemblySymbol assembly) =>
+        Types(assembly.GlobalNamespace).Where(IrLowering.IsRecognizedCoreLibType).Select(type => SymbolNames.TypeKey(type.OriginalDefinition));
+
     private static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol @namespace) =>
         @namespace.GetTypeMembers().SelectMany(Nested).Concat(@namespace.GetNamespaceMembers().SelectMany(Types));
 

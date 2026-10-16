@@ -20,16 +20,25 @@ The decision, for the generation of `System.Private.CoreLib` only:
   once a reached body boxes it — or, for a value type of an open-world assembly, the driver's, once a
   reached body creates it: such a type stands for a user's value, and a constrained call reaches its
   override with no box. An override whose type is constructed later is reached then.
-- The bodies of `System.SR` are never entered.
+- The bodies of `System.SR` are never entered, nor those of a type a recognizer owns: a type one claims
+  by name, the types nested in it, and a task's awaiters and configured awaitables — but for the type
+  declaring the member generated, whose own body is what the run analyses, as an awaiter's
+  `OnCompleted`, which no recognizer claims.
 - A body outside that set may still run, so a call the heap resolves into one is an opaque call: an
   unknown effect on what its receiver and arguments reach, and a delegate handed to it runs in an
   unknown execution. It never resolves to nothing.
 - A member one of the engine's recognizers claims is refused with `engine-recognized`: in the analysis of
   a program its calls are the recognizer's, so a model of it would never be read. Every other member is
-  generated. Inside the run CoreLib's own types are source, and the recognizers, which know only types
-  from metadata, do not apply to them: a call of `Monitor`, `Interlocked` or `Task` there runs its body.
-  Any other assembly is still refused whole when a recognizer claims one of its methods, since a claim by
-  name cannot tell its own type from a namesake there.
+  generated. Inside the run a type a recognizer owns is read as a program reads it from metadata: a call
+  of its public or protected member is the recognizer's — a lock, an atomic operation, a spawn, a member
+  of the collection table — and a call through an interface on its object is decided by that table. What
+  a caller outside CoreLib could not do is handed to code the analysis does not see: a call of an
+  internal or private member is a call of a member without a body, and a load, a store or an address of
+  a field that is not public is an operation on a `dynamic` value, with an unknown effect on its
+  receiver and on what it writes, and what it reads followed nowhere. Accessibility is CoreLib's own,
+  before the driver opens fields. `ComparerHelpers`, of which the recognizers claim two factories alone,
+  stays source. Any other assembly is still refused whole when a recognizer claims one of its methods,
+  since a claim by name cannot tell its own type from a namesake there.
 
 The consequences to hold. On the same sample 11 of 18 candidates generate, each within 2 to 96 bodies and
 3 to 8 s. The other 7 reach about 6,500 bodies through the runtime's own core, reflection with
@@ -44,6 +53,14 @@ dispatch would run the body — unless the value type is of an open-world assemb
 constructed where a reached body creates it: a constrained call on the struct probe the driver creates
 with `new` (`value.GetHashCode()` in `Nullable<T>`, `x.CompareTo(y)` in `GenericComparer<T>`) reaches
 the probe's override.
+
+Reading the recognized types as a program does shrinks the closures that ran their bodies. Of the
+1,416 members the snapshot of 24669ef stopped at the closure bound, 204 now reach analysis: 11 give a
+model, 142 are refused with `unknown-touch` (the awaiters' `OnCompleted` among them, which hand the
+continuation to `Task`'s internal code), 22 with `vocabulary`, 15 with `incomplete` and 12 with
+`library-state`; 2 builders' `AwaitOnCompleted` no longer get a driver that compiles, its seeds naming a
+type parameter of a generic type's statics the larger closure never loaded. The models the evals read
+do not move.
 
 Rejected: generating bottom-up, the models of lower components replacing their bodies. 82% of the
 candidates lie in the component or above it, and a driver reaches it through `SR` and dispatch even from

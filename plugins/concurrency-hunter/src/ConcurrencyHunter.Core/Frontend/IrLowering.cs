@@ -686,6 +686,13 @@ public static class IrLowering
         private readonly Dictionary<IOperation, IReadOnlyList<int>> _listedElements = new(ReferenceEqualityComparer.Instance);
         private readonly Dictionary<int, int> _configuredTasks = [];
 
+        /// <summary>The fields of this body's accesses a type the run leaves out declares and a caller outside its assembly could not
+        /// use, whose loads, stores and addresses are handed to code the analysis does not see (<see cref="HandUnseenFields"/>).</summary>
+        private readonly HashSet<IrFieldRef> _unseenFields = [];
+
+        /// <summary>The reason of the operation an access of an unseen field becomes.</summary>
+        private const string UNSEEN_FIELD = "unseen-field";
+
         /// <summary>The scope each <c>EnterScope</c> handed back, by its value: disposing it leaves the lock.</summary>
         private readonly Dictionary<int, LockScope> _lockScopes = [];
 
@@ -746,7 +753,7 @@ public static class IrLowering
 
         internal IrBody Lower()
         {
-            var blocks = MarkComposite(MarkAwaited(_segments is [GraphSegment only] ? LowerSingleGraph(only) : LowerSegments()));
+            var blocks = HandUnseenFields(MarkComposite(MarkAwaited(_segments is [GraphSegment only] ? LowerSingleGraph(only) : LowerSegments())));
             var body = new IrBody(
                 _bodyId,
                 BodyKind(_method),
@@ -769,6 +776,53 @@ public static class IrLowering
             if (problems.Count != 0)
                 throw new InvalidOperationException("Lowered IR is invalid: " + string.Join("; ", problems));
             return body;
+        }
+
+        /// <summary>Hands each load, store and address of an unseen field (<see cref="_unseenFields"/>) to code the analysis does not
+        /// see, as a <c>dynamic</c> member is handed (R4, question 144): the receiver and a stored value are the operation's operands, so
+        /// what they reach has an unknown effect, and what a load reads or an address names is no storage the heap follows. An atomic
+        /// mark on such an access names no cell any more: one that gives back what the cell held is handed the same way, under the
+        /// name of the access it marked, and one that gives back nothing is dropped.</summary>
+        /// <param name="blocks">The lowered blocks of the body.</param>
+        private IrBlock[] HandUnseenFields(IrBlock[] blocks)
+        {
+            if (_unseenFields.Count == 0)
+                return blocks;
+
+            var handed = new Dictionary<int, string>();
+            IrOperation? Hand(IrOperation operation)
+            {
+                switch (operation)
+                {
+                    case IrLoadFieldOperation load when _unseenFields.Contains(load.Field):
+                        return Handed(load, load.ResultValue, "get", load.Field);
+                    case IrStoreFieldOperation store when _unseenFields.Contains(store.Field):
+                        return Handed(store, null, "set", store.Field);
+                    case IrAddressFieldOperation address when _unseenFields.Contains(address.Field):
+                        return Handed(address, address.ResultValue, "ref", address.Field);
+                    case IrAtomicOperation atomic when atomic.TargetOperationId is int target && handed.TryGetValue(target, out var callee):
+                        return atomic.ResultValue is null
+                            ? null
+                            : new IrUnknownOperation(atomic.Id, atomic.ResultValue, atomic.OperationKind, UNSEEN_FIELD, atomic.Operands, atomic.Provenance)
+                            {
+                                DynamicCallee = callee
+                            };
+                    default:
+                        return operation;
+                }
+            }
+
+            IrUnknownOperation Handed(IrOperation access, int? result, string kind, IrFieldRef field)
+            {
+                var callee = $"field {kind} {field.ContainingType}.{field.Name}";
+                handed[access.Id] = callee;
+                return new IrUnknownOperation(access.Id, result, "FieldReference", UNSEEN_FIELD, access.Operands, access.Provenance)
+                {
+                    DynamicCallee = callee
+                };
+            }
+
+            return blocks.Select(block => block with { Operations = block.Operations.Select(Hand).OfType<IrOperation>().ToArray() }).ToArray();
         }
 
         /// <summary>Marks the calls whose result an await takes with nothing of the body in between. A conditional, a <c>??</c> or a
@@ -1945,10 +1999,11 @@ public static class IrLowering
             index < info.Nested.Length ? info.Nested[index] : default;
 
         /// <summary>Whether a deconstruction calls its <c>Deconstruct</c>: one declared in source, an interface's or an abstract one included,
-        /// which the call dispatches to the receiver's own (R3).</summary>
+        /// which the call dispatches to the receiver's own (R3), but for one of a type CoreLib's generation leaves without bodies, which is
+        /// the framework's (question 144).</summary>
         /// <param name="method">The <c>Deconstruct</c> method.</param>
         private static bool SourceDeconstruct(IMethodSymbol method) =>
-            method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern;
+            method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern && !IsRecognizedCoreLibType(method.ContainingType);
 
         private int TupleElement(IOperation source, int tuple, ITypeSymbol? type, int index)
         {
@@ -2715,8 +2770,9 @@ public static class IrLowering
                     : null,
                 EnumerationRole = role,
                 // The enumeration of a `foreach` over a library enumerable is what the recognizer of phase 4b models (ADR 0010), so its
-                // members are no unresolved calls; a member of the run's own without a body is one all the same (R1).
-                IsRecognized = call.IsRecognized || role != IrEnumerationRole.None && !method.Locations.Any(location => location.IsInSource)
+                // members are no unresolved calls; a member of the run's own without a body is one all the same (R1), but for one of
+                // CoreLib's recognized types in its generation, which is the library's (question 144).
+                IsRecognized = call.IsRecognized || role != IrEnumerationRole.None && IsFramework(method.ContainingType)
             });
             return result ?? Constant(source, null, "void");
         }
@@ -3227,10 +3283,11 @@ public static class IrLowering
             IsFrameworkAwaiterMember(method);
 
         /// <summary>Whether a call is of a member of a framework awaiter or configured awaitable, or of a default-comparer factory, that the
-        /// lowering recognizes: one the owner claims, of a type declared outside source, so a same-named user type is an ordinary call.</summary>
+        /// lowering recognizes: one the owner claims, of a type declared outside source or left without bodies in CoreLib's generation
+        /// (<see cref="IsFramework"/>), so a same-named user type is an ordinary call.</summary>
         /// <param name="method">The method called.</param>
         private static bool IsFrameworkAwaiterMember(IMethodSymbol method) =>
-            RecognizerOf(method) is not null && !method.ContainingType.OriginalDefinition.Locations.Any(location => location.IsInSource);
+            RecognizerOf(method) is not null && IsFramework(method.ContainingType) && !IsHiddenCoreLibMember(method);
 
         /// <summary>The ordinals of the parameters whose argument is an array created in its place: a <c>params</c> array or
         /// collection, or an array creation or collection expression written as the argument (R4).</summary>
@@ -3892,10 +3949,11 @@ public static class IrLowering
         };
 
         /// <summary>An operator the source declares, whose body the call to it runs; <c>null</c> for a built-in operator or one only
-        /// metadata declares, which the lowering keeps as the comparison or computation it is.</summary>
+        /// metadata declares, or one of a type CoreLib's generation leaves without bodies (question 144), which the lowering keeps as the
+        /// comparison or computation it is.</summary>
         /// <param name="method">The operator method Roslyn names, or <c>null</c>.</param>
         private static IMethodSymbol? SourceOperator(IMethodSymbol? method) =>
-            method is { MethodKind: MethodKind.UserDefinedOperator or MethodKind.Conversion } && method.Locations.Any(location => location.IsInSource)
+            method is { MethodKind: MethodKind.UserDefinedOperator or MethodKind.Conversion } && !IsFramework(method.ContainingType)
                 ? method
                 : null;
 
@@ -4398,8 +4456,13 @@ public static class IrLowering
             }
         }
 
-        private FieldLocation GetFieldLocation(IFieldReferenceOperation reference) =>
-            new(reference.Instance is null ? null : LowerStructOperand(reference.Instance, StructUse.FieldAccess), FieldRef(reference.Field));
+        private FieldLocation GetFieldLocation(IFieldReferenceOperation reference)
+        {
+            var field = FieldRef(reference.Field);
+            if (IsHidden(reference.Field) && _context.LeftOutTypeKeys.Contains(SymbolNames.TypeKey(reference.Field.ContainingType.OriginalDefinition)))
+                _unseenFields.Add(field);
+            return new FieldLocation(reference.Instance is null ? null : LowerStructOperand(reference.Instance, StructUse.FieldAccess), field);
+        }
 
         /// <summary>The storage a reference to a field-like event names: Roslyn lets the event stand for its field only inside its
         /// declaring type, where every reference that is not a subscription is one (ADR 0014).</summary>
@@ -4499,7 +4562,7 @@ public static class IrLowering
         /// <param name="property">The property reference to test.</param>
         private static bool HandsBackReference(IPropertyReferenceOperation property) =>
             property.Property.RefKind is RefKind.Ref or RefKind.RefReadOnly &&
-            (IsElementIndexer(property) ? !NamesOneCell(property) : property.Property.Locations.Any(location => location.IsInSource));
+            (IsElementIndexer(property) ? !NamesOneCell(property) : !IsFramework(property.Property.ContainingType));
 
         /// <summary>Whether the index of such an indexer names one cell of the receiver: proven for the types
         /// <see cref="SpanTypes"/> knows and for nothing else, since a foreign indexer may hand back one cell for every index it
@@ -4510,9 +4573,9 @@ public static class IrLowering
 
         private bool IsAutomatic(IPropertySymbol property)
         {
+            // A property of a type CoreLib's generation leaves without bodies is the call it is from metadata (question 144).
             if (property.IsVirtual || property.IsAbstract || property.IsOverride ||
-                property.ContainingType.TypeKind == TypeKind.Interface ||
-                !property.Locations.Any(location => location.IsInSource))
+                property.ContainingType.TypeKind == TypeKind.Interface || IsFramework(property.ContainingType))
             {
                 return false;
             }
@@ -4908,6 +4971,53 @@ public static class IrLowering
     internal static string? RecognizerOf(IMethodSymbol method) =>
         Awaiters.Claims(method) || ComparerFactory(method) is not null ? "recognized" : null;
 
+    private const string CORELIB = "System.Private.CoreLib";
+
+    /// <summary>Whether a type is one of <c>System.Private.CoreLib</c>'s own that a recognizer owns, a type nested in one included: its
+    /// outermost type is claimed by its name (<see cref="RecognizerOf(string)"/>), or is a task's awaiter or configured awaitable. CoreLib's
+    /// generation leaves such a type without bodies and reads its calls as a program reads them from metadata (question 144);
+    /// <c>ComparerHelpers</c>, of which the recognizers claim two members alone, is none.</summary>
+    /// <param name="type">The type, from metadata or from source.</param>
+    internal static bool IsRecognizedCoreLibType(ITypeSymbol? type)
+    {
+        if (type?.OriginalDefinition is not INamedTypeSymbol named || named.ContainingAssembly?.Name != CORELIB)
+            return false;
+        while (named.ContainingType is { } outer)
+            named = outer.OriginalDefinition;
+        var name = named.ContainingNamespace is { IsGlobalNamespace: false } ns ? $"{ns.ToDisplayString()}.{named.MetadataName}" : named.MetadataName;
+        return RecognizerOf(name) is not null || Awaiters.ClaimsType(name);
+    }
+
+    /// <summary>Whether the lowering reads a type as the framework's, its members as calls the recognizers may claim: a type from
+    /// metadata, or one CoreLib's generation has in source and leaves without bodies (<see cref="IsRecognizedCoreLibType"/>).</summary>
+    /// <param name="type">The type.</param>
+    private static bool IsFramework(ITypeSymbol type) =>
+        !type.OriginalDefinition.Locations.Any(location => location.IsInSource) || IsRecognizedCoreLibType(type);
+
+    /// <summary>Whether a member a caller outside its assembly could not use is one of a type <see cref="IsRecognizedCoreLibType"/>: an
+    /// <c>internal</c> or <c>private</c> member, or one of a type that is not public. No recognizer reads it, since a program never calls
+    /// it; it stays a call of a member without a body, handed to code the analysis does not see (question 144). The opened copy of CoreLib
+    /// opens fields and nested types, never a method, so a method's accessibility there is CoreLib's.</summary>
+    /// <param name="member">The member called.</param>
+    private static bool IsHiddenCoreLibMember(ISymbol member) => IsRecognizedCoreLibType(member.ContainingType) && IsHidden(member);
+
+    /// <summary>Whether a caller outside a member's assembly could not use it: the member or one of its containing types is neither
+    /// public nor protected. The opened copy of CoreLib makes the private fields and nested types it opens <c>internal</c>, which is
+    /// still hidden.</summary>
+    /// <param name="member">The member.</param>
+    private static bool IsHidden(ISymbol member)
+    {
+        if (member.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected or Accessibility.ProtectedOrInternal))
+            return true;
+        for (var type = member.ContainingType; type is not null; type = type.ContainingType)
+        {
+            if (type.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected or Accessibility.ProtectedOrInternal))
+                return true;
+        }
+
+        return false;
+    }
+
     /// <summary>The comparer a method makes when it is one of CoreLib's two default-comparer factories, by its declaration: a member of
     /// <c>System.Collections.Generic.ComparerHelpers</c> of the assembly <c>System.Private.CoreLib</c>, whether its body is source, as in
     /// CoreLib's generation, or metadata (<see cref="DefaultComparers.FactoryOf"/>); null for any other method, a same-named one of
@@ -4921,7 +5031,8 @@ public static class IrLowering
 
     /// <summary>The task, thread, parallel and timer members of the BCL the lowering recognizes, by the metadata name of the type
     /// declaring the called member. A type declared in source never matches, so a same-named user type is an ordinary call, and a
-    /// derived type that does not override a member still calls the BCL one.</summary>
+    /// derived type that does not override a member still calls the BCL one; in CoreLib's generation its own recognized types match as
+    /// a program's metadata ones do, and their members a program could not call do not (question 144).</summary>
     private static class Bcl
     {
         internal const string TASK = "System.Threading.Tasks.Task";
@@ -4940,7 +5051,7 @@ public static class IrLowering
         internal const string TCS = "System.Threading.Tasks.TaskCompletionSource";
         internal const string TCS_T = "System.Threading.Tasks.TaskCompletionSource`1";
 
-        internal static string? TypeOf(ISymbol member) => Name(member.ContainingType);
+        internal static string? TypeOf(ISymbol member) => IsHiddenCoreLibMember(member) ? null : Name(member.ContainingType);
 
         /// <summary>Whether a type is a task whose members give tasks the lowering follows to their completion values.</summary>
         /// <param name="type">The type's metadata name.</param>
@@ -5010,13 +5121,14 @@ public static class IrLowering
             ? flag ? IrTimerFlag.True : IrTimerFlag.False
             : IrTimerFlag.Unknown;
 
-        /// <summary>The metadata name of a type declared outside source; null for a type of this compilation, so a same-named user
-        /// type is never taken for the framework one.</summary>
+        /// <summary>The metadata name of a type declared outside source, or of one CoreLib's generation leaves without bodies
+        /// (<see cref="IsFramework"/>); null for any other type of this compilation, so a same-named user type is never taken for the
+        /// framework one.</summary>
         /// <param name="type">The type to name.</param>
         internal static string? TypeName(ITypeSymbol? type) => Name(type);
 
         private static string? Name(ITypeSymbol? type) =>
-            type?.OriginalDefinition is INamedTypeSymbol { ContainingType: null } named && !named.Locations.Any(location => location.IsInSource)
+            type?.OriginalDefinition is INamedTypeSymbol { ContainingType: null } named && IsFramework(named)
                 ? $"{named.ContainingNamespace.ToDisplayString()}.{named.MetadataName}"
                 : null;
     }
@@ -5067,6 +5179,12 @@ public static class IrLowering
         internal static bool IsConfiguredGetAwaiter(IMethodSymbol method) =>
             method is { Name: "GetAwaiter", Parameters.Length: 0 } &&
             Name(method.ContainingType) is CONFIGURED_TASK or CONFIGURED_TASK_T or CONFIGURED_VALUE_TASK or CONFIGURED_VALUE_TASK_T;
+
+        /// <summary>Whether a top-level type is an awaiter or a configured awaitable, whose awaiter is nested in it.</summary>
+        /// <param name="metadataName">The metadata name of a top-level type.</param>
+        internal static bool ClaimsType(string metadataName) =>
+            metadataName is CONFIGURED_TASK or CONFIGURED_TASK_T or CONFIGURED_VALUE_TASK or CONFIGURED_VALUE_TASK_T ||
+            ThrowsOnlyAfterCompletion.ContainsKey(metadataName);
 
         private static string? Name(INamedTypeSymbol? type)
         {
