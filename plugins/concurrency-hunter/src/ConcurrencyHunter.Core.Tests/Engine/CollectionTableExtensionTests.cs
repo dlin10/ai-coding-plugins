@@ -222,11 +222,10 @@ public sealed class CollectionTableExtensionTests
     // ---- no unresolved call ----
 
     [Fact]
-    public void Members_of_the_four_collections_are_modelled_with_no_unknown_effect_and_no_gap()
+    public void Members_of_the_four_collections_are_modelled_and_one_the_table_leaves_out_is_no_gap()
     {
         var run = Run("_state.Set.Add(_state.First); _state.Queue.Enqueue(_state.First); _state.Stack.Push(_state.First); " +
                       "_state.List.AddLast(_state.First).Value = _state.First; _ = _state.Queue.Peek(); _state.Set.Clear(); " +
-                      // Members the table leaves out are still the recognizer's (R1): no unknown effect on what the collections hold.
                       "_ = _state.List.First!.List; _state.Set.TrimExcess(); _state.Queue.TrimExcess();", "");
 
         var calls = run.Execution.Heap.Heap.Instances.Values.Where(instance => instance.BodyId.Contains("Worker.ExecuteAsync", StringComparison.Ordinal))
@@ -234,10 +233,13 @@ public sealed class CollectionTableExtensionTests
                        .Where(call => call.Callee.StartsWith("System.Collections.Generic.", StringComparison.Ordinal))
                        .ToArray();
         Assert.NotEmpty(calls);
-        // The table models the listed members; the rest are the recognizer's all the same.
+        // The table models the listed members, `TrimExcess` among them; a node's `List` it leaves out, and that member reaches what the
+        // node holds with an unknown effect, the recognizer's all the same and no gap (ADR 0010, amendment of 2026-10-16).
         Assert.All(calls, call => Assert.True(call.Collection is not null || call.IsRecognized, call.Callee));
-        Assert.Contains(calls, call => call.Collection is null);
-        Assert.DoesNotContain(run.Collection.Accesses, access => access.Operation.IsUnknownEffect());
+        var outside = Assert.Single(calls, call => call.Collection is null);
+        Assert.Contains("LinkedListNode", outside.Callee, StringComparison.Ordinal);
+        Assert.All(run.Collection.Accesses.Where(access => access.Operation.IsUnknownEffect()),
+                   access => Assert.Equal(outside.OperationId, access.OperationId));
         Assert.DoesNotContain(run.Collection.Coverage.Gaps, gap => gap.Callee.StartsWith("System.Collections.Generic.", StringComparison.Ordinal));
     }
 

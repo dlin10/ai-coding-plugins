@@ -185,3 +185,47 @@ Rejected: deciding by the type the call names. It needs no heap and changes noth
 interface is how a field or a parameter usually declares a collection, so the most frequent shape would
 stay opaque and go on writing every cell of a shared collection it only reads.
 
+## Amendment, 2026-10-16: a member the table does not name still has an effect
+
+A call of a type a recognizer owns is never an unresolved call and never a semantic gap (R1), and until
+this amendment that also meant it had no effect at all where no recognizer modelled it. A `foreach` over
+a shared `List<T>` met none of `Reverse`, `Sort()`, `InsertRange`, `RemoveRange`, `TrimExcess`,
+`Capacity` or `CopyTo` in another execution: seven real races, no finding and no gap (question 144). The
+same silence reached generated models, whose library body calling such a member wrote nothing.
+
+Owning a type now says only that its calls are no gap. What no recognizer models of a call has the
+unknown effect of an unresolved call, which conflicts like a write, decided by family. A member of a
+collection the table does not name reaches what the collection holds and its arguments. A member of a
+task, a thread, a timer, a lock or the DI locator reaches only the arguments that can carry the
+program's own objects — the exception `SetException` keeps, the data `Thread.SetData` stores — and not
+its receiver, a delegate, the object a `Monitor` member locks or another task, thread, timer or wait
+handle, since what those hold of the program's is reached only through the members the recognizers
+model: given its receiver, `IsCompleted` reached a task's completion value and paired with every
+reader of it. `Interlocked` and `Volatile`, and the slices and awaiters, whose other members are
+already opaque calls, are unchanged.
+
+The table names the frequent members, each with the accesses of what it does. `Reverse`, `Sort` without
+a `Comparison<T>`, `RemoveRange`, and `InsertRange`, `UnionWith` and `SymmetricExceptWith`, which hold
+what they enumerate as `AddRange` does, write the structure and every cell, as `Clear` does;
+`IntersectWith` and `ExceptWith` too, enumerating their argument and holding none of it, and
+`PushRange` and `TryPopRange` of a `ConcurrentStack<T>` atomically. A reallocation — `EnsureCapacity`,
+`TrimExcess`, setting `Capacity` — writes the structure and reads every cell it copies; reading
+`Capacity` or `IsEmpty` reads the structure. A scan — `IndexOf`, `LastIndexOf`, `BinarySearch`,
+`ContainsValue` — reads the structure and every cell, and a set comparison — `IsSubsetOf`,
+`IsSupersetOf` and their proper forms, `Overlaps`, `SetEquals` — enumerates its argument as well. A copy
+— `ToArray`, `GetRange`, `Slice` — reads them and returns a list or an array of its own holding what
+they hold, as `FindAll` does. A comparer object `Sort` and `BinarySearch` are handed, and the array
+`TryPopRange` fills, get the unknown effect, as code the table does not follow; so do `CopyTo`,
+`AsReadOnly`, the alternate lookups and the serialization members. Through an interface, `IndexOf` of
+`IList<T>` and `IList` is decided as the list's own; a member that enumerates its argument or returns a
+copy — the set operations and comparisons of `ISet<T>` and `IReadOnlySet<T>`, `ToArray` of
+`IProducerConsumerCollection<T>` — stays the opaque call it was, since the projection of an interface
+call carries a member's effect on the two resources and neither an enumeration of an argument nor a
+copy.
+
+Rejected: the unknown effect on the receiver for every family. It is one rule, but a task's completion
+value, a timer's state and a lock's object are the program's objects the recognizers already follow,
+and every status check or `Monitor.Pulse` would write them whole. Rejected: making these calls semantic
+gaps. The recognizers' types are the most used ones there are, and a gap packet for each `TrimExcess`
+would bury the gaps that need an answer.
+

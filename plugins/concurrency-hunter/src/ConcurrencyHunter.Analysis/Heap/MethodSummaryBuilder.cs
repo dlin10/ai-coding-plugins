@@ -439,6 +439,7 @@ public static class MethodSummaryBuilder
                             Collection = call.Collection,
                             Implementations = call.Implementations,
                             IsRecognized = call.IsRecognized,
+                            Unmodelled = call.Unmodelled,
                             DeclaringTypeKey = call.TargetContainingTypeKey,
                             IsConstructor = call.CallKind == IrCallKind.Constructor,
                             Provenance = call.Provenance,
@@ -556,10 +557,11 @@ public static class MethodSummaryBuilder
                 }
 
                 // A copy enumerates its source as a `foreach` does, and every pair, view and copy holds what it was filled with (ADR 0010,
-                // phase 5b second run).
+                // phase 5b second run); a set comparison enumerates its argument the same way and holds none of it (ADR 0010, amendment
+                // of 2026-10-16).
                 if (operation is IrCallOperation copying)
                 {
-                    if (copying is { Collection.Source: int ordinal } && copying.ArgumentAt(ordinal) is int source)
+                    if ((copying.Collection?.Source ?? copying.Collection?.Enumerated) is int ordinal && copying.ArgumentAt(ordinal) is int source)
                     {
                         argumentEffects.Add(new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, copying.Id, Final(Points(source), delegates),
                                                                       Collection(source), SpanTypes.Names(_values[source].Type),

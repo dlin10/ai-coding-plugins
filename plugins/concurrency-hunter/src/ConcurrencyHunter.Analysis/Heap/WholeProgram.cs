@@ -2453,6 +2453,11 @@ public static partial class WholeProgram
                 CheckCancellation();
                 RunFactories(instance, call);
             }
+            foreach (var call in summary.OpaqueCalls.Where(call => call.Collection is { ResultTypeKey: not null, Factories.Count: 0 }))
+            {
+                CheckCancellation();
+                CopyCells(instance, call);
+            }
             foreach (var call in summary.OpaqueCalls.Where(call => call is { IsKnown: true, Library: { Fates.Count: > 0 } or { Result: not null } or { Stores.Count: > 0 } or { Outputs.Count: > 0 } or { Keeps.Count: > 0 } or { Calls.Count: > 0 } }))
             {
                 CheckCancellation();
@@ -2551,6 +2556,14 @@ public static partial class WholeProgram
                 CheckCancellation();
                 Handoff(instance, call.OperationId, call.Arguments.SelectMany(argument => argument.Values).Concat(call.Delegates));
                 MarkUnknownEffect(instance, call);
+            }
+            // What no recognizer models of a call of a recognized type is reached as an unresolved call reaches it, though the call is
+            // none (question 144).
+            foreach (var part in summary.OpaqueCalls.Where(call => !call.IsKnown).Select(call => call.UnmodelledPart()).OfType<SummaryOpaqueCall>())
+            {
+                CheckCancellation();
+                Handoff(instance, part.OperationId, part.Arguments.SelectMany(argument => argument.Values).Concat(part.Delegates));
+                MarkUnknownEffect(instance, part);
             }
             foreach (var dynamic in summary.DynamicOperations)
             {
@@ -3507,6 +3520,25 @@ public static partial class WholeProgram
             }
         }
 
+        /// <summary>What the cells of the collection a member of the table is called on hold, as paths from its receivers.</summary>
+        /// <param name="call">The call of the member.</param>
+        private static TrackedSet<AbstractValue> Held(SummaryOpaqueCall call) =>
+            call.Receivers.Select(receiver => receiver is PathValue { IsWildcard: true } ? receiver
+                                                  : receiver is PathValue path ? new PathValue(path.Base, [.. path.Segments, PathValue.ELEMENT])
+                                                  : new PathValue(receiver, [PathValue.ELEMENT]))
+                          .ToTrackedSet();
+
+        /// <summary>The copy a member of the table without a delegate makes and returns, <c>ToArray</c>, <c>GetRange</c> and
+        /// <c>Slice</c>: a collection or an array of its own whose cells hold what the cells of the one it was called on hold (ADR 0010,
+        /// amendment of 2026-10-16).</summary>
+        /// <param name="caller">The instance making the call.</param>
+        /// <param name="call">The call.</param>
+        private void CopyCells(InstanceState caller, SummaryOpaqueCall call)
+        {
+            var created = CreatedAtCall(caller, call, call.Collection!.ResultTypeKey!);
+            Add(Field(created, PathValue.ELEMENT), Eval(caller, Held(call)));
+        }
+
         /// <summary>
         /// The factories of <c>GetOrAdd</c> and <c>AddOrUpdate</c> run where the call stands, as a call of the delegate there would
         /// (R11): each is handed the key argument, the value the dictionary holds, or the overload's own argument, as its parameters
@@ -3522,10 +3554,7 @@ public static partial class WholeProgram
                 call.Arguments.FirstOrDefault(argument => argument.ParameterOrdinal == ordinal)?.Values ?? new TrackedSet<AbstractValue>();
             var key = Argument(member.KeyArgument);
             var handed = Argument(member.FactoryArgument);
-            var held = call.Receivers.Select(receiver => receiver is PathValue { IsWildcard: true } ? receiver
-                                                          : receiver is PathValue path ? new PathValue(path.Base, [.. path.Segments, PathValue.ELEMENT])
-                                                          : new PathValue(receiver, [PathValue.ELEMENT]))
-                                     .ToTrackedSet();
+            var held = Held(call);
             // What a factory makes, the dictionary holds; what a list's converter returns, the list `ConvertAll` creates does, and a
             // list `FindAll` creates holds the cells of the one it was called on (ADR 0010, phase 5c). The other delegates of the
             // table, a predicate, an action and a comparison, return no object.
@@ -3865,7 +3894,8 @@ public static partial class WholeProgram
         }
 
         /// <summary>The parameters whose argument a call enumerates where it stands or keeps for a library sequence it returns: those a
-        /// known call's model reads deep, writes or names the elements of, and the collection a copy of ADR 0010 copies (R5).</summary>
+        /// known call's model reads deep, writes or names the elements of, and the collection a copy of ADR 0010 copies or a set
+        /// comparison enumerates (R5).</summary>
         /// <param name="call">The call.</param>
         private static TrackedSet<int> Consumed(SummaryOpaqueCall call)
         {
@@ -3878,6 +3908,8 @@ public static partial class WholeProgram
 
             if (call.Collection?.Source is int source)
                 consumed.Add(source);
+            if (call.Collection?.Enumerated is int enumerated)
+                consumed.Add(enumerated);
             return consumed;
         }
 

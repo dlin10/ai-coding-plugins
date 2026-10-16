@@ -13,6 +13,9 @@ public static class SemanticGapKinds
     public const string UNRESOLVED_DISPATCH = "unresolved-dispatch";
     public const string MODEL_GAP = "model-gap";
     public const string UNKNOWN_LIBRARY = "unknown-library";
+
+    /// <summary>What no recognizer models of a call of a recognized type: an unknown effect, never a gap (question 144).</summary>
+    public const string RECOGNIZED = "recognized";
 }
 
 /// <summary>One semantic gap of a process scope: a callee the analysis could not reduce, with its materiality (TD-039a) — the roots whose
@@ -46,7 +49,7 @@ public static class SemanticGaps
                                .GroupBy(access => access.ExecutionId, StringComparer.Ordinal)
                                .ToDictionary(group => group.Key, group => group.Select(access => access.RegionId).ToHashSet(StringComparer.Ordinal),
                                              StringComparer.Ordinal);
-        foreach (var call in UnknownCalls.Of(input.Scope, heap))
+        foreach (var call in UnknownCalls.Of(input.Scope, heap).Where(call => call.Kind != SemanticGapKinds.RECOGNIZED))
         {
             // An object of one execution handed to the call is only read by it and is no gap; only what is shared counts (R2, R4). What
             // the unknown execution of a delegate it is handed touches is the call's reach too (R3).

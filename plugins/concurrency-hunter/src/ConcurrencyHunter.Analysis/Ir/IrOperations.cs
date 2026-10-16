@@ -246,6 +246,10 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     /// and never a semantic gap (R1).</summary>
     public bool IsRecognized { get; init; }
 
+    /// <summary>For a call of a recognized type, what no recognizer models and the call therefore reaches with an unknown effect all the
+    /// same; null where a recognizer models all of it (question 144).</summary>
+    public IrUnmodelledEffect? Unmodelled { get; init; }
+
     /// <summary>The ordinals of the parameters whose argument is an array the call creates in its place, a <c>params</c> array or an
     /// array creation written as the argument: a semantic gap judges such an argument by its elements (R4).</summary>
     public IReadOnlyList<int> CreatedArrayArguments { get; init; } = [];
@@ -328,7 +332,18 @@ public sealed record IrCollectionCall(string Member, IrCollectionEffect Structur
     /// <summary>The ordinal of the parameter whose collection the member copies, <c>AddRange</c> and a constructor from a collection:
     /// it enumerates that argument and holds what the enumeration yields. Null for every other member and overload.</summary>
     public int? Source { get; init; }
+
+    /// <summary>The ordinal of the parameter whose collection the member enumerates without holding what it yields, a set comparison,
+    /// <c>IntersectWith</c> or <c>ExceptWith</c> (ADR 0010, amendment of 2026-10-16). Null for every other member.</summary>
+    public int? Enumerated { get; init; }
 }
+
+/// <summary>What the unknown effect of a call of a recognized type no recognizer models reaches (question 144): a collection's
+/// member sees what the collection holds and its arguments, a member of a task, a thread, a timer or a lock only the arguments that
+/// can carry the program's own objects.</summary>
+/// <param name="Receiver">Whether the effect reaches what the receiver holds.</param>
+/// <param name="Arguments">The ordinals of the parameters whose argument the effect reaches.</param>
+public sealed record IrUnmodelledEffect(bool Receiver, IReadOnlyList<int> Arguments);
 
 /// <summary>What an interface call is on an object of one kind (<c>CollectionObjects</c>): the member of the table
 /// that kind implements it with, an explicit implementation taken as the public member it stands for, or, for an array, what the same

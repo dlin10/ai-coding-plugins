@@ -58,7 +58,10 @@ public sealed class CollectionMemberEffectTests
     /// cell and counting it the structure; a view of a <c>ConcurrentDictionary</c> is an atomic read of both; a pair touches nothing.
     /// Since the third run, reading a <c>DictionaryEntry</c>'s key or value touches nothing, as a pair's does. Since phase 5c the members
     /// of a <c>List</c> that take a delegate read the structure and every cell, <c>RemoveAll</c>, <c>RemoveWhere</c> of a <c>HashSet</c>
-    /// and the <c>Sort</c> taking a <c>Comparison</c> write both, as <c>Clear</c> does.</summary>
+    /// and the <c>Sort</c> taking a <c>Comparison</c> write both, as <c>Clear</c> does. Since the amendment of 2026-10-16 every <c>Sort</c>,
+    /// <c>Reverse</c>, <c>RemoveRange</c>, <c>InsertRange</c>, the set operations and <c>PushRange</c> and <c>TryPopRange</c> write both;
+    /// a reallocation writes the structure and reads every cell; <c>Capacity</c> and <c>IsEmpty</c> read the structure; a scan, a set
+    /// comparison and a copy read both.</summary>
     private static readonly (string Type, string Member, IrCollectionEffect Structure, IrCollectionEffect Element, bool NamesCell, bool Atomic)[] Rows =
     [
         (LIST, "get_Count", Read, None, false, false),
@@ -84,6 +87,19 @@ public sealed class CollectionMemberEffectTests
         (LIST, "ConvertAll", Read, Read, false, false),
         (LIST, "RemoveAll", Write, Write, false, false),
         (LIST, "Sort", Write, Write, false, false),
+        (LIST, "Reverse", Write, Write, false, false),
+        (LIST, "RemoveRange", Write, Write, false, false),
+        (LIST, "InsertRange", Write, Write, false, false),
+        (LIST, "EnsureCapacity", Write, Read, false, false),
+        (LIST, "TrimExcess", Write, Read, false, false),
+        (LIST, "set_Capacity", Write, Read, false, false),
+        (LIST, "get_Capacity", Read, None, false, false),
+        (LIST, "IndexOf", Read, Read, false, false),
+        (LIST, "LastIndexOf", Read, Read, false, false),
+        (LIST, "BinarySearch", Read, Read, false, false),
+        (LIST, "GetRange", Read, Read, false, false),
+        (LIST, "Slice", Read, Read, false, false),
+        (LIST, "ToArray", Read, Read, false, false),
 
         (DICTIONARY, "get_Count", Read, None, false, false),
         (DICTIONARY, "get_Item", Read, Read, true, false),
@@ -98,6 +114,10 @@ public sealed class CollectionMemberEffectTests
         (DICTIONARY, ".ctor", None, None, false, false),
         (DICTIONARY, "get_Keys", None, None, false, false),
         (DICTIONARY, "get_Values", None, None, false, false),
+        (DICTIONARY, "ContainsValue", Read, Read, false, false),
+        (DICTIONARY, "EnsureCapacity", Write, Read, false, false),
+        (DICTIONARY, "TrimExcess", Write, Read, false, false),
+        (DICTIONARY, "get_Capacity", Read, None, false, false),
 
         (CONCURRENT_DICTIONARY, "get_Count", Read, None, false, true),
         (CONCURRENT_DICTIONARY, "get_Item", Read, Read, true, true),
@@ -114,6 +134,7 @@ public sealed class CollectionMemberEffectTests
         (CONCURRENT_DICTIONARY, ".ctor", None, None, false, true),
         (CONCURRENT_DICTIONARY, "get_Keys", Read, Read, false, true),
         (CONCURRENT_DICTIONARY, "get_Values", Read, Read, false, true),
+        (CONCURRENT_DICTIONARY, "get_IsEmpty", Read, None, false, true),
 
         (CONCURRENT_QUEUE, "get_Count", Read, None, false, true),
         (CONCURRENT_QUEUE, "Enqueue", Write, Write, false, true),
@@ -122,6 +143,8 @@ public sealed class CollectionMemberEffectTests
         (CONCURRENT_QUEUE, "Clear", Write, Write, false, true),
         (CONCURRENT_QUEUE, "GetEnumerator", Read, Read, false, true),
         (CONCURRENT_QUEUE, ".ctor", None, None, false, true),
+        (CONCURRENT_QUEUE, "get_IsEmpty", Read, None, false, true),
+        (CONCURRENT_QUEUE, "ToArray", Read, Read, false, true),
 
         (CONCURRENT_STACK, "get_Count", Read, None, false, true),
         (CONCURRENT_STACK, "Push", Write, Write, false, true),
@@ -130,6 +153,10 @@ public sealed class CollectionMemberEffectTests
         (CONCURRENT_STACK, "Clear", Write, Write, false, true),
         (CONCURRENT_STACK, "GetEnumerator", Read, Read, false, true),
         (CONCURRENT_STACK, ".ctor", None, None, false, true),
+        (CONCURRENT_STACK, "get_IsEmpty", Read, None, false, true),
+        (CONCURRENT_STACK, "ToArray", Read, Read, false, true),
+        (CONCURRENT_STACK, "PushRange", Write, Write, false, true),
+        (CONCURRENT_STACK, "TryPopRange", Write, Write, false, true),
 
         (CONCURRENT_BAG, "get_Count", Read, None, false, true),
         (CONCURRENT_BAG, "Add", Write, Write, false, true),
@@ -138,6 +165,8 @@ public sealed class CollectionMemberEffectTests
         (CONCURRENT_BAG, "Clear", Write, Write, false, true),
         (CONCURRENT_BAG, "GetEnumerator", Read, Read, false, true),
         (CONCURRENT_BAG, ".ctor", None, None, false, true),
+        (CONCURRENT_BAG, "get_IsEmpty", Read, None, false, true),
+        (CONCURRENT_BAG, "ToArray", Read, Read, false, true),
 
         (HASH_SET, "get_Count", Read, None, false, false),
         (HASH_SET, "Add", Write, Write, false, false),
@@ -148,6 +177,19 @@ public sealed class CollectionMemberEffectTests
         (HASH_SET, "GetEnumerator", Read, Read, false, false),
         (HASH_SET, ".ctor", None, None, false, false),
         (HASH_SET, "RemoveWhere", Write, Write, false, false),
+        (HASH_SET, "UnionWith", Write, Write, false, false),
+        (HASH_SET, "SymmetricExceptWith", Write, Write, false, false),
+        (HASH_SET, "IntersectWith", Write, Write, false, false),
+        (HASH_SET, "ExceptWith", Write, Write, false, false),
+        (HASH_SET, "IsSubsetOf", Read, Read, false, false),
+        (HASH_SET, "IsSupersetOf", Read, Read, false, false),
+        (HASH_SET, "IsProperSubsetOf", Read, Read, false, false),
+        (HASH_SET, "IsProperSupersetOf", Read, Read, false, false),
+        (HASH_SET, "Overlaps", Read, Read, false, false),
+        (HASH_SET, "SetEquals", Read, Read, false, false),
+        (HASH_SET, "EnsureCapacity", Write, Read, false, false),
+        (HASH_SET, "TrimExcess", Write, Read, false, false),
+        (HASH_SET, "get_Capacity", Read, None, false, false),
 
         (QUEUE, "get_Count", Read, None, false, false),
         (QUEUE, "Enqueue", Write, Write, false, false),
@@ -159,6 +201,10 @@ public sealed class CollectionMemberEffectTests
         (QUEUE, "Contains", Read, Read, false, false),
         (QUEUE, "GetEnumerator", Read, Read, false, false),
         (QUEUE, ".ctor", None, None, false, false),
+        (QUEUE, "ToArray", Read, Read, false, false),
+        (QUEUE, "EnsureCapacity", Write, Read, false, false),
+        (QUEUE, "TrimExcess", Write, Read, false, false),
+        (QUEUE, "get_Capacity", Read, None, false, false),
 
         (STACK, "get_Count", Read, None, false, false),
         (STACK, "Push", Write, Write, false, false),
@@ -170,6 +216,10 @@ public sealed class CollectionMemberEffectTests
         (STACK, "Contains", Read, Read, false, false),
         (STACK, "GetEnumerator", Read, Read, false, false),
         (STACK, ".ctor", None, None, false, false),
+        (STACK, "ToArray", Read, Read, false, false),
+        (STACK, "EnsureCapacity", Write, Read, false, false),
+        (STACK, "TrimExcess", Write, Read, false, false),
+        (STACK, "get_Capacity", Read, None, false, false),
 
         (LINKED_LIST, "get_Count", Read, None, false, false),
         (LINKED_LIST, "AddFirst", Write, Write, false, false),
@@ -258,6 +308,19 @@ public sealed class CollectionMemberEffectTests
         [$"{LIST}.ConvertAll"] = ["_ = _state.Box.ConvertAll(item => item);"],
         [$"{LIST}.RemoveAll"] = ["_state.Box.RemoveAll(item => true);"],
         [$"{LIST}.Sort"] = ["_state.Box.Sort((a, b) => 0);"],
+        [$"{LIST}.Reverse"] = ["_state.Box.Reverse();"],
+        [$"{LIST}.RemoveRange"] = ["_state.Box.RemoveRange(0, 1);"],
+        [$"{LIST}.InsertRange"] = ["_state.Box.InsertRange(0, _state.Others);"],
+        [$"{LIST}.EnsureCapacity"] = ["_ = _state.Box.EnsureCapacity(10);"],
+        [$"{LIST}.TrimExcess"] = ["_state.Box.TrimExcess();"],
+        [$"{LIST}.set_Capacity"] = ["_state.Box.Capacity = 10;"],
+        [$"{LIST}.get_Capacity"] = ["_ = _state.Box.Capacity;"],
+        [$"{LIST}.IndexOf"] = ["_ = _state.Box.IndexOf(_state.First);"],
+        [$"{LIST}.LastIndexOf"] = ["_ = _state.Box.LastIndexOf(_state.First);"],
+        [$"{LIST}.BinarySearch"] = ["_ = _state.Box.BinarySearch(_state.First);"],
+        [$"{LIST}.GetRange"] = ["_ = _state.Box.GetRange(0, 1);"],
+        [$"{LIST}.Slice"] = ["_ = _state.Box.Slice(0, 1);"],
+        [$"{LIST}.ToArray"] = ["_ = _state.Box.ToArray();"],
 
         [$"{DICTIONARY}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{DICTIONARY}.get_Item"] = ["_ = _state.Box[\"a\"];"],
@@ -272,6 +335,10 @@ public sealed class CollectionMemberEffectTests
         [$"{DICTIONARY}..ctor"] = ["_ = new Dictionary<string, Item>(_state.Spare);"],
         [$"{DICTIONARY}.get_Keys"] = ["_ = _state.Box.Keys;"],
         [$"{DICTIONARY}.get_Values"] = ["_ = _state.Box.Values;"],
+        [$"{DICTIONARY}.ContainsValue"] = ["_ = _state.Box.ContainsValue(_state.First);"],
+        [$"{DICTIONARY}.EnsureCapacity"] = ["_ = _state.Box.EnsureCapacity(10);"],
+        [$"{DICTIONARY}.TrimExcess"] = ["_state.Box.TrimExcess();"],
+        [$"{DICTIONARY}.get_Capacity"] = ["_ = _state.Box.Capacity;"],
 
         [$"{CONCURRENT_DICTIONARY}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{CONCURRENT_DICTIONARY}.get_Item"] = ["_ = _state.Box[\"a\"];"],
@@ -288,6 +355,7 @@ public sealed class CollectionMemberEffectTests
         [$"{CONCURRENT_DICTIONARY}..ctor"] = ["_ = new ConcurrentDictionary<string, Item>(_state.Spare);"],
         [$"{CONCURRENT_DICTIONARY}.get_Keys"] = ["_ = _state.Box.Keys;"],
         [$"{CONCURRENT_DICTIONARY}.get_Values"] = ["_ = _state.Box.Values;"],
+        [$"{CONCURRENT_DICTIONARY}.get_IsEmpty"] = ["_ = _state.Box.IsEmpty;"],
 
         [$"{CONCURRENT_QUEUE}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{CONCURRENT_QUEUE}.Enqueue"] = ["_state.Box.Enqueue(_state.First);"],
@@ -296,6 +364,8 @@ public sealed class CollectionMemberEffectTests
         [$"{CONCURRENT_QUEUE}.Clear"] = ["_state.Box.Clear();"],
         [$"{CONCURRENT_QUEUE}.GetEnumerator"] = ["foreach (var item in _state.Box) { }"],
         [$"{CONCURRENT_QUEUE}..ctor"] = ["_ = new ConcurrentQueue<Item>(_state.Spare);"],
+        [$"{CONCURRENT_QUEUE}.get_IsEmpty"] = ["_ = _state.Box.IsEmpty;"],
+        [$"{CONCURRENT_QUEUE}.ToArray"] = ["_ = _state.Box.ToArray();"],
 
         [$"{CONCURRENT_STACK}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{CONCURRENT_STACK}.Push"] = ["_state.Box.Push(_state.First);"],
@@ -304,6 +374,10 @@ public sealed class CollectionMemberEffectTests
         [$"{CONCURRENT_STACK}.Clear"] = ["_state.Box.Clear();"],
         [$"{CONCURRENT_STACK}.GetEnumerator"] = ["foreach (var item in _state.Box) { }"],
         [$"{CONCURRENT_STACK}..ctor"] = ["_ = new ConcurrentStack<Item>(_state.Spare);"],
+        [$"{CONCURRENT_STACK}.get_IsEmpty"] = ["_ = _state.Box.IsEmpty;"],
+        [$"{CONCURRENT_STACK}.ToArray"] = ["_ = _state.Box.ToArray();"],
+        [$"{CONCURRENT_STACK}.PushRange"] = ["_state.Box.PushRange(_state.Others.ToArray());"],
+        [$"{CONCURRENT_STACK}.TryPopRange"] = ["_ = _state.Box.TryPopRange(_state.Popped);"],
 
         [$"{CONCURRENT_BAG}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{CONCURRENT_BAG}.Add"] = ["_state.Box.Add(_state.First);"],
@@ -312,6 +386,8 @@ public sealed class CollectionMemberEffectTests
         [$"{CONCURRENT_BAG}.Clear"] = ["_state.Box.Clear();"],
         [$"{CONCURRENT_BAG}.GetEnumerator"] = ["foreach (var item in _state.Box) { }"],
         [$"{CONCURRENT_BAG}..ctor"] = ["_ = new ConcurrentBag<Item>(_state.Spare);"],
+        [$"{CONCURRENT_BAG}.get_IsEmpty"] = ["_ = _state.Box.IsEmpty;"],
+        [$"{CONCURRENT_BAG}.ToArray"] = ["_ = _state.Box.ToArray();"],
 
         [$"{HASH_SET}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{HASH_SET}.Add"] = ["_state.Box.Add(_state.First);"],
@@ -322,6 +398,19 @@ public sealed class CollectionMemberEffectTests
         [$"{HASH_SET}.GetEnumerator"] = ["foreach (var item in _state.Box) { }"],
         [$"{HASH_SET}..ctor"] = ["_ = new HashSet<Item>(_state.Spare);"],
         [$"{HASH_SET}.RemoveWhere"] = ["_state.Box.RemoveWhere(item => true);"],
+        [$"{HASH_SET}.UnionWith"] = ["_state.Box.UnionWith(_state.Others);"],
+        [$"{HASH_SET}.SymmetricExceptWith"] = ["_state.Box.SymmetricExceptWith(_state.Others);"],
+        [$"{HASH_SET}.IntersectWith"] = ["_state.Box.IntersectWith(_state.Others);"],
+        [$"{HASH_SET}.ExceptWith"] = ["_state.Box.ExceptWith(_state.Others);"],
+        [$"{HASH_SET}.IsSubsetOf"] = ["_ = _state.Box.IsSubsetOf(_state.Others);"],
+        [$"{HASH_SET}.IsSupersetOf"] = ["_ = _state.Box.IsSupersetOf(_state.Others);"],
+        [$"{HASH_SET}.IsProperSubsetOf"] = ["_ = _state.Box.IsProperSubsetOf(_state.Others);"],
+        [$"{HASH_SET}.IsProperSupersetOf"] = ["_ = _state.Box.IsProperSupersetOf(_state.Others);"],
+        [$"{HASH_SET}.Overlaps"] = ["_ = _state.Box.Overlaps(_state.Others);"],
+        [$"{HASH_SET}.SetEquals"] = ["_ = _state.Box.SetEquals(_state.Others);"],
+        [$"{HASH_SET}.EnsureCapacity"] = ["_ = _state.Box.EnsureCapacity(10);"],
+        [$"{HASH_SET}.TrimExcess"] = ["_state.Box.TrimExcess();"],
+        [$"{HASH_SET}.get_Capacity"] = ["_ = _state.Box.Capacity;"],
 
         [$"{QUEUE}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{QUEUE}.Enqueue"] = ["_state.Box.Enqueue(_state.First);"],
@@ -333,6 +422,10 @@ public sealed class CollectionMemberEffectTests
         [$"{QUEUE}.Contains"] = ["_ = _state.Box.Contains(_state.First);"],
         [$"{QUEUE}.GetEnumerator"] = ["foreach (var item in _state.Box) { }"],
         [$"{QUEUE}..ctor"] = ["_ = new Queue<Item>(_state.Spare);"],
+        [$"{QUEUE}.ToArray"] = ["_ = _state.Box.ToArray();"],
+        [$"{QUEUE}.EnsureCapacity"] = ["_ = _state.Box.EnsureCapacity(10);"],
+        [$"{QUEUE}.TrimExcess"] = ["_state.Box.TrimExcess();"],
+        [$"{QUEUE}.get_Capacity"] = ["_ = _state.Box.Capacity;"],
 
         [$"{STACK}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{STACK}.Push"] = ["_state.Box.Push(_state.First);"],
@@ -344,6 +437,10 @@ public sealed class CollectionMemberEffectTests
         [$"{STACK}.Contains"] = ["_ = _state.Box.Contains(_state.First);"],
         [$"{STACK}.GetEnumerator"] = ["foreach (var item in _state.Box) { }"],
         [$"{STACK}..ctor"] = ["_ = new Stack<Item>(_state.Spare);"],
+        [$"{STACK}.ToArray"] = ["_ = _state.Box.ToArray();"],
+        [$"{STACK}.EnsureCapacity"] = ["_ = _state.Box.EnsureCapacity(10);"],
+        [$"{STACK}.TrimExcess"] = ["_state.Box.TrimExcess();"],
+        [$"{STACK}.get_Capacity"] = ["_ = _state.Box.Capacity;"],
 
         [$"{LINKED_LIST}.get_Count"] = ["_ = _state.Box.Count;"],
         [$"{LINKED_LIST}.AddFirst"] = ["_state.Box.AddFirst(_state.First);"],
@@ -408,10 +505,8 @@ public sealed class CollectionMemberEffectTests
     public void Member_makes_the_accesses_the_table_gives_it(string type, string member, IrCollectionEffect structure,
                                                              IrCollectionEffect element, bool namesCell, bool atomic)
     {
-        // Of a list's four `Sort` overloads only the one taking a `Comparison<T>` is in the table (ADR 0010, phase 5c).
-        var overloads = PublicMethods(type).Where(method => method.Name == member &&
-                                                            (member != "Sort" || method.Parameters is [{ Type.Name: "Comparison" }]))
-                                           .ToArray();
+        // Every overload is in the table, each of a list's four `Sort` overloads among them since the amendment of 2026-10-16.
+        var overloads = PublicMethods(type).Where(method => method.Name == member).ToArray();
 
         Assert.NotEmpty(overloads);
         // The effect is the member's, so every overload of it makes the same accesses.
@@ -430,7 +525,10 @@ public sealed class CollectionMemberEffectTests
                                                             access.Source.StartLine == line && access.Resource.CollectionId is not null &&
                                                             access.Resource.AccessPath[0] == "Box")
                        .ToArray();
-        Assert.DoesNotContain(run.Collection.Accesses, access => access.Operation.IsUnknownEffect());
+        // The array `TryPopRange` fills is the one thing a member of the table reaches with an unknown effect (ADR 0010, amendment of
+        // 2026-10-16).
+        Assert.DoesNotContain(run.Collection.Accesses, access => access.Operation.IsUnknownEffect() &&
+                                                                 !(member == "TryPopRange" && access.Resource.AccessPath is ["Popped", ..]));
         if (SnapshotTypes.Contains(type))
         {
             Assert.Empty(onBox);
@@ -496,6 +594,7 @@ public sealed class CollectionMemberEffectTests
             public readonly Item Second = new Item();
             public readonly List<Item> Others = new();
             public readonly LinkedListNode<Item> Node = new(new Item());
+            public readonly Item[] Popped = new Item[1];
         }
 
         public sealed class Worker(State state) : BackgroundService

@@ -10,19 +10,19 @@
     },
     "reachableBodies": 832,
     "summaries": 953,
-    "regions": 1515,
+    "regions": 1517,
     "instances": 1483,
-    "accesses": 4046,
+    "accesses": 4063,
     "pairs": {
-      "comparisons": 6161,
-      "cartesianBound": 878565,
+      "comparisons": 6225,
+      "cartesianBound": 892726,
       "largestBucket": 11,
-      "buckets": 1574,
+      "buckets": 1578,
       "skips": {
-        "confined": 2506,
+        "confined": 2515,
         "fresh-object": 9,
         "no-overlap": 100,
-        "read-read": 3510
+        "read-read": 3565
       },
       "suppressed": 0,
       "candidates": 36
@@ -187,7 +187,7 @@
         "aspnetcore": 19,
         "hosting": 0
       },
-      "accesses": 824,
+      "accesses": 841,
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 16,
@@ -206,7 +206,7 @@
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 157,
-        "unresolved-base": 556,
+        "unresolved-base": 553,
         "unresolved-locator": 2,
         "unsupported-operation": 104,
         "wildcard-access": 1

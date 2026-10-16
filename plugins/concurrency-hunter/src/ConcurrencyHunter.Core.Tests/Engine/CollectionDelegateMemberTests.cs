@@ -76,13 +76,14 @@ public sealed class CollectionDelegateMemberTests
     }
 
     [Fact]
-    public void List_Sort_without_a_comparison_is_not_in_the_table()
+    public void List_Sort_without_a_comparison_is_in_the_table_and_runs_no_delegate()
     {
         var sorts = ListMethods("Sort").ToArray();
 
+        // A sort without a comparison writes what one with it does; its comparer object is code the table does not follow (ADR 0010,
+        // amendment of 2026-10-16).
         Assert.Equal(4, sorts.Length);
-        Assert.All(sorts, method => Assert.Equal(method.Parameters is [{ Type.Name: "Comparison" }], IrLowering.Collections.Of(method) is not null));
-        Assert.Single(sorts, method => IrLowering.Collections.Of(method) is not null);
+        Assert.All(sorts, method => Assert.Equal(method.Parameters is [{ Type.Name: "Comparison" }], IrLowering.Collections.Of(method)!.Factories.Count != 0));
     }
 
     [Fact]

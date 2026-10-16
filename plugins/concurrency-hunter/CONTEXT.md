@@ -111,7 +111,8 @@ The method bodies a run analyzes: everything the call graph reaches from an exec
 spawn site; a body outside it cannot execute in the process and is neither lowered nor counted
 against coverage. When the **Model generator** analyses `System.Private.CoreLib`, the set is
 narrower: a virtual or interface call reaches only the overrides of types the run constructs or
-boxes, and the bodies of its resource-string type `System.SR` are never entered. A body outside
+boxes, and the bodies of its resource-string type `System.SR` are never entered, nor those of a
+**Recognized type**, whose calls there are what they are in a program. A body outside
 that set may still run, so a call into one is an **Opaque call**.
 _Avoid_: scope, analyzed code, hot code
 
@@ -290,6 +291,21 @@ that exact member and that version of its assembly; its effects are the ones the
 delegate it receives runs as the model's **Delegate fate** says, and it is never a **Semantic gap**.
 The same member in a version no model covers is opaque.
 _Avoid_: library call, recognized call, BCL call (a method is known by its model, not by who ships it)
+
+**Recognized type**:
+A framework type whose calls the engine understands by name, outside the **Library models**: the
+collections of the table, tasks, threads, timers and the thread pool, the locks, `Interlocked` and
+`Volatile`, slices, a task's awaiters and the DI locator. A member the engine understands is a lock,
+a spawn, a join, an atomic operation or an access to a **Collection structure** and its **Element
+storage**. Any other member of a collection has an **Unknown effect** on what the collection holds and
+on its arguments; any other member of a slice or of an awaiter is an **Opaque call**, so the callback
+an awaiter's `OnCompleted` is handed runs in an **Unknown execution**; any other member of a task, a
+thread, a timer, a lock or the DI locator has an **Unknown effect** only on the arguments that can
+carry the program's own objects — not on a delegate, the object a `Monitor` member locks or another
+task, thread, timer or wait handle — since what those hold of the program's, a task's **Completion
+value** among it, is reached only through the members the engine understands; one of `Interlocked` or
+`Volatile` has none. None of them but a slice's or an awaiter's is ever a **Semantic gap**.
+_Avoid_: built-in type, BCL type, known type (a **Known call** is one a model describes)
 
 **Deep read**:
 What a **Known call** does to an argument it consumes whole, as a serializer or a formatter does: a
@@ -623,3 +639,8 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   a non-manual layer to remove a pair the **Unknown effect** made. Resolved: generated and AI models
   may remove such pairs, and **Coverage** counts them per layer; no model proves protection or
   happens-before, and a project model can override any other.
+- A member of a **Recognized type** that no recognizer understands — `List<T>.Reverse()`,
+  `HashSet<T>.UnionWith` — could be read as touching nothing, because the engine owns its type.
+  Resolved by a probe: a `foreach` over a shared list met no `Reverse`, `Sort()`, `InsertRange`,
+  `RemoveRange`, `TrimExcess`, `Capacity` or `CopyTo` in another execution. Owning a type says its
+  calls are no **Semantic gap**, not that they have no effect.

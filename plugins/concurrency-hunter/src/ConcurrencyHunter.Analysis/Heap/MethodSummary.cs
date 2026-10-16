@@ -870,6 +870,9 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
     /// <inheritdoc cref="IrCallOperation.IsRecognized"/>
     public bool IsRecognized { get; init; }
 
+    /// <inheritdoc cref="IrCallOperation.Unmodelled"/>
+    public IrUnmodelledEffect? Unmodelled { get; init; }
+
     /// <summary>The type declaring the callee, as the call names it: through a receiver the call sees only that type's state
     /// (R1).</summary>
     public string? DeclaringTypeKey { get; init; }
@@ -882,6 +885,27 @@ public sealed record SummaryOpaqueCall(int OperationId, string Callee, IReadOnly
     public IrProvenance? Provenance { get; init; }
 
     public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
+
+    /// <summary>The part of a call of a recognized type that no recognizer models, as a call of its own with only the receiver and the
+    /// arguments <see cref="Unmodelled"/> names, and the delegates among those arguments; null for a call a recognizer models whole
+    /// (question 144). The heap and the unresolved calls both read the unknown effect from it, so the two agree on what it reaches.</summary>
+    public SummaryOpaqueCall? UnmodelledPart()
+    {
+        if (Unmodelled is not { } unmodelled)
+            return null;
+        var arguments = Arguments.Where(argument => unmodelled.Arguments.Contains(argument.ParameterOrdinal)).ToArray();
+        var handed = arguments.SelectMany(argument => argument.Values).ToHashSet();
+        return this with
+        {
+            Delegates = Delegates.Where(handed.Contains).ToArray(),
+            Receivers = unmodelled.Receiver ? Receivers : new HashSet<AbstractValue>(),
+            Arguments = arguments,
+            Collection = null,
+            Implementations = [],
+            IsRecognized = false,
+            Unmodelled = null
+        };
+    }
 }
 
 /// <summary>An operation on a <c>dynamic</c> value (<see cref="IrUnknownOperation.DynamicCallee"/>): the objects its receiver, arguments

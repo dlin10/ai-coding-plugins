@@ -2707,6 +2707,8 @@ public static class IrLowering
             _operations.Add(call with
             {
                 ServiceCall = serviceCall,
+                // A locator or scope creation the DI semantics model is modelled whole (question 144).
+                Unmodelled = serviceCall is null ? call.Unmodelled : null,
                 IsAwaitedImmediately = awaited,
                 EnumerationId = source.IsImplicit
                     ? source.Syntax.AncestorsAndSelf().OfType<CommonForEachStatementSyntax>().FirstOrDefault()?.SpanStart
@@ -2826,6 +2828,7 @@ public static class IrLowering
             if (TaskCompletion() is { } completion)
             {
                 _operations.Add(completion);
+                Modelled(call);
                 return;
             }
 
@@ -2972,8 +2975,13 @@ public static class IrLowering
                     _operations.Add(Timer(IrTimerAction.Stop));
                     break;
                 default:
+                    // The delegates of another form are an unrecognized spawn of them, which models the call; any other form is
+                    // modelled by no recognizer, and its arguments see an unknown effect (question 144).
                     if (work.Count != 0 && Bcl.IsRecognizedType(type))
+                    {
                         _operations.Add(Spawn(IrSpawnKind.Unrecognized, null, work));
+                        Modelled(call);
+                    }
                     // Any other task with a value such a type gives completes with what the heap does not follow, never with nothing,
                     // wherever it travels: a call's result, or the task a constructor creates. A task without one stays the call's
                     // result, which has no completion value to lose.
@@ -2982,8 +2990,10 @@ public static class IrLowering
                     else if (Bcl.IsTaskType(type) && method.MethodKind == MethodKind.Constructor && Bcl.CarriesValue(method.ContainingType) &&
                              call.ReceiverValue is int created)
                         _operations.Add(TaskOperation(IrTaskKind.Unfollowed, []) with { TaskValue = created });
-                    break;
+                    return;
             }
+
+            Modelled(call);
         }
 
         /// <summary>Follows a call of a framework awaiter member the lowering recognizes: <c>GetResult()</c> of an awaiter is a
@@ -3184,10 +3194,24 @@ public static class IrLowering
                 Library = nestedId is null ? LibraryCalls.Of(method, _context.LibraryModels, _context.Compilation) : null,
                 IsGroupingKey = nestedId is null && method.Name == "get_Key" && Bcl.TypeName(method.ContainingType) == "System.Linq.IGrouping`2",
                 IsRecognized = nestedId is null && IsRecognized(method),
+                // Provisional: a recognizer that models the call takes it back (question 144).
+                Unmodelled = nestedId is null ? UnmodelledEffects.Of(method, collection) : null,
                 TargetMethodId = nestedId is null ? RootBodyId(method.OriginalDefinition) : null,
                 TargetContainingTypeKey = nestedId is null ? SymbolNames.TypeKey(method.ContainingType) : null,
                 TargetMethodTypeArgumentKeys = nestedId is null ? method.TypeArguments.Select(SymbolNames.TypeKey).ToArray() : []
             };
+        }
+
+        /// <summary>Marks a call a recognizer modelled whole: no part of it has the unknown effect a call of a recognized type has where
+        /// none does (question 144).</summary>
+        /// <param name="call">The lowered call, as it stands among the operations.</param>
+        private void Modelled(IrCallOperation call)
+        {
+            if (call.Unmodelled is null)
+                return;
+            var index = _operations.FindLastIndex(operation => ReferenceEquals(operation, call));
+            if (index >= 0)
+                _operations[index] = call with { Unmodelled = null };
         }
 
         /// <summary>Whether a recognizer of phases 1-4 models the call (R1): a member of a type one owns, or the creation of a framework
@@ -3254,6 +3278,7 @@ public static class IrLowering
                 // An asynchronous wait stays the call it is and holds nothing until its result is awaited; an unawaited one holds
                 // nothing at all.
                 result = AddCall(invocation, method, lockValue, arguments, invocation.Type, awaited: IsAwaitedImmediately(invocation));
+                Modelled(_operations.OfType<IrCallOperation>().Last());
                 _pendingEntries[result] = new PendingEntry(lockValue, effect.Primitive, effect.Mode,
                                                            effect.Kind == SyncEffectKind.TryEnterAsync);
                 return true;
@@ -5174,7 +5199,8 @@ public static class IrLowering
     /// enumerates touches cells it cannot name, so it takes no key argument and touches all of them. A thread-safe collection
     /// performs every member of it atomically on both resources; a <c>List</c>, a <c>Dictionary</c>, and since phase 5b a <c>HashSet</c>,
     /// a <c>Queue</c>, a <c>Stack</c> and a <c>LinkedList</c> perform none of them so.
-    /// Every other type, and every member not listed here, stays an ordinary call.
+    /// Every other type stays an ordinary call; a member of these types not listed here reaches what the collection holds and its
+    /// arguments with an unknown effect (<see cref="UnmodelledEffects"/>).
     /// </summary>
     internal static class Collections
     {
@@ -5304,6 +5330,30 @@ public static class IrLowering
                 (LIST, "RemoveAll") or (HASH_SET, "RemoveWhere") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
                 (LIST, "Sort") when method.Parameters is [{ Type: var comparison }] && Bcl.TypeName(comparison) == "System.Comparison`1" =>
                     Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
+                // A member that moves, inserts or removes many cells at once writes the structure and every cell, as `Clear` does; one
+                // that inserts what it enumerates holds it, as `AddRange` does, and a set that keeps only some of its cells enumerates
+                // its argument and holds none of it. A comparer a sort is handed runs as code the table does not follow (ADR 0010,
+                // amendment of 2026-10-16).
+                (LIST, "Sort" or "Reverse" or "RemoveRange") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
+                (LIST, "InsertRange") or (HASH_SET, "UnionWith" or "SymmetricExceptWith") or (CONCURRENT_STACK, "PushRange") =>
+                    Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write) with { Source = SourceOf(method) },
+                (HASH_SET, "IntersectWith" or "ExceptWith") =>
+                    Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write) with { Enumerated = SourceOf(method) },
+                (CONCURRENT_STACK, "TryPopRange") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Write),
+                // A reallocation writes the structure and copies every cell; the capacity alone is the structure's.
+                (_, "EnsureCapacity" or "TrimExcess" or "set_Capacity") => Effects(method, type, false, IrCollectionEffect.Write, IrCollectionEffect.Read),
+                (_, "get_Capacity" or "get_IsEmpty") => Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.None),
+                // A scan reads the structure and every cell it visits; a set comparison enumerates its argument as well.
+                (LIST, "IndexOf" or "LastIndexOf" or "BinarySearch") or (DICTIONARY, "ContainsValue") =>
+                    Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read),
+                (HASH_SET, "IsSubsetOf" or "IsSupersetOf" or "IsProperSubsetOf" or "IsProperSupersetOf" or "Overlaps" or "SetEquals") =>
+                    Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read) with { Enumerated = SourceOf(method) },
+                // A copy reads the structure and every cell, and returns a list or an array of its own holding what they hold.
+                (LIST, "GetRange" or "Slice") or (LIST or QUEUE or STACK or CONCURRENT_QUEUE or CONCURRENT_STACK or CONCURRENT_BAG, "ToArray") =>
+                    Effects(method, type, false, IrCollectionEffect.Read, IrCollectionEffect.Read) with
+                    {
+                        ResultTypeKey = SymbolNames.TypeKey(method.ReturnType)
+                    },
                 _ => null
             };
         }
@@ -5472,6 +5522,11 @@ public static class IrLowering
                 var explicitly = implementation.ExplicitInterfaceImplementations.Length != 0;
                 var target = explicitly ? PublicCounterpart(implementation, type) : implementation;
                 if (target is null || Of(target) is not { } effects)
+                    return null;
+                // A member that enumerates its argument or returns a copy is decided on a direct call alone: what the projection of an
+                // interface call carries is the member's effect on the two resources, so the call stays opaque through the interface
+                // (ADR 0010, amendment of 2026-10-16).
+                if (effects is { Source: not null } or { Enumerated: not null } or { ResultTypeKey: not null })
                     return null;
 
                 // An explicit implementation names the cell the public member names only where it takes the same key: `Add` of a pair
@@ -5832,6 +5887,70 @@ public static class IrLowering
                 IrAtomicEffect.ReadModifyWrite,
             _ => null
         };
+
+        /// <summary>Whether a type is <c>Interlocked</c> or <c>Volatile</c>, whose members this recognizer reads.</summary>
+        /// <param name="type">The type's metadata name.</param>
+        internal static bool ClaimsType(string type) => type is INTERLOCKED or VOLATILE;
+    }
+
+    /// <summary>What the unknown effect of a call of a recognized type reaches where no recognizer models it (question 144). A member of
+    /// a collection the table does not name reaches what the collection holds and its arguments, and a comparer object a sort or a
+    /// search of the table is handed, or the array <c>TryPopRange</c> fills, is reached as by code the table does not follow. A member
+    /// of a task, a thread, a timer, a lock or the DI locator reaches only the arguments that can carry the program's own objects: not a
+    /// delegate, which the recognizer of an unrecognized spawn runs, not the object a <c>Monitor</c> member locks, whose fields it never
+    /// touches, and not the family's own objects, a task among them, which are reached only through the members the recognizers model.
+    /// <c>Interlocked</c> and <c>Volatile</c> reach nothing.</summary>
+    private static class UnmodelledEffects
+    {
+        /// <summary>The effect a call has before a recognizer that models it takes it back (<see cref="Modelled"/>); null for a call of
+        /// no recognized type and for one the table models whole.</summary>
+        /// <param name="method">The member called.</param>
+        /// <param name="collection">What the table says the call does, null where it says nothing.</param>
+        internal static IrUnmodelledEffect? Of(IMethodSymbol method, IrCollectionCall? collection)
+        {
+            if (Bcl.TypeOf(method) is not { } type || !LibraryModels.IsRecognizedType(type) || Atomics.ClaimsType(type))
+                return null;
+            var parameters = method.OriginalDefinition.Parameters;
+            if (collection is not null)
+            {
+                // The array `TryPopRange` fills is written as the table does not say.
+                var touched = parameters.Where(parameter => method.Name is "Sort" or "BinarySearch" &&
+                                                            Bcl.TypeName(parameter.Type) is "System.Collections.Generic.IComparer`1" or "System.Collections.IComparer" ||
+                                                            method.Name == "TryPopRange" && parameter.Type is IArrayTypeSymbol)
+                                        .Select(parameter => parameter.Ordinal)
+                                        .ToArray();
+                return touched.Length == 0 ? null : new IrUnmodelledEffect(false, touched);
+            }
+
+            if (Collections.ClaimsType(type))
+            {
+                return new IrUnmodelledEffect(method is { IsStatic: false, MethodKind: not MethodKind.Constructor },
+                                              parameters.Where(parameter => CanHoldObjects(parameter.Type)).Select(parameter => parameter.Ordinal).ToArray());
+            }
+
+            var seen = parameters.Where(parameter => parameter.Type.TypeKind != TypeKind.Delegate && CanHoldObjects(parameter.Type) &&
+                                                     !(Synchronization.IsMonitor(method) && parameter.Ordinal == Synchronization.MONITOR_OBJECT) &&
+                                                     !IsFamilyObject(parameter.Type))
+                                 .Select(parameter => parameter.Ordinal)
+                                 .ToArray();
+            return seen.Length == 0 ? null : new IrUnmodelledEffect(false, seen);
+        }
+
+        /// <summary>Whether a value of a type can be or hold an object of the program's own: a reference type other than a string, or
+        /// a type parameter.</summary>
+        /// <param name="type">The parameter's type, as the member declares it.</param>
+        private static bool CanHoldObjects(ITypeSymbol type) =>
+            type.TypeKind == TypeKind.TypeParameter || !type.IsValueType && type.SpecialType != SpecialType.System_String;
+
+        /// <summary>Whether a parameter takes an object of a recognized type that is no collection, or an array or a sequence of them:
+        /// a task, a thread, a timer, a wait handle.</summary>
+        /// <param name="type">The parameter's type, as the member declares it.</param>
+        private static bool IsFamilyObject(ITypeSymbol type) =>
+            IsFamilyType(type) || type is IArrayTypeSymbol array && IsFamilyType(array.ElementType) ||
+            type is INamedTypeSymbol { TypeArguments: [var element] } && IsFamilyType(element);
+
+        private static bool IsFamilyType(ITypeSymbol type) =>
+            Bcl.TypeName(type) is { } name && LibraryModels.IsRecognizedType(name) && !Collections.ClaimsType(name);
     }
 
     /// <summary>Recognises the service-locator and scope-creation calls of the DI semantics provider, reading the call's original

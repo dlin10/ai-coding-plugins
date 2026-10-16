@@ -52,6 +52,18 @@ public static class UnknownCalls
             foreach (var call in summary.OpaqueCalls.Where(call => !call.IsKnown))
             {
                 var isLocator = call.ServiceCall is { Kind: not IrServiceCallKind.ScopeCreation } && locators.Contains((instance.BodyId, call.OperationId));
+                // What no recognizer models of a call of a recognized type has the unknown effect of an unresolved call, and is no
+                // semantic gap (question 144).
+                if (!isLocator && call.UnmodelledPart() is { } part)
+                {
+                    calls.Add(new UnknownCall(instance, part.OperationId, part.Callee, SemanticGapKinds.RECOGNIZED,
+                                              part.IsConstructor ? new HashSet<AbstractValue>() : part.Receivers, part.DeclaringTypeKey, part.Arguments,
+                                              part.Delegates)
+                    {
+                        Provenance = part.Provenance,
+                        Conditions = part.Conditions
+                    });
+                }
                 if (!isLocator && modelled.Contains(instance.BodyId, call))
                     continue;
                 // A call through an interface is the member of the table each object it decides implements it with, and stays unresolved

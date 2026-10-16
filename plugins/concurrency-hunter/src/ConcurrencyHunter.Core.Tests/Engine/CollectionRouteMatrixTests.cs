@@ -94,6 +94,19 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
         M(LIST, "ConvertAll", 1, "{R}.ConvertAll(item => item)[0].Hits = 1;"),
         M(LIST, "RemoveAll", 1, "{R}.RemoveAll(item => item.Hits > 0);"),
         M(LIST, "Sort", 1, "{R}.Sort((a, b) => a.Hits - b.Hits);"),
+        M(LIST, "Reverse", 0, "{R}.Reverse();"),
+        M(LIST, "RemoveRange", 2, "{R}.RemoveRange(0, 1);"),
+        M(LIST, "InsertRange", 2, "{R}.InsertRange(0, Others);"),
+        M(LIST, "EnsureCapacity", 1, "_ = {R}.EnsureCapacity(10);"),
+        M(LIST, "TrimExcess", 0, "{R}.TrimExcess();"),
+        M(LIST, "set_Capacity", 1, "{R}.Capacity = 10;"),
+        M(LIST, "get_Capacity", 0, "_ = {R}.Capacity;"),
+        M(LIST, "IndexOf", 1, "_ = {R}.IndexOf(First);"),
+        M(LIST, "LastIndexOf", 1, "_ = {R}.LastIndexOf(First);"),
+        M(LIST, "BinarySearch", 1, "_ = {R}.BinarySearch(First);"),
+        M(LIST, "GetRange", 2, "{R}.GetRange(0, 1)[0].Hits = 1;"),
+        M(LIST, "Slice", 2, "{R}.Slice(0, 1)[0].Hits = 1;"),
+        M(LIST, "ToArray", 0, "{R}.ToArray()[0].Hits = 1;"),
 
         M(DICTIONARY, "get_Count", 0, "_ = {R}.Count;"),
         M(DICTIONARY, "get_Item", 1, "({R}[\"a\"] as Item)!.Hits = 1;"),
@@ -107,6 +120,10 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
         M(DICTIONARY, "GetEnumerator", 0, PAIR_VALUE_WRITE) with { EntryStatement = ENTRY_VALUE_WRITE },
         M(DICTIONARY, "get_Keys", 0, "foreach (var key in {R}.Keys) { }"),
         M(DICTIONARY, "get_Values", 0, "foreach (var value in {R}.Values) (value as Item)!.Hits = 1;"),
+        M(DICTIONARY, "ContainsValue", 1, "_ = {R}.ContainsValue(First);"),
+        M(DICTIONARY, "EnsureCapacity", 1, "_ = {R}.EnsureCapacity(10);"),
+        M(DICTIONARY, "TrimExcess", 0, "{R}.TrimExcess();"),
+        M(DICTIONARY, "get_Capacity", 0, "_ = {R}.Capacity;"),
         M(DICTIONARY, "Add", 1, "((ICollection<KeyValuePair<string, Item>>){R}).Add(new KeyValuePair<string, Item>(\"a\", First));") with
         {
             Through = "System.Collections.Generic.Dictionary: System.Collections.Generic.ICollection<T>.Add"
@@ -130,6 +147,7 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
         M(CONCURRENT_DICTIONARY, "GetEnumerator", 0, PAIR_VALUE_WRITE) with { EntryStatement = ENTRY_VALUE_WRITE },
         M(CONCURRENT_DICTIONARY, "get_Keys", 0, "foreach (var key in {R}.Keys) { }"),
         M(CONCURRENT_DICTIONARY, "get_Values", 0, "foreach (var value in {R}.Values) (value as Item)!.Hits = 1;"),
+        M(CONCURRENT_DICTIONARY, "get_IsEmpty", 0, "_ = {R}.IsEmpty;"),
         M(CONCURRENT_DICTIONARY, "TryAdd", 1, "((ICollection<KeyValuePair<string, Item>>){R}).Add(new KeyValuePair<string, Item>(\"a\", First));") with
         {
             Through = "System.Collections.Concurrent.ConcurrentDictionary: System.Collections.Generic.ICollection<T>.Add"
@@ -153,6 +171,8 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
         M(CONCURRENT_QUEUE, "TryPeek", 1, "if ({R}.TryPeek(out var held)) (held as Item)!.Hits = 1;"),
         M(CONCURRENT_QUEUE, "Clear", 0, "{R}.Clear();"),
         M(CONCURRENT_QUEUE, "GetEnumerator", 0, "foreach (var item in {R}) (item as Item)!.Hits = 1;"),
+        M(CONCURRENT_QUEUE, "get_IsEmpty", 0, "_ = {R}.IsEmpty;"),
+        M(CONCURRENT_QUEUE, "ToArray", 0, "{R}.ToArray()[0].Hits = 1;"),
 
         M(CONCURRENT_STACK, "get_Count", 0, "_ = {R}.Count;"),
         M(CONCURRENT_STACK, "Push", 1, "{R}.Push(First);"),
@@ -160,6 +180,10 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
         M(CONCURRENT_STACK, "TryPeek", 1, "if ({R}.TryPeek(out var held)) (held as Item)!.Hits = 1;"),
         M(CONCURRENT_STACK, "Clear", 0, "{R}.Clear();"),
         M(CONCURRENT_STACK, "GetEnumerator", 0, "foreach (var item in {R}) (item as Item)!.Hits = 1;"),
+        M(CONCURRENT_STACK, "get_IsEmpty", 0, "_ = {R}.IsEmpty;"),
+        M(CONCURRENT_STACK, "ToArray", 0, "{R}.ToArray()[0].Hits = 1;"),
+        M(CONCURRENT_STACK, "PushRange", 1, "{R}.PushRange(new[] { First });"),
+        M(CONCURRENT_STACK, "TryPopRange", 1, "_ = {R}.TryPopRange(Target);"),
 
         M(CONCURRENT_BAG, "get_Count", 0, "_ = {R}.Count;"),
         M(CONCURRENT_BAG, "Add", 1, "{R}.Add(First);"),
@@ -167,6 +191,8 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
         M(CONCURRENT_BAG, "TryPeek", 1, "if ({R}.TryPeek(out var held)) (held as Item)!.Hits = 1;"),
         M(CONCURRENT_BAG, "Clear", 0, "{R}.Clear();"),
         M(CONCURRENT_BAG, "GetEnumerator", 0, "foreach (var item in {R}) (item as Item)!.Hits = 1;"),
+        M(CONCURRENT_BAG, "get_IsEmpty", 0, "_ = {R}.IsEmpty;"),
+        M(CONCURRENT_BAG, "ToArray", 0, "{R}.ToArray()[0].Hits = 1;"),
 
         M(HASH_SET, "get_Count", 0, "_ = {R}.Count;"),
         M(HASH_SET, "Add", 1, "{R}.Add(First);"),
@@ -176,6 +202,19 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
         M(HASH_SET, "TryGetValue", 2, "if ({R}.TryGetValue(First, out var held)) (held as Item)!.Hits = 1;"),
         M(HASH_SET, "GetEnumerator", 0, "foreach (var item in {R}) (item as Item)!.Hits = 1;"),
         M(HASH_SET, "RemoveWhere", 1, "{R}.RemoveWhere(item => item.Hits > 0);"),
+        M(HASH_SET, "UnionWith", 1, "{R}.UnionWith(Others);"),
+        M(HASH_SET, "SymmetricExceptWith", 1, "{R}.SymmetricExceptWith(Others);"),
+        M(HASH_SET, "IntersectWith", 1, "{R}.IntersectWith(Others);"),
+        M(HASH_SET, "ExceptWith", 1, "{R}.ExceptWith(Others);"),
+        M(HASH_SET, "IsSubsetOf", 1, "_ = {R}.IsSubsetOf(Others);"),
+        M(HASH_SET, "IsSupersetOf", 1, "_ = {R}.IsSupersetOf(Others);"),
+        M(HASH_SET, "IsProperSubsetOf", 1, "_ = {R}.IsProperSubsetOf(Others);"),
+        M(HASH_SET, "IsProperSupersetOf", 1, "_ = {R}.IsProperSupersetOf(Others);"),
+        M(HASH_SET, "Overlaps", 1, "_ = {R}.Overlaps(Others);"),
+        M(HASH_SET, "SetEquals", 1, "_ = {R}.SetEquals(Others);"),
+        M(HASH_SET, "EnsureCapacity", 1, "_ = {R}.EnsureCapacity(10);"),
+        M(HASH_SET, "TrimExcess", 0, "{R}.TrimExcess();"),
+        M(HASH_SET, "get_Capacity", 0, "_ = {R}.Capacity;"),
 
         M(QUEUE, "get_Count", 0, "_ = {R}.Count;"),
         M(QUEUE, "Enqueue", 1, "{R}.Enqueue(First);"),
@@ -186,6 +225,10 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
         M(QUEUE, "Clear", 0, "{R}.Clear();"),
         M(QUEUE, "Contains", 1, "_ = {R}.Contains(First);"),
         M(QUEUE, "GetEnumerator", 0, "foreach (var item in {R}) (item as Item)!.Hits = 1;"),
+        M(QUEUE, "ToArray", 0, "{R}.ToArray()[0].Hits = 1;"),
+        M(QUEUE, "EnsureCapacity", 1, "_ = {R}.EnsureCapacity(10);"),
+        M(QUEUE, "TrimExcess", 0, "{R}.TrimExcess();"),
+        M(QUEUE, "get_Capacity", 0, "_ = {R}.Capacity;"),
 
         M(STACK, "get_Count", 0, "_ = {R}.Count;"),
         M(STACK, "Push", 1, "{R}.Push(First);"),
@@ -196,6 +239,10 @@ public sealed class CollectionRouteMatrixTests(ClassCache cache) : IClassFixture
         M(STACK, "Clear", 0, "{R}.Clear();"),
         M(STACK, "Contains", 1, "_ = {R}.Contains(First);"),
         M(STACK, "GetEnumerator", 0, "foreach (var item in {R}) (item as Item)!.Hits = 1;"),
+        M(STACK, "ToArray", 0, "{R}.ToArray()[0].Hits = 1;"),
+        M(STACK, "EnsureCapacity", 1, "_ = {R}.EnsureCapacity(10);"),
+        M(STACK, "TrimExcess", 0, "{R}.TrimExcess();"),
+        M(STACK, "get_Capacity", 0, "_ = {R}.Capacity;"),
 
         M(LINKED_LIST, "get_Count", 0, "_ = {R}.Count;"),
         M(LINKED_LIST, "AddFirst", 1, "{R}.AddFirst(First);"),

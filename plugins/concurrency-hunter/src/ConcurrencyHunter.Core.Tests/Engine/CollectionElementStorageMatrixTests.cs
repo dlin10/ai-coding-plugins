@@ -59,6 +59,10 @@ public sealed class CollectionElementStorageMatrixTests
     private static WayOut Each(string type) =>
         new("foreach", Storage.Element, "foreach (var held in _state.Box) held.Hits = 1;", $"{type}.GetEnumerator");
 
+    /// <summary>A copy holds what its collection holds (ADR 0010, amendment of 2026-10-16).</summary>
+    private static WayOut Copied(string type) =>
+        new("ToArray", Storage.Element, "foreach (var held in _state.Box.ToArray()) held.Hits = 1;", $"{type}.ToArray");
+
     /// <summary>The ways out of a dictionary: its value hand-outs, and both storages through its pairs and views.</summary>
     private static WayOut[] DictionaryOut(string type, params WayOut[] values) =>
     [
@@ -83,12 +87,15 @@ public sealed class CollectionElementStorageMatrixTests
                 new("Insert", "_state.Box.Insert(0, new Source());", "List.Insert"),
                 new("set_Item", "_state.Box.Add(new Other()); _state.Box[0] = new Source();", "List.set_Item"),
                 new("AddRange", "var source = new List<Item>(); source.Add(new Source()); _state.Box.AddRange(source);", "List.AddRange"),
+                new("InsertRange", "var source = new List<Item>(); source.Add(new Source()); _state.Box.InsertRange(0, source);", "List.InsertRange"),
                 CopiedFrom("List<Item>")
             ],
             [
                 new("indexer", Storage.Element, "_state.Box[0].Hits = 1;", "List.get_Item"),
                 new("Find", Storage.Element, "_state.Box.Find(item => true)!.Hits = 1;", "List.Find"),
                 new("FindLast", Storage.Element, "_state.Box.FindLast(item => true)!.Hits = 1;", "List.FindLast"),
+                new("GetRange", Storage.Element, "foreach (var held in _state.Box.GetRange(0, 1)) held.Hits = 1;", "List.GetRange"),
+                Copied("List"),
                 Each("List")
             ]),
         new("Dictionary", "Dictionary<Item, Item>",
@@ -145,13 +152,19 @@ public sealed class CollectionElementStorageMatrixTests
             [
                 new("TryDequeue", Storage.Element, "if (_state.Box.TryDequeue(out var held)) held.Hits = 1;", "ConcurrentQueue.TryDequeue"),
                 new("TryPeek", Storage.Element, "if (_state.Box.TryPeek(out var held)) held.Hits = 1;", "ConcurrentQueue.TryPeek"),
+                Copied("ConcurrentQueue"),
                 Each("ConcurrentQueue")
             ]),
         new("ConcurrentStack", "ConcurrentStack<Item>",
-            [new("Push", "_state.Box.Push(new Source());", "ConcurrentStack.Push"), CopiedFrom("ConcurrentStack<Item>")],
+            [
+                new("Push", "_state.Box.Push(new Source());", "ConcurrentStack.Push"),
+                new("PushRange", "_state.Box.PushRange(new Item[] { new Source() });", "ConcurrentStack.PushRange"),
+                CopiedFrom("ConcurrentStack<Item>")
+            ],
             [
                 new("TryPop", Storage.Element, "if (_state.Box.TryPop(out var held)) held.Hits = 1;", "ConcurrentStack.TryPop"),
                 new("TryPeek", Storage.Element, "if (_state.Box.TryPeek(out var held)) held.Hits = 1;", "ConcurrentStack.TryPeek"),
+                Copied("ConcurrentStack"),
                 Each("ConcurrentStack")
             ]),
         new("ConcurrentBag", "ConcurrentBag<Item>",
@@ -159,10 +172,17 @@ public sealed class CollectionElementStorageMatrixTests
             [
                 new("TryTake", Storage.Element, "if (_state.Box.TryTake(out var held)) held.Hits = 1;", "ConcurrentBag.TryTake"),
                 new("TryPeek", Storage.Element, "if (_state.Box.TryPeek(out var held)) held.Hits = 1;", "ConcurrentBag.TryPeek"),
+                Copied("ConcurrentBag"),
                 Each("ConcurrentBag")
             ]),
         new("HashSet", "HashSet<Item>",
-            [new("Add", "_state.Box.Add(new Source());", "HashSet.Add"), CopiedFrom("HashSet<Item>")],
+            [
+                new("Add", "_state.Box.Add(new Source());", "HashSet.Add"),
+                new("UnionWith", "var source = new List<Item>(); source.Add(new Source()); _state.Box.UnionWith(source);", "HashSet.UnionWith"),
+                new("SymmetricExceptWith", "var source = new List<Item>(); source.Add(new Source()); _state.Box.SymmetricExceptWith(source);",
+                    "HashSet.SymmetricExceptWith"),
+                CopiedFrom("HashSet<Item>")
+            ],
             [
                 new("TryGetValue", Storage.Element, "if (_state.Box.TryGetValue(_state.Probe, out var held)) held.Hits = 1;", "HashSet.TryGetValue"),
                 Each("HashSet")
@@ -174,6 +194,7 @@ public sealed class CollectionElementStorageMatrixTests
                 new("Dequeue", Storage.Element, "_state.Box.Dequeue().Hits = 1;", "Queue.Dequeue"),
                 new("TryPeek", Storage.Element, "if (_state.Box.TryPeek(out var held)) held.Hits = 1;", "Queue.TryPeek"),
                 new("TryDequeue", Storage.Element, "if (_state.Box.TryDequeue(out var held)) held.Hits = 1;", "Queue.TryDequeue"),
+                Copied("Queue"),
                 Each("Queue")
             ]),
         new("Stack", "Stack<Item>",
@@ -183,6 +204,7 @@ public sealed class CollectionElementStorageMatrixTests
                 new("Pop", Storage.Element, "_state.Box.Pop().Hits = 1;", "Stack.Pop"),
                 new("TryPeek", Storage.Element, "if (_state.Box.TryPeek(out var held)) held.Hits = 1;", "Stack.TryPeek"),
                 new("TryPop", Storage.Element, "if (_state.Box.TryPop(out var held)) held.Hits = 1;", "Stack.TryPop"),
+                Copied("Stack"),
                 Each("Stack")
             ]),
         new("LinkedList", "LinkedList<Item>",
