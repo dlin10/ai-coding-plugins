@@ -36,3 +36,11 @@ Rejected: the plugin's build as the generator version. Every engine change would
 hours each, mostly to no effect. Rejected: a version number bumped by hand when the generator changes. The
 changes that move models without touching the generator's code would not bump it, and nothing would show
 that they happened.
+
+## Amendment, 2026-10-17: what ships is the generation of the members programs call
+
+The amendment of ADR 0012 of the same day makes the built-in CoreLib models those of a census: the members
+the demo and the corpora call. The recorded commit names both the file built from that list and the
+snapshot of every public member. The owner regenerates the file with `-Members` over the list; the
+generation of every member, about two hours, shows what a change of the generator or the engine moved and
+gates nothing that ships.

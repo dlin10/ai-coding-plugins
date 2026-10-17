@@ -123,3 +123,44 @@ turns a precise model into an unknown execution, which is safe but costs finding
 is silent when the result compiles; a member whose body does not compile is left opaque and
 counted. A decompiled library runs through the same lowering as user code, so a defect the
 generator hits there is a defect in user code too.
+
+## Amendment, 2026-10-17: the built-in CoreLib models describe the members programs call
+
+Question 85 extended the built-in models from popular packages to every public member of
+`System.Private.CoreLib`, generated once per supported major version of .NET, and ADR 0019 and ADR 0022
+made that generation possible and repeatable. The first generation of every member took 1 h 45 min at a
+peak of 5.1 GiB and gave models to 557 of 19,370 members. Loaded as built-in models, they moved nothing:
+eShop's 36 findings and the demo's 261 kept their fingerprints, accesses, pair candidates and semantic
+gaps, and one and ten more calls became known. Of eShop's 2,881 calls of library members, 374 opaque ones
+call CoreLib: 184 a member of a type a recognizer owns, for which no model is ever read; 113 an interface
+or abstract member, for which the generator synthesizes no driver; 45 a member whose parameters can hold
+no object of the program; 31 a member the generator stops on or refuses; one a member with a model. The
+other 1,791 opaque calls go to other assemblies — IdentityServer, Serilog, ASP.NET Core MVC, configuration,
+`System.Security.Claims`, protobuf. The CoreLib semantic gaps of both corpora, `CancellationToken.Register`,
+`AssemblyName.Name`, `FieldInfo.SetValue`, `Random.NextBytes` and `CollectionsMarshal.SetCount`, are all
+members the generator stops on or refuses.
+
+The decision is that the built-in models of `System.Private.CoreLib` describe the members programs call,
+not the assembly:
+
+- The members are taken by census, as a hand-written family's are: the CoreLib members met among the
+  metadata calls of the demo and the corpora, less the members of a type a recognizer owns. The generator
+  runs over that list for each supported major version, and its models are the built-in generated ones.
+- A member of the list that gets no generated model and takes a delegate or leaves a gap in a corpus gets
+  a hand-written built-in entry. `CancellationToken.Register` is the first.
+- Every other CoreLib member is an opaque call, as it is in a program without a model for it.
+- The generation of every public member stays the measure of what a change of the generator or the engine
+  moves (ADR 0022); nothing that ships waits on its refusals. A refusal the generator gives a member of the
+  list — a culture stand-in, `overridable`, a `ref` argument — is worked on when that member needs it.
+
+Rejected: generating every member, as question 85 decided. A regeneration costs two hours per major version,
+each family of refusals is a prerequisite of its own — the last two, questions 144 and 142, gave 11 models
+and none — and the result moved no finding on either corpus. Rejected: no CoreLib models at all. The
+corpora's CoreLib gaps are delegates and objects handed to members the generator stops on, and one
+hand-written entry each describes them. Rejected: generating CoreLib members inside the run, as a package's
+are. A CoreLib member meets the closure bound far more often than a package's (ADR 0019), and every cold run
+would pay for it.
+
+The consequence to hold. The snapshot of the generation names a member by its classic declaration id, and
+the run looks a member up by the id with its return type, so an entry taken from the snapshot is never found
+until it is written in the run's form (question 179).
