@@ -49,9 +49,11 @@ public static class IrLowering
     /// <param name="libraryModels">The library models known calls are resolved against.</param>
     /// <param name="leftOutTypeKeys">The definition keys of the types the run's reachable set leaves out: a call of one of their members
     /// is lowered as a call of a member without a body (ADR 0019); <c>null</c> for none.</param>
+    /// <param name="silentTypeKeys">The definition keys of the types the run takes to do nothing: a call of one of their members, a
+    /// creation of one of their objects and an access of one of their fields are dropped (question 142); <c>null</c> for none.</param>
     public static IrLoweredMethod Lower(IMethodSymbol method, Compilation compilation, string rootDirectory,
                                         CancellationToken cancellationToken, LibraryModels libraryModels,
-                                        IReadOnlySet<string>? leftOutTypeKeys = null)
+                                        IReadOnlySet<string>? leftOutTypeKeys = null, IReadOnlySet<string>? silentTypeKeys = null)
     {
         var plan = Plan(method, compilation, cancellationToken);
         var nestedIds = new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default);
@@ -68,6 +70,7 @@ public static class IrLowering
                                           compilation, cancellationToken, libraryModels)
         {
             LeftOutTypeKeys = leftOutTypeKeys ?? new HashSet<string>(StringComparer.Ordinal),
+            SilentTypeKeys = silentTypeKeys ?? new HashSet<string>(StringComparer.Ordinal),
             ClosureSlots = new ClosureSlots(method, plan.Roots, compilation, cancellationToken)
         };
         var ownerSymbol = SymbolNames.Method(method);
@@ -504,6 +507,9 @@ public static class IrLowering
         /// <summary>The definition keys of the types the run's reachable set leaves out, whose members have no body in the run.</summary>
         internal IReadOnlySet<string> LeftOutTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>The definition keys of the types the run takes to do nothing (<see cref="ReachabilityRules.SilentTypeKeys"/>).</summary>
+        internal IReadOnlySet<string> SilentTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
         /// <summary>The slot of each variable the member declares in the member's closure (R4).</summary>
         internal required ClosureSlots ClosureSlots { get; init; }
 
@@ -511,6 +517,11 @@ public static class IrLowering
         /// <param name="method">The member.</param>
         internal bool IsLeftOut(IMethodSymbol method) =>
             LeftOutTypeKeys.Count != 0 && method.ContainingType is { } type && LeftOutTypeKeys.Contains(SymbolNames.TypeKey(type.OriginalDefinition));
+
+        /// <summary>Whether a type is one the run takes to do nothing (<see cref="SilentTypeKeys"/>).</summary>
+        /// <param name="type">The type.</param>
+        internal bool IsSilent(ITypeSymbol? type) =>
+            SilentTypeKeys.Count != 0 && type is INamedTypeSymbol named && SilentTypeKeys.Contains(SymbolNames.TypeKey(named.OriginalDefinition));
 
         internal void RecordMetadataSupertypes(ITypeSymbol? type)
         {
@@ -693,6 +704,11 @@ public static class IrLowering
         /// <summary>The reason of the operation an access of an unseen field becomes.</summary>
         private const string UNSEEN_FIELD = "unseen-field";
 
+        /// <summary>The calls and creations of this body on a type the run takes to do nothing, and the fields of such types its accesses
+        /// name, which <see cref="Silence"/> drops (question 142).</summary>
+        private readonly HashSet<int> _silentOperations = [];
+        private readonly HashSet<IrFieldRef> _silentFields = [];
+
         /// <summary>The scope each <c>EnterScope</c> handed back, by its value: disposing it leaves the lock.</summary>
         private readonly Dictionary<int, LockScope> _lockScopes = [];
 
@@ -753,7 +769,7 @@ public static class IrLowering
 
         internal IrBody Lower()
         {
-            var blocks = HandUnseenFields(MarkComposite(MarkAwaited(_segments is [GraphSegment only] ? LowerSingleGraph(only) : LowerSegments())));
+            var blocks = HandUnseenFields(Silence(MarkComposite(MarkAwaited(_segments is [GraphSegment only] ? LowerSingleGraph(only) : LowerSegments()))));
             var body = new IrBody(
                 _bodyId,
                 BodyKind(_method),
@@ -823,6 +839,47 @@ public static class IrLowering
             }
 
             return blocks.Select(block => block with { Operations = block.Operations.Select(Hand).OfType<IrOperation>().ToArray() }).ToArray();
+        }
+
+        /// <summary>Drops each operation on a type the run takes to do nothing (<see cref="ReachabilityRules.SilentTypeKeys"/>, question
+        /// 142): a call of one of its members, a creation of one of its objects, a load, store or address of one of its fields, and an atomic
+        /// mark on such an access. What a dropped operation gave back is a constant of its type, so nothing it would have made, read or run
+        /// is in the run, and no object of such a type is made for a dispatch to reach.</summary>
+        /// <param name="blocks">The lowered blocks of the body.</param>
+        private IrBlock[] Silence(IrBlock[] blocks)
+        {
+            if (_silentOperations.Count == 0 && _silentFields.Count == 0)
+                return blocks;
+
+            var dropped = new HashSet<int>();
+            IEnumerable<IrOperation> Quiet(IrOperation operation)
+            {
+                var silent = operation switch
+                {
+                    IrCallOperation or IrAllocateOperation => _silentOperations.Contains(operation.Id),
+                    IrLoadFieldOperation load => _silentFields.Contains(load.Field),
+                    IrStoreFieldOperation store => _silentFields.Contains(store.Field),
+                    IrAddressFieldOperation address => _silentFields.Contains(address.Field),
+                    IrAtomicOperation { TargetOperationId: int target } => dropped.Contains(target),
+                    _ => false
+                };
+                if (!silent)
+                    return [operation];
+                dropped.Add(operation.Id);
+                return operation.DefinedValues.Select((value, index) =>
+                    new IrAssignOperation(index == 0 ? operation.Id : NextOperation(), value, ConstantLike(value), operation.Provenance)).ToArray();
+            }
+
+            return blocks.Select(block => block with { Operations = block.Operations.SelectMany(Quiet).ToArray() }).ToArray();
+        }
+
+        /// <summary>A new constant of the type of a value.</summary>
+        /// <param name="value">The value.</param>
+        private int ConstantLike(int value)
+        {
+            var id = _nextValueId++;
+            _values.Add(_values[value] with { Id = id, Kind = IrValueKind.Constant, Name = "default", SsaVersion = 0, SymbolKey = null });
+            return id;
         }
 
         /// <summary>Marks the calls whose result an await takes with nothing of the body in between. A conditional, a <c>??</c> or a
@@ -3237,8 +3294,11 @@ public static class IrLowering
                 _context.RecordMetadataSupertypes(method.ContainingType);
             var nestedId = _nestedIds.GetValueOrDefault(method.OriginalDefinition);
             var collection = Collections.Of(method);
+            var id = NextOperation();
+            if (nestedId is null && _context.IsSilent(method.ContainingType))
+                _silentOperations.Add(id);
             return new IrCallOperation(
-                NextOperation(), result, CallKind(method), nestedId ?? SymbolNames.Method(method), receiver, arguments.Values,
+                id, result, CallKind(method), nestedId ?? SymbolNames.Method(method), receiver, arguments.Values,
                 provenance)
             {
                 ArgumentParameterOrdinals = arguments.Ordinals,
@@ -3632,6 +3692,8 @@ public static class IrLowering
                 SynchronizationCapacity = Synchronization.CapacityOf(creation),
                 KeyEquality = Collections.EqualityOf(creation)
             });
+            if (_context.IsSilent(creation.Type))
+                _silentOperations.Add(_operations[^1].Id);
             if (creation.Constructor is not null)
             {
                 var arguments = LowerArguments(creation.Arguments);
@@ -4459,7 +4521,9 @@ public static class IrLowering
         private FieldLocation GetFieldLocation(IFieldReferenceOperation reference)
         {
             var field = FieldRef(reference.Field);
-            if (IsHidden(reference.Field) && _context.LeftOutTypeKeys.Contains(SymbolNames.TypeKey(reference.Field.ContainingType.OriginalDefinition)))
+            if (_context.IsSilent(reference.Field.ContainingType))
+                _silentFields.Add(field);
+            else if (IsHidden(reference.Field) && _context.LeftOutTypeKeys.Contains(SymbolNames.TypeKey(reference.Field.ContainingType.OriginalDefinition)))
                 _unseenFields.Add(field);
             return new FieldLocation(reference.Instance is null ? null : LowerStructOperand(reference.Instance, StructUse.FieldAccess), field);
         }
@@ -4471,8 +4535,13 @@ public static class IrLowering
             new(reference.Instance is null ? null : LowerStructOperand(reference.Instance, StructUse.FieldAccess),
                 FieldLikeEvents.FieldRef(reference.Event));
 
-        private FieldLocation GetPropertyLocation(IPropertyReferenceOperation reference) =>
-            new(reference.Instance is null ? null : LowerStructOperand(reference.Instance, StructUse.FieldAccess), PropertyField(reference.Property));
+        private FieldLocation GetPropertyLocation(IPropertyReferenceOperation reference)
+        {
+            var field = PropertyField(reference.Property);
+            if (_context.IsSilent(reference.Property.ContainingType))
+                _silentFields.Add(field);
+            return new FieldLocation(reference.Instance is null ? null : LowerStructOperand(reference.Instance, StructUse.FieldAccess), field);
+        }
 
         /// <summary>The receiver of an operation on a struct, lowered as <see cref="StructStorage.IsPlace"/> decides: the address of the
         /// storage it names, or its value. A captured variable and the receiver of a struct member are the storage themselves, so their
@@ -5005,7 +5074,7 @@ public static class IrLowering
     /// public nor protected. The opened copy of CoreLib makes the private fields and nested types it opens <c>internal</c>, which is
     /// still hidden.</summary>
     /// <param name="member">The member.</param>
-    private static bool IsHidden(ISymbol member)
+    internal static bool IsHidden(ISymbol member)
     {
         if (member.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected or Accessibility.ProtectedOrInternal))
             return true;

@@ -1,5 +1,8 @@
+using System.Runtime.CompilerServices;
 using ConcurrencyHunter.Accesses;
+using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
+using Microsoft.CodeAnalysis;
 
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 
@@ -161,6 +164,47 @@ public sealed class HeapReachability
         var written = access.Resource.AccessPath.LastOrDefault() ?? access.Resource.Member.Name;
         written = written.StartsWith('[') ? ELEMENT : written;
         return objects.Select(@object => (@object, written)).ToArray();
+    }
+
+    /// <summary>The slots of the fields and auto-properties of the generated library a user's code cannot name — those of members or
+    /// types neither public nor protected (<see cref="IrLowering.IsHidden"/>) —, which <see cref="VisibleFrom"/> never follows. Empty
+    /// unless set.</summary>
+    public IReadOnlySet<string> HiddenSlots { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    private static readonly ConditionalWeakTable<IAssemblySymbol, IReadOnlySet<string>> HiddenSlotsByAssembly = new();
+
+    /// <summary>The slots of an assembly's fields and auto-properties a user's code cannot name (<see cref="HiddenSlots"/>), found once per
+    /// assembly symbol.</summary>
+    /// <param name="assembly">The library assembly.</param>
+    public static IReadOnlySet<string> HiddenSlotsOf(IAssemblySymbol assembly) =>
+        HiddenSlotsByAssembly.GetValue(assembly, key => EngineClaims.Types(key.GlobalNamespace)
+                                                                    .SelectMany(type => type.GetMembers())
+                                                                    .Where(member => member is IFieldSymbol or IPropertySymbol && IrLowering.IsHidden(member))
+                                                                    .Select(member => FieldSlot.Key(member is IFieldSymbol field
+                                                                                                        ? IrLowering.FieldRef(field)
+                                                                                                        : IrLowering.PropertyField((IPropertySymbol)member)))
+                                                                    .ToHashSet(StringComparer.Ordinal));
+
+    /// <summary>Every object a user's code could reach from some objects, those objects included: as <see cref="From"/> reaches them, but
+    /// never through a slot of <see cref="HiddenSlots"/>. What a delegate captures stays reached: code holding the delegate may run it,
+    /// and a delegate it captures with it (question 142).</summary>
+    /// <param name="regions">The objects.</param>
+    public IReadOnlySet<string> VisibleFrom(IEnumerable<string> regions)
+    {
+        var reached = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>(regions.Where(_heap.Regions.ContainsKey));
+        while (pending.TryPop(out var region))
+        {
+            if (!reached.Add(region))
+                continue;
+            foreach (var (field, target) in Edges(region))
+            {
+                if (!field.Split(FieldSlot.PATH_SEPARATOR).Any(HiddenSlots.Contains))
+                    pending.Push(target);
+            }
+        }
+
+        return reached;
     }
 
     /// <summary>Every object reachable from some objects, those objects included.</summary>

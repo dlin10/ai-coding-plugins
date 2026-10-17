@@ -54,7 +54,9 @@ public static class EngineClaims
     public static IEnumerable<string> RecognizedCoreLibTypeKeys(IAssemblySymbol assembly) =>
         Types(assembly.GlobalNamespace).Where(IrLowering.IsRecognizedCoreLibType).Select(type => SymbolNames.TypeKey(type.OriginalDefinition));
 
-    private static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol @namespace) =>
+    /// <summary>Every type a namespace declares, in it or in the namespaces in it, with the types nested in them.</summary>
+    /// <param name="namespace">The namespace.</param>
+    internal static IEnumerable<INamedTypeSymbol> Types(INamespaceSymbol @namespace) =>
         @namespace.GetTypeMembers().SelectMany(Nested).Concat(@namespace.GetNamespaceMembers().SelectMany(Types));
 
     private static IEnumerable<INamedTypeSymbol> Nested(INamedTypeSymbol type) => type.GetTypeMembers().SelectMany(Nested).Prepend(type);

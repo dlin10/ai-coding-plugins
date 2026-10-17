@@ -51,6 +51,12 @@ public sealed record ReachabilityRules(DispatchRule Dispatch, IReadOnlySet<strin
     /// whose probes, subclasses and seeds stand for the user's objects —, so a type test narrows them only to a sealed type, a value
     /// type or a type another assembly cannot name, which they are not (Open-world rule). Empty for every run but a generation.</summary>
     public IReadOnlySet<string> OpenWorldAssemblies { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>The definition keys of the types the run takes to do nothing — the diagnostics CoreLib's generation runs with off
+    /// (question 142) —, each among <see cref="LeftOutTypeKeys"/>: the lowering drops every call of their members, creation of their
+    /// objects and access of their fields, giving what a dropped operation gave back a constant of its type. Empty for every run but a
+    /// generation of CoreLib.</summary>
+    public IReadOnlySet<string> SilentTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
 public enum ConstructionKind

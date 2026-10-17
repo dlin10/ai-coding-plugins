@@ -87,6 +87,7 @@ public static class ModelGenerator
     private const int SCHEMA_VERSION = 3;
     private const int CLOSURE_BOUND = 1500;
     private const string SCOPE_ID = "model-generator";
+    private const string TRACING = "System.Diagnostics.Tracing";
 
     /// <summary>Whether a text is a declaration id the generator can be asked for: one the reader's grammar accepts (question 44),
     /// never the member pattern <c>(*)</c>. The grammar knows only <c>T:</c> and <c>M:</c>; a property's, an event's or a field's id
@@ -189,6 +190,9 @@ public static class ModelGenerator
         // The driver's probes, subclasses and seeds stand for the user's objects, of whatever type they are.
         var reachability = (corelib
             ? new ReachabilityRules(DispatchRule.ConstructedTypes, CoreLibLeftOutTypeKeys(compilation, driver.Member))
+            {
+                SilentTypeKeys = CoreLibSilentTypeKeys(compilation, driver.Member)
+            }
             : ReachabilityRules.ClassHierarchy) with { OpenWorldAssemblies = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY } };
         ScopeRun Pipeline(bool triggers) =>
             ScopePipeline.Run(SCOPE_ID, [compilation, driver.Compilation], [], Path.GetTempPath(), new ProviderRegistry([new DriverRootProvider(triggers)]),
@@ -205,13 +209,14 @@ public static class ModelGenerator
                 dropped.UnionWith(run.LoweringDiagnostics);
                 run = run with { LoweringDiagnostics = dropped.ToArray() };
                 var previousCount = loadedStatics.Count;
-                // A pass the bound stopped loads what a closure past the bound reaches, which the next pass's need not.
-                if (!run.Stopped)
-                    loadedStatics.UnionWith(SeedableFields.LoadedStatics(run).Where(field =>
-                        field.Type.StartsWith(compilation.AssemblyName + ":", StringComparison.Ordinal)));
                 // A probe whose closure reaches a default comparer implements its comparison interface on the next pass, a pass the
                 // closure bound stopped included: the comparer CoreLib selects for a probe without the interface may be what passed it.
                 var needsGrew = witnesses.Add(run, driver);
+                // A pass the bound stopped loads what a closure past the bound reaches, and a pass whose probes the next one changes what
+                // the comparer of a probe without the interface reaches, which the next pass's closure need not (question 142).
+                if (!run.Stopped && !needsGrew)
+                    loadedStatics.UnionWith(SeedableFields.LoadedStatics(run).Where(field =>
+                        field.Type.StartsWith(compilation.AssemblyName + ":", StringComparison.Ordinal)));
                 if (!needsGrew && (run.Stopped || loadedStatics.Count == previousCount))
                     break;
                 synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields, loadedStatics,
@@ -325,8 +330,9 @@ public static class ModelGenerator
         (member.IsVirtual || member.IsOverride && !member.IsSealed) && !member.ContainingType.IsSealed;
 
     /// <summary>The definition keys of the types whose bodies CoreLib's generation of a member never enters (ADR 0019): <c>System.SR</c>,
-    /// and each type a recognizer owns (<see cref="EngineClaims.RecognizedCoreLibTypeKeys"/>) but the one declaring the member, whose own
-    /// body is what the run analyses, as a task awaiter's <c>OnCompleted</c>, which no recognizer claims.</summary>
+    /// each type a recognizer owns (<see cref="EngineClaims.RecognizedCoreLibTypeKeys"/>) but the one declaring the member, whose own
+    /// body is what the run analyses, as a task awaiter's <c>OnCompleted</c>, which no recognizer claims, and the diagnostics the run
+    /// takes to be off (<see cref="CoreLibSilentTypeKeys"/>).</summary>
     /// <param name="compilation">The compilation of CoreLib.</param>
     /// <param name="member">The member generated.</param>
     internal static IReadOnlySet<string> CoreLibLeftOutTypeKeys(Compilation compilation, IMethodSymbol member)
@@ -335,8 +341,42 @@ public static class ModelGenerator
         {
             "System.Private.CoreLib:System.SR"
         };
+        keys.UnionWith(CoreLibSilentTypeKeys(compilation, member));
         keys.Remove(SymbolNames.TypeKey(member.ContainingType.OriginalDefinition));
         return keys;
+    }
+
+    /// <summary>The definition keys of the diagnostics CoreLib's generation of a member runs with off, as the runtime runs with no event
+    /// listener and no stack trace taken (question 142): every type of <c>System.Diagnostics.Tracing</c>, every <c>EventSource</c> of
+    /// another namespace, <c>StackTrace</c>, <c>StackFrame</c> and <c>StackFrameHelper</c>, with the types nested in them. A call, a creation
+    /// and a field access of one of them does nothing (<see cref="ReachabilityRules.SilentTypeKeys"/>), so a member that traces, or formats
+    /// an exception, reaches none of the manifests, resource strings and reflection they run. Empty when the member is one of theirs: what
+    /// they do is what its generation analyses.</summary>
+    /// <param name="compilation">The compilation of CoreLib.</param>
+    /// <param name="member">The member generated.</param>
+    internal static IReadOnlySet<string> CoreLibSilentTypeKeys(Compilation compilation, IMethodSymbol member) =>
+        IsDiagnostics(member.ContainingType)
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : EngineClaims.Types(compilation.Assembly.GlobalNamespace).Where(IsDiagnostics)
+                          .Select(type => SymbolNames.TypeKey(type.OriginalDefinition)).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>Whether a type is among the diagnostics CoreLib's generation runs with off (<see cref="CoreLibSilentTypeKeys"/>), as its
+    /// outermost type is.</summary>
+    /// <param name="type">The type.</param>
+    private static bool IsDiagnostics(INamedTypeSymbol type)
+    {
+        while (type.ContainingType is { } containing)
+            type = containing;
+        var space = type.ContainingNamespace.ToDisplayString();
+        if (space == TRACING || (space == "System.Diagnostics" && type.Name is "StackTrace" or "StackFrame" or "StackFrameHelper"))
+            return true;
+        for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
+        {
+            if (baseType.Name == "EventSource" && baseType.ContainingNamespace.ToDisplayString() == TRACING)
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>Whether the member's own body ran in the tree of the driver's call or enumeration.</summary>

@@ -74,7 +74,7 @@ public sealed class EffectReader
         _runBodies = run.Reachable.Bodies;
         _heap = run.Heap!;
         _analysis = run.Executions!;
-        _reachability = new HeapReachability(_heap);
+        _reachability = new HeapReachability(_heap) { HiddenSlots = HeapReachability.HiddenSlotsOf(driver.Member.ContainingAssembly) };
         _immutableTypeKeys = run.ScopeProgram!.Program.ImmutableTypeKeys;
         var result = _reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "R"));
         _executions = new DriverExecutions(driver, _analysis, _reachability.From(result is null ? [] : _reachability.Targets(result)));
@@ -192,12 +192,12 @@ public sealed class EffectReader
                 _witnessObjects.Add(region);
         }
 
-        _unknownSensitive.UnionWith(_reachability.From(probeStarts));
         // What code the analysis does not see may write in an argument, the receiver, a seed or what setup built into them, as it may in
-        // a probe, and no model can say whether it did: only an immutable object is safe in its hands (question 161). An access the
-        // analysis does see — in another execution, or in the body of a delegate the code was handed — is judged by what it does.
-        _inputSensitive.UnionWith(_reachability.From(inputStarts)
-                                                .Where(region => _heap.Regions[region].TypeKey is not { } type || !_immutableTypeKeys.Contains(type)));
+        // a probe, and no model can say whether it did: only an immutable object is safe in its hands, whatever holds it (questions 161
+        // and 142). An access the analysis does see — in another execution, or in the body of a delegate the code was handed — is judged
+        // by what it does.
+        _unknownSensitive.UnionWith(_reachability.From(probeStarts).Where(Mutable));
+        _inputSensitive.UnionWith(_reachability.From(inputStarts).Where(Mutable));
         BuildReceiverUserObjects();
         CloseInPlace(_probeReturns);
         CloseInPlace(_witnessReturns);
@@ -226,6 +226,10 @@ public sealed class EffectReader
                 pending.Push((target, belowUser));
         }
     }
+
+    /// <summary>Whether code may write a region: it is of no immutable type TD-034a names (<c>Type</c>, <c>string</c>, <c>Version</c>).</summary>
+    /// <param name="region">The region.</param>
+    private bool Mutable(string region) => _heap.Regions[region].TypeKey is not { } type || !_immutableTypeKeys.Contains(type);
 
     /// <summary>Whether a region is an instance of a probe class, a user object; the driver's subclass of a library type is not.</summary>
     /// <param name="region">The region.</param>

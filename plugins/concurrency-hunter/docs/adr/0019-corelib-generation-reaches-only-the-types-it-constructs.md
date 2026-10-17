@@ -24,6 +24,11 @@ The decision, for the generation of `System.Private.CoreLib` only:
   by name, the types nested in it, and a task's awaiters and configured awaitables — but for the type
   declaring the member generated, whose own body is what the run analyses, as an awaiter's
   `OnCompleted`, which no recognizer claims.
+- Diagnostics are off, as the runtime runs with no event listener and no stack trace taken: the types of
+  `System.Diagnostics.Tracing`, every `EventSource` of another namespace, `StackTrace`, `StackFrame` and
+  `StackFrameHelper`, with the types nested in them, are never entered, and a call of their members, a
+  creation of their objects and an access of their fields do nothing, what they give back a constant of
+  its type — but in the generation of a member of their own, which runs with them on.
 - A body outside that set may still run, so a call the heap resolves into one is an opaque call: an
   unknown effect on what its receiver and arguments reach, and a delegate handed to it runs in an
   unknown execution. It never resolves to nothing.
@@ -62,11 +67,26 @@ continuation to `Task`'s internal code), 22 with `vocabulary`, 15 with `incomple
 type parameter of a generic type's statics the larger closure never loaded. The models the evals read
 do not move.
 
+Turning diagnostics off breaks the core the bound still stopped at. The 1,210 members it stopped once the
+recognized types had left the run each reached 6,029 to 6,791 bodies, through two gates: `ArrayPool<T>.Shared`,
+whose rent and return write `ArrayPoolEventSource` events, behind which `EventSource` builds manifests from
+resource strings and formats them (about 3,000 bodies), and `Object.ToString` dispatched to
+`Exception.ToString`, whose stack trace resolves methods by reflection (about 1,700). Without them what all
+of them reach falls from 6,029 bodies to 1,747. On a sample of 251 of the 1,210 — 240 at random, and every
+overload of `String.Join`, `String.Split(char[])` and `AssemblyName.get_Name` — 102 reach analysis within 20
+to 1,131 bodies, and 149 stop at 1,755 to 5,230: the globalization core that formatting, parsing and
+calendars run, and reflection, which stay past the bound. None of the 102 gives a model yet; most meet the
+driver's stand-in for a culture, which runs a culture's real initialization (question 178).
+
 Rejected: generating bottom-up, the models of lower components replacing their bodies. 82% of the
 candidates lie in the component or above it, and a driver reaches it through `SR` and dispatch even from
 below. Rejected: one access record for many executions, with pairs built over sets of executions. A
 generation stops at the closure bound before any access is collected, so the cost it removes is not the
 one in the way. Rejected: reaching a body lazily once the heap resolves a call into it. It is exact, but
-it is a fixpoint between the reachable set and the heap; it stays an open question. Rejected: serving
+it is a fixpoint between the reachable set and the heap; it stays an open question. Rejected: leaving diagnostics out as `SR` is, each call of them
+an opaque call: it hands what its receiver and arguments reach to code the analysis does not see, where a
+runtime with no listener runs nothing. Rejected: raising the closure bound for the globalization core
+that formatting and parsing run (about 1,750 bodies): a member past it meets the driver's culture
+stand-ins next, and the run grows by minutes and gigabytes. Rejected: serving
 `SR` through models of its own assembly. A library model never applies to a member declared in the run,
 and changing that is where bottom-up generation would start.

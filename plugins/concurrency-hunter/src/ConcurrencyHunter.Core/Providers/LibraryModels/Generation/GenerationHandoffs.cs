@@ -78,8 +78,10 @@ public sealed class GenerationHandoffs
             }
 
             // The body the heap does not have runs on an object it does not name; a receiver it does name goes to the body it resolves.
+            // That body may be a user's override, which reaches a named receiver only through what a user can name: what the library
+            // keeps in a field a user cannot is not handed (question 142).
             var arguments = call.Arguments.SelectMany(argument => argument.Values).SelectMany(value => _heap.Resolve(instance.Id, value)).ToArray();
-            AddCall(site, call.Receivers.SelectMany(value => _heap.Resolve(instance.Id, value)).Concat(arguments), arguments);
+            AddCall(site, arguments, arguments, call.Receivers.SelectMany(value => _heap.Resolve(instance.Id, value)));
         }
 
         // What an operation the lowering does not express is given goes where the analysis does not see, as an argument of a call it
@@ -114,12 +116,19 @@ public sealed class GenerationHandoffs
         foreach (var instance in _heap.Instances.Values.Where(IsWitness))
         {
             var received = Received(_heap, instance);
-            var receipts = Close(received.Receivers.Concat(received.Parameters.Values.SelectMany(values => values)));
+            // A witness stands for a user's override, which reaches what it is given only through what a user can name (question 142).
+            var receipts = _reachability.VisibleFrom(received.Receivers.Concat(received.Parameters.Values.SelectMany(values => values)));
             if (FileWitness(instance.Id, receipts) && !ReadsByConvention(instance))
                 _unseenMembersOutsideSetup[instance.Id] = received.Receivers;
         }
 
         var implementation = driver.Member.ContainingAssembly.Name;
+        var makers = _heap.Instances.Values.ToLookup(instance => (instance.BodyId, instance.Context));
+        // An object a type initializer made while it ran is its own: no program code could have handed it anything yet (question 142).
+        bool MadeThere(string regionId, string execution) =>
+            execution.StartsWith("type-initializer:", StringComparison.Ordinal) && _heap.Regions.TryGetValue(regionId, out var region) &&
+            region.SiteBodyId is { } site && makers[(site, region.Context)].Select(maker => ExecutionsOf(maker.Id)).ToArray() is { Length: > 0 } made &&
+            made.All(executions => executions.Count != 0 && executions.All(one => one == execution));
         foreach (var access in _analysis.Accesses)
         {
             // A type initializer runs before any program code could put anything into its type's statics: what it reads or writes there
@@ -131,7 +140,7 @@ public sealed class GenerationHandoffs
                 !instance.BodyId.StartsWith($"body:{implementation}:", StringComparison.Ordinal) ||
                 access.Executions.All(execution => _executions.Of(execution).Role is DriverExecutionRole.Setup or DriverExecutionRole.Own or
                                                                                       DriverExecutionRole.Child or DriverExecutionRole.Artefact ||
-                                                   execution == initializedStatic))
+                                                   execution == initializedStatic || MadeThere(access.RegionId, execution)))
             {
                 continue;
             }
@@ -166,11 +175,15 @@ public sealed class GenerationHandoffs
         HandedOnlyToUnsupportedOutsideSetupDirectly = _outsideSetupDirectly.Where(region => !_outsideSetupBeyondUnsupportedDirectly.Contains(region))
                                                                            .ToHashSet(StringComparer.Ordinal);
 
-        void AddCall((string Instance, int Operation) site, IEnumerable<string> regions, IEnumerable<string>? directly = null)
+        // What a call hands: all its regions reach, and of the regions it hands only to code a user may have written, what a user
+        // can name.
+        void AddCall((string Instance, int Operation) site, IEnumerable<string> regions, IEnumerable<string>? directly = null,
+                     IEnumerable<string>? toUserCode = null)
         {
             var handed = regions.ToArray();
             var reached = directly?.ToArray() ?? handed;
-            calls[site] = Close(calls.TryGetValue(site, out var existing) ? existing.Concat(handed) : handed);
+            var closed = Close(calls.TryGetValue(site, out var existing) ? existing.Concat(handed) : handed);
+            calls[site] = toUserCode is null ? closed : closed.Union(_reachability.VisibleFrom(toUserCode)).ToHashSet(StringComparer.Ordinal);
             direct[site] = _reachability.From(direct.TryGetValue(site, out var existingDirect) ? existingDirect.Concat(reached) : reached, captures: false);
         }
     }

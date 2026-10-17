@@ -7707,6 +7707,9 @@ ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_f
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "return await Forms.Models.PassTaskTask(Task.FromRe"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "var k = new Forms.Keeper(); Forms.Models.Keep(k, f"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "var tasks = new[] { Task.FromResult(flag ? x : Ext"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.CoreLibDiagnosticsOffTests.A_stack_trace_is_never_made_and_its_text_is_a_value_of_its_type_and_nothing_else	Passed
+ConcurrencyHunter.Core.Tests.Generation.CoreLibDiagnosticsOffTests.An_event_source_does_nothing_its_bodies_are_never_entered_and_nothing_is_handed_to_unseen_code	Passed
+ConcurrencyHunter.Core.Tests.Generation.CoreLibDiagnosticsOffTests.Diagnostics_are_off_but_for_the_generation_of_a_member_of_their_own	Passed
 ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.Claimed_CoreLib_member_names_its_recognizer	Skipped
 ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.Every_ConstructorInvoker_Invoke_overload_returns_an_answer	Skipped
 ConcurrencyHunter.Core.Tests.Generation.CoreLibGenerationEvalTests.Every_CoreLib_body_lowers_without_an_escaping_exception	Skipped
@@ -8740,6 +8743,7 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_reference_to_an_i
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_store_into_a_library_static_names_the_store	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_struct_receivers_own_override_runs_in_the_call	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_initializer_assigning_its_own_seeded_static_touches_no_user_object	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_initializer_filling_an_object_it_made_touches_no_probe	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_a_struct_has_no_driver(types: "public interface IMake { static abstract object Ma"···, id: "M:Lib.Api.Same``1(``0,System.Object)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_a_struct_has_no_driver(types: "public interface IMake { static abstract object Ma"···, id: "M:Lib.StructComparer`1.Compare(System.Nullable{`0}"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.A_type_parameter_constrained_to_unmanaged_is_an_int	Passed
@@ -8763,6 +8767,7 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_address_handed_t
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_array_given_to_an_intrinsic_placeholder_is_touched	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_equality_member_of_what_the_receiver_holds_has_no_name_to_run_on	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_immutable_input_handed_to_a_bodyless_call_leaves_the_model	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_immutable_object_a_probe_holds_handed_to_a_bodyless_call_is_no_touch	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_input_given_to_an_operation_the_lowering_does_not_express_is_touched_though_it_is_no_probe	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_input_handed_to_a_bodyless_call_is_touched_though_it_is_no_probe(member: "public static void BumpElement(int[] counts, Actio"···, id: "M:Lib.Api.BumpElement(System.Int32[],System.Action"···, callee: "Lib.Raw.Bump")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_input_handed_to_a_bodyless_call_is_touched_though_it_is_no_probe(member: "public static void Give(int[] counts, Action done)"···, id: "M:Lib.Api.Give(System.Int32[],System.Action)", callee: "Lib.Sink.Take")	Passed
@@ -8772,6 +8777,8 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.An_operation_the_lo
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.GetType_touches_nothing_of_the_object_it_runs_on(types: "public sealed class Comparer { public override int"···, id: "M:Lib.Comparer.GetHashCode")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.GetType_touches_nothing_of_the_object_it_runs_on(types: "public static class Api { public static string Nam"···, id: "M:Lib.Api.Name(Lib.Node,System.Action)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.Library_state_is_not_looked_for_once_unknown_touch_is_found	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_a_named_receiver_of_an_open_dispatch_holds_where_a_user_can_name_it_is_handed	Passed
+ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_a_named_receiver_of_an_open_dispatch_holds_where_no_user_can_name_it_is_not_handed	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_a_witness_gives_back_through_out_is_no_longer_lost	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_is_read_through_a_reference_a_bodyless_call_returns_is_unobserved(member: "public static Mem2 Reinterpret(Mem m) => Raw.As<Me"···, id: "M:Lib.Api.Reinterpret(Lib.Mem)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationCauseTests.What_is_read_through_a_reference_a_bodyless_call_returns_is_unobserved(member: "public static Node Element(Node[] nodes) => Raw.At"···, id: "M:Lib.Api.Element(Lib.Node[])")	Passed

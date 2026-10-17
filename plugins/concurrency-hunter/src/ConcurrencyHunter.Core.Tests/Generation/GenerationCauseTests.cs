@@ -461,6 +461,61 @@ public sealed class GenerationCauseTests
     }
 
     [Fact]
+    public void What_a_named_receiver_of_an_open_dispatch_holds_where_no_user_can_name_it_is_not_handed()
+    {
+        // CoreLib's CultureInfo.CompareInfo asks GetCultureInfo(_name).CompareInfo of a culture the heap names or one a cache gives back:
+        // the body it lacks may be a user's override, which reaches the named culture only through what it can name, never the
+        // CultureData a probe culture shares in an internal field (question 142).
+        var answer = Answer("public sealed class Data { public object Value; } public static class Store { public static readonly Data Shared = new Data(); } " +
+                            "public abstract class Shape { internal Data _data = Store.Shared; public abstract int Area(); } " +
+                            "public sealed class Circle : Shape { public override int Area() => 1; } public static class Raw { public static extern Shape Make(); } " +
+                            "public static class Api { public static int Measure(Shape shape, bool other) { Shape s = other ? Raw.Make() : new Circle(); return s.Area() + shape.Area(); } }",
+                            "M:Lib.Api.Measure(Lib.Shape,System.Boolean)");
+
+        Assert.DoesNotContain(answer.Causes, cause => cause.Code == ModelCauses.PROBE_HANDED_TO_UNSEEN && cause.Detail.Contains("Lib.Data", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void What_a_named_receiver_of_an_open_dispatch_holds_where_a_user_can_name_it_is_handed()
+    {
+        // The same object in a public field is the user's override's to write.
+        var answer = Answer("public sealed class Data { public object Value; } public static class Store { public static readonly Data Shared = new Data(); } " +
+                            "public abstract class Shape { public Data Shown = Store.Shared; public abstract int Area(); } " +
+                            "public sealed class Circle : Shape { public override int Area() => 1; } public static class Raw { public static extern Shape Make(); } " +
+                            "public static class Api { public static int Measure(Shape shape, bool other) { Shape s = other ? Raw.Make() : new Circle(); return s.Area() + shape.Area(); } }",
+                            "M:Lib.Api.Measure(Lib.Shape,System.Boolean)");
+
+        Assert.Contains(answer.Causes, cause => cause.Code == ModelCauses.PROBE_HANDED_TO_UNSEEN && cause.Detail.Contains("Lib.Data", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_type_initializer_filling_an_object_it_made_touches_no_probe()
+    {
+        // CoreLib's CalendarData initializer makes CalendarData.Invariant and fills it, and a probe culture's CultureData reaches it: the
+        // initializer made that object while it ran, before any program code could hand it anything (question 142).
+        var answer = Answer("public sealed class Data { public object Value; } " +
+                            "public static class Store { public static readonly Data Shared = Make(); private static Data Make() { var d = new Data(); d.Value = new object(); return d; } } " +
+                            "public abstract class Shape { internal Data _data = Store.Shared; public abstract int Area(); } " +
+                            "public static class Api { public static int Measure(Shape shape) => shape.Area(); }",
+                            "M:Lib.Api.Measure(Lib.Shape)");
+
+        Assert.DoesNotContain(answer.Causes, cause => cause.Code == ModelCauses.PROBE_ACCESSED_ELSEWHERE);
+    }
+
+    [Fact]
+    public void An_immutable_object_a_probe_holds_handed_to_a_bodyless_call_is_no_touch()
+    {
+        // A culture CoreLib's generation seeds holds the strings its constructor made, and interop hands them to calls with no body
+        // (question 142): no code can write a string, whatever holds it.
+        var answer = Answer("public abstract class Named { public string Name = new string('n', 1); } " +
+                            "public static class Api { public static void Log(Named named, Action done) { Sink.Take(named.Name); done(); } }",
+                            "M:Lib.Api.Log(Lib.Named,System.Action)");
+
+        Assert.NotEqual(ModelReasons.UNKNOWN_TOUCH, answer.ModelReason);
+        Assert.DoesNotContain(answer.Causes, cause => cause.Code == ModelCauses.PROBE_HANDED_TO_UNSEEN);
+    }
+
+    [Fact]
     public void A_member_whose_body_the_call_never_reached_has_no_answer()
     {
         // The receiver's recipe is the factory, which makes a subclass overriding the member: the call would run Leaf.Size, never

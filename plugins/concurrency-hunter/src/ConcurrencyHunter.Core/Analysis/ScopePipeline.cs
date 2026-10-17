@@ -167,8 +167,8 @@ public static class ScopePipeline
             var metadataSupertypes = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
             var loweringDiagnostics = new List<string>();
             var rules = reachability ?? ReachabilityRules.ClassHierarchy;
-            var lower = Members(compilations, rootDirectory, models, rules.LeftOutTypeKeys, loweringCache, metadataSupertypes, loweringDiagnostics,
-                                cancellationToken);
+            var lower = Members(compilations, rootDirectory, models, rules.LeftOutTypeKeys, rules.SilentTypeKeys, loweringCache, metadataSupertypes,
+                                loweringDiagnostics, cancellationToken);
             IReadOnlyList<IrBody> TimedMembers(string bodyId)
             {
                 lowering.Start();
@@ -251,12 +251,14 @@ public static class ScopePipeline
     /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
     /// <param name="models">The library models lowering resolves known calls against.</param>
     /// <param name="leftOutTypeKeys">The types the reachable set leaves out, whose members lowering treats as members without a body.</param>
+    /// <param name="silentTypeKeys">The types the run takes to do nothing, whose calls, creations and fields lowering drops.</param>
     /// <param name="lowered">The lowered methods of the whole analysis.</param>
     /// <param name="metadataSupertypes">Receives the supertypes of the metadata types the lowered methods name.</param>
     /// <param name="diagnostics">Receives one diagnostic per member whose lowering failed.</param>
     /// <param name="cancellationToken">Cancels the lowering.</param>
     private static Func<string, IReadOnlyList<IrBody>> Members(IReadOnlyList<Compilation> compilations, string rootDirectory,
                                                                LibraryModels models, IReadOnlySet<string> leftOutTypeKeys,
+                                                               IReadOnlySet<string> silentTypeKeys,
                                                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
                                                                Dictionary<string, IReadOnlySet<string>> metadataSupertypes,
                                                                List<string> diagnostics, CancellationToken cancellationToken)
@@ -278,7 +280,7 @@ public static class ScopePipeline
                 try
                 {
                     loweredMethod = IrLowering.Lower(member.Method, member.Compilation, rootDirectory, cancellationToken,
-                                                     models, leftOutTypeKeys);
+                                                     models, leftOutTypeKeys, silentTypeKeys);
                 }
                 catch (Exception error) when (error is ArgumentException or InvalidOperationException)
                 {
