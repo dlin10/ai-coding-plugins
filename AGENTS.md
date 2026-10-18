@@ -6,6 +6,11 @@ A monorepo of cross-host developer plugins for Codex, Claude Code, and Cursor. E
 (`.claude-plugin/marketplace.json`, `.cursor-plugin/`, `.agents/plugins/`) point at. Some plugins are
 skills only; others carry a .NET solution and publish a binary.
 
+Mods change Claude Code's own interface, so they are Claude Code-only: each lives in `mods/<name>`,
+ships only `.claude-plugin/plugin.json`, and is listed in `.claude-plugin/marketplace.json` alone.
+The validator lets a Claude catalog entry be missing from the Cursor catalog only when its `source`
+is under `./mods/`.
+
 Most plugins keep their own `AGENTS.md` next to the code. That file is the authority for anything
 about that plugin — its solution, its test filters, its packaging script, its design constraints.
 Read it before touching the plugin; what follows here is only what holds across all of them.
