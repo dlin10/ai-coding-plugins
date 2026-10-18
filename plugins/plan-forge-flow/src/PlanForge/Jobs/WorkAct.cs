@@ -143,8 +143,8 @@ internal sealed class WorkAct
 
         switch (act)
         {
-            // planDraft is optional here and nowhere else: forge.plan.write puts the draft on disk
-            // ahead of the round, and the act reads it from there when the start omits it. Whether
+            // planDraft is optional here and nowhere else: forge.plan.write or forge.plan.patch leaves
+            // the plan on disk ahead of the round, and the act reads it when the start omits it. Whether
             // there is one to read is a question about the run, so forge.work.start asks it through
             // PlanReview.RequireDraft rather than here.
             case "plan.review":

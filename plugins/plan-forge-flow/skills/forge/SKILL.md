@@ -66,8 +66,10 @@ sentences of explanation and no code.
 | `forge.scout.select` | Once, just in time when broad reconnaissance first becomes necessary. Persists one exact Scout Vendor/model/effort selection or the explicit decline to continue without Scout; a later enabling call must also be explicit. |
 | `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the complete Scout answer under `scout`, unclipped, and appends it to `SCOUT.md`. |
 | `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
-| `forge.plan.write` | Once per round, before the round, with the current draft. Writes it to `PLAN.md`, runs no worker, and answers in seconds with the path under `documents`. Surface that path, then run the round. |
-| `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` and with `planDraft` omitted. Apply the plan decisions from the previous critique in `decisions` before the new Critic runs. **You** revise the plan and say in `revision` what changed — required from the second round on. |
+| `forge.plan.write` | For the first draft and genuine rewrites. Writes the complete draft to `PLAN.md`, runs no worker, and answers with the outline read back from the file (null for blank plan text) and its path under `documents`. Surface that path, then run the round. |
+| `forge.plan.outline` | Reads the current plan hash and snapshot Edit targets: ID, kind, label, hash and size, without plan text beyond labels. Refuses a missing or blank plan; write the first draft with `forge.plan.write`. |
+| `forge.plan.patch` | For a revision that changes some targets. Pass the outline's `planHash` as `baseHash` and nonempty `edits`, each with `op`, `target`, `targetHash` and, for replace/insert, nonblank `content`; delete has no content. Operations are `replace`, `delete`, `insertBefore` and `insertAfter`. Applies against one snapshot, runs no worker, and answers with the new outline, change summary, sizes and `documents`. On a stale base, read `forge.plan.outline` and redo the edits against its hash. |
+| `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` or `forge.plan.patch` and with `planDraft` omitted. Apply the plan decisions from the previous critique in `decisions` before the new Critic runs. **You** revise the plan and say in `revision` what changed — required from the second round on. |
 | `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders the plan as a document with the drift beside it, and records nothing. |
 | `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`; PLAN/state/ledger and existing approval stay unchanged. Optional case-sensitive `fullGate=beforeNextRound\|final` records full host-check timing; omission preserves it. Omitted settings persist, explicit settings replace, empty settings clear; approval clears the global gate failure, preserving attempt history. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
@@ -95,9 +97,10 @@ If `forge.work.start` returns `started: false`, rejoin its active job with poll 
 Every worker act answers with its own result beside a `documents` object — the critique under
 `critique`, the build under `build`, the fix under `fix`, and the complete Scout answer under `scout`.
 On Cursor the act's own payload is the `result` string of `forge.work.fetch`; Scout's result string
-is the answer JSON only. `forge.plan.write` answers with `documents` and nothing else, and on Cursor
-`forge.work.start` and every `forge.work.poll` carry it too. `documents` always holds `flowLog` and
-`plan`, each with a `path` and what to do with it, and each `null` until its file exists. Only a
+is the answer JSON only. `forge.plan.write` and `forge.plan.patch` answer with the outline and
+`documents`, and on Cursor `forge.work.start` and every `forge.work.poll` carry `documents` too.
+`documents` always holds `flowLog` and `plan`, each with a `path` and what to do with it, and each
+`null` until its file exists. Only a
 successful direct Scout call or a successful completed Scout fetch also carries `documents.scout`,
 whose instruction is exactly: “show the Scout report to the user now, and show it again after each
 later successful Scout call appends its answer.” Non-Scout results omit it even after a report
@@ -611,17 +614,17 @@ until it is repaired. Tell the user what the error quotes, and ask whether to re
 retry, or to run the critic on another vendor. A code-review round, and a builder act whose error
 says the same, are handled the same way.
 
-Link the drafts, do not paste them. Each round is `forge.plan.write` with the current draft, then
-the round itself with `planDraft` omitted — the write puts the plan at `<runPath>/PLAN.md` in
-seconds and hands you the path, and the round then reads it from there instead of carrying it a
-second time. Surface that path in the same turn as the write, before the round starts, so the user
-reads the plan during the minutes the critic takes rather than after them; refresh it after each
+Link the drafts, do not paste them. Each round is `forge.plan.write` with the complete draft or
+`forge.plan.patch` with the revision, then the round itself with `planDraft` omitted — either
+writer puts the plan at `<runPath>/PLAN.md` and hands you its path, and the round then reads it
+from there. Surface that path in the same turn as the write or patch, before the round starts, so
+the user reads the plan during the minutes the critic takes rather than after them; refresh it after each
 round. What stays out of the chat is the plan's *text*: five revisions pasted into the conversation
 bury the one version that matters, which is why the file exists.
 
 Rewriting an already-approved plan takes the approval back: whichever call changes the file —
-`forge.plan.write`, or a round you handed a draft to — clears `approved`, resets the build progress
-to zero, and records it in the flow log. That is not a silent housekeeping detail — say it in the
+`forge.plan.write`, `forge.plan.patch`, or a round you handed a draft to — clears `approved`, resets
+the build progress to zero, and records it in the flow log. That is not a silent housekeeping detail — say it in the
 chat, because the next `forge.build.next` will refuse until the user approves again, and the builder
 will then start from the first task. If tasks were already built, tell the user how many are about
 to be rebuilt before you write the new draft. Declare `phase: "plan_revision"` when you begin
@@ -632,14 +635,16 @@ rewriting an approved plan, before its new review round, whatever phase the run 
 Measured over thirteen runs, about half of the plan-review findings after round 1 sat in text a
 revision had written, rising to two thirds from round 6 on: a rule that arrived without its gate, a
 change made in one place and left standing in another, a claim about the code nobody had checked, a
-mechanism invented to answer one finding. Before each `forge.plan.write` that answers a critique,
-walk every change the revision makes through these checks; the draft is ready when every change
-passes all six:
+mechanism invented to answer one finding. Use `forge.plan.patch` when the revision changes some
+targets, and `forge.plan.write` when it rewrites the plan. Before either call that answers a
+critique, walk every change through these checks over the whole plan, including after a patch;
+the draft is ready when every change passes all six:
 
 - **Gate with the rule.** A rule, requirement or step the revision adds or changes arrives with its
   gate rows, its tests and the task steps that build it, in the same revision.
 - **Every mention.** A term, rule, count, name or decision the revision changes is changed wherever
-  the plan states it — requirements, tasks, gates, test lists, counts — found by searching the draft.
+  the plan states it — requirements, tasks, gates, test lists, counts. Search the whole plan for
+  every mention, not only the targets you edit.
 - **Evidence for claims.** Every claim the revision makes about the code — what exists today, a
   name, a count, a behaviour — passes the Evidence check before it is written.
 - **The class, not the instance.** A finding that names one member of a class — one reader of a
@@ -651,6 +656,10 @@ passes all six:
   beside it.
 - **The findings' scope.** The revision changes what the findings name and what the checks above
   reach. A neighbouring case enters the plan when a critic raises it.
+
+On a stale-base refusal, read `forge.plan.outline` and redo the edits against its current hash;
+never resend the refused patch unchanged. A replay after a lost answer is a stale-base conflict,
+and equal text is never proof that the patch was applied.
 
 From the second round on, label every new finding with the labels of *When a round is mostly
 fallout*, reading *revision* for *fix* — `own`, `sibling`, `same-class`, `older` — and record one
@@ -666,13 +675,14 @@ revision and typed decisions between plan-review rounds, build results with stat
 reopening proposals, fix attempts, gate results and closures. Nothing feeds this file back to a
 Worker; it is the audit to show, while the bounded ledger projection is Critic input.
 
-The plan is the second such file. `forge.plan.write` puts the draft at `<runPath>/PLAN.md` before
-the round that judges it starts, and every later round rewrites it, so the user reads the current
-plan while the round runs rather than meeting it once at approval.
+The plan is the second such file. `forge.plan.write` puts the first draft at `<runPath>/PLAN.md`
+before the round that judges it starts; later revisions use `forge.plan.patch` for some targets
+or `forge.plan.write` for a rewrite, so the user reads the current plan while the round runs rather
+than meeting it once at approval.
 
 Both travel as `documents.flowLog` and `documents.plan`, each with its `path` and what to do with
-it, on every result that has something to show — `forge.plan.write`, every worker act, and on
-Cursor the start and every poll as well. The Scout-only `documents.scout` report metadata appears
+it, on every result that has something to show — `forge.plan.write`, `forge.plan.patch`, every worker
+act, and on Cursor the start and every poll as well. The Scout-only `documents.scout` report metadata appears
 only after a successful direct Scout call or a successfully completed Scout job fetch. Either
 ordinary document can be `null` while its file does not exist yet. **Surface the plan in the same
 turn as the write that created it, and the flow log after the first Scout outcome or first critique,
@@ -719,8 +729,9 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
    read.
 3. Ask them to approve it or say what to change. Ask in the chat even when the canvas is up: it
    displays and nothing more, and it says so to the user. On a change, declare
-   `phase: "plan_revision"`, revise the plan, write it with `forge.plan.write`, and go back to
-   `forge.plan.review` with `revision` saying what you changed — a plan amended after the last
+   `phase: "plan_revision"`, revise with `forge.plan.patch` for some targets or `forge.plan.write`
+   for a rewrite, and go back to `forge.plan.review` with `revision` saying what you changed — a
+   plan amended after the last
    verdict has not been reviewed — then declare `phase: "approval"` again and show the revised plan
    before asking a second time.
 4. With a yes, ask for what the gates need on this host: the value of every `$env:NAME` the plan's

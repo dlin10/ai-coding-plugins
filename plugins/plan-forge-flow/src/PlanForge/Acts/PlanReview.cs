@@ -85,7 +85,7 @@ internal sealed class PlanReview
         // for minutes, and those minutes are exactly when having the plan to read is worth
         // something. No guard precedes the write — the same draft is already on disk in `forge.log`,
         // written by the tool-call record, so this adds no surface a secret could reach.
-        state = Reopen(run, state);
+        state = Reopen(run, state, "a review round ran", out _);
         var draft = TakeDraft(run, planDraft);
 
         var round = state.ReviewRounds + 1;
@@ -167,6 +167,8 @@ internal sealed class PlanReview
     /// file it does here too: the same whole-file replacement, and the same withdrawal of an
     /// approval the new text has invalidated.
     /// </summary>
+    /// <param name="run">The run whose plan is replaced.</param>
+    /// <param name="planDraft">The complete draft, stored as supplied.</param>
     /// <remarks>
     /// No round is spent and no cap is consulted: writing a draft is not reviewing it, and a write
     /// whose round is then refused at the cap leaves the user reading the draft they are being
@@ -177,8 +179,49 @@ internal sealed class PlanReview
         if (string.IsNullOrWhiteSpace(planDraft))
             throw new ArgumentRejectedException("forge.plan.write requires planDraft");
 
-        Reopen(run, run.ReadState());
+        Reopen(run, run.ReadState(), "the plan was rewritten with forge.plan.write", out _);
         run.WritePlan(planDraft);
+    }
+
+    public static PlanPatchOutcome Patch(RunDirectory run, string? baseHash, IReadOnlyList<PlanEdit?>? edits)
+    {
+        var sizes = PlanPatchSizes.Payload(edits);
+        var approvalWithdrawn = false;
+        PlanPatchResult patch;
+        string plan;
+        try
+        {
+            if (!File.Exists(run.PlanPath)) throw NoPlan();
+            plan = run.ReadPlan();
+            sizes = sizes.Before(plan);
+            if (PlanOutline.IsBlank(plan)) throw NoPlan();
+            patch = PlanPatch.Apply(plan, baseHash, edits);
+            sizes = patch.Sizes;
+            Reopen(run, run.ReadState(), "the plan was patched with forge.plan.patch", out approvalWithdrawn);
+            run.WritePlan(patch.Plan);
+        }
+        catch (PlanPatchRejectedException) { throw; }
+        catch (Exception)
+        {
+            throw new PlanPatchFailedException("failed_unchanged", sizes,
+                "The plan is unchanged; the approval was " + (approvalWithdrawn ? "already withdrawn." : "not withdrawn."));
+        }
+
+        var outline = PlanOutline.Of(patch.Plan);
+        var beforeHash = PlanOutline.Hash(plan);
+        try
+        {
+            run.AppendFlowPlanPatched(beforeHash, outline.PlanHash, patch.Changes, sizes);
+        }
+        catch (Exception)
+        {
+            throw new PlanPatchFailedException("failed_after_patch", sizes,
+                $"The plan was patched, but its Flow entry could not be written. The new plan hash is {outline.PlanHash}; read forge.plan.outline.");
+        }
+        return new PlanPatchOutcome(beforeHash, outline, patch.Changes, sizes);
+
+        PlanPatchRejectedException NoPlan() => new("no_plan", sizes,
+            "Write the plan first with forge.plan.write before reading an outline or patching it.");
     }
 
     /// <summary>
@@ -227,9 +270,12 @@ internal sealed class PlanReview
     /// </remarks>
     /// <param name="run">The run whose state and timeline record the reopening.</param>
     /// <param name="state">The state the round started from.</param>
+    /// <param name="cause">The action that invalidated the approval.</param>
+    /// <param name="approvalWithdrawn">Whether the reopening state was persisted, even if its Flow entry fails.</param>
     /// <returns>The state the round builds on: unchanged when nothing was approved, reopened otherwise.</returns>
-    private static RunState Reopen(RunDirectory run, RunState state)
+    private static RunState Reopen(RunDirectory run, RunState state, string cause, out bool approvalWithdrawn)
     {
+        approvalWithdrawn = false;
         if (!state.Approved) return state;
 
         // A gate failure owed to a task of the old plan is owed to nobody once the tasks restart, and
@@ -242,7 +288,8 @@ internal sealed class PlanReview
             TaskChanges = null
         };
         run.WriteState(reopened);
-        run.AppendFlowReopened(state.TasksCompleted);
+        approvalWithdrawn = true;
+        run.AppendFlowReopened(state.TasksCompleted, cause);
         return reopened;
     }
 
@@ -279,6 +326,15 @@ internal sealed class PlanReview
 
         return prompt.ToString();
     }
+}
+
+internal sealed record PlanPatchOutcome(string BaseHash, PlanOutline Outline,
+                                        IReadOnlyList<PlanPatchChange> Changed, PlanPatchSizes Sizes);
+
+internal sealed class PlanPatchFailedException(string outcome, PlanPatchSizes sizes, string message) : Exception(message)
+{
+    public string Outcome { get; } = outcome;
+    public PlanPatchSizes Sizes { get; } = sizes;
 }
 
 internal sealed class ReviewCapReachedException(int rounds, int cap)

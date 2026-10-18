@@ -472,16 +472,18 @@ internal sealed class RunDirectory
     }
 
     /// <summary>
-    /// A review round run against an already-approved plan takes the approval back, and the user
+    /// A review round or plan write takes an existing approval back, and the user
     /// meets that as a build refusing for no visible reason unless it is in the timeline. The
     /// entry names the task count that went with it, because that is the part that costs money to
     /// rebuild.
     /// </summary>
-    public void AppendFlowReopened(int tasksCompleted) =>
+    /// <param name="tasksCompleted">The completed tasks whose progress was reset.</param>
+    /// <param name="cause">The action that invalidated the approval.</param>
+    public void AppendFlowReopened(int tasksCompleted, string cause) =>
         AtomicFile.Append(FlowLogPath,
             new StringBuilder().AppendLine("## Plan reopened")
                                .AppendLine()
-                               .Append("A review round ran against the approved plan, so the approval no longer holds. ")
+                               .Append("The approval no longer holds because ").Append(cause).Append(". ")
                                .Append("Build progress was reset from ").Append(tasksCompleted)
                                .AppendLine(tasksCompleted == 1 ? " completed task." : " completed tasks.")
                                .AppendLine()
@@ -489,6 +491,22 @@ internal sealed class RunDirectory
                                .AppendLine("and it will start from the first task.")
                                .AppendLine()
                                .ToString());
+
+    public void AppendFlowPlanPatched(string baseHash, string planHash,
+                                      IReadOnlyList<PlanPatchChange> changes, PlanPatchSizes sizes)
+    {
+        var entry = new StringBuilder().AppendLine("## Plan patched")
+                                       .AppendLine()
+                                       .Append("Plan hash: ").Append(baseHash).Append(" → ").AppendLine(planHash)
+                                       .AppendLine();
+        foreach (var change in changes)
+            entry.Append("- ").Append(change.Op).Append(' ').Append(change.Target).Append(": ").AppendLine(change.Label);
+        entry.AppendLine();
+        foreach (var (name, size) in sizes.Measurements())
+            entry.Append(name).Append(": ").Append(size.Characters).Append(" characters, ")
+                 .Append(size.Utf8Bytes).AppendLine(" UTF-8 bytes");
+        AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
+    }
 
     /// <summary>
     /// Records that a round ran past its cap because the user granted it, so a reader of

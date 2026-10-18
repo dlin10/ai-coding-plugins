@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ModelContextProtocol;
@@ -269,7 +271,7 @@ internal sealed class ForgeTools
     /// <param name="runId">The run whose plan is written.</param>
     /// <param name="planDraft">The complete current plan draft.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
-    [McpServerTool(Name = "forge.plan.write"), Description("Writes the current plan draft to `PLAN.md` and returns it under `documents`, without running a critic. Call it before every review round, show the user the path it returns, and then run the round with `planDraft` omitted. A write over an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
+    [McpServerTool(Name = "forge.plan.write"), Description("Writes the complete plan draft to `PLAN.md` for the first draft or a rewrite, without running a critic. A local revision can use forge.plan.patch. Returns the outline computed from the plan read back after writing (null for blank plan text) and its path under `documents`; show the user that path, then review with `planDraft` omitted. A write over an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
     public static async Task<string> WritePlan(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
@@ -281,16 +283,96 @@ internal sealed class ForgeTools
             () =>
             {
                 PlanReview.Write(run, planDraft);
-
-                return Task.FromResult(JsonSerializer.Serialize(new PlanWriteResult(run.RunId, Documents(run)),
+                var plan = run.ReadPlan();
+                var outline = PlanOutline.IsBlank(plan) ? null : PlanOutline.Of(plan);
+                return Task.FromResult(JsonSerializer.Serialize(new PlanWriteResult(run.RunId, outline, Documents(run)),
                                                                 ForgeToolJson.Default.PlanWriteResult));
             });
+    }
+
+    /// <summary>
+    /// Reads the current plan's snapshot selectors without returning its bodies.
+    /// </summary>
+    /// <param name="roots">The host's session roots.</param>
+    /// <param name="workspaceRoot">The absolute workspace root.</param>
+    /// <param name="runId">The run whose plan is read.</param>
+    /// <param name="ct">Cancels the call.</param>
+    [McpServerTool(Name = "forge.plan.outline"), Description("Returns the current plan hash and document-order Edit targets with snapshot IDs s0, s1, …, kind (preamble, heading, task), trimmed heading/task first-line labels of at most 80 characters, target hashes and sizes in UTF-16 characters. Plan text is UTF-8 read from PLAN.md with its leading byte-order mark dropped. Refuses missing or blank text (whitespace after setting aside leading byte-order marks); call forge.plan.write first. Targets start at line beginnings, never overlap and concatenate to the exact plan text, including each line's ending break. Outside Approach, headings begin at column 0 with 1–6 # followed by space or tab. With exactly one build-recognized ## Approach, the build's own patterns run on CRLF-normalized text and positions map back: its heading runs to the first task, tasks start on the first digit's line and run to the next task or section end; other headings inside are not targets. The section-end line starts a heading target even if not an ordinary heading. Otherwise only heading lines divide the plan. Nonempty preamble precedes the first target; its first nonblank line is its label, or (blank). Fences are not considered. Hashes are the first 16 lowercase hex SHA-256 characters of UTF-8 text. IDs hold only for this snapshot. Returns no plan text beyond labels.")]
+    public static async Task<string> OutlinePlan(SessionRoots roots,
+                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                                 [Description("Run id from forge.begin.")] string runId,
+                                                 CancellationToken ct)
+    {
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct).ConfigureAwait(false);
+        return await LoggedAsync(run, workspaceRoot, "forge.plan.outline", [], () =>
+        {
+            if (!File.Exists(run.PlanPath)) throw new ArgumentRejectedException("Write the plan first with forge.plan.write.");
+            var plan = run.ReadPlan();
+            if (PlanOutline.IsBlank(plan)) throw new ArgumentRejectedException("Write the plan first with forge.plan.write.");
+            return Task.FromResult(JsonSerializer.Serialize(new PlanOutlineResult(run.RunId, PlanOutline.Of(plan), Documents(run)),
+                                                            ForgeToolJson.Default.PlanOutlineResult));
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>Applies local edits against one exact plan snapshot.</summary>
+    /// <param name="roots">The host's session roots.</param>
+    /// <param name="workspaceRoot">The absolute workspace root.</param>
+    /// <param name="runId">The run whose plan is patched.</param>
+    /// <param name="baseHash">The plan hash from its current outline.</param>
+    /// <param name="edits">The operations and exact target selectors against that outline.</param>
+    /// <param name="ct">Cancels the call.</param>
+    [McpServerTool(Name = "forge.plan.patch"), Description("Revises local targets against baseHash from forge.plan.outline, with a required nonempty edits array. Each edit requires op, target ID and targetHash: replace, delete, insertBefore or insertAfter. Replace/insert require nonblank content; delete permits no content, even an empty string. Refuses the whole patch for no_plan, stale plan/target hash, missing edit/fields, unknown target/operation, invalid content, two replacements/deletions on one target, two insertions at the same position (including after X/before its successor), or insertion anchored on a deleted target. Refusals identify the edit index where applicable and change no protected file. All edits use one snapshot and apply independently of list order; untouched text is exact. Written line breaks become CRLF only when every existing break is CRLF and there is at least one, otherwise LF; append a final break if missing and keep supplied trailing blank lines. Insert a separator in that style between pieces only when the preceding piece lacks a final break. Remove leading byte-order marks from the complete result before checking, writing, hashing or measuring it. Refuses blank or identical results, and any result the build task parser rejects when the base parses, including unreadable/overflowing task numbers; no renumbering. A successful patch uses the whole-write lifecycle: withdraw approval, reset build progress and Builder session, persist the complete plan; no Worker, gate, review round or cap change. Returns baseHash, new outline, changed op/target/label, character and UTF-8 byte sizes (payload JSON, supplied text, plan before, removed, written excluding separators, plan after), and documents, with no plan text beyond labels. Missing/blank plans require forge.plan.write. Before replacement failures leave the plan unchanged and say whether approval was withdrawn; a failure of the patch's Flow entry says the plan was patched and gives its new hash. There is no lock or multi-file transaction; the hash check and replacement are not atomic. A replay conflicts as stale: read forge.plan.outline and redo edits against its new hash; never resend the refused patch or infer success from equal text.")]
+    public static async Task<string> PatchPlan(SessionRoots roots,
+                                               [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                               [Description("Run id from forge.begin.")] string runId,
+                                               [Description("The exact current plan hash from forge.plan.outline.")] string baseHash,
+                                               [Description("Edits against the same outline, each with op, target, targetHash and optional content.")] IReadOnlyList<PlanEdit?> edits,
+                                               CancellationToken ct)
+    {
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct).ConfigureAwait(false);
+        var elapsed = Stopwatch.StartNew();
+        var sizes = PlanPatchSizes.Payload(edits);
+        return await LoggedAsync(run, workspaceRoot, "forge.plan.patch",
+            [("baseHash", PlanPatch.Shown(baseHash, PlanValueKind.Hash)),
+             ("editCount", (edits?.Count ?? 0).ToString(CultureInfo.InvariantCulture)),
+             .. sizes.LogFields().Where(field => field.Name.StartsWith("payload", StringComparison.Ordinal))], () =>
+        {
+            var outcome = "failed_unchanged";
+            try
+            {
+                var patch = PlanReview.Patch(run, baseHash, edits);
+                sizes = patch.Sizes;
+                outcome = "applied";
+                return Task.FromResult(JsonSerializer.Serialize(
+                    new PlanPatchResult(run.RunId, patch.BaseHash, patch.Outline, patch.Changed, sizes, Documents(run)),
+                    ForgeToolJson.Default.PlanPatchResult));
+            }
+            catch (PlanPatchRejectedException error)
+            {
+                sizes = error.Sizes;
+                outcome = error.Reason;
+                throw;
+            }
+            catch (PlanPatchFailedException error)
+            {
+                sizes = error.Sizes;
+                outcome = error.Outcome;
+                throw;
+            }
+            finally
+            {
+                run.Log.Write("info", SOURCE, "plan.patch",
+                    [("outcome", outcome), ("editCount", (edits?.Count ?? 0).ToString(CultureInfo.InvariantCulture)),
+                     ("elapsedMs", elapsed.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture)), .. sizes.LogFields()]);
+            }
+        }).ConfigureAwait(false);
     }
 
     /// <summary>
     /// One round only. The critic judges the draft; revising it and calling again is the
     /// orchestrator's job, because the revision needs the interview context.
     /// </summary>
+    /// <param name="catalogs">The model catalogs used to confirm the selected speed.</param>
     /// <param name="roots">The session roots advertised by the MCP host.</param>
     /// <param name="workspaceRoot">The run's workspace root.</param>
     /// <param name="runId">The run whose plan is reviewed.</param>
@@ -303,6 +385,7 @@ internal sealed class ForgeTools
     /// <param name="deferred">Optional Flow-only compatibility narrative; typed decisions are authoritative.</param>
     /// <param name="userGrantedRound">Whether the user granted exactly one round beyond the cap.</param>
     /// <param name="decisions">Typed authoritative ledger decisions to apply before this critic round.</param>
+    /// <param name="fast">Whether the critic must run at the confirmed Fast tier.</param>
     [McpServerTool(Name = "forge.plan.review"), Description("Applies one typed plan decision batch, then runs one Critic round against the active plan-phase ledger projection. Use one decisionBatchId per logical set and repeat the exact batch when retrying an invalid Critic response. Plan closures use addressedByRevision or duplicateOf here. The result includes the critique, Flow audit and plan under `documents`.")]
     public static async Task<string> ReviewPlan(CatalogCache catalogs,
                                                 SessionRoots roots,
@@ -310,7 +393,7 @@ internal sealed class ForgeTools
                                                 [Description("Run id from forge.begin.")] string runId,
                                                 [Description("Model for the critic.")] string model,
                                                 CancellationToken ct,
-                                                [Description("The plan draft to review. Omit it when forge.plan.write already wrote this round's draft, which is the flow to use; passing it writes it here instead, and the round then starts only once the whole draft has reached the server.")] string? planDraft = null,
+                                                [Description("The plan draft to review. Omit it when forge.plan.write or forge.plan.patch left this round's plan file, which is the flow to use; passing it writes it here instead, and the round then starts only once the whole draft has reached the server.")] string? planDraft = null,
                                                 [Description("Optional effort level.")] string? effort = null,
                                                 [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
                                                 [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
@@ -604,7 +687,7 @@ internal sealed class ForgeTools
                                          [Description("Model for the worker. Omit for scout, which uses the persisted Scout selection.")] string? model = null,
                                          [Description("Optional effort level.")] string? effort = null,
                                          [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
-                                         [Description("Plan draft, used only by plan.review — and omitted there too once forge.plan.write has written this round's draft, which is the flow to use.")] string? planDraft = null,
+                                         [Description("Plan draft, used only by plan.review — and omitted there too once forge.plan.write or forge.plan.patch has left this round's plan file, which is the flow to use.")] string? planDraft = null,
                                          [Description("Flow-only compatibility narrative for plan.review; it does not change ledger state.")] string? deferred = null,
                                          [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null,
                                          [Description("For plan.review and review.code only: at the cap, raises this run's round cap by exactly one and runs the round; below the cap it does nothing, and it is spent by this call. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false,
@@ -1063,8 +1146,16 @@ internal sealed record BeginResult(string RunId, string RunPath, string Profile,
 
 internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList<string> DriftedFiles);
 
-/// <summary>What <c>forge.plan.write</c> answers with: nothing but the file it wrote and where to show it.</summary>
-internal sealed record PlanWriteResult(string RunId, RunDocuments Documents);
+/// <summary>The current plan file and its outline after forge.plan.write; forge.plan.patch updates the same document.</summary>
+/// <param name="RunId">The run whose plan was written.</param>
+/// <param name="Outline">The outline read back from disk, or null for blank plan text.</param>
+/// <param name="Documents">The run's documents and display instructions.</param>
+internal sealed record PlanWriteResult(string RunId, PlanOutline? Outline, RunDocuments Documents);
+
+internal sealed record PlanOutlineResult(string RunId, PlanOutline Outline, RunDocuments Documents);
+
+internal sealed record PlanPatchResult(string RunId, string BaseHash, PlanOutline Outline,
+                                       IReadOnlyList<PlanPatchChange> Changed, PlanPatchSizes Sizes, RunDocuments Documents);
 
 /// <param name="Note">
 /// What the call could not do: a builder session already running was started before this text and
@@ -1189,6 +1280,8 @@ internal sealed record CatalogModel(string Id,
 [JsonSerializable(typeof(LedgerDispositionDecision))]
 [JsonSerializable(typeof(LedgerReopeningDecision))]
 [JsonSerializable(typeof(LedgerClosureDecision))]
+[JsonSerializable(typeof(PlanEdit))]
+[JsonSerializable(typeof(IReadOnlyList<PlanEdit?>))]
 internal sealed partial class ToolArgumentJson : JsonSerializerContext
 {
     // Lazy rather than a field initializer: the generated half of this class initializes its own
@@ -1209,6 +1302,12 @@ internal sealed partial class ToolArgumentJson : JsonSerializerContext
 [JsonSerializable(typeof(BeginResult))]
 [JsonSerializable(typeof(ApproveResult))]
 [JsonSerializable(typeof(PlanWriteResult))]
+[JsonSerializable(typeof(PlanOutlineResult))]
+[JsonSerializable(typeof(PlanPatchResult))]
+[JsonSerializable(typeof(PlanOutline))]
+[JsonSerializable(typeof(PlanTarget))]
+[JsonSerializable(typeof(PlanPatchChange))]
+[JsonSerializable(typeof(PlanPatchSizes))]
 [JsonSerializable(typeof(InstructionsResult))]
 [JsonSerializable(typeof(PlanViewResult))]
 [JsonSerializable(typeof(StatusResult))]

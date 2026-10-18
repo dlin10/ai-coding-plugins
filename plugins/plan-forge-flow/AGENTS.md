@@ -32,7 +32,7 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all eighteen `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all twenty `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
 the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
@@ -195,12 +195,13 @@ plus the Orchestrator's own revision — and nothing ever feeds it back to a Wor
 Critic projections. It keeps immutable finding `origin`, mutable `activePhase`, dispositions,
 applied decision batches and fix attempts; malformed or unknown state stops the call rather than
 recovering to an empty ledger. `PLAN.md` is the run's plan *as it currently stands*, not the approved
-one: `forge.plan.write`
+one: `forge.plan.write` or `forge.plan.patch`
 puts the draft there ahead of the round that judges it — a separate call because a draft streamed
 into the review call is not on disk until that call arrives, which made the link late by the whole
 of the upload plus the critique — and `forge.plan.review` reads it from there when it is handed no
-draft of its own. Approval is `state.json`'s `approved`, and a write or a round run after it takes
-that flag back — see
+draft of its own. Approval is `state.json`'s `approved`, and either writer or a round run after it
+takes that flag back. A patch checks the current plan hash without a lock; that check and the
+replacement are not atomic together — see
 [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md) and
 [docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md). There are no locks and no Git refs —
 concurrent runs in one workspace are allowed and expected, and the baseline is a commit SHA plus a
