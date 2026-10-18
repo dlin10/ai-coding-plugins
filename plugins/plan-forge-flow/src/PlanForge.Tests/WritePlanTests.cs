@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PlanForge.Acts;
 using PlanForge.Mcp;
 using PlanForge.Run;
 using Xunit;
@@ -44,6 +45,9 @@ public sealed class WritePlanTests : IDisposable
         var result = JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanWriteResult)!;
 
         Assert.Equal(run.RunId, result.RunId);
+        Assert.Equal(PlanOutline.Of(Draft).PlanHash, result.Outline!.PlanHash);
+        Assert.Equal(JsonSerializer.Serialize(PlanOutline.Of(Draft), ForgeToolJson.Default.PlanOutline),
+                     JsonSerializer.Serialize(result.Outline, ForgeToolJson.Default.PlanOutline));
         Assert.Equal(run.PlanPath, result.Documents.Plan!.Path);
         Assert.Contains("watch it change", result.Documents.Plan.Next, StringComparison.Ordinal);
         Assert.Null(result.Documents.FlowLog);

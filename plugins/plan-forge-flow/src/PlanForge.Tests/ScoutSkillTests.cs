@@ -261,17 +261,17 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Readme_lists_both_scout_tools_and_eighteen_tools()
+    public void Readme_lists_both_scout_tools_and_twenty_tools()
     {
         var readme = File.ReadAllText(Path.Combine(RepositoryRoot(), "README.md"));
-        Contains("exposes eighteen tools", "`forge.scout.select`", "`forge.scout.run`", readme);
+        Contains("exposes twenty tools", "`forge.scout.select`", "`forge.scout.run`", readme);
     }
 
     [Fact]
-    public void Agents_names_four_participants_eighteen_tools_and_scout_boundary()
+    public void Agents_names_four_participants_twenty_tools_and_scout_boundary()
     {
         var agents = File.ReadAllText(Path.Combine(RepositoryRoot(), "AGENTS.md"));
-        Contains("all eighteen `forge.*` tools", "## The four participants", "**Scout**", "Read-only and", "non-writable", agents);
+        Contains("all twenty `forge.*` tools", "## The four participants", "**Scout**", "Read-only and", "non-writable", agents);
     }
 
     [Fact]

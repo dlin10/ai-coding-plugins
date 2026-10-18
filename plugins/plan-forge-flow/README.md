@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.48.0
+# Plan Forge Flow 0.49.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes eighteen tools. Release 0.16.0 supports only
+typed .NET 10 executable named `planforge` that exposes twenty tools. Release 0.16.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -29,7 +29,9 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 | `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort/Fast selection or an explicit decision to continue without Scout |
 | `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `SCOUT.md` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
-| `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
+| `forge.plan.write` | Writes the first draft or a complete rewrite to `PLAN.md` and answers with its outline (null for blank plan text) and path, running no worker |
+| `forge.plan.outline` | Returns the current plan hash and snapshot targets with IDs, kinds, labels, hashes and character sizes, without plan text beyond labels |
+| `forge.plan.patch` | Revises selected targets against the exact outline hash; answers with the new outline, change summary, character and UTF-8 byte sizes, and document paths, running no worker |
 | `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
 | `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and optional case-sensitive `fullGate=beforeNextRound\|final`; omission preserves timing/settings, explicit settings replace, empty settings clear. Approval resets the global gate failure, preserving attempts; approved false changes no PLAN/state/ledger or approval and accepts no decisions |
@@ -98,8 +100,9 @@ The requirements are under review beside the tasks, and only what they exclude i
 aimed at the wrong thing is a finding rather than a clean approve.
 
 Both reviews are one round per call, because the orchestrator has to take a turn in between: it
-revises the plan after `forge.plan.review` and writes the new draft before the next round, and after
-`forge.review.code` it filters the findings against the approved plan before `forge.review.fix`
+revises the plan after `forge.plan.review` with a patch for some targets or a whole-draft write for
+a rewrite before the next round, and after `forge.review.code` it filters the findings against the
+approved plan before `forge.review.fix`
 relays them. That turn is recorded rather than assumed — a plan-review round after the first is
 refused without an account of what the previous one changed, and it lands in the flow log where the
 user reads the two loops as a conversation. The critic and the builder never talk directly.
@@ -125,13 +128,20 @@ one `fixAttemptId` names one exact sorted ID set and one immutable gate mode. Cu
 retry that same attempt, set and gate, while a completed retry returns its saved terminal result
 with current pending annotations. Background fetch keeps its historical completion snapshot.
 
-The plan itself is readable from the first round rather than at the end of them: each round starts
-with `forge.plan.write`, which puts the draft at `PLAN.md` and hands back its path in seconds, and
-the round then reads it from there — so what the verdicts are about is a document you can open
-before the first verdict, not after it. The price is that an approval is no longer final within a
-run — a round, or a write, run after one takes it back and resets the build progress. See
-[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md) and
-[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md).
+The plan is readable from the first round: `forge.plan.write` puts the first draft at `PLAN.md`
+and returns its outline and document path before review starts. Later revisions use
+`forge.plan.patch` for selected targets or `forge.plan.write` for a rewrite; each round reads the
+complete document with `planDraft` omitted. A patch uses the current plan hash and each target's
+ID and hash from `forge.plan.outline`. On a stale-base refusal, read the outline and redo the
+edits against its current hash; never resend the refused patch unchanged. A replay after a lost
+answer conflicts, and equal text is never proof of success.
+
+A round, a whole-draft write or a patch after approval withdraws it and resets build progress and
+the Builder session. The Flow log names the cause. The patch hash check and replacement take no
+lock and are not atomic together. See
+[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md),
+[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md) and
+[docs/adr/0035](docs/adr/0035-patch-the-plan-against-a-snapshot-outline.md).
 
 Approval does not go through MCP elicitation, and since 0.8.0 there is no code here that can ask the
 user anything. The orchestrator reads the drift out of `forge.status`, shows the user the plan and

@@ -316,10 +316,10 @@ public sealed class DecisionLedgerSkillTests
     }
 
     [Fact]
-    public void Package_contract_still_requires_eighteen_tools_and_new_schema_fields()
+    public void Package_contract_still_requires_twenty_tools_and_new_schema_fields()
     {
         var package = Read("build", "package.ps1");
-        Contains("if ($tools.Count -ne 18)", "forge.plan.review schema is missing decisions", "forge.review.fix schema is missing", "fixFindingIds", package);
+        Contains("if ($tools.Count -ne 20)", "forge.plan.review schema is missing decisions", "forge.review.fix schema is missing", "fixFindingIds", package);
     }
 
     private static string Description(string methodName)

@@ -1,5 +1,24 @@
 # Plan Forge Flow releases
 
+## 0.49.0
+
+Plans can be revised by snapshot targets between review rounds. See `docs/adr/0035`.
+
+- `forge.plan.outline` returns the plan hash and document-order targets with IDs, kinds, labels,
+  hashes and character sizes. `forge.plan.patch` applies local edits against that exact snapshot,
+  checks the complete result, and returns the new outline, change summary, sizes and documents.
+- `forge.plan.write` keeps the whole-draft route and also returns the outline read back from the
+  written plan, or null for blank plan text.
+- A replay after a lost patch answer conflicts as stale. Read the outline and redo the edits against
+  its current hash; equal text is never proof that a patch was applied. The hash check takes no lock.
+- A successful patch uses the whole-write lifecycle: approval is withdrawn, build progress and the
+  Builder session reset, and the complete plan is persisted without a Worker, gate or review round.
+  The reopening Flow entry names its cause: review round, whole-draft write or patch.
+- A reproducible comparison test covers small and large plans: a patch and a whole-draft update
+  produce identical plans, the submitted patch payload is smaller, and answers carry no plan text
+  beyond labels. Payload, supplied, plan-before, removed, written and plan-after sizes are measured
+  in UTF-16 characters and UTF-8 bytes; no host-token or latency saving is claimed.
+
 ## 0.48.0
 
 A code-review round too long for its critic's vendor is given by path instead of refused. See

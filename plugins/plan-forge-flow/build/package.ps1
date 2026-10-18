@@ -170,10 +170,10 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.scout.select', 'forge.scout.run', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.scout.select', 'forge.scout.run', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.outline', 'forge.plan.patch', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
-        if ($tools.Count -ne 18) { throw "published executable must expose exactly eighteen forge.* tools, found $($tools.Count)" }
+        if ($tools.Count -ne 20) { throw "published executable must expose exactly twenty forge.* tools, found $($tools.Count)" }
         # The canvas is two halves that only work together: the tool has to point at the resource,
         # and the resource has to come back as an MCP App. Either half alone renders nothing.
         $planShow = $tools | Where-Object { $_.name -eq 'forge.plan.show' } | Select-Object -First 1
@@ -210,6 +210,20 @@ function Test-PublishedServer([string]$Executable) {
         }
         if (@($planWrite.inputSchema.required) -notcontains 'planDraft') {
             throw 'forge.plan.write must require planDraft'
+        }
+        $planPatch = $tools | Where-Object { $_.name -eq 'forge.plan.patch' } | Select-Object -First 1
+        $planPatchProperties = @($planPatch.inputSchema.properties.PSObject.Properties.Name)
+        foreach ($parameter in @('workspaceRoot', 'runId', 'baseHash', 'edits')) {
+            if ($planPatchProperties -notcontains $parameter) { throw "forge.plan.patch schema is missing $parameter" }
+            if (@($planPatch.inputSchema.required) -notcontains $parameter) { throw "forge.plan.patch schema must require $parameter" }
+        }
+        if ($planPatch.inputSchema.properties.edits.type -ne 'array') {
+            throw 'forge.plan.patch publishes edits as something other than an array'
+        }
+        $planOutline = $tools | Where-Object { $_.name -eq 'forge.plan.outline' } | Select-Object -First 1
+        $planOutlineProperties = @($planOutline.inputSchema.properties.PSObject.Properties.Name | Sort-Object)
+        if (($planOutlineProperties -join ',') -ne 'runId,workspaceRoot') {
+            throw "forge.plan.outline should take workspaceRoot and runId and nothing else, and takes: $($planOutlineProperties -join ', ')"
         }
         $models = $tools | Where-Object { $_.name -eq 'forge.models' } | Select-Object -First 1
         $modelsProperties = @($models.inputSchema.properties.PSObject.Properties.Name)
