@@ -10,18 +10,15 @@ import {
   autoLead,
   bar,
   cachedPrefix,
-  humanSpan,
   isRunningLow,
   kindLabel,
   learnTtl,
   minutesLeft,
   parseHours,
   resetsIn,
-  tokens,
   ttlFromOption,
   ttlLabel,
   warmsFor,
-  warnLead,
 } from './format'
 
 const COMMAND = 'session-pulse'
@@ -39,7 +36,6 @@ const ttlMs = atom({ plugin: 'session-pulse', key: 'ttlMs' } as const, ONE_HOUR)
 const isTtlLearned = atom({ plugin: 'session-pulse', key: 'isTtlLearned' } as const, false)
 const now = atom({ plugin: 'session-pulse', key: 'now' } as const, 0)
 const isHidden = atom({ plugin: 'session-pulse', key: 'isHidden' } as const, false)
-const warnHiddenAt = atom({ plugin: 'session-pulse', key: 'warnHiddenAt' } as const, null)
 const isWarming = atom({ plugin: 'session-pulse', key: 'isWarming' } as const, false)
 const auto = atom({ plugin: 'session-pulse', key: 'auto' } as const, null)
 
@@ -109,21 +105,6 @@ async function startAuto($: EngineInterface, hours: number) {
   const total = warmsFor(hours, ttl)
   await update($, auto, () => ({ until: at + hours * ONE_HOUR, done: 0, total }))
   $.ui.toast(`Auto-warming is on: ${autoLabel(hours, ttl)}`)
-}
-
-async function compact($: EngineInterface) {
-  const result = await $.session.compact()
-  if (result.skip !== undefined) {
-    $.ui.toast(`Compaction skipped: ${result.skip}`)
-    return
-  }
-  const reading = await read($, cache)
-  await update($, warnHiddenAt, () => reading?.at ?? null)
-}
-
-async function hideWarning($: EngineInterface) {
-  const reading = await read($, cache)
-  await update($, warnHiddenAt, () => reading?.at ?? null)
 }
 
 // Auto-warming warms once the countdown reaches its lead, and stops when its
@@ -298,13 +279,10 @@ export const register: Register = (on, options) => {
     const reading = await read($, cache)
     const ttl = await read($, ttlMs)
     const plan = await read($, auto)
-    const warming = await read($, isWarming)
     const isNarrow = e.props.bodyColumns < 80
 
     const left = reading === null ? 0 : reading.at + ttl - t
     const isWarm = reading !== null && left > 0
-    const showWarning =
-      reading !== null && left <= warnLead(ttl) && (await read($, warnHiddenAt)) !== reading.at
 
     const row = (label: string, ...children: RenderChildren[]) => (
       <Box flexDirection="row" gap={1}>
@@ -316,32 +294,6 @@ export const register: Register = (on, options) => {
         </Box>
       </Box>
     )
-
-    const rows = []
-
-    if (showWarning && reading !== null) {
-      const prefix = tokens(cachedPrefix(reading))
-      rows.push(
-        row(
-          'cache',
-          isWarm ? (
-            <Text weight="bold">cools in {minutesLeft(left)}</Text>
-          ) : (
-            <Text color="error" weight="bold">cold for {humanSpan(-left)}</Text>
-          ),
-          <Text>
-            <Text dimColor>next turn re-reads </Text>
-            <Text weight="bold">{prefix}</Text>
-            <Text dimColor> tokens</Text>
-          </Text>,
-          isWarm && (
-            <Button key="warm" label={warming ? 'Warming…' : 'Warm up'} onPress={() => warm($)} />
-          ),
-          <Button key="compact" label="Compact" onPress={() => compact($)} />,
-          <Button key="warn-hide" label="Hide" onPress={() => hideWarning($)} />,
-        ),
-      )
-    }
 
     let cacheParts
     if (reading === null) {
@@ -371,7 +323,7 @@ export const register: Register = (on, options) => {
       )
     })
 
-    rows.push(
+    return (
       <Box flexDirection="row" gap={1} justifyContent="space-between">
         {row('cache', cacheParts, ...limitParts)}
         <Button
@@ -380,9 +332,7 @@ export const register: Register = (on, options) => {
           variant={plan === null ? 'secondary' : 'primary'}
           onPress={() => chooseAuto($)}
         />
-      </Box>,
+      </Box>
     )
-
-    return <Box flexDirection="column">{rows}</Box>
   })
 }

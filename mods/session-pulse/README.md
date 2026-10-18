@@ -4,23 +4,16 @@ A Claude Code mod that keeps the session's cost in view above the prompt and kee
 going cold while you are away.
 
 ```
-cache   cools in 5 min  next turn re-reads ~81K tokens  [Warm up] [Compact] [Hide]
-cache   ██░░░░░░ 18 min  5h ░░░░░░░░ 3% resets in 3h 2m  week ████░░░░ 44%  [Auto]
+cache   ██░░░░░░ 18 min  5h ░░░░░░░░ 3% resets in 3h 2m  week ████░░░░ 44%               [Auto]
 ```
 
-## The rows
+## The row
 
-- **The main row.** How much of the prompt cache's life is left, counted from the main conversation's
-  last request (blue, orange once a quarter of it is left); the five-hour window's share and time to
-  reset; the weekly window's share. The limits are the ones the status line gets from the API's
-  rate-limit headers, so off a subscription there are none. A resumed or reloaded session keeps the
-  windows it last showed until its first request brings new ones.
-- **The warning.** Five minutes before the cache goes cold (two with a five-minute cache), a row says so
-  and how many tokens the next turn will read again at full price once it has. It stays, saying how long
-  the cache has been cold, until the next request or **Hide**.
-  - **Warm up** reads the cached conversation once with a one-word fork of it (`$.model.fork`). The fork
-    is served from the cache, which restarts the countdown, and it adds nothing to the conversation.
-  - **Compact** runs the session's compaction, so the next turn has less to read.
+- **The countdown and the limits.** How much of the prompt cache's life is left, counted from the main
+  conversation's last request (blue, orange once a quarter of it is left, `cold` once it has gone); the
+  five-hour window's share and time to reset; the weekly window's share. The limits are the ones the
+  status line gets from the API's rate-limit headers, so off a subscription there are none. A resumed or
+  reloaded session keeps the windows it last showed until its first request brings new ones.
 - **Auto** opens a small dialog of the mod's own asking how long to keep the cache warm —
   `1 h (1 warm-up)`, `2 h (2 warm-ups)`, `4 h`, `8 h`, or a number of hours typed under **Other** (no
   field on mobile); **Cancel** or Esc closes it — then warms the cache two minutes before each cooling
@@ -32,7 +25,8 @@ countdown.
 
 ## What warming costs
 
-A warm-up reads the whole cached prefix from the cache, billed at the cache-read rate (a tenth of the
+A warm-up is a one-word fork of the conversation (`$.model.fork`): it is served from the cache, which
+restarts the countdown, and it adds nothing to the conversation. It reads the whole cached prefix from the cache, billed at the cache-read rate (a tenth of the
 input price), plus a few dozen fresh tokens. Letting the cache go cold costs a write of the whole prefix
 at the cache-write rate on the next turn. With an 80K-token conversation an hour's warm-up costs about 8K
 input-token equivalents, against about 160K for the rewrite.

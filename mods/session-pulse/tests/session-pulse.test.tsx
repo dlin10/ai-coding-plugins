@@ -50,7 +50,6 @@ type World = {
   opened: string[]
   closed: string[]
   asked: number
-  compactions: number
 }
 
 function world(on: On, store: Record<string, unknown> = {}) {
@@ -62,7 +61,6 @@ function world(on: On, store: Record<string, unknown> = {}) {
     opened: [],
     closed: [],
     asked: 0,
-    compactions: 0,
   }
   const clock = mock.clock(on, { now: START })
   mock.store(on, store)
@@ -100,10 +98,6 @@ function world(on: On, store: Record<string, unknown> = {}) {
       cache_creation_input_tokens: 0,
     }
     return { value: { isAnswered: true, text: 'ok', usage } }
-  })
-  on('session.compact', () => {
-    state.compactions += 1
-    return { messages: [{ role: 'user', text: 'Conversation summary', toolUses: [] }] }
   })
   on('tool.call', { tool: 'AskUserQuestion' }, () => {
     state.asked += 1
@@ -181,7 +175,7 @@ describe('limits', () => {
 })
 
 describe('cache', () => {
-  test('counts down from the last request, warns, then goes cold', async ($, on) => {
+  test('counts down from the last request, then goes cold, in the one row', async ($, on) => {
     const { state, clock } = world(on)
     await start($)
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
@@ -193,59 +187,16 @@ describe('cache', () => {
 
     await clock.advance(42 * MINUTE)
     expect(await ui.find({ text: /^██░░░░░░ 18 min$/ })).toBeDefined()
-    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
 
-    await clock.advance(13 * MINUTE)
-    expect(await ui.find({ text: /^cools in 5 min$/ })).toBeDefined()
-    expect(await ui.find({ text: /^next turn re-reads ~81K tokens$/ })).toBeDefined()
-    expect(await ui.find({ key: 'warm' })).toBeDefined()
+    await clock.advance(14 * MINUTE)
+    expect(await ui.find({ text: /^█░░░░░░░ 4 min$/ })).toBeDefined()
+    expect(await ui.find({ text: /cools in|re-reads/ })).toBeUndefined()
+    expect((await ui.findAll({ type: 'Button' })).map(button => button.key)).toEqual(['auto'])
 
-    await clock.advance(7 * MINUTE)
-    expect(await ui.find({ text: /^cold for 2m$/ })).toBeDefined()
-    expect(await ui.find({ key: 'warm' })).toBeUndefined()
-  })
-
-  test('warming reads the cache through a fork and restarts the countdown', async ($, on) => {
-    const { state, clock } = world(on)
-    await start($)
-    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-    state.usage = usage(79_000, 2_000)
-    await step($)
-    await clock.advance(56 * MINUTE)
-
-    await ui.press({ key: 'warm' })
-    expect(state.forks).toBe(1)
-    expect(await ui.find({ text: /^████████ 60 min$/ })).toBeDefined()
-    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
-  })
-
-  test('hiding the warning keeps it hidden until the next request', async ($, on) => {
-    const { state, clock } = world(on)
-    await start($)
-    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-    state.usage = usage(79_000, 2_000)
-    await step($)
-    await clock.advance(56 * MINUTE)
-
-    await ui.press({ key: 'warn-hide' })
-    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
-
-    await step($, 1)
-    await clock.advance(56 * MINUTE)
-    expect(await ui.find({ text: /cools in/ })).toBeDefined()
-  })
-
-  test('compacting runs the session compaction and hides the warning', async ($, on) => {
-    const { state, clock } = world(on)
-    await start($)
-    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-    state.usage = usage(79_000, 2_000)
-    await step($)
-    await clock.advance(56 * MINUTE)
-
-    await ui.press({ key: 'compact' })
-    expect(state.compactions).toBe(1)
-    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
+    await clock.advance(6 * MINUTE)
+    expect(await ui.find({ text: /^░░░░░░░░ cold$/ })).toBeDefined()
+    expect(await ui.find({ text: /cold for/ })).toBeUndefined()
+    expect((await ui.findAll({ type: 'Button' })).map(button => button.key)).toEqual(['auto'])
   })
 
   test('a subagent request leaves the countdown alone', async ($, on) => {
