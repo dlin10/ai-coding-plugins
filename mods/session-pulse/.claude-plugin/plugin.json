@@ -1,6 +1,6 @@
 {
   "name": "session-pulse",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A band above the prompt with the rate-limit windows, a prompt-cache countdown, and warming that keeps the cache from going cold.",
   "author": {
     "name": "Dmitry Linetsky"

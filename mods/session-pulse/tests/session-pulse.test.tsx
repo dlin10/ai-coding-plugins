@@ -127,6 +127,19 @@ describe('limits', () => {
       await ui.unmount()
     }
   })
+
+  test('a reload before the first reading keeps the windows the band showed', async ($, on) => {
+    const { state } = world(on)
+    await start($)
+    state.rateLimits = [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }]
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
+
+    state.rateLimits = []
+    await start($)
+
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
+  })
 })
 
 describe('cache', () => {

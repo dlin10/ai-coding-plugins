@@ -163,8 +163,10 @@ export const register: Register = (on, options) => {
       description: 'Show or hide the session pulse band: rate limits and prompt cache',
     })
 
+    // Before its first request a process has no reading yet; a reload or resume
+    // keeps the windows the session's state already holds.
     const usage = await $.session.usage()
-    await update($, limits, () => toLimits(usage.rateLimits))
+    if (usage.rateLimits.length > 0) await update($, limits, () => toLimits(usage.rateLimits))
 
     const stored = await $.store.get(STORED_TTL)
     const learned = typeof stored === 'number' ? stored : undefined

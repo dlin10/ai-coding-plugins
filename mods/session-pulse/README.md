@@ -1,4 +1,4 @@
-# Session Pulse 0.3.0
+# Session Pulse 0.3.1
 
 A Claude Code mod that keeps the session's cost in view above the prompt and keeps the prompt cache from
 going cold while you are away.
@@ -13,7 +13,8 @@ cache   ██░░░░░░ 18 min  5h ░░░░░░░░ 3% resets i
 - **The main row.** How much of the prompt cache's life is left, counted from the main conversation's
   last request (blue, orange once a quarter of it is left); the five-hour window's share and time to
   reset; the weekly window's share. The limits are the ones the status line gets from the API's
-  rate-limit headers, so off a subscription there are none.
+  rate-limit headers, so off a subscription there are none. A resumed or reloaded session keeps the
+  windows it last showed until its first request brings new ones.
 - **The warning.** Five minutes before the cache goes cold (two with a five-minute cache), a row says so
   and how many tokens the next turn will read again at full price once it has. It stays, saying how long
   the cache has been cold, until the next request or **Hide**.
@@ -49,7 +50,13 @@ instead.
 
 ## Install
 
-Load it from this folder for one session:
+Install it from the marketplace:
+
+```
+/plugin install session-pulse --marketplace dlin10/ai-coding-plugins
+```
+
+Or load it from this folder for one session:
 
 ```bash
 claude --plugin-dir /path/to/ai-coding-plugins/mods/session-pulse
