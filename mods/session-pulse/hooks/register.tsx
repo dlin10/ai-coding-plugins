@@ -27,6 +27,9 @@ import {
 const COMMAND = 'session-pulse'
 const STORED_TTL = 'ttlMs'
 const AUTO_QUESTION = 'How long should auto-warming keep the cache warm?'
+// The mod's own dialog: AskUserQuestion raised outside a turn leaves the
+// desktop showing the session as working once it is answered.
+const AUTO_DIALOG = 'session-pulse-auto'
 const WARM_PROMPT = 'This is a check that keeps the prompt cache warm. Reply with one word: ok.'
 const TICK_MS = 5000
 
@@ -87,21 +90,21 @@ async function chooseAuto($: EngineInterface) {
     return
   }
 
-  const ttl = await read($, ttlMs)
-  let answer: string
-  try {
-    answer = await $.ui.ask(AUTO_QUESTION, {
-      header: 'Auto-warm',
-      options: AUTO_HOURS.map(hours => autoLabel(hours, ttl)),
-    })
-  } catch {
-    return
-  }
-  const hours = parseHours(answer)
+  await $.ui.open({ id: AUTO_DIALOG, title: 'Auto-warm', focus: true, closeOnEscape: true, rows: 4 })
+}
+
+async function startTypedAuto($: EngineInterface, text: string) {
+  const hours = parseHours(text)
   if (hours === undefined) {
-    $.ui.toast(`Not a number of hours: "${answer}"`)
+    $.ui.toast(`Not a number of hours: "${text}"`)
     return
   }
+  await startAuto($, hours)
+}
+
+async function startAuto($: EngineInterface, hours: number) {
+  await $.ui.close({ id: AUTO_DIALOG })
+  const ttl = await read($, ttlMs)
   const at = await $.clock.now()
   const total = warmsFor(hours, ttl)
   await update($, auto, () => ({ until: at + hours * ONE_HOUR, done: 0, total }))
@@ -249,6 +252,39 @@ export const register: Register = (on, options) => {
     await update($, auto, () => null)
 
     return next(e)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: AUTO_DIALOG }, async ($, e) => {
+    const elements = $.ui.resolve(e)
+    const { Box, Button, Text } = elements
+    const Input = 'Input' in elements ? elements.Input : undefined
+    const ttl = await read($, ttlMs)
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text>{AUTO_QUESTION}</Text>
+        <Box flexDirection="row" gap={1} flexWrap="wrap">
+          {AUTO_HOURS.map((hours, index) => (
+            <Button
+              key={`auto-${hours}`}
+              label={autoLabel(hours, ttl)}
+              autoFocus={index === 0 ? true : undefined}
+              onPress={() => startAuto($, hours)}
+            />
+          ))}
+          <Button key="auto-cancel" label="Cancel" role="dismiss" onPress={() => $.ui.close({ id: AUTO_DIALOG })} />
+        </Box>
+        {Input && (
+          <Input
+            key="auto-hours"
+            label="Other"
+            placeholder="hours, up to 24"
+            submitLabel="Start"
+            onSubmit={text => startTypedAuto($, text)}
+          />
+        )}
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

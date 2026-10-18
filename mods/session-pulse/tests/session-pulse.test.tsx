@@ -21,6 +21,20 @@ const BAND = {
   },
 } as const
 
+const DIALOG = {
+  plugin: 'session-pulse',
+  component: 'Pane',
+  requestId: 'session-pulse-auto',
+  props: {
+    title: 'Auto-warm',
+    isFocused: true,
+    bodyColumns: 100,
+    placement: 'inline',
+    scroll: { offset: 0, bodyRows: 4 },
+    view: {},
+  },
+} as const
+
 const TOGGLE = {
   command: 'session-pulse',
   args: '',
@@ -33,7 +47,9 @@ type World = {
   rateLimits: SessionRateLimit[]
   forks: number
   forkRead: number
-  answer: string | null
+  opened: string[]
+  closed: string[]
+  asked: number
   compactions: number
 }
 
@@ -43,7 +59,9 @@ function world(on: On, store: Record<string, unknown> = {}) {
     rateLimits: [],
     forks: 0,
     forkRead: 80_000,
-    answer: null,
+    opened: [],
+    closed: [],
+    asked: 0,
     compactions: 0,
   }
   const clock = mock.clock(on, { now: START })
@@ -55,6 +73,14 @@ function world(on: On, store: Record<string, unknown> = {}) {
   on('session.measure', ($, e) => ({ changed: [...e.changed] }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('ui.toast', () => ({ value: undefined }))
+  on('ui.open', ($, e) => {
+    state.opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', ($, e) => {
+    state.closed.push(e.id)
+    return { value: undefined }
+  })
   on('turn.step', async function* ($, e) {
     return {
       turnId: e.turnId,
@@ -79,10 +105,9 @@ function world(on: On, store: Record<string, unknown> = {}) {
     state.compactions += 1
     return { messages: [{ role: 'user', text: 'Conversation summary', toolUses: [] }] }
   })
-  on('tool.call', { tool: 'AskUserQuestion' }, ($, e) => {
-    if (state.answer === null) return { deny: 'skipped' }
-    const question = e.questions[0]?.question ?? ''
-    return { result: { questions: e.questions, answers: { [question]: state.answer } } }
+  on('tool.call', { tool: 'AskUserQuestion' }, () => {
+    state.asked += 1
+    return { deny: 'the mod asks in a dialog of its own' }
   })
 
   return { state, clock }
@@ -246,15 +271,20 @@ describe('cache', () => {
 })
 
 describe('auto-warming', () => {
-  test('asks for how long, then warms before each cooling', async ($, on) => {
+  test('asks for how long in a dialog of its own, then warms before each cooling', async ($, on) => {
     const { state, clock } = world(on)
-    state.answer = autoLabel(2, HOUR)
     await start($)
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     state.usage = usage(79_000, 2_000)
     await step($)
 
     await ui.press({ key: 'auto' })
+    expect(state.opened).toEqual(['session-pulse-auto'])
+    const dialog = await $.ui.mount({ ...DIALOG, surface: 'terminal' })
+    expect(await dialog.find({ key: 'auto-2', text: autoLabel(2, HOUR) })).toBeDefined()
+
+    await dialog.press({ key: 'auto-2' })
+    expect(state.closed).toEqual(['session-pulse-auto'])
     expect(await ui.find({ key: 'auto', text: 'Auto 0/2' })).toBeDefined()
 
     await clock.advance(59 * MINUTE)
@@ -269,21 +299,40 @@ describe('auto-warming', () => {
     expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
   })
 
-  test('skipping the question leaves it off, and a second press turns it off', async ($, on) => {
+  test('Cancel leaves it off, typed hours start it, and a second press turns it off', async ($, on) => {
     const { state } = world(on)
     await start($)
-    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
     state.usage = usage(79_000, 2_000)
     await step($)
 
     await ui.press({ key: 'auto' })
+    const dialog = await $.ui.mount({ ...DIALOG, surface: 'desktop' })
+    await dialog.press({ key: 'auto-cancel' })
+    expect(state.closed).toEqual(['session-pulse-auto'])
     expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
 
-    state.answer = '3'
     await ui.press({ key: 'auto' })
+    await dialog.input({ key: 'auto-hours', text: '3' })
     expect(await ui.find({ key: 'auto', text: 'Auto 0/3' })).toBeDefined()
     await ui.press({ key: 'auto' })
     expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+  })
+
+  test('the dialog never goes through AskUserQuestion, on any surface', async ($, on) => {
+    const { state } = world(on)
+    await start($)
+
+    for (const surface of ['terminal', 'desktop', 'mobile'] as const) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      await ui.press({ key: 'auto' })
+      const dialog = await $.ui.mount({ ...DIALOG, surface })
+      expect(await dialog.find({ key: 'auto-1' })).toBeDefined()
+      await dialog.press({ key: 'auto-cancel' })
+      await dialog.unmount()
+      await ui.unmount()
+    }
+    expect(state.asked).toBe(0)
   })
 })
 

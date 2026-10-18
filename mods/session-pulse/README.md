@@ -21,9 +21,10 @@ cache   ██░░░░░░ 18 min  5h ░░░░░░░░ 3% resets i
   - **Warm up** reads the cached conversation once with a one-word fork of it (`$.model.fork`). The fork
     is served from the cache, which restarts the countdown, and it adds nothing to the conversation.
   - **Compact** runs the session's compaction, so the next turn has less to read.
-- **Auto** asks how long to keep the cache warm — `1 h (1 warm-up)`, `2 h (2 warm-ups)`, `4 h`, `8 h`,
-  or a number of hours of your own — then warms it two minutes before each cooling until the hours or the
-  warm-ups run out. The button counts the warm-ups (`Auto 1/2`); pressing it again turns auto-warming
+- **Auto** opens a small dialog of the mod's own asking how long to keep the cache warm —
+  `1 h (1 warm-up)`, `2 h (2 warm-ups)`, `4 h`, `8 h`, or a number of hours typed under **Other** (no
+  field on mobile); **Cancel** or Esc closes it — then warms the cache two minutes before each cooling
+  until the hours or the warm-ups run out. The button counts the warm-ups (`Auto 1/2`); pressing it again turns auto-warming
   off. A turn that is running refreshes the cache itself, so no warm-up is sent during one.
 
 `/session-pulse` hides or shows the band. Subagents cache prefixes of their own and do not move the
