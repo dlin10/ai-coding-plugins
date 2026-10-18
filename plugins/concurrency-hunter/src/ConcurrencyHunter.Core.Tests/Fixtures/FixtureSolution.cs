@@ -33,6 +33,9 @@ public sealed record FixtureOptions
     /// a stub the project references.</summary>
     public IReadOnlyList<MetadataReference> MetadataReferences { get; init; } = [];
 
+    /// <summary>Whether every project is compiled with <c>unsafe</c> code allowed, for cases that call a member with a pointer.</summary>
+    public bool AllowUnsafe { get; init; }
+
     /// <summary>Stub assemblies no project references, for cases about a framework that is absent.</summary>
     public IReadOnlyList<string> OmittedStubs { get; init; } = [];
 
@@ -116,7 +119,8 @@ public static class FixtureSolution
             filePath: filePath,
             compilationOptions: new CSharpCompilationOptions(
                 options.ProjectOutputKinds.GetValueOrDefault(name, options.OutputKind),
-                nullableContextOptions: NullableContextOptions.Enable),
+                nullableContextOptions: NullableContextOptions.Enable,
+                allowUnsafe: options.AllowUnsafe),
             parseOptions: CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest),
             metadataReferences: StubAssemblies.PlatformWithout(extraNames).Concat(stubs).Concat(extras).Concat(options.MetadataReferences));
         return solution.AddProject(projectInfo);

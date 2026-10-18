@@ -3,37 +3,37 @@
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 377,
+    "roots": 385,
     "rootsPerProvider": {
-      "aspnetcore": 162,
+      "aspnetcore": 170,
       "hosting": 215
     },
-    "reachableBodies": 1527,
-    "summaries": 1527,
-    "regions": 1068,
-    "instances": 1578,
-    "accesses": 1882,
+    "reachableBodies": 1561,
+    "summaries": 1561,
+    "regions": 1096,
+    "instances": 1614,
+    "accesses": 1918,
     "pairs": {
-      "comparisons": 2008,
-      "cartesianBound": 863956,
+      "comparisons": 2037,
+      "cartesianBound": 895792,
       "largestBucket": 8,
-      "buckets": 825,
+      "buckets": 844,
       "skips": {
         "confined": 23,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 71,
-        "no-overlap": 378,
-        "ordered": 52,
-        "read-read": 1177,
+        "no-overlap": 382,
+        "ordered": 54,
+        "read-read": 1194,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 283
+      "candidates": 289
     },
-    "findings": 261,
-    "occurrences": 280,
-    "groups": 211,
+    "findings": 267,
+    "occurrences": 286,
+    "groups": 215,
     "fingerprints": [
       "006126d59d446beb",
       "00c0f9fbc81a0228",
@@ -63,6 +63,7 @@
       "1f5489559527c9a3",
       "215abd8017e06962",
       "215f0556b47a8d0a",
+      "22409f3959f84fe7",
       "22f49fa00c6b6c6a",
       "23027766c83eb5c9",
       "243e5f431bb28527",
@@ -100,12 +101,14 @@
       "4c15c2baad7a4f17",
       "4cd6a654b167162b",
       "4edac11605ff4519",
+      "4f1d8500c62063c7",
       "4f5246a74669365c",
       "4f57af00bb2141df",
       "507361914edf3ef9",
       "51ebcc14076d6ea5",
       "5214fa68e44db28e",
       "528080baef57275e",
+      "54878bdf1f5005e9",
       "549748b167bad21f",
       "550d900d54a47e3f",
       "55c51ca5dfba701a",
@@ -129,6 +132,7 @@
       "64bdde19a43fcdbd",
       "65578825ba5049a3",
       "6662a1b0dee56033",
+      "687f86f10b06fac5",
       "6909d2bc37d1bf7f",
       "6aeb48fa825b44d9",
       "6ddc0383bbde4f1e",
@@ -230,6 +234,7 @@
       "b7202c887ed7d777",
       "b7735141a4dbaa1b",
       "b7781a14e16807d3",
+      "b7923638effff8ea",
       "b8a4c95102a37579",
       "b9060ca5ce16cf5b",
       "b9e1134c5f63eff9",
@@ -252,6 +257,7 @@
       "cf4f4e9036edbaf8",
       "d00a11e359b52125",
       "d0a9d9156add8de1",
+      "d238723a190b0698",
       "d2ea5b0d492d3b9d",
       "d3da03e778857633",
       "d4732743119bbd54",
@@ -302,32 +308,35 @@
     {
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
-        "aspnetcore": 162,
+        "aspnetcore": 170,
         "hosting": 214
       },
-      "accesses": 1314,
+      "accesses": 1338,
       "counters": {
-        "delegate-to-opaque": 7,
+        "delegate-to-opaque": 10,
         "element-operation": 37,
-        "known-call": 318,
-        "known-call-built-in": 314,
+        "generated-in-run": 0,
+        "known-call": 331,
+        "known-call-built-in": 324,
+        "known-call-generated": 3,
         "known-call-project": 4,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 17,
-        "opaque-by-project": 1,
-        "opaque-call": 1281,
+        "opaque-by-project": 2,
+        "opaque-call": 1308,
         "out-of-range-call": 0,
-        "reachable-bodies": 1524,
+        "pairs-removed-generated": 1,
+        "reachable-bodies": 1558,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 13,
+        "semantic-gap": 17,
         "solver-available": 1,
         "solver-queries": 21,
         "solver-sat": 17,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
-        "unproven-reference": 217,
-        "unresolved-base": 28,
+        "unproven-reference": 218,
+        "unresolved-base": 33,
         "unresolved-locator": 2,
         "unsupported-operation": 24,
         "wildcard-access": 9
@@ -340,9 +349,13 @@
         "unproven-joins": 50
       },
       "semanticGaps": [
-        "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",
         "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Timer\u003E)",
         "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Task\u003Cint\u003E\u003E)",
+        "Microsoft.Extensions.Options.Options.Create\u003CTOptions\u003E(Settings)",
+        "Polly.CircuitBreaker.CircuitBreakerStrategyOptions\u003Cobject\u003E.set_OnOpened(Func\u003COnCircuitOpenedArguments\u003Cobject\u003E, ValueTask\u003E)",
+        "Polly.ResiliencePipeline.Execute(Action)",
+        "Polly.ResiliencePipeline.Execute\u003CTResult\u003E(Func\u003Cint\u003E)",
+        "Polly.ResiliencePipelineBuilder.Build()",
         "System.ComponentModel.TypeDescriptor.GetClassName(object)",
         "System.Console.Write(object)",
         "System.Console.WriteLine(object)",
@@ -353,6 +366,363 @@
         "System.Threading.CancellationToken.Register(Action)",
         "System.Threading.Channels.Channel.CreateUnbounded\u003CT\u003E()",
         "System.Threading.Channels.ChannelWriter\u003CDemo.Web.Cases.ChannelHandoff.Order\u003E.TryWrite(Order)"
+      ],
+      "generationRefusals": [
+        {
+          "member": "M:Google.Protobuf.MessageParser\u00601.ParseFrom(System.Byte[])",
+          "file": "Google.Protobuf/3.30.2/601a02d3-9487-45ce-a28b-99b5cb103efd.json",
+          "cause": "closure-bound"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Builder.ControllerEndpointRouteBuilderExtensions.MapControllers(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.Core.json",
+          "cause": "library-does-not-compile"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Routing.json",
+          "cause": "library-does-not-compile"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPost(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Routing.json",
+          "cause": "library-does-not-compile"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Builder.GrpcEndpointRouteBuilderExtensions.MapGrpcService\u0060\u00601(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
+          "file": "Grpc.AspNetCore.Server/2.71.0/d97c8a76-b299-4045-a880-e98791e0722a.json",
+          "cause": "driver-not-synthesized"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(System.String[])",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Builder.WebApplication.Run(System.String)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Builder.WebApplication.get_Services",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Builder.WebApplicationBuilder.Build",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Builder.WebApplicationBuilder.get_Services",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.json",
+          "cause": "incomplete"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Http.HttpContext.get_RequestAborted",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Http.Abstractions.json",
+          "cause": "driver-not-synthesized"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Mvc.ControllerBase.#ctor",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.Core.json",
+          "cause": "library-does-not-compile"
+        },
+        {
+          "member": "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_HttpContext",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.Core.json",
+          "cause": "library-does-not-compile"
+        },
+        {
+          "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,System.Threading.Tasks.Task{\u0060\u00600}})",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Caching.Abstractions.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,\u0060\u00600})",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Caching.Abstractions.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.GrpcServicesExtensions.AddGrpc(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+          "file": "Grpc.AspNetCore.Server/2.71.0/d97c8a76-b299-4045-a880-e98791e0722a.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.IServiceScope.get_ServiceProvider",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.IServiceScopeFactory.CreateScope",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.MemoryCacheServiceCollectionExtensions.AddMemoryCache(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Caching.Memory.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllers(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.json",
+          "cause": "library-does-not-compile"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Func{System.IServiceProvider,\u0060\u00600})",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Func{System.IServiceProvider,\u0060\u00600})",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection,\u0060\u00600)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton\u0060\u00602(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddTransient\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService\u0060\u00601(System.IServiceProvider)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService\u0060\u00601(System.IServiceProvider)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.DependencyInjection.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.Hosting.BackgroundService.#ctor",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.Hosting.BackgroundService.StopAsync(System.Threading.CancellationToken)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions.#ctor",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "not-a-candidate"
+        },
+        {
+          "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions\u00601.set_FailureRatio(System.Double)",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "analysis-failed"
+        },
+        {
+          "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions\u00601.set_MinimumThroughput(System.Int32)",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "analysis-failed"
+        },
+        {
+          "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions\u00601.set_OnOpened(System.Func{Polly.CircuitBreaker.OnCircuitOpenedArguments{\u00600},System.Threading.Tasks.ValueTask})",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "analysis-failed"
+        },
+        {
+          "member": "M:Polly.CircuitBreakerResiliencePipelineBuilderExtensions.AddCircuitBreaker(Polly.ResiliencePipelineBuilder,Polly.CircuitBreaker.CircuitBreakerStrategyOptions)",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Polly.ResiliencePipeline.Execute(System.Action)",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "driver-not-synthesized"
+        },
+        {
+          "member": "M:Polly.ResiliencePipeline.Execute\u0060\u00601(System.Func{\u0060\u00600})",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "driver-not-synthesized"
+        },
+        {
+          "member": "M:Polly.ResiliencePipelineBuilder.#ctor",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "not-a-candidate"
+        },
+        {
+          "member": "M:Polly.ResiliencePipelineBuilder.Build",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentBag\u00601.#ctor",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentBag\u00601.Add(\u00600)",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentBag\u00601.get_Count",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.#ctor",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.#ctor(System.Collections.Generic.IEqualityComparer{\u00600})",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.AddOrUpdate(\u00600,\u00601,System.Func{\u00600,\u00601,\u00601})",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.ContainsKey(\u00600)",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.GetEnumerator",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.GetOrAdd(\u00600,\u00601)",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.TryGetValue(\u00600,\u00601@)",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.TryUpdate(\u00600,\u00601,\u00601)",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.get_Item(\u00600)",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Collections.Concurrent.ConcurrentDictionary\u00602.set_Item(\u00600,\u00601)",
+          "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.ComponentModel.TypeDescriptor.GetClassName(System.Object)",
+          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Console.Write(System.Object)",
+          "file": "Microsoft.NETCore.App/10.0/System.Console.json",
+          "cause": "library-state"
+        },
+        {
+          "member": "M:System.Console.WriteLine(System.Object)",
+          "file": "Microsoft.NETCore.App/10.0/System.Console.json",
+          "cause": "library-state"
+        },
+        {
+          "member": "M:System.Linq.IGrouping\u00602.get_Key",
+          "file": "Microsoft.NETCore.App/10.0/System.Linq.json",
+          "cause": "driver-not-synthesized"
+        },
+        {
+          "member": "M:System.Net.Http.HttpClient.#ctor",
+          "file": "Microsoft.NETCore.App/10.0/System.Net.Http.json",
+          "cause": "not-a-candidate"
+        },
+        {
+          "member": "M:System.Threading.Channels.Channel.CreateUnbounded\u0060\u00601",
+          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
+          "cause": "not-a-candidate"
+        },
+        {
+          "member": "M:System.Threading.Channels.ChannelReader\u00601.ReadAsync(System.Threading.CancellationToken)",
+          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
+          "cause": "overridable"
+        },
+        {
+          "member": "M:System.Threading.Channels.ChannelWriter\u00601.TryWrite(\u00600)",
+          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
+          "cause": "driver-not-synthesized"
+        },
+        {
+          "member": "M:System.Threading.Channels.Channel\u00602.get_Reader",
+          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
+          "cause": "analysis-failed"
+        },
+        {
+          "member": "M:System.Threading.Channels.Channel\u00602.get_Writer",
+          "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
+          "cause": "analysis-failed"
+        },
+        {
+          "member": "M:System.Threading.Tasks.Parallel.For(System.Int32,System.Int32,System.Action{System.Int32})",
+          "file": "Microsoft.NETCore.App/10.0/System.Threading.Tasks.Parallel.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Threading.Tasks.Parallel.ForEachAsync\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Threading.CancellationToken,System.Func{\u0060\u00600,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask})",
+          "file": "Microsoft.NETCore.App/10.0/System.Threading.Tasks.Parallel.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Threading.Tasks.Parallel.ForEach\u0060\u00601(System.Collections.Generic.IEnumerable{\u0060\u00600},System.Action{\u0060\u00600})",
+          "file": "Microsoft.NETCore.App/10.0/System.Threading.Tasks.Parallel.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Timers.Timer.#ctor",
+          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Timers.Timer.#ctor(System.Double)",
+          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Timers.Timer.Start",
+          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:System.Timers.Timer.set_AutoReset(System.Boolean)",
+          "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
+          "cause": "engine-recognized"
+        }
       ]
     },
     {
@@ -365,8 +735,10 @@
       "counters": {
         "delegate-to-opaque": 0,
         "element-operation": 0,
+        "generated-in-run": 0,
         "known-call": 0,
         "known-call-built-in": 0,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -374,6 +746,7 @@
         "opaque-by-project": 0,
         "opaque-call": 7,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 3,
         "scc-budget-exceeded": 0,
         "semantic-gap": 0,
@@ -392,7 +765,39 @@
         "timers-periodic": 0,
         "unproven-joins": 0
       },
-      "semanticGaps": []
+      "semanticGaps": [],
+      "generationRefusals": [
+        {
+          "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.Hosting.BackgroundService.#ctor",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
+          "cause": "engine-recognized"
+        },
+        {
+          "member": "M:Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(System.String[])",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilder.Build",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilder.get_Services",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.json",
+          "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions.Run(Microsoft.Extensions.Hosting.IHost)",
+          "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
+          "cause": "engine-recognized"
+        }
+      ]
     }
   ]
 }

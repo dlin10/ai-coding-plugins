@@ -32,12 +32,26 @@ public sealed class HeapReachability
     /// <param name="held">By static slot, what the slot holds beyond what the heap says: the value an awaited call completes with,
     /// which the heap does not carry through an <c>await</c>; <c>null</c> for nothing more.</param>
     public HeapReachability(HeapSolution heap, IReadOnlyDictionary<string, IReadOnlySet<string>>? held = null)
+        : this(heap, held, default)
+    {
+    }
+
+    /// <summary>The reachability of one solved heap, as work of a generation's stage.</summary>
+    /// <param name="heap">The heap.</param>
+    /// <param name="held">By static slot, what the slot holds beyond what the heap says; <c>null</c> for nothing more.</param>
+    /// <param name="checks">The stage's checks, which cancel the reachability at each object, edge and static field it goes through.</param>
+    internal HeapReachability(HeapSolution heap, IReadOnlyDictionary<string, IReadOnlySet<string>>? held, StageChecks checks)
     {
         _heap = heap;
         _held = held ?? new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
-        _iterators = heap.IteratorObjects.GroupBy(iterator => iterator.RegionId, StringComparer.Ordinal)
-                         .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        Checks = checks;
+        _iterators = checks.Each(heap.IteratorObjects).GroupBy(iterator => iterator.RegionId, StringComparer.Ordinal)
+                           .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
     }
+
+    /// <summary>The checks of the generation stage this reachability is built for: every walk it makes observes them. None outside a
+    /// generation.</summary>
+    internal StageChecks Checks { get; }
 
     /// <summary>The slot of a static field as the heap names it: <c>&lt;assembly&gt;:&lt;type&gt;.&lt;field&gt;</c>.</summary>
     /// <param name="assembly">The declaring assembly.</param>
@@ -47,12 +61,12 @@ public sealed class HeapReachability
 
     /// <summary>Every field of every static region of the heap that holds something, in region and slot order.</summary>
     public IReadOnlyList<PathStart> StaticFields() =>
-        _heap.Regions.Values.Where(region => region.Kind == HeapRegionKind.Static)
-             .OrderBy(region => region.Identity, StringComparer.Ordinal)
-             .SelectMany(region => _heap.FieldsOf(region.Identity).Union(_held.Keys.Where(slot => Declares(region, slot)), StringComparer.Ordinal)
-                                        .Order(StringComparer.Ordinal)
-                                        .Select(slot => new PathStart(region.Identity, slot)))
-             .ToArray();
+        Checks.Each(_heap.Regions.Values).Where(region => region.Kind == HeapRegionKind.Static)
+              .OrderBy(region => region.Identity, StringComparer.Ordinal)
+              .SelectMany(region => Checks.Each(_heap.FieldsOf(region.Identity).Union(_held.Keys.Where(slot => Declares(region, slot)), StringComparer.Ordinal))
+                                          .Order(StringComparer.Ordinal)
+                                          .Select(slot => new PathStart(region.Identity, slot)))
+              .ToArray();
 
     /// <summary>The static field with a slot, or <c>null</c> when no static region holds anything in it.</summary>
     /// <param name="slot">The slot.</param>
@@ -71,7 +85,7 @@ public sealed class HeapReachability
     public IReadOnlySet<string> Held(string slot)
     {
         var held = StaticField(slot) is { } start ? Targets(start).ToHashSet(StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal);
-        foreach (var below in StaticFields().Where(start => start.Slot.StartsWith(slot + FieldSlot.PATH_SEPARATOR, StringComparison.Ordinal)))
+        foreach (var below in Checks.Each(StaticFields()).Where(start => start.Slot.StartsWith(slot + FieldSlot.PATH_SEPARATOR, StringComparison.Ordinal)))
             held.UnionWith(Targets(below));
         return held;
     }
@@ -89,30 +103,31 @@ public sealed class HeapReachability
     /// <param name="region">The object.</param>
     public IReadOnlyList<(string Field, string Target)> Edges(string region)
     {
+        Checks.Check();
         if (_edges.TryGetValue(region, out var cached))
             return cached;
         var edges = new List<(string Field, string Target)>();
-        foreach (var field in _heap.FieldsOf(region))
-            edges.AddRange(_heap.PointsTo(region, field).SelectMany(target => Through(field, target, [])));
-        edges.AddRange(_heap.DelegateCaptures(region).Select(target => (CAPTURE, target)));
+        foreach (var field in Checks.Each(_heap.FieldsOf(region)))
+            edges.AddRange(Checks.Each(_heap.PointsTo(region, field)).SelectMany(target => Through(field, target, [])));
+        edges.AddRange(Checks.Each(_heap.DelegateCaptures(region)).Select(target => (CAPTURE, target)));
         if (_heap.LibrarySequences.TryGetValue(region, out var sequence))
         {
-            edges.AddRange(sequence.Sources.Concat(sequence.Yields).Concat(sequence.Keys).Select(target => (SEQUENCE, target)));
+            edges.AddRange(Checks.Each(sequence.Sources.Concat(sequence.Yields).Concat(sequence.Keys)).Select(target => (SEQUENCE, target)));
             if (_heap.Instances.TryGetValue(sequence.CreatorInstance, out var creator) &&
                 creator.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == sequence.CreatorOperation) is { } call)
             {
                 var values = call.Arguments.SelectMany(argument => argument.Values).Concat(call.Receivers).Concat(call.Delegates);
-                edges.AddRange(values.SelectMany(value => _heap.Resolve(creator.Id, value)).Select(target => (SEQUENCE, target)));
+                edges.AddRange(Checks.Each(values).SelectMany(value => _heap.Resolve(creator.Id, value)).Select(target => (SEQUENCE, target)));
             }
         }
 
         if (_iterators.TryGetValue(region, out var iterator) && _heap.Instances.TryGetValue(iterator.Creation.CalleeInstance, out var callee))
         {
-            edges.AddRange(callee.Parameters.Values.SelectMany(values => values).Concat(callee.Receivers)
+            edges.AddRange(Checks.Each(callee.Parameters.Values.SelectMany(values => values).Concat(callee.Receivers))
                                  .Select(target => (ITERATOR, target)));
         }
 
-        var result = edges.Where(edge => _heap.Regions.ContainsKey(edge.Target)).Distinct().ToArray();
+        var result = Checks.Each(edges).Where(edge => _heap.Regions.ContainsKey(edge.Target)).Distinct().ToArray();
         _edges[region] = result;
         return result;
     }
@@ -124,12 +139,14 @@ public sealed class HeapReachability
     /// <param name="copies">The copies already passed on this path.</param>
     private IEnumerable<(string Field, string Target)> Through(string field, string target, HashSet<string> copies)
     {
+        Checks.Check();
         if (!IsCopy(target))
             return [(field, target)];
         if (!copies.Add(target))
             return [];
-        return _heap.FieldsOf(target).SelectMany(slot => _heap.PointsTo(target, slot).SelectMany(held => Through(FieldSlot.Join(field, slot), held, copies)))
-                    .ToArray();
+        return Checks.Each(_heap.FieldsOf(target))
+                     .SelectMany(slot => Checks.Each(_heap.PointsTo(target, slot)).SelectMany(held => Through(FieldSlot.Join(field, slot), held, copies)))
+                     .ToArray();
     }
 
     /// <summary>Whether a region is a struct held by value (R2), which is no object.</summary>
@@ -192,12 +209,13 @@ public sealed class HeapReachability
     public IReadOnlySet<string> VisibleFrom(IEnumerable<string> regions)
     {
         var reached = new HashSet<string>(StringComparer.Ordinal);
-        var pending = new Stack<string>(regions.Where(_heap.Regions.ContainsKey));
+        var pending = new Stack<string>(Checks.Each(regions).Where(_heap.Regions.ContainsKey));
         while (pending.TryPop(out var region))
         {
+            Checks.Check();
             if (!reached.Add(region))
                 continue;
-            foreach (var (field, target) in Edges(region))
+            foreach (var (field, target) in Checks.Each(Edges(region)))
             {
                 if (!field.Split(FieldSlot.PATH_SEPARATOR).Any(HiddenSlots.Contains))
                     pending.Push(target);
@@ -214,12 +232,13 @@ public sealed class HeapReachability
     public IReadOnlySet<string> From(IEnumerable<string> regions, bool captures = true)
     {
         var reached = new HashSet<string>(StringComparer.Ordinal);
-        var pending = new Stack<string>(regions.Where(_heap.Regions.ContainsKey));
+        var pending = new Stack<string>(Checks.Each(regions).Where(_heap.Regions.ContainsKey));
         while (pending.TryPop(out var region))
         {
+            Checks.Check();
             if (!reached.Add(region))
                 continue;
-            foreach (var (field, target) in Edges(region))
+            foreach (var (field, target) in Checks.Each(Edges(region)))
             {
                 if (captures || field != CAPTURE)
                     pending.Push(target);
@@ -240,15 +259,16 @@ public sealed class HeapReachability
     public bool Reaches(PathStart start, IReadOnlySet<string> targets, string? avoid, bool counted, IReadOnlySet<string> written)
     {
         var seen = new HashSet<(string Region, bool Counted)>();
-        var pending = new Stack<(string Region, bool Counted)>(Targets(start).Where(target => target != avoid).Select(target => (target, counted)));
+        var pending = new Stack<(string Region, bool Counted)>(Checks.Each(Targets(start)).Where(target => target != avoid).Select(target => (target, counted)));
         while (pending.TryPop(out var state))
         {
+            Checks.Check();
             if (!seen.Add(state))
                 continue;
             if (state.Counted && targets.Contains(state.Region))
                 return true;
             var next = state.Counted || written.Contains(state.Region);
-            foreach (var (_, target) in Edges(state.Region))
+            foreach (var (_, target) in Checks.Each(Edges(state.Region)))
             {
                 if (target != avoid)
                     pending.Push((target, next));

@@ -33,6 +33,12 @@ public static class ReportRenderer
         [CoverageCounters.KNOWN_CALL] = "calls without a source body that a library model describes, with the effects it gives them",
         [CoverageCounters.KNOWN_CALL_BUILT_IN] = "known calls a built-in library model describes",
         [CoverageCounters.KNOWN_CALL_PROJECT] = "known calls a project library model describes",
+        [CoverageCounters.KNOWN_CALL_GENERATED] = "known calls a generated library model describes",
+        [CoverageCounters.GENERATED_IN_RUN] = "generation targets, a library member with the generated file that answers for it, whose model this run " +
+                                              "generated, in this scope or an earlier one, each once however many calls reach it; a member reached " +
+                                              "through two assets is two targets and counts twice",
+        [CoverageCounters.PAIRS_REMOVED_GENERATED] = "candidate pairs the analysis without the generated models has and this one has not, a pair " +
+                                                     "being the same two sites on the same resource however many executions meet there",
         [CoverageCounters.OPAQUE_BY_PROJECT] = "opaque calls whose member a project model declares opaque",
         [CoverageCounters.MODEL_ENTRY_REJECTED] = "project model files, entries and pattern overloads that were rejected; the library-models diagnostics name each and why",
         [CoverageCounters.OUT_OF_RANGE_CALL] = "opaque calls of a member a built-in library model describes, in an assembly version outside its supported range",
@@ -208,6 +214,8 @@ public static class ReportRenderer
                 }
             }
 
+            var ungenerated = Items(coverage.GenerationRefusals.Select(item => $"{item.Member} ({item.Cause}, {item.FileKey})"));
+            Line($"  - Members without a generated model: {ungenerated}");
             Line($"  - Lowered but not reached (inventory, not counted against coverage): {Items(coverage.LoweredNotReached)}");
             Line($"  - Source bodies outside the lowered set (inventory, not counted against coverage): {Items(coverage.OutsideLoweredSet)}");
         }

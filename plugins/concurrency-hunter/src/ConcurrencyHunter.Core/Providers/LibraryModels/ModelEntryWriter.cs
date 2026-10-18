@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ConcurrencyHunter.Providers.LibraryModels.Generation;
 
 namespace ConcurrencyHunter.Providers.LibraryModels;
 
@@ -14,7 +15,11 @@ internal static class ModelEntryWriter
         NewLine = "\n"
     };
 
-    internal static JsonObject Write(LibraryModel model)
+    /// <summary>The entry a model is written as, in the project entry form. A generation passes its checks, which cancel the writing at
+    /// each fate, effect, store, output, keep and call it writes.</summary>
+    /// <param name="model">The model.</param>
+    /// <param name="checks">The generation's checks, or <c>null</c> for a writing that nothing cancels.</param>
+    internal static JsonObject Write(LibraryModel model, GenerationChecks? checks = null)
     {
         var ranges = model.Assemblies.OrderBy(range => range.AssemblyName, StringComparer.Ordinal).ToArray();
         if (ranges.Length == 0 || ranges.Any(range => range.Minimum != ranges[0].Minimum ||
@@ -32,7 +37,7 @@ internal static class ModelEntryWriter
             },
             ["effects"] = Values(model.Effects.GroupBy(effect => effect.Parameter, StringComparer.Ordinal)
                                                .OrderBy(group => group.Key, StringComparer.Ordinal),
-                                   group => group.Key, group => group.Select(effect => Effect(effect.Kind)))
+                                   group => group.Key, group => group.Select(effect => Effect(effect.Kind)), checks)
         };
         if (model.Result is { } result)
             entry["result"] = ResultText(result);
@@ -41,6 +46,7 @@ internal static class ModelEntryWriter
             var fates = new JsonObject();
             foreach (var fate in model.Fates.OrderBy(fate => fate.Parameter, StringComparer.Ordinal))
             {
+                checks?.Check(GenerationStage.BuildModel);
                 var value = new JsonObject { ["fate"] = LibraryFate.Text(fate.Kind) };
                 if (fate.Holder is { } holder)
                     value["holder"] = holder == LibraryHolderKind.Result ? "result" : "this";
@@ -52,22 +58,26 @@ internal static class ModelEntryWriter
         }
         if (model.Stores.Count != 0)
             entry["stores"] = Values(model.Stores.OrderBy(pair => pair.Key, StringComparer.Ordinal), pair => pair.Key,
-                                      pair => pair.Value.Select(value => value.Canonical));
+                                      pair => pair.Value.Select(value => value.Canonical), checks);
         if (model.Outputs.Count != 0)
         {
             var outputs = new JsonObject();
             foreach (var output in model.Outputs.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                checks?.Check(GenerationStage.BuildModel);
                 outputs[output.Key] = ResultText(output.Value);
+            }
             entry["outputs"] = outputs;
         }
         if (model.Keeps.Count != 0)
             entry["keeps"] = Values(model.Keeps.OrderBy(pair => pair.Key, StringComparer.Ordinal), pair => pair.Key,
-                                     pair => pair.Value.Select(value => value.Canonical));
+                                     pair => pair.Value.Select(value => value.Canonical), checks);
         if (model.Calls.Count != 0)
         {
             var calls = new JsonArray();
             foreach (var call in model.Calls.DistinctBy(call => call.Canonical).OrderBy(call => call.Canonical, StringComparer.Ordinal))
             {
+                checks?.Check(GenerationStage.BuildModel);
                 var value = new JsonObject { ["member"] = call.Member, ["on"] = call.On.Canonical };
                 if (call.Inputs.Count != 0)
                     value["inputs"] = new JsonArray(call.Inputs.Select(input => TextArray(input.Select(item => item.Canonical))).ToArray());
@@ -78,12 +88,16 @@ internal static class ModelEntryWriter
         return entry;
     }
 
-    internal static byte[] File(LibraryModel model)
+    /// <summary>The project model file a model is written as: one entry.</summary>
+    /// <param name="model">The model.</param>
+    /// <param name="checks">The generation's checks, which cancel the writing of the entry, or <c>null</c> for a writing that nothing
+    /// cancels.</param>
+    internal static byte[] File(LibraryModel model, GenerationChecks? checks = null)
     {
         var file = new JsonObject
         {
             ["schemaVersion"] = 1,
-            ["models"] = new JsonArray(Write(model))
+            ["models"] = new JsonArray(Write(model, checks))
         };
         return Encoding.UTF8.GetBytes(file.ToJsonString(JsonOptions) + "\n");
     }
@@ -101,11 +115,14 @@ internal static class ModelEntryWriter
         _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
     };
 
-    private static JsonObject Values<T>(IEnumerable<T> entries, Func<T, string> key, Func<T, IEnumerable<string>> values)
+    private static JsonObject Values<T>(IEnumerable<T> entries, Func<T, string> key, Func<T, IEnumerable<string>> values, GenerationChecks? checks)
     {
         var result = new JsonObject();
         foreach (var entry in entries)
+        {
+            checks?.Check(GenerationStage.BuildModel);
             result[key(entry)] = TextArray(values(entry));
+        }
         return result;
     }
 

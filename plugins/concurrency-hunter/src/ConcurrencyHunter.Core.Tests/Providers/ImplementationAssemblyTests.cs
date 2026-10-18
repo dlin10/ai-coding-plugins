@@ -10,6 +10,8 @@ namespace ConcurrencyHunter.Core.Tests.Providers;
 public sealed class ImplementationAssemblyTests : IDisposable
 {
     private const string NET8 = "net8.0";
+    private const string NETCoreApp = "Microsoft.NETCore.App";
+    private const string AspNetCoreApp = "Microsoft.AspNetCore.App";
 
     private readonly GenerationInstall _install = new();
 
@@ -110,6 +112,8 @@ public sealed class ImplementationAssemblyTests : IDisposable
 
         Assert.Equal(GenerationReasons.NO_IMPLEMENTATION, resolution.Reason);
         Assert.Null(resolution.Assembly);
+        // No asset was read, so there is no MVID to name.
+        Assert.Null(resolution.AssetMvid);
     }
 
     [Fact]
@@ -140,12 +144,14 @@ public sealed class ImplementationAssemblyTests : IDisposable
     public void A_package_member_on_an_uninstalled_platform_major_is_no_implementation()
     {
         _install.SharedFramework("10.0.1");
-        _install.Package("Foo", "1.0.0", "", "netstandard2.0/Foo");
+        var package = _install.Package("Foo", "1.0.0", "", "netstandard2.0/Foo");
 
         var resolution = _install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8);
 
         Assert.Equal(GenerationReasons.NO_IMPLEMENTATION, resolution.Reason);
         Assert.Contains("no shared framework of .NET 8", resolution.Detail, StringComparison.Ordinal);
+        // The asset net8.0 selects is on disk: the resolution names its MVID though the framework it needs is not installed.
+        Assert.Equal(AssemblyFile.Read(Path.Combine(package, "lib", "netstandard2.0", "Foo.dll"))!.Mvid, resolution.AssetMvid);
         Assert.Equal("netstandard2.0", LibOf(_install.Resolver().Resolve("Foo", "1.0.0", "Foo", "net10.0")));
     }
 
@@ -600,6 +606,243 @@ public sealed class ImplementationAssemblyTests : IDisposable
         Assert.Equal(((string?)NET8, (string?)null), Chosen(resolver.Resolve("Foo", "1.0.0", "Foo", NET8)));
 
         static (string? Framework, string? Reason) Chosen(ImplementationResolution resolution) => (resolution.Framework, resolution.Reason);
+    }
+
+    [Fact]
+    public void A_framework_member_missing_from_NETCore_App_comes_from_AspNetCore_App()
+    {
+        var shared = _install.SharedFramework("8.0.1", ["Other"]);
+        var web = _install.AspNetCoreFramework("8.0.2", ["Microsoft.AspNetCore.Http", "Web.Other"]);
+
+        var found = Found(_install.Resolver().Resolve("Microsoft.AspNetCore.Http", "8.0.0.0", null, null));
+
+        Assert.Equal(Path.Combine(web, "Microsoft.AspNetCore.Http.dll"), found.Path);
+        Assert.Equal(AspNetCoreApp, found.FrameworkName);
+        Assert.Equal("8.0.2", found.ImplementationVersion);
+        Assert.Null(found.PackageId);
+        Assert.Equal(NET8, found.Framework);
+        Assert.Equal(shared, found.SharedFrameworkDirectory);
+        Assert.Equal([Path.Combine(shared, "Other.dll"), Path.Combine(web, "Web.Other.dll")], found.References);
+    }
+
+    [Fact]
+    public void NETCore_App_wins_when_both_frameworks_have_the_name()
+    {
+        var shared = _install.SharedFramework("8.0.1", ["Both", "Other"]);
+        var web = _install.AspNetCoreFramework("8.0.1", ["Both", "Web.Only"]);
+
+        var core = Found(_install.Resolver().Resolve("Both", "8.0", null, null));
+        var aspNetCore = Found(_install.Resolver().Resolve("Web.Only", "8.0", null, null));
+
+        Assert.Equal(Path.Combine(shared, "Both.dll"), core.Path);
+        Assert.Equal(NETCoreApp, core.FrameworkName);
+        Assert.Equal([Path.Combine(shared, "Other.dll")], core.References);
+        Assert.Equal(Path.Combine(web, "Web.Only.dll"), aspNetCore.Path);
+        Assert.Equal(AspNetCoreApp, aspNetCore.FrameworkName);
+        Assert.Equal([Path.Combine(shared, "Both.dll"), Path.Combine(shared, "Other.dll")], aspNetCore.References);
+    }
+
+    [Fact]
+    public void AspNetCore_App_patch_is_the_highest_of_the_major()
+    {
+        _install.SharedFramework("8.0.1", ["Other"]);
+        _install.AspNetCoreFramework("8.0.1", ["Web"]);
+        var highest = _install.AspNetCoreFramework("8.0.12", ["Web"]);
+        _install.AspNetCoreFramework("8.0.9", ["Web"]);
+        _install.AspNetCoreFramework("9.0.20", ["Web"]);
+        _install.Package("Foo", "1.0.0", GenerationInstall.FrameworkReferences(NET8, AspNetCoreApp), "net8.0/Foo");
+
+        var member = Found(_install.Resolver().Resolve("Web", "8.0.0.0", null, null));
+        var package = Found(_install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8));
+
+        Assert.Equal(Path.Combine(highest, "Web.dll"), member.Path);
+        Assert.Equal("8.0.12", member.ImplementationVersion);
+        Assert.Contains(Path.Combine(highest, "Web.dll"), package.References);
+        Assert.Single(package.References, reference => Path.GetFileName(reference) == "Web.dll");
+    }
+
+    [Fact]
+    public void A_package_naming_AspNetCore_App_compiles_against_it()
+    {
+        var shared = _install.SharedFramework("8.0.1", ["Other"]);
+        var web = _install.AspNetCoreFramework("8.0.3", ["Microsoft.AspNetCore.Http"]);
+        _install.Package("Foo", "1.0.0", GenerationInstall.FrameworkReferences(NET8, AspNetCoreApp), "net8.0/Foo");
+        _install.Package("Flat", "1.0.0", $"""<frameworkReferences><frameworkReference name="{AspNetCoreApp}" /></frameworkReferences>""", "net8.0/Flat");
+        _install.Package("Plain", "1.0.0", "", "net8.0/Plain");
+        _install.Package("Desktop", "1.0.0", GenerationInstall.FrameworkReferences(NET8, "Microsoft.WindowsDesktop.App"), "net8.0/Desktop");
+        _install.Package("Grouped", "1.0.0", $"""
+            <frameworkReferences>
+              <group targetFramework="net6.0"><frameworkReference name="Microsoft.WindowsDesktop.App" /></group>
+              <group targetFramework="net9.0"><frameworkReference name="{AspNetCoreApp}" /></group>
+            </frameworkReferences>
+            """, "net8.0/Grouped");
+
+        var named = Found(_install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8));
+        var flat = Found(_install.Resolver().Resolve("Flat", "1.0.0", "Flat", NET8));
+
+        Assert.Equal(shared, named.SharedFrameworkDirectory);
+        Assert.Null(named.FrameworkName);
+        Assert.Equal([Path.Combine(shared, "Other.dll"), Path.Combine(web, "Microsoft.AspNetCore.Http.dll")], named.References);
+        Assert.Equal(named.References, flat.References);
+        foreach (var other in new[] { "Plain", "Desktop", "Grouped" })
+            Assert.Equal([Path.Combine(shared, "Other.dll")], Found(_install.Resolver().Resolve(other, "1.0.0", other, NET8)).References);
+    }
+
+    [Fact]
+    public void A_dependency_naming_AspNetCore_App_counts()
+    {
+        _install.SharedFramework("8.0.1", ["Other"]);
+        var web = _install.AspNetCoreFramework("8.0.1", ["Microsoft.AspNetCore.Http"]);
+        _install.Package("Foo", "1.0.0", """<dependencies><dependency id="Bar" version="1.0.0" /></dependencies>""", "net8.0/Foo");
+        _install.Package("Bar", "1.0.0", """<dependencies><dependency id="Baz" version="1.0.0" /></dependencies>""", "net8.0/Bar");
+        _install.Package("Baz", "1.0.0", GenerationInstall.FrameworkReferences(NET8, AspNetCoreApp), "net8.0/Baz");
+        _install.Package("Quiet", "1.0.0", """<dependencies><dependency id="Legacy" version="1.0.0" /></dependencies>""", "net8.0/Quiet");
+        _install.Package("Legacy", "1.0.0", GenerationInstall.FrameworkReferences(NET8, AspNetCoreApp), "net461/Legacy");
+
+        var chain = Found(_install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8));
+        var skipped = Found(_install.Resolver().Resolve("Quiet", "1.0.0", "Quiet", NET8));
+
+        Assert.Contains(Path.Combine(web, "Microsoft.AspNetCore.Http.dll"), chain.References);
+        Assert.Equal(["Legacy@1.0.0: no compatible lib folder"], skipped.MissingDependencies);
+        Assert.DoesNotContain(Path.Combine(web, "Microsoft.AspNetCore.Http.dll"), skipped.References);
+    }
+
+    [Fact]
+    public void A_package_copy_still_wins_over_AspNetCore_App()
+    {
+        var shared = _install.SharedFramework("8.0.1", ["Both"]);
+        var web = _install.AspNetCoreFramework("8.0.1", ["Both", "Microsoft.AspNetCore.Http", "Web.Only"]);
+        _install.Package("Foo", "1.0.0", """<dependencies><dependency id="Bar" version="1.0.0" /></dependencies>""" +
+                                         GenerationInstall.FrameworkReferences(NET8, AspNetCoreApp), "net8.0/Foo");
+        var bar = _install.Package("Bar", "1.0.0", "", "net8.0/Bar", "net8.0/Microsoft.AspNetCore.Http");
+
+        var found = Found(_install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8));
+
+        Assert.Contains(Path.Combine(bar, "lib", "net8.0", "Microsoft.AspNetCore.Http.dll"), found.References);
+        Assert.DoesNotContain(Path.Combine(web, "Microsoft.AspNetCore.Http.dll"), found.References);
+        Assert.Contains(Path.Combine(shared, "Both.dll"), found.References);
+        Assert.DoesNotContain(Path.Combine(web, "Both.dll"), found.References);
+        var references = found.References.ToList();
+        Assert.True(references.IndexOf(Path.Combine(shared, "Both.dll")) < references.IndexOf(Path.Combine(web, "Web.Only.dll")));
+    }
+
+    [Fact]
+    public void A_framework_member_without_AspNetCore_App_installed_is_no_implementation()
+    {
+        _install.SharedFramework("8.0.1", ["Other"]);
+
+        var none = _install.Resolver().Resolve("Microsoft.AspNetCore.Http", "8.0.0.0", null, null);
+        _install.AspNetCoreFramework("9.0.1", ["Microsoft.AspNetCore.Http"]);
+        var otherMajor = _install.Resolver().Resolve("Microsoft.AspNetCore.Http", "8.0.0.0", null, null);
+
+        foreach (var resolution in new[] { none, otherMajor })
+        {
+            Assert.Equal(GenerationReasons.NO_IMPLEMENTATION, resolution.Reason);
+            Assert.Null(resolution.Assembly);
+            Assert.Equal(NET8, resolution.Framework);
+            Assert.Contains(AspNetCoreApp, resolution.Detail, StringComparison.Ordinal);
+            // A framework member has no package asset, so no MVID.
+            Assert.Null(resolution.AssetMvid);
+        }
+    }
+
+    [Fact]
+    public void A_package_naming_AspNetCore_App_without_it_installed_is_no_implementation()
+    {
+        _install.SharedFramework("8.0.1", ["Other"]);
+        var foo = _install.Package("Foo", "1.0.0", GenerationInstall.FrameworkReferences(NET8, AspNetCoreApp), "net8.0/Foo");
+        _install.Package("Plain", "1.0.0", "", "net8.0/Plain");
+
+        var none = _install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8);
+        _install.AspNetCoreFramework("9.0.1", ["Microsoft.AspNetCore.Http"]);
+        var otherMajor = _install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8);
+
+        foreach (var resolution in new[] { none, otherMajor })
+        {
+            Assert.Equal(GenerationReasons.NO_IMPLEMENTATION, resolution.Reason);
+            Assert.Null(resolution.Assembly);
+            Assert.Equal(NET8, resolution.Framework);
+            Assert.Contains(AspNetCoreApp, resolution.Detail, StringComparison.Ordinal);
+            Assert.Equal(AssemblyFile.Read(Path.Combine(foo, "lib", NET8, "Foo.dll"))!.Mvid, resolution.AssetMvid);
+        }
+
+        Assert.Equal([Path.Combine(_install.DotnetRoot, "shared", NETCoreApp, "8.0.1", "Other.dll")],
+                     Found(_install.Resolver().Resolve("Plain", "1.0.0", "Plain", NET8)).References);
+    }
+
+    [Fact]
+    public void A_dependency_naming_AspNetCore_App_without_it_installed_is_no_implementation()
+    {
+        _install.SharedFramework("8.0.1", ["Other"]);
+        var foo = _install.Package("Foo", "1.0.0", """<dependencies><dependency id="Bar" version="1.0.0" /></dependencies>""", "net8.0/Foo");
+        _install.Package("Bar", "1.0.0", GenerationInstall.FrameworkReferences(NET8, AspNetCoreApp), "net8.0/Bar");
+
+        var none = _install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8);
+        _install.AspNetCoreFramework("9.0.1", ["Microsoft.AspNetCore.Http"]);
+        var otherMajor = _install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8);
+
+        foreach (var resolution in new[] { none, otherMajor })
+        {
+            Assert.Equal(GenerationReasons.NO_IMPLEMENTATION, resolution.Reason);
+            Assert.Null(resolution.Assembly);
+            Assert.Equal(NET8, resolution.Framework);
+            Assert.Contains(AspNetCoreApp, resolution.Detail, StringComparison.Ordinal);
+            Assert.Equal(AssemblyFile.Read(Path.Combine(foo, "lib", NET8, "Foo.dll"))!.Mvid, resolution.AssetMvid);
+        }
+    }
+
+    [Fact]
+    public void A_cancelled_token_ends_the_resolution_between_nuspec_reads()
+    {
+        _install.SharedFramework("8.0.1");
+        Chain(5);
+        using var cancellation = new CancellationTokenSource();
+        var cancelled = new List<string>();
+        var uncancelled = new List<string>();
+
+        Assert.ThrowsAny<OperationCanceledException>(() => _install.Resolver(nuspecRead: path =>
+        {
+            cancelled.Add(path);
+            if (cancelled.Count == 3)
+                cancellation.Cancel();
+        }).Resolve("Foo", "1.0.0", "Foo", NET8, cancellation.Token));
+        Found(_install.Resolver(nuspecRead: uncancelled.Add).Resolve("Foo", "1.0.0", "Foo", NET8));
+
+        Assert.Equal(3, cancelled.Count);
+        Assert.Equal(6, uncancelled.Count);
+        Assert.All(uncancelled, path => Assert.EndsWith(".nuspec", path, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_cancelled_token_ends_the_scan_of_the_references_at_its_next_candidate()
+    {
+        _install.SharedFramework("8.0.1", ["Other.A", "Other.B", "Other.C", "Other.D"]);
+        _install.Package("Foo", "1.0.0", "", "net8.0/Foo");
+        var seen = new List<int>();
+        var nuspecAt = 0;
+
+        var found = Found(_install.Resolver(nuspecRead: _ => nuspecAt = seen.Count)
+                                  .Resolve("Foo", "1.0.0", "Foo", NET8, new GenerationChecks(CancellationToken.None, (_, ordinal) => seen.Add(ordinal))));
+
+        // After the nuspec read and the one round of the dependency closure, the scan has a check for each candidate reference: Foo's own
+        // lib folder, whose only file is Foo itself, and the four assemblies of the shared framework.
+        Assert.Equal(4, found.References.Count);
+        Assert.True(seen.Count >= nuspecAt + 1 + 5, $"{seen.Count} checks, the nuspec read after {nuspecAt}");
+
+        using var cancellation = new CancellationTokenSource();
+        var stopped = new List<int>();
+        var cancelling = new GenerationChecks(cancellation.Token, (_, ordinal) =>
+        {
+            stopped.Add(ordinal);
+            if (ordinal == nuspecAt + 2)
+                cancellation.Cancel();
+        });
+
+        Assert.Throws<OperationCanceledException>(() => _install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8, cancelling));
+
+        // The first candidate's check is the one the cancellation reaches: the scan reads none of the others.
+        Assert.Equal(nuspecAt + 2, stopped.Count);
+        Assert.True(stopped.Count < seen.Count);
     }
 
     private static PackageVersion Version(string text)

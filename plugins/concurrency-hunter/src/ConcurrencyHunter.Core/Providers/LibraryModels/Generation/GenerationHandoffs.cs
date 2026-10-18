@@ -33,6 +33,7 @@ public sealed class GenerationHandoffs
     private readonly Dictionary<(string Instance, int Operation), IReadOnlySet<string>> _outsideByCall = [];
     private readonly Dictionary<string, IReadOnlyList<string>> _unseen = new(StringComparer.Ordinal);
     private readonly SortedSet<string> _unfollowedReceivers = new(StringComparer.Ordinal);
+    private readonly StageChecks _checks;
 
     /// <summary>Builds all handoff sets once for a completed generator run.</summary>
     /// <param name="driver">The driver.</param>
@@ -40,6 +41,17 @@ public sealed class GenerationHandoffs
     /// <param name="executions">The driver's execution classification.</param>
     /// <param name="reachability">The run's heap reachability.</param>
     public GenerationHandoffs(Driver driver, ScopeRun run, DriverExecutions executions, HeapReachability reachability)
+        : this(driver, run, executions, reachability, default)
+    {
+    }
+
+    /// <summary>Builds all handoff sets once for a completed generator run, as work of a generation's stage.</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="run">The completed scope run.</param>
+    /// <param name="executions">The driver's execution classification.</param>
+    /// <param name="reachability">The run's heap reachability.</param>
+    /// <param name="checks">The stage's checks, which cancel the building at each call, instance, access and edge it goes through.</param>
+    internal GenerationHandoffs(Driver driver, ScopeRun run, DriverExecutions executions, HeapReachability reachability, StageChecks checks)
     {
         if (run.Stopped)
             throw new ArgumentException("A stopped run has no handoffs to classify.", nameof(run));
@@ -47,22 +59,23 @@ public sealed class GenerationHandoffs
         _analysis = run.Executions!;
         _executions = executions;
         _reachability = reachability;
+        _checks = checks;
 
         var calls = new Dictionary<(string Instance, int Operation), IReadOnlySet<string>>();
         var direct = new Dictionary<(string Instance, int Operation), IReadOnlySet<string>>();
         var unknownCalls = UnfollowedCalls(run);
-        foreach (var call in unknownCalls)
+        foreach (var call in checks.Each(unknownCalls))
         {
             var values = call.Receivers.Concat(call.Arguments.SelectMany(argument => argument.Values)).Concat(call.Delegates);
             // A reference argument hands the cell or field it names, which the call may read and write as it may any storage of an
             // object handed to it: the object that storage lies in is handed (question 160).
-            var storage = call.Arguments.SelectMany(argument => argument.References)
-                              .SelectMany(target => ValueProvenance.ReferenceStorage(_heap, call.Instance, target, out _));
-            AddCall((call.Instance.Id, call.OperationId), values.SelectMany(value => _heap.Resolve(call.Instance.Id, value)).Concat(storage));
+            var storage = checks.Each(call.Arguments.SelectMany(argument => argument.References))
+                                .SelectMany(target => ValueProvenance.ReferenceStorage(_heap, call.Instance, target, out _));
+            AddCall((call.Instance.Id, call.OperationId), checks.Each(values).SelectMany(value => _heap.Resolve(call.Instance.Id, value)).Concat(storage));
         }
 
-        var observation = new ValueObservation(driver, run, unknownCalls.Select(call => (call.Instance.Id, call.OperationId)).ToHashSet());
-        foreach (var site in _heap.UnresolvedCallTargets)
+        var observation = new ValueObservation(driver, run, checks.Each(unknownCalls).Select(call => (call.Instance.Id, call.OperationId)).ToHashSet(), checks);
+        foreach (var site in checks.Each(_heap.UnresolvedCallTargets))
         {
             // A delegate call's receiver the heap binds through a captured or ref cell, which the heap lists as unfollowed in the open
             // world; what a delegate no body resolves is handed reaches the unknown calls above as an unresolved dispatch.
@@ -80,40 +93,40 @@ public sealed class GenerationHandoffs
             // The body the heap does not have runs on an object it does not name; a receiver it does name goes to the body it resolves.
             // That body may be a user's override, which reaches a named receiver only through what a user can name: what the library
             // keeps in a field a user cannot is not handed (question 142).
-            var arguments = call.Arguments.SelectMany(argument => argument.Values).SelectMany(value => _heap.Resolve(instance.Id, value)).ToArray();
-            AddCall(site, arguments, arguments, call.Receivers.SelectMany(value => _heap.Resolve(instance.Id, value)));
+            var arguments = checks.Each(call.Arguments.SelectMany(argument => argument.Values)).SelectMany(value => _heap.Resolve(instance.Id, value)).ToArray();
+            AddCall(site, arguments, arguments, checks.Each(call.Receivers).SelectMany(value => _heap.Resolve(instance.Id, value)));
         }
 
         // What an operation the lowering does not express is given goes where the analysis does not see, as an argument of a call it
         // does not follow does.
-        foreach (var instance in _heap.Instances.Values)
+        foreach (var instance in checks.Each(_heap.Instances.Values))
         {
-            foreach (var operation in instance.Summary.UnsupportedOperations)
+            foreach (var operation in checks.Each(instance.Summary.UnsupportedOperations))
             {
                 _unsupported.Add((instance.Id, operation.OperationId));
-                AddCall((instance.Id, operation.OperationId), operation.Values.SelectMany(value => _heap.Resolve(instance.Id, value)));
+                AddCall((instance.Id, operation.OperationId), checks.Each(operation.Values).SelectMany(value => _heap.Resolve(instance.Id, value)));
             }
         }
 
-        foreach (var (site, regions) in calls)
+        foreach (var (site, regions) in checks.Each(calls))
             File(site, regions, direct[site], keepCall: true);
 
-        foreach (var handoff in _heap.DelegateHandoffs)
+        foreach (var handoff in checks.Each(_heap.DelegateHandoffs))
         {
-            var handed = new[] { handoff.RegionId }.Concat(handoff.Callees.SelectMany(Receipts)).ToArray();
+            var handed = new[] { handoff.RegionId }.Concat(checks.Each(handoff.Callees).SelectMany(Receipts)).ToArray();
             var inputs = Close(handed);
             var directInputs = _reachability.From(handed, captures: false);
-            foreach (var site in handoff.Sites)
+            foreach (var site in checks.Each(handoff.Sites))
                 File((site.CallerInstance, site.OperationId), inputs, directInputs, keepCall: false);
         }
 
-        foreach (var handoff in _heap.StartupDelegates)
+        foreach (var handoff in checks.Each(_heap.StartupDelegates))
         {
             var handed = new[] { handoff.RegionId }.Concat(Receipts(handoff.CalleeInstance)).ToArray();
             File((handoff.CallerInstance, handoff.OperationId), Close(handed), _reachability.From(handed, captures: false), keepCall: false);
         }
 
-        foreach (var instance in _heap.Instances.Values.Where(IsWitness))
+        foreach (var instance in checks.Each(_heap.Instances.Values).Where(IsWitness))
         {
             var received = Received(_heap, instance);
             // A witness stands for a user's override, which reaches what it is given only through what a user can name (question 142).
@@ -123,13 +136,13 @@ public sealed class GenerationHandoffs
         }
 
         var implementation = driver.Member.ContainingAssembly.Name;
-        var makers = _heap.Instances.Values.ToLookup(instance => (instance.BodyId, instance.Context));
+        var makers = checks.Each(_heap.Instances.Values).ToLookup(instance => (instance.BodyId, instance.Context));
         // An object a type initializer made while it ran is its own: no program code could have handed it anything yet (question 142).
         bool MadeThere(string regionId, string execution) =>
             execution.StartsWith("type-initializer:", StringComparison.Ordinal) && _heap.Regions.TryGetValue(regionId, out var region) &&
             region.SiteBodyId is { } site && makers[(site, region.Context)].Select(maker => ExecutionsOf(maker.Id)).ToArray() is { Length: > 0 } made &&
             made.All(executions => executions.Count != 0 && executions.All(one => one == execution));
-        foreach (var access in _analysis.Accesses)
+        foreach (var access in checks.Each(_analysis.Accesses))
         {
             // A type initializer runs before any program code could put anything into its type's statics: what it reads or writes there
             // is the library's own start, never a value setup's seed stands for (question 158).
@@ -148,19 +161,19 @@ public sealed class GenerationHandoffs
             _foreignAccesses.UnionWith(Close([access.RegionId]));
         }
 
-        var unfollowed = unknownCalls.ToLookup(call => call.Instance.Id, call => call.Callee, StringComparer.Ordinal);
-        var edges = _heap.Edges.ToLookup(edge => edge.CallerInstance, edge => edge.CalleeInstance, StringComparer.Ordinal);
+        var unfollowed = checks.Each(unknownCalls).ToLookup(call => call.Instance.Id, call => call.Callee, StringComparer.Ordinal);
+        var edges = checks.Each(_heap.Edges).ToLookup(edge => edge.CallerInstance, edge => edge.CalleeInstance, StringComparer.Ordinal);
         var program = run.ScopeProgram!.Program;
-        foreach (var instance in _heap.Instances.Values.Where(instance => OutsideSetup(ExecutionsOf(instance.Id))))
+        foreach (var instance in checks.Each(_heap.Instances.Values).Where(instance => OutsideSetup(ExecutionsOf(instance.Id))))
         {
-            foreach (var call in instance.Summary.Calls.Where(call => call.Kind is IrCallKind.Virtual or IrCallKind.Interface or IrCallKind.Delegate &&
-                                                                      call.Receivers.Count != 0 && call.Receivers.All(ReadsStorage)))
+            foreach (var call in checks.Each(instance.Summary.Calls).Where(call => call.Kind is IrCallKind.Virtual or IrCallKind.Interface or IrCallKind.Delegate &&
+                                                                                   call.Receivers.Count != 0 && call.Receivers.All(ReadsStorage)))
             {
                 // A receiver the dispatch can run on — an object that may be of the call's target type — is one the analysis follows.
                 var target = call.TargetContainingTypeKey is { } key ? ProgramIndex.Substitute(key, instance.Substitution) : null;
                 if (call.Receivers.SelectMany(value => _heap.Resolve(instance.Id, value)).Any(region => MayBe(program, region, target)))
                     continue;
-                var fillers = call.Receivers.SelectMany(value => observation.Fillers(instance, value)).Distinct(StringComparer.Ordinal).ToArray();
+                var fillers = checks.Each(call.Receivers).SelectMany(value => observation.Fillers(instance, value)).Distinct(StringComparer.Ordinal).ToArray();
                 var filled = UnfollowedFrom(fillers, unfollowed, edges);
                 if (filled is null)
                     continue;
@@ -170,7 +183,10 @@ public sealed class GenerationHandoffs
         }
 
         foreach (var action in new[] { DriverSynthesizer.CALL, DriverSynthesizer.ENUMERATE })
+        {
+            checks.Check();
             _unseen[action] = UnseenIn(run, action);
+        }
         HandedOnlyToUnsupportedOutsideSetup = _outsideSetup.Where(region => !_outsideSetupBeyondUnsupported.Contains(region)).ToHashSet(StringComparer.Ordinal);
         HandedOnlyToUnsupportedOutsideSetupDirectly = _outsideSetupDirectly.Where(region => !_outsideSetupBeyondUnsupportedDirectly.Contains(region))
                                                                            .ToHashSet(StringComparer.Ordinal);
@@ -246,21 +262,21 @@ public sealed class GenerationHandoffs
 
     private IReadOnlyList<string> UnseenIn(ScopeRun run, string action)
     {
-        var instances = _heap.Instances.Values.Where(instance => ExecutionsOf(instance.Id).Any(execution => _executions.InTree(execution, action)))
-                             .ToArray();
+        var instances = _checks.Each(_heap.Instances.Values).Where(instance => ExecutionsOf(instance.Id).Any(execution => _executions.InTree(execution, action)))
+                               .ToArray();
         var ids = instances.Select(instance => instance.Id).ToHashSet(StringComparer.Ordinal);
         var unseen = new SortedSet<string>(StringComparer.Ordinal);
-        foreach (var (instance, operation) in _heap.UnresolvedDispatches.Concat(_heap.UnresolvedCallTargets).Where(site => ids.Contains(site.Instance)))
+        foreach (var (instance, operation) in _checks.Each(_heap.UnresolvedDispatches.Concat(_heap.UnresolvedCallTargets)).Where(site => ids.Contains(site.Instance)))
             unseen.Add($"unresolved dispatch: {instance}#{operation}");
         var bodies = instances.Select(instance => instance.BodyId).ToHashSet(StringComparer.Ordinal);
-        foreach (var (body, operation) in _heap.NoReceiverObjects.Where(site => bodies.Contains(site.BodyId)))
+        foreach (var (body, operation) in _checks.Each(_heap.NoReceiverObjects).Where(site => bodies.Contains(site.BodyId)))
             unseen.Add($"no receiver object: {body}#{operation}");
-        foreach (var dropped in run.LoweringDiagnostics.Where(diagnostic => diagnostic.StartsWith(LOWERING, StringComparison.Ordinal)))
+        foreach (var dropped in _checks.Each(run.LoweringDiagnostics).Where(diagnostic => diagnostic.StartsWith(LOWERING, StringComparison.Ordinal)))
             unseen.Add(dropped);
-        foreach (var body in bodies)
+        foreach (var body in _checks.Each(bodies))
         {
             if (run.Reachable.Bodies.TryGetValue(body, out var ir) &&
-                ir.Blocks.SelectMany(block => block.Operations).Any(operation => operation is IrUnknownOperation { Reason: UNSUPPORTED }))
+                _checks.Each(ir.Blocks.SelectMany(block => block.Operations)).Any(operation => operation is IrUnknownOperation { Reason: UNSUPPORTED }))
             {
                 unseen.Add($"unsupported operation: {body}");
             }
@@ -327,14 +343,15 @@ public sealed class GenerationHandoffs
     private string? UnfollowedFrom(IReadOnlyCollection<string> fillers, ILookup<string, string> unfollowed, ILookup<string, string> edges)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var pending = new Stack<string>(_heap.Instances.Values.Where(instance => fillers.Contains(instance.BodyId)).Select(instance => instance.Id));
+        var pending = new Stack<string>(_checks.Each(_heap.Instances.Values).Where(instance => fillers.Contains(instance.BodyId)).Select(instance => instance.Id));
         var found = new SortedSet<string>(StringComparer.Ordinal);
         while (pending.TryPop(out var current))
         {
+            _checks.Check();
             if (!seen.Add(current))
                 continue;
             found.UnionWith(unfollowed[current]);
-            foreach (var callee in edges[current])
+            foreach (var callee in _checks.Each(edges[current]))
                 pending.Push(callee);
         }
         return found.Count == 0 ? null : found.Min;
@@ -380,9 +397,9 @@ public sealed class GenerationHandoffs
     /// <param name="observation">The run's observation owner.</param>
     private bool OpenParameter(MethodInstance instance, CallTransfer call, ValueObservation observation)
     {
-        foreach (var ordinal in call.Receivers.Select(ParameterBase).OfType<int>().Distinct())
+        foreach (var ordinal in _checks.Each(call.Receivers).Select(ParameterBase).OfType<int>().Distinct())
         {
-            var bound = _heap.Edges.Any(edge => edge.CalleeInstance == instance.Id &&
+            var bound = _checks.Each(_heap.Edges).Any(edge => edge.CalleeInstance == instance.Id &&
                                                 _heap.Instances[edge.CallerInstance].Summary.Calls
                                                      .Where(caller => caller.OperationId == edge.OperationId)
                                                      .SelectMany(caller => caller.Arguments).Any(argument => argument.ParameterOrdinal == ordinal));

@@ -16,6 +16,7 @@ internal sealed class ValueObservation
     private readonly ScopeRun _run;
     private readonly HeapSolution _heap;
     private readonly IReadOnlySet<(string Instance, int Operation)> _unknownCalls;
+    private readonly StageChecks _checks;
 
     /// <summary>The task regions whose completion the current walk is reading: a task met again on its own path adds nothing.</summary>
     private readonly HashSet<string> _walking = new(StringComparer.Ordinal);
@@ -27,12 +28,15 @@ internal sealed class ValueObservation
     /// <param name="driver">The driver.</param>
     /// <param name="run">The completed run.</param>
     /// <param name="unknownCalls">The run's calls the engine cannot follow, by instance and operation.</param>
-    public ValueObservation(Driver driver, ScopeRun run, IReadOnlySet<(string Instance, int Operation)> unknownCalls)
+    /// <param name="checks">The stage's checks, which cancel each walk at every value, task, write and edge it goes through; none by
+    /// default.</param>
+    public ValueObservation(Driver driver, ScopeRun run, IReadOnlySet<(string Instance, int Operation)> unknownCalls, StageChecks checks = default)
     {
         _driver = driver;
         _run = run;
         _heap = run.Heap!;
         _unknownCalls = unknownCalls;
+        _checks = checks;
     }
 
     /// <summary>Whether an instance is the member's own body entered by the driver's call or enumeration.</summary>
@@ -92,6 +96,8 @@ internal sealed class ValueObservation
     /// <param name="seen">Alternatives already visited on this path.</param>
     private bool HasUnobserved(MethodInstance instance, AbstractValue value, HashSet<(string Instance, AbstractValue Value)> seen)
     {
+        // Every descent into a caller, a callee, a task or a write enters here again.
+        _checks.Check();
         if (!seen.Add((instance.Id, value)))
             return false;
         try
@@ -225,7 +231,7 @@ internal sealed class ValueObservation
     /// <param name="slot">The slot, or null for every slot.</param>
     /// <param name="seen">Alternatives already visited on this path.</param>
     private bool HasUnobservedWriteInto(IReadOnlySet<string> holders, string? slot, HashSet<(string Instance, AbstractValue Value)> seen) =>
-        (slot is null ? Writes.SelectMany(writes => writes) : Writes[slot]).Any(write =>
+        _checks.Each(slot is null ? Writes.SelectMany(writes => writes) : Writes[slot]).Any(write =>
             write.Holders.Overlaps(holders) && HasUnobservedValues(write.Instance, write.Values, write.Producers, seen));
 
     /// <summary>Whether what a known call keeps or stores may be an object the heap does not name: what its model names there, observed as
@@ -246,10 +252,10 @@ internal sealed class ValueObservation
 
     private IEnumerable<(string Slot, StorageWrite Write)> StorageWrites()
     {
-        foreach (var instance in _heap.Instances.Values)
+        foreach (var instance in _checks.Each(_heap.Instances.Values))
         {
             var summary = instance.Summary;
-            foreach (var store in summary.Stores.Concat(summary.ReferenceStores))
+            foreach (var store in _checks.Each(summary.Stores.Concat(summary.ReferenceStores)))
             {
                 var holders = store.Field.IsStatic
                     ? new HashSet<string>(StringComparer.Ordinal) { _heap.StaticRegionOf(instance.Id, store.Field) }
@@ -257,7 +263,7 @@ internal sealed class ValueObservation
                 yield return (FieldSlot.Key(store.Field), new StorageWrite(instance, holders, store.Values, store.Producers));
             }
 
-            foreach (var element in summary.Elements.Where(element => element.Kind == ElementOperationKind.Store).Concat(summary.ReferenceElementStores))
+            foreach (var element in _checks.Each(summary.Elements.Where(element => element.Kind == ElementOperationKind.Store).Concat(summary.ReferenceElementStores)))
             {
                 var values = element.Values.Concat(element.FromSlot is { } from ? element.Arrays.Select(array => new PathValue(array, [from])) : [])
                                     .Concat(element is { ViewOf: { } viewed, CopiedFrom: { } sources } ? sources.Select(source => new PathValue(source, [viewed])) : [])
@@ -267,9 +273,9 @@ internal sealed class ValueObservation
 
             // A captured variable's cell is a slot of the closure of each run of the body declaring it; every version of the variable,
             // and what a nested body assigns to it, goes there (R4).
-            foreach (var variable in summary.Variables.Where(variable => variable.Cell is not null))
+            foreach (var variable in _checks.Each(summary.Variables.Where(variable => variable.Cell is not null)))
                 yield return (WholeProgram.ClosureSlot(variable.Cell!), new StorageWrite(instance, Closures(instance, variable.Cell!), variable.Values, variable.Producers));
-            foreach (var store in summary.CapturedStores)
+            foreach (var store in _checks.Each(summary.CapturedStores))
                 yield return (WholeProgram.ClosureSlot(store.Cell), new StorageWrite(instance, Closures(instance, store.Cell), store.Values, store.Producers));
         }
     }
@@ -291,7 +297,7 @@ internal sealed class ValueObservation
         var pending = new Queue<string>(reached);
         while (pending.TryDequeue(out var region))
         {
-            foreach (var next in _heap.FieldsOf(region).SelectMany(slot => _heap.PointsTo(region, slot)))
+            foreach (var next in _checks.Each(_heap.FieldsOf(region).SelectMany(slot => _heap.PointsTo(region, slot))))
             {
                 if (reached.Add(next))
                     pending.Enqueue(next);
@@ -329,6 +335,7 @@ internal sealed class ValueObservation
     /// <param name="seen">Alternatives already visited on this path.</param>
     private bool HasUnobservedCompletion(string task, HashSet<(string Instance, AbstractValue Value)> seen)
     {
+        _checks.Check();
         if (!_walking.Add(task))
             return false;
         try
@@ -541,6 +548,8 @@ internal sealed class ValueObservation
     private IReadOnlySet<string> Resolve(MethodInstance instance, AbstractValue value,
                                          HashSet<(string Instance, AbstractValue Value)> seen)
     {
+        // Every descent into a base, a callee or a task's completion enters here again.
+        _checks.Check();
         if (!seen.Add((instance.Id, value)))
             return new HashSet<string>(StringComparer.Ordinal);
         var solved = _heap.Resolve(instance.Id, value);

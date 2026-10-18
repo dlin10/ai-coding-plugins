@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "Microsoft.Extensions.Caching.Abstractions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync``1(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,System.Threading.Tasks.Task{``0}})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "callback-value-in-library-call",
+          "probe-handed-to-unseen",
+          "result-several-objects",
+          "value-unnamed",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate``1(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,``0})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "callback-value-in-library-call",
+          "probe-handed-to-unseen",
+          "result-several-objects",
+          "value-unnamed",
+          "witness-value-handed"
+        ]
+      }
+    }
+  ]
+}

@@ -16,7 +16,7 @@ internal static class ExpectationRules
             catch (ArgumentOutOfRangeException)
             {
                 knownUntil = false;
-                violations.Add($"{entry.Id}: until '{entry.Until}' must name a known phase.");
+                violations.Add($"{entry.Id}: until '{entry.Until}' must name a known phase or run of a phase.");
             }
 
             if (knownUntil && PhaseOrder.Compare(entry.Until!, entry.Phase) <= 0)

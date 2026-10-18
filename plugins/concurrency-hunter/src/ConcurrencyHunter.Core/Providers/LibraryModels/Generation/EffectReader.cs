@@ -60,37 +60,59 @@ public sealed class EffectReader
     private readonly HashSet<string> _receiverUserObjects = new(StringComparer.Ordinal);
     private readonly HashSet<ISymbol> _unreachedFields = new(SymbolEqualityComparer.Default);
     private readonly GenerationCauses _causes = new();
+    private readonly GenerationChecks _checks;
+    private readonly StageChecks _stage;
 
     /// <summary>Reads one completed driver run.</summary>
     /// <param name="driver">The driver.</param>
     /// <param name="run">The completed run.</param>
     /// <param name="fates">The classified fates, or <c>null</c>: a parameter whose fate is <c>not-run</c> has no effect (R5).</param>
     public EffectReader(Driver driver, ScopeRun run, IReadOnlyDictionary<string, ClassifiedFate>? fates = null)
+        : this(driver, run, fates, new GenerationChecks(CancellationToken.None))
+    {
+    }
+
+    /// <summary>Reads one completed driver run as a stage of a generation: it checks between its readings and at each region,
+    /// access, instance and handoff they go through.</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="run">The completed run.</param>
+    /// <param name="fates">The classified fates, or <c>null</c>: a parameter whose fate is <c>not-run</c> has no effect (R5).</param>
+    /// <param name="checks">The generation's checks, which cancel the reading.</param>
+    internal EffectReader(Driver driver, ScopeRun run, IReadOnlyDictionary<string, ClassifiedFate>? fates, GenerationChecks checks)
     {
         if (run.Stopped)
             throw new ArgumentException("A stopped run has no effects to read.", nameof(run));
 
+        _checks = checks;
+        _stage = new StageChecks(checks, GenerationStage.ReadEffects);
         _driver = driver;
         _runBodies = run.Reachable.Bodies;
         _heap = run.Heap!;
         _analysis = run.Executions!;
-        _reachability = new HeapReachability(_heap) { HiddenSlots = HeapReachability.HiddenSlotsOf(driver.Member.ContainingAssembly) };
+        _reachability = new HeapReachability(_heap, null, _stage) { HiddenSlots = HeapReachability.HiddenSlotsOf(driver.Member.ContainingAssembly) };
         _immutableTypeKeys = run.ScopeProgram!.Program.ImmutableTypeKeys;
         var result = _reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "R"));
         _executions = new DriverExecutions(driver, _analysis, _reachability.From(result is null ? [] : _reachability.Targets(result)));
-        _allocations = new Allocations(driver, _heap, _analysis, _executions, _reachability);
-        _handoffs = new GenerationHandoffs(driver, run, _executions, _reachability);
-        _observation = new ValueObservation(driver, run, GenerationHandoffs.UnfollowedCalls(run).Select(call => (call.Instance.Id, call.OperationId))
-                                                                                             .ToHashSet());
+        _allocations = new Allocations(driver, _heap, _analysis, _executions, _reachability, _stage);
+        _handoffs = new GenerationHandoffs(driver, run, _executions, _reachability, _stage);
+        _observation = new ValueObservation(driver, run, _stage.Each(GenerationHandoffs.UnfollowedCalls(run))
+                                                               .Select(call => (call.Instance.Id, call.OperationId)).ToHashSet(), _stage);
 
         BuildInputs();
         BuildSpecialObjects();
+        _checks.Check(GenerationStage.ReadEffects);
         ReadUnreachedSeeds();
+        _checks.Check(GenerationStage.ReadEffects);
         ReadReasonsFromHandoffs();
+        _checks.Check(GenerationStage.ReadEffects);
         ReadAccesses();
+        _checks.Check(GenerationStage.ReadEffects);
         ReadSummaryEvidence();
+        _checks.Check(GenerationStage.ReadEffects);
         ReadUnknownDelegateStateStores();
+        _checks.Check(GenerationStage.ReadEffects);
         ReadWitnessesAndUnknownCalls();
+        _checks.Check(GenerationStage.ReadEffects);
 
         Effects = _effects.Where(pair => fates?.GetValueOrDefault(pair.Key.Parameter)?.Fate != FateClassifier.NOT_RUN)
                           .OrderBy(pair => pair.Key.Parameter, StringComparer.Ordinal).ThenBy(pair => pair.Key.Kind, StringComparer.Ordinal)
@@ -129,6 +151,7 @@ public sealed class EffectReader
     {
         foreach (var action in Actions())
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var variant = action == DriverSynthesizer.CALL ? DriverSynthesizer.CALL_VARIANT : DriverSynthesizer.ENUMERATE_VARIANT;
             if (!_driver.Member.IsStatic && _driver.Member.MethodKind != MethodKind.Constructor)
                 AddInput(FateClassifier.THIS, _driver.Member.ContainingType, RefKind.None, isReceiver: true, action, $"Recv_{variant}", []);
@@ -157,16 +180,16 @@ public sealed class EffectReader
             roots.UnionWith(StaticTargets(DriverSynthesizer.DRIVER_TYPE, field));
             own.UnionWith(OwnStaticTargets(DriverSynthesizer.DRIVER_TYPE, field));
         }
-        foreach (var factory in probes.Select(Allocations.ProbeBody))
+        foreach (var factory in _stage.Each(probes.Select(Allocations.ProbeBody)))
         {
-            var made = _heap.Regions.Values.Where(region => region.SiteBodyId == factory).Select(region => region.Identity).ToArray();
+            var made = _stage.Each(_heap.Regions.Values).Where(region => region.SiteBodyId == factory).Select(region => region.Identity).ToArray();
             roots.UnionWith(made);
             own.UnionWith(made);
         }
 
         var reached = _reachability.From(roots);
-        var probeGraph = _reachability.From(reached.Where(region => IsProbeObject(region) || Origin(region).Role == DriverRole.ProbeDelegate));
-        var ownProbeRoots = own.Where(IsProbeObject).ToHashSet(StringComparer.Ordinal);
+        var probeGraph = _reachability.From(_stage.Each(reached).Where(region => IsProbeObject(region) || Origin(region).Role == DriverRole.ProbeDelegate));
+        var ownProbeRoots = _stage.Each(own).Where(IsProbeObject).ToHashSet(StringComparer.Ordinal);
         _inputs.Add(new Input(name, type, refKind, isReceiver, action, field, roots, reached, probeGraph, ownProbeRoots) { Own = own });
     }
 
@@ -176,6 +199,7 @@ public sealed class EffectReader
         var inputStarts = new HashSet<string>(StringComparer.Ordinal);
         foreach (var region in _heap.Regions.Keys)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var origin = Origin(region);
             if (IsProbeObject(region) || origin.Role == DriverRole.ProbeDelegate)
                 probeStarts.Add(region);
@@ -196,8 +220,8 @@ public sealed class EffectReader
         // a probe, and no model can say whether it did: only an immutable object is safe in its hands, whatever holds it (questions 161
         // and 142). An access the analysis does see — in another execution, or in the body of a delegate the code was handed — is judged
         // by what it does.
-        _unknownSensitive.UnionWith(_reachability.From(probeStarts).Where(Mutable));
-        _inputSensitive.UnionWith(_reachability.From(inputStarts).Where(Mutable));
+        _unknownSensitive.UnionWith(_stage.Each(_reachability.From(probeStarts)).Where(Mutable));
+        _inputSensitive.UnionWith(_stage.Each(_reachability.From(inputStarts)).Where(Mutable));
         BuildReceiverUserObjects();
         CloseInPlace(_probeReturns);
         CloseInPlace(_witnessReturns);
@@ -217,6 +241,7 @@ public sealed class EffectReader
         var seen = new HashSet<(string, bool)>();
         while (pending.TryPop(out var current))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (arguments.Contains(current.Region) || !seen.Add(current))
                 continue;
             var belowUser = current.BelowUser || Origin(current.Region).Role == DriverRole.Seed || IsUserProbe(current.Region);
@@ -307,6 +332,7 @@ public sealed class EffectReader
     {
         foreach (var access in _analysis.ExecutionAccesses())
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (!_heap.Instances.TryGetValue(access.InstanceId, out var instance) || !IsLibraryBody(instance.BodyId))
                 continue;
             if (access.Access.Kind == SummaryAccessKind.Load && OutsideSetup(access.ExecutionId) && MatchesUnseeded(access.Access.Field))
@@ -640,6 +666,7 @@ public sealed class EffectReader
     {
         foreach (var instance in _heap.Instances.Values.Where(instance => IsLibraryBody(instance.BodyId)))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var executions = _analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>();
             // A load of an unseeded member counts in every execution outside setup — an unknown or startup execution the call caused
             // included — whatever object it is on (task 6).
@@ -702,6 +729,7 @@ public sealed class EffectReader
         var calls = _heap.Edges.ToLookup(edge => edge.CallerInstance, edge => edge.CalleeInstance, StringComparer.Ordinal);
         foreach (var (callers, callees) in handoffs)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var actions = callers.SelectMany(caller => (_analysis.InstanceExecutions.GetValueOrDefault(caller) ?? new HashSet<string>())
                                                        .Select(ActionOf).Where(action => action is not null).Cast<string>())
                                  .Distinct(StringComparer.Ordinal).ToArray();
@@ -711,6 +739,7 @@ public sealed class EffectReader
             // (task 6, R6).
             foreach (var instanceId in Reached(callees, calls))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (!_heap.Instances.TryGetValue(instanceId, out var instance) || !IsLibraryBody(instance.BodyId))
                     continue;
                 var targets = StoreTargets(instance, out var unobserved);
@@ -730,18 +759,20 @@ public sealed class EffectReader
         }
     }
 
-    /// <summary>The instances a set of start instances reaches through call edges, the starts included.</summary>
+    /// <summary>The instances a set of start instances reaches through call edges, the starts included. It checks at each instance
+    /// it takes off its stack.</summary>
     /// <param name="starts">The start instances.</param>
     /// <param name="calls">The callees of each caller instance.</param>
-    private static IReadOnlySet<string> Reached(IEnumerable<string> starts, ILookup<string, string> calls)
+    private IReadOnlySet<string> Reached(IEnumerable<string> starts, ILookup<string, string> calls)
     {
         var reached = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Stack<string>(starts);
         while (pending.TryPop(out var current))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (!reached.Add(current))
                 continue;
-            foreach (var callee in calls[current])
+            foreach (var callee in _stage.Each(calls[current]))
                 pending.Push(callee);
         }
         return reached;
@@ -885,11 +916,12 @@ public sealed class EffectReader
 
     private void ReadUnreachedSeeds()
     {
-        var setup = _heap.Instances.Values.Where(instance => instance.BodyId ==
+        var setup = _stage.Each(_heap.Instances.Values).Where(instance => instance.BodyId ==
             $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.{DriverSynthesizer.SETUP}").ToArray();
         var paths = new List<string>();
         foreach (var statement in _driver.SeedStatements)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (SeedField(statement.Operation) is not { } member)
                 continue;
             // One statement at a time, by the store its own assignment makes: a reached seed of the same field elsewhere never
@@ -920,10 +952,12 @@ public sealed class EffectReader
     {
         foreach (var instance in setup)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             foreach (var access in instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store &&
                                                                              Matches(access.Field, member) &&
                                                                              Within(access.Provenance.Span, span)))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 yield return (instance, access);
             }
 
@@ -931,13 +965,15 @@ public sealed class EffectReader
                 continue;
             var calls = body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
                             .Where(call => Within(call.Provenance.Span, span)).Select(call => call.Id).ToHashSet();
-            foreach (var edge in _heap.Edges.Where(edge => edge.CallerInstance == instance.Id && calls.Contains(edge.OperationId)))
+            foreach (var edge in _stage.Each(_heap.Edges).Where(edge => edge.CallerInstance == instance.Id && calls.Contains(edge.OperationId)))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (!_heap.Instances.TryGetValue(edge.CalleeInstance, out var callee))
                     continue;
                 foreach (var access in callee.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store &&
                                                                                Matches(access.Field, member)))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     yield return (callee, access);
                 }
             }
@@ -1068,6 +1104,7 @@ public sealed class EffectReader
 
     private bool ReferencesWitness(MethodInstance instance, ReferenceTarget target, HashSet<(string Instance, ReferenceTarget Target)> seen)
     {
+        _stage.Check();
         if (!seen.Add((instance.Id, target)))
             return false;
         if (target is ReferenceCell cell)
@@ -1121,7 +1158,7 @@ public sealed class EffectReader
     private static IReadOnlyList<string> OrderRoots(IEnumerable<string> roots) =>
         roots.OrderBy(root => root == DriverSynthesizer.CALL ? 0 : 1).ThenBy(root => root, StringComparer.Ordinal).ToArray();
 
-    private void CloseInPlace(HashSet<string> regions) => regions.UnionWith(_reachability.From(regions));
+    private void CloseInPlace(HashSet<string> regions) => regions.UnionWith(_stage.Each(_reachability.From(regions)));
 
     /// <summary>One input of one action: the receiver or an argument, with the objects it is and reaches.</summary>
     /// <param name="Name">The parameter name, or <c>this</c>.</param>

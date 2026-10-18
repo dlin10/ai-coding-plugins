@@ -14,6 +14,8 @@ namespace ConcurrencyHunter.Core.Tests;
 
 public sealed class DemoExpectationTests
 {
+    private const string CURRENT_POINT = "5d-B3";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true
@@ -34,7 +36,7 @@ public sealed class DemoExpectationTests
         var report = ExpectationMatcher.Match(
             finalResult.Findings,
             ExpectationFile.Load(expectationPath),
-            "5d");
+            CURRENT_POINT);
         Assert.True(report.IsExactMatch,
             $"Missing: {string.Join(", ", report.Missing)}{Environment.NewLine}" +
             $"Forbidden hits: {string.Join(", ", report.ForbiddenHits)}{Environment.NewLine}" +
@@ -126,6 +128,7 @@ public sealed class DemoExpectationTests
             Path.GetDirectoryName(solutionPath)!,
             ProviderRegistry.BuiltIn,
             pairing ?? InterproceduralPairing.Pair,
-            CancellationToken.None);
+            CancellationToken.None,
+            ModelGeneration.ReadOnly);
     }
 }

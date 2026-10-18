@@ -1,4 +1,9 @@
-﻿using Demo.Web.Cases.StructReadThroughWrittenRefParameter;
+﻿using Demo.Web.Cases.GeneratedModelReturnsArgument;
+using Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated;
+using Demo.Web.Cases.KeptCallbackStaysUnknown;
+using Demo.Web.Cases.PollyExecuteInvokesDelegate;
+using Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute;
+using Demo.Web.Cases.StructReadThroughWrittenRefParameter;
 using Demo.Web.Cases.LocalValueWrittenThroughRef;
 using Demo.Web.Cases.MetadataBaseNullableFilledByUnseenWrite;
 using Demo.Web.Cases.GenericNullableFilledByUnseenWrite;
@@ -428,7 +433,12 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddMetadataBaseNullableFilledByUnseenWrite()
                 .AddReadonlyStructPastDepthBound()
                 .AddStructReadThroughWrittenRefParameter()
-                .AddLocalValueWrittenThroughRef();
+                .AddLocalValueWrittenThroughRef()
+                .AddGeneratedModelReturnsArgument()
+                .AddProjectOpaqueSwitchesOffGenerated()
+                .AddKeptCallbackStaysUnknown()
+                .AddPollyExecuteInvokesDelegate()
+                .AddPollyCircuitBreakerCallbackAtExecute();
 
 var app = builder.Build();
 

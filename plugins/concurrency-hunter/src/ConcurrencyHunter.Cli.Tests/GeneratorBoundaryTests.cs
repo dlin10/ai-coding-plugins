@@ -20,6 +20,10 @@ public sealed class GeneratorBoundaryTests
     private const string GENERATE = "ConcurrencyHunter.GenerateCommand.Run";
     private const string WRITE_ALL_BYTES = "System.IO.File.WriteAllBytes";
 
+    /// <summary>The one writer the run's generated model layer added: it writes the generated files, and only the run's generation reaches
+    /// it (SPEC TD-034c), so <c>generate</c> still reaches no writer but its own.</summary>
+    private const string GENERATED_FILES_WRITER = "ConcurrencyHunter.Providers.LibraryModels.GeneratedModelFiles.WriteLocked";
+
     /// <summary>The writers of the two assemblies at the run's start commit ce22c8c, each by its declaring type and the source
     /// method its body comes from (a lambda's, a local function's and a state machine's body is its enclosing method's).</summary>
     private static readonly string[] START_WRITERS =
@@ -73,7 +77,7 @@ public sealed class GeneratorBoundaryTests
         using var program = BuiltImages();
         var writers = program.Writers();
 
-        Assert.Equal(START_WRITERS.Append(GENERATE).Order(StringComparer.Ordinal),
+        Assert.Equal(START_WRITERS.Append(GENERATED_FILES_WRITER).Append(GENERATE).Order(StringComparer.Ordinal),
                      writers.Select(writer => writer.Source).Distinct().Order(StringComparer.Ordinal));
 
         var reached = program.Reachable(program.Methods("ConcurrencyHunter.GenerateCommand", "Run"));

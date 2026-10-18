@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "System.ComponentModel.TypeConverter",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.ComponentModel.TypeDescriptor.GetClassName(System.Object)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Timers.Timer.#ctor",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Timers.Timer.#ctor(System.Double)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Timers.Timer.Start",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Timers.Timer.set_AutoReset(System.Boolean)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    }
+  ]
+}

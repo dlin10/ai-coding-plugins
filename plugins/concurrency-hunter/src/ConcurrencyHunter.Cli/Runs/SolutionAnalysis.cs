@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Common.Roslyn;
 using ConcurrencyHunter.Analysis;
+using Microsoft.CodeAnalysis;
 
 namespace ConcurrencyHunter.Runs;
 
@@ -10,14 +11,31 @@ internal sealed record RunAnalysis(bool LoadFailed, bool AnalysisFailed, int Pro
 
 internal delegate Task<RunAnalysis> AnalysisStep(string target, CancellationToken cancellationToken);
 
+/// <summary>The analysis of a loaded solution, as <see cref="PhaseOneAnalyzer"/> runs it: a parameter of the run, so that a test can see what
+/// the run asks of the analyzer.</summary>
+/// <param name="solution">The loaded solution.</param>
+/// <param name="rootDirectory">The directory source paths are reported relative to.</param>
+/// <param name="cancellationToken">Cancels the analysis.</param>
+/// <param name="generation">What the run does with the generated model layer.</param>
+internal delegate Task<AnalysisResult> SolutionAnalyzer(Solution solution, string rootDirectory, CancellationToken cancellationToken,
+                                                        ModelGeneration generation);
+
 internal static class SolutionAnalysis
 {
     internal static Task<RunAnalysis> RunAsync(string target, CancellationToken cancellationToken) =>
         RunAsync(target, cancellationToken, (path, token) => new MsBuildSolutionLoader().LoadAsync(path, token));
 
+    /// <summary>The MCP run's analysis of a target: it loads the solution and analyses it generating the models of the library members no layer
+    /// describes (<see cref="ModelGeneration.Generate"/>).</summary>
+    /// <param name="target">The solution or directory the run was started on.</param>
+    /// <param name="cancellationToken">Cancels the load and the analysis.</param>
+    /// <param name="load">Loads the solution.</param>
+    /// <param name="analyze">Analyses the loaded solution; <see cref="PhaseOneAnalyzer"/> when omitted.</param>
     internal static async Task<RunAnalysis> RunAsync(string target, CancellationToken cancellationToken,
-                                                     Func<string, CancellationToken, Task<MsBuildLoadResult>> load)
+                                                     Func<string, CancellationToken, Task<MsBuildLoadResult>> load,
+                                                     SolutionAnalyzer? analyze = null)
     {
+        analyze ??= PhaseOneAnalyzer.AnalyzeAsync;
         var loadTimer = Stopwatch.StartNew();
         MsBuildLoadResult loaded;
         try
@@ -56,7 +74,7 @@ internal static class SolutionAnalysis
             try
             {
                 var rootDirectory = Path.GetDirectoryName(Path.GetFullPath(target))!;
-                var result = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, cancellationToken).ConfigureAwait(false);
+                var result = await analyze(loaded.Solution, rootDirectory, cancellationToken, ModelGeneration.Generate).ConfigureAwait(false);
                 analysisTimer.Stop();
                 return new RunAnalysis(false, false, coverage.ProjectsExpected, coverage.ProjectsLoaded, coverage.MissingProjects, result, CurrentDiagnostics(),
                                        loadTimer.Elapsed.TotalSeconds, analysisTimer.Elapsed.TotalSeconds);

@@ -58,6 +58,8 @@ public sealed class ValueProvenance
     private readonly List<RawInput> _rawInputs = [];
     private readonly Dictionary<string, HashSet<string>> _holderTriggers = new(StringComparer.Ordinal);
     private readonly GenerationCauses _causes = new();
+    private readonly GenerationChecks _checks;
+    private readonly StageChecks _stage;
 
     /// <summary>Reads value provenance from the fate run and, for holder inputs only, its confirmation run.</summary>
     /// <param name="driver">The driver.</param>
@@ -65,19 +67,35 @@ public sealed class ValueProvenance
     /// <param name="fates">The confirmed fates by member parameter.</param>
     /// <param name="confirmation">The holder confirmation run, or <c>null</c>.</param>
     public ValueProvenance(Driver driver, ScopeRun run, IReadOnlyDictionary<string, ClassifiedFate> fates, ScopeRun? confirmation)
+        : this(driver, run, fates, confirmation, new GenerationChecks(CancellationToken.None))
+    {
+    }
+
+    /// <summary>Reads value provenance as a stage of a generation: it checks before each instance it looks through and each value it
+    /// observes.</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="run">The fate run.</param>
+    /// <param name="fates">The confirmed fates by member parameter.</param>
+    /// <param name="confirmation">The holder confirmation run, or <c>null</c>.</param>
+    /// <param name="checks">The generation's checks, which cancel the reading.</param>
+    internal ValueProvenance(Driver driver, ScopeRun run, IReadOnlyDictionary<string, ClassifiedFate> fates, ScopeRun? confirmation,
+                             GenerationChecks checks)
     {
         if (run.Stopped)
             throw new ArgumentException("A stopped run has no values to name.", nameof(run));
         if (confirmation is { Stopped: true })
             confirmation = null;
 
+        _checks = checks;
+        _stage = new StageChecks(checks, GenerationStage.ReadEffects);
         _driver = driver;
         _fates = fates;
-        _fate = new RunContext(driver, run);
-        _confirmation = confirmation is null ? null : new RunContext(driver, confirmation);
+        _fate = new RunContext(driver, run, checks);
+        _confirmation = confirmation is null ? null : new RunContext(driver, confirmation, checks);
 
         foreach (var instance in _fate.CallInstances())
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (run.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) &&
                 body.Blocks.SelectMany(block => block.Operations).OfType<IrUnknownOperation>().FirstOrDefault(UnobservedStore) is { } store)
             {
@@ -94,16 +112,30 @@ public sealed class ValueProvenance
         ReadInputs();
         ReadKeeps(rawResult);
 
+        _checks.Check(GenerationStage.ReadEffects);
         Observe(Shown(rawResult, _fate, ValuePlace.WholeResult), "result");
         foreach (var (parameter, regions) in rawOutputs)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             Observe(Shown(regions, _fate, ValuePlace.WholeOutput), $"output:{parameter}");
+        }
         foreach (var (parameter, regions) in rawStores)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             Observe(regions, $"store:{parameter}");
+        }
         foreach (var input in _rawInputs)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             Observe(Shown(input.Regions, input.Context, ValuePlace.WholeDelegateInput), $"input:{input.Parameter}:{input.Index}");
+        }
         foreach (var keeper in _keptByRegion.Values)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             Observe(keeper.Regions, $"keeps:{keeper.Name}");
+        }
 
+        _checks.Check(GenerationStage.ReadEffects);
         Keeps = BuildKeeps();
         Result = BuildMemberResult(rawResult);
         Outputs = BuildOutputs(rawOutputs);
@@ -639,6 +671,7 @@ public sealed class ValueProvenance
 
         foreach (var parameter in _driver.Member.Parameters)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (parameter.RefKind == RefKind.Out || parameter.Type is IArrayTypeSymbol || parameter.Type is not INamedTypeSymbol named ||
                 named.TypeKind != TypeKind.Class || SeedableFields.Collection(named) is not null)
             {
@@ -654,17 +687,22 @@ public sealed class ValueProvenance
                                       .Select(region => (FateClassifier.RESULT, region)));
         }
         foreach (var (name, region) in keepers.Distinct())
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             ReadKeeper(name, region);
+        }
 
         // What a task argument completes with is a keeper as the argument handed over directly would be: the walk reads the stores into
         // the object its innermost completion holds, at any depth. keeps.p keeps into the task itself, not into what it completes with,
         // so a keep found there has no name, and the member no model (R6, R7).
         foreach (var parameter in _driver.Member.Parameters.Where(parameter => parameter.RefKind != RefKind.Out && TaskTypes.Depth(parameter.Type) > 0))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             IReadOnlySet<string> carriers = _fate.RootsOf(new ArgumentValue(parameter.Name)).ToHashSet(StringComparer.Ordinal);
             carriers = HeapSolution.Completions(carriers, TaskTypes.Depth(parameter.Type), _fate.Heap.Completion);
             foreach (var carrier in carriers.Where(region => _fate.IsLibraryRegion(region) && !_keptByRegion.ContainsKey(region)))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 ReadKeeper(parameter.Name, carrier);
                 if (!_keptByRegion.Remove(carrier))
                     continue;
@@ -685,13 +723,21 @@ public sealed class ValueProvenance
         var seen = new HashSet<(string Region, bool Written)>();
         var pending = new Stack<(string Region, bool Written)>();
         foreach (var edge in _fate.Reachability.Edges(keeper))
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             Push(pending, predecessors, keeper, edge.Target, _fate.WasWritten(new WrittenEdge(keeper, edge.Field, edge.Target)));
+        }
         foreach (var target in _fate.DirectStores(keeper))
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             Push(pending, predecessors, keeper, target, true);
+        }
         foreach (var @object in _fate.Reachability.From([keeper]))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             foreach (var target in _fate.DirectElementStores(@object))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (@object != keeper)
                     AddPredecessor(predecessors, keeper, @object);
                 Push(pending, predecessors, @object, target, true);
@@ -700,6 +746,7 @@ public sealed class ValueProvenance
 
         while (pending.TryPop(out var state))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (!seen.Add((state.Region, state.Written)))
                 continue;
             if (_fate.IsProbeDelegate(state.Region))
@@ -737,11 +784,20 @@ public sealed class ValueProvenance
                 continue;
             }
             foreach (var target in _fate.DirectStores(state.Region))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 Push(pending, predecessors, state.Region, target, true);
+            }
             foreach (var target in _fate.DirectElementStores(state.Region))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 Push(pending, predecessors, state.Region, target, true);
+            }
             foreach (var edge in _fate.Reachability.Edges(state.Region))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 Push(pending, predecessors, state.Region, edge.Target, state.Written || _fate.WasWritten(new WrittenEdge(state.Region, edge.Field, edge.Target)));
+            }
         }
         AddChain(chain, Ancestors(predecessors, ends));
 
@@ -796,16 +852,20 @@ public sealed class ValueProvenance
     /// way from the keeper to what it keeps, whichever path reached it first.</summary>
     /// <param name="predecessors">The walk's steps, by target.</param>
     /// <param name="ends">The kept objects.</param>
-    private static IReadOnlySet<string> Ancestors(Dictionary<string, HashSet<string>> predecessors, IEnumerable<string> ends)
+    private IReadOnlySet<string> Ancestors(Dictionary<string, HashSet<string>> predecessors, IEnumerable<string> ends)
     {
         var reached = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Stack<string>(ends);
         while (pending.TryPop(out var current))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (!reached.Add(current))
                 continue;
             foreach (var source in predecessors.GetValueOrDefault(current) ?? [])
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 pending.Push(source);
+            }
         }
         return reached;
     }
@@ -944,7 +1004,7 @@ public sealed class ValueProvenance
         if (_confirmation is null)
             return;
         var members = _driver.Triggers.ToDictionary(trigger => trigger.Action, StringComparer.Ordinal);
-        var ran = FateClassifier.TriggersThatRan(_driver, parameter, _confirmation.Run);
+        var ran = FateClassifier.TriggersThatRan(_driver, parameter, _confirmation.Run, _checks);
         foreach (var probe in parameter.Probes.Where(probe => ran.Contains(probe.Variant)))
         {
             var trigger = members[probe.Variant];
@@ -1017,6 +1077,7 @@ public sealed class ValueProvenance
         var values = new List<LibraryValue>();
         foreach (var region in regions.Distinct(StringComparer.Ordinal))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var roots = context.RootNames(region);
             if (roots.Count != 0)
             {
@@ -1043,11 +1104,15 @@ public sealed class ValueProvenance
         if (place == ValuePlace.WholeResult && _keptByRegion.TryGetValue(region, out var kept))
         {
             foreach (var value in kept.Regions.Where(value => !context.RootNames(value).Any(root => root is ThisValue)))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 covered.UnionWith(context.Reachability.From([value]));
+            }
         }
 
         foreach (var reached in context.Reachability.From([region]))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (covered.Contains(reached))
                 continue;
             context.DirectStores(reached, expectedActions);
@@ -1089,7 +1154,11 @@ public sealed class ValueProvenance
     {
         var shown = new HashSet<string>(regions, StringComparer.Ordinal);
         foreach (var region in regions.Where(region => context.RootNames(region).Count == 0))
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             shown.UnionWith(Graph(region, place, context));
+        }
+
         return shown;
     }
 
@@ -1103,13 +1172,14 @@ public sealed class ValueProvenance
         var covered = new HashSet<string>(StringComparer.Ordinal);
         if (place == ValuePlace.WholeResult && _keptByRegion.TryGetValue(region, out var kept))
             covered.UnionWith(context.Reachability.From(kept.Regions));
-        return context.Reachability.From([region]).Where(reached => !covered.Contains(reached));
+        return _stage.Each(context.Reachability.From([region])).Where(reached => !covered.Contains(reached));
     }
 
     private void Observe(IEnumerable<string> regions, string place)
     {
         foreach (var region in regions)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (!_observations.TryGetValue(region, out var places))
                 _observations[region] = places = new HashSet<string>(StringComparer.Ordinal);
             places.Add(place);
@@ -1279,19 +1349,29 @@ public sealed class ValueProvenance
         private readonly Dictionary<string, HashSet<string>> _fired = new(StringComparer.Ordinal);
         private readonly IReadOnlySet<WrittenEdge> _placed;
         private readonly IReadOnlySet<WrittenEdge> _placedSeeds;
+        private readonly GenerationChecks _checks;
+        private readonly StageChecks _stage;
 
-        public RunContext(Driver driver, ScopeRun run)
+        /// <summary>One run as value provenance reads it: its roots, the edges its stores wrote and the edges setup placed. Each of
+        /// those scans checks at the boundary of its repeated work, and so do the reachability, the allocations and the observation it
+        /// owns.</summary>
+        /// <param name="driver">The driver.</param>
+        /// <param name="run">The run.</param>
+        /// <param name="checks">The generation's checks, which cancel the scans.</param>
+        public RunContext(Driver driver, ScopeRun run, GenerationChecks checks)
         {
+            _checks = checks;
+            _stage = new StageChecks(checks, GenerationStage.ReadEffects);
             _driver = driver;
             Run = run;
             Heap = run.Heap!;
             Analysis = run.Executions!;
-            Observation = new ValueObservation(driver, run, GenerationHandoffs.UnfollowedCalls(run).Select(call => (call.Instance.Id, call.OperationId))
-                                                                                                    .ToHashSet());
-            Reachability = new HeapReachability(Heap);
+            Observation = new ValueObservation(driver, run, _stage.Each(GenerationHandoffs.UnfollowedCalls(run))
+                                                                  .Select(call => (call.Instance.Id, call.OperationId)).ToHashSet(), _stage);
+            Reachability = new HeapReachability(Heap, null, _stage);
             var result = Reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "R"));
             Executions = new DriverExecutions(driver, Analysis, Reachability.From(result is null ? [] : Reachability.Targets(result)));
-            Allocations = new Allocations(driver, Heap, Analysis, Executions, Reachability);
+            Allocations = new Allocations(driver, Heap, Analysis, Executions, Reachability, _stage);
             Written = ReadWrittenEdges();
             _placed = ReadPlacedEdges();
             _placedSeeds = ReadPlacedSeeds();
@@ -1500,21 +1580,21 @@ public sealed class ValueProvenance
             var values = new HashSet<string>(StringComparer.Ordinal);
             foreach (var instance in StoreInstances(actions))
             {
-                foreach (var store in instance.Summary.Stores.Concat(instance.Summary.ReferenceStores).Where(store => FieldCarriesObject(store.Field)))
+                foreach (var store in _stage.Each(instance.Summary.Stores.Concat(instance.Summary.ReferenceStores)).Where(store => FieldCarriesObject(store.Field)))
                 {
                     // A store into a struct's storage the object keeps writes the object, at the slot path through the struct (R1).
-                    var field = Places(instance, store.Bases, store.Field).Where(place => place.Object == @object)
-                                                                          .Select(place => place.Field).FirstOrDefault();
-                    if (field is null && !store.Bases.Any(value => Matches(instance, value, @object)))
+                    var field = _stage.Each(Places(instance, store.Bases, store.Field)).Where(place => place.Object == @object)
+                                                                                       .Select(place => place.Field).FirstOrDefault();
+                    if (field is null && !_stage.Each(store.Bases).Any(value => Matches(instance, value, @object)))
                         continue;
                     values.UnionWith(Held(ObserveValues(instance, store.Values, store.Producers, out _))
                                          .Where(value => !IsPlacedSlotSeed(@object, field ?? store.Field.Name, value)));
                 }
-                foreach (var access in instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store &&
+                foreach (var access in _stage.Each(instance.Summary.ReferenceAccesses).Where(access => access.Kind == SummaryAccessKind.Store &&
                     instance.Summary.ReferenceStores.All(store => store.OperationId != access.OperationId)))
                 {
-                    foreach (var place in access.Targets.SelectMany(target => ReferenceFields(Heap, instance, target))
-                                                       .Where(place => place.Region == @object && FieldCarriesObject(place.Field)))
+                    foreach (var place in _stage.Each(access.Targets).SelectMany(target => ReferenceFields(Heap, instance, target))
+                                                .Where(place => place.Region == @object && FieldCarriesObject(place.Field)))
                         values.UnionWith(ReferenceStoredValues(instance, access).Where(value => !IsPlacedSlotSeed(@object, place.Slot, value)));
                 }
             }
@@ -1578,16 +1658,16 @@ public sealed class ValueProvenance
             var values = new HashSet<string>(StringComparer.Ordinal);
             foreach (var instance in StoreInstances(actions))
             {
-                foreach (var store in instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores)
-                                              .Where(store => store.Kind == ElementOperationKind.Store &&
-                                                              store.Arrays.Any(value => Matches(instance, value, @object))))
+                foreach (var store in _stage.Each(instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores))
+                                            .Where(store => store.Kind == ElementOperationKind.Store &&
+                                                            _stage.Each(store.Arrays).Any(value => Matches(instance, value, @object))))
                 {
                     values.UnionWith(Held(ObserveValues(instance, store.Values, store.Producers, out _)));
                 }
-                foreach (var access in instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store))
+                foreach (var access in _stage.Each(instance.Summary.ReferenceAccesses).Where(access => access.Kind == SummaryAccessKind.Store))
                 {
                     var arrays = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (var target in access.Targets)
+                    foreach (var target in _stage.Each(access.Targets))
                     {
                         arrays.UnionWith(ReferenceArrays(Heap, instance, target, out var unobserved));
                         if (unobserved)
@@ -1605,13 +1685,13 @@ public sealed class ValueProvenance
         }
 
         private IEnumerable<MethodInstance> StoreInstances(IReadOnlySet<string>? actions) => actions is null ? CallInstances() :
-            Heap.Instances.Values.Where(instance => IsLibraryBody(instance.BodyId) &&
+            _stage.Each(Heap.Instances.Values).Where(instance => IsLibraryBody(instance.BodyId) &&
                 (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
                              .Any(execution => ActionOf(execution) is { } action && actions.Contains(action)));
 
         public bool IsMemberEntry(MethodInstance instance) => Observation.IsMemberEntry(instance);
 
-        public IEnumerable<MethodInstance> CallInstances() => Heap.Instances.Values.Where(instance => IsLibraryBody(instance.BodyId) &&
+        public IEnumerable<MethodInstance> CallInstances() => _stage.Each(Heap.Instances.Values).Where(instance => IsLibraryBody(instance.BodyId) &&
             (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
                          .Any(execution => ActionOf(execution) is DriverSynthesizer.CALL or DriverSynthesizer.ENUMERATE));
 
@@ -1684,6 +1764,7 @@ public sealed class ValueProvenance
             foreach (var variant in _driver.Actions.Where(action => action != DriverSynthesizer.SETUP)
                                                    .Concat(_driver.Triggers.Select(trigger => trigger.Action)).Distinct(StringComparer.Ordinal))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (!Analysis.Executions.Any(execution => DriverExecutions.IsOwn(execution.Id, variant)))
                     continue;
                 if (!_driver.Member.IsStatic && _driver.Member.MethodKind != MethodKind.Constructor)
@@ -1694,6 +1775,7 @@ public sealed class ValueProvenance
                 foreach (var parameter in _driver.Member.Parameters.Where(parameter => parameter.RefKind != RefKind.Out &&
                                                                                 TypeShape.Of(parameter.Type) != TypeShapeKind.Delegate))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     var field = parameter.RefKind == RefKind.Ref ? $"Out_{parameter.Name}_{Variant(variant)}" : $"Arg_{parameter.Name}_{Variant(variant)}";
                     var initial = parameter.RefKind == RefKind.Ref ? InitialValues(field) : StaticTargets(DriverSynthesizer.DRIVER_TYPE, field);
                     foreach (var region in initial)
@@ -1713,10 +1795,12 @@ public sealed class ValueProvenance
             {
                 foreach (var probe in parameter.Probes)
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     var factory = Allocations.ProbeBody(probe);
                     foreach (var region in Heap.Regions.Values.Where(region => region.SiteBodyId == factory ||
                         region.SiteBodyId?.StartsWith(factory + "#", StringComparison.Ordinal) == true))
                     {
+                        _checks.Check(GenerationStage.ReadEffects);
                         if (Allocations.Of(region.Identity).Role == DriverRole.ProbeLambdaReturn)
                             AddRootGraph(region.Identity, new ReturnsValue(parameter.Name));
                     }
@@ -1725,12 +1809,14 @@ public sealed class ValueProvenance
 
             foreach (var trigger in _driver.Triggers)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (!Analysis.Executions.Any(execution => DriverExecutions.IsOwn(execution.Id, trigger.Action)))
                     continue;
                 var prefix = HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.DRIVER_TYPE,
                                                    $"TArg_{trigger.Action}_");
                 foreach (var field in Reachability.StaticFields().Where(field => field.Slot.StartsWith(prefix, StringComparison.Ordinal)))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     if (!int.TryParse(field.Slot[prefix.Length..], out var ordinal))
                         continue;
                     foreach (var region in Reachability.Targets(field))
@@ -1750,6 +1836,7 @@ public sealed class ValueProvenance
             pending.Push((root, value, type));
             while (pending.TryPop(out var item))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (!seen.Add((item.Region, item.Value.Canonical)))
                     continue;
                 if (!_roots.TryGetValue(item.Region, out var roots))
@@ -1783,6 +1870,7 @@ public sealed class ValueProvenance
                 { Kind: SummaryAccessKind.Store, Field.IsStatic: true, Field.Assembly: DriverSynthesizer.ASSEMBLY } &&
                 access.Access.Field.ContainingTypeId == DriverSynthesizer.DRIVER_TYPE))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (!_fired.TryGetValue(access.Access.Field.Name, out var executions))
                     _fired[access.Access.Field.Name] = executions = new HashSet<string>(StringComparer.Ordinal);
                 executions.UnionWith(access.Executions);
@@ -1794,6 +1882,7 @@ public sealed class ValueProvenance
             var written = new HashSet<WrittenEdge>();
             foreach (var access in Run.Collection?.Accesses ?? [])
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (access.Operation is AccessOperation.Read or AccessOperation.AtomicRead || ActionOf(access.ExecutionId) is not
                     (DriverSynthesizer.CALL or DriverSynthesizer.ENUMERATE) || !IsLibraryBody(access.BodyId) ||
                     !Heap.Instances.TryGetValue(access.InstanceId, out var instance))
@@ -1814,6 +1903,7 @@ public sealed class ValueProvenance
                 (direct.Contains(instance.Id) || Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) is { } executions &&
                  executions.Any(execution => ActionOf(execution) is DriverSynthesizer.CALL or DriverSynthesizer.ENUMERATE))))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 AddStoreEdges(written, instance);
             }
             return written;
@@ -1828,6 +1918,7 @@ public sealed class ValueProvenance
         {
             foreach (var store in instance.Summary.Stores.Concat(instance.Summary.ReferenceStores))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 var values = store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
                 foreach (var (@object, field) in Places(instance, store.Bases, store.Field))
                     AddExistingEdges(edges, @object, field, values);
@@ -1835,17 +1926,23 @@ public sealed class ValueProvenance
             foreach (var store in instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores)
                                           .Where(store => store.Kind == ElementOperationKind.Store))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 var objects = store.Arrays.SelectMany(value => Resolve(instance, value));
                 var values = store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
                 foreach (var @object in objects)
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     AddExistingEdges(edges, @object, store.Slot, values);
+                }
             }
             foreach (var copy in instance.Summary.StructCopies)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 var held = copy.Sources.SelectMany(value => Resolve(instance, value)).SelectMany(Reachability.Edges)
                                .Select(edge => edge.Target).ToHashSet(StringComparer.Ordinal);
                 foreach (var target in copy.Targets.SelectMany(value => Resolve(instance, value)))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     if (Heap.Located(target, "") is not var (@object, storage) || storage.Length == 0)
                         continue;
                     foreach (var edge in Reachability.Edges(@object).Where(edge => edge.Field.StartsWith(storage + FieldSlot.PATH_SEPARATOR, StringComparison.Ordinal) &&
@@ -1882,6 +1979,7 @@ public sealed class ValueProvenance
                                 .ToDictionary(instance => instance.Id, StringComparer.Ordinal);
             foreach (var access in Run.Collection?.Accesses ?? [])
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (access.Operation is AccessOperation.Read or AccessOperation.AtomicRead ||
                     !setupOnly.TryGetValue(access.InstanceId, out var instance))
                 {
@@ -1895,7 +1993,10 @@ public sealed class ValueProvenance
             }
 
             foreach (var instance in setupOnly.Values)
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 AddStoreEdges(placed, instance);
+            }
             return placed;
         }
 
@@ -1907,6 +2008,7 @@ public sealed class ValueProvenance
             var placed = new HashSet<WrittenEdge>();
             foreach (var access in Run.Collection?.Accesses ?? [])
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (access.Operation is AccessOperation.Read or AccessOperation.AtomicRead || !Executions.InSetup(access.ExecutionId) ||
                     !Heap.Instances.TryGetValue(access.InstanceId, out var instance))
                 {
@@ -1941,7 +2043,10 @@ public sealed class ValueProvenance
             foreach (var edge in Reachability.Edges(@object).Where(edge => FieldMatches(edge.Field, field) && values.Contains(edge.Target) ||
                                                                            held.Contains(edge.Target) && edge.Field.Contains(FieldSlot.PATH_SEPARATOR) &&
                                                                            FieldMatches(FieldSlot.Root(edge.Field), field)))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 written.Add(new WrittenEdge(@object, edge.Field, edge.Target));
+            }
         }
 
         private bool IsLibraryBody(string body) => body.StartsWith($"body:{_driver.Member.ContainingAssembly.Name}:", StringComparison.Ordinal);

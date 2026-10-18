@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Serialization;
@@ -28,7 +29,7 @@ public sealed class EShopSnapshotTests
         var target = Path.Combine(Environment.GetEnvironmentVariable(RequiresEShopFactAttribute.VARIABLE)!, SOLUTION);
 
         var (measurement, _) = await MetricsCommand.MeasureAsync(target, AnalysisLimits.Default, MetricsCommand.LoadWithMsBuildAsync,
-                                                                 CancellationToken.None);
+                                                                 ModelGeneration.None, CancellationToken.None);
 
         var fresh = MetricsCommandTests.Normalize(JsonSerializer.Serialize(new MeasurementSnapshot(measurement.Counts, measurement.Coverage),
                                                                            MetricsJsonContext.Default.MeasurementSnapshot));

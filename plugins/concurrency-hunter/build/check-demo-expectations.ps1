@@ -6,7 +6,7 @@ finished phases are untouched.
 .DESCRIPTION
 Without arguments two checks run.
 
-Consistency: for every entry with phase 5d the case name is the part of `id` before `/`, and that name must have a file
+Consistency: for every entry with phase 5d or a run of 5d (`5d-B4`) the case name is the part of `id` before `/`, and that name must have a file
 <Pascal>.cs somewhere under demo/**/Cases/ whose namespace ends with the same <Pascal>, the kebab name joined in PascalCase.
 
 The past: the committed file, read with `git show HEAD:plugins/concurrency-hunter/demo/expected-findings.json`, must still
@@ -58,6 +58,11 @@ function Get-Entries($File) {
     @(@($File.findings) + @($File.notDefects) | Where-Object { $null -ne $_ })
 }
 
+# An entry of the phase: its phase is the phase itself or one of its runs, `<phase>-<run>`.
+function Test-PhaseEntry($Entry) {
+    $Entry.phase -eq $PHASE -or ([string]$Entry.phase).StartsWith("$PHASE-", [StringComparison]::Ordinal)
+}
+
 # Everything the immutability check compares, as one string: the property order of the JSON does not reach it.
 function Get-Signature($Entry) {
     $accesses = if ($Entry.PSObject.Properties['accesses'] -and $null -ne $Entry.accesses) {
@@ -86,8 +91,8 @@ foreach ($file in Get-ChildItem (Join-Path $root 'demo') -Recurse -Filter '*.cs'
     $caseFiles[[IO.Path]::GetFileNameWithoutExtension($file.Name)] = $file.FullName
 }
 
-# 1. Consistency: every phase 5d entry has its case file, and that file carries the matching namespace.
-$cases = @($entries | Where-Object { $_.phase -eq $PHASE } | ForEach-Object { $_.id.Split('/')[0] } | Sort-Object -Unique)
+# 1. Consistency: every phase 5d entry, a run of 5d included, has its case file, and that file carries the matching namespace.
+$cases = @($entries | Where-Object { Test-PhaseEntry $_ } | ForEach-Object { $_.id.Split('/')[0] } | Sort-Object -Unique)
 foreach ($case in $cases) {
     $pascal = Get-PascalName $case
     $path = $caseFiles[$pascal]
@@ -165,7 +170,7 @@ if ($Complete) {
     foreach ($case in $catalog) {
         $pascal = Get-PascalName $case
         if (-not $caseFiles.ContainsKey($pascal)) { $problems.Add("$case is in the catalog but has no demo/**/Cases/$pascal.cs") }
-        if ($cases -notcontains $case) { $problems.Add("$case is in the catalog but has no entry with phase $PHASE") }
+        if ($cases -notcontains $case) { $problems.Add("$case is in the catalog but has no entry with phase $PHASE or a run of it") }
     }
 }
 

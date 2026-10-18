@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.IServiceScope.get_ServiceProvider",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.IServiceScopeFactory.CreateScope",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped``1(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddScoped``1(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Func{System.IServiceProvider,``0})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton``1(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton``1(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Func{System.IServiceProvider,``0})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton``1(Microsoft.Extensions.DependencyInjection.IServiceCollection,``0)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton``2(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddTransient``1(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService``1(System.IServiceProvider)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetService``1(System.IServiceProvider)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.AsyncServiceScope.get_ServiceProvider is claimed by the recognized recognizer",
+        "causes": []
+      }
+    }
+  ]
+}

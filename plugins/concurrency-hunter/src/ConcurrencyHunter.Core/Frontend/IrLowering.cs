@@ -2779,7 +2779,7 @@ public static class IrLowering
             if (method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern && !_context.IsLeftOut(method))
                 return;
 
-            var model = _context.LibraryModels.Find(method);
+            var model = _context.LibraryModels.Find(method, _context.Compilation);
             bool HasOutput(IArgumentOperation argument) => model is { Kind: LibraryMatchKind.Known } && model.Outputs.ContainsKey(argument.Parameter!.Name);
             foreach (var argument in operations.Where(argument => argument.Parameter?.RefKind == RefKind.Out ||
                                                                   argument.Parameter?.RefKind == RefKind.Ref && HasOutput(argument)))
@@ -3599,7 +3599,7 @@ public static class IrLowering
                 }
 
                 var output = argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } parameter &&
-                             _context.LibraryModels.Find((IMethodSymbol)parameter.ContainingSymbol) is { Kind: LibraryMatchKind.Known } model &&
+                             _context.LibraryModels.Find((IMethodSymbol)parameter.ContainingSymbol, _context.Compilation) is { Kind: LibraryMatchKind.Known } model &&
                              model.Outputs.ContainsKey(parameter.Name);
                 var passed = argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out ? RefArgumentSymbol(argument) : null;
                 if (passed is not null && SsaPlan.DefinesVersion(passed, binds: false))
@@ -5857,7 +5857,7 @@ public static class IrLowering
         {
             var definition = (method.ReducedFrom ?? method).OriginalDefinition;
             if (LibraryModels.IsDeclaredInRun(definition) ||
-                libraryModels.Find(definition) is not { } match)
+                libraryModels.Find(definition, compilation) is not { } match)
                 return null;
             // The parameters as the call names them: what an argument's elements are depends on the type arguments it was given.
             var typed = method.ReducedFrom is null ? method : definition;
@@ -5895,7 +5895,13 @@ public static class IrLowering
                                       Value(typed, value, invoke.Parameters[index].Type)).ToArray()).ToArray());
             }).ToArray();
             return new IrLibraryCall(match.MemberId, match.Kind == LibraryMatchKind.Known, effects,
-                                     match.Layer == ModelLayer.Project ? IrModelLayer.Project : IrModelLayer.BuiltIn,
+                                     match.Layer switch
+                                     {
+                                         ModelLayer.BuiltIn => IrModelLayer.BuiltIn,
+                                         ModelLayer.Project => IrModelLayer.Project,
+                                         ModelLayer.Generated => IrModelLayer.Generated,
+                                         _ => throw new UnreachableException($"Unknown model layer {match.Layer}.")
+                                     },
                                      match.DeclaredOpaque)
             {
                 Fates = fates,

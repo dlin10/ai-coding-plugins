@@ -47,6 +47,11 @@ public sealed class KnownCallCoverageTests
         Assert.Equal(1, Delta(run, without, CoverageCounters.KNOWN_CALL));
         Assert.Equal(0, Delta(run, without, CoverageCounters.OPAQUE_CALL));
         Assert.Equal(0, Delta(run, without, CoverageCounters.OUT_OF_RANGE_CALL));
+        // A known call is of one layer, and the three layers make up the sum: this one is the built-in layer's.
+        Assert.Equal((1, 0, 0), (Delta(run, without, CoverageCounters.KNOWN_CALL_BUILT_IN), Delta(run, without, CoverageCounters.KNOWN_CALL_PROJECT),
+                                 Delta(run, without, CoverageCounters.KNOWN_CALL_GENERATED)));
+        Assert.Equal(run.Counter(CoverageCounters.KNOWN_CALL_BUILT_IN) + run.Counter(CoverageCounters.KNOWN_CALL_PROJECT) +
+                     run.Counter(CoverageCounters.KNOWN_CALL_GENERATED), run.Counter(CoverageCounters.KNOWN_CALL));
     }
 
     [Fact]
@@ -317,6 +322,18 @@ public sealed class KnownCallCoverageTests
 
         var known = Assert.Single(lines, line => line.StartsWith($"  - {CoverageCounters.KNOWN_CALL} ", StringComparison.Ordinal));
         Assert.Matches(@"^  - known-call [1-9]\d*: calls without a source body that a library model describes", known);
+        // The count of known calls is the sum of the three layers' counts, and the report explains each of them.
+        var skips = Assert.Single(result.Coverage).Skips;
+        Assert.Equal(skips[CoverageCounters.KNOWN_CALL_BUILT_IN] + skips[CoverageCounters.KNOWN_CALL_PROJECT] + skips[CoverageCounters.KNOWN_CALL_GENERATED],
+                     skips[CoverageCounters.KNOWN_CALL]);
+        Assert.Contains($"  - known-call {skips[CoverageCounters.KNOWN_CALL]}: ", known, StringComparison.Ordinal);
+        foreach (var (layer, meaning) in new[]
+                 {
+                     (CoverageCounters.KNOWN_CALL_BUILT_IN, "known calls a built-in library model describes"),
+                     (CoverageCounters.KNOWN_CALL_PROJECT, "known calls a project library model describes"),
+                     (CoverageCounters.KNOWN_CALL_GENERATED, "known calls a generated library model describes")
+                 })
+            Assert.Contains($"  - {layer} {skips[layer]}: {meaning}", lines);
         Assert.Matches(@"^  - out-of-range-call 0: opaque calls of a member a built-in library model describes, in an assembly version outside its supported range$",
                        Assert.Single(lines, line => line.StartsWith($"  - {CoverageCounters.OUT_OF_RANGE_CALL} ", StringComparison.Ordinal)));
     }

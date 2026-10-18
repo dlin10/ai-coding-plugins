@@ -43,6 +43,22 @@ public sealed record LibraryCompilationResult(CSharpCompilation? Compilation, st
 /// <param name="Failures">One entry per type the decompiler threw on, <c>&lt;type&gt;: &lt;exception&gt;: &lt;message&gt;</c>.</param>
 public sealed record DecompiledModule(IReadOnlyList<SyntaxTree> Trees, IReadOnlyList<string> Failures);
 
+/// <summary>What a test hooks into one library compilation to hold it at a known place; <c>null</c> in production.</summary>
+internal sealed class LibraryCompilationProbe
+{
+    /// <summary>Told the full name of each type after its output pass, on the worker that printed it.</summary>
+    public Action<string>? TypePrinted { get; init; }
+
+    /// <summary>The degree of parallelism of the decompilation, or <c>null</c> for the default.</summary>
+    public int? Workers { get; init; }
+
+    /// <summary>Called on the compilation's own worker before it decompiles anything.</summary>
+    public Action? Started { get; init; }
+
+    /// <summary>Called by a caller that has found its compilation, its own or another's, just before it waits for it.</summary>
+    public Action? Waiting { get; init; }
+}
+
 /// <summary>Decompiles an implementation assembly in memory as the whole-project decompiler does and compiles it against its
 /// references (SPEC TD-034b). A body that does not compile has no body: its member is rewritten as <c>extern</c>, which the engine
 /// already reads as a call without a body. One compilation per implementation path, reference set and additional extern selection per process.</summary>
@@ -64,7 +80,7 @@ public static class LibraryCompilation
 
     private static readonly CSharpParseOptions ParseOptions = new(RoslynLanguageVersion.Preview);
 
-    private static readonly ConcurrentDictionary<string, Lazy<LibraryCompilationResult>> Compilations = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, Lazy<Task<LibraryCompilationResult>>> Compilations = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The compilation of an implementation assembly, built once per implementation path, shared framework directory and
     /// dependency paths.</summary>
@@ -78,8 +94,28 @@ public static class LibraryCompilation
     /// <param name="selectedMembers">Documentation ids of whole members to make extern.</param>
     /// <param name="cancellationToken">Cancels the decompilation and compilation.</param>
     internal static LibraryCompilationResult Compile(ImplementationAssembly assembly, IReadOnlySet<string> selectedMembers,
-                                                     CancellationToken cancellationToken)
+                                                     CancellationToken cancellationToken) =>
+        Compile(assembly, selectedMembers, new GenerationChecks(cancellationToken));
+
+    /// <summary>The compilation of an implementation assembly as a stage of a generation.</summary>
+    /// <param name="assembly">The implementation assembly, not a reference assembly.</param>
+    /// <param name="checks">The generation's checks, which cancel the decompilation, the rewrite rounds, the compilation and the wait for
+    /// one another caller started.</param>
+    internal static LibraryCompilationResult Compile(ImplementationAssembly assembly, GenerationChecks checks) =>
+        Compile(assembly, new HashSet<string>(StringComparer.Ordinal), checks);
+
+    /// <summary>Compiles an implementation assembly with the selected members made extern as well as failing bodies. A caller that finds
+    /// the compilation under way, started by another caller under that caller's token, waits for it with its own: when its own token
+    /// fires it stops waiting and the compilation goes on. A compilation cancelled by its starter leaves the cache, and a caller whose
+    /// own token has not fired starts it again.</summary>
+    /// <param name="assembly">The implementation assembly.</param>
+    /// <param name="selectedMembers">Documentation ids of whole members to make extern.</param>
+    /// <param name="checks">The generation's checks, which cancel the decompilation, the rewrite rounds, the compilation and the wait.</param>
+    /// <param name="probe">Test hooks, or <c>null</c>.</param>
+    internal static LibraryCompilationResult Compile(ImplementationAssembly assembly, IReadOnlySet<string> selectedMembers, GenerationChecks checks,
+                                                     LibraryCompilationProbe? probe = null)
     {
+        checks.Check(GenerationStage.CompileLibrary);
         var dependencies = assembly.References.Where(reference => !string.Equals(Path.GetDirectoryName(reference),
                                                                                 Path.TrimEndingDirectorySeparator(assembly.SharedFrameworkDirectory),
                                                                                 StringComparison.OrdinalIgnoreCase));
@@ -87,19 +123,69 @@ public static class LibraryCompilation
         // Paths compare ignoring case; hex-encoded member ids retain their case in that cache.
         var key = string.Join("\n", new[] { assembly.Path, assembly.SharedFrameworkDirectory }.Concat(dependencies)) +
                   "\nextern:\n" + Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", selection.Order(StringComparer.Ordinal))));
-        var compilation = Compilations.GetOrAdd(key, _ => new Lazy<LibraryCompilationResult>(() =>
-            CompileModule(assembly.AssemblyName, Decompile(assembly, cancellationToken),
-                          assembly.References.Select(reference => MetadataReference.CreateFromFile(reference)).ToArray(), cancellationToken, selection)));
-        try
+        while (true)
         {
-            return compilation.Value;
-        }
-        catch (OperationCanceledException)
-        {
-            Compilations.TryRemove(KeyValuePair.Create(key, compilation));
-            throw;
+            // The value overload: the factory overload may run for several callers, and only the caller whose instance the cache holds
+            // owns the entry it records.
+            var created = Started(key, assembly, selection, checks, probe);
+            var entry = Compilations.GetOrAdd(key, created);
+            if (ReferenceEquals(entry, created))
+                CompilationOwnership.Record(key, entry);
+            var compiling = entry.Value;
+            probe?.Waiting?.Invoke();
+            try
+            {
+                return compiling.WaitAsync(checks.Token).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException) when (!checks.Token.IsCancellationRequested && WasCancelled(compiling))
+            {
+                Compilations.TryRemove(KeyValuePair.Create(key, entry));
+            }
         }
     }
+
+    /// <summary>Removes the entries a run created from the cache (R12), each only while its key still maps to the instance the run added:
+    /// an entry that left the cache and was created again by another caller stays.</summary>
+    /// <param name="created">The entries the run's <see cref="CompilationOwnership"/> recorded.</param>
+    internal static void Release(IEnumerable<OwnedCompilation> created)
+    {
+        foreach (var (key, entry) in created)
+            Compilations.TryRemove(KeyValuePair.Create(key, entry));
+    }
+
+    /// <summary>A cache entry whose compilation starts on first use, on a worker of its own, so that a caller waiting for it can stop
+    /// waiting. The entry leaves the cache when the compilation is cancelled, whoever is still waiting.</summary>
+    /// <param name="key">The cache key.</param>
+    /// <param name="assembly">The implementation assembly.</param>
+    /// <param name="selection">Documentation ids of whole members to make extern.</param>
+    /// <param name="checks">The starter's checks, which govern the compilation.</param>
+    /// <param name="probe">Test hooks, or <c>null</c>.</param>
+    private static Lazy<Task<LibraryCompilationResult>> Started(string key, ImplementationAssembly assembly, IReadOnlySet<string> selection,
+                                                                GenerationChecks checks, LibraryCompilationProbe? probe)
+    {
+        Lazy<Task<LibraryCompilationResult>>? entry = null;
+        entry = new Lazy<Task<LibraryCompilationResult>>(() =>
+        {
+            var compiling = Task.Run(() =>
+            {
+                probe?.Started?.Invoke();
+                return CompileModule(assembly.AssemblyName, Decompile(assembly, checks, probe),
+                                     assembly.References.Select(reference => MetadataReference.CreateFromFile(reference)).ToArray(), checks, selection);
+            });
+            compiling.ContinueWith(finished =>
+            {
+                if (WasCancelled(finished))
+                    Compilations.TryRemove(KeyValuePair.Create(key, entry!));
+            }, TaskScheduler.Default);
+            return compiling;
+        });
+        return entry;
+    }
+
+    /// <summary>Whether a task ended cancelled, or failed with nothing but cancellations; one still running has not.</summary>
+    /// <param name="task">The task.</param>
+    private static bool WasCancelled(Task task) =>
+        task.IsCanceled || task.IsFaulted && task.Exception!.InnerExceptions.All(error => error is OperationCanceledException);
 
     /// <summary>Decompiles the whole module in memory: one syntax tree per top-level type the whole-project decompiler includes,
     /// with its <c>EscapeInvalidIdentifiers</c> and <c>RemoveCLSCompliantAttribute</c> transforms, and the assembly-attributes
@@ -107,8 +193,19 @@ public static class LibraryCompilation
     /// dropped silently.</summary>
     /// <param name="assembly">The implementation assembly.</param>
     /// <param name="cancellationToken">Cancels the decompilation.</param>
-    internal static DecompiledModule Decompile(ImplementationAssembly assembly, CancellationToken cancellationToken)
+    internal static DecompiledModule Decompile(ImplementationAssembly assembly, CancellationToken cancellationToken) =>
+        Decompile(assembly, new GenerationChecks(cancellationToken));
+
+    /// <summary>Decompiles the whole module in memory (<see cref="Decompile(ImplementationAssembly, CancellationToken)"/>) as a stage of
+    /// a generation. Each worker checks before the output pass of its type, and a cancelled decompilation throws
+    /// <see cref="OperationCanceledException"/>, never an <see cref="AggregateException"/> of them; the output a worker is printing when
+    /// the token fires runs to its end, at most one type per worker.</summary>
+    /// <param name="assembly">The implementation assembly.</param>
+    /// <param name="checks">The generation's checks, which cancel the decompilation.</param>
+    /// <param name="probe">Test hooks, or <c>null</c>.</param>
+    internal static DecompiledModule Decompile(ImplementationAssembly assembly, GenerationChecks checks, LibraryCompilationProbe? probe = null)
     {
+        var cancellationToken = checks.Token;
         using var resolver = new ReferenceResolver(assembly.References);
         using var module = new PEFile(assembly.Path, PEStreamOptions.PrefetchEntireImage);
         var settings = new DecompilerSettings(DecompilerLanguageVersion.Latest) { ThrowOnAssemblyResolveErrors = false };
@@ -120,7 +217,10 @@ public static class LibraryCompilation
                             .ToArray();
         var trees = new SyntaxTree?[types.Length + 1];
         var failures = new string?[types.Length];
-        Parallel.For(0, types.Length, new ParallelOptions { CancellationToken = cancellationToken }, index =>
+        var options = new ParallelOptions { CancellationToken = cancellationToken };
+        if (probe?.Workers is { } workers)
+            options.MaxDegreeOfParallelism = workers;
+        Parallel.For(0, types.Length, options, index =>
         {
             var definition = metadata.GetTypeDefinition(types[index]);
             var fullName = metadata.GetString(definition.Namespace) is { Length: > 0 } ns
@@ -131,18 +231,24 @@ public static class LibraryCompilation
             decompiler.CancellationToken = cancellationToken;
             try
             {
-                trees[index] = Parse(decompiler.DecompileTypes([types[index]]), settings, $"{assembly.AssemblyName}/{name}.cs", cancellationToken);
+                trees[index] = Parse(decompiler.DecompileTypes([types[index]]), settings, $"{assembly.AssemblyName}/{name}.cs", checks);
+                probe?.TypePrinted?.Invoke(fullName);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The cancellation is thrown once, after the workers stop, so that no worker's exception reaches the caller wrapped.
             }
             catch (Exception error) when (error is not OperationCanceledException)
             {
                 failures[index] = $"{fullName}: {error.GetType().Name}: {error.Message}";
             }
         });
+        cancellationToken.ThrowIfCancellationRequested();
 
         var attributes = project.Create(typeSystem);
         attributes.CancellationToken = cancellationToken;
         attributes.AstTransforms.Add(new RemoveCompilerGeneratedAssemblyAttributes());
-        trees[^1] = Parse(attributes.DecompileModuleAndAssemblyAttributes(), settings, $"{assembly.AssemblyName}/AssemblyInfo.cs", cancellationToken);
+        trees[^1] = Parse(attributes.DecompileModuleAndAssemblyAttributes(), settings, $"{assembly.AssemblyName}/AssemblyInfo.cs", checks);
         return new DecompiledModule(trees.OfType<SyntaxTree>().ToArray(), failures.OfType<string>().ToArray());
     }
 
@@ -154,7 +260,17 @@ public static class LibraryCompilation
     /// <param name="cancellationToken">Cancels the compilation.</param>
     /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
     internal static LibraryCompilationResult CompileModule(string assemblyName, DecompiledModule module, IReadOnlyList<MetadataReference> references,
-                                                           CancellationToken cancellationToken, IReadOnlySet<string>? selectedMembers = null)
+                                                           CancellationToken cancellationToken, IReadOnlySet<string>? selectedMembers = null) =>
+        CompileModule(assemblyName, module, references, new GenerationChecks(cancellationToken), selectedMembers);
+
+    /// <summary>Compiles a decompiled module as a stage of a generation (<see cref="CompileModule(string, DecompiledModule, IReadOnlyList{MetadataReference}, CancellationToken, IReadOnlySet{string}?)"/>).</summary>
+    /// <param name="assemblyName">The assembly name.</param>
+    /// <param name="module">The decompiled module.</param>
+    /// <param name="references">The references of the platform version.</param>
+    /// <param name="checks">The generation's checks, which cancel the compilation.</param>
+    /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
+    internal static LibraryCompilationResult CompileModule(string assemblyName, DecompiledModule module, IReadOnlyList<MetadataReference> references,
+                                                           GenerationChecks checks, IReadOnlySet<string>? selectedMembers = null)
     {
         if (module.Failures.Count > 0)
         {
@@ -163,7 +279,7 @@ public static class LibraryCompilation
                                                 module.Failures.Select(failure => $"decompiler: {failure}").ToArray());
         }
 
-        return CompileTrees(assemblyName, module.Trees, references, cancellationToken, selectedMembers);
+        return CompileTrees(assemblyName, module.Trees, references, checks, selectedMembers);
     }
 
     /// <summary>Compiles decompiled trees as a library named as the assembly, unsafe code allowed, nullable disabled, makes every
@@ -180,8 +296,22 @@ public static class LibraryCompilation
     /// <param name="openFields">Whether to open seed and path fields for the model driver.</param>
     internal static LibraryCompilationResult CompileTrees(string assemblyName, IReadOnlyList<SyntaxTree> trees,
                                                           IReadOnlyList<MetadataReference> references, CancellationToken cancellationToken,
+                                                          IReadOnlySet<string>? selectedMembers = null, bool openFields = true) =>
+        CompileTrees(assemblyName, trees, references, new GenerationChecks(cancellationToken), selectedMembers, openFields);
+
+    /// <summary>Compiles decompiled trees as a stage of a generation (<see cref="CompileTrees(string, IReadOnlyList{SyntaxTree}, IReadOnlyList{MetadataReference}, CancellationToken, IReadOnlySet{string}?, bool)"/>):
+    /// it checks before each tree it rewrites and before each rewrite round.</summary>
+    /// <param name="assemblyName">The assembly name.</param>
+    /// <param name="trees">The decompiled trees.</param>
+    /// <param name="references">The references of the platform version.</param>
+    /// <param name="checks">The generation's checks, which cancel the compilation.</param>
+    /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
+    /// <param name="openFields">Whether to open seed and path fields for the model driver.</param>
+    internal static LibraryCompilationResult CompileTrees(string assemblyName, IReadOnlyList<SyntaxTree> trees,
+                                                          IReadOnlyList<MetadataReference> references, GenerationChecks checks,
                                                           IReadOnlySet<string>? selectedMembers = null, bool openFields = true)
     {
+        var cancellationToken = checks.Token;
         var bodies = trees.Sum(tree => tree.GetRoot(cancellationToken).DescendantNodes().Count(IsBody));
         var compilation = CSharpCompilation.Create(assemblyName, trees, references,
                                                    new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
@@ -192,7 +322,7 @@ public static class LibraryCompilation
         {
             foreach (var tree in compilation.SyntaxTrees.ToArray())
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                checks.Check(GenerationStage.CompileLibrary);
                 var currentTree = tree;
                 var model = compilation.GetSemanticModel(currentTree);
                 var root = currentTree.GetRoot(cancellationToken);
@@ -234,7 +364,7 @@ public static class LibraryCompilation
         var replacedMembers = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var tree in compilation.SyntaxTrees.ToArray())
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            checks.Check(GenerationStage.CompileLibrary);
             var root = tree.GetRoot(cancellationToken);
             var types = root.DescendantNodes(node => node is CompilationUnitSyntax or BaseNamespaceDeclarationSyntax).OfType<TypeDeclarationSyntax>()
                             .Where(type => type.Identifier.ValueText == "Unsafe").ToArray();
@@ -257,6 +387,7 @@ public static class LibraryCompilation
 
         for (var round = 0; ; round++)
         {
+            checks.Check(GenerationStage.CompileLibrary);
             var targets = new Targets();
             var unusable = new SortedSet<string>(StringComparer.Ordinal);
             foreach (var error in compilation.GetDiagnostics(cancellationToken).Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
@@ -348,12 +479,18 @@ public static class LibraryCompilation
                model.GetDeclaredSymbol(member, cancellationToken)?.GetDocumentationCommentId() is { } memberId && selection.Contains(memberId);
     }
 
+    /// <summary>The text of a decompiled tree, parsed. It checks before the output pass, which the token does not interrupt.</summary>
+    /// <param name="tree">The decompiler's tree.</param>
+    /// <param name="settings">The decompiler settings.</param>
+    /// <param name="path">The path the parsed tree reports.</param>
+    /// <param name="checks">The generation's checks.</param>
     private static SyntaxTree Parse(ICSharpCode.Decompiler.CSharp.Syntax.SyntaxTree tree, DecompilerSettings settings, string path,
-                                    CancellationToken cancellationToken)
+                                    GenerationChecks checks)
     {
+        checks.Check(GenerationStage.CompileLibrary);
         var writer = new StringWriter();
         tree.AcceptVisitor(new CSharpOutputVisitor(writer, settings.CSharpFormattingOptions));
-        return CSharpSyntaxTree.ParseText(writer.ToString(), ParseOptions, path, cancellationToken: cancellationToken);
+        return CSharpSyntaxTree.ParseText(writer.ToString(), ParseOptions, path, cancellationToken: checks.Token);
     }
 
     /// <summary>Whether a node is a method body: a method, constructor, destructor, operator or conversion with a body, an accessor

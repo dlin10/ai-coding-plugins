@@ -479,6 +479,25 @@ internal static class LibraryVocabulary
         }
     }
 
+    /// <summary>The type of the objects each of an entry's calls runs its member on, in the order of <paramref name="calls"/>, as the member
+    /// step reads it; <c>null</c> for objects whose type no member names (a kept object, a built sequence). It asks what
+    /// <see cref="MemberCalls"/> asks of the same calls: calls that step accepted have a type or none, and no other has any.</summary>
+    /// <param name="calls">The entry's calls.</param>
+    /// <param name="method">The member's original definition.</param>
+    /// <param name="compilation">The compilation that resolves the types.</param>
+    internal static IReadOnlyList<ITypeSymbol?> CallReceivers(IReadOnlyList<LibraryMemberCall> calls, IMethodSymbol method, Compilation compilation)
+    {
+        try
+        {
+            return new MemberCheck(null, [], method, compilation, [], new Dictionary<string, IReadOnlyList<LibraryValue>>(),
+                                   new Dictionary<string, LibraryResult>(), new Dictionary<string, IReadOnlyList<LibraryValue>>()).Receivers(calls);
+        }
+        catch (Refusal)
+        {
+            return [.. calls.Select(_ => (ITypeSymbol?)null)];
+        }
+    }
+
     /// <summary>Whether two entries' calls say the same, whatever order they and their inputs are written in.</summary>
     /// <param name="a">The first entry's calls.</param>
     /// <param name="b">The second entry's calls.</param>
@@ -570,6 +589,10 @@ internal static class LibraryVocabulary
                     _ = TypeOf(value);
             }
         }
+
+        /// <summary>The type of the objects each call runs its member on.</summary>
+        /// <param name="calls">The entry's calls.</param>
+        internal IReadOnlyList<ITypeSymbol?> Receivers(IReadOnlyList<LibraryMemberCall> calls) => [.. calls.Select(call => TypeOf(call.On))];
 
         internal void Run()
         {

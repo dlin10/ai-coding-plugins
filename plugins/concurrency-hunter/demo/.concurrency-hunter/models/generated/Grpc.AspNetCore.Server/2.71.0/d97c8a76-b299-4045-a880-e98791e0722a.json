@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "Grpc.AspNetCore.Server",
+    "version": "2.0.0.0",
+    "mvid": "d97c8a76-b299-4045-a880-e98791e0722a",
+    "package": "Grpc.AspNetCore.Server",
+    "packageVersion": "2.71.0"
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.GrpcEndpointRouteBuilderExtensions.MapGrpcService``1(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS1955 Non-invocable member 'Seed_1' cannot be used like a method.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.GrpcServicesExtensions.AddGrpc(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen"
+        ]
+      }
+    }
+  ]
+}

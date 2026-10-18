@@ -304,6 +304,58 @@ public sealed class ModelEvalTests
         Assert.True(answer.Classified is { Count: > 0 } || answer.Reason == GenerationReasons.CLOSURE_BOUND, $"{answer.Reason}: {answer.Detail}");
     }
 
+    [RequiresModelEvalsFact]
+    public void EF_Core_members_that_overflowed_get_an_answer()
+    {
+        // The census members whose driver nested one seed class inside the next down EF Core's metadata types, a new type each turn,
+        // until the stack overflowed (R7): each now gets an answer, and none is a missing input.
+        var entityFramework = new EvalInput("Microsoft.EntityFrameworkCore", "8.0.0", "Microsoft.EntityFrameworkCore", "net8.0");
+        var identity = new EvalInput("Microsoft.AspNetCore.Identity.EntityFrameworkCore", "8.0.0", "Microsoft.AspNetCore.Identity.EntityFrameworkCore", "net8.0");
+        (EvalInput Input, string Member)[] members =
+        [
+            (entityFramework, "M:Microsoft.EntityFrameworkCore.ChangeTracking.ChangeTracker.set_QueryTrackingBehavior(Microsoft.EntityFrameworkCore.QueryTrackingBehavior)"),
+            (entityFramework, "M:Microsoft.EntityFrameworkCore.DbContextOptionsBuilder`1.#ctor"),
+            (entityFramework, "M:Microsoft.EntityFrameworkCore.DbContextOptionsBuilder`1.get_Options"),
+            (entityFramework, "M:Microsoft.Extensions.DependencyInjection.EntityFrameworkServiceCollectionExtensions.AddDbContext``1(" +
+                              "Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.EntityFrameworkCore.DbContextOptionsBuilder}," +
+                              "Microsoft.Extensions.DependencyInjection.ServiceLifetime,Microsoft.Extensions.DependencyInjection.ServiceLifetime)"),
+            (identity, "M:Microsoft.Extensions.DependencyInjection.IdentityEntityFrameworkBuilderExtensions.AddEntityFrameworkStores``1(" +
+                       "Microsoft.AspNetCore.Identity.IdentityBuilder)")
+        ];
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+
+        foreach (var (input, member) in members)
+        {
+            var answer = ModelGenerator.Generate(new GenerationRequest(input.Assembly, input.Version, member, input.Package, input.Framework),
+                                                 ImplementationAssemblies.ForThisProcess(), timeout.Token);
+
+            Assert.False(answer.Reason is GenerationReasons.NO_IMPLEMENTATION or GenerationReasons.MEMBER_NOT_FOUND, $"{member}: {answer.Reason}: {answer.Detail}");
+            Assert.True(answer.Classified is not null || answer.Reason is not null, $"{member}: neither classified nor refused");
+        }
+    }
+
+    [RequiresModelEvalsFact]
+    public void Serilog_configuration_getter_stops_at_its_limit()
+    {
+        // The census getters of Serilog's LoggerConfiguration ran past 600 s inside the access collection, whose loops checked no token: the
+        // generation now stops within seconds of its limit, as the answer it gives or as the cancellation of the limit.
+        var serilog = new EvalInput("Serilog", "2.12.0", "Serilog", "net8.0");
+        var resolver = ImplementationAssemblies.ForThisProcess();
+        var resolution = resolver.Resolve(serilog.Assembly, serilog.Version, serilog.Package, serilog.Framework);
+        if (resolution.Reason == GenerationReasons.NO_IMPLEMENTATION)
+            throw new MissingEvalInputException(resolution.Detail);
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+
+        var error = Record.Exception(() => ModelGenerator.Generate(
+            new GenerationRequest(serilog.Assembly, serilog.Version, "M:Serilog.LoggerConfiguration.get_WriteTo", serilog.Package, serilog.Framework),
+            resolver, limit.Token));
+
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"{clock.Elapsed.TotalSeconds:0.0} s against a limit of 10 s");
+        if (error is not null)
+            Assert.IsAssignableFrom<OperationCanceledException>(error);
+    }
+
     private static string ImplementationVersionOf(EvalAnswer answer)
     {
         var input = Inputs[answer.Gold.Assembly];

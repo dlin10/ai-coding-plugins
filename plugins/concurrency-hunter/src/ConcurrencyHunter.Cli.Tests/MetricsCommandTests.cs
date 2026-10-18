@@ -16,7 +16,7 @@ public sealed class MetricsCommandTests
     private static readonly string[] STEPS =
     [
         "load", "scope-discovery", "program-index", "lowering", "reachable-set", "summaries-and-fixpoint", "executions", "accesses", "pairing",
-        "solver", "findings", "render"
+        "solver", "generation", "findings", "render"
     ];
 
     private static readonly Lazy<Task<(Measurement Measurement, AnalysisResult Analysis)>> DEMO = new(MeasureDemoAsync, LazyThreadSafetyMode.ExecutionAndPublication);
@@ -52,7 +52,7 @@ public sealed class MetricsCommandTests
     }
 
     [Fact]
-    public async Task Demo_measurement_has_every_field_and_twelve_steps()
+    public async Task Demo_measurement_has_every_field_and_thirteen_steps()
     {
         var (measurement, _) = await DEMO.Value;
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(measurement, MetricsJsonContext.Default.Measurement));
@@ -76,7 +76,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(["comparisons", "cartesianBound", "largestBucket", "buckets", "skips", "suppressed", "candidates"],
                      Names(root.GetProperty("counts").GetProperty("pairs")));
         Assert.All(root.GetProperty("coverage").EnumerateArray(), scope =>
-            Assert.Equal(["scopeId", "rootsPerProvider", "accesses", "counters", "ordering", "semanticGaps"], Names(scope)));
+            Assert.Equal(["scopeId", "rootsPerProvider", "accesses", "counters", "ordering", "semanticGaps", "generationRefusals"], Names(scope)));
         Assert.Equal(["deterministicSeconds", "peakRssGb"], Names(root.GetProperty("targets")));
         Assert.All(root.GetProperty("targets").EnumerateObject(), target => Assert.Equal(["limit", "actual", "met"], Names(target.Value)));
         Assert.True(root.GetProperty("peakWorkingSetMb").GetDouble() > 0);
@@ -134,6 +134,31 @@ public sealed class MetricsCommandTests
         Assert.All(web.Ordering.Values, value => Assert.True(value > 0));
     }
 
+    /// <summary>The demo has no generation target without a generated model, so its measurement shows no item of the list: this one is
+    /// the list's shape, in the order the scope keeps it.</summary>
+    [Fact]
+    public void Generation_refusals_are_measured_by_declaration_id_file_and_cause()
+    {
+        var scope = new ScopeCoverage("Demo.Web", new Dictionary<string, int>(), [], 0, new Dictionary<string, int>())
+        {
+            GenerationRefusals =
+            [
+                new GenerationRefusal("Acme.Api.Compute(int)", "M:Acme.Api.Compute(System.Int32)", "acme.lib/1.0.0", "no-implementation"),
+                new GenerationRefusal("Acme.Api.Touch(object)", "M:Acme.Api.Touch(System.Object)", "Acme.Lib/1.0.0/1b4e28ba-2fa1-11d2-883f-0016d3cca427.json", "budget")
+            ]
+        };
+        var analysis = new AnalysisResult([], [], [], [], [], [scope], PairCounters.None, []);
+
+        var measured = Assert.Single(MetricsCommand.Coverage(analysis));
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(measured, MetricsJsonContext.Default.ScopeMeasurement));
+
+        var items = json.RootElement.GetProperty("generationRefusals").EnumerateArray().ToArray();
+        Assert.All(items, item => Assert.Equal(["member", "file", "cause"], Names(item)));
+        Assert.Equal([("M:Acme.Api.Compute(System.Int32)", "acme.lib/1.0.0", "no-implementation"),
+                      ("M:Acme.Api.Touch(System.Object)", "Acme.Lib/1.0.0/1b4e28ba-2fa1-11d2-883f-0016d3cca427.json", "budget")],
+                     items.Select(item => (item.GetProperty("member").GetString()!, item.GetProperty("file").GetString()!, item.GetProperty("cause").GetString()!)));
+    }
+
     [Fact]
     public async Task Demo_measurement_matches_the_snapshot()
     {
@@ -168,7 +193,7 @@ public sealed class MetricsCommandTests
         using var directory = new TemporaryDirectory();
         var target = directory.Write("Fixture.slnx", "<Solution />");
 
-        var (measurement, _) = await MetricsCommand.MeasureAsync(target, AnalysisLimits.Default, FixtureLoad, CancellationToken.None);
+        var (measurement, _) = await MetricsCommand.MeasureAsync(target, AnalysisLimits.Default, FixtureLoad, ModelGeneration.None, CancellationToken.None);
 
         Assert.Equal(MetricsCommand.UNKNOWN_REVISION, measurement.Revision);
         Assert.False(measurement.WorkingTreeClean);
@@ -179,7 +204,8 @@ public sealed class MetricsCommandTests
     {
         using var repository = CommittedRepository();
 
-        var (measurement, _) = await MetricsCommand.MeasureAsync(repository.Target, AnalysisLimits.Default, FixtureLoad, CancellationToken.None);
+        var (measurement, _) = await MetricsCommand.MeasureAsync(repository.Target, AnalysisLimits.Default, FixtureLoad, ModelGeneration.None,
+                                                                 CancellationToken.None);
 
         Assert.Equal(Git(repository.Path, "rev-parse", "HEAD").Trim(), measurement.Revision);
         Assert.True(measurement.WorkingTreeClean);
@@ -192,7 +218,8 @@ public sealed class MetricsCommandTests
         using var repository = CommittedRepository();
         File.AppendAllText(Path.Combine(repository.Path, "Controller.cs"), "\n// touched\n");
 
-        var (measurement, _) = await MetricsCommand.MeasureAsync(repository.Target, AnalysisLimits.Default, FixtureLoad, CancellationToken.None);
+        var (measurement, _) = await MetricsCommand.MeasureAsync(repository.Target, AnalysisLimits.Default, FixtureLoad, ModelGeneration.None,
+                                                                 CancellationToken.None);
 
         Assert.Equal(Git(repository.Path, "rev-parse", "HEAD").Trim(), measurement.Revision);
         Assert.False(measurement.WorkingTreeClean);
@@ -227,7 +254,8 @@ public sealed class MetricsCommandTests
     {
         await DemoWorkspace.EnsureRestoredAsync();
         var solution = RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "demo", "Demo.slnx");
-        return await MetricsCommand.MeasureAsync(solution, AnalysisLimits.Default, MetricsCommand.LoadWithMsBuildAsync, CancellationToken.None);
+        return await MetricsCommand.MeasureAsync(solution, AnalysisLimits.Default, MetricsCommand.LoadWithMsBuildAsync, ModelGeneration.ReadOnly,
+                                                 CancellationToken.None);
     }
 
     /// <summary>Loads the C# files beside the target as one in-memory project, the small fixture solution of these tests.</summary>

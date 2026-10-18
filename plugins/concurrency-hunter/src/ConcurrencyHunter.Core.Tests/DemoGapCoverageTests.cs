@@ -42,7 +42,9 @@ public sealed class DemoGapCoverageTests
                                                      gap.Sites.Any(site => InCase(site, "ProjectModelOverridesBuiltIn")));
 
         Assert.Equal(SemanticGapKinds.UNKNOWN_LIBRARY, gap.Kind);
-        Assert.Equal(1, web.Skips.GetValueOrDefault(CoverageCounters.OPAQUE_BY_PROJECT));
+        // Two calls: the serializer of this case, and Options.Create of ProjectOpaqueSwitchesOffGenerated, whose project entry stands over the
+        // generated model the demo commits for the same member.
+        Assert.Equal(2, web.Skips.GetValueOrDefault(CoverageCounters.OPAQUE_BY_PROJECT));
         // The comparer and the three cache calls are known by the project layer.
         Assert.Equal(4, web.Skips.GetValueOrDefault(CoverageCounters.KNOWN_CALL_PROJECT));
         Assert.Equal(0, web.Skips.GetValueOrDefault(CoverageCounters.MODEL_ENTRY_REJECTED));

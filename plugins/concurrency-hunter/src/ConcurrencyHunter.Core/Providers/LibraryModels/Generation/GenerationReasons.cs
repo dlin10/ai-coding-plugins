@@ -20,6 +20,10 @@ public static class GenerationReasons
     /// <summary>The library declares no member of the declaration id asked for.</summary>
     public const string MEMBER_NOT_FOUND = "member-not-found";
 
+    /// <summary>The member has a function-pointer type in its signature, or the id asked for carries the empty type name a declaration
+    /// id writes for one: no id names such a member, so it is not generated.</summary>
+    public const string UNNAMED_MEMBER = "unnamed-member";
+
     /// <summary>A property, event or accessor; generation for accessors belongs to run B2b.</summary>
     public const string ACCESSOR = "accessor";
 
@@ -57,11 +61,13 @@ public static class GenerationReasons
     public const string VOCABULARY = "vocabulary";
 
     /// <summary>The reasons in the order the generator checks them (G-6); <c>driver-not-synthesized</c> stands twice, for a member kind
-    /// the generator does not take and for a driver that could not be built.</summary>
+    /// the generator does not take and for a driver that could not be built. <c>unnamed-member</c> stands where the member found is
+    /// checked, and is also the answer to an id whose text carries the empty type name of a function-pointer type, before any
+    /// resolution.</summary>
     public static IReadOnlyList<string> Ordered { get; } =
     [
-        CORELIB, NO_IMPLEMENTATION, REFERENCE_ASSEMBLY, LIBRARY_DOES_NOT_COMPILE, MEMBER_NOT_FOUND, ACCESSOR, ENGINE_RECOGNIZED, DRIVER_NOT_SYNTHESIZED,
-        NOT_A_CANDIDATE, BODY_DOES_NOT_COMPILE, DRIVER_NOT_SYNTHESIZED, OVERRIDABLE, CLOSURE_BOUND, ANALYSIS_FAILED
+        CORELIB, NO_IMPLEMENTATION, REFERENCE_ASSEMBLY, LIBRARY_DOES_NOT_COMPILE, MEMBER_NOT_FOUND, UNNAMED_MEMBER, ACCESSOR, ENGINE_RECOGNIZED,
+        DRIVER_NOT_SYNTHESIZED, NOT_A_CANDIDATE, BODY_DOES_NOT_COMPILE, DRIVER_NOT_SYNTHESIZED, OVERRIDABLE, CLOSURE_BOUND, ANALYSIS_FAILED
     ];
 }
 

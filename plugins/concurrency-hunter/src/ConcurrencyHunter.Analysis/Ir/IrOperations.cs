@@ -382,7 +382,7 @@ public enum IrFactoryInput
 /// <summary>A member the library model describes (TD-034a): its documentation id, whether the assembly it was found in
 /// is inside the library model's version range, and its effects on its arguments. Out of range the call stays opaque and is counted
 /// apart.</summary>
-public enum IrModelLayer { BuiltIn, Project }
+public enum IrModelLayer { BuiltIn, Project, Generated }
 
 public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<IrLibraryEffect> Effects,
                                    IrModelLayer Layer = IrModelLayer.BuiltIn, bool DeclaredOpaque = false)

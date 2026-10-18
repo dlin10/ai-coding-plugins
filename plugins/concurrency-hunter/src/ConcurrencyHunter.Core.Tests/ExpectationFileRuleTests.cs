@@ -66,6 +66,59 @@ public sealed class ExpectationFileRuleTests
     }
 
     [Theory]
+    [InlineData(false, "5b", "5d-B4")]
+    [InlineData(false, "5d", "5d-B4")]
+    [InlineData(false, "5d-B3", "5d-B4")]
+    [InlineData(true, "5b", "5d-B4")]
+    [InlineData(true, "5d", "5d-B4")]
+    [InlineData(true, "5d-B3", "5d-B4")]
+    public void Until_may_be_a_run_after_the_phase(bool notDefect, string phase, string until)
+    {
+        Assert.Empty(ExpectationRules.Violations(Combine(Entry("case/old", phase, until, notDefect), Entry("case/new", until))));
+    }
+
+    [Theory]
+    [InlineData(false, "5d", "5d")]
+    [InlineData(false, "5d-B4", "5d")]
+    [InlineData(false, "5d-B4", "5d-B4")]
+    [InlineData(false, "5d-B4", "5d-B3")]
+    [InlineData(true, "5d", "5d")]
+    [InlineData(true, "5d-B4", "5d-B3")]
+    public void Until_must_not_precede_or_equal_the_phase_it_is_written_on(bool notDefect, string phase, string until)
+    {
+        var violation = Assert.Single(ExpectationRules.Violations(Combine(Entry("case/old", phase, until, notDefect), Entry("case/new", until))));
+        Assert.Contains("case/old", violation);
+        Assert.Contains("after", violation);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Replacement_phase_equals_until_run(bool notDefect)
+    {
+        var file = Combine(Entry("case/old", "5b", "5d-B4", notDefect), Entry("case/new", "5d"), Entry("case/next", "5d-B3"));
+
+        var violation = Assert.Single(ExpectationRules.Violations(file));
+        Assert.Contains("case/old", violation);
+        Assert.Contains("replacement", violation);
+        Assert.Contains("5d-B4", violation);
+        Assert.Empty(ExpectationRules.Violations(Combine(file, Entry("case/new/answer", "5d-B4", notDefect: notDefect))));
+    }
+
+    [Theory]
+    [InlineData("5d-B5")]
+    [InlineData("5d-b4")]
+    [InlineData("5d-")]
+    [InlineData("5e-A1")]
+    [InlineData("A1")]
+    public void Unknown_run_is_refused(string until)
+    {
+        var violation = Assert.Single(ExpectationRules.Violations(Combine(Entry("case/old", "5d", until), Entry("case/new", until))));
+        Assert.Contains("case/old", violation);
+        Assert.Contains("known phase", violation);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Changed_until_is_refused(bool notDefect)

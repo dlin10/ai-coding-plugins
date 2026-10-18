@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "Microsoft.Extensions.Options",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.Options.Options.Create``1(``0)",
+      "model": {
+        "member": "M:Microsoft.Extensions.Options.Options.Create``1(``0)",
+        "assemblies": [
+          "Microsoft.Extensions.Options"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "result": "new",
+        "keeps": {
+          "result": [
+            "arg:options"
+          ]
+        }
+      }
+    }
+  ]
+}

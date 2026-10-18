@@ -20,7 +20,9 @@ public sealed class GenerationInstall : IDisposable
 
     /// <summary>A resolver over this install.</summary>
     /// <param name="runtimeMajor">The platform major of a package member asked for without a framework.</param>
-    public ImplementationAssemblies Resolver(int runtimeMajor = 8) => new(DotnetRoot, Packages, runtimeMajor);
+    /// <param name="nuspecRead">Told the path of each nuspec the resolver reads.</param>
+    public ImplementationAssemblies Resolver(int runtimeMajor = 8, Action<string>? nuspecRead = null) =>
+        new(DotnetRoot, Packages, runtimeMajor) { NuspecRead = nuspecRead };
 
     /// <summary>Creates <c>shared/Microsoft.NETCore.App/&lt;version&gt;</c> holding an emitted assembly per name.</summary>
     /// <param name="version">The patch folder.</param>
@@ -29,9 +31,7 @@ public sealed class GenerationInstall : IDisposable
     /// code can be compiled against the folder.</param>
     public string SharedFramework(string version, IEnumerable<string>? assemblies = null, bool runtime = false)
     {
-        var directory = Directory.CreateDirectory(Path.Combine(DotnetRoot, "shared", "Microsoft.NETCore.App", version)).FullName;
-        foreach (var assembly in assemblies ?? [])
-            File.WriteAllBytes(Path.Combine(directory, assembly + ".dll"), EmittedAssemblies.Image(assembly));
+        var directory = Framework("Microsoft.NETCore.App", version, assemblies);
         if (runtime)
         {
             foreach (var name in EmittedAssemblies.RUNTIME_ASSEMBLIES)
@@ -41,6 +41,24 @@ public sealed class GenerationInstall : IDisposable
         File.WriteAllText(Path.Combine(directory, "coreclr.dll"), "not a managed assembly");
         return directory;
     }
+
+    /// <summary>Creates <c>shared/Microsoft.AspNetCore.App/&lt;version&gt;</c> holding an emitted assembly per name.</summary>
+    /// <param name="version">The patch folder.</param>
+    /// <param name="assemblies">The assembly names, each emitted as a type-only library.</param>
+    public string AspNetCoreFramework(string version, IEnumerable<string>? assemblies = null)
+    {
+        var directory = Framework("Microsoft.AspNetCore.App", version, assemblies);
+        File.WriteAllText(Path.Combine(directory, "aspnetcorev2_inprocess.dll"), "not a managed assembly");
+        return directory;
+    }
+
+    /// <summary>A nuspec <c>&lt;frameworkReferences&gt;</c> element with one group, to pass as a package's nuspec metadata.</summary>
+    /// <param name="targetFramework">The group's target framework, <c>net8.0</c>.</param>
+    /// <param name="names">The shared frameworks the group references.</param>
+    public static string FrameworkReferences(string targetFramework, params string[] names) =>
+        $"<frameworkReferences><group targetFramework='{targetFramework}'>" +
+        string.Concat(names.Select(name => $"<frameworkReference name='{name}' />")) +
+        "</group></frameworkReferences>";
 
     /// <summary>Creates <c>&lt;packages&gt;/&lt;id&gt;/&lt;version&gt;</c> with a nuspec and emitted lib assemblies.</summary>
     /// <param name="id">The package id.</param>
@@ -67,6 +85,18 @@ public sealed class GenerationInstall : IDisposable
             File.WriteAllBytes(Path.Combine(lib, assembly + ".dll"), EmittedAssemblies.Image(assembly));
         }
 
+        return directory;
+    }
+
+    /// <summary>Creates <c>shared/&lt;framework&gt;/&lt;version&gt;</c> holding an emitted assembly per name.</summary>
+    /// <param name="framework">The shared framework's name.</param>
+    /// <param name="version">The patch folder.</param>
+    /// <param name="assemblies">The assembly names, each emitted as a type-only library.</param>
+    private string Framework(string framework, string version, IEnumerable<string>? assemblies)
+    {
+        var directory = Directory.CreateDirectory(Path.Combine(DotnetRoot, "shared", framework, version)).FullName;
+        foreach (var assembly in assemblies ?? [])
+            File.WriteAllBytes(Path.Combine(directory, assembly + ".dll"), EmittedAssemblies.Image(assembly));
         return directory;
     }
 
@@ -105,7 +135,7 @@ public static class EmittedAssemblies
             if (key.Reference)
                 text = "[assembly: System.Runtime.CompilerServices.ReferenceAssembly]\n" + text;
             var compilation = CSharpCompilation.Create(key.Name, [CSharpSyntaxTree.ParseText(text)], RuntimeReferences,
-                                                       new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+                                                       new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
             using var stream = new MemoryStream();
             var emitted = compilation.Emit(stream);
             Assert.True(emitted.Success, string.Join(Environment.NewLine, emitted.Diagnostics));

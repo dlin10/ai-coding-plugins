@@ -80,8 +80,10 @@
       "counters": {
         "delegate-to-opaque": 19,
         "element-operation": 9,
+        "generated-in-run": 0,
         "known-call": 34,
         "known-call-built-in": 34,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -89,6 +91,7 @@
         "opaque-by-project": 0,
         "opaque-call": 195,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 84,
         "scc-budget-exceeded": 0,
         "semantic-gap": 19,
@@ -127,7 +130,8 @@
         "Microsoft.Extensions.DependencyInjection.PolicyServiceCollectionExtensions.AddAuthorization(IServiceCollection, Action\u003CAuthorizationOptions\u003E)",
         "Microsoft.Extensions.DependencyInjection.SwaggerGenServiceCollectionExtensions.AddSwaggerGen(IServiceCollection, Action\u003CSwaggerGenOptions\u003E)",
         "System.Security.Claims.ClaimsPrincipal.FindFirst(Predicate\u003CClaim\u003E)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "Catalog.API",
@@ -139,8 +143,10 @@
       "counters": {
         "delegate-to-opaque": 13,
         "element-operation": 47,
+        "generated-in-run": 0,
         "known-call": 250,
         "known-call-built-in": 250,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -148,6 +154,7 @@
         "opaque-by-project": 0,
         "opaque-call": 222,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 150,
         "scc-budget-exceeded": 0,
         "semantic-gap": 12,
@@ -179,7 +186,8 @@
         "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
         "Polly.AsyncRetrySyntax.WaitAndRetryAsync(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)",
         "Polly.Policy.Execute(Action)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "Identity.API",
@@ -191,8 +199,10 @@
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 16,
+        "generated-in-run": 0,
         "known-call": 114,
         "known-call-built-in": 114,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 1,
         "model-entry-rejected": 0,
@@ -200,6 +210,7 @@
         "opaque-by-project": 0,
         "opaque-call": 880,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 115,
         "scc-budget-exceeded": 0,
         "semantic-gap": 7,
@@ -226,7 +237,8 @@
         "Microsoft.Extensions.DependencyInjection.IdentityServerServiceCollectionExtensions.AddIdentityServer(IServiceCollection, Action\u003CIdentityServerOptions\u003E)",
         "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
         "Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(PolicyBuilder, Func\u003Cint, TimeSpan\u003E, Action\u003CException, int, TimeSpan\u003E)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "Mobile.Shopping.HttpAggregator",
@@ -238,8 +250,10 @@
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 6,
+        "generated-in-run": 0,
         "known-call": 39,
         "known-call-built-in": 39,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -247,6 +261,7 @@
         "opaque-by-project": 0,
         "opaque-call": 76,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 112,
         "scc-budget-exceeded": 0,
         "semantic-gap": 11,
@@ -277,7 +292,8 @@
         "Google.Protobuf.MessageParser\u003CGrpcOrdering.CreateOrderDraftCommand\u003E..ctor(Func\u003CCreateOrderDraftCommand\u003E)",
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
         "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "Ordering.API",
@@ -289,8 +305,10 @@
       "counters": {
         "delegate-to-opaque": 12,
         "element-operation": 37,
+        "generated-in-run": 0,
         "known-call": 103,
         "known-call-built-in": 103,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -298,6 +316,7 @@
         "opaque-by-project": 0,
         "opaque-call": 156,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 99,
         "scc-budget-exceeded": 0,
         "semantic-gap": 10,
@@ -327,7 +346,8 @@
         "Polly.AsyncRetrySyntax.WaitAndRetryAsync(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)",
         "Polly.Policy.Execute(Action)",
         "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "Ordering.BackgroundTasks",
@@ -339,8 +359,10 @@
       "counters": {
         "delegate-to-opaque": 4,
         "element-operation": 4,
+        "generated-in-run": 0,
         "known-call": 17,
         "known-call-built-in": 17,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -348,6 +370,7 @@
         "opaque-by-project": 0,
         "opaque-call": 59,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 15,
         "scc-budget-exceeded": 0,
         "semantic-gap": 6,
@@ -373,7 +396,8 @@
         "Microsoft.Extensions.Options.IOptions\u003COrdering.BackgroundTasks.BackgroundTaskSettings\u003E.get_Value()",
         "System.Reflection.AssemblyName.get_Name()",
         "System.Threading.CancellationToken.Register(Action)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "Ordering.SignalrHub",
@@ -385,8 +409,10 @@
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 3,
+        "generated-in-run": 0,
         "known-call": 7,
         "known-call-built-in": 7,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -394,6 +420,7 @@
         "opaque-by-project": 0,
         "opaque-call": 95,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 19,
         "scc-budget-exceeded": 0,
         "semantic-gap": 9,
@@ -422,7 +449,8 @@
         "Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(IHealthChecksBuilder, string, Func\u003CHealthCheckResult\u003E, IEnumerable\u003Cstring\u003E, TimeSpan?)",
         "Microsoft.Extensions.DependencyInjection.JwtBearerExtensions.AddJwtBearer(AuthenticationBuilder, Action\u003CJwtBearerOptions\u003E)",
         "Microsoft.Extensions.DependencyInjection.PolicyServiceCollectionExtensions.AddAuthorization(IServiceCollection, Action\u003CAuthorizationOptions\u003E)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "Payment.API",
@@ -434,8 +462,10 @@
       "counters": {
         "delegate-to-opaque": 2,
         "element-operation": 2,
+        "generated-in-run": 0,
         "known-call": 7,
         "known-call-built-in": 7,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -443,6 +473,7 @@
         "opaque-by-project": 0,
         "opaque-call": 70,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 11,
         "scc-budget-exceeded": 0,
         "semantic-gap": 2,
@@ -464,7 +495,8 @@
       "semanticGaps": [
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
         "Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(IHealthChecksBuilder, string, Func\u003CHealthCheckResult\u003E, IEnumerable\u003Cstring\u003E, TimeSpan?)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "Web.Shopping.HttpAggregator",
@@ -476,8 +508,10 @@
       "counters": {
         "delegate-to-opaque": 9,
         "element-operation": 10,
+        "generated-in-run": 0,
         "known-call": 44,
         "known-call-built-in": 44,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -485,6 +519,7 @@
         "opaque-by-project": 0,
         "opaque-call": 76,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 113,
         "scc-budget-exceeded": 0,
         "semantic-gap": 11,
@@ -515,7 +550,8 @@
         "Google.Protobuf.MessageParser\u003CGrpcOrdering.CreateOrderDraftCommand\u003E..ctor(Func\u003CCreateOrderDraftCommand\u003E)",
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
         "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "WebMVC",
@@ -527,8 +563,10 @@
       "counters": {
         "delegate-to-opaque": 1,
         "element-operation": 2,
+        "generated-in-run": 0,
         "known-call": 51,
         "known-call-built-in": 51,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -536,6 +574,7 @@
         "opaque-by-project": 0,
         "opaque-call": 153,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 53,
         "scc-budget-exceeded": 0,
         "semantic-gap": 1,
@@ -556,7 +595,8 @@
       },
       "semanticGaps": [
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "WebSPA",
@@ -568,8 +608,10 @@
       "counters": {
         "delegate-to-opaque": 3,
         "element-operation": 0,
+        "generated-in-run": 0,
         "known-call": 0,
         "known-call-built-in": 0,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -577,6 +619,7 @@
         "opaque-by-project": 0,
         "opaque-call": 30,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 7,
         "scc-budget-exceeded": 0,
         "semantic-gap": 3,
@@ -599,7 +642,8 @@
         "Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureAppConfiguration(Action\u003CWebHostBuilderContext, IConfigurationBuilder\u003E)",
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureLogging(IWebHostBuilder, Action\u003CWebHostBuilderContext, ILoggingBuilder\u003E)",
         "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "WebStatus",
@@ -611,8 +655,10 @@
       "counters": {
         "delegate-to-opaque": 1,
         "element-operation": 1,
+        "generated-in-run": 0,
         "known-call": 11,
         "known-call-built-in": 11,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -620,6 +666,7 @@
         "opaque-by-project": 0,
         "opaque-call": 79,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 18,
         "scc-budget-exceeded": 0,
         "semantic-gap": 1,
@@ -640,7 +687,8 @@
       },
       "semanticGaps": [
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "WebhookClient",
@@ -652,8 +700,10 @@
       "counters": {
         "delegate-to-opaque": 0,
         "element-operation": 3,
+        "generated-in-run": 0,
         "known-call": 7,
         "known-call-built-in": 7,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -661,6 +711,7 @@
         "opaque-by-project": 0,
         "opaque-call": 30,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 10,
         "scc-budget-exceeded": 0,
         "semantic-gap": 1,
@@ -681,7 +732,8 @@
       },
       "semanticGaps": [
         "Microsoft.AspNetCore.Mvc.ControllerBase.Ok(object)"
-      ]
+      ],
+      "generationRefusals": []
     },
     {
       "scopeId": "Webhooks.API",
@@ -693,8 +745,10 @@
       "counters": {
         "delegate-to-opaque": 5,
         "element-operation": 17,
+        "generated-in-run": 0,
         "known-call": 49,
         "known-call-built-in": 49,
+        "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
@@ -702,6 +756,7 @@
         "opaque-by-project": 0,
         "opaque-call": 59,
         "out-of-range-call": 0,
+        "pairs-removed-generated": 0,
         "reachable-bodies": 26,
         "scc-budget-exceeded": 0,
         "semantic-gap": 4,
@@ -725,7 +780,8 @@
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureLogging(IWebHostBuilder, Action\u003CWebHostBuilderContext, ILoggingBuilder\u003E)",
         "Polly.Policy.Execute(Action)",
         "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
-      ]
+      ],
+      "generationRefusals": []
     }
   ]
 }

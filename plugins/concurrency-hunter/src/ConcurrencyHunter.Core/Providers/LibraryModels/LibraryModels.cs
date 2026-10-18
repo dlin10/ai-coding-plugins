@@ -4,7 +4,7 @@ namespace ConcurrencyHunter.Providers.LibraryModels;
 
 public sealed class LibraryModelException(string message) : Exception(message);
 
-public enum ModelLayer { BuiltIn, Project }
+public enum ModelLayer { BuiltIn, Project, Generated }
 
 /// <summary>What a known call does to one of its arguments, named by the parameter it is bound to (TD-034a).</summary>
 public enum LibraryEffectKind
@@ -139,6 +139,7 @@ public sealed class LibraryModels
     private readonly Dictionary<string, LibraryModel> _members = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LibraryModel[]> _projectMembers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ImmutableLibraryType> _types = new(StringComparer.Ordinal);
+    private readonly GeneratedModelTable? _generated;
 
     public LibraryModels(IEnumerable<LibraryModel> members, IEnumerable<ImmutableLibraryType> immutableTypes)
     {
@@ -177,7 +178,23 @@ public sealed class LibraryModels
         Members = builtIn.Members.Concat(projectMembers).ToArray();
     }
 
+    private LibraryModels(LibraryModels source, GeneratedModelTable generated)
+    {
+        _members = source._members;
+        _projectMembers = source._projectMembers;
+        _types = source._types;
+        _generated = generated;
+        Members = source.Members;
+        ImmutableTypes = source.ImmutableTypes;
+    }
+
     internal static LibraryModels WithProject(IEnumerable<LibraryModel> project) => new(BuiltIn, project);
+
+    /// <summary>These models with the generated layer of a scope behind the project and built-in layers (R1): a call is described by a
+    /// generated model only when no project entry and no built-in entry in range describes it. The result is another instance, so a body
+    /// lowered with it is not one lowered without.</summary>
+    /// <param name="generated">The scope's generated layer.</param>
+    internal LibraryModels WithGenerated(GeneratedModelTable generated) => new(this, generated);
 
     /// <summary>The built-in library models, read from the seven embedded files once per process.</summary>
     public static LibraryModels BuiltIn { get; } = LoadBuiltIn();
@@ -218,21 +235,48 @@ public sealed class LibraryModels
 
     /// <summary>What a library model says about a call of <paramref name="method"/>: known, known but for the version of its assembly,
     /// or null for a member it does not describe. A member it describes by its immutable type only is known when every parameter
-    /// is immutable and passed by value or <c>out</c>, and it is a method, a constructor, an operator or a getter.</summary>
+    /// is immutable and passed by value or <c>out</c>, and it is a method, a constructor, an operator or a getter. The layers answer in
+    /// the order of <see cref="GeneratedLayer.Decide"/>: a project entry, then a built-in entry in range, then a generated model of the
+    /// file the call's own target names, which only a call with its compilation can meet.</summary>
     /// <param name="method">The called method.</param>
-    public LibraryMatch? Find(IMethodSymbol method)
+    /// <param name="compilation">The compilation the call is in; without it the generated layer, which is kept per compilation, is not
+    /// consulted.</param>
+    public LibraryMatch? Find(IMethodSymbol method, Compilation? compilation = null)
     {
         var definition = (method.ReducedFrom ?? method).OriginalDefinition;
         if (DocumentationCommentId.CreateDeclarationId(definition) is not { } id)
             return null;
-        if (_projectMembers.TryGetValue(id, out var projectMembers))
+        var project = ProjectMatch(definition, id);
+        // A project entry describes the call whatever else does, so the built-in layer is read only without one.
+        var builtIn = project is null ? BuiltInMatch(definition, id) : null;
+        // Whether a mapped target can be generated is the run's question, asked with the target it computed: the layer is all Find reads.
+        var stored = _generated is not null && compilation is not null && !FunctionPointers.In(definition)
+            ? _generated.Lookup(compilation, definition, id)
+            : null;
+        var decision = GeneratedLayer.Decide(project, builtIn, stored ?? StoredGeneratedAnswer.Absent,
+                                             stored is null ? GenerationOrigin.NotATarget : GenerationOrigin.Available);
+        return decision.Layer switch
         {
-            var project = projectMembers.FirstOrDefault(member => member.ResolvedVersion == definition.ContainingAssembly.Identity.Version &&
-                member.Assemblies.Any(range => range.AssemblyName == definition.ContainingAssembly.Identity.Name &&
-                                               range.Contains(definition.ContainingAssembly.Identity.Version)));
-            if (project is not null)
-                return Match(project, definition.ContainingAssembly, id);
-        }
+            DescribingLayer.Project => project,
+            DescribingLayer.BuiltIn => builtIn,
+            DescribingLayer.Generated => Match(stored!.Value.Model!, definition.ContainingAssembly, id),
+            // No layer describes the call; a built-in entry out of range is still named, to be counted apart.
+            _ => project ?? builtIn
+        };
+    }
+
+    private LibraryMatch? ProjectMatch(IMethodSymbol definition, string id)
+    {
+        if (!_projectMembers.TryGetValue(id, out var projectMembers))
+            return null;
+        var project = projectMembers.FirstOrDefault(member => member.ResolvedVersion == definition.ContainingAssembly.Identity.Version &&
+            member.Assemblies.Any(range => range.AssemblyName == definition.ContainingAssembly.Identity.Name &&
+                                           range.Contains(definition.ContainingAssembly.Identity.Version)));
+        return project is null ? null : Match(project, definition.ContainingAssembly, id);
+    }
+
+    private LibraryMatch? BuiltInMatch(IMethodSymbol definition, string id)
+    {
         if (_members.TryGetValue(id, out var member))
             return Match(member, definition.ContainingAssembly, id);
         if (ImmutableTypeOf(definition.ContainingType) is not { } type || !IsImmutableShape(definition))

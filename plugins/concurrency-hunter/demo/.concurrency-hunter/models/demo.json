@@ -30,6 +30,13 @@
       "opaque": true
     },
     {
+      "member": "M:Microsoft.Extensions.Options.Options.Create``1(``0)",
+      "assemblies": ["Microsoft.Extensions.Options"],
+      "versions": { "minimum": "10.0.0.0", "maximumExclusive": "11.0.0.0" },
+      "opaque": true,
+      "note": "The project-opaque-switches-off-generated case: the project's decision stands over the generated model committed for this member."
+    },
+    {
       "member": "M:System.Collections.Generic.EqualityComparer`1.Create(System.Func{`0,`0,System.Boolean},System.Func{`0,System.Int32})~System.Collections.Generic.EqualityComparer{`0}",
       "assemblies": ["System.Collections", "System.Private.CoreLib"],
       "effects": {},

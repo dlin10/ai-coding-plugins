@@ -108,6 +108,11 @@ public sealed record FindingGroup(string GroupId, string Fingerprint, string Rul
 /// <summary>What one process scope's analysis saw: roots by provider, diagnostics from scope discovery, providers, the
 /// DI index, injection bindings and lowering, the registrations indexed, and the coverage counters (<see cref="CoverageCounters"/>).
 /// <see cref="LoweredNotReached"/> and <see cref="OutsideLoweredSet"/> are inventory, not counted against coverage.</summary>
+/// <param name="ScopeId">The scope the coverage is of.</param>
+/// <param name="RootsPerProvider">The number of roots each provider found in the scope.</param>
+/// <param name="Diagnostics">The scope's diagnostics, each prefixed with its source.</param>
+/// <param name="Registrations">The number of registrations the scope indexed.</param>
+/// <param name="Skips">The <see cref="CoverageCounters"/> values, by counter name, with what the solver did to the scope's candidates.</param>
 public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, int> RootsPerProvider,
                                    IReadOnlyList<string> Diagnostics, int Registrations,
                                    IReadOnlyDictionary<string, int> Skips)
@@ -125,7 +130,27 @@ public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, i
     public IReadOnlyList<SemanticGap> Gaps { get; init; } = [];
     public IReadOnlyList<string> LoweredNotReached { get; init; } = [];
     public IReadOnlyList<string> OutsideLoweredSet { get; init; } = [];
+
+    /// <summary>The scope's generation targets that no generated model describes, once each, in ordinal order of declaration id and then
+    /// of file key, each with the cause that says why.</summary>
+    public IReadOnlyList<GenerationRefusal> GenerationRefusals { get; init; } = [];
 }
+
+/// <summary>One generation target of a scope that no generated model describes: a library member reached through a direct opaque call,
+/// with the generated file that answers for it. One member reached through two file keys is two items.</summary>
+/// <param name="Member">The member as the report shows it.</param>
+/// <param name="MemberId">The member's declaration id, the id the generated files name it by.</param>
+/// <param name="FileKey">The key of the generated file that answers for the member: its path below the generated folder, or, for a package
+/// whose implementation is not on disk, the package's id and version alone.</param>
+/// <param name="Cause">Why no generated model describes the member: a word of the generator's, <c>timeout</c>, <c>budget</c>,
+/// <c>failed</c>, <c>no-implementation</c>, <c>not-applicable</c>, <c>not-generated</c> or <c>reached-through-model</c>.</param>
+public sealed record GenerationRefusal(string Member, string MemberId, string FileKey, string Cause);
+
+/// <summary>A generation target that a run which generates would have generated but a read-only run did not: no layer describes the member
+/// and no generated file answers for it, and its implementation is on disk.</summary>
+/// <param name="MemberId">The member's declaration id, the id the generated files name it by.</param>
+/// <param name="FileKey">The key of the generated file that would hold the answer: its path below the generated folder.</param>
+public sealed record WantedGeneration(string MemberId, string FileKey);
 
 /// <summary>The pair counters summed over scopes; <see cref="LargestBucket"/> is the largest bucket of any scope.</summary>
 public sealed record PairCounters(int Comparisons, int CartesianBound, int Buckets, int LargestBucket, int Candidates, int Suppressed,
@@ -154,4 +179,8 @@ public sealed record AnalysisResult(IReadOnlyList<ProcessScope> Scopes, IReadOnl
     public IReadOnlyList<StepTiming> Timings { get; init; } = [];
 
     public IReadOnlyList<ScopeSize> ScopeSizes { get; init; } = [];
+
+    /// <summary>For a read-only run, the generation targets a run that generates would have generated, once each across the scopes, in ordinal
+    /// order of declaration id and then of file key; empty for a run that generates and for one with the generated layer off.</summary>
+    public IReadOnlyList<WantedGeneration> GenerationWanted { get; init; } = [];
 }

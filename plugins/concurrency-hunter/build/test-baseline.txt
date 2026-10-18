@@ -14,6 +14,15 @@ ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Framework_that_is_not_net_major
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Framework_that_is_not_net_major_is_a_usage_error_and_writes_no_file(framework: "net8")	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Framework_that_is_not_net_major_is_a_usage_error_and_writes_no_file(framework: "netcoreapp3.1")	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Framework_that_is_not_net_major_is_a_usage_error_and_writes_no_file(framework: "netstandard2.0")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Function_pointer_member_is_unnamed_member(member: "M:A.B.Initialize()")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Function_pointer_member_is_unnamed_member(member: "M:A.B.Invoke(A)~")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Function_pointer_member_is_unnamed_member(member: "M:A.B.Run(A,,B)")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Function_pointer_member_is_unnamed_member(member: "M:P.A([])")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Function_pointer_member_is_unnamed_member(member: "M:P.C(@)")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Function_pointer_member_is_unnamed_member(member: "M:P.D~[]")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Function_pointer_member_is_unnamed_member(member: "M:P.E~*")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Function_pointer_member_is_unnamed_member(member: "P:A.B.Item(,)")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Generator_answers_unnamed_member_for_the_pattern_text_of_a_pointer_to_a_function_pointer	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Installed_runtime_All_is_classified_invoke_now	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Installed_runtime_LongCount_writes_an_entry_the_project_reader_accepts	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Member_that_is_not_a_declaration_id_is_a_usage_error_and_writes_no_file(member: "M:")	Passed
@@ -27,6 +36,12 @@ ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Missing_option_is_a_usage_error
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Missing_option_is_a_usage_error_and_writes_no_file(option: "--out")	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Missing_option_is_a_usage_error_and_writes_no_file(option: "--version")	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Option_without_its_value_is_a_usage_error_and_writes_no_file	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Ordinary_id_of_a_function_pointer_return_is_unnamed_member	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Other_malformed_member_is_still_a_usage_error(member: "M:A..B()")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Other_malformed_member_is_still_a_usage_error(member: "M:A.B.Run(A-B,)")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Other_malformed_member_is_still_a_usage_error(member: "M:A.B.Run(A")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Other_malformed_member_is_still_a_usage_error(member: "M:A.B.Run(A{,})")	Passed
+ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Other_malformed_member_is_still_a_usage_error(member: "M:A.B.Run~A-B")	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Package_missing_from_the_packages_folder_is_answered_with_its_reason	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Package_outside_the_id_grammar_is_a_usage_error_and_writes_no_file(package: "..")	Passed
 ConcurrencyHunter.Cli.Tests.GenerateCommandTests.Package_outside_the_id_grammar_is_a_usage_error_and_writes_no_file(package: ".Polly")	Passed
@@ -54,8 +69,9 @@ ConcurrencyHunter.Cli.Tests.LauncherTests.Launcher_without_a_local_executable_tr
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Comparisons_are_at_most_the_cartesian_bound	Passed
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Demo_measurement_carries_the_ordering_counters_of_the_web_scope	Passed
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Demo_measurement_counts_equal_the_analyzer_totals	Passed
-ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Demo_measurement_has_every_field_and_twelve_steps	Passed
+ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Demo_measurement_has_every_field_and_thirteen_steps	Passed
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Demo_measurement_matches_the_snapshot	Passed
+ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Generation_refusals_are_measured_by_declaration_id_file_and_cause	Passed
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Limits_are_echoed	Passed
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Malformed_limits_is_a_usage_error	Passed
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Missing_out_is_a_usage_error	Passed
@@ -64,6 +80,8 @@ ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Revision_is_unknown_outside_a_re
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Targets_use_total_seconds_and_the_peak	Passed
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Working_tree_clean_is_false_with_an_uncommitted_change	Passed
 ConcurrencyHunter.Cli.Tests.MetricsCommandTests.Working_tree_clean_is_true_in_a_clean_temporary_repository	Passed
+ConcurrencyHunter.Cli.Tests.ModelGenerationModeTests.Generation_option_parses_on_read_off_and_refuses_another	Passed
+ConcurrencyHunter.Cli.Tests.ModelGenerationModeTests.Mcp_run_passes_Generate	Passed
 ConcurrencyHunter.Cli.Tests.ProgramTests.No_arguments_print_usage_to_error_and_return_usage_error	Passed
 ConcurrencyHunter.Cli.Tests.ProgramTests.Unknown_command_returns_usage_error_and_names_the_command	Passed
 ConcurrencyHunter.Cli.Tests.ProgramTests.Usage_names_generate	Passed
@@ -209,6 +227,10 @@ ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Interface_collection_cases_mak
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Interface_count_case_reads_the_structure_from_both_roots	Passed
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Project_model_case_is_opaque_by_the_project_layer	Passed
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Reflection_call_with_only_strings_and_numbers_makes_no_gap	Passed
+ConcurrencyHunter.Core.Tests.DemoGeneratedModelsTests.A_demo_run_generates_nothing	Passed
+ConcurrencyHunter.Core.Tests.DemoGeneratedModelsTests.A_generate_run_of_the_demo_calls_no_generator_and_writes_nothing	Passed
+ConcurrencyHunter.Core.Tests.DemoGeneratedModelsTests.Polly_execute_refusal_is_named_in_coverage	Passed
+ConcurrencyHunter.Core.Tests.DemoGeneratedModelsTests.The_cases_rest_on_committed_models	Passed
 ConcurrencyHunter.Core.Tests.Engine.AccessExtractionTests.Access_carries_its_region_ownership_and_evidence_chain	Passed
 ConcurrencyHunter.Core.Tests.Engine.AccessExtractionTests.Access_through_a_member_inherited_from_a_closed_generic_base_is_bound	Passed
 ConcurrencyHunter.Core.Tests.Engine.AccessExtractionTests.Auto_property_access_keys_on_the_backing_field	Passed
@@ -4530,6 +4552,7 @@ ConcurrencyHunter.Core.Tests.Engine.ElementSelectorTests.Writes_through_two_slic
 ConcurrencyHunter.Core.Tests.Engine.ElementSelectorTests.Writes_through_two_slices_that_meet_are_one_cell	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancellation_at_a_stage_start_leaves_that_stage_not_run	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancellation_in_the_reachable_set_reports_that_step_and_its_lowering_time	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancellation_inside_standing_member_accesses_stops_the_collection	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancelled_access_collection_reports_its_counters	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancelled_execution_walk_reports_its_counters	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancelled_heap_solve_reports_its_counters	Passed
@@ -7579,14 +7602,33 @@ ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Real_expectation_file_brea
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Real_expectation_file_keeps_every_until_of_HEAD	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Removed_until_is_refused(notDefect: False)	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Removed_until_is_refused(notDefect: True)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Replacement_phase_equals_until_run(notDefect: False)	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Replacement_phase_equals_until_run(notDefect: True)	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Unchanged_until_is_accepted_when_the_entry_moves_between_lists	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Unknown_run_is_refused(until: "5d-")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Unknown_run_is_refused(until: "5d-b4")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Unknown_run_is_refused(until: "5d-B5")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Unknown_run_is_refused(until: "5e-A1")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Unknown_run_is_refused(until: "A1")	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_is_read_for_both_lists_and_defaults_to_null	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_may_be_a_run_after_the_phase(notDefect: False, phase: "5b", until: "5d-B4")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_may_be_a_run_after_the_phase(notDefect: False, phase: "5d-B3", until: "5d-B4")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_may_be_a_run_after_the_phase(notDefect: False, phase: "5d", until: "5d-B4")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_may_be_a_run_after_the_phase(notDefect: True, phase: "5b", until: "5d-B4")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_may_be_a_run_after_the_phase(notDefect: True, phase: "5d-B3", until: "5d-B4")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_may_be_a_run_after_the_phase(notDefect: True, phase: "5d", until: "5d-B4")	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_be_a_known_phase(notDefect: False)	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_be_a_known_phase(notDefect: True)	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_come_after_the_entry_phase(notDefect: False, until: "5a")	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_come_after_the_entry_phase(notDefect: False, until: "5b")	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_come_after_the_entry_phase(notDefect: True, until: "5a")	Passed
 ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_come_after_the_entry_phase(notDefect: True, until: "5b")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_not_precede_or_equal_the_phase_it_is_written_on(notDefect: False, phase: "5d-B4", until: "5d-B3")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_not_precede_or_equal_the_phase_it_is_written_on(notDefect: False, phase: "5d-B4", until: "5d-B4")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_not_precede_or_equal_the_phase_it_is_written_on(notDefect: False, phase: "5d-B4", until: "5d")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_not_precede_or_equal_the_phase_it_is_written_on(notDefect: False, phase: "5d", until: "5d")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_not_precede_or_equal_the_phase_it_is_written_on(notDefect: True, phase: "5d-B4", until: "5d-B3")	Passed
+ConcurrencyHunter.Core.Tests.ExpectationFileRuleTests.Until_must_not_precede_or_equal_the_phase_it_is_written_on(notDefect: True, phase: "5d", until: "5d")	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Access_pair_matches_in_either_order	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Confidence_is_not_compared_before_phase_2	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Confidence_mismatch_from_phase_2_fails_the_match	Passed
@@ -7605,9 +7647,14 @@ ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.NotDefect_with_accesses_for
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.NotDefect_without_accesses_forbids_any_finding_on_the_resource	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Phase_1b_entry_confidence_is_compared_at_phase_2	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Phase_2b_entry_is_ignored_at_phase_2_and_checked_at_phase_2b	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Phase_entry_stays_in_force_at_a_run_of_its_phase	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Phases_order_from_0_through_1a_1b_to_8	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Run_of_a_phase_sorts_after_its_phase	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Run_of_a_phase_sorts_before_the_next_phase	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Runs_of_5d_follow_the_plan_order	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Unknown_entry_phase_is_refused_even_when_its_until_has_passed	Passed
 ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Unknown_until_phase_is_refused_by_the_matcher	Passed
+ConcurrencyHunter.Core.Tests.ExpectationMatcherTests.Until_a_run_ends_the_entry_at_that_run	Passed
 ConcurrencyHunter.Core.Tests.Generation.AccessorEntryMatrixTests.Every_cell_gets_its_expected_answer	Passed
 ConcurrencyHunter.Core.Tests.Generation.AccessorEntryMatrixTests.Every_cell_has_no_unsafe_narrowing	Passed
 ConcurrencyHunter.Core.Tests.Generation.AccessorEntryMatrixTests.The_matrix_has_exactly_the_allowed_cells	Passed
@@ -8809,6 +8856,7 @@ ConcurrencyHunter.Core.Tests.Generation.LinqOracleTests.Recording_cannot_lower_a
 ConcurrencyHunter.Core.Tests.Generation.LinqOracleTests.Recording_cannot_lower_an_exact_linq_entry_floor(group: "System.Linq")	Passed
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Answers_match_the_recorded_snapshot	Skipped
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Classified_fates_have_no_unsafe_narrowing	Skipped
+ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.EF_Core_members_that_overflowed_get_an_answer	Skipped
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Entries_pass_the_project_reader	Skipped
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Entry_fates_are_the_classified_delegate_fates	Skipped
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Eval_report_lists_each_answer_and_its_verdict	Passed
@@ -8822,6 +8870,26 @@ ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_cannot_lower_th
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_cannot_lower_the_fate_gold_entry_floor	Passed
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_lowers_a_floor_only_by_answers_now_refused_as_overridable(reason: "driver-not-synthesized", recorded: False)	Passed
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_lowers_a_floor_only_by_answers_now_refused_as_overridable(reason: "overridable", recorded: True)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Serilog_configuration_getter_stops_at_its_limit	Skipped
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_at_each_stage_stops_the_generation(name: "Analyze")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_at_each_stage_stops_the_generation(name: "BuildModel")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_at_each_stage_stops_the_generation(name: "Classify")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_at_each_stage_stops_the_generation(name: "CompileLibrary")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_at_each_stage_stops_the_generation(name: "ConfirmHolder")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_at_each_stage_stops_the_generation(name: "EngineClaims")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_at_each_stage_stops_the_generation(name: "ReadEffects")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_at_each_stage_stops_the_generation(name: "Resolve")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_at_each_stage_stops_the_generation(name: "Synthesize")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "Analyze")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "BuildModel")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "Classify")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "CompileLibrary")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "ConfirmHolder")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "EngineClaims")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "ReadEffects")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "Resolve")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "Synthesize")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancelled_token_resolves_nothing	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_holder_whose_Fire_trigger_runs_the_delegate_stays_a_holder_naming_Fire	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_holder_whose_members_never_run_the_delegate_is_unknown_execution	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_member_that_ignores_its_delegate_is_not_run_with_no_inputs_and_no_effect	Passed
@@ -9471,6 +9539,7 @@ ConcurrencyHunter.Core.Tests.Providers.ComparisonWitnessMatrixTests.No_unrelated
 ConcurrencyHunter.Core.Tests.Providers.ComparisonWitnessMatrixTests.No_unrelated_probe_gains_an_interface(kind: Class, origin: StaticType)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ComparisonWitnessMatrixTests.No_unrelated_probe_gains_an_interface(kind: Struct, origin: MemberParameter)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ComparisonWitnessMatrixTests.No_unrelated_probe_gains_an_interface(kind: Struct, origin: StaticType)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.A_project_file_still_reads_any_parameters_as_a_pattern	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declaration_ids(id: "M:A.B.#cctor")	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declaration_ids(id: "M:A.B.#ctor(System.Int32)")	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declaration_ids(id: "M:A.B.<Run>g__Local|0_0(System.Int32)~System.Int32")	Passed
@@ -9491,6 +9560,31 @@ ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declar
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declaration_ids(id: "M:System.Linq.Enumerable.Select``2(System.Collecti"···)	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declaration_ids(id: "T:<PrivateImplementationDetails>.__StaticArrayInit"···)	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Accepted_declaration_ids(id: "T:A.Outer`1.Inner`2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A..B()", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Initialize()", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Invoke(A)~", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(,B)", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(.A)", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(A-B,)", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(A,,B)", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(A,)", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(A", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(A)~A.C", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(A[])", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(A{,})", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run(A{*})", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:A.B.Run~A-B", marked: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:P.A([,],A)", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:P.A([])", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:P.B(*,A)", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:P.B(*)", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:P.C(@)", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:P.D~[]", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "M:P.E~*", marked: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Empty_type_segments_are_marked_and_other_malformed_ids_are_not(id: "T:A.B", marked: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Every_built_in_model_id_parses	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Every_declaration_id_of_the_fixture_references_parses	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Parsed_id_renders_back_to_itself	Passed
@@ -9524,6 +9618,7 @@ ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Refused_declara
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Refused_declaration_ids(id: "T:A.B.Run(A)", expected: "member")	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Refused_declaration_ids(id: "T:A.B.Run(A)", expected: "type")	Passed
 ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.Refused_declaration_ids(id: "T:A.B=C", expected: "type")	Passed
+ConcurrencyHunter.Core.Tests.Providers.DeclarationIdGrammarTests.The_nine_skipped_fixture_members_carry_a_function_pointer	Passed
 ConcurrencyHunter.Core.Tests.Providers.DiIndexTests.Add_hosted_service_registers_one_singleton_hosted_service	Passed
 ConcurrencyHunter.Core.Tests.Providers.DiIndexTests.Add_hosted_service_with_a_singleton_hosted_service_is_unknown_in_either_order(body: "services.AddHostedService<Worker>(); services.AddS"···)	Passed
 ConcurrencyHunter.Core.Tests.Providers.DiIndexTests.Add_hosted_service_with_a_singleton_hosted_service_is_unknown_in_either_order(body: "services.AddSingleton<IHostedService, Worker>(); s"···)	Passed
@@ -9614,8 +9709,12 @@ ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Each_variant_has_its
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Out_and_ref_holding_arguments_go_through_out_fields	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Probe_lambdas_return_a_string_a_marker_and_a_library_object_made_in_the_lambda	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Probe_lambdas_return_completed_tasks_of_values_made_in_the_lambda	Passed
+ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Seed_classes_that_need_ever_new_types_stop_at_the_bound	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Setup_builds_the_receiver_the_arguments_with_their_contents_and_the_intermediates	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Struct_and_unmanaged_constraints_differ_only_unmanaged_takes_the_recipes_int	Passed
+ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Terminating_chain_at_the_bound_compiles_and_one_past_it_is_refused(links: 16, synthesized: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Terminating_chain_at_the_bound_compiles_and_one_past_it_is_refused(links: 17, synthesized: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.The_bound_names_the_type_that_started_the_chain	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.The_recipe_takes_the_constructor_with_a_delegate_when_placing_probes_and_the_fewest_parameters_otherwise	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.The_result_and_the_receiver_holders_share_the_24_triggers	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.The_root_provider_discovers_every_action	Passed
@@ -9663,6 +9762,84 @@ ConcurrencyHunter.Core.Tests.Providers.EventSeedTests.An_instance_field_like_eve
 ConcurrencyHunter.Core.Tests.Providers.ExactSymbolsTests.Same_named_type_declared_in_another_assembly_is_not_matched	Passed
 ConcurrencyHunter.Core.Tests.Providers.ExactSymbolsTests.Type_from_an_assembly_version_outside_the_range_is_not_matched	Passed
 ConcurrencyHunter.Core.Tests.Providers.ExactSymbolsTests.Type_from_the_named_assembly_in_range_is_found	Passed
+ConcurrencyHunter.Core.Tests.Providers.FunctionPointerMatrixTests.Every_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.FunctionPointerMatrixTests.Every_cell_with_a_function_pointer_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.FunctionPointerMatrixTests.No_control_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.FunctionPointerMatrixTests.No_refused_cell_reaches_resolution_on_the_run_path	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Known_call_generated_counts_a_generated_entry	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Known_call_is_the_sum_of_three_layers	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_member_through_two_file_keys_is_two_targets	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: NewlyGenerated, applicability: Both, firstCompilationFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: NewlyGenerated, applicability: Both, firstCompilationFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: NewlyGenerated, applicability: FirstOnly, firstCompilationFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: NewlyGenerated, applicability: FirstOnly, firstCompilationFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: NewlyGenerated, applicability: Neither, firstCompilationFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: NewlyGenerated, applicability: Neither, firstCompilationFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: Stored, applicability: Both, firstCompilationFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: Stored, applicability: Both, firstCompilationFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: Stored, applicability: FirstOnly, firstCompilationFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: Stored, applicability: FirstOnly, firstCompilationFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: Stored, applicability: Neither, firstCompilationFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: Generate, answer: Stored, applicability: Neither, firstCompilationFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: ReadOnly, answer: Stored, applicability: Both, firstCompilationFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: ReadOnly, answer: Stored, applicability: Both, firstCompilationFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: ReadOnly, answer: Stored, applicability: FirstOnly, firstCompilationFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: ReadOnly, answer: Stored, applicability: FirstOnly, firstCompilationFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: ReadOnly, answer: Stored, applicability: Neither, firstCompilationFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.One_target_with_mixed_applicability_is_one_item(mode: ReadOnly, answer: Stored, applicability: Neither, firstCompilationFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: GeneratedBudget, expected: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: GeneratedFailed, expected: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: GeneratedModel, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: GeneratedModelNotApplicable, expected: "not-applicable")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: GeneratedNoImplementation, expected: "no-implementation")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: GeneratedRefusal, expected: "driver-not-synthesized")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: GeneratedRefusalWithoutReason, expected: "unseeded-read")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: GeneratedTimeout, expected: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: NoAnswer, expected: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: ReachedThroughModel, expected: "reached-through-model")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: StoredModel, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: StoredModelNotApplicable, expected: "not-applicable")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: StoredRefusal, expected: "unknown-touch")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: StoredRefusalOfUnavailableTarget, expected: "unknown-touch")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: StoredTimeout, expected: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: Generate, situation: UnavailableWithoutAnswer, expected: "no-implementation")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: GeneratedBudget, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: GeneratedFailed, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: GeneratedModel, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: GeneratedModelNotApplicable, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: GeneratedNoImplementation, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: GeneratedRefusal, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: GeneratedRefusalWithoutReason, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: GeneratedTimeout, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: NoAnswer, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: ReachedThroughModel, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: StoredModel, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: StoredModelNotApplicable, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: StoredRefusal, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: StoredRefusalOfUnavailableTarget, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: StoredTimeout, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: None, situation: UnavailableWithoutAnswer, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: GeneratedBudget, expected: "not-generated")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: GeneratedFailed, expected: "not-generated")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: GeneratedModel, expected: "not-generated")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: GeneratedModelNotApplicable, expected: "not-generated")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: GeneratedNoImplementation, expected: "not-generated")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: GeneratedRefusal, expected: "not-generated")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: GeneratedRefusalWithoutReason, expected: "not-generated")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: GeneratedTimeout, expected: "not-generated")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: NoAnswer, expected: "not-generated")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: ReachedThroughModel, expected: "reached-through-model")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: StoredModel, expected: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: StoredModelNotApplicable, expected: "not-applicable")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: StoredRefusal, expected: "unknown-touch")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: StoredRefusalOfUnavailableTarget, expected: "unknown-touch")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: StoredTimeout, expected: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_cause_follows_mode_and_outcome(mode: ReadOnly, situation: UnavailableWithoutAnswer, expected: "no-implementation")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Refusal_list_is_ordered_and_unique	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Report_explains_the_generated_counters	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Report_lists_the_members_without_a_generated_model	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Two_calls_of_one_generated_target_are_two_known_calls	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedCoverageTests.Unavailable_targets_of_one_package_version_are_one_item	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Answer_with_a_reason_has_every_property_typed_as_G6_says	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Classified_answer_has_every_property_typed_as_G6_says	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Document_is_utf8_without_bom_with_lf_and_one_final_newline	Passed
@@ -9674,6 +9851,32 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Seconds_are_writte
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Seconds_are_written_with_one_decimal(seconds: 12, written: "12.0")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Seconds_are_written_with_one_decimal(seconds: 2.2599999999999998, written: "2.3")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedDocumentTests.Seconds_are_written_with_one_decimal(seconds: 371.95999999999998, written: "372.0")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryAcceptanceMatrixTests.Every_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryAcceptanceMatrixTests.Every_cell_gets_its_expected_answer	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryAcceptanceMatrixTests.No_cell_accepts_what_R2_rejects	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "known", builtIn: "known", stored: "model", origin: "available", layer: "project", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "known", stored: "absent", origin: "available", layer: "builtIn", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "known", stored: "model", origin: "available", layer: "builtIn", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "none", stored: "absent", origin: "available", layer: "none", generate: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "none", stored: "absent", origin: "implementationMissing", layer: "none", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "none", stored: "absent", origin: "notATarget", layer: "none", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "none", stored: "model", origin: "available", layer: "generated", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "none", stored: "model", origin: "implementationMissing", layer: "generated", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "none", stored: "model", origin: "notATarget", layer: "none", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "none", stored: "modelNotApplicable", origin: "available", layer: "none", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "none", stored: "refusal", origin: "available", layer: "none", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "outOfRange", stored: "absent", origin: "available", layer: "none", generate: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "none", builtIn: "outOfRange", stored: "model", origin: "available", layer: "generated", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "opaque", builtIn: "none", stored: "absent", origin: "available", layer: "project", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "opaque", builtIn: "none", stored: "model", origin: "available", layer: "project", generate: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Entries_of_a_non_void_method_and_a_getter_are_found_by_their_calls	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Entry_applies_only_in_the_compilation_that_passes_it_in_either_order	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Entry_of_another_mvid_is_not_applied	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Generated_entry_describes_the_call_as_known_generated	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Origin_follows_what_the_target_resolution_answered	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Project_entry_over_a_generated_model_keeps_the_member_opaque	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Scopes_apply_only_their_own_files	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Two_projects_of_one_scope_with_two_assets_each_use_their_own_entry	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_carried_probe_gets_an_entry_without_a_fate_for_its_carrier	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_class_constructor_storing_its_argument_keeps_it_in_this	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_confirmed_result_holder_keeps_values_without_an_explicit_result	Passed
@@ -9848,6 +10051,67 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedFateTests.The_closure_bound_coun
 ConcurrencyHunter.Core.Tests.Providers.GeneratedFateTests.The_closure_bound_stops_a_driver_that_reaches_too_many_bodies	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedFateTests.Under_the_closure_bound_the_driver_is_classified	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedFateTests.When_two_reasons_apply_the_first_of_G6_wins	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedLayerMatrixTests.Every_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedLayerMatrixTests.Every_cell_gets_its_expected_answer	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedLayerMatrixTests.No_cell_narrows	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Abandoned_lock_is_taken_and_the_file_keeps_its_members	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Added_entry_keeps_the_others	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Cancelled_writer_stops_waiting_for_the_lock	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Equivalent_path_spellings_take_one_mutex	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Failed_replace_keeps_the_previous_file	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Framework_answer_lives_at_framework_major_assembly	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Invalid_entry_is_absent_and_replaced_alone	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_a_model_and_a_timeout_and_neither_a_word_nor_a_state_of_the_run	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "accessor")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "analysis-failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "body-does-not-compile")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "budget")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "closure-bound")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "corelib")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "driver-not-synthesized")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "engine-recognized")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "failed")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "incomplete")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "library-does-not-compile")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "library-state")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "member-not-found")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "no-implementation")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "not-a-candidate")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "overridable")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "reference-assembly")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "timeout")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "unknown-touch")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "unnamed-member")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Keeps_every_outcome_as_R3_says(word: "vocabulary")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Key_part_that_is_not_one_name_is_refused(part: "..")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Key_part_that_is_not_one_name_is_refused(part: ".")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Key_part_that_is_not_one_name_is_refused(part: "")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Key_part_that_is_not_one_name_is_refused(part: "a/b")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Key_part_that_is_not_one_name_is_refused(part: "a\\b")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Member_named_twice_is_replaced_by_one_entry	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Members_are_in_ordinal_order	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Missing_concurrency_hunter_folder_is_created	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Model_round_trips	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.No_file_or_entry_is_deleted	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Overlapping_writers_keep_both_members	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Package_answer_lives_at_package_version_mvid	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Refusal_round_trips	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Unchanged_bytes_are_not_rewritten	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Unreadable_file_counts_as_empty_is_diagnosed_and_is_not_rewritten	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Writer_keeps_an_entry_another_writer_added_after_it_read	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Written_file_is_utf8_without_bom_lf_two_space_indent_final_newline	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetMatrixTests.Every_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetMatrixTests.Every_cell_gets_its_expected_answer	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetMatrixTests.No_cell_is_a_target_R1_excludes	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Cancelled_token_stops_target_resolution	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Id_that_resolves_to_another_member_names_no_target	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Member_and_lookup_ids_of_a_non_void_method_and_a_getter	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Member_of_corelib_is_no_target	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Missing_assets_of_one_package_version_in_two_compilations_are_one_key	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Package_asset_follows_the_scope_framework_not_the_host	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Two_versions_of_one_package_are_two_targets	Passed
+ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Types_of_one_assembly_forwarded_apart_get_their_own_answers_in_either_order	Passed
 ConcurrencyHunter.Core.Tests.Providers.HolderKeepsVocabularyTests.Result_beside_a_result_holder_is_still_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.HolderKeepsVocabularyTests.Result_holder_keeps_on_the_object_the_call_returns	Passed
 ConcurrencyHunter.Core.Tests.Providers.HolderKeepsVocabularyTests.Result_keeper_with_a_result_holder_is_accepted	Passed
@@ -9871,17 +10135,22 @@ ConcurrencyHunter.Core.Tests.Providers.HostingRootProviderTests.Hosting_StopOver
 ConcurrencyHunter.Core.Tests.Providers.HostingRootProviderTests.Hosting_UnregisteredBackgroundService_NoRoots	Passed
 ConcurrencyHunter.Core.Tests.Providers.HostingRootProviderTests.Hosting_Version7_NotChecked	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_bounded_range_takes_the_lowest_version_inside_it	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_cancelled_token_ends_the_resolution_between_nuspec_reads	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_chain_past_the_round_bound_names_the_link_still_unsettled_and_follows_nothing_beyond_it	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_dependency_chain_deeper_than_any_fixed_small_bound_is_followed_to_its_end(depth: 127)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_dependency_chain_deeper_than_any_fixed_small_bound_is_followed_to_its_end(depth: 40)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_dependency_naming_AspNetCore_App_counts	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_dependency_naming_AspNetCore_App_without_it_installed_is_no_implementation	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_dependency_reached_by_two_ranges_is_resolved_once_at_the_lowest_version_both_admit	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_dependency_version_without_a_compatible_lib_folder_is_skipped_and_named	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_dependency_whose_only_cached_version_lies_above_its_upper_bound_is_skipped_and_named	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_file_whose_full_path_leaves_its_chosen_folder_is_no_implementation	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_member_comes_from_the_highest_patch_of_its_major	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_member_missing_from_NETCore_App_comes_from_AspNetCore_App	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_member_of_an_uninstalled_major_never_takes_another(version: "8.0.0.0")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_member_of_an_uninstalled_major_never_takes_another(version: "8.0")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_member_of_an_uninstalled_major_never_takes_another(version: "8")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_member_without_AspNetCore_App_installed_is_no_implementation	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_lib_folder_only_of_a_higher_platform_is_no_compatible_lib_folder	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_missing_bound_with_a_round_bracket_stays_a_range(range: "(, 1.5.0)", taken: "1.0.0")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_missing_bound_with_a_round_bracket_stays_a_range(range: "(,2.0.0]", taken: "1.0.0")	Passed
@@ -9898,11 +10167,14 @@ ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_missing_bou
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_net_framework_lib_folder_is_never_taken	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_nuspec_group_name_is_normalized_to_its_short_folder_name	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_assembly_the_shared_framework_also_has_is_compiled_from_the_package_s_copy_only	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_copy_still_wins_over_AspNetCore_App	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_folder_is_found_from_a_version_by_normalization(version: "1.0.0.0")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_folder_is_found_from_a_version_by_normalization(version: "1.0.0+build.7")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_folder_is_found_from_a_version_by_normalization(version: "1.0")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_member_on_an_uninstalled_platform_major_is_no_implementation	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_member_without_a_framework_takes_the_runtime_s_major	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_naming_AspNetCore_App_compiles_against_it	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_naming_AspNetCore_App_without_it_installed_is_no_implementation	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_prerelease_lies_below_its_release	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_reference_assembly_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_two_level_dependency_chain_is_followed	Passed
@@ -9924,6 +10196,7 @@ ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.An_exclusive_
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.An_exclusive_upper_bound_takes_the_lowest_version_below_it	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.An_inclusive_lower_bound_takes_the_lowest_cached_version_it_admits	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.An_ungrouped_dependency_list_applies_to_every_framework	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.AspNetCore_App_patch_is_the_highest_of_the_major	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Every_assembly_of_a_lib_folder_is_a_reference	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Lib_folder_falls_back_to_netstandard2_0_before_netstandard1	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Lib_folder_falls_back_to_netstandard2_1_before_netstandard2_0	Passed
@@ -9931,6 +10204,7 @@ ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Lib_folder_fa
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Lib_folder_falls_back_to_the_highest_netstandard1	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Lib_folder_is_the_platform_s_own_first	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Names_outside_the_grammar_are_refused_by_the_input_checks	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.NETCore_App_wins_when_both_frameworks_have_the_name	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.No_package_folder_is_no_implementation	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.No_such_assembly_in_the_lib_folder_is_no_implementation	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.NUGET_PACKAGES_is_honoured	Passed
@@ -9993,10 +10267,12 @@ ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_async_method_o
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_equality_operator_without_its_inequality_blocks_nothing	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_error_inside_a_lambda_or_a_local_function_makes_its_enclosing_method_extern	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_initializer_error_makes_the_constructors_of_its_kind_extern_declaring_the_implicit_one	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Decompilation_stops_between_types	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Every_member_of_Unsafe_becomes_extern_and_a_type_of_its_name_elsewhere_keeps_its_bodies	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Installed_System_Linq_compiles_with_no_error_in_any_body_after_the_rewrite	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Installed_System_Linq_decompiles_to_one_tree_per_type	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.The_same_path_under_two_frameworks_is_two_compilations	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Waiting_for_a_compilation_another_caller_started_stops_with_the_waiters_token	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryExternSelectionTests.Property_selected_through_one_accessor_loses_every_accessor_body	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryExternSelectionTests.Selected_members_compile_without_a_body	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryExternSelectionTests.Selection_is_part_of_the_cache_key	Passed
@@ -10070,6 +10346,19 @@ ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Recursive_set_order
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Task_results_write_their_completion_with_recursive_set_order(first: "task([arg:items,completion(arg:output)])", second: "task([completion(arg:output),arg:items])", written: "task([arg:items,completion(arg:output)])")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Task_results_write_their_completion_with_recursive_set_order(first: "task(dictionary(arg:output,completion(arg:items)))", second: "task(dictionary(arg:output,completion(arg:items)))", written: "task(dictionary(arg:output,completion(arg:items)))")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Task_results_write_their_completion_with_recursive_set_order(first: "task(task(sequence(arg:output,arg:items)))", second: "task(task(sequence(arg:items,arg:output)))", written: "task(task(sequence(arg:items,arg:output)))")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Analyzer_overloads_default_to_ReadOnly	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilation_another_caller_created_during_the_run_stays	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilation_created_again_after_a_release_is_not_removed	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilation_of_a_generation_that_throws_after_compiling_is_released	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilations_are_released_after_a_cancelled_run	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilations_are_released_after_an_analysis_failure	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilations_created_by_a_run_are_released_after_it	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilations_present_before_the_run_are_kept	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.None_ignores_a_stored_model	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.ReadOnly_and_None_runs_release_nothing	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.ReadOnly_applies_a_stored_model	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.ReadOnly_lists_a_target_of_two_scopes_once	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.ReadOnly_writes_nothing_and_lists_the_wanted_target	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "[elements(arg:source),arg:defaultValue]", result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "[elements(arg:source)]", result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "[this]", result: True)	Passed
@@ -10329,6 +10618,47 @@ ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Missing_folder_walks_
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Nearest_folder_holding_the_directory_wins	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Solution_folder_itself_counts	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Solution_folder_when_outside_git	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Call_of_a_function_pointer_overload_is_no_target_and_its_parameterless_sibling_is_one	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Delegate_priority_follows_the_summary_s_delegate_arguments(runCall: "Acme.Api.Run(_callback); Acme.Api.Run(() => { });", runFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Delegate_priority_follows_the_summary_s_delegate_arguments(runCall: "Acme.Api.Run(_callback);", runFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Delegate_priority_follows_the_summary_s_delegate_arguments(runCall: "Acme.Api.Run(() => { });", runFirst: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Delegate_priority_follows_the_summary_s_delegate_arguments(runCall: "Pass(() => { });", runFirst: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Failed_write_still_applies_the_new_model_in_this_run	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Generated_in_run_counts_a_target_once_for_repeated_calls	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Generating_run_without_concurrency_hunter_folder_creates_models_generated	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Member_a_project_entry_declares_opaque_is_neither_generated_nor_listed	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Member_reached_only_through_a_model_is_listed_reached_through_model	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Model_generated_in_an_earlier_scope_counts_in_a_later_scope_with_that_target	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.New_model_that_does_not_apply_in_one_project_is_not_generated_again	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Order_is_per_scope_in_discovery_order	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Pair_identity_survives_a_lowering_that_changes_operation_ids	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Pair_present_in_both_analyses_is_not_counted	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Pair_the_unknown_effect_made_and_the_model_did_not_is_removed	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Pairs_of_one_site_pair_in_two_executions_are_one	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Run_cancelled_during_target_discovery_calls_no_generator	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Scope_with_a_generated_call_is_analysed_twice_and_keeps_the_second	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Scope_without_generated_calls_is_analysed_once	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Stored_model_is_not_counted_in_run	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Two_pairs_one_target_removes_count_two	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Two_resources_with_one_display_text_are_two_identities	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Unreadable_file_still_applies_the_new_model_in_this_run	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Budget_counts_only_time_inside_generations	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Default_limits_are_the_server_constants	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Delegate_handed_members_go_first	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Described_member_is_not_generated	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Equal_ids_order_by_file_key	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Exception_is_failed_and_not_kept	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Member_cut_by_the_run_budget_is_budget_not_timeout	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Member_limit_equal_to_the_remaining_budget_is_timeout	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Member_met_in_two_scopes_is_generated_once	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Member_past_its_limit_is_kept_as_timeout	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Member_whose_implementation_is_missing_is_not_generated	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Members_past_the_run_budget_are_budget_and_not_kept	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Remaining_run_budget_below_the_member_limit_bounds_the_member	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Run_cancellation_during_a_member_is_cancelled_and_not_kept	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Stored_model_is_read_not_generated	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Stored_refusal_is_read_not_generated	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Undescribed_member_is_generated	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_class_reached_again_through_a_struct_field_stops_there	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_container_a_neighbour_left_behind_is_recorded_again_below_a_struct_field(container: "Leaf[]")	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedCycleTests.A_container_a_neighbour_left_behind_is_recorded_again_below_a_struct_field(container: "List<Leaf>")	Passed

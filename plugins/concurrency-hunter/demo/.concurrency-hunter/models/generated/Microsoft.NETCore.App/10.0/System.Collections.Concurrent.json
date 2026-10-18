@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "System.Collections.Concurrent",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentBag`1.#ctor",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentBag`1.Add(`0)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.#ctor",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.#ctor(System.Collections.Generic.IEqualityComparer{`0})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.AddOrUpdate(`0,`1,System.Func{`0,`1,`1})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.ContainsKey(`0)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.GetEnumerator",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.GetOrAdd(`0,`1)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.TryGetValue(`0,`1@)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.TryUpdate(`0,`1,`1)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.get_Item(`0)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Concurrent.ConcurrentDictionary`2.set_Item(`0,`1)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Concurrent.ConcurrentBag`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    }
+  ]
+}

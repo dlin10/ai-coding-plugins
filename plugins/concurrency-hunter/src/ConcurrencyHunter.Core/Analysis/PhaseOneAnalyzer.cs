@@ -23,27 +23,56 @@ public static class PhaseOneAnalyzer
     public const string ACCESSES = "accesses";
     public const string PAIRING = "pairing";
     public const string SOLVER = "solver";
+    public const string GENERATION = "generation";
     public const string FINDINGS = "findings";
     public const string ANALYSIS_LIMITS_VARIABLE = "CH_ANALYSIS_LIMITS";
 
-    public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, CancellationToken cancellationToken) =>
-        AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, cancellationToken);
+    /// <summary>The analysis of a solution with the built-in root providers and the default limits.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to; the repository root is found from it.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
+    /// nothing is generated or written.</param>
+    public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, CancellationToken cancellationToken,
+                                                    ModelGeneration generation = ModelGeneration.ReadOnly) =>
+        AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, cancellationToken, generation);
 
-    public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, AnalysisLimits limits, CancellationToken cancellationToken) =>
-        AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits, cancellationToken);
+    /// <summary>The analysis of a solution with the built-in root providers under the given limits.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to; the repository root is found from it.</param>
+    /// <param name="limits">The summary and heap limits.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
+    /// nothing is generated or written.</param>
+    public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, AnalysisLimits limits, CancellationToken cancellationToken,
+                                                    ModelGeneration generation = ModelGeneration.ReadOnly) =>
+        AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits, cancellationToken, generation);
 
     /// <summary>Scopes, then per scope the DI index, root providers in registration order, injection bindings, the program index,
     /// the reachable set (lowering once per method across scopes), summaries, the whole-program heap, executions and ownership,
     /// interprocedural accesses and pairs; findings are built over the pairs of every scope.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to; the repository root is found from it.</param>
+    /// <param name="registry">The root providers, run in their registration order.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
+    /// nothing is generated or written.</param>
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
-                                                    CancellationToken cancellationToken) =>
-        AnalyzeAsync(solution, rootDirectory, registry, InterproceduralPairing.Pair, EnvironmentLimits(), cancellationToken);
+                                                    CancellationToken cancellationToken, ModelGeneration generation = ModelGeneration.ReadOnly) =>
+        AnalyzeAsync(solution, rootDirectory, registry, InterproceduralPairing.Pair, EnvironmentLimits(), cancellationToken, generation);
 
     /// <summary>The analysis with another pairing of each scope's accesses, as a test's reference pairing.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to; the repository root is found from it.</param>
+    /// <param name="registry">The root providers, run in their registration order.</param>
+    /// <param name="pairing">The pairing of each scope's accesses.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
+    /// nothing is generated or written.</param>
     internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                       Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
-                                                      CancellationToken cancellationToken) =>
-        AnalyzeAsync(solution, rootDirectory, registry, pairing, EnvironmentLimits(), cancellationToken);
+                                                      CancellationToken cancellationToken, ModelGeneration generation = ModelGeneration.ReadOnly) =>
+        AnalyzeAsync(solution, rootDirectory, registry, pairing, EnvironmentLimits(), cancellationToken, generation);
 
     /// <summary>The limits a caller that passes none runs under: <c>CH_ANALYSIS_LIMITS=depth,contexts,scc</c> when that variable is
     /// set, so the limits grid can run the demo matcher under other limits, else the defaults.</summary>
@@ -58,30 +87,81 @@ public static class PhaseOneAnalyzer
         return new AnalysisLimits(values[0], values[1], values[2]);
     }
 
+    /// <summary>The analysis with the production solver.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to; the repository root is found from it.</param>
+    /// <param name="registry">The root providers, run in their registration order.</param>
+    /// <param name="pairing">The pairing of each scope's accesses.</param>
+    /// <param name="limits">The summary and heap limits.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    /// <param name="generation">What the run does with the generated model layer.</param>
     private static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                      Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
-                                                     AnalysisLimits limits, CancellationToken cancellationToken) =>
-        AnalyzeAsync(solution, rootDirectory, registry, pairing, limits, Z3ConstraintSolver.Create, cancellationToken);
+                                                     AnalysisLimits limits, CancellationToken cancellationToken,
+                                                     ModelGeneration generation = ModelGeneration.ReadOnly) =>
+        AnalyzeAsync(solution, rootDirectory, registry, pairing, limits, Z3ConstraintSolver.Create, cancellationToken, generation);
 
     /// <summary>The analysis with another solver behind the last filter: the seam a test uses to run as if the native library
     /// had never loaded, which no environment variable of a shipped build can do (ADR 0004).</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to; the repository root is found from it.</param>
+    /// <param name="registry">The root providers, run in their registration order.</param>
+    /// <param name="pairing">The pairing of each scope's accesses.</param>
+    /// <param name="limits">The summary and heap limits.</param>
+    /// <param name="solverFactory">Makes the solver behind the last filter.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
+    /// nothing is generated or written.</param>
     internal static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                             Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                             AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
-                                                            CancellationToken cancellationToken) =>
+                                                            CancellationToken cancellationToken,
+                                                            ModelGeneration generation = ModelGeneration.ReadOnly) =>
         await AnalyzeAsync(solution, rootDirectory, RepositoryRoot.Find(rootDirectory), registry, pairing, limits, solverFactory,
-                           cancellationToken);
+                           new GenerationSetup(generation), cancellationToken);
 
+    /// <summary>The analysis of a solution whose repository root the caller names.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
+    /// <param name="repositoryRoot">The repository root whose <c>.concurrency-hunter/models/</c> the run reads, and, when the run generates,
+    /// whose generated files it reads and writes.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
+    /// nothing is generated or written.</param>
     internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot,
+                                                      CancellationToken cancellationToken, ModelGeneration generation = ModelGeneration.ReadOnly) =>
+        AnalyzeAsync(solution, rootDirectory, repositoryRoot, new GenerationSetup(generation), cancellationToken);
+
+    /// <summary>The analysis with the generated model layer set up as the caller says: the mode and, for a test, the install and the
+    /// generator the run generates with. A caller that passes none of the three gets the product's.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
+    /// <param name="repositoryRoot">The repository root whose <c>.concurrency-hunter/models/</c> the run reads, and, unless the layer is off,
+    /// whose generated files it reads and writes.</param>
+    /// <param name="generation">What the run does with the generated layer.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot, GenerationSetup generation,
                                                       CancellationToken cancellationToken) =>
         AnalyzeAsync(solution, rootDirectory, repositoryRoot, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair,
-                     EnvironmentLimits(), Z3ConstraintSolver.Create, cancellationToken);
+                     EnvironmentLimits(), Z3ConstraintSolver.Create, generation, cancellationToken);
 
-    private static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot,
-                                                           ProviderRegistry registry,
-                                                           Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
-                                                           AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
-                                                           CancellationToken cancellationToken)
+    /// <summary>The analysis with everything a caller may set: the repository root, the pairing, the limits, the solver and the generated
+    /// layer. The pairing is called once for each analysis of a scope, so a test that counts its calls counts the analyses.</summary>
+    /// <param name="solution">The solution to analyse.</param>
+    /// <param name="rootDirectory">The directory source paths are reported relative to.</param>
+    /// <param name="repositoryRoot">The repository root whose models the run reads and, unless the generated layer is off, whose generated files
+    /// it reads and writes.</param>
+    /// <param name="registry">The root providers, run in their registration order.</param>
+    /// <param name="pairing">The pairing of each scope's accesses.</param>
+    /// <param name="limits">The summary and heap limits.</param>
+    /// <param name="solverFactory">Makes the solver behind the last filter.</param>
+    /// <param name="generation">What the run does with the generated layer.</param>
+    /// <param name="cancellationToken">Cancels the analysis.</param>
+    internal static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot,
+                                                            ProviderRegistry registry,
+                                                            Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
+                                                            AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
+                                                            GenerationSetup generation, CancellationToken cancellationToken)
     {
         using var solver = solverFactory();
         // One budget for the whole run, spent scope by scope: the budget belongs to the run (TD-094).
@@ -109,6 +189,9 @@ public static class PhaseOneAnalyzer
         // One out-of-range diagnostic per project and assembly in the whole report (R5): a project two scopes share is reported in
         // the first of them.
         var outOfRangeReported = new HashSet<(ProjectId, string)>();
+        // Disposed however the analysis ends: the library compilations the run's own generations created leave the cache with it (R12).
+        using var pass = GenerationPass.Create(generation, repositoryRoot, cancellationToken);
+        var wanted = new HashSet<WantedGeneration>();
 
         foreach (var scoped in discovery.Scopes)
         {
@@ -135,35 +218,68 @@ public static class PhaseOneAnalyzer
             var run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models, limits, lowered, null,
                                         cancellationToken);
             Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
-            diagnostics.AddRange(run.DiscoveryDiagnostics);
             step.Restart();
-            diagnostics.AddRange(compiledProjects.SelectMany(compiled => LibraryModels.BuiltIn.OutOfRangeReferences(compiled.Compilation)
-                                                                                              .Where(reference => outOfRangeReported.Add((compiled.Project.Id, reference.Assembly.Name)))
-                                                                                              .Select(reference =>
+            var outOfRange = compiledProjects.SelectMany(compiled => LibraryModels.BuiltIn.OutOfRangeReferences(compiled.Compilation)
+                                                                                           .Where(reference => outOfRangeReported.Add((compiled.Project.Id, reference.Assembly.Name)))
+                                                                                           .Select(reference =>
                 $"library-models: {RootDiscoveryDiagnosticCode.UnsupportedAssemblyVersion} {compiled.Project.Name}: " +
                 $"{reference.Assembly.Name} {reference.Assembly.Version}: {compiled.Project.Name} references {reference.Assembly.Name} " +
                 $"{reference.Assembly.Version}, outside the supported range {reference.Range.Minimum} up to {reference.Range.MaximumExclusive}; " +
-                "the calls of its members only the built-in models describe are opaque calls.")));
+                "the calls of its members only the built-in models describe are opaque calls.")).ToArray();
 
             // Scope discovery still spans the DI index, the providers, the bindings and the out-of-range diagnostics.
-            Add(timings, SCOPE_DISCOVERY, run.Times.RootDiscovery);
             Record(timings, SCOPE_DISCOVERY, step);
-            diagnostics.AddRange(run.LoweringDiagnostics);
-            Add(timings, PROGRAM_INDEX, run.Times.ProgramIndex);
-            Add(timings, LOWERING, run.Times.Lowering);
-            Add(timings, REACHABLE_SET, run.Times.ReachableSet);
-            Add(timings, SUMMARIES_AND_FIXPOINT, run.Times.SummariesAndFixpoint);
-            Add(timings, EXECUTIONS, run.Times.Executions);
-            Add(timings, ACCESSES, run.Times.Accesses);
-            var collection = run.Collection;
+            AddTimes(timings, run);
             // Pairing spans the pairing and the gap marks only, as it did before the pipeline: the bookkeeping above is not its own.
             step.Restart();
-            var scopePairs = pairing(collection.Accesses, run.Executions, run.Heap);
-            // Before the solver: the checks a semantic gap decides are part of what the budget is spent in the order of (TD-039).
-            scopePairs = scopePairs with { Pairs = GapDecisions.Mark(scopePairs.Pairs, run.Interprocedural, collection.Coverage.Gaps) };
+            var scopePairs = PairWithGaps(run, pairing);
             Record(timings, PAIRING, step);
+
+            // The generated layer (R1, R2, R5): the analysis above had none. When it describes a call of the scope, the scope is analysed again
+            // with it, and that analysis is the scope's.
+            var (pairsRemoved, generatedInRun) = (0, 0);
+            IReadOnlyList<GenerationRefusal> refusals = [];
+            IReadOnlyList<string> generationDiagnostics = [];
+            if (pass is not null)
+            {
+                var generationCandidates = pass.Candidates(run, compilations);
+                var layer = pass.Prepare(models, generationCandidates);
+                wanted.UnionWith(pass.Wanted(models, generationCandidates));
+                generationDiagnostics = [.. pass.TakeDiagnostics(), .. layer.Diagnostics];
+                generatedInRun = pass.GeneratedInRun(generationCandidates);
+                var reached = pass.Reached(models, layer, generationCandidates, throughModel: false).ToList();
+                if (layer.Describes)
+                {
+                    var second = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models.WithGenerated(layer.Table), limits,
+                                                   lowered, null, cancellationToken);
+                    Debug.Assert(!second.Stopped, "the analysis run passes no reachable-body limit");
+                    AddTimes(timings, second);
+                    step.Restart();
+                    var secondPairs = PairWithGaps(second, pairing);
+                    Record(timings, PAIRING, step);
+                    pairsRemoved = scopePairs.Pairs.Select(PairIdentity.Of).Distinct(StringComparer.Ordinal)
+                                             .Except(secondPairs.Pairs.Select(PairIdentity.Of), StringComparer.Ordinal)
+                                             .Count();
+                    // A target only the analysis with the generated layer reaches is neither generated nor kept in this run.
+                    var generated = generationCandidates.Select(candidate => (candidate.Target.MemberId, candidate.Target.Key)).ToHashSet();
+                    reached.AddRange(pass.Reached(models, layer, pass.Candidates(second, compilations)
+                                                                     .Where(candidate => !generated.Contains((candidate.Target.MemberId, candidate.Target.Key))),
+                                                  throughModel: true));
+                    (run, scopePairs) = (second, secondPairs);
+                }
+
+                refusals = GenerationCauses.Items(pass.Mode, reached);
+            }
+
+            Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
+            diagnostics.AddRange(run.DiscoveryDiagnostics);
+            diagnostics.AddRange(outOfRange);
+            diagnostics.AddRange(run.LoweringDiagnostics);
+            diagnostics.AddRange(generationDiagnostics);
+            var collection = run.Collection;
             // The solver is the last filter (TD-091): what the cheap ones left, asked one candidate at a time and within the
             // run's solver budget (ADR 0021). A solver that never started answers every question Unknown (ADR 0004).
+            step.Restart();
             var refined = SolverRefinement.Refine(scopePairs, solver, solverBudget, SolverPolicy.QueryLimit);
             scopePairs = refined.Pairs;
             diagnostics.AddRange(refined.Traces.Select(trace => $"solver: {trace}"));
@@ -183,8 +299,9 @@ public static class PhaseOneAnalyzer
             foreach (var (reason, count) in scopePairs.Skips)
                 pairSkips[reason] = pairSkips.GetValueOrDefault(reason) + count;
             coverage.Add(new ScopeCoverage(scope.Id, run.RootsPerProvider, diagnostics, run.Index.Registrations.Count,
-                                           Merged(collection.Coverage.Counters, refined.Counters, modelRejections.Count))
+                                           Merged(collection.Coverage.Counters, refined.Counters, modelRejections.Count, generatedInRun, pairsRemoved))
             {
+                GenerationRefusals = refusals,
                 TopOpaqueCallees = collection.Coverage.TopOpaqueCallees,
                 Gaps = collection.Coverage.Gaps,
                 SpawnSites = collection.Coverage.SpawnSites,
@@ -203,6 +320,9 @@ public static class PhaseOneAnalyzer
             if (scopeCoverage.Diagnostics is List<string> scopeDiagnostics)
                 scopeDiagnostics.AddRange(modelLock.Diagnostics);
 
+        // The time inside generations is the budget's measure, taken as the pass kept it: the analyses and the writes around them are
+        // the steps' own.
+        timings[GENERATION] = pass?.Spent ?? TimeSpan.Zero;
         step.Restart();
         var conflicts = ConflictFindings.Create(pairs, accesses, cancellationToken);
         Record(timings, FINDINGS, step);
@@ -220,26 +340,63 @@ public static class PhaseOneAnalyzer
             Timings = new[]
                       {
                           SCOPE_DISCOVERY, PROGRAM_INDEX, LOWERING, REACHABLE_SET, SUMMARIES_AND_FIXPOINT, EXECUTIONS, ACCESSES,
-                          PAIRING, SOLVER, FINDINGS
+                          PAIRING, SOLVER, GENERATION, FINDINGS
                       }
                       .Select(name => new StepTiming(name, timings.GetValueOrDefault(name).TotalSeconds))
                       .ToArray(),
-            ScopeSizes = sizes
+            ScopeSizes = sizes,
+            GenerationWanted = wanted.OrderBy(item => item.MemberId, StringComparer.Ordinal).ThenBy(item => item.FileKey, StringComparer.Ordinal).ToArray()
         };
     }
 
-    /// <summary>Adds the step's elapsed time to its total and restarts the stopwatch for the next step.</summary>
-    /// <summary>The scope's coverage counters with what the solver did to its candidates beside them.</summary>
-    private static IReadOnlyDictionary<string, int> Merged(IReadOnlyDictionary<string, int> counters,
-                                                           IReadOnlyDictionary<string, int> solver, int rejected)
+    /// <summary>The scope's coverage counters with what the solver did to its candidates beside them, and with what the run knows and a scope's
+    /// collection does not: the entries rejected, the models this run generated and the pairs they removed.</summary>
+    /// <param name="counters">The counters the scope's collection kept.</param>
+    /// <param name="solver">What the solver did to the scope's candidates.</param>
+    /// <param name="rejected">The project model entries that were rejected.</param>
+    /// <param name="generatedInRun">The scope's generation targets whose model this run generated.</param>
+    /// <param name="pairsRemoved">The pair identities the generated layer took away from the scope.</param>
+    private static IReadOnlyDictionary<string, int> Merged(IReadOnlyDictionary<string, int> counters, IReadOnlyDictionary<string, int> solver,
+                                                           int rejected, int generatedInRun, int pairsRemoved)
     {
         var merged = new SortedDictionary<string, int>(counters.ToDictionary(), StringComparer.Ordinal);
         foreach (var (name, count) in solver)
             merged[name] = merged.GetValueOrDefault(name) + count;
         merged[CoverageCounters.MODEL_ENTRY_REJECTED] = rejected;
+        merged[CoverageCounters.GENERATED_IN_RUN] = generatedInRun;
+        merged[CoverageCounters.PAIRS_REMOVED_GENERATED] = pairsRemoved;
         return merged;
     }
 
+    /// <summary>The pairs of an analysis of a scope, after pairing and the gap marks and before the solver: the checks a semantic gap decides
+    /// are part of what the solver's budget is spent in the order of (TD-039).</summary>
+    /// <param name="run">The scope's analysis.</param>
+    /// <param name="pairing">The pairing of the scope's accesses.</param>
+    private static PairAnalysis PairWithGaps(ScopeRun run, Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing)
+    {
+        Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
+        var pairs = pairing(run.Collection.Accesses, run.Executions, run.Heap);
+        return pairs with { Pairs = GapDecisions.Mark(pairs.Pairs, run.Interprocedural, run.Collection.Coverage.Gaps) };
+    }
+
+    /// <summary>Adds the time of each step of a scope's analysis to the totals: a scope analysed twice adds both.</summary>
+    /// <param name="timings">The totals by step.</param>
+    /// <param name="run">The scope's analysis.</param>
+    private static void AddTimes(Dictionary<string, TimeSpan> timings, ScopeRun run)
+    {
+        Add(timings, SCOPE_DISCOVERY, run.Times.RootDiscovery);
+        Add(timings, PROGRAM_INDEX, run.Times.ProgramIndex);
+        Add(timings, LOWERING, run.Times.Lowering);
+        Add(timings, REACHABLE_SET, run.Times.ReachableSet);
+        Add(timings, SUMMARIES_AND_FIXPOINT, run.Times.SummariesAndFixpoint);
+        Add(timings, EXECUTIONS, run.Times.Executions);
+        Add(timings, ACCESSES, run.Times.Accesses);
+    }
+
+    /// <summary>Adds the step's elapsed time to its total and restarts the stopwatch for the next step.</summary>
+    /// <param name="timings">The totals by step.</param>
+    /// <param name="name">The step.</param>
+    /// <param name="step">The stopwatch that measured it.</param>
     private static void Record(Dictionary<string, TimeSpan> timings, string name, Stopwatch step)
     {
         timings[name] = timings.GetValueOrDefault(name) + step.Elapsed;

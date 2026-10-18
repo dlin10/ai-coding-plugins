@@ -9,7 +9,9 @@ namespace ConcurrencyHunter.Core.Tests.Providers;
 
 public sealed class DeclarationIdGrammarTests
 {
-    private static readonly Lazy<IReadOnlyList<string>> FixtureIds = new(() =>
+    // For a function pointer type the call writes nothing — `Open(A,,B)`, `Initialize()`, `Invoke(A)~` — which is the text the
+    // grammar must refuse, so the id of a member whose signature has one names no member and is kept apart.
+    private static readonly Lazy<(IReadOnlyList<string> Ids, IReadOnlyList<string> FunctionPointerIds)> Fixture = new(() =>
     {
         var references = StubAssemblies.PlatformWithout([])
                                        .Concat(StubAssemblies.Names.Select(name => StubAssemblies.Get(name, StubAssemblies.DefaultVersion(name))))
@@ -17,6 +19,7 @@ public sealed class DeclarationIdGrammarTests
                                        .ToArray();
         var compilation = CSharpCompilation.Create("Ids", [], references, new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         var ids = new List<string>();
+        var functionPointerIds = new List<string>();
         void Walk(INamespaceOrTypeSymbol container)
         {
             foreach (var member in container.GetMembers())
@@ -27,25 +30,16 @@ public sealed class DeclarationIdGrammarTests
                         ids.Add(DocumentationCommentId.CreateDeclarationId(type)!);
                     Walk(nested);
                 }
-                else if (member is IMethodSymbol method && !method.Parameters.Select(parameter => parameter.Type).Append(method.ReturnType).Any(HasFunctionPointer) &&
-                         DocumentationCommentId.CreateDeclarationId(method) is { } id)
-                    ids.Add(id);
+                else if (member is IMethodSymbol method && DocumentationCommentId.CreateDeclarationId(method) is { } id)
+                    (FunctionPointers.In(method) ? functionPointerIds : ids).Add(id);
             }
         }
         foreach (var assembly in compilation.SourceModule.ReferencedAssemblySymbols)
             Walk(assembly.GlobalNamespace);
-        return ids;
+        return (ids, functionPointerIds);
     });
 
-    // For a function pointer type the call writes nothing — `Open(A,,B)`, `Initialize()`, `Invoke(A)~` — which is the text the
-    // grammar must refuse, so the id of a member whose signature has one names no member and is left out.
-    private static bool HasFunctionPointer(ITypeSymbol type) => type switch
-    {
-        IFunctionPointerTypeSymbol => true,
-        IArrayTypeSymbol array => HasFunctionPointer(array.ElementType),
-        IPointerTypeSymbol pointer => HasFunctionPointer(pointer.PointedAtType),
-        _ => false
-    };
+    private static readonly Lazy<IReadOnlyList<string>> FixtureIds = new(() => Fixture.Value.Ids);
 
     [Fact]
     public void Every_declaration_id_of_the_fixture_references_parses()
@@ -156,5 +150,55 @@ public sealed class DeclarationIdGrammarTests
             "pattern" => ProjectModelFiles.IsPattern(id),
             _ => DeclarationId.Parse(id) is { IsType: true }
         });
+    }
+
+    [Fact]
+    public void The_nine_skipped_fixture_members_carry_a_function_pointer()
+    {
+        var skipped = Fixture.Value.FunctionPointerIds;
+
+        Assert.Equal(9, skipped.Count);
+        // The text the call writes for each is the text the grammar refuses and the text rule marks.
+        Assert.All(skipped, id => Assert.False(DeclarationId.Parse(id) is { IsMember: true }, id));
+        Assert.All(skipped, id => Assert.True(DeclarationId.HasEmptyTypeSegment(id), id));
+        Assert.DoesNotContain(FixtureIds.Value, id => DeclarationId.HasEmptyTypeSegment(id));
+    }
+
+    [Theory]
+    [InlineData("M:A.B.Run(A,,B)", true)]
+    [InlineData("M:A.B.Run(,B)", true)]
+    [InlineData("M:A.B.Run(A,)", true)]
+    [InlineData("M:A.B.Initialize()", true)]
+    [InlineData("M:P.A([])", true)]
+    [InlineData("M:P.A([,],A)", true)]
+    [InlineData("M:P.B(*)", true)]
+    [InlineData("M:P.B(*,A)", true)]
+    [InlineData("M:P.C(@)", true)]
+    [InlineData("M:A.B.Invoke(A)~", true)]
+    [InlineData("M:P.D~[]", true)]
+    [InlineData("M:P.E~*", true)]
+    [InlineData("M:A.B.Run(A", false)]
+    [InlineData("M:A.B.Run(", false)]
+    [InlineData("M:A..B()", false)]
+    [InlineData("M:A.B.Run", false)]
+    [InlineData("M:A.B.Run(A[])", false)]
+    [InlineData("M:A.B.Run(A)~A.C", false)]
+    [InlineData("M:A.B.Run(A-B,)", false)]
+    [InlineData("M:A.B.Run(A{,})", false)]
+    [InlineData("M:A.B.Run(A{*})", false)]
+    [InlineData("M:A.B.Run(.A)", false)]
+    [InlineData("M:A.B.Run~A-B", false)]
+    [InlineData("T:A.B", false)]
+    [InlineData("", false)]
+    public void Empty_type_segments_are_marked_and_other_malformed_ids_are_not(string id, bool marked) =>
+        Assert.Equal(marked, DeclarationId.HasEmptyTypeSegment(id));
+
+    [Fact]
+    public void A_project_file_still_reads_any_parameters_as_a_pattern()
+    {
+        // The text rule marks `(*)`, and the readers of built-in and project entries keep reading it as the pattern.
+        Assert.True(DeclarationId.HasEmptyTypeSegment("M:P.B(*)"));
+        Assert.True(ProjectModelFiles.IsPattern("M:P.B(*)"));
+        Assert.True(DeclarationId.Parse("M:P.B(*)")!.IsPattern);
     }
 }

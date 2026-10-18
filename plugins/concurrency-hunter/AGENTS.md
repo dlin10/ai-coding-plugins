@@ -115,9 +115,16 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   the demo and writes `skills/hunt/evals/<host>/run.json`. It first mirrors `bin` into the installed
   Codex plugin cache; robocopy exit 8 there means a `concurrency-hunter.exe` started from that cache
   is still running — stop that one process.
-- `metrics --target <solution> --out <file> [--limits depth,contexts,scc]` is the measurement behind
-  the snapshots and `skills/hunt/evals/metrics/*.json`; after a Release build run it as
-  `dotnet run --project src/ConcurrencyHunter.Cli -c Release --no-build -- metrics ...`.
+- `metrics --target <solution> --out <file> [--limits depth,contexts,scc] [--generation on|read|off]` is
+  the measurement behind the snapshots and `skills/hunt/evals/metrics/*.json`; after a Release build run
+  it as `dotnet run --project src/ConcurrencyHunter.Cli -c Release --no-build -- metrics ...`.
+  `--generation` is what the run does with the generated model layer: `on` (the default) generates the
+  models no layer describes and writes `.concurrency-hunter/models/generated/` under the repository
+  root, `read` only reads and applies those files, `off` leaves the layer out.
+- `build/record-demo-models.ps1` writes the demo's committed generated models,
+  `demo/.concurrency-hunter/models/generated/`, with a `--generation on` run of the demo, then re-reads them to show they suffice.
+  Run it when a demo case reaches a library member no committed model describes: a demo run that would generate fails
+  `DemoGeneratedModelsTests`.
 
 ## Environment variables
 
@@ -157,8 +164,9 @@ of a `metrics` run: `counts`, including every finding's fingerprint, and the per
 Any change to the engine, the built-in models or the demo can move them; the comparing test prints
 the unified diff. There is no record mode. To rewrite one:
 
-1. Build in Release and run `metrics --target demo/Demo.slnx` (or
-   `$env:CH_ESHOP_ROOT/src/eShopOnContainers-ServicesAndWebApps.sln`) `--out` a scratch file.
+1. Build in Release and run `metrics --target demo/Demo.slnx --generation read` (or
+   `$env:CH_ESHOP_ROOT/src/eShopOnContainers-ServicesAndWebApps.sln --generation off`) `--out` a scratch
+   file; the snapshot tests measure in those modes, and the default `on` would generate and write files.
 2. Keep the lines from `  "counts": {` through the `  ],` that closes `coverage`, drop that line's
    comma, and wrap them in `{`/`}`. The serializer options match, so the slice is byte-identical to
    what the test builds.

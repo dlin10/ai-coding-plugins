@@ -156,14 +156,24 @@ internal static class MustHeldLocks
             : string.Join('+', left.Split('+').Concat(right.Split('+')).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
 
     /// <summary>The locks held before each operation, starting from <paramref name="entry"/> (none when null).</summary>
+    /// <param name="body">The body whose operations are solved.</param>
+    /// <param name="effectOf">The lock effect of each operation of the body.</param>
+    /// <param name="entry">The locks held on entry, or <see langword="null"/> for none.</param>
+    /// <param name="cancellationToken">Cancels the solving at its next block or operation.</param>
     internal static MustHeldState Compute(IrBody body, Func<IrOperation, LockEffect> effectOf,
-                                          IReadOnlyDictionary<string, HeldLock>? entry = null) =>
-        new Solver(body, effectOf, entry).Run();
+                                          IReadOnlyDictionary<string, HeldLock>? entry = null,
+                                          CancellationToken cancellationToken = default) =>
+        new Solver(body, effectOf, entry, cancellationToken: cancellationToken).Run();
 
     /// <summary>Whether <paramref name="key"/> is released on every path out of <paramref name="body"/>, which is what a scope
     /// somebody else opened needs of the body that closes it (R3, ADR 0009).</summary>
-    internal static bool ReleasesOnEveryPath(IrBody body, Func<IrOperation, LockEffect> effectOf, string key) =>
-        Dual(body, effectOf, key).Run().AtExit.ContainsKey(key);
+    /// <param name="body">The body whose paths are followed.</param>
+    /// <param name="effectOf">The lock effect of each operation of the body.</param>
+    /// <param name="key">The key of the lock.</param>
+    /// <param name="cancellationToken">Cancels the solving at its next block or operation.</param>
+    internal static bool ReleasesOnEveryPath(IrBody body, Func<IrOperation, LockEffect> effectOf, string key,
+                                             CancellationToken cancellationToken = default) =>
+        Dual(body, effectOf, key, cancellationToken).Run().AtExit.ContainsKey(key);
 
     /// <summary>
     /// Whether <paramref name="key"/> is held from one operation to another without being let go in between, which is what one
@@ -172,16 +182,24 @@ internal static class MustHeldLocks
     /// next one runs in. The answer is no exactly where some path runs from the read through a release of the key to the write —
     /// the back edge of such a loop included, since it passes the release the iteration ends with.
     /// </summary>
-    internal static bool HoldsBetween(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, int from, int to)
+    /// <param name="body">The body both operations are in.</param>
+    /// <param name="effectOf">The lock effect of each operation of the body.</param>
+    /// <param name="key">The key of the lock.</param>
+    /// <param name="from">The operation the span starts at.</param>
+    /// <param name="to">The operation the span ends at.</param>
+    /// <param name="cancellationToken">Cancels the search at its next position.</param>
+    internal static bool HoldsBetween(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, int from, int to,
+                                      CancellationToken cancellationToken = default)
     {
-        var (positions, successors) = Flow(body);
+        var (positions, successors) = Flow(body, cancellationToken);
         if (!positions.TryGetValue(from, out var start) || !positions.TryGetValue(to, out var end))
             return false;
 
-        var forward = Reachable(successors, (start.Block, start.Index + 1));
-        var backward = Reachable(Reversed(successors), end);
+        var forward = Reachable(successors, (start.Block, start.Index + 1), cancellationToken);
+        var backward = Reachable(Reversed(successors, cancellationToken), end, cancellationToken);
         foreach (var (block, index) in forward)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if ((block, index) == end || !backward.Contains((block, index)) || index >= body.Blocks[block].Operations.Count)
                 continue;
             if (Releases(effectOf(body.Blocks[block].Operations[index]), key))
@@ -195,9 +213,15 @@ internal static class MustHeldLocks
     /// way: what makes an exit at <paramref name="to"/> possibly the exit of a lock somebody else took. An exit every path to which
     /// passes the body's own entry of that lock may be that entry's exit. An operation the body does not have may be reached any
     /// way.</summary>
-    internal static bool ReachesWithoutEntry(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, int to)
+    /// <param name="body">The body whose paths are followed.</param>
+    /// <param name="effectOf">The lock effect of each operation of the body.</param>
+    /// <param name="key">The key of the lock.</param>
+    /// <param name="to">The operation the paths are followed to.</param>
+    /// <param name="cancellationToken">Cancels the search at its next position.</param>
+    internal static bool ReachesWithoutEntry(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, int to,
+                                             CancellationToken cancellationToken = default)
     {
-        var (positions, successors) = Flow(body);
+        var (positions, successors) = Flow(body, cancellationToken);
         if (body.Blocks.Count == 0 || !positions.TryGetValue(to, out var end))
             return true;
 
@@ -206,6 +230,7 @@ internal static class MustHeldLocks
         var queue = new Queue<(int Block, int Index)>([first]);
         while (queue.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var position = queue.Dequeue();
             if (position == end)
                 return true;
@@ -226,24 +251,32 @@ internal static class MustHeldLocks
 
     /// <summary>Whether some path from just after <paramref name="from"/> reaches an operation <paramref name="target"/> accepts;
     /// an operation the body does not have may reach anything.</summary>
-    internal static bool Reaches(IrBody body, int from, Func<IrOperation, bool> target)
+    /// <param name="body">The body whose paths are followed.</param>
+    /// <param name="from">The operation the paths start after.</param>
+    /// <param name="target">Whether an operation is the one looked for.</param>
+    /// <param name="cancellationToken">Cancels the search at its next position.</param>
+    internal static bool Reaches(IrBody body, int from, Func<IrOperation, bool> target, CancellationToken cancellationToken = default)
     {
-        var (positions, successors) = Flow(body);
+        var (positions, successors) = Flow(body, cancellationToken);
         if (!positions.TryGetValue(from, out var start))
             return true;
 
-        return Reachable(successors, (start.Block, start.Index + 1))
+        return Reachable(successors, (start.Block, start.Index + 1), cancellationToken)
             .Any(position => position.Index < body.Blocks[position.Block].Operations.Count &&
                              target(body.Blocks[position.Block].Operations[position.Index]));
     }
 
     /// <summary>Where each operation stands, and which position follows which over the normal control flow of the body.</summary>
+    /// <param name="body">The body whose control flow is read.</param>
+    /// <param name="cancellationToken">Cancels the reading at its next block.</param>
     private static (Dictionary<int, (int Block, int Index)> Positions,
-                    Dictionary<(int Block, int Index), List<(int Block, int Index)>> Successors) Flow(IrBody body)
+                    Dictionary<(int Block, int Index), List<(int Block, int Index)>> Successors) Flow(IrBody body,
+                                                                                                        CancellationToken cancellationToken)
     {
         var positions = new Dictionary<int, (int Block, int Index)>();
         for (var ordinal = 0; ordinal < body.Blocks.Count; ordinal++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var operations = body.Blocks[ordinal].Operations;
             for (var index = 0; index < operations.Count; index++)
                 positions[operations[index].Id] = (ordinal, index);
@@ -253,6 +286,7 @@ internal static class MustHeldLocks
         var successors = new Dictionary<(int Block, int Index), List<(int Block, int Index)>>();
         for (var ordinal = 0; ordinal < body.Blocks.Count; ordinal++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var block = body.Blocks[ordinal];
             // The position after a block's last operation stands for its exit, so that a block with no operations still carries
             // control through.
@@ -297,12 +331,13 @@ internal static class MustHeldLocks
         (effect.MayReleases ?? []).Any(released => !released.NamesObject || string.Equals(released.Key, key, StringComparison.Ordinal));
 
     private static HashSet<(int Block, int Index)> Reachable(IReadOnlyDictionary<(int Block, int Index), List<(int Block, int Index)>> edges,
-                                                             (int Block, int Index) from)
+                                                             (int Block, int Index) from, CancellationToken cancellationToken)
     {
         var seen = new HashSet<(int Block, int Index)> { from };
         var queue = new Queue<(int Block, int Index)>([from]);
         while (queue.Count > 0)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             foreach (var next in edges.GetValueOrDefault(queue.Dequeue()) ?? [])
             {
                 if (seen.Add(next))
@@ -314,11 +349,12 @@ internal static class MustHeldLocks
     }
 
     private static Dictionary<(int Block, int Index), List<(int Block, int Index)>> Reversed(
-        Dictionary<(int Block, int Index), List<(int Block, int Index)>> edges)
+        Dictionary<(int Block, int Index), List<(int Block, int Index)>> edges, CancellationToken cancellationToken)
     {
         var reversed = new Dictionary<(int Block, int Index), List<(int Block, int Index)>>();
         foreach (var (position, next) in edges)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             foreach (var target in next)
             {
                 if (!reversed.TryGetValue(target, out var sources))
@@ -331,15 +367,24 @@ internal static class MustHeldLocks
     }
 
     /// <summary>The solver that proves a release of one key, over the same body.</summary>
-    private static Solver Dual(IrBody body, Func<IrOperation, LockEffect> effectOf, string key) =>
-        new(body, operation => Dual(effectOf(operation), key), null, NullGuards(body, effectOf, key));
+    /// <param name="body">The body the release is proven over.</param>
+    /// <param name="effectOf">The lock effect of each operation of the body.</param>
+    /// <param name="key">The key of the lock.</param>
+    /// <param name="cancellationToken">Cancels the solver at its next block or operation.</param>
+    private static Solver Dual(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, CancellationToken cancellationToken) =>
+        new(body, operation => Dual(effectOf(operation), key), null, NullGuards(body, effectOf, key, cancellationToken), cancellationToken);
 
     /// <summary>
     /// The values a release of <paramref name="key"/> is performed on, by the lock it releases. Nothing is ever held on an object
     /// that is not there, so a path on which one of these values is null needs no release of it — which is how the disposal of a
     /// <c>using</c>, guarded by the null test its lowering writes, is a release on every path that could have taken anything.
     /// </summary>
-    private static Dictionary<int, LockObject> NullGuards(IrBody body, Func<IrOperation, LockEffect> effectOf, string key)
+    /// <param name="body">The body the release is performed in.</param>
+    /// <param name="effectOf">The lock effect of each operation of the body.</param>
+    /// <param name="key">The key of the lock released.</param>
+    /// <param name="cancellationToken">Cancels the reading at its next operation.</param>
+    private static Dictionary<int, LockObject> NullGuards(IrBody body, Func<IrOperation, LockEffect> effectOf, string key,
+                                                          CancellationToken cancellationToken)
     {
         var operations = body.Blocks.SelectMany(block => block.Operations).ToArray();
         // The value a release is performed on is rarely the value a test names: a `using` disposes a conversion of the value it
@@ -347,6 +392,7 @@ internal static class MustHeldLocks
         var copies = new Dictionary<int, int>();
         foreach (var operation in operations)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             switch (operation)
             {
                 case IrAssignOperation assign:
@@ -361,6 +407,7 @@ internal static class MustHeldLocks
         var subjects = new Dictionary<int, LockObject>();
         foreach (var operation in operations)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (effectOf(operation) is not { Kind: LockEffectKind.Release, Lock: { } released } ||
                 !string.Equals(released.Key, key, StringComparison.Ordinal))
             {
@@ -381,6 +428,7 @@ internal static class MustHeldLocks
         var guards = new Dictionary<int, LockObject>(subjects);
         foreach (var value in copies.Keys)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (subjects.TryGetValue(Origin(copies, value), out var released))
                 guards[value] = released;
         }
@@ -415,7 +463,7 @@ internal static class MustHeldLocks
             };
 
     private sealed class Solver(IrBody body, Func<IrOperation, LockEffect> effectOf, IReadOnlyDictionary<string, HeldLock>? entry,
-                                IReadOnlyDictionary<int, LockObject>? nullGuards = null)
+                                IReadOnlyDictionary<int, LockObject>? nullGuards = null, CancellationToken cancellationToken = default)
     {
         private readonly Dictionary<string, HeldLock> Empty = new(entry ?? new Dictionary<string, HeldLock>(), StringComparer.Ordinal);
         private readonly Dictionary<int, IrRegion> _regions = body.Regions.ToDictionary(region => region.Id);
@@ -429,6 +477,7 @@ internal static class MustHeldLocks
             var entries = Solve(0, body.Blocks.Count - 1, 0, Empty);
             for (var ordinal = 0; ordinal < body.Blocks.Count; ordinal++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (entries[ordinal] is { } entry)
                     Transfer(body.Blocks[ordinal], entry, (operation, state) => result[operation.Id] = state);
             }
@@ -452,11 +501,13 @@ internal static class MustHeldLocks
         /// this body excludes anybody (R3). Only a semaphore counts permits: every other primitive is taken and given back once,
         /// and its exit without an entry is a scope its caller opened, which ADR 0009 carries rather than counts.
         /// </summary>
+        /// <param name="states">The locks held before each operation, by the operation.</param>
         private HashSet<string> Unpaired(Dictionary<int, IReadOnlyDictionary<string, HeldLock>> states)
         {
             var unpaired = new HashSet<string>(StringComparer.Ordinal);
             foreach (var operation in body.Blocks.SelectMany(block => block.Operations))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (effectOf(operation) is not { Kind: LockEffectKind.Release, Lock: { Primitive: IrSynchronizationPrimitive.SemaphoreSlim } released } effect ||
                     !states.TryGetValue(operation.Id, out var state))
                 {
@@ -473,6 +524,10 @@ internal static class MustHeldLocks
         /// <summary>Two properties of a whole acquisition, marked into every state that holds it: whether its region holds over a
         /// suspension point, so that an <c>await</c> after the access counts as much as one before it, and whether a
         /// <c>finally</c> releases it, so that no path leaves the region holding it (TD-083).</summary>
+        /// <param name="states">The locks held before each operation, by the operation.</param>
+        /// <param name="atExit">The locks the body still holds where it ends.</param>
+        /// <param name="released">The acquisitions a <c>finally</c> releases on every path out of it.</param>
+        /// <param name="unpaired">The keys of the objects the body does not take and give back one for one.</param>
         private (Dictionary<int, IReadOnlyDictionary<string, HeldLock>> States, Dictionary<string, HeldLock> AtExit) Mark(
             Dictionary<int, IReadOnlyDictionary<string, HeldLock>> states,
             Dictionary<string, HeldLock> atExit,
@@ -486,6 +541,7 @@ internal static class MustHeldLocks
             var crossed = new HashSet<(string Key, int Acquisition)>();
             foreach (var (_, operation) in operations)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!states.TryGetValue(operation.Id, out var state) || !suspensions.Contains(operation.Id))
                     continue;
                 foreach (var held in state.Values)
@@ -503,7 +559,10 @@ internal static class MustHeldLocks
                 return (states, atExit);
 
             foreach (var operationId in states.Keys.ToArray())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 states[operationId] = Marked(states[operationId]);
+            }
 
             return (states, Marked(atExit));
 
@@ -526,18 +585,21 @@ internal static class MustHeldLocks
         /// left holding the lock on the others. Each acquisition the region enters holding is asked of the dual run over that
         /// region, which is where a release is proven on every path.
         /// </summary>
+        /// <param name="entries">The state each block is entered with; null is a block no path reaches.</param>
         private HashSet<(string Key, int Acquisition)> ReleasedByFinally(Dictionary<string, HeldLock>?[] entries)
         {
             var released = new HashSet<(string Key, int Acquisition)>();
             foreach (var region in body.Regions.Where(region => region.Kind == IrRegionKind.Finally))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (region.FirstBlockOrdinal >= entries.Length || entries[region.FirstBlockOrdinal] is not { } entry)
                     continue;
 
                 foreach (var (key, held) in entry)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     // A finally that never completes normally proves nothing about what it releases, so it is left out.
-                    var dual = MustHeldLocks.Dual(body, effectOf, key);
+                    var dual = MustHeldLocks.Dual(body, effectOf, key, cancellationToken);
                     if (dual.ThroughFinally(region, dual.Empty) is { } exit &&
                         exit.TryGetValue(key, out var proven) && proven.Depth >= held.Depth)
                     {
@@ -551,16 +613,22 @@ internal static class MustHeldLocks
 
         /// <summary>Entry states of blocks <paramref name="first"/>..<paramref name="last"/> when control enters at
         /// <paramref name="entry"/> with <paramref name="entryState"/>; null is a block no path reaches.</summary>
+        /// <param name="first">The first block of the range.</param>
+        /// <param name="last">The last block of the range.</param>
+        /// <param name="entry">The block control enters at.</param>
+        /// <param name="entryState">The locks held on entry.</param>
         private Dictionary<string, HeldLock>?[] Solve(int first, int last, int entry, Dictionary<string, HeldLock> entryState)
         {
             var entries = new Dictionary<string, HeldLock>?[last - first + 1];
             entries[entry - first] = entryState;
             while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var incoming = new Dictionary<string, HeldLock>?[entries.Length];
                 incoming[entry - first] = entryState;
                 for (var ordinal = first; ordinal <= last; ordinal++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (entries[ordinal - first] is not { } state)
                         continue;
 
@@ -573,6 +641,7 @@ internal static class MustHeldLocks
 
                 foreach (var handler in body.Regions.Where(region => region.Kind is IrRegionKind.Catch or IrRegionKind.Filter or IrRegionKind.Finally))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (handler.FirstBlockOrdinal < first || handler.FirstBlockOrdinal > last || handler.FirstBlockOrdinal == entry ||
                         Protected(handler) is not { } protectedRegion ||
                         protectedRegion.FirstBlockOrdinal < first || protectedRegion.LastBlockOrdinal > last)
@@ -614,6 +683,11 @@ internal static class MustHeldLocks
         /// its own mutex, intersected over the waits (TD-083). Handing the handler every mutex the region enters would let a write
         /// under one of them look protected in a handler that never took it.
         /// </summary>
+        /// <param name="handler">The handler region.</param>
+        /// <param name="guarded">The region the handler guards.</param>
+        /// <param name="minimum">What every point of the guarded region holds.</param>
+        /// <param name="entries">The state each block is entered with; null is a block no path reaches.</param>
+        /// <param name="first">The first block of the range <paramref name="entries"/> covers.</param>
         private Dictionary<string, HeldLock>? Abandoned(IrRegion handler, IrRegion guarded, Dictionary<string, HeldLock>? minimum,
                                                         Dictionary<string, HeldLock>?[] entries, int first)
         {
@@ -623,6 +697,7 @@ internal static class MustHeldLocks
             Dictionary<string, HeldLock>? owned = null;
             for (var ordinal = guarded.FirstBlockOrdinal; ordinal <= guarded.LastBlockOrdinal; ordinal++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var index = ordinal - first;
                 if (index < 0 || index >= entries.Length || entries[index] is not { } blockEntry)
                     continue;
@@ -702,6 +777,7 @@ internal static class MustHeldLocks
             Dictionary<string, HeldLock>? minimum = null;
             for (var ordinal = region.FirstBlockOrdinal; ordinal <= region.LastBlockOrdinal; ordinal++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (entries[ordinal - first] is not { } entry)
                     continue;
                 minimum = Join(minimum, entry);
@@ -729,6 +805,7 @@ internal static class MustHeldLocks
             var state = new Dictionary<string, HeldLock>(entry, StringComparer.Ordinal);
             foreach (var operation in block.Operations)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 record?.Invoke(operation, new Dictionary<string, HeldLock>(state, StringComparer.Ordinal));
                 // The success flag of a conditional entry travels with the value it is copied into.
                 if (operation is IrAssignOperation assign && conditional?.TryGetValue(assign.SourceValue, out var carried) == true)

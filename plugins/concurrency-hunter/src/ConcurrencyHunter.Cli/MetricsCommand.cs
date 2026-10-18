@@ -22,7 +22,7 @@ internal sealed record LoadedTarget(Solution Solution, int ProjectsExpected, int
 /// </summary>
 internal static class MetricsCommand
 {
-    private const string USAGE = "Usage: concurrency-hunter metrics --target <path> --out <file> [--limits depth,contexts,scc]";
+    private const string USAGE = "Usage: concurrency-hunter metrics --target <path> --out <file> [--limits depth,contexts,scc] [--generation on|read|off]";
 
     /// <summary>What a revision reads as when git could not produce one.</summary>
     internal const string UNKNOWN_REVISION = "unknown";
@@ -55,7 +55,7 @@ internal static class MetricsCommand
 
         try
         {
-            var (measurement, _) = await MeasureAsync(options.Target, options.Limits, load ?? LoadWithMsBuildAsync, CancellationToken.None)
+            var (measurement, _) = await MeasureAsync(options.Target, options.Limits, load ?? LoadWithMsBuildAsync, options.Generation, CancellationToken.None)
                                        .ConfigureAwait(false);
             var path = Path.GetFullPath(options.Out);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -71,7 +71,13 @@ internal static class MetricsCommand
     }
 
     /// <summary>One measurement of a target, with the analysis it was taken from.</summary>
+    /// <param name="target">The solution to measure.</param>
+    /// <param name="limits">The summary and heap limits.</param>
+    /// <param name="load">Loads the target.</param>
+    /// <param name="generation">What the analysis does with the generated model layer: the caller chooses, so that a snapshot says what it measured.</param>
+    /// <param name="cancellationToken">Cancels the load and the analysis.</param>
     internal static async Task<(Measurement Measurement, AnalysisResult Analysis)> MeasureAsync(string target, AnalysisLimits limits, TargetLoad load,
+                                                                                                 ModelGeneration generation,
                                                                                                  CancellationToken cancellationToken)
     {
         var total = Stopwatch.StartNew();
@@ -82,7 +88,7 @@ internal static class MetricsCommand
         var rootDirectory = Path.GetDirectoryName(Path.GetFullPath(target))!;
         var startedAt = DateTimeOffset.UtcNow;
         step.Restart();
-        var analysis = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, cancellationToken).ConfigureAwait(false);
+        var analysis = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, cancellationToken, generation).ConfigureAwait(false);
         var analysisSeconds = step.Elapsed.TotalSeconds;
 
         step.Restart();
@@ -153,7 +159,10 @@ internal static class MetricsCommand
                                                                Sorted(scope.Skips), Sorted(scope.Ordering),
                                                                // The gaps by callee, sorted, so that a snapshot proves which gaps there are as the
                                                                // fingerprints prove which findings.
-                                                               scope.Gaps.Select(gap => gap.Callee).Order(StringComparer.Ordinal).ToArray()))
+                                                               scope.Gaps.Select(gap => gap.Callee).Order(StringComparer.Ordinal).ToArray(),
+                                                               // The members no generated model describes, in the order the scope lists them.
+                                                               scope.GenerationRefusals.Select(item => new GenerationRefusalMeasurement(item.MemberId, item.FileKey, item.Cause))
+                                                                    .ToArray()))
                 .ToArray();
 
     internal static async Task<LoadedTarget> LoadWithMsBuildAsync(string path, CancellationToken cancellationToken)
@@ -215,14 +224,25 @@ internal static class MetricsCommand
         }
     }
 
-    private sealed record Options(string Target, string Out, AnalysisLimits Limits)
+    /// <summary>What the command line asks for.</summary>
+    /// <param name="Target">The solution to measure.</param>
+    /// <param name="Out">The file the measurement is written to.</param>
+    /// <param name="Limits">The summary and heap limits.</param>
+    /// <param name="Generation">What the analysis does with the generated model layer: <c>--generation on</c> generates (the default),
+    /// <c>read</c> only reads the generated files, <c>off</c> leaves the layer out.</param>
+    internal sealed record Options(string Target, string Out, AnalysisLimits Limits, ModelGeneration Generation)
     {
+        /// <summary>The options of a command line.</summary>
+        /// <param name="args">The arguments after the command's name.</param>
+        /// <exception cref="ArgumentException">An argument is unexpected, repeated or without a value, a required option is missing, or a value
+        /// is not one the option takes.</exception>
         internal static Options Parse(string[] args)
         {
             var values = new Dictionary<string, string>(StringComparer.Ordinal);
             for (var index = 0; index < args.Length; index++)
             {
-                if (args[index] is not ("--target" or "--out" or "--limits") || index + 1 >= args.Length || !values.TryAdd(args[index], args[++index]))
+                if (args[index] is not ("--target" or "--out" or "--limits" or "--generation") || index + 1 >= args.Length ||
+                    !values.TryAdd(args[index], args[++index]))
                     throw new ArgumentException($"Unexpected argument '{args[index]}'.");
             }
 
@@ -230,8 +250,17 @@ internal static class MetricsCommand
                 throw new ArgumentException("--target is required.");
             if (!values.TryGetValue("--out", out var output) || string.IsNullOrWhiteSpace(output))
                 throw new ArgumentException("--out is required.");
-            return new Options(target, output, values.TryGetValue("--limits", out var limits) ? ParseLimits(limits) : AnalysisLimits.Default);
+            return new Options(target, output, values.TryGetValue("--limits", out var limits) ? ParseLimits(limits) : AnalysisLimits.Default,
+                               values.TryGetValue("--generation", out var generation) ? ParseGeneration(generation) : ModelGeneration.Generate);
         }
+
+        private static ModelGeneration ParseGeneration(string text) => text switch
+        {
+            "on" => ModelGeneration.Generate,
+            "read" => ModelGeneration.ReadOnly,
+            "off" => ModelGeneration.None,
+            _ => throw new ArgumentException("--generation must be on, read or off.")
+        };
 
         private static AnalysisLimits ParseLimits(string text)
         {
@@ -265,7 +294,13 @@ internal sealed record MeasurementCounts(int ProjectsExpected, int ProjectsLoade
 
 internal sealed record ScopeMeasurement(string ScopeId, IReadOnlyDictionary<string, int> RootsPerProvider, int Accesses,
                                         IReadOnlyDictionary<string, int> Counters, IReadOnlyDictionary<string, int> Ordering,
-                                        IReadOnlyList<string> SemanticGaps);
+                                        IReadOnlyList<string> SemanticGaps, IReadOnlyList<GenerationRefusalMeasurement> GenerationRefusals);
+
+/// <summary>A generation target of a scope that no generated model describes, as a measurement records it.</summary>
+/// <param name="Member">The member's declaration id, the id the generated files name it by.</param>
+/// <param name="File">The key of the generated file that answers for the member.</param>
+/// <param name="Cause">Why no generated model describes the member.</param>
+internal sealed record GenerationRefusalMeasurement(string Member, string File, string Cause);
 
 internal sealed record TargetValue(double Limit, double Actual, bool Met);
 

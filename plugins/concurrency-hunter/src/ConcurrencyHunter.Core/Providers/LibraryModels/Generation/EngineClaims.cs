@@ -36,12 +36,24 @@ public static class EngineClaims
     /// <summary>The first method of an assembly's own types, in declaration order, that a recognizer claims; <c>null</c> when the
     /// engine claims none of them.</summary>
     /// <param name="assembly">The assembly.</param>
-    public static EngineClaim? FirstIn(IAssemblySymbol assembly)
+    /// <param name="cancellationToken">Cancels the scan at the next type.</param>
+    public static EngineClaim? FirstIn(IAssemblySymbol assembly, CancellationToken cancellationToken = default) =>
+        FirstIn(assembly, new GenerationChecks(cancellationToken));
+
+    /// <summary>The first method of an assembly's own types, in declaration order, that a recognizer claims, as a stage of a generation:
+    /// it checks before each type it scans.</summary>
+    /// <param name="assembly">The assembly.</param>
+    /// <param name="checks">The generation's checks, which cancel the scan.</param>
+    internal static EngineClaim? FirstIn(IAssemblySymbol assembly, GenerationChecks checks)
     {
-        foreach (var method in Types(assembly.GlobalNamespace).SelectMany(type => type.GetMembers().OfType<IMethodSymbol>()))
+        foreach (var type in Types(assembly.GlobalNamespace))
         {
-            if (Of(method) is { } recognizer)
-                return new EngineClaim(method.GetDocumentationCommentId() ?? method.ToDisplayString(), recognizer);
+            checks.Check(GenerationStage.EngineClaims);
+            foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
+            {
+                if (Of(method) is { } recognizer)
+                    return new EngineClaim(method.GetDocumentationCommentId() ?? method.ToDisplayString(), recognizer);
+            }
         }
 
         return null;

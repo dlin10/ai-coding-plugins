@@ -11,7 +11,7 @@ internal static class ExpectationMatcher
     /// confidence mismatch.</summary>
     /// <param name="findings">The findings produced by the analysis.</param>
     /// <param name="file">The expectations to match.</param>
-    /// <param name="phase">The current known phase.</param>
+    /// <param name="phase">The current known phase, or a known run of a phase.</param>
     internal static ExpectationReport Match(IReadOnlyList<Finding> findings, ExpectationFile file, string phase)
     {
         _ = PhaseOrder.Compare(phase, phase);

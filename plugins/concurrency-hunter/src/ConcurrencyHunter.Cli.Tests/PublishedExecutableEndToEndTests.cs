@@ -181,6 +181,12 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
 
             var report = (await File.ReadAllTextAsync(Path.Combine(bundlePath, "report.md"))).Replace("\r\n", "\n", StringComparison.Ordinal);
             Assert.Contains("verify manually", report, StringComparison.Ordinal);
+            // The run generates (R9), but the demo's committed generated files answer for every target it reaches: nothing is generated in any scope.
+            var reportLines = report.Split('\n').Select(line => line.TrimStart()).ToArray();
+            var generatedInRun = reportLines.Where(line => line.StartsWith("- generated-in-run ", StringComparison.Ordinal)).ToArray();
+            Assert.Equal(reportLines.Count(line => line.StartsWith("- Process scope ", StringComparison.Ordinal)), generatedInRun.Length);
+            Assert.NotEmpty(generatedInRun);
+            Assert.All(generatedInRun, line => Assert.StartsWith("- generated-in-run 0:", line, StringComparison.Ordinal));
             var block = report[report.IndexOf($"##### {sharedHelper.GetProperty("findingId").GetString()}\n", StringComparison.Ordinal)..];
             block = block[..block.IndexOf("\n\n", StringComparison.Ordinal)];
             Assert.Contains("- Occurrences: 6 (the first 3 listed)\n", block, StringComparison.Ordinal);
@@ -218,7 +224,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             Assert.True(File.Exists(executable), $"The publish produced no executable in {directory}.");
 
             var metrics = Path.Combine(directory, "metrics.json");
-            await RunAsync(executable, ["metrics", "--target", demoSolution, "--out", metrics], ANALYSIS_TIMEOUT);
+            await RunAsync(executable, ["metrics", "--target", demoSolution, "--out", metrics, "--generation", "read"], ANALYSIS_TIMEOUT);
 
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(metrics));
             var counters = document.RootElement.GetProperty("coverage").EnumerateArray()

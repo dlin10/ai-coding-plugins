@@ -303,8 +303,10 @@ internal static class ConflictFindings
         };
     }
 
-    /// <summary>The resource as fingerprints hash it: scope, context-free region identity, path and member identity.</summary>
-    private static string ResourceText(AccessResource resource) =>
+    /// <summary>The resource as fingerprints hash it: scope, context-free region identity, path and member identity. A pair's identity
+    /// (<see cref="PairIdentity"/>) is built on the same text.</summary>
+    /// <param name="resource">The resource a finding or a pair is reported on.</param>
+    internal static string ResourceText(AccessResource resource) =>
         $"{resource.Scope}|{resource.RegionKey}|{string.Join(".", resource.AccessPath)}|{resource.Member.Identity}";
 
     /// <summary>Two different lifecycle roots of one hosted-service implementation, whose relative order is not modeled.</summary>

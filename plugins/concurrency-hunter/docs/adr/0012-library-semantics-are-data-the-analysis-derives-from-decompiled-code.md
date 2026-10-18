@@ -164,3 +164,70 @@ would pay for it.
 The consequence to hold. The snapshot of the generation names a member by its classic declaration id, and
 the run looks a member up by the id with its return type, so an entry taken from the snapshot is never found
 until it is written in the run's form (question 179).
+
+## Amendment, 2026-10-17: the run generates the members it reached
+
+Before the run's generated layer was built, the generator was run one member at a time on every member
+outside `System.Private.CoreLib` whose opaque call the demo or eShop reaches: 52 members and 473. The demo
+got one model and eShop six; two of them describe a delegate — the protobuf parser's factory as
+`unknown-execution`, Autofac's service provider factory as a `holder`. Of eShop's members, 115 had no
+implementation because the generator does not look in the ASP.NET Core shared framework, and 123 belong
+to libraries that did not compile, IdentityServer's 83 among them, mostly with namespaces and types
+missing (CS0234, CS0246), which is what a package built on ASP.NET Core gets when that framework is not
+among its references; 53 got no driver, 53 failed in analysis and 39 handed a probe to code the analysis
+cannot see. A member took 3 s at the median and 11 s at the 90th percentile. Four `LoggerConfiguration`
+members of Serilog and one of IdentityModel ran past 600 s, and five members of EF Core overflowed the
+stack while their driver was being synthesized: seed and witness classes were written for each other
+without end. Generating eShop's members one after another took 89 minutes.
+
+The decision is how the run generates:
+
+- The run generates the members it reached that no layer describes and writes what the generator
+  answered to `.concurrency-hunter/models/generated/<package>/<version>/<mvid>.json` under the
+  **Repository root**, creating the folder when the repository has none. A team that never asked for the
+  layer finds the folder after its first run; that is the price of a layer that works without setup, and
+  the files are what FR-21 asks the team to commit.
+- A file keeps the generator's answer about each member: its model, or a **Generation refusal** with the
+  cause. A later run reads it and generates nothing that has an answer. A file keeps nothing that depends
+  on the run or the machine: a member the run's budget did not reach, a run that stopped, an
+  implementation that is not on disk. The run adds files and entries and never deletes a file: a run sees
+  one solution, and a repository may hold several.
+- A generated model of a package's member belongs to the package's assembly by name, version and MVID.
+  One of a shared framework's member belongs to the assembly by name and version within the framework's
+  major version, as `generated/<framework>/<major>.0/<assembly>.json`: the implementation of a shared
+  framework is the patch installed on the machine, and binding it by MVID would make every machine with
+  another patch generate the member again and write a file of its own. A model is not yet bound to the
+  generator's version either, so a model an older generator wrote, or one written against another patch,
+  stays until its file is removed; binding to the generator's version is run B4's.
+- The **Generation budget** is two limits of time, the run's and each member's. A member that reaches its
+  own limit is refused with `timeout` and is not generated again; the members the run's limit does not
+  reach stay opaque in that run. Members handed a delegate come first, then the rest by id. The values
+  are placeholders until run C measures generation on eShop.
+- Generation runs in the server's own process and stops a member at its limit by cancellation. The
+  recursion that overflowed the stack is fixed, because an overflow cannot be caught and would end the
+  run.
+- The pairs a generated model removed are counted by analysing again, with the generated layer off, every
+  scope in which that layer described a call; the count is the pairs of that analysis the real one does
+  not have.
+- The generator reads the ASP.NET Core shared framework, as the implementation of its own members and as
+  a reference of the packages built on it.
+- Inside a generation, a call of another library's member that has no model stays opaque: generation
+  does not follow dependencies yet. That is run B4's, with the generator's precision.
+
+Rejected: generating only where `.concurrency-hunter/models/` exists. It changes no one's run, but no
+team gets a model it did not ask for. Rejected: generating in memory and writing only where the folder
+exists. Every cold run without the folder pays again, and on eShop that is 89 minutes. Rejected: keeping
+models only. Every refused member — most of them — is generated again in every run. Rejected: keeping
+every outcome. A member the budget did not reach would stay unanswered for good. Rejected: one budget for
+the whole run. One slow member spends it, in every run. Rejected: a budget counted in steps of the engine.
+It would answer alike on every machine, but the engine has no such counter. Rejected: generating in a
+child process. A crash or a hang would be one member's refusal, at the cost of a protocol between the two
+processes; the measured crash is one fixable recursion. Rejected: estimating the removed pairs from the
+**Unknown effect** at the call alone. It misses the pairs that effect makes through the heap — an argument
+that escapes, a delegate run in an **Unknown execution** — and undercounts the one number that keeps the
+narrowing visible. Rejected: binding a model to the plugin's version, which has stayed 0.1.0 while the
+generator changed, or to the build, which would regenerate every model on every rebuild.
+
+The consequence to hold. Until the generator describes more members, the layer moves few findings: it would
+describe one member the demo calls and six that eShop calls. The demo commits its generated files, and a test fails
+rather than let a demo run generate.

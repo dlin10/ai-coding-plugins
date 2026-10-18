@@ -87,6 +87,7 @@ public sealed class Allocations
     private readonly IReadOnlyList<string> _callActions;
     private readonly Dictionary<string, DriverTrigger> _triggers;
     private readonly string? _constructed;
+    private readonly StageChecks _checks;
 
     /// <summary>The origins of the objects of one driver run.</summary>
     /// <param name="driver">The driver.</param>
@@ -96,23 +97,37 @@ public sealed class Allocations
     /// <param name="reachability">The run's reachability, for the driver's static fields.</param>
     public Allocations(Driver driver, HeapSolution heap, ExecutionAnalysis executions, DriverExecutions driverExecutions,
                        HeapReachability reachability)
+        : this(driver, heap, executions, driverExecutions, reachability, default)
+    {
+    }
+
+    /// <summary>The origins of the objects of one driver run, as work of a generation's stage.</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="heap">The run's heap.</param>
+    /// <param name="executions">The run's executions.</param>
+    /// <param name="driverExecutions">The driver's executions.</param>
+    /// <param name="reachability">The run's reachability, for the driver's static fields.</param>
+    /// <param name="checks">The stage's checks, which cancel the construction and each walk over the heap's call edges.</param>
+    internal Allocations(Driver driver, HeapSolution heap, ExecutionAnalysis executions, DriverExecutions driverExecutions,
+                         HeapReachability reachability, StageChecks checks)
     {
         _heap = heap;
         _executions = executions;
-        _kinds = executions.Executions.ToDictionary(execution => execution.Id, execution => execution.Kind, StringComparer.Ordinal);
+        _checks = checks;
+        _kinds = checks.Each(executions.Executions).ToDictionary(execution => execution.Id, execution => execution.Kind, StringComparer.Ordinal);
         _driverExecutions = driverExecutions;
-        _factories = driver.Parameters.SelectMany(parameter => parameter.Probes).Select(ProbeBody).ToHashSet(StringComparer.Ordinal);
-        _seedFactories = driver.SeedFactories.Select(factory => $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.{factory}")
-                                            .ToHashSet(StringComparer.Ordinal);
+        _factories = checks.Each(driver.Parameters.SelectMany(parameter => parameter.Probes)).Select(ProbeBody).ToHashSet(StringComparer.Ordinal);
+        _seedFactories = checks.Each(driver.SeedFactories).Select(factory => $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.{factory}")
+                               .ToHashSet(StringComparer.Ordinal);
         var statics = reachability.StaticFields();
-        _intermediates = statics.Where(start => start.Slot.StartsWith(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "K"),
-                                                                     StringComparison.Ordinal))
-                                .SelectMany(reachability.Targets).ToHashSet(StringComparer.Ordinal);
-        _outValues = statics.Where(start => start.Slot.StartsWith(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.DRIVER_TYPE, "Out_"),
-                                                                 StringComparison.Ordinal))
-                            .SelectMany(reachability.Targets).ToHashSet(StringComparer.Ordinal);
-        _iterators = heap.IteratorObjects.GroupBy(iterator => iterator.RegionId, StringComparer.Ordinal)
-                         .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        _intermediates = checks.Each(statics).Where(start => start.Slot.StartsWith(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "K"),
+                                                                                   StringComparison.Ordinal))
+                               .SelectMany(reachability.Targets).ToHashSet(StringComparer.Ordinal);
+        _outValues = checks.Each(statics).Where(start => start.Slot.StartsWith(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.DRIVER_TYPE, "Out_"),
+                                                                               StringComparison.Ordinal))
+                           .SelectMany(reachability.Targets).ToHashSet(StringComparer.Ordinal);
+        _iterators = checks.Each(heap.IteratorObjects).GroupBy(iterator => iterator.RegionId, StringComparer.Ordinal)
+                           .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         _callActions = driver.Actions.Where(action => action != DriverSynthesizer.SETUP)
                              .Concat(driver.Triggers.Select(trigger => trigger.Action)).Distinct(StringComparer.Ordinal).ToArray();
         _triggers = driver.Triggers.ToDictionary(trigger => trigger.Action, StringComparer.Ordinal);
@@ -224,11 +239,12 @@ public sealed class Allocations
         pending.Push(instanceId);
         while (pending.TryPop(out var current))
         {
+            _checks.Check();
             if (!seen.Add(current) || !_heap.Instances.TryGetValue(current, out var instance))
                 continue;
             if (instance.BodyId.EndsWith(bodySuffix, StringComparison.Ordinal))
                 return true;
-            foreach (var caller in _heap.Edges.Where(edge => edge.CalleeInstance == current).Select(edge => edge.CallerInstance))
+            foreach (var caller in _checks.Each(_heap.Edges).Where(edge => edge.CalleeInstance == current).Select(edge => edge.CallerInstance))
                 pending.Push(caller);
         }
         return false;
@@ -253,7 +269,7 @@ public sealed class Allocations
         if (site is null)
             return [];
         var siteBody = site;
-        var instances = _heap.Instances.Values.Where(instance => instance.BodyId == siteBody).ToArray();
+        var instances = _checks.Each(_heap.Instances.Values).Where(instance => instance.BodyId == siteBody).ToArray();
         var inContext = instances.Where(instance => instance.Context == region.Context).Select(instance => instance.Id).ToArray();
         return inContext.Length != 0 ? inContext : instances.Select(instance => instance.Id).ToArray();
     }
@@ -306,9 +322,10 @@ public sealed class Allocations
         var pending = new Stack<string>(Creators(region, out _));
         while (pending.TryPop(out var current))
         {
+            _checks.Check();
             if (!seen.Add(current))
                 continue;
-            foreach (var caller in _heap.Edges.Where(edge => edge.CalleeInstance == current).Select(edge => edge.CallerInstance))
+            foreach (var caller in _checks.Each(_heap.Edges).Where(edge => edge.CalleeInstance == current).Select(edge => edge.CallerInstance))
             {
                 if (!_heap.Instances.TryGetValue(caller, out var instance) || !instance.BodyId.StartsWith(_driverBodies, StringComparison.Ordinal))
                     continue;

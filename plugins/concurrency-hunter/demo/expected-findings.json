@@ -2816,9 +2816,121 @@
         { "symbol": "Demo.Web.Cases.LocalValueWrittenThroughRef.Desk.Use()", "operation": "read-modify-write" },
         { "symbol": "Demo.Web.Cases.LocalValueWrittenThroughRef.Desk.Publish()", "operation": "read-modify-write" }
       ]
+    },
+    {
+      "id": "generated-model-returns-argument",
+      "phase": "5d",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "alloc:Demo.Web.Cases.GeneratedModelReturnsArgument.Box..ctor()#Demo.Web.Cases.GeneratedModelReturnsArgument.Item", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.GeneratedModelReturnsArgument.BoxController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.GeneratedModelReturnsArgument.BoxController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "project-opaque-switches-off-generated",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "alloc:Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated.SettingsBox..ctor()#Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated.Settings", "accessPath": ["Level"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated.SettingsController.Get()", "operation": "read" },
+        { "symbol": "Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated.SettingsController.Post()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "project-opaque-switches-off-generated/self",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "alloc:Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated.SettingsBox..ctor()#Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated.Settings", "accessPath": ["Level"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated.SettingsController.Post()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated.SettingsController.Post()", "operation": "unknown-effect" }
+      ]
+    },
+    {
+      "id": "kept-callback-stays-unknown",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.KeptCallbackStaysUnknown.Aborts@Singleton", "accessPath": ["Seen"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.KeptCallbackStaysUnknown.AbortsController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.KeptCallbackStaysUnknown.AbortsController.Get()", "operation": "read" }
+      ]
+    },
+    {
+      "id": "kept-callback-stays-unknown/self",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.KeptCallbackStaysUnknown.Aborts@Singleton", "accessPath": ["Seen"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.KeptCallbackStaysUnknown.AbortsController.Post()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.KeptCallbackStaysUnknown.AbortsController.Post()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "polly-execute-invokes-delegate",
+      "phase": "5d",
+      "until": "5d-B4",
+      "rule": "DCA1002",
+      "confidence": "medium",
+      "resource": { "region": "di:Demo.Web.Cases.PollyExecuteInvokesDelegate.State@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PollyExecuteInvokesDelegate.PipelineController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.PollyExecuteInvokesDelegate.PipelineController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "polly-execute-invokes-delegate/delegate-runs-in-the-action",
+      "phase": "5d-B4",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.PollyExecuteInvokesDelegate.State@Singleton", "accessPath": ["Hits"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PollyExecuteInvokesDelegate.PipelineController.Post()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.PollyExecuteInvokesDelegate.PipelineController.Post()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "polly-circuit-breaker-callback-at-execute/callback-runs-in-execute",
+      "phase": "5d-B4",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute.Breaker@Singleton", "accessPath": ["Opened"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute.Breaker..ctor()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute.Breaker..ctor()", "operation": "read-modify-write" }
+      ]
+    },
+    {
+      "id": "protobuf-parser-factory-at-parse/factory-runs-at-parse",
+      "phase": "5d-B4",
+      "rule": "DCA1002",
+      "confidence": "high",
+      "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ProtobufParserFactoryAtParse.Msg..cctor()", "operation": "read-modify-write" },
+        { "symbol": "Demo.Web.Cases.ProtobufParserFactoryAtParse.Msg..cctor()", "operation": "read-modify-write" }
+      ]
     }
   ],
   "notDefects": [
+    {
+      "id": "polly-circuit-breaker-callback-at-execute",
+      "phase": "5d",
+      "until": "5d-B4",
+      "resource": { "region": "di:Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute.Breaker@Singleton", "accessPath": ["Opened"] }
+    },
+    {
+      "id": "protobuf-parser-factory-at-parse",
+      "phase": "5d",
+      "until": "5d-B4",
+      "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] }
+    },
     {
       "id": "concurrent-dictionary-enumerate-while-mutate/concurrent-dictionary",
       "phase": "4",

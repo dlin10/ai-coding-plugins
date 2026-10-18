@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Reflection;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
@@ -96,6 +97,237 @@ public sealed class EngineCancellationTests
         Assert.Equal(0, error.Counters["executions"]);
         Assert.Equal(0, error.Counters["accesses"]);
         Assert.NotEmpty(InterproceduralAccesses.Collect(input, CancellationToken.None).Accesses);
+    }
+
+    private const string STANDING = """
+        public class SampleController : ControllerBase
+        {
+            private static readonly System.Collections.Generic.Dictionary<string, int> Cache = new();
+            private static System.Collections.Generic.Dictionary<string, int> Store() => Cache;
+
+            [HttpPost("/cache")]
+            public void Post(string key)
+            {
+                if (!Store().ContainsKey(key))
+                    Store().Add(key, 1);
+            }
+        }
+        """;
+
+    [Fact]
+    public void Cancellation_inside_standing_member_accesses_stops_the_collection()
+    {
+        var solved = EngineFixture.Solve(STANDING + EngineFixture.Startup());
+        var scope = Scope(solved.Program, solved.Summaries);
+        var executions = ExecutionModel.Build(scope, solved.Heap, CancellationToken.None);
+        var cache = solved.Heap.Regions.Values.Single(region => region.TypeKey?.Contains("Dictionary", StringComparison.Ordinal) == true).Identity;
+        // The dictionary is reached through a call, so no field of the action's body names it: only the members of the table the action
+        // calls on it, and the check one of them depends on, ask the heap about it.
+        Assert.NotEmpty(InterproceduralAccesses.Collect(new InterproceduralInput(scope, solved.Heap, executions), CancellationToken.None).Accesses);
+
+        using var cancellation = new CancellationTokenSource();
+        var asked = 0;
+        var observed = Observed(solved.Heap, regions =>
+        {
+            if (!regions.Contains(cache))
+                return;
+            asked++;
+            cancellation.Cancel();
+        });
+        var error = Assert.Throws<EngineStageCancelledException>(() =>
+            InterproceduralAccesses.Collect(new InterproceduralInput(scope, observed, executions), cancellation.Token));
+
+        Assert.Equal("accesses", error.Stage);
+        // The loops under the standing members check as they go: the question that cancelled is followed by at most the one it asks
+        // beside it, where without the checks the collection asks every question of the emission before it reaches a check.
+        Assert.InRange(asked, 1, 3);
+    }
+
+    [Fact]
+    public void Cancelled_return_summaries_stop_before_they_summarize_anything()
+    {
+        var solved = EngineFixture.Solve(STANDING + EngineFixture.Startup());
+
+        Assert.NotNull(Summarize(solved.Heap, CancellationToken.None));
+        Assert.Throws<OperationCanceledException>(() => Summarize(solved.Heap, new CancellationToken(true)));
+    }
+
+    [Fact]
+    public void Cancellation_inside_the_return_summaries_fixpoint_stops_it()
+    {
+        var solved = EngineFixture.Solve(STANDING + EngineFixture.Startup());
+        using var cancellation = new CancellationTokenSource();
+        var rounds = 0;
+        // The constructor reads the instances' keys while it finds the components and sets its items, and their values only in the
+        // fixpoint: the cancellation comes as the fixpoint starts, and the constructor ends at its next check instead of at its fixpoint.
+        var observed = WithInstances(solved.Heap, new ObservedInstances(solved.Heap.Instances, () =>
+        {
+            rounds++;
+            cancellation.Cancel();
+        }));
+
+        Assert.Throws<OperationCanceledException>(() => Summarize(observed, cancellation.Token));
+        Assert.Equal(1, rounds);
+    }
+
+    [Fact]
+    public void The_return_summaries_check_as_they_materialize_the_call_edges()
+    {
+        var solved = EngineFixture.Solve(STANDING + EngineFixture.Startup());
+        Assert.True(solved.Heap.Edges.Count > 1);
+        using var cancellation = new CancellationTokenSource();
+        var taken = 0;
+        // The first edge cancels the token as it is handed over: the constructor ends at the check after that edge, where without it
+        // the edges are all read before the first check of the components or the fixpoint.
+        IEnumerable<CallEdge> Cancelling()
+        {
+            foreach (var edge in solved.Heap.Edges)
+            {
+                taken++;
+                cancellation.Cancel();
+                yield return edge;
+            }
+        }
+
+        Assert.Throws<OperationCanceledException>(() => Summarize(solved.Heap, Cancelling(), cancellation.Token));
+        Assert.Equal(1, taken);
+    }
+
+    [Fact]
+    public void Cancellation_inside_the_lock_solving_of_the_collection_stops_it()
+    {
+        var solved = EngineFixture.Solve("""
+            public class SampleController : ControllerBase
+            {
+                private readonly object _gate = new();
+                public int Count;
+
+                [HttpPost("/count")]
+                public void Post() { lock (_gate) { Count++; } }
+            }
+            """ + EngineFixture.Startup());
+        var scope = Scope(solved.Program, solved.Summaries);
+        var executions = ExecutionModel.Build(scope, solved.Heap, CancellationToken.None);
+        var gate = Assert.Single(solved.Heap.Regions.Values, region => region.Kind == HeapRegionKind.Allocation).Identity;
+        var baseline = 0;
+        Assert.NotEmpty(InterproceduralAccesses.Collect(
+            new InterproceduralInput(scope, Observed(solved.Heap, regions => baseline += regions.Contains(gate) ? 1 : 0), executions),
+            CancellationToken.None).Accesses);
+        Assert.True(baseline > 2);
+
+        using var cancellation = new CancellationTokenSource();
+        var asked = 0;
+        var observed = Observed(solved.Heap, regions =>
+        {
+            if (!regions.Contains(gate))
+                return;
+            asked++;
+            cancellation.Cancel();
+        });
+        var error = Assert.Throws<EngineStageCancelledException>(() =>
+            InterproceduralAccesses.Collect(new InterproceduralInput(scope, observed, executions), cancellation.Token));
+
+        Assert.Equal("accesses", error.Stage);
+        // The solvers of locks ask the heap about the lock again for every operation they walk: the one that cancelled is followed by
+        // at most the one it asks beside it, not by the questions of the rest of the solving.
+        Assert.InRange(asked, 1, 2);
+    }
+
+    [Fact]
+    public void Cancelled_lock_solving_stops_in_each_of_its_walks()
+    {
+        var reached = EngineFixture.Reach("""
+            public class SampleController : ControllerBase
+            {
+                private readonly object _gate = new();
+                public int Count;
+
+                [HttpPost("/count")]
+                public void Post() { lock (_gate) { Count++; } }
+            }
+            """ + EngineFixture.Startup());
+        var body = reached.Result.Bodies.Single(pair => pair.Key.EndsWith(":M:SampleController.Post", StringComparison.Ordinal)).Value;
+        var operations = body.Blocks.SelectMany(block => block.Operations).Select(operation => operation.Id).ToArray();
+        Func<IrOperation, LockEffect> none = _ => LockEffect.None;
+        var cancelled = new CancellationToken(true);
+
+        Assert.NotNull(MustHeldLocks.Compute(body, none));
+        Assert.Throws<OperationCanceledException>(() => MustHeldLocks.Compute(body, none, null, cancelled));
+        Assert.Throws<OperationCanceledException>(() => MustHeldLocks.ReleasesOnEveryPath(body, none, "key", cancelled));
+        Assert.Throws<OperationCanceledException>(() => MustHeldLocks.ReachesWithoutEntry(body, none, "key", operations[^1], cancelled));
+        Assert.Throws<OperationCanceledException>(() => MustHeldLocks.Reaches(body, operations[0], _ => false, cancelled));
+        Assert.Throws<OperationCanceledException>(() => MustHeldLocks.HoldsBetween(body, none, "key", operations[0], operations[^1], cancelled));
+        // Without a token the same walks run as they always ran.
+        Assert.False(MustHeldLocks.Reaches(body, operations[0], _ => false));
+        Assert.True(MustHeldLocks.ReachesWithoutEntry(body, none, "key", operations[^1]));
+    }
+
+    /// <summary>The returns of a heap's instances, as the execution collector summarizes them: the private type is built with its
+    /// constructor, over the heap's own call edges.</summary>
+    /// <param name="heap">The heap.</param>
+    /// <param name="cancellationToken">The token the summaries observe.</param>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    private static object Summarize(HeapSolution heap, CancellationToken cancellationToken) => Summarize(heap, heap.Edges, cancellationToken);
+
+    /// <summary>The returns of a heap's instances over the call edges given, as the execution collector summarizes them.</summary>
+    /// <param name="heap">The heap.</param>
+    /// <param name="edges">The call edges the summaries are built over.</param>
+    /// <param name="cancellationToken">The token the summaries observe.</param>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    private static object Summarize(HeapSolution heap, IEnumerable<CallEdge> edges, CancellationToken cancellationToken)
+    {
+        var summaries = typeof(InterproceduralAccesses).GetNestedType("ExecutionCollector", BindingFlags.NonPublic)!
+                                                       .GetNestedType("ReturnSummaries", BindingFlags.NonPublic)!;
+        var constructor = summaries.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).Single();
+        try
+        {
+            return constructor.Invoke([heap, edges, cancellationToken]);
+        }
+        catch (TargetInvocationException error) when (error.InnerException is OperationCanceledException cancelled)
+        {
+            throw new OperationCanceledException(cancelled.Message, cancelled, cancellationToken);
+        }
+    }
+
+    /// <summary>A solved heap that answers with other instances than its own, and is the heap in every other property.</summary>
+    /// <param name="heap">The solved heap.</param>
+    /// <param name="instances">The instances it names.</param>
+    private static HeapSolution WithInstances(HeapSolution heap, IReadOnlyDictionary<string, MethodInstance> instances)
+    {
+        var replaced = new HeapSolution(heap.Regions, instances, heap.Edges, heap.TypeInitializers, heap.Constructions, heap.Counters,
+                                        heap.ReachableBodies, heap.LoweredNotReached, heap.NoReceiverObjects, heap.Resolve, heap.PointsTo,
+                                        heap.RootInstances, heap.StaticRegionOf, heap.FieldsOf, heap.DelegateCaptures);
+        foreach (var property in typeof(HeapSolution).GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                                                     .Where(property => property.SetMethod is not null))
+            property.SetValue(replaced, property.GetValue(heap));
+        return replaced;
+    }
+
+    /// <summary>A solved heap whose answers are the heap's, each reported to <paramref name="asked"/> before it is given: the regions
+    /// an object value resolves to, and the region a slot is read from.</summary>
+    /// <param name="heap">The solved heap.</param>
+    /// <param name="asked">Told the regions of each question.</param>
+    private static HeapSolution Observed(HeapSolution heap, Action<IReadOnlyCollection<string>> asked)
+    {
+        var observed = new HeapSolution(heap.Regions, heap.Instances, heap.Edges, heap.TypeInitializers, heap.Constructions, heap.Counters,
+                                        heap.ReachableBodies, heap.LoweredNotReached, heap.NoReceiverObjects,
+                                        (instance, value) =>
+                                        {
+                                            var regions = heap.Resolve(instance, value);
+                                            asked(regions);
+                                            return regions;
+                                        },
+                                        (region, slot) =>
+                                        {
+                                            asked([region]);
+                                            return heap.PointsTo(region, slot);
+                                        },
+                                        heap.RootInstances, heap.StaticRegionOf, heap.FieldsOf, heap.DelegateCaptures);
+        // Every stage after the solve reads the properties the solve set: the observed heap carries them all.
+        foreach (var property in typeof(HeapSolution).GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                                                     .Where(property => property.SetMethod is not null))
+            property.SetValue(observed, property.GetValue(heap));
+        return observed;
     }
 
     [Fact]
@@ -229,6 +461,31 @@ public sealed class EngineCancellationTests
         }
 
         public IEnumerator<KeyValuePair<string, IrBody>> GetEnumerator() => bodies.GetEnumerator();
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    /// <summary>A heap's instances that report each request for their values, which only a pass over every instance makes.</summary>
+    /// <param name="instances">The instances.</param>
+    /// <param name="valuesRead">Told when the values are asked for, before they are given.</param>
+    private sealed class ObservedInstances(IReadOnlyDictionary<string, MethodInstance> instances, Action valuesRead)
+        : IReadOnlyDictionary<string, MethodInstance>
+    {
+        public MethodInstance this[string key] => instances[key];
+        public IEnumerable<string> Keys => instances.Keys;
+
+        public IEnumerable<MethodInstance> Values
+        {
+            get
+            {
+                valuesRead();
+                return instances.Values;
+            }
+        }
+
+        public int Count => instances.Count;
+        public bool ContainsKey(string key) => instances.ContainsKey(key);
+        public bool TryGetValue(string key, out MethodInstance value) => instances.TryGetValue(key, out value!);
+        public IEnumerator<KeyValuePair<string, MethodInstance>> GetEnumerator() => instances.GetEnumerator();
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

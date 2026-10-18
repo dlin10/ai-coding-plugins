@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "Microsoft.Extensions.Hosting.Abstractions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.BackgroundService.#ctor",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.BackgroundService.StopAsync(System.Threading.CancellationToken)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions.Run(Microsoft.Extensions.Hosting.IHost)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    }
+  ]
+}

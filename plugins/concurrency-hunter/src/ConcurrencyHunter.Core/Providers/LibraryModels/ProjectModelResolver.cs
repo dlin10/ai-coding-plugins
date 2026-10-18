@@ -125,7 +125,10 @@ internal static class ProjectModelResolver
         (a.Opaque || a.Effects.ToHashSet().SetEquals(b.Effects) && LibraryVocabulary.Alike(a.Result, a.Fates, b.Result, b.Fates, a.Stores, b.Stores, a.Outputs, b.Outputs, a.Keeps, b.Keeps) &&
                      LibraryVocabulary.AlikeCalls(a.Calls, b.Calls));
 
-    private static SupportedAssemblyVersion Range(ProjectModelEntry entry, IAssemblySymbol assembly)
+    /// <summary>The assembly and version range an entry supports for a referenced assembly: the entry's versions, or every version.</summary>
+    /// <param name="entry">The project entry, or a generated model in its form.</param>
+    /// <param name="assembly">The referenced assembly the entry resolved in.</param>
+    internal static SupportedAssemblyVersion Range(ProjectModelEntry entry, IAssemblySymbol assembly)
     {
         var version = entry.Versions ?? (new Version(0, 0, 0, 0), new Version(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue));
         return new SupportedAssemblyVersion(assembly.Identity.Name, version.Item1, version.Item2);

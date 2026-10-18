@@ -14,16 +14,20 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 /// <param name="ImplementationVersion">The version folder taken: the package version for a package, the shared framework's patch
 /// folder (<c>8.0.31</c>) for a framework assembly.</param>
 /// <param name="Framework">The platform used, <c>net8.0</c>.</param>
-/// <param name="SharedFrameworkDirectory">The shared framework directory of the platform.</param>
+/// <param name="SharedFrameworkDirectory">The <c>Microsoft.NETCore.App</c> directory of the platform; an assembly of
+/// <c>Microsoft.AspNetCore.App</c> and a package that needs it are compiled against that framework's directory too.</param>
 /// <param name="References">The files the decompiled assembly is compiled against; empty for a reference assembly.</param>
 /// <param name="MissingDependencies">The package dependencies skipped, as <c>&lt;id&gt;@&lt;ranges&gt;</c> or
 /// <c>&lt;id&gt;@&lt;version&gt;: no compatible lib folder</c>.</param>
 /// <param name="AssemblyVersion">The assembly version.</param>
 /// <param name="FileVersion">The file version.</param>
 /// <param name="Mvid">The module version id.</param>
+/// <param name="FrameworkName">The shared framework a framework assembly was found in, <c>Microsoft.NETCore.App</c> or
+/// <c>Microsoft.AspNetCore.App</c>, with <paramref name="ImplementationVersion"/> its patch; <c>null</c> for a package assembly.</param>
 public sealed record ImplementationAssembly(string AssemblyName, string Path, string? PackageId, string ImplementationVersion, string Framework,
                                            string SharedFrameworkDirectory, IReadOnlyList<string> References,
-                                           IReadOnlyList<string> MissingDependencies, string AssemblyVersion, string FileVersion, Guid Mvid);
+                                           IReadOnlyList<string> MissingDependencies, string AssemblyVersion, string FileVersion, Guid Mvid,
+                                           string? FrameworkName = null);
 
 /// <summary>The implementation assembly found, or the reason there is none to decompile.</summary>
 /// <param name="Assembly">The assembly opened; set for a reference assembly too, <c>null</c> when none was opened.</param>
@@ -31,19 +35,36 @@ public sealed record ImplementationAssembly(string AssemblyName, string Path, st
 /// <param name="Detail">Why, in words.</param>
 /// <param name="Framework">The platform the resolution chose, <c>net8.0</c>, also when it found no assembly for it; <c>null</c> when
 /// it chose none (<c>corelib</c>).</param>
-public sealed record ImplementationResolution(ImplementationAssembly? Assembly, string? Reason, string Detail, string? Framework);
+/// <param name="AssetMvid">The module version id of the package asset the platform selects, set whenever the resolution read that asset,
+/// also when it opened no assembly because a shared framework the package needs is not installed; <c>null</c> when the package version or
+/// its asset is missing, and for a framework member.</param>
+public sealed record ImplementationResolution(ImplementationAssembly? Assembly, string? Reason, string Detail, string? Framework,
+                                              Guid? AssetMvid = null);
 
 /// <summary>Finds a member's implementation assembly, never a reference assembly (SPEC TD-034b, question 41): a framework member
-/// from the installed shared framework of its major version, a package member from that exact package version in the NuGet global
-/// packages folder. Reads the file system only; nothing is downloaded.</summary>
-/// <param name="dotnetRoot">The dotnet root whose <c>shared/Microsoft.NETCore.App</c> holds the shared frameworks.</param>
+/// from the installed shared framework of its major version — <c>Microsoft.NETCore.App</c>, else <c>Microsoft.AspNetCore.App</c> —
+/// a package member from that exact package version in the NuGet global packages folder. Reads the file system only; nothing is
+/// downloaded.</summary>
+/// <param name="dotnetRoot">The dotnet root whose <c>shared/Microsoft.NETCore.App</c> and <c>shared/Microsoft.AspNetCore.App</c> hold
+/// the shared frameworks.</param>
 /// <param name="packagesFolder">The NuGet global packages folder.</param>
 /// <param name="runtimeMajor">The platform major of a package member when no target framework is given.</param>
 public sealed partial class ImplementationAssemblies(string dotnetRoot, string packagesFolder, int runtimeMajor)
 {
     private const string CORELIB = "System.Private.CoreLib";
     private const string SHARED_FRAMEWORK = "Microsoft.NETCore.App";
+    private const string ASPNETCORE_FRAMEWORK = "Microsoft.AspNetCore.App";
     internal const int CLOSURE_ROUNDS = 128;
+
+    /// <summary>Told the path of each nuspec the resolver reads; <c>null</c> in production.</summary>
+    internal Action<string>? NuspecRead { get; init; }
+
+    /// <summary>The dotnet root whose <c>shared</c> folder holds the shared frameworks and whose <c>packs</c> folder holds the reference
+    /// packs.</summary>
+    internal string DotnetRoot => dotnetRoot;
+
+    /// <summary>The NuGet global packages folder.</summary>
+    internal string PackagesFolder => packagesFolder;
 
     /// <summary>The resolver of this process: the dotnet root the running runtime came from, and <c>NUGET_PACKAGES</c> or else
     /// <c>%USERPROFILE%\.nuget\packages</c>.</summary>
@@ -94,27 +115,54 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
     /// <param name="version">The assembly version for a framework member, the package version with a package id.</param>
     /// <param name="packageId">The package that ships the assembly; <c>null</c> for a framework member.</param>
     /// <param name="framework">The platform <c>net&lt;major&gt;.0</c> of a package member; <c>null</c> for the running runtime's.</param>
+    /// <param name="cancellationToken">Cancels the resolution between nuspec reads and dependency rounds.</param>
     /// <exception cref="ArgumentException">The version or the framework does not parse.</exception>
-    public ImplementationResolution Resolve(string assemblyName, string version, string? packageId, string? framework)
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    public ImplementationResolution Resolve(string assemblyName, string version, string? packageId, string? framework,
+                                            CancellationToken cancellationToken = default) =>
+        Resolve(assemblyName, version, packageId, framework, new GenerationChecks(cancellationToken));
+
+    /// <summary>Finds the implementation assembly of a member as a stage of a generation: it checks at its start, before each nuspec
+    /// read and at each dependency round.</summary>
+    /// <param name="assemblyName">The assembly name.</param>
+    /// <param name="version">The assembly version for a framework member, the package version with a package id.</param>
+    /// <param name="packageId">The package that ships the assembly; <c>null</c> for a framework member.</param>
+    /// <param name="framework">The platform <c>net&lt;major&gt;.0</c> of a package member; <c>null</c> for the running runtime's.</param>
+    /// <param name="checks">The generation's checks, which cancel the resolution.</param>
+    /// <exception cref="ArgumentException">The version or the framework does not parse.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    internal ImplementationResolution Resolve(string assemblyName, string version, string? packageId, string? framework, GenerationChecks checks)
     {
+        checks.Check(GenerationStage.Resolve);
         if (string.Equals(assemblyName, CORELIB, StringComparison.OrdinalIgnoreCase))
             return new ImplementationResolution(null, GenerationReasons.CORELIB, "a member of System.Private.CoreLib is out of the generator", null);
-        return packageId is null ? FrameworkMember(assemblyName, version) : PackageMember(assemblyName, version, packageId, framework);
+        return packageId is null
+            ? FrameworkMember(assemblyName, version, checks)
+            : PackageMember(assemblyName, version, packageId, framework, checks);
     }
 
-    private ImplementationResolution FrameworkMember(string assemblyName, string version)
+    private ImplementationResolution FrameworkMember(string assemblyName, string version, GenerationChecks checks)
     {
         if (!TryParseAssemblyMajor(version, out var major))
             throw new ArgumentException($"'{version}' is not an assembly version", nameof(version));
-        if (SharedFramework(major) is not { } shared)
+        if (SharedFramework(SHARED_FRAMEWORK, major) is not { } shared)
             return Missing($"no shared framework of .NET {major} is installed", major);
-        var path = Path.GetFullPath(Path.Combine(shared.Directory, assemblyName + ".dll"));
-        if (!Contains(shared.Directory, path) || !File.Exists(path) || AssemblyFile.Read(path) is not { } file)
-            return Missing($"{assemblyName}.dll is not in {shared.Directory}", major);
-        return Opened(assemblyName, path, file, null, shared.Version, major, shared.Directory, [], []);
+        if (Find(shared.Directory, assemblyName) is { } core)
+            return Opened(assemblyName, core.Path, core.File, null, shared.Version, major, [shared.Directory], SHARED_FRAMEWORK, [], [], checks);
+        var web = SharedFramework(ASPNETCORE_FRAMEWORK, major);
+        if (web is { } installed && Find(installed.Directory, assemblyName) is { } aspNetCore)
+        {
+            return Opened(assemblyName, aspNetCore.Path, aspNetCore.File, null, installed.Version, major, [shared.Directory, installed.Directory],
+                          ASPNETCORE_FRAMEWORK, [], [], checks);
+        }
+
+        return Missing(web is { } searched
+                           ? $"{assemblyName}.dll is in neither {shared.Directory} nor {searched.Directory}"
+                           : $"{assemblyName}.dll is not in {shared.Directory}, and {ASPNETCORE_FRAMEWORK} is not installed for .NET {major}", major);
     }
 
-    private ImplementationResolution PackageMember(string assemblyName, string version, string packageId, string? framework)
+    private ImplementationResolution PackageMember(string assemblyName, string version, string packageId, string? framework,
+                                                   GenerationChecks checks)
     {
         if (!PackageVersion.TryParse(version, out var packageVersion))
             throw new ArgumentException($"'{version}' is not a package version", nameof(version));
@@ -130,45 +178,65 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
         var path = Path.GetFullPath(Path.Combine(lib, assemblyName + ".dll"));
         if (!Contains(lib, path) || !File.Exists(path) || AssemblyFile.Read(path) is not { } file)
             return Missing($"{assemblyName}.dll is not in {lib}", major);
-        if (SharedFramework(major) is not { } shared)
-            return Missing($"no shared framework of .NET {major} is installed", major);
+        if (SharedFramework(SHARED_FRAMEWORK, major) is not { } shared)
+            return Missing($"no shared framework of .NET {major} is installed", major, file.Mvid);
 
-        var (dependencyFolders, missing) = Closure(packageId, Dependencies(packageDirectory, major), major);
-        return Opened(assemblyName, path, file, packageId, packageVersion.Normalized, major, shared.Directory, [lib, .. dependencyFolders], missing);
+        var nuspec = ReadNuspec(packageDirectory, major, checks);
+        var closure = Closure(packageId, nuspec.Dependencies, major, checks);
+        var sharedDirectories = new List<string> { shared.Directory };
+        if (nuspec.FrameworkReferences.Concat(closure.FrameworkReferences).Contains(ASPNETCORE_FRAMEWORK, StringComparer.OrdinalIgnoreCase))
+        {
+            if (SharedFramework(ASPNETCORE_FRAMEWORK, major) is not { } web)
+            {
+                return Missing($"{packageId} or a package it depends on names the {ASPNETCORE_FRAMEWORK} framework, " +
+                               $"which is not installed for .NET {major}", major, file.Mvid);
+            }
+
+            sharedDirectories.Add(web.Directory);
+        }
+
+        return Opened(assemblyName, path, file, packageId, packageVersion.Normalized, major, sharedDirectories, null, [lib, .. closure.Folders],
+                      closure.Missing, checks);
     }
 
     /// <summary>The resolution of an opened assembly: refused when it is a reference assembly, else with its references — every
-    /// other managed assembly of <paramref name="folders"/>, then of the shared framework, an assembly name taken only once, so a
-    /// package's copy wins over the framework's.</summary>
+    /// other managed assembly of <paramref name="folders"/>, then of the shared frameworks in the order given, an assembly name
+    /// taken only once, so a package's copy wins over a framework's and <c>Microsoft.NETCore.App</c>'s over
+    /// <c>Microsoft.AspNetCore.App</c>'s.</summary>
     /// <param name="assemblyName">The assembly name asked for.</param>
     /// <param name="path">The implementation file.</param>
     /// <param name="file">Its metadata.</param>
     /// <param name="packageId">The package that ships it, or <c>null</c>.</param>
     /// <param name="implementationVersion">The version folder taken.</param>
     /// <param name="major">The platform major.</param>
-    /// <param name="sharedDirectory">The platform's shared framework directory.</param>
+    /// <param name="sharedDirectories">The shared framework directories the assembly is compiled against: the platform's
+    /// <c>Microsoft.NETCore.App</c> first, then <c>Microsoft.AspNetCore.App</c> when the assembly or the package needs it.</param>
+    /// <param name="frameworkName">The shared framework a framework assembly was found in; <c>null</c> for a package assembly.</param>
     /// <param name="folders">The package's lib folder and its dependencies' lib folders, in that order; empty for a framework
     /// member.</param>
     /// <param name="missing">The dependencies skipped.</param>
+    /// <param name="checks">The generation's checks; cancel before the metadata of each candidate reference is read.</param>
     private static ImplementationResolution Opened(string assemblyName, string path, AssemblyFile file, string? packageId,
-                                                   string implementationVersion, int major, string sharedDirectory,
-                                                   IReadOnlyList<string> folders, IReadOnlyList<string> missing)
+                                                   string implementationVersion, int major, IReadOnlyList<string> sharedDirectories,
+                                                   string? frameworkName, IReadOnlyList<string> folders, IReadOnlyList<string> missing,
+                                                   GenerationChecks checks)
     {
         var fileVersion = FileVersionInfo.GetVersionInfo(path).FileVersion ?? "";
         if (file.IsReferenceAssembly)
         {
             return new ImplementationResolution(
-                new ImplementationAssembly(assemblyName, path, packageId, implementationVersion, $"net{major}.0", sharedDirectory, [], missing,
-                                           file.Version.ToString(), fileVersion, file.Mvid),
+                new ImplementationAssembly(assemblyName, path, packageId, implementationVersion, $"net{major}.0", sharedDirectories[0], [], missing,
+                                           file.Version.ToString(), fileVersion, file.Mvid, frameworkName),
                 GenerationReasons.REFERENCE_ASSEMBLY, $"{path} is a reference assembly", $"net{major}.0");
         }
 
         var supplied = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { file.Name };
         var references = new List<string>();
-        foreach (var folder in folders.Append(sharedDirectory))
+        foreach (var folder in folders.Concat(sharedDirectories))
         {
             foreach (var candidate in Directory.EnumerateFiles(folder, "*.dll").Select(Path.GetFullPath).Order(StringComparer.OrdinalIgnoreCase))
             {
+                checks.Check(GenerationStage.Resolve);
                 if (!Contains(folder, candidate) || string.Equals(candidate, path, StringComparison.OrdinalIgnoreCase))
                     continue;
                 if (AssemblyFile.Read(candidate) is { } reference && supplied.Add(reference.Name))
@@ -177,18 +245,29 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
         }
 
         return new ImplementationResolution(
-            new ImplementationAssembly(assemblyName, path, packageId, implementationVersion, $"net{major}.0", sharedDirectory, references, missing,
-                                       file.Version.ToString(), fileVersion, file.Mvid),
+            new ImplementationAssembly(assemblyName, path, packageId, implementationVersion, $"net{major}.0", sharedDirectories[0], references, missing,
+                                       file.Version.ToString(), fileVersion, file.Mvid, frameworkName),
             null, $"{path}", $"net{major}.0");
     }
 
-    private static ImplementationResolution Missing(string detail, int major) => new(null, GenerationReasons.NO_IMPLEMENTATION, detail, $"net{major}.0");
+    private static ImplementationResolution Missing(string detail, int major, Guid? assetMvid = null) =>
+        new(null, GenerationReasons.NO_IMPLEMENTATION, detail, $"net{major}.0", assetMvid);
+
+    /// <summary>The managed assembly of a name in a shared framework's patch folder.</summary>
+    /// <param name="directory">The shared framework's patch folder.</param>
+    /// <param name="assemblyName">The assembly name.</param>
+    private static (string Path, AssemblyFile File)? Find(string directory, string assemblyName)
+    {
+        var path = Path.GetFullPath(Path.Combine(directory, assemblyName + ".dll"));
+        return Contains(directory, path) && File.Exists(path) && AssemblyFile.Read(path) is { } file ? (path, file) : null;
+    }
 
     /// <summary>The highest installed patch of a major's shared framework, never another major.</summary>
+    /// <param name="framework">The shared framework: <c>Microsoft.NETCore.App</c> or <c>Microsoft.AspNetCore.App</c>.</param>
     /// <param name="major">The platform major.</param>
-    private (string Directory, string Version)? SharedFramework(int major)
+    private (string Directory, string Version)? SharedFramework(string framework, int major)
     {
-        var root = Path.Combine(dotnetRoot, "shared", SHARED_FRAMEWORK);
+        var root = Path.Combine(dotnetRoot, "shared", framework);
         if (!Directory.Exists(root))
             return null;
         var best = Directory.EnumerateDirectories(root)
@@ -247,37 +326,69 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
         return text;
     }
 
-    /// <summary>The dependencies a package's nuspec lists for the framework nearest to the platform: the nearest group, a group
-    /// without a framework when none is near, or the whole list when it has no groups.</summary>
+    /// <summary>What a package's nuspec lists for the framework nearest to the platform: its dependencies and the shared frameworks
+    /// it references, each from the nearest group, from a group without a framework when none is near, or from the whole list
+    /// when it has no groups.</summary>
     /// <param name="packageDirectory">The package's version folder.</param>
     /// <param name="major">The platform major.</param>
-    private static IReadOnlyList<Dependency> Dependencies(string packageDirectory, int major)
+    /// <param name="checks">The generation's checks; cancels before the nuspec is read.</param>
+    private Nuspec ReadNuspec(string packageDirectory, int major, GenerationChecks checks)
     {
+        checks.Check(GenerationStage.Resolve);
         var nuspec = Directory.EnumerateFiles(packageDirectory, "*.nuspec").Select(Path.GetFullPath).Order(StringComparer.Ordinal).FirstOrDefault();
         if (nuspec is null || !Contains(packageDirectory, nuspec))
-            return [];
-        var dependencies = XDocument.Load(nuspec).Descendants().FirstOrDefault(element => element.Name.LocalName == "dependencies");
-        if (dependencies is null)
-            return [];
-        var groups = dependencies.Elements().Where(element => element.Name.LocalName == "group").ToArray();
-        var chosen = dependencies;
-        if (groups.Length > 0)
-        {
-            var named = groups.Where(group => group.Attribute("targetFramework") is not null)
-                              .GroupBy(group => ShortFrameworkName(group.Attribute("targetFramework")!.Value), StringComparer.OrdinalIgnoreCase)
-                              .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-            chosen = Nearest(named.Keys, major) is { } nearest ? named[nearest] : groups.FirstOrDefault(group => group.Attribute("targetFramework") is null);
-            if (chosen is null)
-                return [];
-        }
+            return Nuspec.Empty;
+        NuspecRead?.Invoke(nuspec);
+        var document = XDocument.Load(nuspec);
+        var dependencies = ChosenGroup(document.Descendants().FirstOrDefault(element => element.Name.LocalName == "dependencies"), major)
+                               ?.Elements().Where(element => element.Name.LocalName == "dependency" && element.Attribute("id") is not null)
+                               .Select(element =>
+                               {
+                                   var text = element.Attribute("version")?.Value ?? "0.0.0";
+                                   return new Dependency(element.Attribute("id")!.Value, text, PackageVersionRange.TryParse(text, out var range) ? range : null);
+                               })
+                               .ToArray() ?? [];
+        var frameworks = ChosenGroup(document.Descendants().FirstOrDefault(element => element.Name.LocalName == "frameworkReferences"), major)
+                             ?.Elements().Where(element => element.Name.LocalName == "frameworkReference" && element.Attribute("name") is not null)
+                             .Select(element => element.Attribute("name")!.Value)
+                             .ToArray() ?? [];
+        return new Nuspec(dependencies, frameworks);
+    }
 
-        return chosen.Elements().Where(element => element.Name.LocalName == "dependency" && element.Attribute("id") is not null)
-                     .Select(element =>
-                     {
-                         var text = element.Attribute("version")?.Value ?? "0.0.0";
-                         return new Dependency(element.Attribute("id")!.Value, text, PackageVersionRange.TryParse(text, out var range) ? range : null);
-                     })
-                     .ToArray();
+    /// <summary>The id of a package as its nuspec spells it, or <c>null</c> when the folder has no nuspec that can be read or it names no
+    /// id. The folder under the packages folder is the id in lower case; the spelling is the one the generated files are named by.</summary>
+    /// <param name="packageDirectory">The package's version folder.</param>
+    internal static string? NuspecId(string packageDirectory)
+    {
+        try
+        {
+            if (!Directory.Exists(packageDirectory) ||
+                Directory.EnumerateFiles(packageDirectory, "*.nuspec").Select(Path.GetFullPath).Order(StringComparer.Ordinal).FirstOrDefault() is not { } nuspec)
+                return null;
+            var metadata = XDocument.Load(nuspec).Root?.Elements().FirstOrDefault(element => element.Name.LocalName == "metadata");
+            return metadata?.Elements().FirstOrDefault(element => element.Name.LocalName == "id")?.Value.Trim() is { Length: > 0 } id ? id : null;
+        }
+        catch (Exception error) when (error is System.Xml.XmlException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The group of a nuspec list that applies to the platform: the group of the framework nearest to it, a group without
+    /// a framework when none is near, the list itself when it has no groups.</summary>
+    /// <param name="list">The <c>dependencies</c> or <c>frameworkReferences</c> element, or <c>null</c> when the nuspec has none.</param>
+    /// <param name="major">The platform major.</param>
+    private static XElement? ChosenGroup(XElement? list, int major)
+    {
+        if (list is null)
+            return null;
+        var groups = list.Elements().Where(element => element.Name.LocalName == "group").ToArray();
+        if (groups.Length == 0)
+            return list;
+        var named = groups.Where(group => group.Attribute("targetFramework") is not null)
+                          .GroupBy(group => ShortFrameworkName(group.Attribute("targetFramework")!.Value), StringComparer.OrdinalIgnoreCase)
+                          .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        return Nearest(named.Keys, major) is { } nearest ? named[nearest] : groups.FirstOrDefault(group => group.Attribute("targetFramework") is null);
     }
 
     /// <summary>Resolves the package's dependencies, recursively, to a fixpoint: each id once for the whole closure, at the lowest
@@ -285,11 +396,13 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
     /// chosen version has no compatible lib folder, is skipped and named, and its own dependencies are not followed. When no
     /// fixpoint comes — a set of choices repeats (the ranges oscillate) or <see cref="CLOSURE_ROUNDS"/> rounds pass — every id whose
     /// choice still changes is skipped and named with its ranges, round after round, until the choices left are the ones every range
-    /// reaching them admits: a version outside a range is never taken, and no dependency is dropped without a name.</summary>
+    /// reaching them admits: a version outside a range is never taken, and no dependency is dropped without a name. The shared
+    /// frameworks the dependencies taken reference are returned with the folders.</summary>
     /// <param name="packageId">The package whose closure it is; a dependency back on it is ignored.</param>
     /// <param name="direct">The package's own dependencies.</param>
     /// <param name="major">The platform major.</param>
-    private (IReadOnlyList<string> Folders, IReadOnlyList<string> Missing) Closure(string packageId, IReadOnlyList<Dependency> direct, int major)
+    /// <param name="checks">The generation's checks; cancels the closure before a round and before a nuspec is read.</param>
+    private ClosedDependencies Closure(string packageId, IReadOnlyList<Dependency> direct, int major, GenerationChecks checks)
     {
         var chosen = new Dictionary<string, Choice>(StringComparer.OrdinalIgnoreCase);
         var choices = new Dictionary<string, Choice>(StringComparer.OrdinalIgnoreCase);
@@ -297,6 +410,7 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
         var unsettled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var round = 0; ; round++)
         {
+            checks.Check(GenerationStage.Resolve);
             var ranges = new Dictionary<string, List<Dependency>>(StringComparer.OrdinalIgnoreCase);
             var followed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var pending = new Queue<IReadOnlyList<Dependency>>([direct]);
@@ -311,12 +425,14 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
                     reaching.Add(dependency);
                     if (!unsettled.Contains(dependency.Id) && chosen.TryGetValue(dependency.Id, out var choice) && choice.Lib is not null &&
                         followed.Add(dependency.Id))
-                        pending.Enqueue(choice.Dependencies);
+                        pending.Enqueue(choice.Nuspec.Dependencies);
                 }
             }
 
             var next = ranges.ToDictionary(pair => pair.Key,
-                                           pair => unsettled.Contains(pair.Key) ? Unsatisfied(pair.Key, pair.Value) : Choose(pair.Key, pair.Value, major, choices),
+                                           pair => unsettled.Contains(pair.Key)
+                                               ? Unsatisfied(pair.Key, pair.Value)
+                                               : Choose(pair.Key, pair.Value, major, choices, checks),
                                            StringComparer.OrdinalIgnoreCase);
             var changed = next.Where(pair => !unsettled.Contains(pair.Key) &&
                                              !(chosen.TryGetValue(pair.Key, out var before) && before.Version == pair.Value.Version &&
@@ -333,30 +449,34 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
         }
 
         var ordered = chosen.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase).Select(pair => pair.Value).ToArray();
-        return (ordered.Where(choice => choice.Lib is not null).Select(choice => choice.Lib!).ToArray(),
-                ordered.Where(choice => choice.Missing is not null).Select(choice => choice.Missing!).ToArray());
+        return new ClosedDependencies(ordered.Where(choice => choice.Lib is not null).Select(choice => choice.Lib!).ToArray(),
+                                      ordered.Where(choice => choice.Missing is not null).Select(choice => choice.Missing!).ToArray(),
+                                      ordered.Where(choice => choice.Lib is not null).SelectMany(choice => choice.Nuspec.FrameworkReferences)
+                                             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 
     /// <summary>A dependency skipped and named with the ranges that reach it.</summary>
     /// <param name="id">The dependency id.</param>
     /// <param name="reaching">The dependencies on it that reach it.</param>
     private static Choice Unsatisfied(string id, IReadOnlyList<Dependency> reaching) =>
-        new(null, null, [], $"{id}@{string.Join(" ", reaching.Select(dependency => dependency.Text).Distinct(StringComparer.Ordinal))}");
+        new(null, null, Nuspec.Empty, $"{id}@{string.Join(" ", reaching.Select(dependency => dependency.Text).Distinct(StringComparer.Ordinal))}");
 
     /// <summary>The lowest cached version of a dependency every range reaching it admits, read once per id and ranges.</summary>
     /// <param name="id">The dependency id.</param>
     /// <param name="reaching">The dependencies on it that reach it.</param>
     /// <param name="major">The platform major.</param>
     /// <param name="choices">The choices already made in this closure, by id and ranges.</param>
-    private Choice Choose(string id, IReadOnlyList<Dependency> reaching, int major, Dictionary<string, Choice> choices)
+    /// <param name="checks">The generation's checks; cancels before the chosen version's nuspec is read.</param>
+    private Choice Choose(string id, IReadOnlyList<Dependency> reaching, int major, Dictionary<string, Choice> choices,
+                          GenerationChecks checks)
     {
         var unsatisfied = Unsatisfied(id, reaching);
         if (choices.TryGetValue(unsatisfied.Missing!, out var known))
             return known;
-        return choices[unsatisfied.Missing!] = Lowest(id, reaching, major, unsatisfied);
+        return choices[unsatisfied.Missing!] = Lowest(id, reaching, major, unsatisfied, checks);
     }
 
-    private Choice Lowest(string id, IReadOnlyList<Dependency> reaching, int major, Choice unsatisfied)
+    private Choice Lowest(string id, IReadOnlyList<Dependency> reaching, int major, Choice unsatisfied, GenerationChecks checks)
     {
         var idDirectory = Path.GetFullPath(Path.Combine(packagesFolder, id.ToLowerInvariant()));
         if (!IsPackageId(id) || reaching.Any(dependency => dependency.Range is null) || !Contains(packagesFolder, idDirectory) ||
@@ -372,8 +492,8 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
             return unsatisfied;
         var version = lowest.Version.Normalized;
         return LibFolder(lowest.Directory, major) is { } lib
-            ? new Choice(version, lib, Dependencies(lowest.Directory, major), null)
-            : new Choice(version, null, [], $"{id}@{version}: no compatible lib folder");
+            ? new Choice(version, lib, ReadNuspec(lowest.Directory, major, checks), null)
+            : new Choice(version, null, Nuspec.Empty, $"{id}@{version}: no compatible lib folder");
     }
 
     /// <summary>Whether a full path lies under a directory.</summary>
@@ -394,7 +514,21 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
 
     private sealed record Dependency(string Id, string Text, PackageVersionRange? Range);
 
-    private sealed record Choice(string? Version, string? Lib, IReadOnlyList<Dependency> Dependencies, string? Missing);
+    /// <summary>What a package's dependency closure comes to.</summary>
+    /// <param name="Folders">The lib folders of the dependencies taken, by id.</param>
+    /// <param name="Missing">The dependencies skipped, named.</param>
+    /// <param name="FrameworkReferences">The shared frameworks the dependencies taken reference, each once.</param>
+    private sealed record ClosedDependencies(IReadOnlyList<string> Folders, IReadOnlyList<string> Missing, IReadOnlyList<string> FrameworkReferences);
+
+    /// <summary>What a nuspec lists for the platform.</summary>
+    /// <param name="Dependencies">The dependencies of the chosen group.</param>
+    /// <param name="FrameworkReferences">The names of the shared frameworks the chosen group references.</param>
+    private sealed record Nuspec(IReadOnlyList<Dependency> Dependencies, IReadOnlyList<string> FrameworkReferences)
+    {
+        public static readonly Nuspec Empty = new([], []);
+    }
+
+    private sealed record Choice(string? Version, string? Lib, Nuspec Nuspec, string? Missing);
 }
 
 /// <summary>What the resolver reads of a managed assembly's metadata.</summary>

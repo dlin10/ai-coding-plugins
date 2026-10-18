@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "System.Threading.Channels",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Threading.Channels.Channel.CreateUnbounded``1",
+      "refusal": {
+        "reason": "not-a-candidate",
+        "detail": "M:System.Threading.Channels.Channel.CreateUnbounded``1 has no receiver or parameter that can hold a user object",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Threading.Channels.ChannelReader`1.ReadAsync(System.Threading.CancellationToken)",
+      "refusal": {
+        "reason": "overridable",
+        "detail": "M:System.Threading.Channels.ChannelReader`1.ReadAsync(System.Threading.CancellationToken) is virtual in System.Threading.Channels.ChannelReader<T>, which is not sealed: a call may run another type's override, which the driver does not analyse",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Threading.Channels.ChannelWriter`1.TryWrite(`0)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Threading.Channels.ChannelWriter`1.TryWrite(`0) is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Threading.Channels.Channel`2.get_Reader",
+      "refusal": {
+        "reason": "analysis-failed",
+        "detail": "the call never reached body:System.Threading.Channels:M:System.Threading.Channels.Channel`2.get_Reader",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Threading.Channels.Channel`2.get_Writer",
+      "refusal": {
+        "reason": "analysis-failed",
+        "detail": "the call never reached body:System.Threading.Channels:M:System.Threading.Channels.Channel`2.get_Writer",
+        "causes": []
+      }
+    }
+  ]
+}

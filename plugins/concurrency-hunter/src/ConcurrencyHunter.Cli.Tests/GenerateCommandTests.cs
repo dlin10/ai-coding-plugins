@@ -84,6 +84,65 @@ public sealed class GenerateCommandTests : IDisposable
         AssertUsageError(With(Valid(), "--member", member), $"--member '{member}' is not a declaration id.");
 
     [Theory]
+    [InlineData("M:A.B.Run(A,,B)")]
+    [InlineData("M:A.B.Initialize()")]
+    [InlineData("M:P.A([])")]
+    [InlineData("M:P.C(@)")]
+    [InlineData("M:A.B.Invoke(A)~")]
+    [InlineData("M:P.D~[]")]
+    [InlineData("M:P.E~*")]
+    [InlineData("P:A.B.Item(,)")]
+    public void Function_pointer_member_is_unnamed_member(string member)
+    {
+        var (code, error) = Run(With(Valid(), "--member", member));
+
+        Assert.True(code == ExitCode.Ok, error);
+        using var document = Answer();
+        Assert.Equal(GenerationReasons.UNNAMED_MEMBER, document.RootElement.GetProperty("reason").GetString());
+        Assert.Equal(member, document.RootElement.GetProperty("member").GetString());
+        // The install has no shared framework, so an assembly looked for would have been answered no-implementation: nothing was resolved.
+        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("generation").GetProperty("implementation").ValueKind);
+        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("generation").GetProperty("framework").ValueKind);
+    }
+
+    [Fact]
+    public void Generator_answers_unnamed_member_for_the_pattern_text_of_a_pointer_to_a_function_pointer()
+    {
+        // `generate` keeps `(*)` a usage error (the pattern "any parameters"), but the generator, which the evals and the CoreLib
+        // generation call with the ids Roslyn writes, answers it as it answers the other texts of a function-pointer type.
+        var answer = ModelGenerator.Generate(new GenerationRequest("System.Linq", "8.0", "M:P.B(*)", null, null), _install.Resolver(), CancellationToken.None);
+
+        Assert.Equal(GenerationReasons.UNNAMED_MEMBER, answer.Reason);
+        Assert.Null(answer.Generation.Implementation);
+    }
+
+    [Fact]
+    public void Ordinary_id_of_a_function_pointer_return_is_unnamed_member()
+    {
+        _install.SharedFramework("8.0.5", runtime: true);
+        var lib = Directory.CreateDirectory(Path.Combine(_install.Packages, "acme.pointers", "1.0.0", "lib", "net8.0")).FullName;
+        EmittedAssemblies.Write(Path.Combine(lib, "Acme.Pointers.dll"), "Acme.Pointers", "public static unsafe class P { public static delegate*<void> Ret() => null; }");
+
+        var (code, error) = Run(["--assembly", "Acme.Pointers", "--version", "1.0.0", "--package", "Acme.Pointers", "--framework", "net8.0", "--member",
+                                 "M:P.Ret", "--out", _out]);
+
+        Assert.True(code == ExitCode.Ok, error);
+        using var document = Answer();
+        Assert.Equal(GenerationReasons.UNNAMED_MEMBER, document.RootElement.GetProperty("reason").GetString());
+        // The id has no empty segment: the member was found in the compiled package, then refused for its signature.
+        Assert.NotEqual(JsonValueKind.Null, document.RootElement.GetProperty("generation").GetProperty("implementation").ValueKind);
+    }
+
+    [Theory]
+    [InlineData("M:A.B.Run(A")]
+    [InlineData("M:A..B()")]
+    [InlineData("M:A.B.Run(A-B,)")]
+    [InlineData("M:A.B.Run(A{,})")]
+    [InlineData("M:A.B.Run~A-B")]
+    public void Other_malformed_member_is_still_a_usage_error(string member) =>
+        AssertUsageError(With(Valid(), "--member", member), $"--member '{member}' is not a declaration id.");
+
+    [Theory]
     [InlineData("System/Linq")]
     [InlineData(@"System\Linq")]
     [InlineData("C:System.Linq")]

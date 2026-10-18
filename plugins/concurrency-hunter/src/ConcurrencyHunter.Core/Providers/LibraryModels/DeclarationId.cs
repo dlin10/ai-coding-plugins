@@ -18,9 +18,36 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
 
     public override string ToString() => (Member is null ? "T:" : "M:") + TypeName + (Member is null ? "" : "." + Member);
 
-    internal static DeclarationId? Parse(string text) => new Parser(text).Id();
+    internal static DeclarationId? Parse(string text) => new Parser(text, unnamedTypes: false).Id();
 
-    private sealed class Parser(string text)
+    /// <summary>Whether an id carries Roslyn's text for a function-pointer type, which it writes as an empty type name: an id that
+    /// <see cref="Parse"/> does not give as a member — it refuses it, or reads <c>(*)</c> as the pattern "any parameters" — and that
+    /// parses as a member once every empty type name at a type position is read as a type. Such a position is a parameter that is
+    /// empty or starts with <c>[</c>, <c>*</c> or <c>@</c> (<c>()</c>, <c>(,</c>, <c>,,</c>, <c>,)</c>, <c>([]</c>, <c>(*</c>,
+    /// <c>(@</c>), and a <c>~</c> return that is empty or starts with <c>[</c> or <c>*</c>. <c>()</c> is Roslyn's text for a sole
+    /// function-pointer parameter, since an id without parameters has no parentheses. Any other id that does not parse stays refused.</summary>
+    /// <param name="id">The text.</param>
+    internal static bool HasEmptyTypeSegment(string id) =>
+        Parse(id) is not { IsMember: true } && new Parser(id, unnamedTypes: true).Id() is { IsMember: true };
+
+    /// <summary>The place a type stands in, which decides whether an empty name there is a function-pointer type.</summary>
+    private enum Position
+    {
+        /// <summary>A type argument or a type nested in one: a function-pointer type is never one.</summary>
+        Argument,
+
+        /// <summary>A parameter of the member.</summary>
+        Parameter,
+
+        /// <summary>The member's return type, after <c>~</c>.</summary>
+        Return
+    }
+
+    /// <summary>Parses an id.</summary>
+    /// <param name="text">The id.</param>
+    /// <param name="unnamedTypes">Whether an empty type name at a parameter or return position is read as a type, and <c>(*)</c> as
+    /// a parameter that is a pointer to one rather than as the pattern "any parameters".</param>
+    private sealed class Parser(string text, bool unnamedTypes)
     {
         private const string STRUCTURAL = ".(),{}[]~`@*";
         private int _at;
@@ -65,14 +92,14 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
             var anyParameters = false;
             if (Take('('))
             {
-                if (Take('*'))
+                if (!unnamedTypes && Take('*'))
                     anyParameters = true;
                 else
                 {
                     var list = new List<IdParameter>();
                     do
                     {
-                        if (Type() is not { } parameter)
+                        if (Type(Position.Parameter) is not { } parameter)
                             return null;
                         list.Add(new IdParameter(parameter, Take('@')));
                     } while (Take(','));
@@ -82,14 +109,14 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
                     return null;
             }
             IdType? returnType = null;
-            if (!anyParameters && Take('~') && (returnType = Type()) is null)
+            if (!anyParameters && Take('~') && (returnType = Type(Position.Return)) is null)
                 return null;
             return _at == text.Length
                 ? new DeclarationId(type, new IdMember(memberName, memberArity, parameters, anyParameters, returnType))
                 : null;
         }
 
-        private IdType? Type()
+        private IdType? Type(Position position = Position.Argument)
         {
             IdType type;
             if (Take('`'))
@@ -103,28 +130,33 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
             {
                 var names = new List<IdName>();
                 var generated = false;
-                do
+                if (unnamedTypes && AtUnnamedType(position))
+                    names.Add(new IdName("", null, []));
+                else
                 {
-                    var name = Name();
-                    if (!IsDeclaredName(name, ref generated))
-                        return null;
-                    int? arity = null;
-                    if (Take('`') && (arity = Number()) is null)
-                        return null;
-                    var arguments = new List<IdType>();
-                    if (Take('{'))
+                    do
                     {
-                        do
-                        {
-                            if (Type() is not { } argument)
-                                return null;
-                            arguments.Add(argument);
-                        } while (Take(','));
-                        if (!Take('}'))
+                        var name = Name();
+                        if (!IsDeclaredName(name, ref generated))
                             return null;
-                    }
-                    names.Add(new IdName(name, arity, arguments));
-                } while (Take('.'));
+                        int? arity = null;
+                        if (Take('`') && (arity = Number()) is null)
+                            return null;
+                        var arguments = new List<IdType>();
+                        if (Take('{'))
+                        {
+                            do
+                            {
+                                if (Type() is not { } argument)
+                                    return null;
+                                arguments.Add(argument);
+                            } while (Take(','));
+                            if (!Take('}'))
+                                return null;
+                        }
+                        names.Add(new IdName(name, arity, arguments));
+                    } while (Take('.'));
+                }
                 type = new IdNamedType(names);
             }
             while (true)
@@ -150,6 +182,16 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
                     return type;
             }
         }
+
+        /// <summary>Whether the text here is the empty type name of a function-pointer type: nothing stands where the type should, before
+        /// what ends a parameter or what a type is wrapped in.</summary>
+        /// <param name="position">Where the type stands.</param>
+        private bool AtUnnamedType(Position position) => position switch
+        {
+            Position.Parameter => Peek(character => character is ',' or ')' or '[' or '*' or '@'),
+            Position.Return => _at == text.Length || Peek(character => character is '[' or '*'),
+            _ => false
+        };
 
         /// <summary>The text up to the next structural character or whitespace; inside angle brackets only a parenthesis, a dot
         /// or whitespace ends it. What the name may be is the caller's check.</summary>

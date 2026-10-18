@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "Microsoft.Extensions.Caching.Memory",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.MemoryCacheServiceCollectionExtensions.AddMemoryCache(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "enumeration-without-sequence",
+          "probe-handed-to-unseen",
+          "witness-value-handed"
+        ]
+      }
+    }
+  ]
+}

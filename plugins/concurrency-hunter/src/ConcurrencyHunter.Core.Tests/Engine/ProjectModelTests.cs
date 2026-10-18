@@ -415,10 +415,12 @@ public sealed class ProjectModelTests
         repo.Model(FileModel(Entry("\"effects\": {}")));
         var result = await Run(repo, WORK + " _ = _state.Text.Length;");
 
-        Assert.Equal(Counter(result, CoverageCounters.KNOWN_CALL_BUILT_IN) + Counter(result, CoverageCounters.KNOWN_CALL_PROJECT),
-                     Counter(result, CoverageCounters.KNOWN_CALL));
+        Assert.Equal(Counter(result, CoverageCounters.KNOWN_CALL_BUILT_IN) + Counter(result, CoverageCounters.KNOWN_CALL_PROJECT) +
+                     Counter(result, CoverageCounters.KNOWN_CALL_GENERATED), Counter(result, CoverageCounters.KNOWN_CALL));
         Assert.True(Counter(result, CoverageCounters.KNOWN_CALL_BUILT_IN) > 0);
         Assert.Equal(1, Counter(result, CoverageCounters.KNOWN_CALL_PROJECT));
+        // The repository holds no generated file, so none of the calls is a generated one.
+        Assert.Equal(0, Counter(result, CoverageCounters.KNOWN_CALL_GENERATED));
     }
 
     [Fact]
@@ -470,6 +472,7 @@ public sealed class ProjectModelTests
         {
             [CoverageCounters.KNOWN_CALL_BUILT_IN] = "known calls a built-in library model describes",
             [CoverageCounters.KNOWN_CALL_PROJECT] = "known calls a project library model describes",
+            [CoverageCounters.KNOWN_CALL_GENERATED] = "known calls a generated library model describes",
             [CoverageCounters.OPAQUE_BY_PROJECT] = "opaque calls whose member a project model declares opaque",
             [CoverageCounters.MODEL_ENTRY_REJECTED] = "project model files, entries and pattern overloads that were rejected; the library-models diagnostics name each and why"
         };

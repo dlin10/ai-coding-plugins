@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "System.Linq",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Linq.IGrouping`2.get_Key",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Linq.IGrouping`2.get_Key is abstract; M:System.Linq.IGrouping`2.get_Key is an interface member; only a default could fill the System.Linq.IGrouping<TKey, TElement> of Recv",
+        "causes": []
+      }
+    }
+  ]
+}

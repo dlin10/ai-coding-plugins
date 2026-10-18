@@ -17,6 +17,9 @@ public static class CoverageCounters
     public const string KNOWN_CALL = "known-call";
     public const string KNOWN_CALL_BUILT_IN = "known-call-built-in";
     public const string KNOWN_CALL_PROJECT = "known-call-project";
+    public const string KNOWN_CALL_GENERATED = "known-call-generated";
+    public const string GENERATED_IN_RUN = "generated-in-run";
+    public const string PAIRS_REMOVED_GENERATED = "pairs-removed-generated";
     public const string OPAQUE_BY_PROJECT = "opaque-by-project";
     public const string MODEL_ENTRY_REJECTED = "model-entry-rejected";
     public const string OUT_OF_RANGE_CALL = "out-of-range-call";
@@ -202,6 +205,7 @@ public static partial class InterproceduralAccesses
                               .ToArray();
         var knownBuiltIn = summaries.Sum(summary => summary.OpaqueCalls.Count(call => call.IsKnown && call.Library?.Layer == IrModelLayer.BuiltIn));
         var knownProject = summaries.Sum(summary => summary.OpaqueCalls.Count(call => call.IsKnown && call.Library?.Layer == IrModelLayer.Project));
+        var knownGenerated = summaries.Sum(summary => summary.OpaqueCalls.Count(call => call.IsKnown && call.Library?.Layer == IrModelLayer.Generated));
         var reachedMembers = input.Scope.Reachable.Members.Select(member => member.MemberId).ToHashSet(StringComparer.Ordinal);
         var memberOf = input.Scope.Program.Methods.SelectMany(method => method.NestedBodyIds.Select(nested => (Nested: nested, method.MethodId)))
                             .GroupBy(pair => pair.Nested, StringComparer.Ordinal)
@@ -215,6 +219,7 @@ public static partial class InterproceduralAccesses
         var accessed = accesses.Select(access => (access.BodyId, access.OperationId)).ToHashSet();
         knownBuiltIn += decided.KnownBuiltIn;
         knownProject += decided.KnownProject;
+        knownGenerated += decided.KnownGenerated;
         var counters = new Dictionary<string, int>(StringComparer.Ordinal)
         {
             [CoverageCounters.REACHABLE_BODIES] = heap.ReachableBodies.Count,
@@ -224,9 +229,13 @@ public static partial class InterproceduralAccesses
                                            .Count(operation => operation is IrUnknownOperation { Reason: "unsupported" })),
             [CoverageCounters.SCC_BUDGET_EXCEEDED] = heap.Counters.GetValueOrDefault(HeapCounters.SCC_BUDGET_EXCEEDED),
             [CoverageCounters.OPAQUE_CALL] = opaque.Length + decided.Opaque,
-            [CoverageCounters.KNOWN_CALL] = knownBuiltIn + knownProject,
+            [CoverageCounters.KNOWN_CALL] = knownBuiltIn + knownProject + knownGenerated,
             [CoverageCounters.KNOWN_CALL_BUILT_IN] = knownBuiltIn,
             [CoverageCounters.KNOWN_CALL_PROJECT] = knownProject,
+            [CoverageCounters.KNOWN_CALL_GENERATED] = knownGenerated,
+            // The run's generation and the pairs its models removed are known to whoever runs the scope, not to its collection.
+            [CoverageCounters.GENERATED_IN_RUN] = 0,
+            [CoverageCounters.PAIRS_REMOVED_GENERATED] = 0,
             [CoverageCounters.OPAQUE_BY_PROJECT] = opaque.Count(item => item.Call.Library is { DeclaredOpaque: true, Layer: IrModelLayer.Project }) + decided.OpaqueByProject,
             [CoverageCounters.MODEL_ENTRY_REJECTED] = 0,
             [CoverageCounters.OUT_OF_RANGE_CALL] = opaque.Count(item => item.Call.Library is { InRange: false, DeclaredOpaque: false }) + decided.OutOfRange,
@@ -297,11 +306,12 @@ public static partial class InterproceduralAccesses
     /// table, and an element operation where some is an array's element.
     /// </summary>
     /// <param name="input">The scope and solved heap whose interface calls are counted.</param>
-    private static (int Opaque, int Element, int KnownBuiltIn, int KnownProject, int OpaqueByProject, int OutOfRange) DecidedCounts(InterproceduralInput input)
+    private static DecidedCount DecidedCounts(InterproceduralInput input)
     {
         var heap = input.Heap;
         var (opaque, element) = (0, 0);
         var (knownBuiltIn, knownProject, opaqueByProject, outOfRange) = (0, 0, 0, 0);
+        var knownGenerated = 0;
         foreach (var group in heap.Instances.Values.GroupBy(instance => instance.BodyId, StringComparer.Ordinal))
         {
             var instances = group.ToArray();
@@ -334,6 +344,7 @@ public static partial class InterproceduralAccesses
                                        .ToArray();
                 var (table, elements, other) = (false, false, regions.Length == 0);
                 var (projectedBuiltIn, projectedProject, projectedOpaque, projectedOutOfRange) = (false, false, false, false);
+                var projectedGenerated = false;
                 foreach (var region in regions)
                 {
                     var kind = CollectionObjects.KindOf(heap.Regions[region], input.Scope.Program, input.Scope.Summaries, method);
@@ -343,6 +354,7 @@ public static partial class InterproceduralAccesses
                         if (library is { InRange: true, DeclaredOpaque: false })
                         {
                             if (library.Layer == IrModelLayer.Project) projectedProject = true;
+                            else if (library.Layer == IrModelLayer.Generated) projectedGenerated = true;
                             else projectedBuiltIn = true;
                         }
                         else
@@ -369,14 +381,26 @@ public static partial class InterproceduralAccesses
 
                 knownBuiltIn += projectedBuiltIn ? 1 : 0;
                 knownProject += projectedProject ? 1 : 0;
+                knownGenerated += projectedGenerated ? 1 : 0;
                 opaqueByProject += projectedOpaque ? 1 : 0;
                 outOfRange += projectedOutOfRange ? 1 : 0;
                 return (table, elements, other);
             }
         }
 
-        return (opaque, element, knownBuiltIn, knownProject, opaqueByProject, outOfRange);
+        return new DecidedCount(opaque, element, knownBuiltIn, knownProject, knownGenerated, opaqueByProject, outOfRange);
     }
+
+    /// <summary>What calls through an interface add to the coverage counters (<see cref="DecidedCounts"/>).</summary>
+    /// <param name="Opaque">The opaque calls a dispatch adds, or takes away where every object is decided another way.</param>
+    /// <param name="Element">The element operations a dispatch on an array's element adds.</param>
+    /// <param name="KnownBuiltIn">The known calls a built-in library model describes.</param>
+    /// <param name="KnownProject">The known calls a project library model describes.</param>
+    /// <param name="KnownGenerated">The known calls a generated library model describes.</param>
+    /// <param name="OpaqueByProject">The opaque calls whose member a project model declares opaque.</param>
+    /// <param name="OutOfRange">The opaque calls of a member a built-in model describes at a version outside its range.</param>
+    private readonly record struct DecidedCount(int Opaque, int Element, int KnownBuiltIn, int KnownProject, int KnownGenerated, int OpaqueByProject,
+                                                int OutOfRange);
 
     /// <summary>What a path of the walk reaches: an instance and the segment of its body it runs. Whether an object is under construction
     /// there is the construction analysis's to say, not the path's (ADR 0018).</summary>
@@ -1231,7 +1255,8 @@ public static partial class InterproceduralAccesses
                 {
                     CheckCancellation();
                     if (entryLocks.TryGetValue(instanceId, out var entry) && input.Scope.Reachable.Bodies.TryGetValue(_heap.Instances[instanceId].BodyId, out var body))
-                        _lockStates[instanceId] = MustHeldLocks.Compute(body, operation => Effect(_heap.Instances[instanceId], operation), entry).Operations;
+                        _lockStates[instanceId] = MustHeldLocks.Compute(body, operation => Effect(_heap.Instances[instanceId], operation), entry,
+                                                                        cancellationToken).Operations;
                 }
 
                 if (bounded)
@@ -1240,6 +1265,7 @@ public static partial class InterproceduralAccesses
                 var incoming = new Dictionary<string, Dictionary<string, HeldLock>>(StringComparer.Ordinal);
                 foreach (var edge in _executionEdges)
                 {
+                    CheckCancellation();
                     if (entryInstances.Contains(edge.CalleeInstance) || !_lockStates.TryGetValue(edge.CallerInstance, out var states) ||
                         !states.TryGetValue(edge.OperationId, out var atCall))
                     {
@@ -1254,6 +1280,7 @@ public static partial class InterproceduralAccesses
 
                 foreach (var (instanceId, locks) in incoming)
                 {
+                    CheckCancellation();
                     if (!entryLocks.TryGetValue(instanceId, out var current) || !Same(current, locks))
                     {
                         entryLocks[instanceId] = locks;
@@ -1279,6 +1306,8 @@ public static partial class InterproceduralAccesses
         /// <param name="operation">The operation whose lock effect is read.</param>
         private LockEffect Effect(MethodInstance instance, IrOperation operation)
         {
+            // Every solver of locks asks this once per operation it walks, so it is the check of each of them.
+            CheckCancellation();
             if (operation is IrCallOperation call)
             {
                 if (call.EnumerationRole != IrEnumerationRole.None)
@@ -1365,6 +1394,8 @@ public static partial class InterproceduralAccesses
 
         private EnumerationLocks? EnumerationState(MethodInstance instance, int enumeration)
         {
+            // An iterator's lock effects are asked of the callee's operations in turn, so each descent enters here again.
+            CheckCancellation();
             var key = (instance.Id, enumeration);
             if (_enumerationStates.TryGetValue(key, out var cached))
                 return cached;
@@ -1396,10 +1427,11 @@ public static partial class InterproceduralAccesses
                 Dictionary<string, HeldLock>? atExit = null;
                 foreach (var iterator in objects)
                 {
+                    CheckCancellation();
                     var callee = _heap.Instances[iterator.Creation.CalleeInstance];
                     if (!input.Scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var iteratorBody))
                         continue;
-                    var state = MustHeldLocks.Compute(iteratorBody, operation => Effect(callee, operation));
+                    var state = MustHeldLocks.Compute(iteratorBody, operation => Effect(callee, operation), null, cancellationToken);
                     // An iterator closes a scope its enumerator opened exactly as a call closes its caller's (ADR 0009): an exit of a
                     // lock the body does not hold where it stands, carried only where the body lets it go on every path. An exit no
                     // `yield return` can follow runs only once the body has handed out its last element, so the enumeration lets go
@@ -1407,20 +1439,22 @@ public static partial class InterproceduralAccesses
                     // terms of which step it may run in, and a handler around the loop may be reached after it (ADR 0011).
                     foreach (var (operation, released) in MayLetGo(callee, iteratorBody, state))
                     {
-                        if (MustHeldLocks.Reaches(iteratorBody, operation.Id, candidate => candidate is IrYieldOperation))
+                        CheckCancellation();
+                        if (MustHeldLocks.Reaches(iteratorBody, operation.Id, candidate => candidate is IrYieldOperation, cancellationToken))
                             stepMay.TryAdd(released.Key, released);
                         else
                             exitMay.TryAdd(released.Key, released);
                     }
                     foreach (var operation in iteratorBody.Blocks.SelectMany(block => block.Operations))
                     {
+                        CheckCancellation();
                         if (Effect(callee, operation) is not { Kind: LockEffectKind.Release, Lock: { } released } ||
                             !state.Operations.TryGetValue(operation.Id, out var before) || before.ContainsKey(released.Key))
                             continue;
 
-                        if (!MustHeldLocks.ReleasesOnEveryPath(iteratorBody, candidate => Effect(callee, candidate), released.Key))
+                        if (!MustHeldLocks.ReleasesOnEveryPath(iteratorBody, candidate => Effect(callee, candidate), released.Key, cancellationToken))
                             continue;
-                        if (MustHeldLocks.Reaches(iteratorBody, operation.Id, candidate => candidate is IrYieldOperation))
+                        if (MustHeldLocks.Reaches(iteratorBody, operation.Id, candidate => candidate is IrYieldOperation, cancellationToken))
                             releases.TryAdd(released.Key, released);
                         else
                             exitReleases.TryAdd(released.Key, released);
@@ -1428,6 +1462,7 @@ public static partial class InterproceduralAccesses
                     Dictionary<string, HeldLock>? oneYield = null;
                     foreach (var yield in iteratorBody.Blocks.SelectMany(block => block.Operations).OfType<IrYieldOperation>())
                     {
+                        CheckCancellation();
                         if (!state.Operations.TryGetValue(yield.Id, out var held))
                             continue;
                         var holding = new Dictionary<string, HeldLock>(held, StringComparer.Ordinal);
@@ -1445,6 +1480,7 @@ public static partial class InterproceduralAccesses
                                  ? oneYield ?? new Dictionary<string, HeldLock>(StringComparer.Ordinal)
                                  : new Dictionary<string, HeldLock>(StringComparer.Ordinal))
                     {
+                        CheckCancellation();
                         if (!exiting.ContainsKey(lockKey) && !iteratorBody.Blocks.SelectMany(block => block.Operations)
                                 .Any(operation => Effect(callee, operation) is { Kind: LockEffectKind.Release, Lock: { } released } &&
                                                   released.Key == lockKey))
@@ -1452,7 +1488,7 @@ public static partial class InterproceduralAccesses
                     }
                     // The disposal also ends an enumeration left early, at a `yield return`, and runs only the `finally` around it:
                     // what the body does after that point never runs, so the loop's exit holds what both endings hold (ADR 0011).
-                    if (EarlyExit(iteratorBody, state, operation => Effect(callee, operation)) is { } early)
+                    if (EarlyExit(iteratorBody, state, operation => Effect(callee, operation), cancellationToken) is { } early)
                         exiting = MustHeldLocks.Join(exiting, early)!;
                     keys.UnionWith(exiting.Keys);
                     atExit = MustHeldLocks.Join(atExit, exiting);
@@ -1481,18 +1517,23 @@ public static partial class InterproceduralAccesses
         /// <param name="body">The iterator's body.</param>
         /// <param name="state">The body's must-held lock state.</param>
         /// <param name="effect">The lock effect of each operation of the body.</param>
-        private static Dictionary<string, HeldLock>? EarlyExit(IrBody body, MustHeldState state, Func<IrOperation, LockEffect> effect)
+        /// <param name="cancellationToken">Cancels the walk at its next block, <c>yield return</c>, <c>finally</c> or operation.</param>
+        private static Dictionary<string, HeldLock>? EarlyExit(IrBody body, MustHeldState state, Func<IrOperation, LockEffect> effect,
+                                                               CancellationToken cancellationToken)
         {
             Dictionary<string, HeldLock>? early = null;
             for (var ordinal = 0; ordinal < body.Blocks.Count; ordinal++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 foreach (var yield in body.Blocks[ordinal].Operations.OfType<IrYieldOperation>())
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     if (!state.Operations.TryGetValue(yield.Id, out var held))
                         continue;
                     var left = new Dictionary<string, HeldLock>(held, StringComparer.Ordinal);
                     foreach (var @finally in body.Regions.Where(region => region.Kind == IrRegionKind.Finally))
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         if (body.Regions.FirstOrDefault(region => region.Parent == @finally.Parent && region.Kind == IrRegionKind.Try) is not
                                 { } guarded || ordinal < guarded.FirstBlockOrdinal || ordinal > guarded.LastBlockOrdinal)
                             continue;
@@ -1500,6 +1541,7 @@ public static partial class InterproceduralAccesses
                                                      .Take(@finally.LastBlockOrdinal - @finally.FirstBlockOrdinal + 1)
                                                      .SelectMany(block => block.Operations))
                         {
+                            cancellationToken.ThrowIfCancellationRequested();
                             if (effect(operation) is not { Kind: LockEffectKind.Release } release)
                                 continue;
                             // As a release performed here would: an object not held as such may be any held monitor.
@@ -1600,6 +1642,8 @@ public static partial class InterproceduralAccesses
         /// <param name="instanceId">The instance whose body is read.</param>
         private LiftedLocks LiftedOf(string instanceId)
         {
+            // A callee's lifted locks are read off its own body's, so each descent into a callee enters here again.
+            CheckCancellation();
             if (_lifted.TryGetValue(instanceId, out var known))
                 return known;
             if (!_liftingInProgress.Add(instanceId))
@@ -1608,7 +1652,7 @@ public static partial class InterproceduralAccesses
             var lifted = LiftedLocks.None;
             if (input.Scope.Reachable.Bodies.TryGetValue(_heap.Instances[instanceId].BodyId, out var body))
             {
-                var state = MustHeldLocks.Compute(body, operation => Effect(_heap.Instances[instanceId], operation));
+                var state = MustHeldLocks.Compute(body, operation => Effect(_heap.Instances[instanceId], operation), null, cancellationToken);
                 var candidates = body.Blocks.SelectMany(block => block.Operations)
                                      .Select(operation => (operation, Effect: Effect(_heap.Instances[instanceId], operation)))
                                      .Where(item => item.Effect is { Kind: LockEffectKind.Release, Lock: { } } &&
@@ -1623,11 +1667,13 @@ public static partial class InterproceduralAccesses
                 // path, so each candidate is re-solved from a state that already holds it: it is carried back only where the body
                 // ends holding it no longer, which is what a `Dispose` with a conditional release fails (R3, R4, ADR 0009).
                 var closed = candidates.Where(held => MustHeldLocks.ReleasesOnEveryPath(
-                                                          body, operation => Effect(_heap.Instances[instanceId], operation), held.Lock.Key))
+                                                          body, operation => Effect(_heap.Instances[instanceId], operation), held.Lock.Key,
+                                                          cancellationToken))
                                        .ToArray();
                 var returned = new Dictionary<string, HeldLock>(state.AtExit, StringComparer.Ordinal);
                 foreach (var suspension in body.Blocks.SelectMany(block => block.Operations).Where(operation => operation is IIrSuspension))
                 {
+                    CheckCancellation();
                     if (state.Operations.TryGetValue(suspension.Id, out var held))
                         returned = MustHeldLocks.Join(returned, new Dictionary<string, HeldLock>(held, StringComparer.Ordinal))!;
                 }
@@ -1662,12 +1708,15 @@ public static partial class InterproceduralAccesses
                               .ToArray();
             foreach (var (operation, effect) in effects)
             {
+                CheckCancellation();
                 var exits = effect is { Kind: LockEffectKind.Release, Lock: { } released } && !state.Operations[operation.Id].ContainsKey(released.Key)
                     ? [released]
                     : Array.Empty<LockObject>();
                 foreach (var exit in exits.Concat(effect.IteratorReleases ?? []).Concat(effect.MayReleases ?? []))
                 {
-                    if (MustHeldLocks.ReachesWithoutEntry(body, candidate => Effect(instance, candidate), exit.Key, operation.Id) &&
+                    CheckCancellation();
+                    if (MustHeldLocks.ReachesWithoutEntry(body, candidate => Effect(instance, candidate), exit.Key, operation.Id,
+                                                          cancellationToken) &&
                         CanExclude(new HeldLock(1, exit, operation.Id)))
                         yield return (operation, exit);
                 }
@@ -1688,27 +1737,48 @@ public static partial class InterproceduralAccesses
                     var instance = _heap.Instances[instanceId];
                     var summary = instance.Summary;
                     foreach (var @return in summary.Returns)
+                    {
+                        CheckCancellation();
                         changed |= Grow(Get(_returnLoads, instanceId), Loads(instance, @return.Dependencies));
+                    }
+
                     foreach (var parameter in summary.RefParameters)
+                    {
+                        CheckCancellation();
                         changed |= Grow(Get(_refParameterLoads, (instanceId, parameter.Ordinal)), Loads(instance, parameter.Dependencies));
+                    }
+
                     foreach (var store in summary.CapturedStores)
                     {
+                        CheckCancellation();
                         foreach (var cell in CellsOf(instance, store.Cell))
+                        {
+                            CheckCancellation();
                             changed |= Grow(Get(_cellLoads, cell), Loads(instance, store.Dependencies));
+                        }
                     }
 
                     foreach (var variable in summary.Variables.Where(variable => variable.Cell is not null))
                     {
+                        CheckCancellation();
                         foreach (var cell in CellsOf(instance, variable.Cell!))
+                        {
+                            CheckCancellation();
                             changed |= Grow(Get(_cellLoads, cell), Loads(instance, variable.Dependencies));
+                        }
                     }
 
                     foreach (var call in summary.Calls)
                     {
+                        CheckCancellation();
                         foreach (var edge in ExecutionCalls(instanceId, call.OperationId))
                         {
+                            CheckCancellation();
                             foreach (var argument in call.Arguments)
+                            {
+                                CheckCancellation();
                                 changed |= Grow(Get(_parameterLoads, (edge.CalleeInstance, argument.ParameterOrdinal)), Loads(instance, argument.Dependencies));
+                            }
                         }
                     }
                 }
@@ -1726,6 +1796,7 @@ public static partial class InterproceduralAccesses
             var loads = new HashSet<(string, int)>();
             foreach (var dependency in dependencies)
             {
+                CheckCancellation();
                 switch (dependency)
                 {
                     case LoadDependency load:
@@ -1736,15 +1807,27 @@ public static partial class InterproceduralAccesses
                         break;
                     case CapturedDependency captured:
                         foreach (var cell in CellsOf(instance, captured.Cell))
+                        {
+                            CheckCancellation();
                             loads.UnionWith(_cellLoads.GetValueOrDefault(cell) ?? []);
+                        }
+
                         break;
                     case CallDependency call:
                         foreach (var edge in ExecutionCalls(instance.Id, call.OperationId))
+                        {
+                            CheckCancellation();
                             loads.UnionWith(_returnLoads.GetValueOrDefault(edge.CalleeInstance) ?? []);
+                        }
+
                         break;
                     case RefResultDependency result:
                         foreach (var edge in ExecutionCalls(instance.Id, result.OperationId))
+                        {
+                            CheckCancellation();
                             loads.UnionWith(_refParameterLoads.GetValueOrDefault((edge.CalleeInstance, result.Ordinal)) ?? []);
+                        }
+
                         break;
                 }
             }
@@ -1772,10 +1855,13 @@ public static partial class InterproceduralAccesses
         private IEnumerable<ResolvedReference> ResolveReferences(IEnumerable<ReferenceTarget> targets, MethodInstance instance,
                                                                   PathNode node, HashSet<(string Instance, int Operation)>? descent = null)
         {
+            // Each descent into a caller or a callee enters here again, so this check is the one of every recursion below.
+            CheckCancellation();
             descent ??= [];
             var unproven = new ResolvedReference(null, instance, node);
             foreach (var target in targets)
             {
+                CheckCancellation();
                 // Every way down names at least one place, or says that it names none: a reference is never lost silently. A parameter
                 // its caller handed no place for was bound to a variable of the caller's own.
                 var any = false;
@@ -1808,6 +1894,7 @@ public static partial class InterproceduralAccesses
                         var term = element.IsTermBound ? element.Term : element.Term is { } written ? Bind(written, instance, node) : null;
                         foreach (var argument in bound.Call.Arguments.Where(argument => argument.ParameterOrdinal == element.Ordinal))
                         {
+                            CheckCancellation();
                             var collection = argument.Collection;
                             var selector = collection is not null ? element.Selector.InSlice(collection.Shift, collection.Length) : ElementSelector.Unknown;
                             var shifted = term is null || collection?.Shift is not { } shift ? null
@@ -1831,6 +1918,7 @@ public static partial class InterproceduralAccesses
                     case ReferenceCallCollection returned:
                         foreach (var edge in ExecutionCalls(instance.Id, returned.OperationId))
                         {
+                            CheckCancellation();
                             var callee = _heap.Instances[edge.CalleeInstance];
                             var calleeNode = new PathNode(new State(callee.Id, node.State.Segment), node, edge);
                             foreach (var resolved in Descend(returned.OperationId, callee, calleeNode, ReturnKind.Collection))
@@ -1844,6 +1932,7 @@ public static partial class InterproceduralAccesses
                             .Receivers.Any(value => value is CallResultValue or AwaitResultValue) == true;
                         foreach (var edge in ExecutionCalls(instance.Id, reference.OperationId))
                         {
+                            CheckCancellation();
                             var callee = _heap.Instances[edge.CalleeInstance];
                             var calleeNode = new PathNode(new State(callee.Id, node.State.Segment), node, edge);
                             foreach (var resolved in Descend(reference.OperationId, callee, calleeNode, ReturnKind.Reference))
@@ -1857,12 +1946,14 @@ public static partial class InterproceduralAccesses
 
             IEnumerable<ResolvedReference> Descend(int operation, MethodInstance callee, PathNode calleeNode, ReturnKind kind)
             {
-                var summaries = _returnSummaries ??= new ReturnSummaries(_heap, _executionEdges);
+                CheckCancellation();
+                var summaries = _returnSummaries ??= new ReturnSummaries(_heap, _executionEdges, cancellationToken);
                 var key = (instance.Id, operation);
                 if (!descent.Add(key))
                 {
                     foreach (var item in summaries.Of(callee.Id, kind))
                     {
+                        CheckCancellation();
                         switch (item)
                         {
                             case ReturnParam parameter:
@@ -1967,6 +2058,7 @@ public static partial class InterproceduralAccesses
                                                                        IsCompound: false, Resources: ReferenceResources(instance, store))));
                 foreach (var store in stores)
                 {
+                    CheckCancellation();
                     var loads = Loads(instance, store.Dependencies);
                     // The comparand has to be the value those reads produced, not a value computed from them: a swap that checks
                     // `old + 2` checks a number nobody ever observed in the cell (R1).
@@ -1976,6 +2068,7 @@ public static partial class InterproceduralAccesses
                                                      string.Equals(load.Instance, instanceId, StringComparison.Ordinal));
                     foreach (var resource in store.Resources)
                     {
+                        CheckCancellation();
                         var identity = resource.Identity;
                         var structuralIdentity = store.IsCompound ? resource.StructuralIdentity : null;
                         if (observed)
@@ -1983,6 +2076,7 @@ public static partial class InterproceduralAccesses
 
                         foreach (var (loadInstanceId, loadOperation) in loads.OrderBy(load => load.Instance, StringComparer.Ordinal).ThenBy(load => load.Operation))
                         {
+                            CheckCancellation();
                             var loadInstance = _heap.Instances[loadInstanceId];
                             // A compound operation reaches over the whole collection: its check may read the structure while its
                             // change writes a cell, so the two meet on the collection rather than on one resource (ADR 0010). A read
@@ -2037,6 +2131,7 @@ public static partial class InterproceduralAccesses
                              input.Executions.Runs(instance.BodyId, node.State.Segment, copy.OperationId)))
                 foreach (var target in copy.Targets.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal))
                 {
+                    CheckCancellation();
                     if (_heap.Regions[target].Kind is not (HeapRegionKind.StructStorage or HeapRegionKind.StructCopy))
                         continue;
                     foreach (var slot in UnseenWrites.OutputSlots(input.Scope.Program, _heap.Regions[target].TypeKey))
@@ -2051,6 +2146,7 @@ public static partial class InterproceduralAccesses
                                               !instance.Summary.ReferenceAccesses.Any(store => store.ReadModifyWriteOf == access.OperationId)))
                 foreach (var target in ResolveReferences(access.Targets, instance, node))
                 {
+                    CheckCancellation();
                     if (target.Cell is null)
                     {
                         if (!access.IsCollectionElement && !foldedReferences.Contains((instance.Id, access.OperationId)))
@@ -2080,6 +2176,7 @@ public static partial class InterproceduralAccesses
                 foreach (var effect in effects.Where(effect => effect.Values.Count != 0 &&
                                                                !effect.Values.Any(value => _heap.Resolve(instance.Id, value).Count != 0)))
                 {
+                    CheckCancellation();
                     if (Handed(instance, effect.ValueId) is { WouldBeAccessed: true } handed &&
                         IsUnresolvedBase(instance, effect.OperationId, [], handed.IsCopy, isFresh: false, isOnUnheldCollection: effect.IsSlice))
                         UnresolvedBases.Add((instance.BodyId, effect.OperationId));
@@ -2114,6 +2211,7 @@ public static partial class InterproceduralAccesses
                 (bool Known, IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? Locks) pathLocks = default;
                 foreach (var (access, source, sourceNode, isReference, isStable, isUnseenWrite) in direct.Concat(references).Concat(deepReads).Concat(unknownEffects))
                 {
+                    CheckCancellation();
                     var term = access.SelectorTerm is { } selectorTerm ? isReference ? selectorTerm : Bind(selectorTerm, source, sourceNode) : null;
                     var selector = term is ConstantTerm constant ? ElementSelector.Exact(constant.Value) : access.Selector;
                     // The guards an access runs under are the same on every resource it touches.
@@ -2124,6 +2222,7 @@ public static partial class InterproceduralAccesses
                         UnresolvedBases.Add((instance.BodyId, access.OperationId));
                     foreach (var original in resources)
                     {
+                        CheckCancellation();
                         var identity = isStable ? IdentityOf(original) : original.Identity;
                         if (access.Kind == SummaryAccessKind.Load && dropped.Contains((instance.Id, access.OperationId, identity)))
                             continue;
@@ -2180,6 +2279,7 @@ public static partial class InterproceduralAccesses
                         foreach (var (local, (callPath, pathRoot)) in Localities(instance, access.OperationId, regionId)
                                                                           .SelectMany(local => CallPaths(instance.BodyId).Select(path => (local, path))))
                         {
+                            CheckCancellation();
                             var key = new EmittedKey(instance.BodyId, access.OperationId, resourceIdentity, operation, local, heldKey, pathRoot.RootId, termKey);
                             if (!seen.TryGetValue(key, out var kept))
                                 seen[key] = kept = [];
@@ -2281,6 +2381,7 @@ public static partial class InterproceduralAccesses
                 foreach (var node in visits[instance.Id].Where(node => input.Executions.Runs(instance.BodyId, node.State.Segment, access.OperationId)))
                 foreach (var target in ResolveReferences(access.Targets, instance, node))
                 {
+                    CheckCancellation();
                     if (target.Cell is null)
                         continue;
                     foreach (var resource in ResourcesOf(target.Instance, ReferenceAccess(access, target)))
@@ -2453,6 +2554,7 @@ public static partial class InterproceduralAccesses
             var starts = new List<(HashSet<string> Fresh, StartReads Reads)>();
             foreach (var start in reach.Starts(call))
             {
+                CheckCancellation();
                 var effect = new SummaryArgumentEffect(IrLibraryEffectKind.DeepRead, call.OperationId, start.Values, start.Collection, false,
                                                        call.Provenance!, [])
                 {
@@ -2484,6 +2586,7 @@ public static partial class InterproceduralAccesses
             {
                 foreach (var found in reads.Reads)
                 {
+                    CheckCancellation();
                     var access = found is { IsOnCollection: false, Selector: null, Bases.Count: 1 } &&
                                  found.Bases.Single() is RegionValue region && fresh.Contains(region.RegionId)
                         ? found with { IsFresh = true }
@@ -2593,11 +2696,15 @@ public static partial class InterproceduralAccesses
 
             foreach (var (parent, field, collections, cells) in holdings)
             {
+                CheckCancellation();
                 held.UnionWith(collections);
                 structureRead.UnionWith(collections);
                 accesses.AddRange(CollectionReads(read, new RegionValue(parent), field, collections, cells, withStructure: !read.IsSlice, kind));
                 foreach (var collection in collections)
+                {
+                    CheckCancellation();
                     pending.Enqueue((collection, 0, (new RegionValue(parent), field), false));
+                }
             }
 
             if (IsUnprovenSlice(read, held, objects))
@@ -2611,6 +2718,7 @@ public static partial class InterproceduralAccesses
             foreach (var region in objects.Where(region => !held.Contains(region) && (!read.IsSlice || CollectionKind(region).IsCollection))
                                           .Order(StringComparer.Ordinal))
             {
+                CheckCancellation();
                 var isReadonly = _heap.Regions[region].Kind == HeapRegionKind.StructStorage && OwnReadonlyRoot(region);
                 if (_heap.Regions[region].Kind == HeapRegionKind.StructStorage && unknownEffect && UnseenWrites.MayWrite(unseen, isReadonly))
                 {
@@ -2623,6 +2731,7 @@ public static partial class InterproceduralAccesses
 
             while (pending.TryDequeue(out var item))
             {
+                CheckCancellation();
                 var (regionId, depth, holder, isReadonly) = item;
                 if (!visited.Add(regionId))
                     continue;
@@ -2633,7 +2742,10 @@ public static partial class InterproceduralAccesses
                 if (unknownEffect)
                     fields = UnseenWrites.FieldsOf(program, _heap.Regions[regionId].TypeKey, reach.LibraryFieldsOf(regionId), receiverType);
                 foreach (var kept in _heap.PointsTo(regionId, PathValue.KEPT))
+                {
+                    CheckCancellation();
                     pending.Enqueue((kept, depth + 1, null, false));
+                }
                 if (CollectionKind(regionId).IsCollection)
                 {
                     // A collection reached through a field or the cells of a held one is read as its holder's is; one handed over
@@ -2643,7 +2755,10 @@ public static partial class InterproceduralAccesses
                         accesses.AddRange(CollectionReads(read, named.Parent, named.Field, [regionId], ElementSelector.Unknown, withStructure: true, kind));
                     Filled(regionId, UnseenWrites.ElementTypeKey(_heap.Regions[regionId].TypeKey), PathValue.ELEMENT, isReadonly: false);
                     foreach (var element in HeldBy(regionId))
+                    {
+                        CheckCancellation();
                         pending.Enqueue((element, depth + 1, by, false));
+                    }
                     // A library collection has no state of its own that is a resource; a type of the run's own deriving from one
                     // has its own fields.
                     if (fields is null)
@@ -2678,15 +2793,22 @@ public static partial class InterproceduralAccesses
                             accesses.AddRange(excluded.Select(field => Access(read, SummaryAccessKind.Load, field, new RegionValue(regionId))));
                     }
                     foreach (var field in fields ?? [])
+                    {
+                        CheckCancellation();
                         Filled(regionId, field.FieldTypeKey, FieldSlot.Key(field), IsReadonly(field));
+                    }
                     foreach (var target in _heap.FieldsOf(regionId).SelectMany(slot => _heap.PointsTo(regionId, slot))
                                                 .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+                    {
+                        CheckCancellation();
                         pending.Enqueue((target, depth + 1, null, false));
+                    }
                     continue;
                 }
 
                 foreach (var field in fields)
                 {
+                    CheckCancellation();
                     Filled(regionId, field.FieldTypeKey, FieldSlot.Key(field), IsReadonly(field));
                     // A struct the object keeps is part of it: its fields are read through its storage, each with the whole path, one
                     // level deeper, and what they hold is reached as the object's own fields' is (R1).
@@ -2695,13 +2817,19 @@ public static partial class InterproceduralAccesses
                             { Count: > 0 } storages)
                     {
                         foreach (var storage in storages.Order(StringComparer.Ordinal))
+                        {
+                            CheckCancellation();
                             pending.Enqueue((storage, depth + 1, null, IsReadonly(field)));
+                        }
                         continue;
                     }
 
                     accesses.Add(Access(read, KindAt(IsReadonly(field)), field, new RegionValue(regionId)));
                     foreach (var target in _heap.PointsTo(regionId, FieldSlot.Key(field)).Order(StringComparer.Ordinal))
+                    {
+                        CheckCancellation();
                         pending.Enqueue((target, depth + 1, (new RegionValue(regionId), field), false));
+                    }
                 }
             }
 
@@ -2738,6 +2866,7 @@ public static partial class InterproceduralAccesses
             var held = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (parent, field, collections, cells) in HeldCollections(read, instance, node, objects))
             {
+                CheckCancellation();
                 held.UnionWith(collections);
                 accesses.AddRange(CollectionReads(read, new RegionValue(parent), field, collections, cells, withStructure: !read.IsSlice));
             }
@@ -2753,6 +2882,7 @@ public static partial class InterproceduralAccesses
             foreach (var collection in objects.Where(region => CollectionKind(region).IsCollection).SelectMany(StandsFor)
                                               .Where(region => !held.Contains(region)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
             {
+                CheckCancellation();
                 if (holders.Value.TryGetValue(collection, out var holder))
                     accesses.AddRange(CollectionReads(read, holder.Base, holder.Field, [collection], ElementSelector.Unknown, withStructure: true));
             }
@@ -2797,6 +2927,7 @@ public static partial class InterproceduralAccesses
         {
             foreach (var (collection, member) in StandingTargets(call, instance))
             {
+                CheckCancellation();
                 if (!holders.Value.TryGetValue(collection, out var holder))
                     continue;
 
@@ -2861,11 +2992,15 @@ public static partial class InterproceduralAccesses
         private IEnumerable<(string Collection, IrCollectionCall Member)> StandingTargets(SummaryArgumentEffect call, MethodInstance instance) =>
             call.Values.SelectMany(value => _heap.Resolve(instance.Id, value))
                 .Distinct(StringComparer.Ordinal)
-                .SelectMany(region => (call.Implementations.Count == 0
-                                          ? call.Member
-                                          : CollectionObjects.Decision(call.Implementations, ObjectKind(region, call.InterfaceMethod))?.Member) is { } decided
-                                          ? StandsFor(region).Select(collection => (Collection: collection, Member: decided))
-                                          : [])
+                .SelectMany(region =>
+                {
+                    CheckCancellation();
+                    return (call.Implementations.Count == 0
+                               ? call.Member
+                               : CollectionObjects.Decision(call.Implementations, ObjectKind(region, call.InterfaceMethod))?.Member) is { } decided
+                               ? StandsFor(region).Select(collection => (Collection: collection, Member: decided))
+                               : [];
+                })
                 .Where(target => CollectionKind(target.Collection).IsCollection)
                 .Distinct()
                 .OrderBy(target => target.Collection, StringComparer.Ordinal);
@@ -2884,10 +3019,16 @@ public static partial class InterproceduralAccesses
 
             var collections = new HashSet<string>(StringComparer.Ordinal);
             foreach (var access in instance.Summary.Accesses.Where(access => access.OperationId == operationId && access.IsOnCollection))
+            {
+                CheckCancellation();
                 collections.UnionWith(Resources(instance, access).Select(resource => resource.CollectionId).OfType<string>());
+            }
             foreach (var effect in instance.Summary.ArgumentEffects.Where(effect => effect.OperationId == operationId && effect.Member is not null))
+            {
+                CheckCancellation();
                 collections.UnionWith(StandingTargets(effect, instance).Where(target => IsRead(target.Member.Structure) || IsRead(target.Member.Element))
                                                                        .Select(target => target.Collection));
+            }
             _checkedCollections.Add((instance.Id, operationId), collections);
             return collections;
         }
@@ -2911,6 +3052,7 @@ public static partial class InterproceduralAccesses
                 : argument.Collection;
             foreach (var resolved in ResolveReferences([target], instance, node))
             {
+                CheckCancellation();
                 if (resolved.Cell is not { } storage)
                     continue;
                 var cells = storage.Selector ?? ElementSelector.Unknown.InSlice(argument.Shift, argument.Length);
@@ -2921,6 +3063,7 @@ public static partial class InterproceduralAccesses
                              .Order(StringComparer.Ordinal).ToArray();
                 foreach (var parent in parents)
                 {
+                    CheckCancellation();
                     var collections = _heap.PointsTo(parent, FieldSlot.Key(storage.Field))
                                            .Where(region => read.IsSlice || CollectionKind(region).IsCollection)
                                            .SelectMany(StandsFor)
@@ -3234,6 +3377,8 @@ public static partial class InterproceduralAccesses
         /// <param name="node">The visit whose path of enumerations is followed.</param>
         private IReadOnlyDictionary<int, IReadOnlyDictionary<string, HeldLock>>? EnumerationPathLocks(PathNode node)
         {
+            // The path of enumerations is followed up through its parents, each of which enters here again.
+            CheckCancellation();
             if (_enumerationPathLocks.TryGetValue(node, out var cached))
                 return cached;
             if (node is not { Edge: { } edge, Parent: { } parent } ||
@@ -3254,7 +3399,7 @@ public static partial class InterproceduralAccesses
             if (states is null || !states.TryGetValue(edge.OperationId, out var atCall) ||
                 !input.Scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body))
                 return _enumerationPathLocks[node] = null;
-            return _enumerationPathLocks[node] = MustHeldLocks.Compute(body, operation => Effect(callee, operation), atCall).Operations;
+            return _enumerationPathLocks[node] = MustHeldLocks.Compute(body, operation => Effect(callee, operation), atCall, cancellationToken).Operations;
         }
 
         private IReadOnlyList<HeldProtectionInfo> HeldOverSpan(string instanceId, int operationId, AccessOperation operation,
@@ -3288,7 +3433,7 @@ public static partial class InterproceduralAccesses
             return !string.Equals(source.Instance, instanceId, StringComparison.Ordinal) ||
                    !input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ||
                    MustHeldLocks.HoldsBetween(body, operation => Effect(instance, operation), protection.Key,
-                                              source.Operation, operationId);
+                                              source.Operation, operationId, cancellationToken);
         }
 
         private IReadOnlyList<HeldProtectionInfo> HeldLocks(string instanceId, int operationId,
@@ -3399,6 +3544,7 @@ public static partial class InterproceduralAccesses
             // carries no guards from above it.
             for (var step = node; step is { Edge: { } edge, Parent: { } caller }; step = caller)
             {
+                CheckCancellation();
                 if (_heap.Instances.TryGetValue(edge.CallerInstance, out var callerInstance) &&
                     callerInstance.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId) is { } transfer)
                 {
@@ -3428,10 +3574,13 @@ public static partial class InterproceduralAccesses
 
             return conditions;
 
-            static IEnumerable<PathNode> Ancestors(PathNode from)
+            IEnumerable<PathNode> Ancestors(PathNode from)
             {
                 for (var step = from; step is not null; step = step.Parent)
+                {
+                    CheckCancellation();
                     yield return step;
+                }
             }
         }
 
@@ -3590,10 +3739,15 @@ public static partial class InterproceduralAccesses
         {
             for (var step = enumerating; step is not null; step = step.Parent)
             {
+                CheckCancellation();
                 if (step.State.Instance == creatorId)
                     return step;
-                var calls = _executionEdges.Where(edge => edge.CallerInstance == step.State.Instance && edge.CalleeInstance == creatorId &&
-                                                          edge.Reason != ITERATOR_ENUMERATION)
+                var calls = _executionEdges.Where(edge =>
+                                           {
+                                               CheckCancellation();
+                                               return edge.CallerInstance == step.State.Instance && edge.CalleeInstance == creatorId &&
+                                                      edge.Reason != ITERATOR_ENUMERATION;
+                                           })
                                            .ToArray();
                 if (calls is [var call])
                     return new PathNode(new State(creatorId, node.State.Segment), step, call);
@@ -3641,6 +3795,7 @@ public static partial class InterproceduralAccesses
             var slots = FieldSlot.Path(path.Fields);
             foreach (var (constructor, constructorNode) in ConstructorPaths(region, node))
             {
+                CheckCancellation();
                 var stores = constructor.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store &&
                                                                   ValueResources(constructor, access).Any(resource => resource.RegionId == region &&
                                                                                                                  resource.Storage is { } written &&
@@ -3716,18 +3871,23 @@ public static partial class InterproceduralAccesses
             {
                 foreach (var sliceEdge in HeapCalls(parent.State.Instance).Where(edge => producer.Contains(edge.OperationId)))
                 {
+                    CheckCancellation();
                     var sliceNode = new PathNode(new State(sliceEdge.CalleeInstance, node.State.Segment), parent, sliceEdge);
                     foreach (var constructorEdge in HeapCalls(sliceEdge.CalleeInstance).Where(edge => _heap.Instances[edge.CalleeInstance].Receivers.Contains(region) &&
                                                                                                        IsConstructor(_heap.Instances[edge.CalleeInstance].BodyId)))
+                    {
+                        CheckCancellation();
                         yield return (_heap.Instances[constructorEdge.CalleeInstance],
                                       new PathNode(new State(constructorEdge.CalleeInstance, node.State.Segment),
                                                    sliceNode, constructorEdge));
+                    }
                 }
                 yield break;
             }
 
             foreach (var edge in ConstructorCalls(region))
             {
+                CheckCancellation();
                 var callerNode = new PathNode(new State(edge.CallerInstance, node.State.Segment), null, null);
                 yield return (_heap.Instances[edge.CalleeInstance],
                               new PathNode(new State(edge.CalleeInstance, node.State.Segment), callerNode, edge));
@@ -3849,7 +4009,11 @@ public static partial class InterproceduralAccesses
                 return IrKeyEquality.Value;
 
             var equalities = _heap.PointsTo(regionId, slot)
-                                  .Select(target => _heap.Regions.TryGetValue(target, out var region) ? Allocation(region)?.KeyEquality : null)
+                                  .Select(target =>
+                                  {
+                                      CheckCancellation();
+                                      return _heap.Regions.TryGetValue(target, out var region) ? Allocation(region)?.KeyEquality : null;
+                                  })
                                   .ToArray();
             return equalities.Length != 0 && equalities.All(equality => equality is not null)
                 ? equalities.Max(equality => equality!.Value)
@@ -3858,10 +4022,13 @@ public static partial class InterproceduralAccesses
 
         /// <summary>The <c>new</c> a region was created by, when the body that holds it is at hand.</summary>
         /// <param name="region">The region whose allocation site is looked up.</param>
-        private IrAllocateOperation? Allocation(HeapRegion region) =>
-            region is { SiteBodyId: { } bodyId, SiteOperationId: { } operationId } && input.Scope.Reachable.Bodies.TryGetValue(bodyId, out var body)
+        private IrAllocateOperation? Allocation(HeapRegion region)
+        {
+            CheckCancellation();
+            return region is { SiteBodyId: { } bodyId, SiteOperationId: { } operationId } && input.Scope.Reachable.Bodies.TryGetValue(bodyId, out var body)
                 ? body.Blocks.SelectMany(block => block.Operations).OfType<IrAllocateOperation>().FirstOrDefault(allocate => allocate.Id == operationId)
                 : null;
+        }
 
         /// <summary>The count the one object a lock resolves to was constructed with, read from its allocation site.</summary>
         /// <param name="regions">The regions the lock resolves to.</param>
@@ -3889,10 +4056,15 @@ public static partial class InterproceduralAccesses
 
             var path = new List<PathNode>();
             for (var current = node; current.Edge is not null; current = current.Parent!)
+            {
+                CheckCancellation();
                 path.Add(current);
+            }
+
             path.Reverse();
             foreach (var step in path)
             {
+                CheckCancellation();
                 var caller = _heap.Instances[step.Edge!.CallerInstance];
                 var callee = _heap.Instances[step.Edge.CalleeInstance];
                 var calleeSymbol = input.Scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var calleeBody) ? calleeBody.MethodSymbol : callee.BodyId;
@@ -4088,6 +4260,7 @@ public static partial class InterproceduralAccesses
                 // The depth bound of the path counts every struct field it goes through (TD-042).
                 foreach (var collection in place.Collections)
                 {
+                    CheckCancellation();
                     var resource = Resource(place.RegionId, path, wildcard || path.Fields.Count > limit, place.Selector, collection) with
                     {
                         WildcardExclusions = access.WildcardExclusions
@@ -4105,9 +4278,11 @@ public static partial class InterproceduralAccesses
 
             foreach (var @base in access.Bases)
             {
+                CheckCancellation();
                 var (value, wildcard) = @base is PathValue { IsWildcard: true } path ? (path.Base, true) : (@base, false);
                 foreach (var region in _heap.Resolve(instance.Id, value).Order(StringComparer.Ordinal))
                 {
+                    CheckCancellation();
                     if (access.Field.Name != PathValue.WILDCARD && _heap.Regions.TryGetValue(region, out var candidate) &&
                         _typeSafety.CannotBe(candidate, DiIndex.TypeKey(access.Field.Assembly, access.Field.ContainingTypeId)))
                         continue;
@@ -4151,6 +4326,7 @@ public static partial class InterproceduralAccesses
             // outermost holder — through the struct's storage that field is in, and through the cell that storage is in in turn (R1).
             while (segments[0] == PathValue.ELEMENT)
             {
+                CheckCancellation();
                 if (!seen.Add(holder) || !holders.Value.TryGetValue(holder, out var holding) ||
                     _heap.Located(holding.Parent, holding.Slot) is not { } parent)
                     return null;
@@ -4339,11 +4515,15 @@ public static partial class InterproceduralAccesses
             return set;
         }
 
-        private static bool Grow(HashSet<(string, int)> target, IEnumerable<(string, int)> values)
+        private bool Grow(HashSet<(string, int)> target, IEnumerable<(string, int)> values)
         {
             var changed = false;
             foreach (var value in values)
+            {
+                CheckCancellation();
                 changed |= target.Add(value);
+            }
+
             return changed;
         }
     }

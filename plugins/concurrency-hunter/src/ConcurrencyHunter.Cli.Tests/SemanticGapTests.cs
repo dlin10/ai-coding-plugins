@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ConcurrencyHunter.Accesses;
+using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Serialization;
@@ -35,7 +36,7 @@ public sealed class SemanticGapTests
     [Fact]
     public async Task Measurement_carries_the_gap_counter_and_the_sorted_callees_of_each_scope()
     {
-        var (measurement, analysis) = await MetricsCommand.MeasureAsync("Fixture.slnx", AnalysisLimits.Default, Load, CancellationToken.None);
+        var (measurement, analysis) = await MetricsCommand.MeasureAsync("Fixture.slnx", AnalysisLimits.Default, Load, ModelGeneration.None, CancellationToken.None);
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(measurement, MetricsJsonContext.Default.Measurement));
 
         var scope = Assert.Single(json.RootElement.GetProperty("coverage").EnumerateArray());

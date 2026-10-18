@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "Polly.Core",
+    "version": "8.0.0.0",
+    "mvid": "93b7c81c-a268-4bd8-b6c3-71c7d5524935",
+    "package": "Polly.Core",
+    "packageVersion": "8.7.0"
+  },
+  "members": [
+    {
+      "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions.#ctor",
+      "refusal": {
+        "reason": "not-a-candidate",
+        "detail": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions.#ctor has no receiver or parameter that can hold a user object",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_FailureRatio(System.Double)",
+      "refusal": {
+        "reason": "analysis-failed",
+        "detail": "the call never reached body:Polly.Core:M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_FailureRatio(System.Double)",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_MinimumThroughput(System.Int32)",
+      "refusal": {
+        "reason": "analysis-failed",
+        "detail": "the call never reached body:Polly.Core:M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_MinimumThroughput(System.Int32)",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_OnOpened(System.Func{Polly.CircuitBreaker.OnCircuitOpenedArguments{`0},System.Threading.Tasks.ValueTask})",
+      "refusal": {
+        "reason": "analysis-failed",
+        "detail": "the call never reached body:Polly.Core:M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_OnOpened(System.Func{Polly.CircuitBreaker.OnCircuitOpenedArguments{`0},System.Threading.Tasks.ValueTask})",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Polly.CircuitBreakerResiliencePipelineBuilderExtensions.AddCircuitBreaker(Polly.ResiliencePipelineBuilder,Polly.CircuitBreaker.CircuitBreakerStrategyOptions)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-graph-cells",
+          "argument-member-unseen",
+          "probe-accessed-elsewhere",
+          "probe-handed-to-unseen",
+          "unseeded-read",
+          "witness-value-accessed-elsewhere",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Polly.ResiliencePipeline.Execute(System.Action)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "only a default could fill the Polly.ResiliencePipeline of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Polly.ResiliencePipeline.Execute``1(System.Func{``0})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "only a default could fill the Polly.ResiliencePipeline of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Polly.ResiliencePipelineBuilder.#ctor",
+      "refusal": {
+        "reason": "not-a-candidate",
+        "detail": "M:Polly.ResiliencePipelineBuilder.#ctor has no receiver or parameter that can hold a user object",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Polly.ResiliencePipelineBuilder.Build",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "receiver-member-unseen",
+          "result-unnamed",
+          "unseeded-read",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    }
+  ]
+}

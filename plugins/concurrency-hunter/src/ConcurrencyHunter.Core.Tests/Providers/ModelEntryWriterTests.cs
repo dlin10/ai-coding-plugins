@@ -1,6 +1,7 @@
 using System.Text;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Providers.LibraryModels;
+using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests.Providers;
@@ -150,6 +151,42 @@ public sealed class ModelEntryWriterTests
         Assert.Equal(ModelEntryWriter.File(model), ModelEntryWriter.File(WithCalls(reverse: true)));
         Assert.Empty(files.Rejections);
         Assert.True(LibraryVocabulary.AlikeCalls(model.Calls, Assert.Single(files.Entries).Calls));
+    }
+
+    [Fact]
+    public void Writing_a_model_checks_at_each_part_it_writes()
+    {
+        var seen = new List<GenerationStage>();
+
+        ModelEntryWriter.File(Model(reverse: false), new GenerationChecks(CancellationToken.None, (stage, _) => seen.Add(stage)));
+
+        // The two groups of effects, the fate, the store, the output and the keep: each a check of the model's stage.
+        Assert.Equal(Enumerable.Repeat(GenerationStage.BuildModel, 6), seen);
+    }
+
+    [Fact]
+    public void Cancellation_between_two_outputs_stops_the_writing_before_the_next_one()
+    {
+        var outputs = new Dictionary<string, LibraryResult>
+        {
+            ["a"] = LibraryResult.Parse("new")!,
+            ["b"] = LibraryResult.Parse("new")!,
+            ["c"] = LibraryResult.Parse("new")!
+        };
+        var model = new LibraryModel(MEMBER, [new("A", new Version(1, 0, 0, 0), new Version(2, 0, 0, 0))], []) { Outputs = outputs };
+        using var cancellation = new CancellationTokenSource();
+        var seen = new List<int>();
+        var checks = new GenerationChecks(cancellation.Token, (_, ordinal) =>
+        {
+            seen.Add(ordinal);
+            if (ordinal == 2)
+                cancellation.Cancel();
+        });
+
+        Assert.Throws<OperationCanceledException>(() => ModelEntryWriter.Write(model, checks));
+
+        // The third output is never written: the check before it is the one the second's cancellation reaches.
+        Assert.Equal([1, 2], seen);
     }
 
     /// <summary>Builds a model whose calls and inputs are listed in one order or the reverse.</summary>

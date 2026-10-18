@@ -36,11 +36,19 @@ public static class FateClassifier
     /// <summary>The fates of a driver run that was not stopped.</summary>
     /// <param name="driver">The driver.</param>
     /// <param name="run">The run.</param>
-    public static FateClassification Classify(Driver driver, ScopeRun run)
+    public static FateClassification Classify(Driver driver, ScopeRun run) => Classify(driver, run, new GenerationChecks(CancellationToken.None));
+
+    /// <summary>The fates of a driver run that was not stopped, as a stage of a generation: it checks at its start and at each access
+    /// and parameter it goes through.</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="run">The run.</param>
+    /// <param name="checks">The generation's checks, which cancel the classification.</param>
+    internal static FateClassification Classify(Driver driver, ScopeRun run, GenerationChecks checks)
     {
         if (run.Stopped)
             throw new ArgumentException("A stopped run has no heap to classify on.", nameof(run));
-        return new Run(driver, run).Classify();
+        checks.Check(GenerationStage.Classify);
+        return new Run(driver, run, checks).Classify();
     }
 
     /// <summary>A parameter's fate after the applicability rules: the fate itself when they allow it, <c>unknown-execution</c> when
@@ -100,21 +108,34 @@ public static class FateClassifier
     /// <param name="classified">The fates of the fate run.</param>
     /// <param name="confirmation">The confirmation run, or <c>null</c> when it threw or did not run.</param>
     public static IReadOnlyDictionary<string, ClassifiedFate> Confirmed(Driver driver, IReadOnlyDictionary<string, ClassifiedFate> classified,
-                                                                        ScopeRun? confirmation)
+                                                                        ScopeRun? confirmation) =>
+        Confirmed(driver, classified, confirmation, new GenerationChecks(CancellationToken.None));
+
+    /// <summary>The fates after a holder's confirmation run, as a stage of a generation: it checks at its start and at each fate it
+    /// confirms (<see cref="Confirmed(Driver, IReadOnlyDictionary{string, ClassifiedFate}, ScopeRun?)"/>).</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="classified">The fates of the fate run.</param>
+    /// <param name="confirmation">The confirmation run, or <c>null</c> when it threw or did not run.</param>
+    /// <param name="checks">The generation's checks, which cancel the confirmation.</param>
+    internal static IReadOnlyDictionary<string, ClassifiedFate> Confirmed(Driver driver, IReadOnlyDictionary<string, ClassifiedFate> classified,
+                                                                          ScopeRun? confirmation, GenerationChecks checks)
     {
-        var fired = confirmation is { Stopped: false } ? FiredByField(confirmation) : null;
+        checks.Check(GenerationStage.ConfirmHolder);
+        var stage = new StageChecks(checks, GenerationStage.ConfirmHolder);
+        var fired = confirmation is { Stopped: false } ? FiredByField(confirmation, checks, GenerationStage.ConfirmHolder) : null;
         var executions = fired is null ? null : new DriverExecutions(driver, confirmation!.Executions!, new HashSet<string>(StringComparer.Ordinal));
         var triggers = driver.Triggers.Select(trigger => trigger.Action).ToHashSet(StringComparer.Ordinal);
         bool Confirms(DriverParameter parameter, string holder) =>
             fired is not null && driver.Covers(holder) &&
             parameter.Probes.Where(probe => triggers.Contains(probe.Variant))
-                     .SelectMany(probe => fired.GetValueOrDefault(probe.FiredField) ?? [])
+                     .SelectMany(probe => stage.Each(fired.GetValueOrDefault(probe.FiredField) ?? []))
                      .All(executions!.IsOwnOfAnAction) &&
-            TriggersThatRan(driver, parameter, fired).Count != 0;
+            TriggersThatRan(driver, parameter, fired, stage).Count != 0;
 
         var confirmed = new SortedDictionary<string, ClassifiedFate>(StringComparer.Ordinal);
         foreach (var (name, fate) in classified)
         {
+            checks.Check(GenerationStage.ConfirmHolder);
             confirmed[name] = fate.Fate == HOLDER && !Confirms(driver.Parameters.Single(parameter => parameter.Name == name), fate.Holder!)
                 ? new ClassifiedFate(UNKNOWN_EXECUTION, null)
                 : fate;
@@ -129,28 +150,43 @@ public static class FateClassifier
     /// <param name="parameter">The parameter.</param>
     /// <param name="confirmation">The confirmation run, not stopped.</param>
     public static IReadOnlySet<string> TriggersThatRan(Driver driver, DriverParameter parameter, ScopeRun confirmation) =>
-        TriggersThatRan(driver, parameter, FiredByField(confirmation));
+        TriggersThatRan(driver, parameter, confirmation, new GenerationChecks(CancellationToken.None));
 
-    private static IReadOnlySet<string> TriggersThatRan(Driver driver, DriverParameter parameter, Dictionary<string, HashSet<string>> fired)
+    /// <summary>The trigger actions that ran the probe they hand over for a parameter, as work of the generation's
+    /// <see cref="GenerationStage.ReadEffects"/> stage: it checks at each access it goes through
+    /// (<see cref="TriggersThatRan(Driver, DriverParameter, ScopeRun)"/>).</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="parameter">The parameter.</param>
+    /// <param name="confirmation">The confirmation run, not stopped.</param>
+    /// <param name="checks">The generation's checks, which cancel the scan.</param>
+    internal static IReadOnlySet<string> TriggersThatRan(Driver driver, DriverParameter parameter, ScopeRun confirmation, GenerationChecks checks) =>
+        TriggersThatRan(driver, parameter, FiredByField(confirmation, checks, GenerationStage.ReadEffects),
+                        new StageChecks(checks, GenerationStage.ReadEffects));
+
+    private static IReadOnlySet<string> TriggersThatRan(Driver driver, DriverParameter parameter, Dictionary<string, HashSet<string>> fired,
+                                                        StageChecks stage)
     {
         var triggers = driver.Triggers.Select(trigger => trigger.Action).ToHashSet(StringComparer.Ordinal);
         return parameter.Probes.Where(probe => triggers.Contains(probe.Variant) &&
-                                               (fired.GetValueOrDefault(probe.FiredField) ?? []).Any(execution => DriverExecutions.IsOwn(execution, probe.Variant)))
+                                               stage.Each(fired.GetValueOrDefault(probe.FiredField) ?? []).Any(execution => DriverExecutions.IsOwn(execution, probe.Variant)))
                         .Select(probe => probe.Variant).ToHashSet(StringComparer.Ordinal);
     }
 
     /// <summary>By driver field, the executions a store into it ran in: where each probe, through its fired field, ran.</summary>
     /// <param name="run">A run that was not stopped.</param>
-    private static Dictionary<string, HashSet<string>> FiredByField(ScopeRun run)
+    /// <param name="checks">The generation's checks, which cancel the scan at each access and each execution it keeps.</param>
+    /// <param name="stage">The stage the scan is work of.</param>
+    private static Dictionary<string, HashSet<string>> FiredByField(ScopeRun run, GenerationChecks checks, GenerationStage stage)
     {
+        var each = new StageChecks(checks, stage);
         var fired = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        foreach (var access in run.Executions!.Accesses.Where(access => access.Access is { Kind: SummaryAccessKind.Store, Field.IsStatic: true } &&
-                                                                      access.Access.Field.Assembly == DriverSynthesizer.ASSEMBLY &&
-                                                                      access.Access.Field.ContainingTypeId == DriverSynthesizer.DRIVER_TYPE))
+        foreach (var access in each.Each(run.Executions!.Accesses.Where(access => access.Access is { Kind: SummaryAccessKind.Store, Field.IsStatic: true } &&
+                                                                                access.Access.Field.Assembly == DriverSynthesizer.ASSEMBLY &&
+                                                                                access.Access.Field.ContainingTypeId == DriverSynthesizer.DRIVER_TYPE)))
         {
             if (!fired.TryGetValue(access.Access.Field.Name, out var executions))
                 fired[access.Access.Field.Name] = executions = new HashSet<string>(StringComparer.Ordinal);
-            executions.UnionWith(access.Executions);
+            executions.UnionWith(each.Each(access.Executions));
         }
 
         return fired;
@@ -182,21 +218,25 @@ public static class FateClassifier
         private readonly string? _receiverObject;
         private readonly bool _resultHanded;
         private readonly bool _callUnseen;
+        private readonly GenerationChecks _checks;
+        private readonly StageChecks _stage;
 
-        public Run(Driver driver, ScopeRun run)
+        public Run(Driver driver, ScopeRun run, GenerationChecks checks)
         {
+            _checks = checks;
+            _stage = new StageChecks(checks, GenerationStage.Classify);
             _driver = driver;
             _heap = run.Heap!;
-            _reach = new HeapReachability(_heap, Held(run));
-            _starts = _reach.StaticFields().Where(start => !start.Slot.StartsWith(Inputs, StringComparison.Ordinal) &&
-                                                          !start.Slot.StartsWith(Witnessed, StringComparison.Ordinal) &&
-                                                          !start.Slot.StartsWith(WitnessedRefs, StringComparison.Ordinal)).ToArray();
+            _reach = new HeapReachability(_heap, Held(run, checks), _stage);
+            _starts = _stage.Each(_reach.StaticFields()).Where(start => !start.Slot.StartsWith(Inputs, StringComparison.Ordinal) &&
+                                                                       !start.Slot.StartsWith(Witnessed, StringComparison.Ordinal) &&
+                                                                       !start.Slot.StartsWith(WitnessedRefs, StringComparison.Ordinal)).ToArray();
             var result = _reach.StaticField(KeepResult);
             var resultTargets = result is null ? new HashSet<string>(StringComparer.Ordinal) : _reach.Targets(result);
             _executions = new DriverExecutions(driver, run.Executions!, _reach.From(resultTargets));
-            var allocations = new Allocations(driver, _heap, run.Executions!, _executions, _reach);
+            var allocations = new Allocations(driver, _heap, run.Executions!, _executions, _reach, _stage);
 
-            var handoffs = new GenerationHandoffs(driver, run, _executions, _reach);
+            var handoffs = new GenerationHandoffs(driver, run, _executions, _reach, _stage);
             _handed = handoffs.HandedInSetup.Concat(handoffs.HandedOutsideSetup)
                                 .Concat(handoffs.WitnessedInSetup).Concat(handoffs.WitnessedOutsideSetup)
                                 .ToHashSet(StringComparer.Ordinal);
@@ -206,6 +246,7 @@ public static class FateClassifier
             // What an execution other than setup writes, and where each probe fired.
             foreach (var access in run.Executions!.Accesses.Where(access => access.Executions.Any(execution => !_executions.InSetup(execution))))
             {
+                _checks.Check(GenerationStage.Classify);
                 if (access.Access.Kind is SummaryAccessKind.Store or SummaryAccessKind.UnknownEffect)
                     _written.Add(access.RegionId);
             }
@@ -213,10 +254,11 @@ public static class FateClassifier
             foreach (var access in run.Collection!.Accesses.Where(access => !_executions.InSetup(access.ExecutionId) &&
                                                                           access.Operation is not (AccessOperation.Read or AccessOperation.AtomicRead)))
             {
+                _checks.Check(GenerationStage.Classify);
                 _written.UnionWith(_reach.WrittenObjects(access));
             }
 
-            _fired = FiredByField(run);
+            _fired = FiredByField(run, checks, GenerationStage.Classify);
 
             // The result object: the one object Keep.R points to, made by the member while V_Call ran. The receiver: Recv_Call's one object.
             _resultObject = resultTargets.Count == 1 &&
@@ -235,6 +277,7 @@ public static class FateClassifier
             var widened = new SortedSet<string>(StringComparer.Ordinal);
             foreach (var parameter in _driver.Parameters)
             {
+                _checks.Check(GenerationStage.Classify);
                 var calls = parameter.Probes.Where(probe => probe.Variant == DriverSynthesizer.CALL_VARIANT).ToArray();
                 var fates = calls.Select(probe => FateOf(parameter, probe)).Distinct().ToArray();
                 classified[parameter.Name] = Applied(_driver.Member, fates is [var single] ? single : new ClassifiedFate(UNKNOWN_EXECUTION, null),
@@ -310,6 +353,7 @@ public static class FateClassifier
             var member = IrLowering.RootBodyId(_driver.Member);
             foreach (var edge in _heap.Edges)
             {
+                _checks.Check(GenerationStage.Classify);
                 if (!_heap.Instances.TryGetValue(edge.CallerInstance, out var caller) || caller.BodyId != call ||
                     !_heap.Instances.TryGetValue(edge.CalleeInstance, out var callee) || callee.BodyId != member)
                 {
@@ -375,9 +419,11 @@ public static class FateClassifier
         /// heap carries such a value back to a caller's local only, never into the field, and that is how the member reaches the driver's
         /// <c>Out_</c> fields.</summary>
         /// <param name="run">The run.</param>
-        private static Dictionary<string, IReadOnlySet<string>> Held(ScopeRun run)
+        /// <param name="checks">The generation's checks, which cancel the scan at each access and each call edge it goes through.</param>
+        private static Dictionary<string, IReadOnlySet<string>> Held(ScopeRun run, GenerationChecks checks)
         {
             var heap = run.Heap!;
+            var stage = new StageChecks(checks, GenerationStage.Classify);
             var held = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             HashSet<string> At(string slot)
             {
@@ -389,29 +435,39 @@ public static class FateClassifier
             static string SlotOf(IrFieldRef field) => HeapReachability.Slot(field.Assembly, field.ContainingTypeId, field.Name);
 
             foreach (var access in run.Executions!.Accesses.Where(access => access.Access is { Kind: SummaryAccessKind.Store, Field.IsStatic: true }))
-                At(SlotOf(access.Access.Field)).UnionWith(access.Access.Values.SelectMany(value => heap.Resolve(access.InstanceId, value)));
+            {
+                checks.Check(GenerationStage.Classify);
+                At(SlotOf(access.Access.Field)).UnionWith(stage.Each(access.Access.Values).SelectMany(value => heap.Resolve(access.InstanceId, value)));
+            }
+
             // A field of a struct a static field keeps is the static storage's slot through the struct (R1).
             foreach (var access in run.Executions.Accesses.Where(access => access.Access.Kind == SummaryAccessKind.Store &&
                                                                          access.Slot.Contains(FieldSlot.PATH_SEPARATOR) &&
                                                                          heap.Regions.TryGetValue(access.RegionId, out var region) &&
                                                                          region.Kind == HeapRegionKind.Static))
-                At(access.Slot).UnionWith(access.Access.Values.SelectMany(value => heap.Resolve(access.InstanceId, value)));
+            {
+                checks.Check(GenerationStage.Classify);
+                At(access.Slot).UnionWith(stage.Each(access.Access.Values).SelectMany(value => heap.Resolve(access.InstanceId, value)));
+            }
+
             foreach (var edge in heap.Edges)
             {
+                checks.Check(GenerationStage.Classify);
                 if (!heap.Instances.TryGetValue(edge.CallerInstance, out var caller) || !heap.Instances.TryGetValue(edge.CalleeInstance, out var callee))
                     continue;
-                foreach (var argument in caller.Summary.Calls.Where(call => call.OperationId == edge.OperationId).SelectMany(call => call.Arguments))
+                foreach (var argument in stage.Each(caller.Summary.Calls).Where(call => call.OperationId == edge.OperationId).SelectMany(call => call.Arguments))
                 {
-                    foreach (var cell in argument.References.OfType<ReferenceCell>().Where(cell => cell.Field.IsStatic))
+                    checks.Check(GenerationStage.Classify);
+                    foreach (var cell in stage.Each(argument.References.OfType<ReferenceCell>()).Where(cell => cell.Field.IsStatic))
                     {
-                        At(SlotOf(cell.Field)).UnionWith(callee.Summary.RefParameters.Where(parameter => parameter.Ordinal == argument.ParameterOrdinal)
-                                                       .SelectMany(parameter => parameter.Values)
-                                                       .SelectMany(value => heap.Resolve(callee.Id, value)));
+                        At(SlotOf(cell.Field)).UnionWith(stage.Each(callee.Summary.RefParameters).Where(parameter => parameter.Ordinal == argument.ParameterOrdinal)
+                                                              .SelectMany(parameter => parameter.Values)
+                                                              .SelectMany(value => heap.Resolve(callee.Id, value)));
                     }
                 }
             }
 
-            return held.Select(pair => (pair.Key, Values: pair.Value.Where(heap.Regions.ContainsKey).ToHashSet(StringComparer.Ordinal)))
+            return stage.Each(held).Select(pair => (pair.Key, Values: pair.Value.Where(heap.Regions.ContainsKey).ToHashSet(StringComparer.Ordinal)))
                        .Where(pair => pair.Values.Count != 0)
                        .ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Values, StringComparer.Ordinal);
         }
@@ -431,8 +487,8 @@ public static class FateClassifier
         private HashSet<string> Regions(DriverProbe probe)
         {
             var body = Allocations.ProbeBody(probe);
-            return _heap.Regions.Values.Where(region => region.Kind == HeapRegionKind.Delegate && region.SiteBodyId == body)
-                        .Select(region => region.Identity).ToHashSet(StringComparer.Ordinal);
+            return _stage.Each(_heap.Regions.Values).Where(region => region.Kind == HeapRegionKind.Delegate && region.SiteBodyId == body)
+                         .Select(region => region.Identity).ToHashSet(StringComparer.Ordinal);
         }
 
         private static string DriverSlot(string field) => HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.DRIVER_TYPE, field);

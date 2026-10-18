@@ -139,6 +139,7 @@ public static class DriverSynthesizer
     private const int STATIC_DEPTH = 2;
     private const int INLINE_DEPTH = 1;
     private const int TYPE_NESTING = 16;
+    private const int CLASS_NESTING = 16;
     private const int DETAILS_SHOWN = 3;
 
     private static readonly Dictionary<string, string> BinaryOperators = new(StringComparer.Ordinal)
@@ -217,7 +218,26 @@ public static class DriverSynthesizer
                                              IReadOnlySet<string> openedFields, IReadOnlySet<(string Type, string Name)> loadedStatics,
                                              ComparisonWitnesses witnesses, CancellationToken cancellationToken,
                                              IReadOnlySet<string>? replacedMembers = null)
+        => Synthesize(library, member, externMembers, openedFields, loadedStatics, witnesses, new GenerationChecks(cancellationToken), replacedMembers);
+
+    /// <summary>The driver with seeds only for static storage loaded by its reached closure, and probes that implement the comparison
+    /// interfaces the record says the member's closure needs, as a stage of a generation: it checks at its start, at each class
+    /// declaration the writer makes and before each compilation of the driver.</summary>
+    /// <param name="library">The library compilation.</param>
+    /// <param name="member">The member to call.</param>
+    /// <param name="externMembers">The members whose bodies could not compile.</param>
+    /// <param name="openedFields">The fields and auto-properties opened for setup.</param>
+    /// <param name="loadedStatics">The static storage loaded by the closure, by declaring type definition and name.</param>
+    /// <param name="witnesses">The comparison witnesses each probe needs (<see cref="ComparisonWitnesses"/>).</param>
+    /// <param name="checks">The generation's checks, which cancel the synthesis.</param>
+    /// <param name="replacedMembers">The documentation ids among <paramref name="externMembers"/> whose body is not the code the runtime
+    /// runs (<see cref="LibraryCompilationResult.ReplacedMembers"/>).</param>
+    internal static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
+                                               IReadOnlySet<string> openedFields, IReadOnlySet<(string Type, string Name)> loadedStatics,
+                                               ComparisonWitnesses witnesses, GenerationChecks checks, IReadOnlySet<string>? replacedMembers = null)
     {
+        var cancellationToken = checks.Token;
+        checks.Check(GenerationStage.Synthesize);
         if (IsAccessor(member))
             return new DriverSynthesis(null, GenerationReasons.ACCESSOR, AccessorDetail(member));
         if (member is not IMethodSymbol
@@ -232,7 +252,7 @@ public static class DriverSynthesizer
         }
 
         var definition = method.OriginalDefinition;
-        var writer = new Writer(library, definition, openedFields, loadedStatics, witnesses);
+        var writer = new Writer(library, definition, openedFields, loadedStatics, witnesses, checks);
         writer.Build();
         if (!writer.Candidate)
         {
@@ -247,6 +267,11 @@ public static class DriverSynthesizer
                                            ? $"the body of {Id(definition)} is not the code the runtime runs and was made extern"
                                            : $"the body of {Id(definition)} did not compile and was made extern");
         }
+        if (writer.TooDeep is { } chain)
+        {
+            return new DriverSynthesis(null, GenerationReasons.DRIVER_NOT_SYNTHESIZED,
+                                       $"the classes the driver declares nest more than {CLASS_NESTING} deep, in a chain that started with {chain}");
+        }
         if (writer.Failures.Count > 0)
             return new DriverSynthesis(null, GenerationReasons.DRIVER_NOT_SYNTHESIZED, string.Join("; ", writer.Failures.Distinct().Take(DETAILS_SHOWN)));
 
@@ -258,6 +283,7 @@ public static class DriverSynthesizer
         Diagnostic[] errors;
         for (var attempt = 0; ; attempt++)
         {
+            checks.Check(GenerationStage.Synthesize);
             source = writer.Source();
             tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview), $"{ASSEMBLY}/{DRIVER_TYPE}.cs",
                                               cancellationToken: cancellationToken);
@@ -449,8 +475,9 @@ public static class DriverSynthesizer
     /// <param name="openedFields">The fields and auto-properties opened for setup.</param>
     /// <param name="loadedStatics">The static storage loaded by the reached closure.</param>
     /// <param name="witnesses">The comparison witnesses each probe needs.</param>
+    /// <param name="checks">The generation's checks, which cancel the writing at each class declaration.</param>
     private sealed class Writer(CSharpCompilation library, IMethodSymbol member, IReadOnlySet<string> openedFields,
-                                IReadOnlySet<(string Type, string Name)> loadedStatics, ComparisonWitnesses witnesses)
+                                IReadOnlySet<(string Type, string Name)> loadedStatics, ComparisonWitnesses witnesses, GenerationChecks checks)
     {
         /// <summary>The types whose members compare what they get, which the analysis takes to read it, as it takes <c>Equals</c>.</summary>
         private static readonly HashSet<string> ComparisonTypes = new(
@@ -495,6 +522,10 @@ public static class DriverSynthesizer
         private readonly List<ITypeSymbol> _seedTypeKeys = [];
         private readonly Dictionary<string, string> _classes = new(StringComparer.Ordinal);
         private readonly List<string> _classKeys = [];
+
+        /// <summary>The types whose class declarations are being written, one inside the next, outermost first: what a declared class's
+        /// witnesses need, down to <see cref="CLASS_NESTING"/>.</summary>
+        private readonly List<string> _declaring = [];
         private readonly Dictionary<(string Parameter, string Variant), Owner> _owners = [];
         private List<IMethodSymbol>? _producers;
         private int _intermediates;
@@ -509,6 +540,10 @@ public static class DriverSynthesizer
         private int _awaits;
 
         public List<string> Failures { get; } = [];
+
+        /// <summary>The type that started the first chain of class declarations to pass <see cref="CLASS_NESTING"/> levels, or
+        /// <c>null</c> when none did. Unlike <see cref="Failures"/>, a rollback does not take it back.</summary>
+        public string? TooDeep { get; private set; }
 
         public List<string> Defaulted { get; } = [];
 
@@ -2168,7 +2203,9 @@ public static class DriverSynthesizer
         }
 
         /// <summary>A driver type's declaration: a sealed class, or for <paramref name="probeStruct"/> a struct, whose every expressible
-        /// member a user type could override or implement is a witness.</summary>
+        /// member a user type could override or implement is a witness. A witness body may need a class of its own, which is declared
+        /// while this one is: past <see cref="CLASS_NESTING"/> declarations inside one another it declares nothing and records the type
+        /// that started the chain in <see cref="TooDeep"/>.</summary>
         /// <param name="name">The type's name.</param>
         /// <param name="baseClass">The class to derive from, or <c>null</c>.</param>
         /// <param name="interfaces">The interfaces to implement.</param>
@@ -2179,7 +2216,16 @@ public static class DriverSynthesizer
         private string ClassDeclaration(string name, INamedTypeSymbol? baseClass, IReadOnlyList<INamedTypeSymbol> interfaces, bool fields,
                                         ISet<ISymbol>? excluded, string owner, ITypeParameterSymbol? probeStruct = null)
         {
+            checks.Check(GenerationStage.Synthesize);
             var bases = (baseClass is null ? [] : new[] { R(baseClass) }).Concat(interfaces.Select(R)).ToArray();
+            // The member is refused once a chain passes the bound, so nothing after it is declared.
+            if (TooDeep is not null || _declaring.Count == CLASS_NESTING)
+            {
+                TooDeep ??= _declaring[0];
+                return "";
+            }
+
+            _declaring.Add(bases.FirstOrDefault() ?? name);
             var text = new StringBuilder();
             text.Append(probeStruct is null ? "public sealed class " : "public struct ").Append(name)
                 .Append(bases.Length > 0 ? " : " + string.Join(", ", bases) : "").Append("\n{\n");
@@ -2216,6 +2262,7 @@ public static class DriverSynthesizer
                 }
             }
 
+            _declaring.RemoveAt(_declaring.Count - 1);
             return text.Append("}\n").ToString();
         }
 

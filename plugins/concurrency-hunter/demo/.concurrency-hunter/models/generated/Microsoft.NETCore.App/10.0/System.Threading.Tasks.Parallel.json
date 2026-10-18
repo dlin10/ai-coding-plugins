@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "System.Threading.Tasks.Parallel",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Threading.Tasks.Parallel.For(System.Int32,System.Int32,System.Action{System.Int32})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Threading.Tasks.Parallel.get_DefaultDegreeOfParallelism is claimed by the spawn recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Threading.Tasks.Parallel.ForEachAsync``1(System.Collections.Generic.IEnumerable{``0},System.Threading.CancellationToken,System.Func{``0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Threading.Tasks.Parallel.get_DefaultDegreeOfParallelism is claimed by the spawn recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Threading.Tasks.Parallel.ForEach``1(System.Collections.Generic.IEnumerable{``0},System.Action{``0})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Threading.Tasks.Parallel.get_DefaultDegreeOfParallelism is claimed by the spawn recognizer",
+        "causes": []
+      }
+    }
+  ]
+}

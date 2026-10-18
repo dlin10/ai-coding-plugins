@@ -758,6 +758,79 @@ public sealed class DriverSynthesisTests
         Assert.Contains(predicate.Probes, probe => probe.Variant == DriverSynthesizer.ENUMERATE_VARIANT);
     }
 
+    // ---- the bound on nested class declarations ----
+
+    private const string CHAIN_TAKE = "M:Chain.Api.Take(Chain.Box,System.Action)";
+
+    // Each INode<T> witnesses a Next that returns an INode of a type the memo has not seen: the seed classes it needs never end.
+    private const string ENDLESS = """
+        using System;
+        namespace Endless
+        {
+            public interface INode<T> { INode<System.Collections.Generic.List<T>> Next(); }
+            public sealed class Box { public INode<int> Head; }
+            public static class Api { public static void Take(Box box, Action done) { } }
+        }
+        """;
+
+    [Fact]
+    public void Seed_classes_that_need_ever_new_types_stop_at_the_bound()
+    {
+        var synthesis = SynthesizeIn(ENDLESS, "M:Endless.Api.Take(Endless.Box,System.Action)");
+
+        Assert.Null(synthesis.Driver);
+        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
+        Assert.Contains("16", synthesis.Detail);
+    }
+
+    [Fact]
+    public void The_bound_names_the_type_that_started_the_chain()
+    {
+        var synthesis = SynthesizeIn(Chain(40), CHAIN_TAKE);
+
+        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
+        Assert.Contains("16", synthesis.Detail);
+        Assert.Contains("global::Chain.Link0", synthesis.Detail);
+        Assert.DoesNotContain("Link1", synthesis.Detail);
+    }
+
+    [Theory]
+    [InlineData(16, true)]
+    [InlineData(17, false)]
+    public void Terminating_chain_at_the_bound_compiles_and_one_past_it_is_refused(int links, bool synthesized)
+    {
+        var synthesis = SynthesizeIn(Chain(links), CHAIN_TAKE);
+
+        Assert.Equal(synthesized, synthesis.Driver is not null);
+        if (synthesis.Driver is { } driver)
+        {
+            // Every link of the chain has its seed class, one inside the next.
+            Assert.Empty(driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+            Assert.Equal(links, driver.Compilation.GetSymbolsWithName(name => name.StartsWith("Seed_", StringComparison.Ordinal), SymbolFilter.Type).Count());
+        }
+        else
+            Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
+    }
+
+    /// <summary>A library whose <c>Box.Head</c> is the first of <paramref name="links"/> interfaces, each witnessing a <c>Next</c> that
+    /// returns the next and the last none, so the seed of a <c>Box</c> needs <paramref name="links"/> seed classes declared one inside
+    /// the next.</summary>
+    /// <param name="links">How many interfaces the chain has.</param>
+    private static string Chain(int links) =>
+        "using System; namespace Chain { " +
+        string.Join(" ", Enumerable.Range(0, links).Select(index => index < links - 1
+            ? $"public interface Link{index} {{ Link{index + 1} Next(); }}"
+            : $"public interface Link{index} {{ void Done(); }}")) +
+        " public sealed class Box { public Link0 Head; } public static class Api { public static void Take(Box box, Action done) { } } }";
+
+    private static DriverSynthesis SynthesizeIn(string source, string memberId)
+    {
+        var library = CompileLibrary(source);
+        var member = DriverSynthesizer.FindMember(library.Compilation!, memberId);
+        Assert.True(member is not null, $"{memberId} is not in the library");
+        return DriverSynthesizer.Synthesize(library.Compilation!, member, library.ExternMembers, CancellationToken.None);
+    }
+
     // ---- helpers ----
 
     private const string EXCHANGE = "M:Lib.Api.Exchange(Lib.Bag@,Lib.Bag@,System.Action@,System.Action@,System.Action@,System.Action)";

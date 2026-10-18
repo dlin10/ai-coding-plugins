@@ -23,38 +23,91 @@ public static partial class InterproceduralAccesses
         private sealed record ReturnUnproven : ReturnItem;
 
         /// <summary>A least fixpoint of returns in each instance's own frame. Varying indices and shifts inside a cycle
-        /// widen, so recursion cannot generate an unbounded sequence of cells.</summary>
+        /// widen, so recursion cannot generate an unbounded sequence of cells. Every loop whose length no constant bounds, and the entry of
+        /// each recursive call, observes the token the collection was started with.</summary>
         private sealed class ReturnSummaries
         {
             private readonly HeapSolution _heap;
+            private readonly CancellationToken _cancellationToken;
             private readonly Dictionary<(string Instance, ReturnKind Kind), HashSet<ReturnItem>> _items = [];
             private readonly Dictionary<(string Instance, int Operation), CallEdge[]> _calls;
             private readonly Dictionary<string, int> _components;
             private static readonly ReturnUnproven UNPROVEN = new();
 
-            internal ReturnSummaries(HeapSolution heap, IEnumerable<CallEdge> edges)
+            /// <summary>The fixpoint of the returns of every instance of a heap over the call edges one execution walked.</summary>
+            /// <param name="heap">The heap whose instances are summarized.</param>
+            /// <param name="edges">The call edges the execution walked.</param>
+            /// <param name="cancellationToken">Cancels the computation at its next check.</param>
+            /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+            internal ReturnSummaries(HeapSolution heap, IEnumerable<CallEdge> edges, CancellationToken cancellationToken)
             {
                 _heap = heap;
-                var graph = edges.ToArray();
-                _calls = graph.GroupBy(edge => (edge.CallerInstance, edge.OperationId))
-                              .ToDictionary(group => group.Key, group => group.ToArray());
+                _cancellationToken = cancellationToken;
+                var graph = new List<CallEdge>();
+                foreach (var edge in edges)
+                {
+                    Check();
+                    graph.Add(edge);
+                }
+
+                _calls = Grouped(graph, edge => (edge.CallerInstance, edge.OperationId), edge => edge);
                 _components = Components(graph);
                 foreach (var instance in heap.Instances.Keys)
-                foreach (var kind in new[] { ReturnKind.Reference, ReturnKind.Collection })
-                    _items.Add((instance, kind), []);
+                {
+                    Check();
+                    foreach (var kind in new[] { ReturnKind.Reference, ReturnKind.Collection })
+                        _items.Add((instance, kind), []);
+                }
 
                 var changed = true;
                 while (changed)
                 {
+                    Check();
                     changed = false;
                     foreach (var instance in heap.Instances.Values)
                     foreach (var kind in new[] { ReturnKind.Reference, ReturnKind.Collection })
                     {
+                        Check();
                         var targets = kind == ReturnKind.Reference ? instance.Summary.ReferenceReturns : instance.Summary.CollectionReturns;
                         foreach (var item in Map(instance, targets, []).ToArray())
+                        {
+                            Check();
                             changed |= _items[(instance.Id, kind)].Add(item);
+                        }
                     }
                 }
+            }
+
+            private void Check() => _cancellationToken.ThrowIfCancellationRequested();
+
+            /// <summary>The edges grouped by a key, each group in the order its edges come, with a check for every edge and every group.</summary>
+            /// <typeparam name="TKey">The type of the key.</typeparam>
+            /// <typeparam name="TValue">The type of what each group holds of its edges.</typeparam>
+            /// <param name="edges">The call edges to group.</param>
+            /// <param name="key">The key of an edge.</param>
+            /// <param name="value">What a group holds of an edge.</param>
+            private Dictionary<TKey, TValue[]> Grouped<TKey, TValue>(IEnumerable<CallEdge> edges, Func<CallEdge, TKey> key,
+                                                                    Func<CallEdge, TValue> value)
+                where TKey : notnull
+            {
+                var groups = new Dictionary<TKey, List<TValue>>();
+                foreach (var edge in edges)
+                {
+                    Check();
+                    var group = key(edge);
+                    if (!groups.TryGetValue(group, out var members))
+                        groups.Add(group, members = []);
+                    members.Add(value(edge));
+                }
+
+                var grouped = new Dictionary<TKey, TValue[]>();
+                foreach (var (group, members) in groups)
+                {
+                    Check();
+                    grouped.Add(group, members.ToArray());
+                }
+
+                return grouped;
             }
 
             internal IEnumerable<ReturnItem> Of(string instance, ReturnKind kind) => _items[(instance, kind)];
@@ -73,6 +126,7 @@ public static partial class InterproceduralAccesses
             {
                 foreach (var target in targets)
                 {
+                    Check();
                     switch (target)
                     {
                         case ReferenceParameter parameter:
@@ -102,6 +156,7 @@ public static partial class InterproceduralAccesses
             private IEnumerable<ReturnItem> Call(MethodInstance caller, int operation, ReturnKind kind,
                                                  HashSet<(string Instance, int Operation, ReturnKind Kind)> mapping)
             {
+                Check();
                 var key = (caller.Id, operation, kind);
                 if (!mapping.Add(key))
                     yield break;
@@ -110,9 +165,19 @@ public static partial class InterproceduralAccesses
                     var call = caller.Summary.Calls.FirstOrDefault(call => call.OperationId == operation);
                     var receiverFromCall = kind == ReturnKind.Reference && call?.Receivers.Any(value => value is CallResultValue or AwaitResultValue) == true;
                     foreach (var edge in _calls.GetValueOrDefault((caller.Id, operation)) ?? [])
-                    foreach (var item in Of(edge.CalleeInstance, kind).ToArray())
-                    foreach (var carried in Carry(caller, call, edge.CalleeInstance, item, mapping))
-                        yield return receiverFromCall ? Widen(carried, keepTerm: true) : carried;
+                    {
+                        // An edge whose callee returns nothing runs no loop below, so the edge checks for itself.
+                        Check();
+                        foreach (var item in Of(edge.CalleeInstance, kind).ToArray())
+                        {
+                            Check();
+                            foreach (var carried in Carry(caller, call, edge.CalleeInstance, item, mapping))
+                            {
+                                Check();
+                                yield return receiverFromCall ? Widen(carried, keepTerm: true) : carried;
+                            }
+                        }
+                    }
                 }
                 finally
                 {
@@ -123,16 +188,22 @@ public static partial class InterproceduralAccesses
             private IEnumerable<ReturnItem> Carry(MethodInstance caller, CallTransfer? call, string callee, ReturnItem item,
                                                   HashSet<(string Instance, int Operation, ReturnKind Kind)> mapping)
             {
+                Check();
                 switch (item)
                 {
                     case ReturnParam parameter:
                         foreach (var argument in call?.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal) ?? [])
-                        foreach (var mapped in Map(caller, argument.References, mapping))
-                            yield return mapped;
+                        {
+                            Check();
+                            foreach (var mapped in Map(caller, argument.References, mapping))
+                                yield return mapped;
+                        }
+
                         break;
                     case ReturnParamCollection parameter:
                         foreach (var argument in call?.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Element.Ordinal) ?? [])
                         {
+                            Check();
                             var collection = argument.Collection;
                             var selector = parameter.Element.Selector;
                             var term = parameter.Element.Term;
@@ -182,8 +253,8 @@ public static partial class InterproceduralAccesses
 
             private Dictionary<string, int> Components(IReadOnlyList<CallEdge> edges)
             {
-                var next = edges.GroupBy(edge => edge.CallerInstance).ToDictionary(group => group.Key, group => group.Select(edge => edge.CalleeInstance).ToArray());
-                var previous = edges.GroupBy(edge => edge.CalleeInstance).ToDictionary(group => group.Key, group => group.Select(edge => edge.CallerInstance).ToArray());
+                var next = Grouped(edges, edge => edge.CallerInstance, edge => edge.CalleeInstance);
+                var previous = Grouped(edges, edge => edge.CalleeInstance, edge => edge.CallerInstance);
                 var seen = new HashSet<string>(StringComparer.Ordinal);
                 var finished = new List<string>();
                 foreach (var root in _heap.Instances.Keys)
@@ -192,13 +263,17 @@ public static partial class InterproceduralAccesses
                     pending.Push((root, false));
                     while (pending.TryPop(out var node))
                     {
+                        Check();
                         if (node.Exit)
                             finished.Add(node.Instance);
                         else if (seen.Add(node.Instance))
                         {
                             pending.Push((node.Instance, true));
                             foreach (var child in next.GetValueOrDefault(node.Instance) ?? [])
+                            {
+                                Check();
                                 pending.Push((child, false));
+                            }
                         }
                     }
                 }
@@ -206,14 +281,19 @@ public static partial class InterproceduralAccesses
                 var component = 0;
                 foreach (var root in finished.AsEnumerable().Reverse())
                 {
+                    Check();
                     if (components.ContainsKey(root)) continue;
                     var pending = new Stack<string>();
                     pending.Push(root);
                     while (pending.TryPop(out var node))
                     {
+                        Check();
                         if (!components.TryAdd(node, component)) continue;
                         foreach (var parent in previous.GetValueOrDefault(node) ?? [])
+                        {
+                            Check();
                             pending.Push(parent);
+                        }
                     }
                     component++;
                 }

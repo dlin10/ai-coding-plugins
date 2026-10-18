@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "assembly": {
+    "name": "System.Console",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Console.Write(System.Object)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Console.WriteLine(System.Object)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    }
+  ]
+}

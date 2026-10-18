@@ -94,20 +94,41 @@ public static class ModelGenerator
     /// is read as a member's and a namespace's as a type's, so those kinds reach the generator rather than a usage error: a
     /// <c>P:</c> or <c>E:</c> id is refused with <c>accessor</c> (G-6: after <c>member-not-found</c>, before
     /// <c>engine-recognized</c>), its detail naming the <c>M:</c> ids of the accessors, which are generated as methods are; an
-    /// <c>F:</c> id is refused with <c>driver-not-synthesized</c>.</summary>
+    /// <c>F:</c> id is refused with <c>driver-not-synthesized</c>. An id that carries Roslyn's empty type name for a function-pointer
+    /// type (<see cref="DeclarationId.HasEmptyTypeSegment"/>) reaches the generator too, and is refused with <c>unnamed-member</c>;
+    /// the pattern <c>(*)</c> stays a usage error whatever it might stand for.</summary>
     /// <param name="id">The text.</param>
     public static bool IsMemberId(string? id)
     {
-        if (id is not { Length: > 2 } || id[1] != ':')
+        if (Grammar(id) is not { } grammar)
             return false;
-        var grammar = id[0] switch
+        var parsed = DeclarationId.Parse(grammar);
+        return parsed is { IsPattern: false } || parsed is null && DeclarationId.HasEmptyTypeSegment(grammar);
+    }
+
+    /// <summary>An id in the form <see cref="DeclarationId.Parse"/> reads: the kinds the grammar does not know are read as the member
+    /// or type kinds.</summary>
+    /// <param name="id">The text.</param>
+    private static string? Grammar(string? id)
+    {
+        if (id is not { Length: > 2 } || id[1] != ':')
+            return null;
+        return id[0] switch
         {
             'M' or 'P' or 'E' or 'F' => "M" + id[1..],
             'T' or 'N' => "T" + id[1..],
             _ => null
         };
-        return grammar is not null && DeclarationId.Parse(grammar) is { IsPattern: false };
     }
+
+    /// <summary>The refusal for a member id whose text carries the empty type name of a function-pointer type, or <c>null</c>: no id names
+    /// such a member, so nothing is resolved for it.</summary>
+    /// <param name="facts">What the generation has found so far.</param>
+    private static GenerationTrace? Unnamed(Facts facts) =>
+        Grammar(facts.Request.MemberId) is { } grammar && DeclarationId.HasEmptyTypeSegment(grammar)
+            ? facts.Refused(GenerationReasons.UNNAMED_MEMBER,
+                            $"{facts.Request.MemberId} has the empty type name of a function-pointer type, which no declaration id names")
+            : null;
 
     /// <summary>The answer for one member.</summary>
     /// <param name="request">The member asked for.</param>
@@ -120,11 +141,18 @@ public static class ModelGenerator
     /// <summary>The answer for one member, with the driver and the run behind it.</summary>
     /// <param name="request">The member asked for.</param>
     /// <param name="resolver">Finds the implementation assembly.</param>
-    /// <param name="cancellationToken">Cancels the generation.</param>
-    internal static GenerationTrace Trace(GenerationRequest request, ImplementationAssemblies resolver, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancels the generation: every stage checks it (<see cref="GenerationStage"/>), and a cancelled
+    /// generation throws <see cref="OperationCanceledException"/>.</param>
+    /// <param name="checkReported">Told the stage and the ordinal of each check within that stage before the check is made, for tests;
+    /// <c>null</c> in production.</param>
+    internal static GenerationTrace Trace(GenerationRequest request, ImplementationAssemblies resolver, CancellationToken cancellationToken,
+                                          Action<GenerationStage, int>? checkReported = null)
     {
+        var checks = new GenerationChecks(cancellationToken, checkReported);
         var facts = new Facts(request);
-        var resolution = resolver.Resolve(request.AssemblyName, request.Version, request.PackageId, request.Framework);
+        if (Unnamed(facts) is { } unnamed)
+            return unnamed;
+        var resolution = resolver.Resolve(request.AssemblyName, request.Version, request.PackageId, request.Framework, checks);
         // The platform is the one the resolver chose, also when it found no assembly there.
         facts.Framework = resolution.Framework;
         if (resolution.Assembly is { } opened)
@@ -135,8 +163,8 @@ public static class ModelGenerator
 
         if (resolution.Reason is { } reason)
             return facts.Refused(reason, resolution.Detail);
-        var library = LibraryCompilation.Compile(resolution.Assembly!, cancellationToken);
-        return Classify(facts, library, cancellationToken);
+        var library = LibraryCompilation.Compile(resolution.Assembly!, checks);
+        return Classify(facts, library, checks);
     }
 
     /// <summary>The answer for one member of a library already compiled, from the member check on: no implementation assembly, no
@@ -146,29 +174,40 @@ public static class ModelGenerator
     /// <param name="cancellationToken">Cancels the generation.</param>
     /// <param name="models">The models the runs use in place of the built-in ones outside the library, for tests of a dependency's
     /// model; <c>null</c> for those.</param>
+    /// <param name="checkReported">Told the stage and the ordinal of each check within that stage before the check is made, for tests;
+    /// <c>null</c> in production.</param>
     internal static GenerationTrace Trace(GenerationRequest request, LibraryCompilationResult library, CancellationToken cancellationToken,
-                                          LibraryModels? models = null) =>
-        Classify(new Facts(request), library, cancellationToken, models);
+                                          LibraryModels? models = null, Action<GenerationStage, int>? checkReported = null)
+    {
+        var facts = new Facts(request);
+        return Unnamed(facts) ?? Classify(facts, library, new GenerationChecks(cancellationToken, checkReported), models);
+    }
 
-    private static GenerationTrace Classify(Facts facts, LibraryCompilationResult library, CancellationToken cancellationToken,
-                                            LibraryModels? models = null)
+    private static GenerationTrace Classify(Facts facts, LibraryCompilationResult library, GenerationChecks checks, LibraryModels? models = null)
     {
         facts.ExternBodies = library.ExternBodies;
         if (library.Compilation is not { } compilation)
             return facts.Refused(library.Reason ?? GenerationReasons.LIBRARY_DOES_NOT_COMPILE, string.Join(", ", library.Errors));
         if (DriverSynthesizer.FindMember(compilation, facts.Request.MemberId) is not { } member)
             return facts.Refused(GenerationReasons.MEMBER_NOT_FOUND, $"{compilation.AssemblyName} declares no {facts.Request.MemberId}");
+        if (member is IMethodSymbol signature && FunctionPointers.In(signature))
+        {
+            return facts.Refused(GenerationReasons.UNNAMED_MEMBER,
+                                 $"{facts.Request.MemberId} has a function-pointer type in its signature, which no declaration id names");
+        }
         if (DriverSynthesizer.IsAccessor(member))
             return facts.Refused(GenerationReasons.ACCESSOR, DriverSynthesizer.AccessorDetail(member));
         var corelib = compilation.AssemblyName == "System.Private.CoreLib";
+        checks.Check(GenerationStage.EngineClaims);
         var claim = corelib
             ? member is IMethodSymbol method && EngineClaims.Of(method) is { } recognizer
                 ? new EngineClaim(facts.Request.MemberId, recognizer) : null
-            : EngineClaims.FirstIn(compilation.Assembly);
+            : EngineClaims.FirstIn(compilation.Assembly, checks);
         if (claim is not null)
             return facts.Refused(GenerationReasons.ENGINE_RECOGNIZED, $"{claim.Method} is claimed by the {claim.Recognizer} recognizer");
 
-        var synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields, cancellationToken,
+        var synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields,
+                                                     new HashSet<(string Type, string Name)>(), new ComparisonWitnesses(), checks,
                                                      library.ReplacedMembers);
         if (synthesis.Driver is not { } driver)
             return facts.Refused(synthesis.Reason!, synthesis.Detail);
@@ -194,9 +233,14 @@ public static class ModelGenerator
                 SilentTypeKeys = CoreLibSilentTypeKeys(compilation, driver.Member)
             }
             : ReachabilityRules.ClassHierarchy) with { OpenWorldAssemblies = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY } };
-        ScopeRun Pipeline(bool triggers) =>
-            ScopePipeline.Run(SCOPE_ID, [compilation, driver.Compilation], [], Path.GetTempPath(), new ProviderRegistry([new DriverRootProvider(triggers)]),
-                              models, AnalysisLimits.Default, lowered, CLOSURE_BOUND, cancellationToken, reachability: reachability);
+        // A stage that runs the pipeline checks at its start and before each step the pipeline takes.
+        ScopeRun Pipeline(bool triggers, GenerationStage stage)
+        {
+            checks.Check(stage);
+            return ScopePipeline.Run(SCOPE_ID, [compilation, driver.Compilation], [], Path.GetTempPath(), new ProviderRegistry([new DriverRootProvider(triggers)]),
+                                     models, AnalysisLimits.Default, lowered, CLOSURE_BOUND, checks.Token, _ => checks.Check(stage),
+                                     reachability: reachability);
+        }
 
         ScopeRun run;
         // The lowering cache is shared by the runs, so a dropped body is reported only by the run that first lowered it.
@@ -205,7 +249,7 @@ public static class ModelGenerator
         {
             while (true)
             {
-                run = Pipeline(triggers: false);
+                run = Pipeline(triggers: false, GenerationStage.Analyze);
                 dropped.UnionWith(run.LoweringDiagnostics);
                 run = run with { LoweringDiagnostics = dropped.ToArray() };
                 var previousCount = loadedStatics.Count;
@@ -220,7 +264,7 @@ public static class ModelGenerator
                 if (!needsGrew && (run.Stopped || loadedStatics.Count == previousCount))
                     break;
                 synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields, loadedStatics,
-                                                         witnesses, cancellationToken, library.ReplacedMembers);
+                                                         witnesses, checks, library.ReplacedMembers);
                 if (synthesis.Driver is not { } seededDriver)
                     return facts.Refused(synthesis.Reason!, synthesis.Detail);
                 driver = seededDriver;
@@ -251,7 +295,7 @@ public static class ModelGenerator
         FateClassification classification;
         try
         {
-            classification = FateClassifier.Classify(driver, run);
+            classification = FateClassifier.Classify(driver, run, checks);
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
@@ -271,7 +315,7 @@ public static class ModelGenerator
             {
                 try
                 {
-                    confirmation = Pipeline(triggers: true);
+                    confirmation = Pipeline(triggers: true, GenerationStage.ConfirmHolder);
                 }
                 catch (Exception error) when (error is not OperationCanceledException)
                 {
@@ -279,11 +323,12 @@ public static class ModelGenerator
                 }
             }
 
-            classified = FateClassifier.Confirmed(driver, classified, confirmation);
+            classified = FateClassifier.Confirmed(driver, classified, confirmation, checks);
         }
 
-        var effects = new EffectReader(driver, run, classified);
-        var values = new ValueProvenance(driver, run, classified, confirmation);
+        checks.Check(GenerationStage.ReadEffects);
+        var effects = new EffectReader(driver, run, classified, checks);
+        var values = new ValueProvenance(driver, run, classified, confirmation, checks);
         facts.Unseeded = driver.Unseeded.Concat(effects.UnreachedSeeds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         facts.HolderTriggers = values.HolderTriggers;
 
@@ -297,13 +342,19 @@ public static class ModelGenerator
         {
             causes.Add(ModelReasons.LIBRARY_STATE, ModelCauses.LIBRARY_STATE_STORE, $"{state.Region} in {string.Join(" and ", state.Roots)}");
         }
-        var built = BuildModel(driver.Member, classified, effects, values, causes);
+        var built = BuildModel(driver.Member, classified, effects, values, causes, checks);
         var modelReason = causes.Reason;
         var detail = "";
         LibraryModel? model = null;
         if (modelReason is null)
         {
-            var files = ProjectModelFiles.Read("generated.json", ModelEntryWriter.File(built));
+            // The entry is written with a check at each of its parts, and read and validated as a project file's is, which nothing
+            // inside cancels: each step is bounded by the one entry, with a check between them and a last one after them.
+            checks.Check(GenerationStage.BuildModel);
+            var bytes = ModelEntryWriter.File(built, checks);
+            checks.Check(GenerationStage.BuildModel);
+            var files = ProjectModelFiles.Read("generated.json", bytes);
+            checks.Check(GenerationStage.BuildModel);
             detail = files.Rejections.FirstOrDefault()?.Reason ??
                      (files.Entries.Count == 1 ? ProjectModelResolver.EntryRejection(files.Entries[0], driver.Member, compilation) :
                       $"the generated file contains {files.Entries.Count} entries") ?? "";
@@ -316,6 +367,8 @@ public static class ModelGenerator
             }
         }
 
+        // The last check: a cancellation that came while the entry was validated is not returned as an answer.
+        checks.Check(GenerationStage.BuildModel);
         return new GenerationTrace(facts.Answer(classified, null, detail, model, modelReason, causes.All), driver, run)
         {
             Confirmation = confirmation,
@@ -398,9 +451,11 @@ public static class ModelGenerator
     /// <param name="reader">The effects read from the run.</param>
     /// <param name="values">The values named in the run.</param>
     /// <param name="causes">Where the cases the vocabulary cannot name are recorded.</param>
+    /// <param name="checks">The generation's checks; the model checks at its start and before each effect it writes.</param>
     private static LibraryModel BuildModel(IMethodSymbol member, IReadOnlyDictionary<string, ClassifiedFate> classified, EffectReader reader,
-                                           ValueProvenance values, GenerationCauses causes)
+                                           ValueProvenance values, GenerationCauses causes, GenerationChecks checks)
     {
+        checks.Check(GenerationStage.BuildModel);
         var fates = member.Parameters.Where(parameter => TypeShape.Of(parameter.Type) == TypeShapeKind.Delegate &&
                                                         classified.ContainsKey(parameter.Name))
                           .Select(parameter => Fate(parameter.Name, classified[parameter.Name], values.Inputs))
@@ -410,6 +465,7 @@ public static class ModelGenerator
         {
             foreach (var effect in observed)
             {
+                checks.Check(GenerationStage.BuildModel);
                 // The receiver's own state is the library's: only what it holds of the user's — a seed, a probe its construction was
                 // given — is an effect on this. A read of it is a deep read of this; a write has no form, since writes-arg on this would
                 // name the receiver's own fields.

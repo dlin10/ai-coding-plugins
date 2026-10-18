@@ -470,6 +470,60 @@ public sealed class LibraryCompilationTests
         Assert.Same(under8, LibraryCompilation.Compile(resolver.Resolve("Fixture.Standard", "1.0", "Fixture.Standard", "net8.0").Assembly!, CancellationToken.None));
     }
 
+    [Fact]
+    public void Decompilation_stops_between_types()
+    {
+        using var install = new GenerationInstall();
+        var assembly = Emitted(install, "Fixture.Between", """
+            public sealed class First { public int Value() => 1; }
+            public sealed class Second { public int Value() => 2; }
+            """);
+        using var cancellation = new CancellationTokenSource();
+        var printed = new List<string>();
+        // One worker takes the types in turn: the token fires once the first is printed, and the second's output never starts.
+        var probe = new LibraryCompilationProbe
+        {
+            Workers = 1,
+            TypePrinted = type =>
+            {
+                lock (printed)
+                    printed.Add(type);
+                cancellation.Cancel();
+            }
+        };
+
+        Assert.ThrowsAny<OperationCanceledException>(() => LibraryCompilation.Compile(assembly, new HashSet<string>(StringComparer.Ordinal),
+                                                                                      new GenerationChecks(cancellation.Token), probe));
+
+        lock (printed)
+            Assert.Single(printed);
+    }
+
+    [Fact]
+    public async Task Waiting_for_a_compilation_another_caller_started_stops_with_the_waiters_token()
+    {
+        using var install = new GenerationInstall();
+        var assembly = Emitted(install, "Fixture.Waiting", ASYNC_SOURCE);
+        var none = new HashSet<string>(StringComparer.Ordinal);
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var cancellation = new CancellationTokenSource();
+        var first = Task.Run(() => LibraryCompilation.Compile(assembly, none, new GenerationChecks(CancellationToken.None),
+                                                              new LibraryCompilationProbe { Started = () => { held.Set(); release.Wait(); } }));
+        Assert.True(held.Wait(TimeSpan.FromMinutes(1)));
+
+        // The second caller finds the compilation under way and, just before it waits, its token fires.
+        var second = Task.Run(() => LibraryCompilation.Compile(assembly, none, new GenerationChecks(cancellation.Token),
+                                                               new LibraryCompilationProbe { Waiting = cancellation.Cancel }));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
+
+        Assert.False(first.IsCompleted);
+        release.Set();
+        var result = await first;
+        Assert.Null(result.Reason);
+        Assert.Same(result, LibraryCompilation.Compile(assembly, CancellationToken.None));
+    }
+
     /// <summary>The top-level types of an assembly's metadata the whole-project decompiler writes: all but <c>&lt;Module&gt;</c> and
     /// <c>&lt;PrivateImplementationDetails&gt;</c>, which carry nothing a project declares.</summary>
     /// <param name="path">The assembly file.</param>
