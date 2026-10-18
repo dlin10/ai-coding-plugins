@@ -1034,23 +1034,22 @@ on the host to the Builder's own rule — fix the rule, not the place — and re
 ### When a round is too large for the critic's vendor
 
 The review window only grows over a run, and codex accepts at most 1,048,576 characters in one
-prompt. A round over its vendor's limit is refused before any critic starts: nothing was sent, the
-round was not counted, a grant the user gave for it still stands, and the flow log says the round
-was not sent. The refusal lists what the prompt holds and its ten largest files, named from
-`workspaceRoot`. Show the user those sizes and ask how to narrow the round, as "Asking the user"
-describes, then start the same round again with what they chose:
+prompt. The server fits a round itself: over the limit, it gives the critic the untracked files by
+path, then the tracked files' diffs as files in the run folder, and the critique's summary says so.
+Nothing leaves the review that way, and there is nothing to ask.
 
-- `untrackedByReference: true` lists the untracked files for the critic to read from the working
-  tree instead of embedding them. Nothing leaves the review; the critic reads the new files with its
-  own tools, and their contents still pass the secret check. Recommend it when the untracked files
-  are the run's work.
-- `excludePaths` takes paths or patterns out of the round, named as the refusal names them. Only
-  for what is not the run's work — a plan's gate script, generated output such as an eval snapshot.
-  A deliverable the plan asks for left out is one the critic cannot judge.
+Only a round still over the limit with every file given by path is refused before any critic
+starts: nothing was sent, the round was not counted, a grant the user gave for it still stands, and
+the flow log says the round was not sent. The refusal lists what the prompt still holds. Show the
+user those sizes and ask how to narrow the round, as "Asking the user" describes, then start the
+same round again with `excludePaths`, which takes paths or patterns out of the round, named from
+`workspaceRoot`. Only for what is not the run's work — a plan's gate script, generated output such
+as an eval snapshot. A deliverable the plan asks for left out is one the critic cannot judge.
 
-Neither is remembered: pass the same arguments on every later round, and say in your narration what
-the critic was not handed. Do not move files out of the repository to make a round fit — a gate
-that runs a moved file fails, and the window would then differ from the tree the gates check.
+`excludePaths` is not remembered: pass the same paths on every later round, and say in your
+narration what the critic was not handed. Do not move files out of the repository to make a round
+fit — a gate that runs a moved file fails, and the window would then differ from the tree the gates
+check.
 
 ## Choosing the vendor and model
 

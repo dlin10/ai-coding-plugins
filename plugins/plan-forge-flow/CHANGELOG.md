@@ -1,5 +1,20 @@
 # Plan Forge Flow releases
 
+## 0.48.0
+
+A code-review round too long for its critic's vendor is given by path instead of refused. See
+`docs/adr/0034`.
+
+- Over the limit — codex's 1,048,576 characters — the server gives the untracked files by path,
+  then, if that is not enough, writes each tracked file's diff under the run folder's
+  `review-round-<N>/` and lists those paths, deleting them when the round ends. The critique's
+  summary, and so the flow log, says how many files went by path and why.
+- Only a round still over the limit with every file given by path is refused; its message lists
+  the plan, the ledger projection and the file list, and advises `excludePaths`.
+- `untrackedByReference` is removed from `forge.review.code` and `forge.work.start`. Nothing
+  replaces it: the round no longer needs the user's answer to fit.
+- The secret guard reads the prompt with every file embedded before any delivery is chosen.
+
 ## 0.47.1
 
 `telemetry.json` records stand in the order they opened. See `docs/adr/0032`.
