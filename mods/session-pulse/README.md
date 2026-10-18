@@ -1,4 +1,4 @@
-# Session Pulse 0.3.1
+# Session Pulse 0.3.2
 
 A Claude Code mod that keeps the session's cost in view above the prompt and keeps the prompt cache from
 going cold while you are away.
