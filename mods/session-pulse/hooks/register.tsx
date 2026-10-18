@@ -336,17 +336,15 @@ export const register: Register = (on, options) => {
     })
 
     rows.push(
-      row(
-        'cache',
-        cacheParts,
-        ...limitParts,
+      <Box flexDirection="row" gap={1} justifyContent="space-between">
+        {row('cache', cacheParts, ...limitParts)}
         <Button
           key="auto"
           label={plan === null ? 'Auto' : `Auto ${plan.done}/${plan.total}`}
           variant={plan === null ? 'secondary' : 'primary'}
           onPress={() => chooseAuto($)}
-        />,
-      ),
+        />
+      </Box>,
     )
 
     return <Box flexDirection="column">{rows}</Box>
