@@ -50,7 +50,7 @@ rather than beside the cross-host plugins.
 
 ### [Session Pulse](mods/session-pulse)
 
-Keep an eye on what a session costs before it costs it. Session Pulse puts the 5-hour and weekly rate-limit windows and a countdown of the prompt cache above the prompt, warns before the cache goes cold, keeps it warm with one click or on a timer while you are away, and has Haiku retell where a session stands when you come back to it.
+Keep an eye on what a session costs before it costs it. Session Pulse puts the 5-hour and weekly rate-limit windows and a countdown of the prompt cache above the prompt, warns before the cache goes cold, and keeps it warm with one click or on a timer while you are away.
 
 ## Learn More
 

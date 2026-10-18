@@ -12,11 +12,6 @@ export type CacheReading = {
 /** Auto-warming: on until `until`, `done` of `total` warms sent. */
 export type AutoWarm = { until: number; done: number; total: number }
 
-export type Recap =
-  | { status: 'loading' }
-  | { status: 'done'; text: string }
-  | { status: 'error'; text: string }
-
 declare module 'claude-code' {
   interface PluginState {
     'session-pulse': {
@@ -30,7 +25,6 @@ declare module 'claude-code' {
       warnHiddenAt: number | null
       isWarming: boolean
       auto: AutoWarm | null
-      recap: Recap | null
     }
   }
 }

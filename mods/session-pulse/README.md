@@ -1,41 +1,38 @@
-# Session Pulse 0.2.0
+# Session Pulse 0.3.0
 
 A Claude Code mod that keeps the session's cost in view above the prompt and keeps the prompt cache from
 going cold while you are away.
 
 ```
-где мы  Пользователь попросил README, агент написал его и ждёт отзыва.        [Скрыть]
-кэш     остынет через 5 мин  следующий ход перечитает ~81K токенов  [Подогреть] [Сжать] [Скрыть]
-кэш     ██░░░░░░ 18 мин  5ч ░░░░░░░░ 3% 3 ч 2 мин  нед ████░░░░ 44%  [Авто] [Где мы]
+cache   cools in 5 min  next turn re-reads ~81K tokens  [Warm up] [Compact] [Hide]
+cache   ██░░░░░░ 18 min  5h ░░░░░░░░ 3% resets in 3h 2m  week ████░░░░ 44%  [Auto]
 ```
 
 ## The rows
 
-- **кэш — the main row.** How much of the prompt cache's life is left, counted from the main
-  conversation's last request (blue, orange once a quarter of it is left); the five-hour window's share
-  and time to reset; the weekly window's share. The limits are the ones the status line gets from the
-  API's rate-limit headers, so off a subscription there are none.
-- **кэш — the warning.** Five minutes before the cache goes cold (two with a five-minute cache), a row
-  says so and how many tokens the next turn will read again at full price once it has. It stays, saying
-  how long ago the cache went cold, until the next request or **Скрыть**.
-  - **Подогреть** reads the cached conversation once with a one-word fork of it (`$.model.fork`). The
-    fork is served from the cache, which restarts the countdown, and it adds nothing to the conversation.
-  - **Сжать** runs the session's compaction, so the next turn has less to read.
-- **Авто** asks how long to keep the cache warm — `1 ч (1 подогрев)`, `2 ч (2 подогрева)`, `4 ч`,
-  `8 ч`, or a number of hours of your own — then warms it two minutes before each cooling until the hours
-  or the warms run out. The button counts the warms (`Авто 1/2`); pressing it again turns auto-warming
-  off. A turn that is running refreshes the cache itself, so no warm is sent during one.
-- **Где мы** has Haiku read the conversation and retell, in two or three sentences, what was asked,
-  what is done and what comes next. **Скрыть** takes the row down.
+- **The main row.** How much of the prompt cache's life is left, counted from the main conversation's
+  last request (blue, orange once a quarter of it is left); the five-hour window's share and time to
+  reset; the weekly window's share. The limits are the ones the status line gets from the API's
+  rate-limit headers, so off a subscription there are none.
+- **The warning.** Five minutes before the cache goes cold (two with a five-minute cache), a row says so
+  and how many tokens the next turn will read again at full price once it has. It stays, saying how long
+  the cache has been cold, until the next request or **Hide**.
+  - **Warm up** reads the cached conversation once with a one-word fork of it (`$.model.fork`). The fork
+    is served from the cache, which restarts the countdown, and it adds nothing to the conversation.
+  - **Compact** runs the session's compaction, so the next turn has less to read.
+- **Auto** asks how long to keep the cache warm — `1 h (1 warm-up)`, `2 h (2 warm-ups)`, `4 h`, `8 h`,
+  or a number of hours of your own — then warms it two minutes before each cooling until the hours or the
+  warm-ups run out. The button counts the warm-ups (`Auto 1/2`); pressing it again turns auto-warming
+  off. A turn that is running refreshes the cache itself, so no warm-up is sent during one.
 
 `/session-pulse` hides or shows the band. Subagents cache prefixes of their own and do not move the
 countdown.
 
 ## What warming costs
 
-A warm reads the whole cached prefix from the cache, billed at the cache-read rate (a tenth of the input
-price), plus a few dozen fresh tokens. Letting the cache go cold costs a write of the whole prefix at the
-cache-write rate on the next turn. With an 80K-token conversation an hour's warm costs about 8K
+A warm-up reads the whole cached prefix from the cache, billed at the cache-read rate (a tenth of the
+input price), plus a few dozen fresh tokens. Letting the cache go cold costs a write of the whole prefix
+at the cache-write rate on the next turn. With an 80K-token conversation an hour's warm-up costs about 8K
 input-token equivalents, against about 160K for the rewrite.
 
 ## The cache TTL

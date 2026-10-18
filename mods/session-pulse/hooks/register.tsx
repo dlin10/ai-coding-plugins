@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren, SessionMessage } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { CacheReading, Limit, Recap } from '../types'
+import type { CacheReading, Limit } from '../types'
 import {
   AUTO_HOURS,
   MINUTE,
@@ -26,13 +26,8 @@ import {
 
 const COMMAND = 'session-pulse'
 const STORED_TTL = 'ttlMs'
-const AUTO_QUESTION = 'На сколько включить автоподогрев кэша?'
-const WARM_PROMPT = 'Это служебная проверка, чтобы кэш не остыл. Ответь одним словом: ок.'
-const RECAP_SYSTEM =
-  'Ты читаешь переписку пользователя с агентом Claude Code. В двух-трёх предложениях по-русски ' +
-  'перескажи: чего хотел пользователь, что агент уже сделал, на чём остановились и какой шаг следующий. ' +
-  'Пиши о пользователе и агенте в третьем лице, без вступлений, заголовков и списков.'
-const RECAP_MAX_CHARS = 24_000
+const AUTO_QUESTION = 'How long should auto-warming keep the cache warm?'
+const WARM_PROMPT = 'This is a check that keeps the prompt cache warm. Reply with one word: ok.'
 const TICK_MS = 5000
 
 const limits = atom({ plugin: 'session-pulse', key: 'limits' } as const, [])
@@ -44,7 +39,6 @@ const isHidden = atom({ plugin: 'session-pulse', key: 'isHidden' } as const, fal
 const warnHiddenAt = atom({ plugin: 'session-pulse', key: 'warnHiddenAt' } as const, null)
 const isWarming = atom({ plugin: 'session-pulse', key: 'isWarming' } as const, false)
 const auto = atom({ plugin: 'session-pulse', key: 'auto' } as const, null)
-const recap = atom({ plugin: 'session-pulse', key: 'recap' } as const, null)
 
 const toLimits = (windows: readonly Limit[]): Limit[] =>
   windows.map(({ kind, percentUsed, resetsAt }) => ({ kind, percentUsed, resetsAt }))
@@ -65,12 +59,12 @@ async function warm($: EngineInterface): Promise<boolean> {
     const at = await $.clock.now()
     const reply = await $.model.fork({ prompt: WARM_PROMPT })
     if (!reply.isAnswered) {
-      $.ui.toast(`Не удалось подогреть кэш: ${reply.reason}`)
+      $.ui.toast(`Could not warm the cache: ${reply.reason}`)
       return false
     }
     const { usage } = reply
     if (previous !== null && usage.cache_read_input_tokens < cachedPrefix(previous) * 0.5) {
-      $.ui.toast('Кэш уже остыл: подогрев перечитал переписку заново')
+      $.ui.toast('The cache had already gone cold: the warm-up read the conversation afresh')
     }
     await update($, cache, () => ({
       at,
@@ -89,7 +83,7 @@ async function warm($: EngineInterface): Promise<boolean> {
 async function chooseAuto($: EngineInterface) {
   if ((await read($, auto)) !== null) {
     await update($, auto, () => null)
-    $.ui.toast('Автоподогрев выключен')
+    $.ui.toast('Auto-warming is off')
     return
   }
 
@@ -97,7 +91,7 @@ async function chooseAuto($: EngineInterface) {
   let answer: string
   try {
     answer = await $.ui.ask(AUTO_QUESTION, {
-      header: 'Автоподогрев',
+      header: 'Auto-warm',
       options: AUTO_HOURS.map(hours => autoLabel(hours, ttl)),
     })
   } catch {
@@ -105,54 +99,19 @@ async function chooseAuto($: EngineInterface) {
   }
   const hours = parseHours(answer)
   if (hours === undefined) {
-    $.ui.toast(`Не понял, на сколько часов: «${answer}»`)
+    $.ui.toast(`Not a number of hours: "${answer}"`)
     return
   }
   const at = await $.clock.now()
   const total = warmsFor(hours, ttl)
   await update($, auto, () => ({ until: at + hours * ONE_HOUR, done: 0, total }))
-  $.ui.toast(`Автоподогрев включён: ${autoLabel(hours, ttl)}`)
-}
-
-function messageLine(message: SessionMessage): string {
-  const who = message.role === 'user' ? 'Пользователь' : 'Агент'
-  const tools = message.toolUses.map(use => use.tool)
-  const toolNote = tools.length > 0 ? ` [инструменты: ${tools.join(', ')}]` : ''
-  return `${who}: ${message.text.slice(0, 2000)}${toolNote}`
-}
-
-async function summarize($: EngineInterface) {
-  if ((await read($, recap))?.status === 'loading') return
-  await update($, recap, (): Recap => ({ status: 'loading' }))
-
-  const messages = (await $.session.messages()).filter(
-    message => message.text.trim() !== '' || message.toolUses.length > 0,
-  )
-  if (messages.length === 0) {
-    await update($, recap, (): Recap => ({ status: 'done', text: 'В этой сессии ещё ничего не происходило.' }))
-    return
-  }
-
-  const transcript = messages.map(messageLine).join('\n\n')
-  const prompt = transcript.length > RECAP_MAX_CHARS ? `…${transcript.slice(-RECAP_MAX_CHARS)}` : transcript
-  const reply = await $.model.complete({
-    model: 'haiku',
-    system: RECAP_SYSTEM,
-    prompt,
-    maxTokens: 400,
-    timeoutMs: 60_000,
-  })
-  await update($, recap, (): Recap =>
-    reply.isAnswered && reply.text.trim() !== ''
-      ? { status: 'done', text: reply.text.trim() }
-      : { status: 'error', text: `Haiku не ответил${reply.isAnswered ? '' : ` (${reply.reason})`}` },
-  )
+  $.ui.toast(`Auto-warming is on: ${autoLabel(hours, ttl)}`)
 }
 
 async function compact($: EngineInterface) {
   const result = await $.session.compact()
   if (result.skip !== undefined) {
-    $.ui.toast(`Сжатие не выполнено: ${result.skip}`)
+    $.ui.toast(`Compaction skipped: ${result.skip}`)
     return
   }
   const reading = await read($, cache)
@@ -178,10 +137,10 @@ async function tick($: EngineInterface) {
   if (plan !== null) {
     if (at >= plan.until || plan.done >= plan.total) {
       await update($, auto, () => null)
-      $.ui.toast('Автоподогрев закончился')
+      $.ui.toast('Auto-warming has finished')
     } else if (reading !== null && left <= 0) {
       await update($, auto, () => null)
-      $.ui.toast('Кэш остыл, автоподогрев выключен')
+      $.ui.toast('The cache went cold, so auto-warming is off')
     } else if (reading !== null && left <= autoLead(ttl) && !isTurnRunning && (await warm($))) {
       await update($, auto, value => (value === null ? null : { ...value, done: value.done + 1 }))
     }
@@ -201,7 +160,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: 'Show or hide the session pulse band: limits, cache and recap',
+      description: 'Show or hide the session pulse band: rate limits and prompt cache',
     })
 
     const usage = await $.session.usage()
@@ -276,7 +235,7 @@ export const register: Register = (on, options) => {
         await update($, ttlMs, () => learned)
         await update($, isTtlLearned, () => true)
         await $.store.set(STORED_TTL, learned)
-        $.ui.toast(`Похоже, кэш живёт ${ttlLabel(learned)}`)
+        $.ui.toast(`The prompt cache seems to live ${ttlLabel(learned)}`)
       }
     }
 
@@ -286,7 +245,6 @@ export const register: Register = (on, options) => {
   on('session.end', { reason: 'clear' }, async ($, e, next) => {
     await update($, cache, () => null)
     await update($, auto, () => null)
-    await update($, recap, () => null)
 
     return next(e)
   })
@@ -302,7 +260,6 @@ export const register: Register = (on, options) => {
     const reading = await read($, cache)
     const ttl = await read($, ttlMs)
     const plan = await read($, auto)
-    const summary = await read($, recap)
     const warming = await read($, isWarming)
     const isNarrow = e.props.bodyColumns < 80
 
@@ -324,47 +281,33 @@ export const register: Register = (on, options) => {
 
     const rows = []
 
-    if (summary !== null) {
-      rows.push(
-        row(
-          'где мы',
-          summary.status === 'loading' ? (
-            <Text dimColor>Haiku читает переписку…</Text>
-          ) : (
-            <Text color={summary.status === 'error' ? 'error' : undefined}>{summary.text}</Text>
-          ),
-          <Button key="recap-hide" label="Скрыть" onPress={() => update($, recap, () => null)} />,
-        ),
-      )
-    }
-
     if (showWarning && reading !== null) {
       const prefix = tokens(cachedPrefix(reading))
       rows.push(
         row(
-          'кэш',
+          'cache',
           isWarm ? (
-            <Text weight="bold">остынет через {minutesLeft(left)}</Text>
+            <Text weight="bold">cools in {minutesLeft(left)}</Text>
           ) : (
-            <Text color="error" weight="bold">остыл {humanSpan(-left)} назад</Text>
+            <Text color="error" weight="bold">cold for {humanSpan(-left)}</Text>
           ),
           <Text>
-            <Text dimColor>следующий ход перечитает </Text>
+            <Text dimColor>next turn re-reads </Text>
             <Text weight="bold">{prefix}</Text>
-            <Text dimColor> токенов</Text>
+            <Text dimColor> tokens</Text>
           </Text>,
           isWarm && (
-            <Button key="warm" label={warming ? 'Греется…' : 'Подогреть'} onPress={() => warm($)} />
+            <Button key="warm" label={warming ? 'Warming…' : 'Warm up'} onPress={() => warm($)} />
           ),
-          <Button key="compact" label="Сжать" onPress={() => compact($)} />,
-          <Button key="warn-hide" label="Скрыть" onPress={() => hideWarning($)} />,
+          <Button key="compact" label="Compact" onPress={() => compact($)} />,
+          <Button key="warn-hide" label="Hide" onPress={() => hideWarning($)} />,
         ),
       )
     }
 
     let cacheParts
     if (reading === null) {
-      cacheParts = <Text dimColor>ещё не было запросов</Text>
+      cacheParts = <Text dimColor>no requests yet</Text>
     } else if (isWarm) {
       const color = isRunningLow(left, ttl) ? 'warning' : 'suggestion'
       cacheParts = (
@@ -374,7 +317,7 @@ export const register: Register = (on, options) => {
         </Text>
       )
     } else {
-      cacheParts = <Text color="error">{isNarrow ? '' : `${bar(0)} `}остыл</Text>
+      cacheParts = <Text color="error">{isNarrow ? '' : `${bar(0)} `}cold</Text>
     }
 
     const limitParts = windows.map(limit => {
@@ -385,27 +328,21 @@ export const register: Register = (on, options) => {
           <Text dimColor>{kindLabel(limit.kind)} </Text>
           {!isNarrow && <Text color={color}>{bar(limit.percentUsed / 100)} </Text>}
           <Text weight="bold">{Math.round(limit.percentUsed)}%</Text>
-          {reset !== undefined && <Text dimColor> {reset}</Text>}
+          {reset !== undefined && <Text dimColor> resets in {reset}</Text>}
         </Text>
       )
     })
 
     rows.push(
       row(
-        'кэш',
+        'cache',
         cacheParts,
         ...limitParts,
         <Button
           key="auto"
-          label={plan === null ? 'Авто' : `Авто ${plan.done}/${plan.total}`}
+          label={plan === null ? 'Auto' : `Auto ${plan.done}/${plan.total}`}
           variant={plan === null ? 'secondary' : 'primary'}
           onPress={() => chooseAuto($)}
-        />,
-        <Button
-          key="recap"
-          label="Где мы"
-          variant="primary"
-          onPress={() => summarize($)}
         />,
       ),
     )

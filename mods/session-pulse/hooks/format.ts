@@ -5,11 +5,11 @@ export const FIVE_MINUTES = 5 * MINUTE
 export const ONE_HOUR = 60 * MINUTE
 
 const KIND_LABELS: Record<string, string> = {
-  five_hour: '5ч',
-  seven_day: 'нед',
-  seven_day_opus: 'нед Opus',
-  seven_day_sonnet: 'нед Sonnet',
-  spend_limit: 'расход',
+  five_hour: '5h',
+  seven_day: 'week',
+  seven_day_opus: 'week Opus',
+  seven_day_sonnet: 'week Sonnet',
+  spend_limit: 'spend',
 }
 
 export function kindLabel(kind: string): string {
@@ -21,21 +21,21 @@ export function bar(fraction: number, width = 8): string {
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
 
-/** "2 ч 59 мин", "18 мин", "<1 мин": a span rounded down to the minute. */
+/** "2h 59m", "18m", "<1m": a span rounded down to the minute. */
 export function humanSpan(ms: number): string {
-  if (ms < MINUTE) return '<1 мин'
+  if (ms < MINUTE) return '<1m'
   const minutes = Math.floor(ms / MINUTE)
   const days = Math.floor(minutes / 1440)
   const hours = Math.floor((minutes % 1440) / 60)
   const rest = minutes % 60
-  if (days > 0) return hours > 0 ? `${days} д ${hours} ч` : `${days} д`
-  if (hours > 0) return rest > 0 ? `${hours} ч ${rest} мин` : `${hours} ч`
-  return `${rest} мин`
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`
+  if (hours > 0) return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`
+  return `${rest}m`
 }
 
-/** What is left of the cache, rounded up: "18 мин" until the last minute. */
+/** What is left of the cache, rounded up: "18 min" until the last minute. */
 export function minutesLeft(ms: number): string {
-  return `${Math.max(1, Math.ceil(ms / MINUTE))} мин`
+  return `${Math.max(1, Math.ceil(ms / MINUTE))} min`
 }
 
 /** "~81K", "~1.2M", "~640": the cached prefix as the warning reads it. */
@@ -46,7 +46,7 @@ export function tokens(n: number): string {
 }
 
 export function ttlLabel(ttlMs: number): string {
-  return ttlMs >= ONE_HOUR ? '1 ч' : `${Math.round(ttlMs / MINUTE)} мин`
+  return ttlMs >= ONE_HOUR ? '1 hour' : `${Math.round(ttlMs / MINUTE)} minutes`
 }
 
 export function resetsIn(limit: Limit, now: number): string | undefined {
@@ -76,12 +76,7 @@ export function isRunningLow(left: number, ttlMs: number): boolean {
 }
 
 export function warmsWord(n: number): string {
-  const tens = n % 100
-  const ones = n % 10
-  if (tens >= 11 && tens <= 14) return 'подогревов'
-  if (ones === 1) return 'подогрев'
-  if (ones >= 2 && ones <= 4) return 'подогрева'
-  return 'подогревов'
+  return n === 1 ? 'warm-up' : 'warm-ups'
 }
 
 /** How many warms keep the cache for `hours` at this TTL. */
@@ -93,7 +88,7 @@ export const AUTO_HOURS = [1, 2, 4, 8] as const
 
 export function autoLabel(hours: number, ttlMs: number): string {
   const warms = warmsFor(hours, ttlMs)
-  return `${hours} ч (${warms} ${warmsWord(warms)})`
+  return `${hours} h (${warms} ${warmsWord(warms)})`
 }
 
 /** The hours an answer names: one of the labels, or a number typed under Other. */
