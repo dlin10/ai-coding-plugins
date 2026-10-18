@@ -1,0 +1,295 @@
+import { describe, expect, mock, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
+import type { ModelUsage, On, SessionRateLimit, TurnUsage } from 'claude-code'
+
+import { autoLabel, learnTtl, parseHours, warmsWord } from '../hooks/format'
+
+const START = Date.parse('2026-10-18T10:00:00Z')
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+
+const BAND = {
+  plugin: 'session-pulse',
+  component: 'AbovePrompt',
+  props: {
+    hasSurvey: false,
+    isWorking: false,
+    maxRows: 10,
+    bodyColumns: 120,
+    scroll: { offset: 0, bodyRows: 10 },
+    view: {},
+  },
+} as const
+
+const TOGGLE = {
+  command: 'session-pulse',
+  args: '',
+  origin: { kind: 'composer' },
+  presentation: { isFullscreen: false, columns: 120 },
+} as const
+
+type World = {
+  usage: TurnUsage | null
+  rateLimits: SessionRateLimit[]
+  forks: number
+  forkRead: number
+  answer: string | null
+  compactions: number
+}
+
+function world(on: On, store: Record<string, unknown> = {}) {
+  const state: World = {
+    usage: null,
+    rateLimits: [],
+    forks: 0,
+    forkRead: 80_000,
+    answer: null,
+    compactions: 0,
+  }
+  const clock = mock.clock(on, { now: START })
+  mock.store(on, store)
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('session.usage', () => ({
+    value: { startedAt: START, context: { window: 200_000 }, rateLimits: state.rateLimits },
+  }))
+  on('session.measure', ($, e) => ({ changed: [...e.changed] }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('turn.step', async function* ($, e) {
+    return {
+      turnId: e.turnId,
+      index: e.index,
+      answer: '',
+      toolUses: [],
+      stopReason: 'end_turn',
+      usage: state.usage,
+    }
+  })
+  on('model.fork', () => {
+    state.forks += 1
+    const usage: ModelUsage = {
+      input_tokens: 20,
+      output_tokens: 2,
+      cache_read_input_tokens: state.forkRead,
+      cache_creation_input_tokens: 0,
+    }
+    return { value: { isAnswered: true, text: 'ok', usage } }
+  })
+  on('session.compact', () => {
+    state.compactions += 1
+    return { messages: [{ role: 'user', text: 'Conversation summary', toolUses: [] }] }
+  })
+  on('tool.call', { tool: 'AskUserQuestion' }, ($, e) => {
+    if (state.answer === null) return { deny: 'skipped' }
+    const question = e.questions[0]?.question ?? ''
+    return { result: { questions: e.questions, answers: { [question]: state.answer } } }
+  })
+
+  return { state, clock }
+}
+
+async function start($: Engine) {
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+}
+
+async function step($: Engine, index = 0, agentId?: string) {
+  const stream = $.turn.step({ turnId: 't1', index, model: 'claude-test', messageCount: 1, agentId })
+  for await (const _ of stream) {
+    // drain
+  }
+  return stream.result
+}
+
+function usage(read: number, write: number): TurnUsage {
+  return {
+    model: 'claude-test',
+    input_tokens: 10,
+    output_tokens: 100,
+    cache_read_input_tokens: read,
+    cache_creation_input_tokens: write,
+  }
+}
+
+describe('limits', () => {
+  test('the band shows each window, and the five-hour reset', async ($, on) => {
+    const { state } = world(on)
+    await start($)
+    state.rateLimits = [
+      { kind: 'five_hour', percentUsed: 3, resetsAt: new Date(START + 182 * MINUTE).toISOString() },
+      { kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() },
+    ]
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      expect(await ui.find({ text: /^5h ░░░░░░░░ 3% resets in 3h 2m$/ })).toBeDefined()
+      expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
+      await ui.unmount()
+    }
+  })
+})
+
+describe('cache', () => {
+  test('counts down from the last request, warns, then goes cold', async ($, on) => {
+    const { state, clock } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ text: /no requests yet/ })).toBeDefined()
+
+    state.usage = usage(79_000, 2_000)
+    await step($)
+    expect(await ui.find({ text: /^████████ 60 min$/ })).toBeDefined()
+
+    await clock.advance(42 * MINUTE)
+    expect(await ui.find({ text: /^██░░░░░░ 18 min$/ })).toBeDefined()
+    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
+
+    await clock.advance(13 * MINUTE)
+    expect(await ui.find({ text: /^cools in 5 min$/ })).toBeDefined()
+    expect(await ui.find({ text: /^next turn re-reads ~81K tokens$/ })).toBeDefined()
+    expect(await ui.find({ key: 'warm' })).toBeDefined()
+
+    await clock.advance(7 * MINUTE)
+    expect(await ui.find({ text: /^cold for 2m$/ })).toBeDefined()
+    expect(await ui.find({ key: 'warm' })).toBeUndefined()
+  })
+
+  test('warming reads the cache through a fork and restarts the countdown', async ($, on) => {
+    const { state, clock } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    state.usage = usage(79_000, 2_000)
+    await step($)
+    await clock.advance(56 * MINUTE)
+
+    await ui.press({ key: 'warm' })
+    expect(state.forks).toBe(1)
+    expect(await ui.find({ text: /^████████ 60 min$/ })).toBeDefined()
+    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
+  })
+
+  test('hiding the warning keeps it hidden until the next request', async ($, on) => {
+    const { state, clock } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    state.usage = usage(79_000, 2_000)
+    await step($)
+    await clock.advance(56 * MINUTE)
+
+    await ui.press({ key: 'warn-hide' })
+    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
+
+    await step($, 1)
+    await clock.advance(56 * MINUTE)
+    expect(await ui.find({ text: /cools in/ })).toBeDefined()
+  })
+
+  test('compacting runs the session compaction and hides the warning', async ($, on) => {
+    const { state, clock } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    state.usage = usage(79_000, 2_000)
+    await step($)
+    await clock.advance(56 * MINUTE)
+
+    await ui.press({ key: 'compact' })
+    expect(state.compactions).toBe(1)
+    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
+  })
+
+  test('a subagent request leaves the countdown alone', async ($, on) => {
+    const { state } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    state.usage = usage(1_000, 1_000)
+    await step($, 0, 'a1')
+    expect(await ui.find({ text: /no requests yet/ })).toBeDefined()
+  })
+
+  test('a miss after ten quiet minutes teaches a five-minute TTL', async ($, on) => {
+    const { state, clock } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    state.usage = usage(0, 50_000)
+    await step($)
+    await clock.advance(10 * MINUTE)
+    state.usage = usage(0, 50_000)
+    await step($, 1)
+    expect(await ui.find({ text: /^████████ 5 min$/ })).toBeDefined()
+  })
+})
+
+describe('auto-warming', () => {
+  test('asks for how long, then warms before each cooling', async ($, on) => {
+    const { state, clock } = world(on)
+    state.answer = autoLabel(2, HOUR)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    state.usage = usage(79_000, 2_000)
+    await step($)
+
+    await ui.press({ key: 'auto' })
+    expect(await ui.find({ key: 'auto', text: 'Auto 0/2' })).toBeDefined()
+
+    await clock.advance(59 * MINUTE)
+    expect(state.forks).toBe(1)
+    expect(await ui.find({ key: 'auto', text: 'Auto 1/2' })).toBeDefined()
+
+    await clock.advance(58 * MINUTE)
+    expect(state.forks).toBe(2)
+
+    await clock.advance(10 * MINUTE)
+    expect(state.forks).toBe(2)
+    expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+  })
+
+  test('skipping the question leaves it off, and a second press turns it off', async ($, on) => {
+    const { state } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    state.usage = usage(79_000, 2_000)
+    await step($)
+
+    await ui.press({ key: 'auto' })
+    expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+
+    state.answer = '3'
+    await ui.press({ key: 'auto' })
+    expect(await ui.find({ key: 'auto', text: 'Auto 0/3' })).toBeDefined()
+    await ui.press({ key: 'auto' })
+    expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+  })
+})
+
+test('the command hides and shows the band', async ($, on) => {
+  world(on)
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine band</Text>
+  })
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ key: 'auto' })).toBeDefined()
+
+  await $.command.run(TOGGLE)
+  expect(await ui.find({ key: 'auto' })).toBeUndefined()
+
+  await $.command.run(TOGGLE)
+  expect(await ui.find({ key: 'auto' })).toBeDefined()
+})
+
+test('the helpers', () => {
+  expect(autoLabel(1, HOUR)).toBe('1 h (1 warm-up)')
+  expect(autoLabel(2, HOUR)).toBe('2 h (2 warm-ups)')
+  expect(autoLabel(8, 5 * MINUTE)).toBe('8 h (96 warm-ups)')
+  expect(warmsWord(1)).toBe('warm-up')
+  expect(parseHours('4 h (4 warm-ups)')).toBe(4)
+  expect(parseHours('1,5')).toBe(1.5)
+  expect(parseHours('many')).toBeUndefined()
+
+  const previous = { at: 0, model: 'a', read: 0, write: 100_000, uncached: 0 }
+  const current = { at: 10 * MINUTE, model: 'b', read: 0, write: 100_000, uncached: 0 }
+  expect(learnTtl(previous, current)).toBeUndefined()
+  expect(learnTtl(previous, { ...current, model: 'a' })).toBe(5 * MINUTE)
+  expect(learnTtl(previous, { ...current, read: 90_000, write: 0 })).toBe(HOUR)
+})

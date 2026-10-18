@@ -43,6 +43,15 @@ Keep C# changes as simple as the contract allows. Ponytail.net steers an agent t
 
 Use one plugin for a focused boost, or combine them for a more capable AI-assisted development workflow.
 
+## Mods
+
+Mods change Claude Code's own interface, so they are Claude Code-only and live under [`mods/`](mods)
+rather than beside the cross-host plugins.
+
+### [Session Pulse](mods/session-pulse)
+
+Keep an eye on what a session costs before it costs it. Session Pulse puts the 5-hour and weekly rate-limit windows and a countdown of the prompt cache above the prompt, warns before the cache goes cold, and keeps it warm with one click or on a timer while you are away.
+
 ## Learn More
 
 Each plugin includes its own guide with requirements, installation instructions, and usage details. Select a plugin above to get started.
