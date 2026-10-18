@@ -231,18 +231,19 @@ function deepEqual(a, b) {
 
 /**
  * Cursor catalog may be a strict superset of Claude catalog (Cursor-only plugins).
- * Shared entries must be deep-equal; Claude-only entries are an error.
+ * Shared entries must be deep-equal; Claude-only entries are an error, except mods
+ * (`./mods/...`), which change Claude Code's own interface and have no Cursor counterpart.
  */
-function validateCatalogSuperset(claude, cursor) {
+export function validateCatalogSuperset(claude, cursor, report = fail) {
   if (claude.name !== cursor.name) {
-    fail(
+    report(
       `marketplace name mismatch: Claude "${claude.name}" vs Cursor "${cursor.name}"`,
     );
   }
   const claudeOwner = JSON.stringify(claude.owner ?? null);
   const cursorOwner = JSON.stringify(cursor.owner ?? null);
   if (claudeOwner !== cursorOwner) {
-    fail('marketplace owner mismatch between Claude and Cursor catalogs');
+    report('marketplace owner mismatch between Claude and Cursor catalogs');
   }
 
   const cursorByName = new Map(
@@ -251,13 +252,14 @@ function validateCatalogSuperset(claude, cursor) {
   for (const entry of claude.plugins ?? []) {
     const cursorEntry = cursorByName.get(entry.name);
     if (!cursorEntry) {
-      fail(
+      if (typeof entry.source === 'string' && entry.source.startsWith('./mods/')) continue;
+      report(
         `plugin "${entry.name}" is in .claude-plugin/marketplace.json but missing from .cursor-plugin/marketplace.json`,
       );
       continue;
     }
     if (!deepEqual(entry, cursorEntry)) {
-      fail(
+      report(
         `plugin "${entry.name}" differs between Claude and Cursor marketplace catalogs`,
       );
     }
