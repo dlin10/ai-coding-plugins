@@ -38,13 +38,6 @@ export function minutesLeft(ms: number): string {
   return `${Math.max(1, Math.ceil(ms / MINUTE))} min`
 }
 
-/** "~81K", "~1.2M", "~640": the cached prefix as the warning reads it. */
-export function tokens(n: number): string {
-  if (n >= 1_000_000) return `~${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1000) return `~${Math.round(n / 1000)}K`
-  return `~${n}`
-}
-
 export function ttlLabel(ttlMs: number): string {
   return ttlMs >= ONE_HOUR ? '1 hour' : `${Math.round(ttlMs / MINUTE)} minutes`
 }
@@ -58,11 +51,6 @@ export function resetsIn(limit: Limit, now: number): string | undefined {
 /** The prefix the cache held after the request: what the next one reads or writes again. */
 export function cachedPrefix(cache: CacheReading): number {
   return cache.read + cache.write
-}
-
-/** How long before the cache goes cold the warning row shows. */
-export function warnLead(ttlMs: number): number {
-  return ttlMs >= ONE_HOUR ? FIVE_MINUTES : 2 * MINUTE
 }
 
 /** How long before the cache goes cold auto-warming sends its warm. */

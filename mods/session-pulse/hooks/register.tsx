@@ -10,23 +10,26 @@ import {
   autoLead,
   bar,
   cachedPrefix,
-  humanSpan,
   isRunningLow,
   kindLabel,
   learnTtl,
   minutesLeft,
   parseHours,
   resetsIn,
-  tokens,
   ttlFromOption,
   ttlLabel,
   warmsFor,
-  warnLead,
 } from './format'
 
 const COMMAND = 'session-pulse'
 const STORED_TTL = 'ttlMs'
+// The rate limits are the account's, so every session of the mod shares the
+// newest reading through the store: an idle session takes what another read.
+const STORED_LIMITS = 'limits'
 const AUTO_QUESTION = 'How long should auto-warming keep the cache warm?'
+// The mod's own dialog: AskUserQuestion raised outside a turn leaves the
+// desktop showing the session as working once it is answered.
+const AUTO_DIALOG = 'session-pulse-auto'
 const WARM_PROMPT = 'This is a check that keeps the prompt cache warm. Reply with one word: ok.'
 const TICK_MS = 5000
 
@@ -36,7 +39,6 @@ const ttlMs = atom({ plugin: 'session-pulse', key: 'ttlMs' } as const, ONE_HOUR)
 const isTtlLearned = atom({ plugin: 'session-pulse', key: 'isTtlLearned' } as const, false)
 const now = atom({ plugin: 'session-pulse', key: 'now' } as const, 0)
 const isHidden = atom({ plugin: 'session-pulse', key: 'isHidden' } as const, false)
-const warnHiddenAt = atom({ plugin: 'session-pulse', key: 'warnHiddenAt' } as const, null)
 const isWarming = atom({ plugin: 'session-pulse', key: 'isWarming' } as const, false)
 const auto = atom({ plugin: 'session-pulse', key: 'auto' } as const, null)
 
@@ -46,6 +48,24 @@ const toLimits = (windows: readonly Limit[]): Limit[] =>
 let lastTickWrite = 0
 let lastTickMinute = 0
 let isTurnRunning = false
+let limitsAt = 0
+
+async function shareLimits($: EngineInterface, windows: readonly Limit[]) {
+  const at = await $.clock.now()
+  const shown = toLimits(windows)
+  await update($, limits, () => shown)
+  limitsAt = at
+  await $.store.set(STORED_LIMITS, { at, windows: shown })
+}
+
+async function takeSharedLimits($: EngineInterface) {
+  const stored = await $.store.get(STORED_LIMITS)
+  if (typeof stored !== 'object' || stored === null) return
+  const { at, windows } = stored as { at?: unknown; windows?: unknown }
+  if (typeof at !== 'number' || at <= limitsAt || !Array.isArray(windows) || windows.length === 0) return
+  limitsAt = at
+  await update($, limits, () => toLimits(windows as Limit[]))
+}
 
 /**
  * Reads the main thread's cached prefix once more with a one-word fork, which
@@ -87,40 +107,25 @@ async function chooseAuto($: EngineInterface) {
     return
   }
 
-  const ttl = await read($, ttlMs)
-  let answer: string
-  try {
-    answer = await $.ui.ask(AUTO_QUESTION, {
-      header: 'Auto-warm',
-      options: AUTO_HOURS.map(hours => autoLabel(hours, ttl)),
-    })
-  } catch {
-    return
-  }
-  const hours = parseHours(answer)
+  await $.ui.open({ id: AUTO_DIALOG, title: 'Auto-warm', focus: true, closeOnEscape: true, rows: 4 })
+}
+
+async function startTypedAuto($: EngineInterface, text: string) {
+  const hours = parseHours(text)
   if (hours === undefined) {
-    $.ui.toast(`Not a number of hours: "${answer}"`)
+    $.ui.toast(`Not a number of hours: "${text}"`)
     return
   }
+  await startAuto($, hours)
+}
+
+async function startAuto($: EngineInterface, hours: number) {
+  await $.ui.close({ id: AUTO_DIALOG })
+  const ttl = await read($, ttlMs)
   const at = await $.clock.now()
   const total = warmsFor(hours, ttl)
   await update($, auto, () => ({ until: at + hours * ONE_HOUR, done: 0, total }))
   $.ui.toast(`Auto-warming is on: ${autoLabel(hours, ttl)}`)
-}
-
-async function compact($: EngineInterface) {
-  const result = await $.session.compact()
-  if (result.skip !== undefined) {
-    $.ui.toast(`Compaction skipped: ${result.skip}`)
-    return
-  }
-  const reading = await read($, cache)
-  await update($, warnHiddenAt, () => reading?.at ?? null)
-}
-
-async function hideWarning($: EngineInterface) {
-  const reading = await read($, cache)
-  await update($, warnHiddenAt, () => reading?.at ?? null)
 }
 
 // Auto-warming warms once the countdown reaches its lead, and stops when its
@@ -128,6 +133,7 @@ async function hideWarning($: EngineInterface) {
 // minutes, so it is redrawn when the minute changes, or every half minute for
 // the reset times.
 async function tick($: EngineInterface) {
+  await takeSharedLimits($)
   const at = await $.clock.now()
   const reading = await read($, cache)
   const ttl = await read($, ttlMs)
@@ -164,9 +170,10 @@ export const register: Register = (on, options) => {
     })
 
     // Before its first request a process has no reading yet; a reload or resume
-    // keeps the windows the session's state already holds.
+    // keeps the windows the session's state already holds, or takes the store's.
     const usage = await $.session.usage()
-    if (usage.rateLimits.length > 0) await update($, limits, () => toLimits(usage.rateLimits))
+    if (usage.rateLimits.length > 0) await shareLimits($, usage.rateLimits)
+    else await takeSharedLimits($)
 
     const stored = await $.store.get(STORED_TTL)
     const learned = typeof stored === 'number' ? stored : undefined
@@ -188,7 +195,8 @@ export const register: Register = (on, options) => {
 
   on('session.measure', async ($, e, next) => {
     if (e.changed.includes('rateLimits')) {
-      await update($, limits, () => toLimits(e.rateLimits))
+      if (e.rateLimits.length > 0) await shareLimits($, e.rateLimits)
+      else await update($, limits, () => [])
     }
 
     return next(e)
@@ -251,6 +259,39 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  on('ui.render', { component: 'Pane', requestId: AUTO_DIALOG }, async ($, e) => {
+    const elements = $.ui.resolve(e)
+    const { Box, Button, Text } = elements
+    const Input = 'Input' in elements ? elements.Input : undefined
+    const ttl = await read($, ttlMs)
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Text>{AUTO_QUESTION}</Text>
+        <Box flexDirection="row" gap={1} flexWrap="wrap">
+          {AUTO_HOURS.map((hours, index) => (
+            <Button
+              key={`auto-${hours}`}
+              label={autoLabel(hours, ttl)}
+              autoFocus={index === 0 ? true : undefined}
+              onPress={() => startAuto($, hours)}
+            />
+          ))}
+          <Button key="auto-cancel" label="Cancel" role="dismiss" onPress={() => $.ui.close({ id: AUTO_DIALOG })} />
+        </Box>
+        {Input && (
+          <Input
+            key="auto-hours"
+            label="Other"
+            placeholder="hours, up to 24"
+            submitLabel="Start"
+            onSubmit={text => startTypedAuto($, text)}
+          />
+        )}
+      </Box>
+    )
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || (await read($, isHidden))) {
       return next(e)
@@ -262,13 +303,10 @@ export const register: Register = (on, options) => {
     const reading = await read($, cache)
     const ttl = await read($, ttlMs)
     const plan = await read($, auto)
-    const warming = await read($, isWarming)
     const isNarrow = e.props.bodyColumns < 80
 
     const left = reading === null ? 0 : reading.at + ttl - t
     const isWarm = reading !== null && left > 0
-    const showWarning =
-      reading !== null && left <= warnLead(ttl) && (await read($, warnHiddenAt)) !== reading.at
 
     const row = (label: string, ...children: RenderChildren[]) => (
       <Box flexDirection="row" gap={1}>
@@ -280,32 +318,6 @@ export const register: Register = (on, options) => {
         </Box>
       </Box>
     )
-
-    const rows = []
-
-    if (showWarning && reading !== null) {
-      const prefix = tokens(cachedPrefix(reading))
-      rows.push(
-        row(
-          'cache',
-          isWarm ? (
-            <Text weight="bold">cools in {minutesLeft(left)}</Text>
-          ) : (
-            <Text color="error" weight="bold">cold for {humanSpan(-left)}</Text>
-          ),
-          <Text>
-            <Text dimColor>next turn re-reads </Text>
-            <Text weight="bold">{prefix}</Text>
-            <Text dimColor> tokens</Text>
-          </Text>,
-          isWarm && (
-            <Button key="warm" label={warming ? 'Warming…' : 'Warm up'} onPress={() => warm($)} />
-          ),
-          <Button key="compact" label="Compact" onPress={() => compact($)} />,
-          <Button key="warn-hide" label="Hide" onPress={() => hideWarning($)} />,
-        ),
-      )
-    }
 
     let cacheParts
     if (reading === null) {
@@ -335,7 +347,7 @@ export const register: Register = (on, options) => {
       )
     })
 
-    rows.push(
+    return (
       <Box flexDirection="row" gap={1} justifyContent="space-between">
         {row('cache', cacheParts, ...limitParts)}
         <Button
@@ -344,9 +356,7 @@ export const register: Register = (on, options) => {
           variant={plan === null ? 'secondary' : 'primary'}
           onPress={() => chooseAuto($)}
         />
-      </Box>,
+      </Box>
     )
-
-    return <Box flexDirection="column">{rows}</Box>
   })
 }
