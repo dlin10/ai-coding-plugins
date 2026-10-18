@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using PlanForge.Infrastructure;
 using PlanForge.Prompts;
 using PlanForge.Repo;
 using PlanForge.Review;
@@ -28,7 +29,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     /// and, per docs/adr/0003, one no code here can check.
     /// </param>
     /// <param name="ct">Cancels the round.</param>
-    /// <param name="scope">The round's exclusions and how its untracked files are given; null for the whole window.</param>
+    /// <param name="scope">The round's exclusions; null for the whole window.</param>
     public async Task<Critique> ReviewAsync(RunDirectory run,
                                             Selection selection,
                                             bool userGrantedRound,
@@ -47,42 +48,62 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         GuardChangedPaths(window);
         if (window.Diff.Length == 0)
         {
-            var empty = WithPending(WithReviewWindow(new Critique("approve", [], "nothing to review"), window, scope), state, ledger);
+            var empty = WithPending(WithReviewWindow(new Critique("approve", [], "nothing to review"), window, scope, null), state, ledger);
             run.AppendFlowCritique("Code review", null, empty);
             return empty;
         }
 
         var plan = run.ReadPlan();
         var projection = ledger.RenderProjection(LedgerPhase.CodeReview);
-        var review = ComposeReview(plan, window, projection, state, scope);
-        SensitiveInput.Guard(review, "the diff under review");
-        // A file the critic is pointed to leaves for the vendor all the same, read by its own tools.
-        var referenced = window.Files.Where(file => ByReference(file, scope)).ToList();
-        if (referenced.Count > 0)
-            SensitiveInput.Guard(string.Join('\n', referenced.Select(file => file.Diff)), "an untracked file the critic is pointed to");
         var round = state.CodeReviewRounds + 1;
+        string DiffPath(ReviewFile file) => run.ReviewDiffPath(round, file.Path);
+
+        // The embedded prompt carries everything any delivery hands over, so guarding it covers the
+        // files a critic is later pointed to: its own read sends them to its vendor all the same.
+        var review = ComposeReview(plan, window, projection, state, scope, Delivery.Embedded, DiffPath);
+        SensitiveInput.Guard(review, "the diff under review");
 
         // Refused here rather than by the vendor, which fails the turn after it has started and says
         // no more than its stderr: in run 20261004-093111-b79938 that was all a granted round left.
-        var size = Characters(review);
-        if (vendor.PromptCharacterLimit is { } limit && size > limit)
+        // Before refusing, the window travels by path, untracked files first. See docs/adr/0034.
+        var delivery = Delivery.Embedded;
+        string? byPath = null;
+        if (vendor.PromptCharacterLimit is { } limit && Characters(review) > limit)
         {
-            var error = new ReviewPromptTooLargeException(
-                Oversize(vendor.Id, size, limit, granted, Characters(plan), Characters(projection), window, scope));
-            run.AppendFlowRoundNotSent("Code review", round, error.Message);
-            throw error;
+            var embeddedSize = Characters(review);
+            foreach (var next in (Delivery[])[Delivery.UntrackedByPath, Delivery.AllByPath])
+            {
+                delivery = next;
+                review = ComposeReview(plan, window, projection, state, scope, delivery, DiffPath);
+                if (Characters(review) <= limit) break;
+            }
+
+            var size = Characters(review);
+            if (size > limit)
+            {
+                var error = new ReviewPromptTooLargeException(
+                    Oversize(vendor.Id, size, limit, granted, Characters(plan), Characters(projection), window.Files.Count));
+                run.AppendFlowRoundNotSent("Code review", round, error.Message);
+                throw error;
+            }
+
+            byPath = ByPathSummary(vendor.Id, embeddedSize, limit, window, delivery);
         }
 
         Critique critique;
         IReadOnlyList<string> killed;
-        // Fresh critic each round, but handed the current ledger projection so it converges without
-        // inheriting old critique or Flow history.
-        await using (var critic = await vendor.StartAsync(new RoleSpec(VendorRole.Critic, prompts.LoadCodeReviewCritic(vendor.Id),
-                                                                       WorkerTools: WorkerTools.Effective(state.WorkerTools),
-                                                                       Telemetry: new WorkerTelemetryContext(run.TelemetryPath, run.Log,
-                                                                                                             "code_review", Round: round)),
-                                                          selection, resumeToken: null, ct))
+        var diffs = run.ReviewDiffsPath(round);
+        if (delivery == Delivery.AllByPath)
+            WriteDiffs(diffs, window, DiffPath);
+        try
         {
+            // Fresh critic each round, but handed the current ledger projection so it converges without
+            // inheriting old critique or Flow history.
+            await using var critic = await vendor.StartAsync(new RoleSpec(VendorRole.Critic, prompts.LoadCodeReviewCritic(vendor.Id),
+                                                                          WorkerTools: WorkerTools.Effective(state.WorkerTools),
+                                                                          Telemetry: new WorkerTelemetryContext(run.TelemetryPath, run.Log,
+                                                                                                                "code_review", Round: round)),
+                                                             selection, resumeToken: null, ct);
             VendorCritique wireCritique;
             try
             {
@@ -100,7 +121,8 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
 
             try
             {
-                critique = WithPending(WithReviewWindow(ledger.IngestCritique(wireCritique, LedgerPhase.CodeReview), window, scope), state, ledger);
+                critique = WithPending(WithReviewWindow(ledger.IngestCritique(wireCritique, LedgerPhase.CodeReview), window, scope, byPath),
+                                       state, ledger);
             }
             catch (DecisionLedgerCritiqueException error)
             {
@@ -109,6 +131,11 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
             }
             killed = critic.KilledBackgroundTasks;
             SpeedWarning = critic.SpeedWarning;
+        }
+        finally
+        {
+            if (delivery == Delivery.AllByPath)
+                DeleteDiffs(run, diffs);
         }
 
         if (granted) run.AppendFlowGrantedRound("Code review", round);
@@ -157,9 +184,11 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     /// <param name="window">The review window.</param>
     /// <param name="ledgerProjection">The code-review projection of the decision ledger.</param>
     /// <param name="state">The run state, for the instructions it carries.</param>
-    /// <param name="scope">What the round leaves out, and whether untracked files are given by path.</param>
+    /// <param name="scope">What the round leaves out.</param>
+    /// <param name="delivery">Which of the window's files are given by path instead of embedded.</param>
+    /// <param name="diffPath">Where a tracked file's diff is written when it is given by path.</param>
     private static string ComposeReview(string plan, ReviewWindow window, string ledgerProjection, RunState state,
-                                        ReviewScope scope)
+                                        ReviewScope scope, Delivery delivery, Func<ReviewFile, string> diffPath)
     {
         var prompt = new StringBuilder().AppendLine("# Approved plan")
                                         .AppendLine()
@@ -183,25 +212,42 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
             prompt.AppendLine($"Also excluded from this round by the orchestrator: {Paths(scope.ExcludedPaths)}. "
                               + "Judge neither their changes nor the absence of their changes.");
 
-        prompt.AppendLine()
-              .AppendLine("# Diff under review")
-              .AppendLine()
-              .AppendLine("```diff")
-              .AppendLine(string.Join('\n', window.Files.Where(file => !ByReference(file, scope)).Select(file => file.Diff)))
-              .AppendLine("```");
+        var embedded = window.Files.Where(file => !ByPath(file, delivery)).ToList();
+        if (embedded.Count > 0)
+            prompt.AppendLine()
+                  .AppendLine("# Diff under review")
+                  .AppendLine()
+                  .AppendLine("```diff")
+                  .AppendLine(string.Join('\n', embedded.Select(file => file.Diff)))
+                  .AppendLine("```");
 
-        var referenced = window.Files.Where(file => ByReference(file, scope)).ToList();
-        if (referenced.Count > 0)
+        var changed = window.Files.Where(file => ByPath(file, delivery) && !file.Untracked).ToList();
+        if (changed.Count > 0)
+        {
+            prompt.AppendLine()
+                  .AppendLine("# Changed files to read")
+                  .AppendLine()
+                  .AppendLine("These tracked files are part of the window, but their diffs are not in this prompt. Each "
+                              + "file's diff against the base commit is saved in full at the path beside it: read every one "
+                              + "with your own tools before you judge the window, as if this prompt carried it. Its hunks "
+                              + "number lines as the working tree does.")
+                  .AppendLine();
+            foreach (var file in changed)
+                prompt.AppendLine($"- `{file.Path}` (+{DiffLines(file.Diff, '+')} −{DiffLines(file.Diff, '-')}): `{diffPath(file)}`");
+        }
+
+        var untracked = window.Files.Where(file => ByPath(file, delivery) && file.Untracked).ToList();
+        if (untracked.Count > 0)
         {
             prompt.AppendLine()
                   .AppendLine("# Untracked files to read")
                   .AppendLine()
                   .AppendLine("These files are new and part of the window, but their contents are not in this prompt. Read "
                               + "each one in full from the working tree with your own tools before you judge the window: "
-                              + "every line of each is an addition, as if the diff above showed it.")
+                              + "every line of each is an addition.")
                   .AppendLine();
-            foreach (var file in referenced)
-                prompt.AppendLine($"- `{file.Path}` ({AddedLines(file.Diff)} lines)");
+            foreach (var file in untracked)
+                prompt.AppendLine($"- `{file.Path}` ({DiffLines(file.Diff, '+')} lines)");
         }
 
         if (ledgerProjection.Length > 0)
@@ -216,7 +262,12 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         return prompt.ToString();
     }
 
-    private static Critique WithReviewWindow(Critique critique, ReviewWindow window, ReviewScope scope)
+    /// <summary>Appends the window the round judged to the critique's summary, and so to the flow log.</summary>
+    /// <param name="critique">The critique to annotate.</param>
+    /// <param name="window">The review window.</param>
+    /// <param name="scope">What the round left out.</param>
+    /// <param name="byPath">What was given to the critic by path and why, or null when everything was embedded.</param>
+    private static Critique WithReviewWindow(Critique critique, ReviewWindow window, ReviewScope scope, string? byPath)
     {
         var summary = window.IsFallback
             ? $"Review window: HEAD fallback {Short(window.BaseHead)} to working tree; run baseline "
@@ -224,22 +275,74 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
             : $"Review window: run baseline {Short(window.BaseHead)} to working tree.";
         if (scope.ExcludedPaths.Count > 0)
             summary += $" Excluded from this round: {Paths(scope.ExcludedPaths)}.";
-        var referenced = window.Files.Count(file => ByReference(file, scope));
-        if (referenced > 0)
-            summary += $" Untracked files given to the critic by path: {referenced}.";
+        if (byPath is not null)
+            summary += $" {byPath}";
         return critique with { Summary = $"{critique.Summary}\n\n{summary}" };
+    }
+
+    /// <summary>Says what a round over its vendor's limit gave the critic by path, and why.</summary>
+    /// <param name="vendorId">The critic's vendor.</param>
+    /// <param name="embeddedSize">The prompt's size with every file embedded.</param>
+    /// <param name="limit">The vendor's limit in characters.</param>
+    /// <param name="window">The review window.</param>
+    /// <param name="delivery">The delivery the round was sent with.</param>
+    private static string ByPathSummary(string vendorId, int embeddedSize, int limit, ReviewWindow window, Delivery delivery)
+    {
+        var untracked = window.Files.Count(file => ByPath(file, delivery) && file.Untracked);
+        var tracked = window.Files.Count(file => ByPath(file, delivery) && !file.Untracked);
+        return $"Embedded, the window was {Count(embeddedSize)} characters and {vendorId} accepts at most {Count(limit)}, "
+               + $"so the critic was given by path {untracked} untracked files"
+               + (delivery == Delivery.AllByPath ? $" and the diffs of {tracked} tracked files." : ".");
     }
 
     private static string Short(string head) => head[..Math.Min(12, head.Length)];
 
-    private static bool ByReference(ReviewFile file, ReviewScope scope) => scope.UntrackedByReference && file.Untracked;
+    private static bool ByPath(ReviewFile file, Delivery delivery) =>
+        delivery == Delivery.AllByPath || delivery == Delivery.UntrackedByPath && file.Untracked;
 
     private static string Paths(IEnumerable<string> paths) => string.Join(", ", paths.Select(path => $"`{path}`"));
 
-    /// <summary>The lines a new-file block adds: those after its hunk header, all of them additions.</summary>
-    /// <param name="diff">An untracked file's block.</param>
-    private static int AddedLines(string diff) =>
-        diff.Split('\n').SkipWhile(line => !line.StartsWith("@@", StringComparison.Ordinal)).Count(line => line.StartsWith('+'));
+    /// <summary>
+    /// The lines a block adds or removes: those after its first hunk header that open with
+    /// <paramref name="sign"/>, so the <c>---</c> and <c>+++</c> file headers are not counted.
+    /// </summary>
+    /// <param name="diff">One file's block.</param>
+    /// <param name="sign"><c>+</c> for added lines, <c>-</c> for removed ones.</param>
+    private static int DiffLines(string diff, char sign) =>
+        diff.Split('\n').SkipWhile(line => !line.StartsWith("@@", StringComparison.Ordinal)).Count(line => line.StartsWith(sign));
+
+    /// <summary>
+    /// Writes each tracked file's block where the prompt says it is, into a folder emptied first:
+    /// a round the server died in is retried under the same number.
+    /// </summary>
+    /// <param name="folder">The round's review folder.</param>
+    /// <param name="window">The review window.</param>
+    /// <param name="diffPath">Where a tracked file's diff goes.</param>
+    private static void WriteDiffs(string folder, ReviewWindow window, Func<ReviewFile, string> diffPath)
+    {
+        if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+        foreach (var file in window.Files.Where(file => !file.Untracked))
+            AtomicFile.Write(diffPath(file), file.Diff);
+    }
+
+    /// <summary>
+    /// Deletes the round's diffs. A folder that will not go is logged rather than thrown: the round
+    /// itself is over, the folder ignores itself with the rest of <c>.forge/</c>, and a retry of the
+    /// round empties it first.
+    /// </summary>
+    /// <param name="run">The run, for its log.</param>
+    /// <param name="folder">The round's review folder.</param>
+    private static void DeleteDiffs(RunDirectory run, string folder)
+    {
+        try
+        {
+            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            run.Log.Write("warn", "code_review", "review.diffs-left", ("folder", folder), ("error", error.Message));
+        }
+    }
 
     /// <summary>
     /// Unicode scalar values, which is what codex counts — Rust's <c>chars()</c> — so a surrogate
@@ -254,65 +357,52 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     }
 
     /// <summary>
-    /// Why the round was not sent, written for the orchestrator that has to choose what to narrow:
-    /// the overrun, where the characters are, and the largest files, so it can tell run tooling and
-    /// generated output from the run's work without reading the diff.
+    /// Why the round was not sent, written for the orchestrator that has to choose what to narrow.
+    /// It is measured with every file already given by path, so what is left is the plan, the
+    /// ledger projection and the list of files, and only <c>excludePaths</c> can shorten the list.
     /// </summary>
     /// <param name="vendorId">The critic's vendor.</param>
-    /// <param name="size">The prompt's size in characters.</param>
+    /// <param name="size">The prompt's size in characters, every file given by path.</param>
     /// <param name="limit">The vendor's limit in characters.</param>
     /// <param name="granted">Whether the round was one the user granted past the cap.</param>
     /// <param name="planSize">The approved plan's share.</param>
     /// <param name="projectionSize">The ledger projection's share.</param>
-    /// <param name="window">The review window.</param>
-    /// <param name="scope">What the round left out, and whether untracked files were given by path.</param>
+    /// <param name="fileCount">How many files the window lists.</param>
     private static string Oversize(string vendorId, int size, int limit, bool granted, int planSize, int projectionSize,
-                                   ReviewWindow window, ReviewScope scope)
-    {
-        var embedded = window.Files.Where(file => !ByReference(file, scope))
-                                   .Select(file => new FileSize(file, Characters(file.Diff)))
-                                   .ToList();
-        var tracked = embedded.Where(part => !part.File.Untracked).ToList();
-        var untracked = embedded.Where(part => part.File.Untracked).ToList();
-        var referenced = window.Files.Count(file => ByReference(file, scope));
-        var rest = size - planSize - projectionSize - embedded.Sum(part => part.Size);
-        var advice = referenced > 0 || untracked.Count == 0
-            ? "To fit, start the round again with `excludePaths` naming what is not the run's work, such as run "
-              + "tooling or generated output."
-            : "To fit, start the round again with `untrackedByReference: true`, which lists the untracked files for "
-              + "the critic to read instead of embedding them, or with `excludePaths` naming what is not the run's "
-              + "work, such as run tooling or generated output.";
-
-        var message = new StringBuilder()
-            .Append($"the code-review prompt is {Count(size)} characters and {vendorId} accepts at most {Count(limit)}, ")
-            .Append($"{Count(size - limit)} over. Nothing was sent and the round was not counted")
+                                   int fileCount) =>
+        new StringBuilder()
+            .Append($"the code-review prompt is {Count(size)} characters with every changed file given to the critic by ")
+            .Append($"path, and {vendorId} accepts at most {Count(limit)}, {Count(size - limit)} over. Nothing was sent ")
+            .Append("and the round was not counted")
             .AppendLine(granted ? "; the user's grant for it still stands." : ".")
             .AppendLine()
             .AppendLine("What the prompt holds:")
-            .AppendLine($"- tracked diff: {Count(tracked.Sum(part => part.Size))} in {tracked.Count} files")
-            .AppendLine(referenced > 0
-                ? $"- untracked files: given by path, {referenced} files"
-                : $"- untracked files: {Count(untracked.Sum(part => part.Size))} in {untracked.Count} files")
             .AppendLine($"- approved plan: {Count(planSize)}")
             .AppendLine($"- ledger projection: {Count(projectionSize)}")
-            .AppendLine($"- everything else: {Count(rest)}")
+            .AppendLine($"- the list of {fileCount} changed files, and everything else: {Count(size - planSize - projectionSize)}")
             .AppendLine()
-            .AppendLine("Largest files:");
-        foreach (var part in embedded.OrderByDescending(part => part.Size).Take(10))
-            message.AppendLine($"- {Count(part.Size)}  {part.File.Path}{(part.File.Untracked ? " (untracked)" : "")}");
-
-        message.AppendLine()
-               .Append(advice)
-               .Append(" What the critic is handed is the user's call: show them these sizes and ask first.");
-        return message.ToString();
-    }
+            .Append("To fit, start the round again with `excludePaths` naming what is not the run's work, such as run ")
+            .Append("tooling or generated output. What the critic is handed is the user's call: show them these sizes and ")
+            .Append("ask first.")
+            .ToString();
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.InvariantCulture);
 
-    /// <summary>One embedded file and its share of the prompt, in characters.</summary>
-    /// <param name="File">The file.</param>
-    /// <param name="Size">Its block's characters.</param>
-    private sealed record FileSize(ReviewFile File, int Size);
+    /// <summary>
+    /// How a round hands the window's files to the critic, in the order the server tries them when
+    /// the embedded prompt is over the vendor's limit. See docs/adr/0034.
+    /// </summary>
+    private enum Delivery
+    {
+        /// <summary>Every file's block in the prompt.</summary>
+        Embedded,
+
+        /// <summary>Untracked files listed for the critic to read from the working tree.</summary>
+        UntrackedByPath,
+
+        /// <summary>Untracked files listed as above, and every tracked file's diff written to the run folder.</summary>
+        AllByPath
+    }
 }
 
 internal sealed class CodeReviewCapReachedException(int rounds, int cap)

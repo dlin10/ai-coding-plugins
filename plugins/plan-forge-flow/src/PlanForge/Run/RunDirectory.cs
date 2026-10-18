@@ -23,6 +23,7 @@ internal sealed class RunDirectory
     private const string PLAN_FILE_NAME = "PLAN.md";
     private const string SCOUT_REPORT_FILE_NAME = "SCOUT.md";
     private const string DECISION_LEDGER_FILE_NAME = "decision-ledger.json";
+    private const string REVIEW_DIFFS_FOLDER_PREFIX = "review-round-";
 
     // The folder ignores itself, so no managed block in info/exclude and nothing to clean up.
     private const string SELF_IGNORE = "*\n";
@@ -92,6 +93,30 @@ internal sealed class RunDirectory
     public string ScoutReportPath => System.IO.Path.Combine(Path, SCOUT_REPORT_FILE_NAME);
 
     internal string DecisionLedgerPath => System.IO.Path.Combine(Path, DECISION_LEDGER_FILE_NAME);
+
+    /// <summary>
+    /// The folder a code-review round's tracked diffs are written to when the window is given to
+    /// the critic by path, and deleted from when the round ends. See docs/adr/0034.
+    /// </summary>
+    /// <param name="round">The code-review round the folder serves.</param>
+    internal string ReviewDiffsPath(int round) => System.IO.Path.Combine(Path, $"{REVIEW_DIFFS_FOLDER_PREFIX}{round}");
+
+    /// <summary>
+    /// Where one changed file's diff is written for <paramref name="round"/>: its path from the
+    /// workspace with <c>.diff</c> appended, refused when it would land outside the round's folder.
+    /// </summary>
+    /// <param name="round">The code-review round.</param>
+    /// <param name="filePath">The changed file's path from the workspace root.</param>
+    internal string ReviewDiffPath(int round, string filePath)
+    {
+        var folder = System.IO.Path.GetFullPath(ReviewDiffsPath(round));
+        var diffPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, filePath + ".diff"));
+        var prefix = folder.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+        if (!diffPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"the diff of {filePath} resolves outside the round's review folder");
+
+        return diffPath;
+    }
 
     public DecisionLedger ReadDecisionLedger() => DecisionLedger.Open(this);
 

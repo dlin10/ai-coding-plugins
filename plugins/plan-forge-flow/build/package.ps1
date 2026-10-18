@@ -268,14 +268,13 @@ function Test-PublishedServer([string]$Executable) {
         foreach ($parameter in @('criticVendor', 'criticModel', 'criticEffort', 'builderVendor', 'builderModel', 'builderEffort')) {
             if ($codeReviewProperties -contains $parameter) { throw "forge.review.code schema still exposes the pre-0.10 $parameter" }
         }
-        # The two ways to narrow an oversized round (docs/adr/0029), optional on both routes a
-        # code-review round takes.
+        # The one way to narrow an oversized round (docs/adr/0029), optional on both routes a
+        # code-review round takes; how the window travels is the server's choice (docs/adr/0034).
         foreach ($route in @($codeReview, $workStart)) {
             $routeProperties = @($route.inputSchema.properties.PSObject.Properties.Name)
-            foreach ($parameter in @('excludePaths', 'untrackedByReference')) {
-                if ($routeProperties -notcontains $parameter) { throw "$($route.name) schema is missing $parameter" }
-                if (@($route.inputSchema.required) -contains $parameter) { throw "$($route.name) schema incorrectly requires $parameter" }
-            }
+            if ($routeProperties -notcontains 'excludePaths') { throw "$($route.name) schema is missing excludePaths" }
+            if (@($route.inputSchema.required) -contains 'excludePaths') { throw "$($route.name) schema incorrectly requires excludePaths" }
+            if ($routeProperties -contains 'untrackedByReference') { throw "$($route.name) still exposes untrackedByReference" }
             if (($route.inputSchema.properties.excludePaths | ConvertTo-Json -Compress) -notmatch 'array') {
                 throw "$($route.name) publishes excludePaths as something other than an array"
             }

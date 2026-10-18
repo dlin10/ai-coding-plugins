@@ -261,8 +261,9 @@ public sealed class ToolSurfaceTests
     }
 
     /// <summary>
-    /// The two ways to narrow an oversized code-review round reach it on both of its routes, and
-    /// neither is asked for unless the orchestrator asks: docs/adr/0029.
+    /// The one way to narrow a code-review round reaches it on both of its routes and is asked for
+    /// only by the orchestrator: docs/adr/0029. How the window travels is the server's choice, so
+    /// nothing is published for it: docs/adr/0034.
     /// </summary>
     [Theory]
     [InlineData(nameof(ForgeTools.ReviewCode))]
@@ -274,9 +275,8 @@ public sealed class ToolSurfaceTests
         var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
 
         Assert.Contains("array", properties.GetProperty("excludePaths").GetRawText(), StringComparison.Ordinal);
-        Assert.Contains("boolean", properties.GetProperty("untrackedByReference").GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("excludePaths", required);
-        Assert.DoesNotContain("untrackedByReference", required);
+        Assert.False(properties.TryGetProperty("untrackedByReference", out _));
     }
 
     [Fact]

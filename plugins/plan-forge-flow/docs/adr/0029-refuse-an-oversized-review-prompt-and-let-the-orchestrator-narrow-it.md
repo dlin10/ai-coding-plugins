@@ -4,6 +4,10 @@ status: accepted
 
 # Refuse an oversized review prompt, and let the orchestrator narrow the window
 
+The `untrackedByReference` half, and the rejection of tracked files by reference, are superseded by
+[0034](0034-give-an-oversized-review-window-by-path.md): the server now gives an oversized window
+by path on its own. The measurement, the refusal and `excludePaths` stand.
+
 Run `20261004-093111-b79938` sent its fourth code-review round, one the user had granted past the
 cap, to a codex critic. The process exited 1 four seconds later: `turn/start` refused an input of
 1,056,671 characters against a limit of 1,048,576. The review window ran from the run baseline to

@@ -15,6 +15,9 @@ internal sealed class RecordingVendor(string id) : IVendor
 
     public List<RecordingVendorSession> Sessions { get; } = [];
 
+    /// <summary>Called with each turn's prompt while the turn runs, to observe what is on disk then.</summary>
+    public Action<string>? OnRun { get; init; }
+
     public void Enqueue(object response,
                         string? resumeToken = null,
                         IReadOnlyList<string>? killedBackgroundTasks = null,
@@ -35,7 +38,8 @@ internal sealed class RecordingVendor(string id) : IVendor
         var session = new RecordingVendorSession(role, selection, resumeToken, script.Response,
                                                  script.ResumeToken, script.KilledBackgroundTasks)
         {
-            SpeedWarning = script.SpeedWarning
+            SpeedWarning = script.SpeedWarning,
+            OnRun = OnRun
         };
         Sessions.Add(session);
         return Task.FromResult<IVendorSession>(session);
@@ -84,10 +88,13 @@ internal sealed class RecordingVendorSession : IVendorSession
 
     public string? SpeedWarning { get; init; }
 
+    public Action<string>? OnRun { get; init; }
+
     public Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         PromptText = prompt;
+        OnRun?.Invoke(prompt);
 
         // A scripted failure: what a vendor session does when the turn dies partway through.
         if (_response is Exception failure) throw failure;

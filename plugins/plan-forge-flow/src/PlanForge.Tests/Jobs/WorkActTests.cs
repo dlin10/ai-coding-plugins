@@ -189,7 +189,7 @@ public sealed class WorkActTests : IDisposable
 
         await new WorkAct(vendor, _prompts, git).RunAsync(
             "review.code", NewApprovedRun("code-scoped"), null, new Selection("critic", null), null, null, null,
-            false, CancellationToken.None, scope: ReviewScope.From(["build"], false));
+            false, CancellationToken.None, scope: ReviewScope.From(["build"]));
 
         Assert.Contains("Also excluded from this round by the orchestrator: `build`.",
                         Assert.Single(vendor.Sessions).PromptText, StringComparison.Ordinal);
@@ -204,9 +204,9 @@ public sealed class WorkActTests : IDisposable
     {
         var error = Assert.Throws<ArgumentRejectedException>(() =>
             WorkAct.ValidateArguments(act, null, new Selection("model", null), null, null, null, false,
-                                      scope: ReviewScope.From(null, true)));
+                                      scope: ReviewScope.From(["build"])));
 
-        Assert.Contains("untrackedByReference", error.Message, StringComparison.Ordinal);
+        Assert.Contains("excludePaths", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

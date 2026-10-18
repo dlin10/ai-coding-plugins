@@ -267,11 +267,14 @@ none of this does is stop a worker reading an excluded file off disk; see
 [docs/adr/0004](docs/adr/0004-documentation-written-during-the-interview.md).
 
 A code-review round may add its own `excludePaths` to that pathspec, and the window and the check
-then share them too; it may also give its untracked files to the critic by path, and the secret
-guard reads their contents all the same, since the critic's own read sends them. A code-review
-prompt longer than the critic's vendor accepts — `IVendor.PromptCharacterLimit`, which only codex
-states — is refused before the critic starts, with the sizes that make it up, and spends nothing.
-See [docs/adr/0029](docs/adr/0029-refuse-an-oversized-review-prompt-and-let-the-orchestrator-narrow-it.md).
+then share them too. A code-review prompt longer than the critic's vendor accepts —
+`IVendor.PromptCharacterLimit`, which only codex states — gives the critic its untracked files by
+path, then its tracked files' diffs as files under the run folder's `review-round-<N>/`, deleted
+when the round ends; the secret guard reads the embedded prompt first, since the critic's own read
+sends the same contents. One still too long with every file given by path is refused before the
+critic starts, with the sizes that make it up, and spends nothing. See
+[docs/adr/0029](docs/adr/0029-refuse-an-oversized-review-prompt-and-let-the-orchestrator-narrow-it.md)
+and [docs/adr/0034](docs/adr/0034-give-an-oversized-review-window-by-path.md).
 
 The Builder checks condition gates itself and may run separate targeted checks. It must not run an
 executable task gate, including on retries: the server owns that check. If it ran no checks because

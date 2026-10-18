@@ -24,7 +24,7 @@ these terms replace it.
 | **Evidence check** | The Orchestrator's comparison of its plan with every fact in the Scout report that bears on a Change point, made after each Impact pass and before the review that follows it. Each such fact is either used by the plan or departed from on purpose; a deliberate departure is recorded in the Run log, and also in the plan wherever a Critic would otherwise raise it. |
 | **Matrix task** | A plan task whose test walks every combination of one rule's axes — the inputs its answer depends on — and checks each cell against an expectation table the plan writes from the requirements, never from the code. It names its axes, its excluded combinations with their reasons, and the cells known to be wider than their expectation, each with a reason that becomes an open question; it replaces the one-by-one cases of that rule elsewhere in the plan. The Orchestrator's **matrix check**, made while the approach is drafted and before the Impact pass, decides which rules need one; from the second round on, review adds one when more than half of a round's new findings are combinations or edge cases of one rule. |
 | **Run** | One pass, keyed by `runId`, isolated under `.forge/<runId>/`. |
-| **Review window** | The final code state a code-review Critic judges: the net change from the Run's baseline commit to its current working tree. If the current history no longer descends from that commit, the window narrows to the current `HEAD` and identifies itself as a fallback; documentation remains outside it. One round may leave further paths out of it (`excludePaths`) or hand its untracked files to the Critic by path rather than by content (`untrackedByReference`), each only for that call; see docs/adr/0029. |
+| **Review window** | The final code state a code-review Critic judges: the net change from the Run's baseline commit to its current working tree. If the current history no longer descends from that commit, the window narrows to the current `HEAD` and identifies itself as a fallback; documentation remains outside it. One round may leave further paths out of it (`excludePaths`), only for that call; see docs/adr/0029. A window too long for the Critic's vendor is handed over by path rather than by content, untracked files first; see docs/adr/0034. |
 | **Flow log** | The complete user-facing timeline of a run, `flow_log.md`: every Scout outcome, identified Critic finding, Builder result, fix round with its Fix note, Orchestrator revision, disposition decision, Raise, reopening proposal and closure. It is appended by the server and never fed back to a Worker; the Canonical decision ledger is the Critic's bounded input. |
 | **Canonical decision ledger** | The Run-local source of truth for findings that still matter to a future Critic. Each entry preserves an immutable `origin` (`plan_review` or `code_review`) and has a mutable `activePhase`, so a plan-origin decision accepted for reopening during code review keeps its identity while moving into the code projection. Plan review receives active plan entries; code review receives settled plan decisions and active code entries. Closed entries leave the ledger, while the Flow log remains the complete user-facing audit. |
 | **Decision ledger file** | The Run's `decision-ledger.json`: an indented, versioned JSON snapshot containing the next monotonic finding number, current entries in ID order, applied decision batches, and fix-attempt records. Every replacement goes through `AtomicFile`; malformed content, an unsupported schema version, a violated invariant, or exhausted write retries fail the tool call rather than recreating empty state or continuing a Worker without its decisions. Unlike Telemetry, this state is not best effort. |
@@ -1029,8 +1029,18 @@ maximum length of 1048576 characters` and `actual_chars: 1056671`:
 - **cursor-agent.** The 2026.09.18-9a7762b bundle holds no client-side limit either. Whatever its
   service enforces was not measured.
 
-The server therefore refuses an oversized code-review prompt for codex only, before the critic
-starts; see docs/adr/0029.
+The server therefore measures the code-review prompt for codex only, before the critic starts; see
+docs/adr/0029. Over the limit it gives the window by path rather than refusing it; see
+docs/adr/0034.
+
+## A codex critic reads the files it is pointed to
+
+Measured on 2026-10-18 from run `20261017-180043-675224`'s `forge.log`, whose three code-review
+rounds each gave a codex `gpt-6-astra` critic 30 untracked files by path: the `vendor.tooluse`
+events of every round name all 30. A name in a command shows the file was opened, not that it was
+read whole, and a search over a folder reads files it never names, so this is evidence for the
+delivery, not a check the server could run. No claude or cursor-agent critic has been given files
+by path: neither states a limit, so neither ever is.
 
 ## The session is not the workspace, and only one host says where it is
 
