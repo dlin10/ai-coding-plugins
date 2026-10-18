@@ -237,9 +237,11 @@ footer.end{margin-top:64px;padding-top:18px;border-top:1px solid var(--line);col
       <a href="#edge-identity">Один объект или два</a>
       <a href="#edge-construction">Конструкторы</a>
       <a href="#edge-ordering"><strong>Spawn Site</strong>, <strong>Join</strong>, порядок</a>
+      <a href="#edge-tree">Объект запроса и его задачи</a>
       <a href="#edge-timers">Таймеры</a>
       <a href="#edge-protection"><strong>Protection</strong></a>
       <a href="#edge-collections">Коллекции</a>
+      <a href="#edge-structs">Struct</a>
       <a href="#edge-selectors">Индексы и Z3</a>
       <a href="#edge-iterators">Итераторы и async</a>
       <a href="#edge-events">События и делегаты</a>
@@ -508,9 +510,9 @@ services.AddSingleton&lt;HitStats&gt;();         // один объект на �
     <div class="term"><dt>Execution Root</dt><dd>Точка, откуда фреймворк или рантайм начинает независимый <strong>Execution Instance</strong>: HTTP action, <code>ExecuteAsync</code> hosted service, callback таймера, gRPC-метод.</dd></div>
     <div class="term"><dt>Spawn Site</dt><dd>Вызов в пользовательском коде, который начинает новый <strong>Execution Instance</strong> из текущего: <code>Task.Run</code>, <code>Thread.Start</code>, тело <code>Parallel.For</code>, <strong>Fire-and-forget</strong>.</dd></div>
     <div class="term"><dt>Execution Instance</dt><dd>Один логический запуск работы из <strong>Execution Root</strong> или <strong>Spawn Site</strong>. Не поток ОС: <code>await</code> внутри его не заканчивает.</dd></div>
-    <div class="term"><dt>Heap Region</dt><dd>Идентичность объекта или множества объектов: место аллокации с контекстом, статическое поле, DI-экземпляр, параметр.</dd></div>
-    <div class="term"><dt>Resource</dt><dd><strong>Heap Region</strong> плюс <strong>Access Path</strong> (поле за полем, с <strong>Selector</strong> ячейки). Единица, по которой сравниваются <strong>Accesses</strong>.</dd></div>
-    <div class="term"><dt>Ownership</dt><dd>Кто может достать <strong>Heap Region</strong>: <code>Owned</code>, <code>ThreadConfined</code>, <code>Escaped</code>, <code>Shared</code>, <code>Unknown</code> — всегда с цепочкой доказательств.</dd></div>
+    <div class="term"><dt>Heap Region</dt><dd>Идентичность объекта или множества объектов: место аллокации с контекстом, статическое поле, DI-экземпляр, параметр, замыкание с захваченными переменными. Своего <strong>Heap Region</strong> у struct нет.</dd></div>
+    <div class="term"><dt>Resource</dt><dd><strong>Heap Region</strong> плюс <strong>Access Path</strong> (поле за полем, с <strong>Selector</strong> ячейки, через поля struct). Единица, по которой сравниваются <strong>Accesses</strong>.</dd></div>
+    <div class="term"><dt>Ownership</dt><dd>Кто может достать <strong>Heap Region</strong>: <code>Owned</code>, <code>ThreadConfined</code>, <code>TreeConfined</code>, <code>Escaped</code>, <code>Shared</code>, <code>Unknown</code> — всегда с цепочкой доказательств.</dd></div>
     <div class="term"><dt>Access</dt><dd>Чтение, запись, RMW, <strong>Atomic Operation</strong> или составная операция над <strong>Resource</strong> — вместе с <strong>Execution Instance</strong>, удерживаемым <strong>Protection</strong> и <strong>Guard</strong>.</dd></div>
     <div class="term"><dt>Happens-before</dt><dd>Доказанный порядок двух событий: путь через <strong>Spawn Site</strong>, <strong>Join</strong>, продолжения и старт хоста. Только удаляет пары, никогда не добавляет.</dd></div>
     <div class="term"><dt>Protection</dt><dd>Синхронизатор (его <strong>Heap Region</strong>) и режим, который <strong>Access</strong> удерживает на <em>всех</em> путях к нему. «Может быть удержан» — не <strong>Protection</strong>.</dd></div>
@@ -602,7 +604,7 @@ return IsIndivisible(a.Op) &amp;&amp; IsIndivisible(b.Op)
         <rect x="70" y="338" width="280" height="28" rx="6" class="box-sunken"/><text x="82" y="357" class="t-bold">10 · Semantic Gaps</text>
         <text x="370" y="350" class="t-mono">GapDecisions.Mark</text><text x="370" y="364" class="t-small t-muted">какие проверки пары решает Opaque Call</text>
         <rect x="70" y="374" width="280" height="28" rx="6" class="box-sunken"/><text x="82" y="393" class="t-bold">11 · Уточнение решателем</text>
-        <text x="370" y="386" class="t-mono">SolverRefinement.Refine · Z3ConstraintSolver</text><text x="370" y="400" class="t-small t-muted">UNSAT снимает пару, бюджет 150 мс / 3 мин</text>
+        <text x="370" y="386" class="t-mono">SolverRefinement.Refine · Z3ConstraintSolver</text><text x="370" y="400" class="t-small t-muted">UNSAT снимает пару, предел — счётчик работы Z3</text>
         <rect x="70" y="410" width="280" height="28" rx="6" class="box"/><text x="82" y="429" class="t-bold">12 · Findings</text>
         <text x="370" y="422" class="t-mono">ConflictFindings.Create</text><text x="370" y="436" class="t-small t-muted">правило, Occurrences, Fingerprint, группы, score</text>
         <rect x="70" y="446" width="280" height="28" rx="6" class="box-ok"/><text x="82" y="465" class="t-bold">13 · Отчёт</text>
@@ -632,7 +634,8 @@ return IsIndivisible(a.Op) &amp;&amp; IsIndivisible(b.Op)
     <thead><tr><th>Счётчик</th><th>Что произошло</th></tr></thead>
     <tbody>
       <tr><td><code>read-read</code>, <code>no-conflicting-operation</code></td><td>Виды операций не образуют конфликт.</td></tr>
-      <tr><td><code>no-overlap</code>, <code>ordered</code>, <code>confined</code></td><td><strong>Execution Instances</strong> не пересекаются, доказан порядок либо объект изолирован.</td></tr>
+      <tr><td><code>no-overlap</code>, <code>ordered</code>, <code>confined</code></td><td><strong>Execution Instances</strong> не пересекаются, доказан порядок либо объект изолирован в одном <strong>Execution Instance</strong>. Пары на объекте, который запрос создал и отдал только своей работе (<code>TreeConfined</code>), попадают в <code>no-overlap</code> или <code>ordered</code>: их порядок читается на один запуск создателя (<a href="#edge-tree">подробнее</a>).</td></tr>
+      <tr><td><code>fresh-object</code></td><td>Обе стороны достают объект, только что созданный в том же вызове тела, через значение, которое держит лишь такие объекты. Два вызова так не достают свежие объекты друг друга, а доступы одного вызова идут друг за другом.</td></tr>
       <tr><td><code>unsatisfiable-path</code>, <code>disjoint-iteration</code></td><td>Дешёвая проверка установила несовместимость условий или разные элементы итераций.</td></tr>
       <tr><td><code>suppressed</code></td><td>Доказан достаточный общий <strong>Protection</strong>. Это счётчик фильтра синхронизации, а не пользовательский <strong>Suppression</strong>.</td></tr>
       <tr><td><code>unsatisfiable-query</code></td><td>Z3 доказал несовместимость условий пары.</td></tr>
@@ -685,11 +688,11 @@ services.AddSingleton&lt;Inventory&gt;().AddSingleton&lt;OrderService&gt;();</co
     <thead><tr><th>Группа</th><th>Операции IR</th></tr></thead>
     <tbody>
       <tr><td>SSA</td><td><code>assign</code>, <code>phi</code></td></tr>
-      <tr><td>Куча</td><td><code>allocate</code>, <code>load-field</code>, <code>store-field</code> (с <code>ReadModifyWriteOf</code>), <code>load-element</code>, <code>store-element</code></td></tr>
+      <tr><td>Куча</td><td><code>allocate</code>, <code>box</code>, <code>load-field</code>, <code>store-field</code> (с <code>ReadModifyWriteOf</code>), <code>load-element</code>, <code>store-element</code></td></tr>
       <tr><td>Ссылки</td><td><code>address-field</code>, <code>address-element</code>, <code>load-reference</code>, <code>store-reference</code></td></tr>
-      <tr><td>Вызовы и замыкания</td><td><code>call</code>, <code>create-delegate</code>, <code>capture</code>, <code>escape</code>, <code>return</code></td></tr>
+      <tr><td>Вызовы и замыкания</td><td><code>call</code>, <code>create-delegate</code>, <code>combine-delegates</code>, <code>remove-delegates</code>, <code>capture</code>, <code>load-captured</code>, <code>escape</code>, <code>return</code></td></tr>
       <tr><td>Приостановка</td><td><code>await</code>, <code>yield</code></td></tr>
-      <tr><td>Конкурентность</td><td><code>spawn</code>, <code>thread-work</code>, <code>join</code>, <code>when-all</code>, <code>unwrap</code>, <code>timer</code></td></tr>
+      <tr><td>Конкурентность</td><td><code>spawn</code>, <code>thread-work</code>, <code>join</code>, <code>when-all</code>, <code>unwrap</code>, <code>task</code>, <code>timer</code></td></tr>
       <tr><td>Синхронизация</td><td><code>acquire</code>, <code>release</code>, <code>atomic</code></td></tr>
       <tr><td>Чистые вычисления</td><td><code>compute</code>, <code>compare</code>, <code>convert</code></td></tr>
       <tr><td>Всё остальное</td><td><code>unknown</code> — опускает детей и сохраняет их как операнды</td></tr>
@@ -710,6 +713,9 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
   <p>Как опускаются важные для конкурентности конструкции:</p>
   <ul>
     <li><strong><code>x++</code>, <code>x += y</code>, <code>??=</code></strong> над полем или auto-property: load → compute → store с <code>ReadModifyWriteOf</code>. Над <code>volatile</code>-полем операции дополнительно помечаются <code>atomic</code>.</li>
+    <li><strong>Цель, которую Roslyn берёт до значения.</strong> В <code>t ??= v</code>, <code>x = f ? a : b</code>, <code>x = a ?? b</code>, <code>x = new T { … }</code> и в цели деконструкции receiver и индексы цели вычисляются один раз, до любой части значения, а запись идёт тем же путём, что у обычного присваивания. Поэтому в <code>(Target(box).Name, mark) = (Start(box), "marked")</code> вызов <code>Target</code> пишет <code>box</code> раньше, чем <code>Start</code> запустит работу над ним, и после значения не вычисляется снова (demo <code>captured-target-evaluated-before-value</code>, тесты <code>CapturedTargetOrderMatrixTests</code>).</li>
+    <li><strong>Struct в памяти кучи</strong> — место, а не значение. Для <code>_state.Count++</code>, вызова члена struct на поле и <code>ref</code>/<code>in</code>-ссылки на неё frontend адресует само хранилище, а не загружает копию. Взятие копии, присваивание всей struct, <code>box</code> и unboxing — операции над всем хранилищем. Член, который объявляет struct, и пользовательский оператор (<code>a == b</code>, <code>++</code>, преобразование) — обычные вызовы их тел. Подробно — в <a href="#edge-structs">разделе о struct</a>.</li>
+    <li><strong>Запись через <code>ref</code>-локаль или <code>ref</code>-параметр</strong> пишет хранилище, на которое ссылка указывает, и не создаёт новую SSA-версию самой переменной; новую версию даёт только связывание <code>ref T r = ref …</code>. Ссылка, которую вернул вызов без тела (<code>Unsafe.As</code>), никуда доказанно не указывает (<code>RefVariableVersionTests</code>).</li>
     <li><strong>Массивы, индексаторы и свойства с телами.</strong> <code>a[i]++</code> и <code>a[i] += x</code> сохраняют чтение, вычисление и запись ячейки; свойства и индексаторы вызывают getter и setter. Receiver и индексы вычисляются один раз, postfix возвращает прочитанное значение, prefix — записанное. У неподдержанной цели сохраняются вычисления её операндов. Контракт проверяет <code>CompoundAssignmentLoweringTests</code>.</li>
     <li><strong>События.</strong> <code>+=</code> и <code>-=</code> вызывают аксессоры <code>add</code>/<code>remove</code>. Для события без явно написанных аксессоров анализ строит поле делегата и операции, соответствующие коду компилятора. Обработчик исполняется там, где событие вызывают; подробнее — в <a href="#edge-events">разделе о событиях</a>.</li>
     <li><strong>Свойства.</strong> Автоматическое свойство (невиртуальное, из исходников) читается и пишется как поле-backing field. Остальные — вызовы getter/setter.</li>
@@ -718,14 +724,14 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
     <li><strong><code>Interlocked</code> и <code>Volatile</code></strong> над полем или элементом становятся обычным load/store плюс пометка <code>atomic</code>.</li>
     <li><strong>Неявные вызовы C#.</strong> Pattern matching, деконструкция и перечисление могут вызывать пользовательские члены, хотя в тексте нет обычного вызова метода. Эти пути проверяют <code>PatternImpliedCallTests</code>, <code>DeconstructionCallTests</code> и <code>ExplicitEnumerationTests</code>. При расширении frontend важно сохранить их эффекты и provenance.</li>
     <li><strong>async и итераторы</strong> опускаются по исходному CFG, без state machine компилятора: <code>await</code> — операция <code>await</code>, <code>yield return</code> — операция <code>yield</code>.</li>
-    <li><strong>Лямбды и локальные функции</strong> — отдельные тела. Захваченные переменные приходят во вложенное тело как входящие SSA-переменные с общим <code>SymbolKey</code>.</li>
+    <li><strong>Лямбды и локальные функции</strong> — отдельные тела. Захваченная переменная — <strong>Capture Cell</strong>: ячейка в замыкании <code>closure:&lt;член&gt;</code>, которое создаёт каждый запуск объявившего её тела. Чтение и запись переменной вложенным телом — <strong>Access</strong> к этой ячейке. Само объявившее тело читает переменную из ячейки (<code>load-captured</code>), если с его последнего присваивания вложенное тело могло её изменить: после вызова, <code>await</code>, <code>yield</code>, spawn или join. Подробно — в <a href="#edge-tree">разделе об объекте запроса</a>.</li>
     <li><strong>Вызовы BCL</strong> (<code>Task.Run</code>, <code>Thread.Start</code>, <code>Parallel.*</code>, <code>Timer</code>…) получают после <code>call</code> дополнительные операции <code>spawn</code>, <code>join</code>, <code>when-all</code>, <code>timer</code> (<code>AnnotateBclCall</code>). Распознавание — по имени метаданных, поэтому пользовательский тип с именем BCL-типа не распознаётся никогда.</li>
     <li><strong>Коллекции, Library Models, DI-locator</strong> — аннотации на <code>call</code>: <code>Collection</code>, <code>Library</code>, <code>ServiceCall</code>.</li>
   </ul>
   </div>
   <div class="note code-map">
     <div class="note-title">Где в коде</div>
-    <p>Точка входа — <code>IrLowering.Lower</code>; выражения — большой <code>switch</code> в <code>LowerValue</code>, операторы — <code>LowerTop</code>; неподдержанное — <code>LowerUnsupported</code>. Модель IR — <code>ConcurrencyHunter.Analysis/Ir/</code> (<code>IrSchema.cs</code>, <code>IrOperations.cs</code>, <code>IrValidator.cs</code>, <code>IrPrinter.cs</code>). Лоуеринг после построения прогоняет <code>IrValidator</code> и бросает исключение на невалидном IR. Тесты: <code>IrLoweringTests</code>, <code>IrConstructionTests</code>, <code>IrSsaAndNestedBodyTests</code>, <code>IrSpawnLoweringTests</code> (golden-строки <code>IrPrinter</code>).</p>
+    <p>Точка входа — <code>IrLowering.Lower</code>; выражения — большой <code>switch</code> в <code>LowerValue</code>, операторы — <code>LowerTop</code>; неподдержанное — <code>LowerUnsupported</code>. Модель IR — <code>ConcurrencyHunter.Analysis/Ir/</code> (<code>IrSchema.cs</code>, <code>IrOperations.cs</code>, <code>IrValidator.cs</code>, <code>IrPrinter.cs</code>). Лоуеринг после построения прогоняет <code>IrValidator</code> и бросает исключение на невалидном IR. Хранилище struct и ячейки захвата описывают <code>Analysis/Ir/StructStorage.cs</code> и <code>IrClosureCell</code> в <code>IrOperations.cs</code>. Тесты: <code>IrLoweringTests</code>, <code>IrConstructionTests</code>, <code>IrSsaAndNestedBodyTests</code>, <code>IrSpawnLoweringTests</code> (golden-строки <code>IrPrinter</code>), <code>StructPlaceLoweringTests</code>.</p>
   </div>
 </section>
 
@@ -746,7 +752,7 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
     </tbody>
   </table></div>
   <div class="prose">
-  <p>Поэтому в demo кейсы про <strong>Protection</strong> и порядок строятся на двух <code>BackgroundService</code>, а action в них только читает: запись в action всегда даёт self-pair и испортила бы негатив.</p>
+  <p>Поэтому в demo кейсы про <strong>Protection</strong> и порядок строятся на двух <code>BackgroundService</code>, а action в них только читает: запись action в общий объект всегда даёт self-pair и испортила бы негатив. Исключение — объект или захваченная переменная, которые запрос создал и отдал только своей работе: у каждого запроса они свои (<a href="#edge-tree"><code>TreeConfined</code></a>).</p>
 
   <h3>DI-индекс</h3>
   <p><code>DiIndexBuilder</code> собирает вызовы <code>AddSingleton</code>/<code>AddScoped</code>/<code>AddTransient</code>, <code>TryAdd*</code>, <code>AddHostedService</code> по точным символам и диапазону версий сборки. Каждая регистрация — вид <em>Type</em>, <em>Factory</em> (<code>Func&lt;&gt;</code>) или <em>Instance</em>. Разрешение сервиса (<code>DiIndex.Resolve</code>) даёт один из исходов: нет регистраций, неподдержанная форма (keyed, открытые generics, <code>typeof</code>-формы), неоднозначность (разные реализация или lifetime — ничего не связывает, пишет диагностику) или связь с <em>последней</em> регистрацией. Service locator (<code>GetRequiredService</code>, <code>GetService</code>, <code>GetServices</code>, <code>CreateScope</code>) распознаётся во frontend и разрешается в куче по области DI, из которой вызван.</p>
@@ -771,7 +777,8 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
     <tbody>
       <tr><td><code>Static</code></td><td><code>static:Cache&lt;Order&gt;</code></td><td>Статические поля типа; один объект на <strong>Process Scope</strong></td></tr>
       <tr><td><code>Di</code></td><td><code>di:Ledger@Singleton</code>, <code>#2</code> для повторной регистрации</td><td>Объект, созданный контейнером; контекст зависит от lifetime</td></tr>
-      <tr><td><code>Allocation</code></td><td><code>alloc:Holder..ctor()#Box</code></td><td><code>new</code> в методе, с контекстом экземпляра метода</td></tr>
+      <tr><td><code>Allocation</code></td><td><code>alloc:Holder..ctor()#Box</code></td><td><code>new</code> в методе, с контекстом экземпляра метода. Бокс struct — такой же регион с типом struct: <code>alloc:Panel..ctor()#Reading</code></td></tr>
+      <tr><td><code>Closure</code></td><td><code>closure:CounterController.Post()</code></td><td>Замыкание: ячейки переменных, которые захватывают лямбды и local functions. Создаётся каждым запуском объявляющего тела, как объект, выделенный в этом теле</td></tr>
       <tr><td><code>Receiver</code></td><td><code>receiver:OrdersController</code></td><td>Controller одного запроса</td></tr>
       <tr><td><code>Delegate</code>, <code>Task</code></td><td><code>delegate:…</code>, <code>task:…</code></td><td>Делегат с захватами; handle задачи (для <strong>Join</strong>) со ссылкой на отдельно учитываемое значение завершения</td></tr>
       <tr><td><code>Container</code>, <code>Provider</code>, <code>Symbolic</code></td><td><code>container</code>, <code>provider:…</code>, <code>param:…</code></td><td>Служебные: DI-контейнер, <code>IServiceProvider</code>, параметры startup-методов</td></tr>
@@ -807,8 +814,12 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
       <text x="380" y="232" text-anchor="middle" class="t-small c-bad t-bold">один Resource (alloc:…#Box, [Value]) → пара запись × чтение, DCA1001</text>
     </svg>
     </div>
-    <figcaption><b>Resource — это Heap Region плюс Access Path, а не выражение в коде.</b> Два разных синтаксических пути сходятся в один <strong>Heap Region</strong>, и сравниваются <strong>Accesses</strong> уже на уровне <strong>Resource</strong>. Имя локальной переменной или поля, через которое дошли, в <strong>Resource</strong> не входит.</figcaption>
+    <figcaption><b>Resource — это Heap Region плюс Access Path, а не выражение в коде.</b> Два разных синтаксических пути сходятся в один <strong>Heap Region</strong>, и сравниваются <strong>Accesses</strong> уже на уровне <strong>Resource</strong>. Имя локальной переменной или поля, через которое дошли, в <strong>Resource</strong> не входит; исключение — захваченная переменная, у которой путь — её имя в замыкании.</figcaption>
   </figure>
+
+  <div class="prose">
+  <p>У struct своего <strong>Heap Region</strong> нет. Struct в поле, статике, ячейке массива или ячейке захвата — часть хранилища держателя, и <strong>Access Path</strong> идёт дальше через её поля: <code>_state.Count</code> — регион держателя с путём <code>_state</code>, <code>Count</code>. Struct в локальной переменной, параметре по значению или результате вызова — копия, а не место в памяти. Внутри кучи для этого есть служебные виды <code>StructStorage</code> и <code>StructCopy</code>, но <strong>Resource</strong> они не образуют. Подробно — в <a href="#edge-structs">разделе о struct</a>.</p>
+  </div>
 
   <div class="prose">
   <h3>Контекст: как отличить два объекта одного <code>new</code></h3>
@@ -828,8 +839,11 @@ operation 2 store-field %0."C"."Value" &lt;- %3 rmw=operation:0   transformation
   </div>
 <pre><code class="language-none">Run():
     Seed()                      // startup-члены + по экземпляру на каждый Execution Root; receiver-ы и параметры связаны
-    do Propagate()
-    while DefaultEmptyRegistrations() || CreateReceiverlessFallbacks() || CreateKeeperFallbacks()
+    loop:
+        Propagate()
+        if MarkUnseenWrites(): continue          // struct-хранилище, которое может писать невидимый код
+        if DefaultEmptyRegistrations() || CreateReceiverlessFallbacks() || CreateKeeperFallbacks(): continue
+        if not MarkEscapedDeferredWrites(): break // отложенные записи сбежавших последовательностей
 
 Propagate():
     loop:
@@ -847,6 +861,7 @@ Propagate():
         ApplySinks()            // здесь псевдокод: связи со стоками общих объектов
         if _changes == before: break      // множества только растут → конечность</code></pre>
   <div class="prose">
+  <p>Внешний цикл повторяет распространение, пока растут два набора отметок. Первый — struct-хранилище, которое может записать код, невидимый анализу: неизвестный вызов, запись <strong>Library Model</strong>, рефлексия. Такое хранилище может держать значение, как после копии (<a href="#edge-structs">подробнее</a>). Эти отметки собираются одним обходом после сходимости прохода, а не на каждом шаге распространения. Второй — отложенные записи последовательностей, которые по решённой куче сбегают. Оба набора только растут, поэтому цикл конечен.</p>
   <p>Пропуск чистых экземпляров — worklist внутри прохода: каждая запись состояния получает номер версии, и экземпляр снова обрабатывается, только если изменился хотя бы один прочитанный им ключ. <code>SolverWorklistOptions.Audit</code> проверяет корректность пропуска, а <code>VerifyConvergence</code> делает полный контрольный проход после сходимости. Эти режимы помогают проверить оптимизацию, не меняя правила анализа.</p>
   <p>Два ограничения роста анализа. Когда у тела набирается 16 контекстов, все дальнейшие вызовы этого тела связываются с одним экземпляром <code>@merged</code>. Когда экземпляр меняет что-то в 16 проходах подряд, вычисляется его сильно связная компонента в графе экземпляров, и если она циклическая, все её тела сливаются (счётчик <code>scc-budget-exceeded</code>). Слияние консервативно: эффекты объединяются, <strong>Heap Region</strong> помечается как merged.</p>
 
@@ -861,15 +876,16 @@ Propagate():
     <li>статик → <code>Shared</code>;</li>
     <li><strong>Heap Region</strong> из DI всего контейнера (singleton или корневая область DI) → <code>Shared</code>;</li>
     <li>достижим по полям или захватам из общего корня → <code>Escaped</code>, с цепочкой «X сохранён в F объекта Y в файле:строке»;</li>
-    <li>к нему обращается <strong>Execution Instance</strong>, который его не создавал → <code>Escaped</code>;</li>
+    <li>к нему никто не обращается → <code>Owned</code>;</li>
     <li>к нему обращаются только создавшие его <strong>Execution Instances</strong> → <code>ThreadConfined</code>;</li>
-    <li>к нему никто не обращается → <code>Owned</code>.</li>
+    <li>его создаёт ровно один <strong>Execution Instance</strong>, а все остальные, кто к нему обращается, запущены из этого создателя на любой глубине → <code>TreeConfined</code> (<a href="adr/0020-a-tree-confined-region-pairs-within-one-run-of-its-creator.md">ADR 0020</a>);</li>
+    <li>иначе → <code>Escaped</code>.</li>
   </ol>
-  <p>Пара на <strong>Heap Region</strong> <code>ThreadConfined</code> отбрасывается фильтром <code>confined</code>. <strong>Opaque Call</strong> <strong>Ownership</strong> не меняет никогда.</p>
+  <p>Замыкание с захваченными переменными получает <strong>Ownership</strong> по тем же правилам, что объект, созданный тем же запуском. Пара на <strong>Heap Region</strong> <code>ThreadConfined</code> отбрасывается фильтром <code>confined</code>. На <code>TreeConfined</code> пары двух разных запусков создателя не образуются, а пары одного запуска проверяются как обычно (<a href="#edge-tree">подробнее</a>). <strong>Opaque Call</strong> <strong>Ownership</strong> не меняет никогда.</p>
   </div>
   <div class="note code-map">
     <div class="note-title">Где в коде</div>
-    <p><code>Analysis/Heap/WholeProgram.cs</code> — <strong>Heap Regions</strong> (<code>HeapRegionKind</code>), решатель, DI-семантика, locator; <code>SolverWorklist.cs</code> — пропуск чистых экземпляров; <code>MethodSummary.cs</code> — лимиты и словарь абстрактных значений; <code>MethodSummaryBuilder.cs</code> — summaries. <strong>Ownership</strong>, <strong>Construction</strong> и публикация — <code>Analysis/Execution/ExecutionModel.cs</code> (<code>Ownership()</code>, <code>AssignRegionExecutions</code>, <code>Published</code>). Тесты: <code>Engine/PointsToTests</code>, <code>WorklistTests</code>, <code>MethodSummaryTests</code>, <code>OwnershipAndConstructionTests</code>, <code>DiSemanticsTests</code>.</p>
+    <p><code>Analysis/Heap/WholeProgram.cs</code> — <strong>Heap Regions</strong> (<code>HeapRegionKind</code>), решатель, DI-семантика, locator; <code>SolverWorklist.cs</code> — пропуск чистых экземпляров; <code>MethodSummary.cs</code> — лимиты и словарь абстрактных значений; <code>MethodSummaryBuilder.cs</code> — summaries; <code>UnseenWrites.cs</code> — какие слоты может записать невидимый код. <strong>Ownership</strong>, <strong>Construction</strong> и публикация — <code>Analysis/Execution/ExecutionModel.cs</code> (<code>Ownership()</code>, <code>Reached</code>, <code>AssignRegionExecutions</code>, <code>Published</code>). Тесты: <code>Engine/PointsToTests</code>, <code>WorklistTests</code>, <code>MethodSummaryTests</code>, <code>OwnershipAndConstructionTests</code>, <code>DiSemanticsTests</code>, <code>StructStoragePointsToTests</code>, <code>CaptureCellTests</code>, <code>TreeConfinedTests</code>.</p>
   </div>
   <div class="note warn">
     <div class="note-title">Осторожно: строки identity</div>
@@ -888,6 +904,7 @@ Propagate():
   <p>На этом же графе анализ проверяет конструирование объекта: <code>MayIn</code> означает «конструктор ещё работает хотя бы на одном пути», <code>MustIn</code> — «на всех путях». Проверка идёт для каждого объекта отдельно. Поэтому в <code>A() { new B(this); }</code> вызванный конструктор <code>B</code> всё ещё может заполнять строящийся <code>A</code>. Если <code>A</code> опубликован для других исполнений, исключение для его конструирования перестаёт защищать такие обращения от сравнения.</p>
   <h3>Кратность Spawn Site</h3>
   <p><strong>Spawn Site</strong> выполняется не более одного раза (<code>AT_MOST_ONCE</code>), только если родитель запускается один раз, <strong>Spawn Site</strong> не стоит в цикле CFG и до тела ведёт не больше одного пути вызовов (<code>SiteOnce</code>). <code>Parallel.*</code>, нераспознанные формы, рекурсивные <strong>Spawn Sites</strong> и периодические таймеры всегда <code>REPEATED</code>. Хвост async-метода после первого <code>await</code> — отдельный <strong>Execution Instance</strong> с политикой родителя.</p>
+  <p>Для пары на <code>TreeConfined</code>-объекте те же условия читаются на один запуск его создателя: даже если создатель — повторяющийся HTTP action, его однократные потомки считаются однократными в пределах запуска, а их рёбра <strong>Spawn Site</strong> и <strong>Join</strong> доказывают порядок (<a href="#edge-tree">подробнее</a>).</p>
   </div>
 
   <figure>
@@ -952,7 +969,7 @@ Propagate():
   </div>
   <div class="note code-map">
     <div class="note-title">Где в коде</div>
-    <p><code>Analysis/Execution/ExecutionModel.cs</code> (<strong>Execution Instances</strong>, политики, async-сегменты, таймеры, <strong>Ownership</strong>), <code>HappensBefore.cs</code> (граф, доказательство <strong>Joins</strong> <code>ProveHandle</code>, <code>EnsureJoins</code>), <code>TimerSteps.cs</code> (вид таймера). Тесты: <code>SpawnExecutionTests</code>, <code>HappensBeforeTests</code>, <code>TimerTests</code>, <code>IteratorExecutionTests</code>, <code>OpaqueDelegateExecutionTests</code>.</p>
+    <p><code>Analysis/Execution/ExecutionModel.cs</code> (<strong>Execution Instances</strong>, политики, async-сегменты, таймеры, <strong>Ownership</strong>), <code>HappensBefore.cs</code> (граф, доказательство <strong>Joins</strong> <code>ProveHandle</code>, <code>EnsureJoins</code>), <code>TimerSteps.cs</code> (вид таймера). Тесты: <code>SpawnExecutionTests</code>, <code>HappensBeforeTests</code>, <code>TimerTests</code>, <code>IteratorExecutionTests</code>, <code>OpaqueDelegateExecutionTests</code>, <code>OncePerCreatorRunMatrixTests</code>, <code>TreeConfinedMatrixTests</code>.</p>
   </div>
 </section>
 
@@ -966,6 +983,7 @@ Propagate():
     <li><strong>SolveDependencies</strong> — какие чтения питают какую запись, в том числе через возвраты, аргументы, <code>ref</code>-параметры и ячейки захвата. Так <code>SetLevel(GetLevel() + 1)</code> становится RMW в <code>SetLevel</code>, с «прочитано в <code>GetLevel</code>» в доказательствах.</li>
     <li><strong>Emit</strong> — выдаёт <strong>Accesses</strong>; каждый содержит <strong>Resource</strong>, вид операции, <strong>Execution Root</strong>, путь вызовов, удерживаемые замки, <strong>Guards</strong> и <strong>Spawn Sites</strong>.</li>
   </ol>
+  <p>Доступ, база которого должна указывать в кучу, но не разрешилась ни в один <strong>Heap Region</strong>, не теряется молча: он увеличивает счётчик <strong>Coverage</strong> <code>unresolved-base</code>. Намеренно опущенные доступы — к копии struct, к свежему объекту, construction-local — этот счётчик не увеличивают (<code>UnresolvedBaseCoverageTests</code>).</p>
   <h3>Must-held замки</h3>
   <p>Состояние анализа (<code>MustHeldLocks</code>) — «ключ замка → глубина, объект, место захвата» плюс три флага: <code>CrossesSuspension</code> (между захватом и освобождением есть <code>await</code>/<code>yield</code>), <code>IsReleasedOnAllPaths</code>, <code>IsPaired</code>. При слиянии ветвей ключи пересекаются, берётся меньшая глубина и более слабый режим. Обработчики <code>catch</code>/<code>finally</code> начинают с минимума по защищённой области. Ключ замка включает вид примитива, поэтому <code>Monitor</code> и <code>Lock</code> на одном объекте независимы. Освобождение замка, который не удерживается, очищает всё состояние — консервативно.</p>
   <p>Identity замка — <strong>Heap Region</strong> объекта. Замок, который не сводится ровно к одному объекту на процесс (<code>lock (new object())</code>, замок на поле per-request объекта), показывается в отчёте с пометкой «not one object per process» и доказать <strong>Protection</strong> не может.</p>
@@ -975,7 +993,7 @@ Propagate():
   </div>
   <div class="note code-map">
     <div class="note-title">Где в коде</div>
-    <p><code>Analysis/Accesses/InterproceduralAccesses.cs</code> (сбор, зависимости RMW, эффекты коллекций и библиотек, <code>InterproceduralPairing</code>, <code>CandidateIndex</code>), <code>MustHeldLocks.cs</code> (dataflow), <code>AccessModel.cs</code> (<code>Access</code>, <code>AccessResource</code>, <code>PairProtection</code>). Таблица членов коллекций — <code>IrLowering.Collections.Of</code>, распознавание примитивов — <code>IrLowering.Synchronization</code>. Тесты: <code>InterproceduralAccessTests</code>, <code>MustHeldLockTests</code>, <code>ProtectionVerdictTests</code>, <code>SynchronizationPrimitiveTests</code>, <code>LiftedEffectTests</code>, <code>CollectionResourceTests</code>, <code>AtomicOperationTests</code>.</p>
+    <p><code>Analysis/Accesses/InterproceduralAccesses.cs</code> (сбор, зависимости RMW, эффекты коллекций и библиотек, <code>InterproceduralPairing</code>, <code>CandidateIndex</code>), <code>MustHeldLocks.cs</code> (dataflow), <code>AccessModel.cs</code> (<code>Access</code>, <code>AccessResource</code>, <code>PairProtection</code>), <code>AccessPathParts.cs</code> (сегменты пути: поля struct, ячейки, ячейки захвата). Таблица членов коллекций — <code>IrLowering.Collections.Of</code>, распознавание примитивов — <code>IrLowering.Synchronization</code>. Тесты: <code>InterproceduralAccessTests</code>, <code>MustHeldLockTests</code>, <code>ProtectionVerdictTests</code>, <code>SynchronizationPrimitiveTests</code>, <code>LiftedEffectTests</code>, <code>CollectionResourceTests</code>, <code>AtomicOperationTests</code>.</p>
   </div>
 </section>
 
@@ -986,6 +1004,7 @@ Propagate():
   <ul>
     <li><strong>внутри Bucket Resource</strong> — включая пару места <strong>Access</strong> с самим собой (self-pair: <strong>Execution Root</strong> пересекается сам с собой);</li>
     <li><strong>между ячейками одной коллекции</strong> — только если <strong>Selectors</strong> могут совпасть (<code>MayOverlap</code>);</li>
+    <li><strong>между путями одного Heap Region, где один путь продолжает другой</strong> — например, вся struct <code>_range</code> и её поле <code>_range.Lo</code>. Такая пара называется более длинным путём (<code>PathOverlapMatrixTests</code>);</li>
     <li><strong>Accesses с wildcard Heap Region</strong> — между собой и с каждым <strong>Bucket</strong> того же <strong>Heap Region</strong>;</li>
     <li><strong>открытый Heap Region generic-типа</strong> (<code>static:Cache&lt;T&gt;</code>) — с закрытыми <strong>Heap Regions</strong> своей группы по тому же пути.</li>
   </ul>
@@ -1000,13 +1019,16 @@ Propagate():
   <p><strong><code>PathPredicate</code></strong> — <strong>Guard</strong>: равенство, неравенство, сравнения, null, проверка типа, с шириной и знаковостью типа. Неподдержанный предикат превращается в запись uncertainty. Дешёвая проверка <code>PathConditions.Contradict</code> ловит очевидные противоречия (null против not-null, разные константы, непересекающиеся диапазоны) — но только для «канонических» значений, которые означают одно и то же в обоих <strong>Execution Instances</strong>.</p>
   <p><strong><code>SolverRefinement</code></strong> задаёт вопросы Z3 для выживших пар в порядке ожидаемой оценки (сначала те, где ответ сильнее всего изменит отчёт):</p>
   <ul>
-    <li>лимит 150 мс на запрос и 10% <strong>Deadline</strong> (3 минуты) на весь <strong>Run</strong>, общий для всех <strong>Process Scopes</strong>;</li>
+    <li>запрос ограничен не временем, а счётчиком работы самого Z3 (<code>rlimit</code>): 390 000 единиц на запрос. Бюджет <strong>Run</strong> — 1 200 таких пределов, общий для всех <strong>Process Scopes</strong>. Каждый запрос списывает из бюджета весь свой предел, сколько бы ни потратил, поэтому бюджет — это просто число запросов. Константы — <code>SolverPolicy</code>; они откалиброваны на demo и eShop (<a href="adr/0021-a-solver-query-is-limited-by-z3s-resource-count-not-by-time.md">ADR 0021</a>);</li>
+    <li>зачем так: ответ по часам зависел бы от загрузки машины, а <code>Unsat</code> против <code>Unknown</code> решает, останется ли <strong>Finding</strong>. С <code>rlimit</code> тот же запрос даёт тот же ответ на любой машине при любой нагрузке. Часы остались только как предохранитель на 2 секунды от патологического запроса; такой запрос отвечает Unknown и считается отдельно;</li>
+    <li>каждый запрос решается в собственном контексте Z3, который создаётся под запрос и сразу освобождается: в общем контексте работа запроса зависела бы от того, что оставили предыдущие;</li>
     <li>пустой запрос (меньше двух поддерживаемых предикатов и нет пары индексов) не задаётся, и path feasibility остаётся «not-analyzed»;</li>
     <li>неканонические переменные переименовываются с префиксом стороны (<code>first|</code>, <code>second|</code>), чтобы <code>i</code> двух <strong>Execution Instances</strong> никогда не считались одной переменной;</li>
     <li>запрос строится только из битовых векторов ширины типа: суммы переполняются, приведения обрезают или расширяют по знаку операнда, неизвестные значения — свежие переменные;</li>
     <li>UNSAT снимает пару, SAT сохраняет её с моделью, Unknown сохраняет и снижает уверенность;</li>
     <li>если нативная <code>libz3</code> не загрузилась, каждый запрос отвечает Unknown, <strong>Coverage</strong> это показывает, <strong>Run</strong> продолжается (<code>Z3ConstraintSolver.Create</code>).</li>
   </ul>
+  <p><strong>Coverage</strong> считает работу решателя: <code>solver-queries</code>, ответы <code>solver-sat</code>, <code>solver-unsat</code>, <code>solver-unknown</code>, <strong>Candidates</strong>, которым не хватило бюджета (<code>solver-budget-exhausted</code>), и отдельно <code>solver-safeguard-timeout</code>. Только ответы последнего счётчика зависят от нагрузки машины, поэтому ненулевое значение — сигнал, что этот <strong>Run</strong> может не повториться байт в байт. Тесты: <code>SolverTests</code>, <code>SolverResourceLimitTests</code>.</p>
   </div>
 </section>
 
@@ -1050,7 +1072,7 @@ Propagate():
       <line x1="583" y1="32" x2="583" y2="48" class="ln-bad"/><text x="576" y="30" text-anchor="end" class="t-small c-bad">79: потолок, если Semantic Gap решает проверку</text>
       <line x1="695" y1="108" x2="695" y2="116" class="ln-muted"/><text x="695" y="130" text-anchor="middle" class="t-small t-muted">95</text>
       <line x1="730" y1="108" x2="730" y2="116" class="ln-muted"/><text x="730" y="130" text-anchor="middle" class="t-small t-muted">100</text>
-      <text x="30" y="160" class="t-small t-muted">Путь: 10 — SAT, 5 — решатель не спрашивался, 0 — Unknown (таймаут, бюджет, нет Z3).</text>
+      <text x="30" y="160" class="t-small t-muted">Путь: 10 — SAT, 5 — решатель не спрашивался, 0 — Unknown (предел rlimit, бюджет, предохранитель, нет Z3).</text>
     </svg>
     </div>
     <figcaption><b>Пять компонентов в масштабе 0–100.</b> При <code>partial</code>, <code>different-identity</code> или <code>incompatible-mode</code> компонент <strong>Protection</strong> равен 12. Типичные значения: без <strong>Protection</strong>, без вопросов к решателю — 90 (High); <code>partial</code> без вопросов — 82; <code>partial</code> и Unknown от решателя — 77 (Medium); wildcard без <strong>Protection</strong> — 75 (Medium). <strong>Finding</strong> берёт оценку лучшего <strong>Occurrence</strong>, группа — лучшую метку среди своих <strong>Findings</strong>.</figcaption>
@@ -1072,7 +1094,7 @@ Propagate():
     <li><code>findings.json</code> (schema 2.2): <strong>Findings</strong>, группы, принятые <strong>Narratives</strong> — структурированный контракт.</li>
     <li><code>run-metadata.json</code>: время загрузки и анализа. Потайминговая раскладка по шагам есть только в <code>metrics</code>.</li>
   </ul>
-  <p><strong>NarrativeValidator</strong> отклоняет текст с одной из причин: пустой, больше 8192 байт, нет ни одной ссылки <code>[E:…]</code>, ссылка на несуществующий evidence, не процитирован <strong>Finding</strong>, показанный в дайджесте, нет раздела <code>Remediation</code>, рекомендация без <code>verify manually</code> или без вложенного <code>Check:</code>, путь <code>.cs</code> вне backticks, выдуманный файл или строка вне span доказательства, выдуманный идентификатор в backticks. Правила для composer-а подробно описаны в <code>skills/hunt/composing.md</code>.</p>
+  <p><strong>NarrativeValidator</strong> отклоняет текст с одной из причин: пустой, больше 8192 байт, нет ни одной ссылки <code>[E:…]</code>, ссылка на несуществующий evidence, не процитирован <strong>Finding</strong>, показанный в дайджесте, нет раздела <code>Remediation</code>, рекомендация без <code>verify manually</code> или без вложенного <code>Check:</code>, путь <code>.cs</code> вне backticks, выдуманный файл или строка вне span доказательства, выдуманный идентификатор в backticks. В backticks допустимы также тип региона с полем или со всем путём (<code>Store._state.Count</code>), захваченная переменная и вид <strong>Ownership</strong>. Путь с <strong>Selector</strong> или нумерованной переменной (<code>_slots[0].Hits</code>, <code>count#2</code>) сверяется с путями <strong>Findings</strong> сегмент за сегментом, поэтому выдуманное поле, ячейка или переменная отклоняются. Правила для composer-а подробно описаны в <code>skills/hunt/composing.md</code>; он же объясняет composer-у регионы <code>closure:</code>, <code>TreeConfined</code> и пути через struct.</p>
   </div>
 </section>
 </div>
@@ -1251,7 +1273,7 @@ LastSync.Source = "worker";</code></pre>
     <li><strong>Join должен выполняться на всех путях, включая исключительные.</strong> В <code>join-skipped-on-exception</code> <span class="chip bad">DCA1001</span> <code>await task</code> стоит в <code>try</code> после вызова, который может бросить; после <code>catch</code> родитель пишет поле, а задача может ещё работать.</li>
     <li><strong>Handle должен быть доказанно тот же.</strong> Задача, сохранённая в поле и awaited в другом методе, — это <strong>Spawn Site</strong> с <strong>Join</strong> (<code>task-handle-awaited-elsewhere</code> <span class="chip ok">нет <strong>Findings</strong></span>); задача, чей handle ни на одном пути не доходит до ожидания, — <strong>Fire-and-forget</strong>.</li>
     <li><strong><code>WhenAny</code>, ожидание с таймаутом, <code>ManualResetEventSlim.Wait()</code> и <code>Dispose()</code> — не Join.</strong> <code>event-wait-not-ordering</code> <span class="chip bad">DCA1001</span> — известное ограничение: event-ожидания порядка не дают.</li>
-    <li><strong>Путь доверяется только внутри одного Instance Tree.</strong> Ребро <strong>Spawn Site</strong> верно для всех экземпляров, только если порождающий <strong>Execution Instance</strong> запускается один раз (<strong>Execution Root</strong>, который не пересекается сам с собой, например один <code>BackgroundService</code>) и <strong>Spawn Site</strong> не стоит в цикле. Задача, запущенная из HTTP action, упорядочена со «своим» запросом, но не с соседним запросом — поэтому все кейсы <strong>Spawn Site</strong> demo живут внутри одного worker-а.</li>
+    <li><strong>Путь доверяется только внутри одного Instance Tree.</strong> Ребро <strong>Spawn Site</strong> верно для всех экземпляров, только если порождающий <strong>Execution Instance</strong> запускается один раз (<strong>Execution Root</strong>, который не пересекается сам с собой, например один <code>BackgroundService</code>) и <strong>Spawn Site</strong> не стоит в цикле. Задача, запущенная из HTTP action, упорядочена со «своим» запросом, но не с соседним запросом — поэтому кейсы <strong>Spawn Site</strong> на общих объектах живут внутри одного worker-а. Для объекта, который запрос создал и отдал только своей работе, деревом служит один запуск запроса — это следующий <a href="#edge-tree">раздел</a>.</li>
     <li><strong>Старт хоста предшествует всем Execution Roots.</strong> Поэтому запись из <code>Program</code> до запуска хоста (<code>startup-write-before-run</code>) и конструкторы hosted services ни с чем не пересекаются.</li>
     <li><strong>Happens-before только удаляет пары.</strong> Новые пары появляются только из новых <strong>Execution Instances</strong>, никогда из графа. Ребро, чья identity handle или сам <strong>Join</strong> не доказаны, не добавляется.</li>
   </ul>
@@ -1289,6 +1311,64 @@ private async Task SaveAsync() { await Task.Yield(); Saved = "save"; }</code></p
 private async Task StepA() { Prefix = "a"; await Task.Yield(); Suffix = "a"; }
 private async Task StepB() { Prefix = "b"; await Task.Yield(); Suffix = "b"; }</code></pre>
     <div class="case-body"><p>Префиксы <code>StepA</code> и <code>StepB</code> выполняются по очереди в вызывающем, ещё до того, как <code>WhenAll</code> вообще получит задачи, — поэтому <code>Prefix</code> не гонится. Хвосты после <code>await Task.Yield()</code> — два параллельных <strong>Execution Instances</strong>, и <code>Suffix</code> гонится.</p></div>
+  </div>
+</section>
+
+<section id="edge-tree">
+  <h2>Объект запроса и его задачи: TreeConfined</h2>
+  <div class="prose">
+  <p>Анализ не различает отдельные HTTP-запросы: один <strong>Execution Instance</strong> action стоит за всеми запросами сразу, и один <strong>Execution Instance</strong> задачи — за задачами всех запросов. Для общих объектов это верно. Но обычный код запроса создаёт свой объект и раздаёт его своим задачам. Без особого правила задача одного запроса «гонялась» бы с задачей соседнего запроса на объекте, который у каждого запроса свой.</p>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">spawned-work-own-object</span><span class="chips"><span class="chip ok">нет <strong>Findings</strong></span></span></div>
+<pre><code class="language-csharp">[HttpPost]
+public async Task&lt;int&gt; Post()
+{
+    var tally = new Tally();                     // у каждого запроса свой объект
+    await Task.Run(() =&gt; { tally.Count++; });    // задача этого запроса
+    return tally.Count;                          // после await задача завершилась
+}</code></pre>
+    <div class="case-body"><p>Объект создаёт один <strong>Execution Instance</strong> (action), а кроме него к объекту обращается только работа, которую этот action запустил. Ни один общий корень объекта не достигает. Такой <strong>Heap Region</strong> получает <strong>Ownership</strong> <code>TreeConfined</code>, и для его пар создатель считается запущенным один раз (<a href="adr/0020-a-tree-confined-region-pairs-within-one-run-of-its-creator.md">ADR 0020</a>). Доступы двух разных запусков пар не дают: до одного объекта они дойти не могут. Внутри одного запуска рёбра <strong>Spawn Site</strong> и <strong>Join</strong> снова доказывают порядок, поэтому чтение после <code>await</code> упорядочено с задачей.</p></div>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">spawned-work-own-object-twice</span><span class="chips"><span class="chip bad">DCA1002</span></span></div>
+<pre><code class="language-csharp">var tally = new Tally();
+var first  = Task.Run(() =&gt; { tally.Count++; });
+var second = Task.Run(() =&gt; { tally.Count++; });   // две задачи одного запроса
+await Task.WhenAll(first, second);</code></pre>
+    <div class="case-body"><p><code>TreeConfined</code> убирает только пары между запусками. Две задачи одного запроса идут одновременно, и их пара остаётся: это настоящая гонка внутри одного запроса.</p></div>
+  </div>
+
+  <div class="prose">
+  <p>Правила, которые полезно помнить:</p>
+  <ul>
+    <li><strong>Кто входит в дерево.</strong> Всё, что создатель запустил на любой глубине: <code>Task.Run</code>, хвост async-вызова, поток, таймер, тело <code>Parallel</code>, continuation. Регион, к которому обращается только создатель, остаётся <code>ThreadConfined</code>; регион, который создают несколько <strong>Execution Instances</strong>, <code>TreeConfined</code> не бывает.</li>
+    <li><strong>Однократность читается на запуск создателя.</strong> Исполнение дерева однократно, только если каждый запуск на цепочке от создателя исполняет работу один раз и стоит там, где один запуск родителя проходит один раз. Задача из цикла, тело <code>Parallel</code>, периодический таймер, callback, который могут вызвать снова, и рекурсия пересекаются сами с собой (<code>spawned-work-in-a-loop</code> <span class="chip bad">DCA1002</span>). Если сам создатель может запуститься несколько раз за один запуск родителя, как тело <code>Parallel</code>, деревом служит один его запуск.</li>
+    <li><strong>Публикация отменяет правило.</strong> Объект, сохранённый туда, где его достигает общий корень, — <code>Escaped</code>, и работа двух запросов снова образует пары (<code>spawned-work-object-published</code> <span class="chip bad">DCA1002</span>, <span class="chip bad">/slot DCA1001</span>).</li>
+    <li><strong>Это не изоляция.</strong> В отличие от <code>ThreadConfined</code>, <code>TreeConfined</code> не сводит <code>UnknownEffect</code> к чтению: две задачи одного запуска могут идти одновременно. Для публикации и <strong>Semantic Gaps</strong> такой регион считается общим, как <code>Escaped</code>.</li>
+  </ul>
+
+  <h3>Захваченная переменная — тоже место в памяти</h3>
+  <p>Переменная, которую захватывает лямбда или local function, живёт не на стеке, а в замыкании. Анализ так её и моделирует: каждый запуск объявившего тела создаёт регион <code>closure:&lt;член&gt;</code>, а переменная — его ячейка с путём по имени (<code>count</code>; вторая переменная того же имени в члене — <code>count#2</code>). Все вложенные тела одного запуска делят ячейку, два запуска — никогда. Переменная, объявленная внутри лямбды, живёт в замыкании запуска этой лямбды (<code>lambda-variable-captured-by-local-function</code>).</p>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">captured-counter</span><span class="chips"><span class="chip bad">DCA1002 · closure:…Post() count</span></span></div>
+<pre><code class="language-csharp">[HttpPost]
+public async Task Post()
+{
+    var count = 0;                               // ячейка в замыкании запроса
+    var first  = Task.Run(() =&gt; { count++; });
+    var second = Task.Run(() =&gt; { count++; });
+    await Task.WhenAll(first, second);
+}</code></pre>
+    <div class="case-body"><p>Замыкание получает <strong>Ownership</strong> по тем же правилам, что объект, созданный тем же запуском, поэтому здесь работает то же правило <code>TreeConfined</code>: две задачи одного запроса гоняются на <code>count</code>, а соседние запросы — нет. Если задача одна и запрос читает переменную после <code>await</code>, пары нет (<code>captured-counter-one-task</code> <span class="chip ok">нет</span>). Если лямбду исполняет <code>List&lt;T&gt;.ForEach</code> прямо в запросе, пары тоже нет (<code>capture-per-invocation</code> <span class="chip ok">нет</span>). Делегат, который захватил замыкание и сохранён в поле singleton-а, публикует замыкание (<code>escape-via-captured-closure/note-cell</code> <span class="chip bad">DCA1001</span>); копия значения переменной туда ничего не публикует.</p></div>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Где в коде</div>
+    <p><code>ExecutionModel.Reached</code> решает <code>TreeConfined</code>, <code>CreatorRuns</code> — однократность на запуск создателя, <code>ExecutionModel.Timing</code> и <code>HappensBefore</code> — порядок внутри дерева. Ячейки захвата — <code>IrClosureCell</code>, регион <code>HeapRegionKind.Closure</code>. Тесты: <code>TreeConfinedTests</code>, <code>TreeConfinedMatrixTests</code>, <code>OncePerCreatorRunMatrixTests</code>, <code>CaptureCellTests</code>, <code>CaptureOwnerMatrixTests</code>.</p>
   </div>
 </section>
 
@@ -1492,7 +1572,8 @@ public sealed class Ledger                   // AddSingleton&lt;Ledger&gt;(); д
 
   <div class="prose">
   <p>Какие <strong>Resources</strong> трогает каждый распознанный член коллекции, записано в его модели операций (ADR 0010). Несколько неочевидных строк: <code>Count</code> и <code>ContainsKey</code> читают только <strong>Collection Structure</strong>; индексатор-get читает <strong>Collection Structure</strong> и ячейку; удаление пишет и ячейку, потому что переход «есть → нет» тоже можно потерять; <code>Insert</code>/<code>RemoveAt</code> у <code>List&lt;T&gt;</code> сдвигают соседей и пишут ячейку <code>[?]</code>; перечисление читает <strong>Collection Structure</strong> и все ячейки. <code>HashSet</code>, <code>Queue</code>, <code>Stack</code> и <code>LinkedList</code> моделируются так же, всегда с ячейкой <code>[?]</code>.</p>
-  <p>Кроме <strong>Accesses</strong> к <strong>Collection Structure</strong> и ячейкам, куча хранит связи с объектами внутри коллекции. У словаря ключи и значения учитываются отдельно; новый список из существующей последовательности получает новый контейнер, но ссылки на прежние элементы. Вызов через <code>IEnumerable&lt;T&gt;</code> или интерфейс коллекции разрешается по точному типу receiver, если этот тип известен. Это проверяют <code>CollectionElementStorageTests</code>, <code>DictionaryKeyStorageTests</code>, <code>InterfaceCollectionCallTests</code> и <code>ArrayProjectionModelMatrixTests</code>.</p>
+  <p>Кроме <strong>Accesses</strong> к <strong>Collection Structure</strong> и ячейкам, куча хранит связи с объектами внутри коллекции. У словаря ключи и значения учитываются отдельно; новый список из существующей последовательности получает новый контейнер, но ссылки на прежние элементы. Вызов через <code>IEnumerable&lt;T&gt;</code> или интерфейс коллекции разрешается по точному типу receiver, если этот тип известен. Массив может быть и <code>Span&lt;T&gt;</code>: спан, сделанный из массива, и есть этот массив, поэтому член спана на массиве не отбрасывается. Это проверяют <code>CollectionElementStorageTests</code>, <code>DictionaryKeyStorageTests</code>, <code>InterfaceCollectionCallTests</code> и <code>ArrayProjectionModelMatrixTests</code>.</p>
+  <p>Прямой доступ <code>r[i]</code> не требует, чтобы массив пришёл из поля или параметра. Если <code>r</code> пришёл слиянием веток, из ячейки другой коллекции, через захват или из результата помощника, <strong>Access</strong> создаётся на каждом массиве, до которого куча разрешает значение, и называется полем, которое этот массив держит. Исключение — массив, который тело создало само: прямой доступ к нему <strong>Access</strong> не даёт, иначе инициализация массивов в библиотечном коде вроде CoreLib порождала бы десятки тысяч эффектов (<code>CollectionRouteMatrixTests</code>).</p>
   <p>У <code>ConcurrentDictionary</code> оба <strong>Resources</strong> атомарны: пары двух <code>GetOrAdd</code> нет, и перечисление во время изменения — определённое поведение (<code>concurrent-dictionary-enumerate-while-mutate/concurrent-dictionary</code> <span class="chip ok">нет</span>). Но последовательность атомарных вызовов не атомарна:</p>
   </div>
 
@@ -1508,6 +1589,91 @@ public void PostFlag()
 [HttpPost("count")]
 public void PostCount() =&gt; _registry.Counts["hits"] = _registry.Counts["hits"] + 1;</code></pre>
     <div class="case-body"><p>Проверка, которая решает, выполнится ли изменение, считается такой же зависимостью, как зависимость по значению. Поэтому check-then-act — это неатомарный RMW над составной операцией, а значит DCA1004. Замена на thread-safe коллекцию тут не помогает: нужна одна критическая секция на проверку и действие либо атомарный член вроде <code>GetOrAdd</code>/<code>AddOrUpdate</code>.</p></div>
+  </div>
+</section>
+
+<section id="edge-structs">
+  <h2>Struct: хранилище, а не объект</h2>
+  <div class="prose">
+  <p>Struct копируется при каждом присваивании, поэтому вопрос «один объект или два» для неё звучит иначе: <em>где лежит эта struct</em>. Своего <strong>Heap Region</strong> у struct нет. Ответ анализа держится на двух правилах:</p>
+  <ul>
+    <li><strong>Struct в памяти кучи — часть хранилища держателя.</strong> Поле объекта, статическое поле, ячейка массива (в том числе через <code>Span&lt;T&gt;</code> над ним), ячейка захвата — на любой глубине вложенности. <strong>Access Path</strong> идёт дальше через поля struct, а <strong>Selector</strong> ячейки стоит сразу за полем массива: <code>_slots</code>, <code>[0]</code>, <code>Hits</code>.</li>
+    <li><strong>Struct по значению — копия, а не место в памяти.</strong> Локальная переменная, параметр по значению, результат вызова, <code>new S()</code>, <code>default</code>. Взять копию — значит прочитать всё хранилище, из которого её взяли; изменения копии никого не касаются.</li>
+  </ul>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">struct-field-of-singleton</span><span class="chips"><span class="chip bad">DCA1002 · _counter.Count</span></span></div>
+<pre><code class="language-csharp">public struct Counter { public int Count; }
+
+public sealed class Tally                     // AddSingleton&lt;Tally&gt;(); два worker-а вызывают Add
+{
+    private Counter _counter;                 // struct лежит прямо в поле singleton-а
+    public void Add() =&gt; _counter.Count++;
+}</code></pre>
+    <div class="case-body"><p><strong>Resource</strong> — <code>(di:Tally@Singleton, [_counter, Count])</code>: поле struct — память singleton-а. Так же работают мутирующий метод struct на поле (<code>struct-mutating-method</code>: <code>this</code> — само поле, а не копия), вложенная struct (<code>nested-struct-field</code>), статическое поле (<code>static-struct-field</code>) и ячейка массива — напрямую или через спан над тем же массивом (<code>struct-in-array-cell</code>, путь <code>_slots</code>, <code>[0]</code>, <code>Hits</code>). Все эти кейсы — <span class="chip bad">DCA1002</span>.</p></div>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">struct-torn-write</span><span class="chips"><span class="chip bad">/field DCA1001</span><span class="chip bad">/copy DCA1001</span></span></div>
+<pre><code class="language-csharp">private Range _range;                                    // struct Range { long Lo; long Hi; }
+
+public void Shift(long n) =&gt; _range = new Range { Lo = n, Hi = n + 10 };   // worker: пишет всю struct
+public long Get() =&gt; _range.Lo;                                            // action: читает одно поле
+public long Span() { var r = _range; return r.Hi - r.Lo; }                 // action: берёт копию</code></pre>
+    <div class="case-body"><p><code>Window</code> — singleton: worker пишет <code>_range</code>, а HTTP-запросы в любой момент его читают, и замков нет. Сама запись не атомарна. <code>Range</code> — два <code>long</code>, 16 байт, а .NET гарантирует атомарность только для ссылок и примитивов не больше машинного слова (ECMA-335 §I.12.6.6). Присваивание всей struct выполняется как две записи, <code>Lo</code> и <code>Hi</code>, и между ними другой поток может прочитать поле.</p></div>
+  </div>
+
+  <div class="prose">
+  <p>Как это выглядит во времени. Пусть сейчас <code>_range = { Lo = 0, Hi = 10 }</code>, а класс держит инвариант <code>Hi == Lo + 10</code>:</p>
+  </div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Шаг</th><th>Worker: <code>Shift(42)</code></th><th>Запрос: <code>Span()</code></th><th><code>_range</code> в памяти</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>пишет <code>Lo = 42</code></td><td></td><td><code>{ 42, 10 }</code></td></tr>
+      <tr><td>2</td><td></td><td><code>var r = _range;</code> копирует <code>{ 42, 10 }</code></td><td><code>{ 42, 10 }</code></td></tr>
+      <tr><td>3</td><td>пишет <code>Hi = 52</code></td><td></td><td><code>{ 42, 52 }</code></td></tr>
+      <tr><td>4</td><td></td><td><code>return r.Hi - r.Lo;</code> → <strong>−32</strong></td><td></td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+  <p>Ожидалось 10, получилось −32, и никакого исключения. Копия собрана из нового <code>Lo</code> и старого <code>Hi</code> — такой struct программа никогда не записывала. Это «разорванная» запись (torn write).</p>
+  <ul>
+    <li><strong><code>/copy</code>.</strong> Копия <code>var r = _range</code> читает всё хранилище целиком, поэтому анализ ставит её чтение на путь <code>_range</code>, и пара «запись <code>Shift</code> × чтение <code>Span</code>» стоит на этом пути.</li>
+    <li><strong><code>/field</code>.</strong> <code>Get()</code> читает одно поле, разрыва здесь нет, но это всё равно незащищённая пара «запись × чтение» одного места: запрос может прочитать <code>Lo</code> до или после записи worker-а. Запись всей struct — запись каждого её поля, поэтому путь <code>_range</code> встречает путь <code>_range.Lo</code>, который его продолжает. Пара называется более длинным путём, <code>_range.Lo</code>.</li>
+    <li><strong>Почему DCA1001, а не DCA1002.</strong> Чтения-изменения-записи нет, никто не делает <code>_range.Lo++</code>: есть только запись против чтения.</li>
+    <li><strong>Как исправить.</strong> Один <code>lock</code> вокруг записи и обоих чтений. Либо сделать <code>Range</code> неизменяемым классом и заменять ссылку целиком: запись ссылки атомарна, и читатель увидит старый объект или новый, но не их смесь.</li>
+  </ul>
+  </div>
+
+  <div class="case">
+    <div class="case-head"><span class="case-name">struct-copy-not-shared</span><span class="chips"><span class="chip ok">нет <strong>Findings</strong></span></span></div>
+<pre><code class="language-csharp">var e = _entries[0];   // копия ячейки: только чтение хранилища
+e.Hits++;              // меняет локальную копию
+var l = _last;         // копия поля
+l.Hits++;</code></pre>
+    <div class="case-body"><p>Два worker-а только читают общее хранилище, а пишут свои копии. Похожий негатив — <code>readonly-struct-defensive-copy</code>: не-<code>readonly</code> метод на <code>readonly</code>-поле C# вызывает на защитной копии, поэтому поле только читается. Для захваченной переменной то же самое показывают <code>captured-struct-copied</code> и <code>struct-with-copies-captured-variable</code> (<code>with</code> создаёт копию).</p></div>
+  </div>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>Ссылка на само хранилище — <strong>Access</strong> на держателе</th><th>Копия — только чтение хранилища в момент копирования</th></tr></thead>
+    <tbody>
+      <tr><td>Поле, статик, ячейка массива напрямую; <code>this</code> члена struct: метода, аксессора, индексатора, события, <code>Deconstruct</code> (<code>struct-deconstructed-in-place</code>)</td><td>Локальная переменная, параметр по значению, результат вызова, <code>new S()</code>, <code>default</code></td></tr>
+      <tr><td><code>ref</code>-возврат метода, свойства и индексатора, <code>ref readonly</code>, условный <code>ref</code>, <code>ref</code>-локаль (<code>struct-through-reference</code>)</td><td>Содержимое <code>Nullable&lt;S&gt;</code> (<code>Value</code>, <code>GetValueOrDefault()</code>) и <code>KeyValuePair</code> (<code>Key</code>, <code>Value</code>): прочитать его — прочитать всё поле (<code>pair-value-read-from-field</code>)</td></tr>
+      <tr><td><code>ref</code>/<code>in</code>/<code>out</code>-параметр, параметр типа <code>where T : struct</code> по <code>ref</code> или <code>in</code></td><td><code>foreach</code> по значению, <code>with</code>, бокс, делегат из method group</td></tr>
+      <tr><td>Ячейка <code>Span&lt;T&gt;</code> по индексу и переменная <code>ref foreach</code> (<code>struct-cell-written-by-ref-foreach</code>, ячейка <code>[?]</code>), захваченная переменная</td><td>Защитная копия: не-<code>readonly</code> член на <code>readonly</code>-хранилище, через <code>ref readonly</code> или ячейку <code>ReadOnlySpan&lt;T&gt;</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="prose">
+  <h3>Бокс и <code>Nullable</code></h3>
+  <p>Бокс — новый объект с копией struct. Его <strong>Heap Region</strong> — обычный allocation-регион с типом struct (<code>alloc:Panel..ctor()#Reading</code>), а всё хранилище бокса — пустой путь <code>[]</code>, который встречает любое поле на этом регионе. Паттерн с интерфейсом (<code>_probe is IBump bump</code>) боксит копию, и член исполняется уже на боксе (<code>struct-boxed-by-pattern</code>); <code>Deconstruct</code> через интерфейс диспетчеризуется в <code>Deconstruct</code> struct на боксе (<code>struct-deconstructed-through-interface</code>). <code>Nullable&lt;S&gt;</code> боксится, как в C#: пустой даёт <code>null</code>, полный — бокс <code>S</code>.</p>
+  <p>Есть тонкость с кодом, которого анализ не видит. Если struct-хранилище может записать неизвестный вызов, запись <strong>Library Model</strong>, <code>out</code>/<code>ref</code>-выход без тела или рефлексия, оно может держать значение, даже если видимый код туда ничего не клал. Тогда <code>Nullable</code>, прочитанный оттуда, боксится в объект, и вызванные на нём члены исполняются (<code>nullable-filled-by-unseen-write</code> <span class="chip bad">DCA1002</span>). Какие слоты может записать такой код, решает одно правило для кучи и доступов (<code>UnseenWrites</code>): ограничение receiver-а, <code>readonly</code>-поля, которые пишет только рефлексия, и предел глубины.</p>
+  <p>Предел глубины <strong>Access Path</strong> (8) считает и поля struct: длинная цепочка вложенных struct сворачивается в wildcard, как цепочка объектов.</p>
+  </div>
+  <div class="note code-map">
+    <div class="note-title">Где в коде и чем проверять</div>
+    <p><code>Analysis/Ir/StructStorage.cs</code> — модель хранилища и копии; адресация во frontend — <code>IrLowering</code>; <code>Analysis/Accesses/AccessPathParts.cs</code> — сегменты пути; <code>Analysis/Heap/UnseenWrites.cs</code> — невидимые записи. Главная проверка — матрица «где лежит struct × каким маршрутом до неё дошли × как её используют» (<code>StructPlaceMatrix</code>, её запускают <code>StructPlaceMatrixTests</code> и <code>StructPlaceMatrixCellTests</code>). Ещё: <code>StructAccessTests</code>, <code>PathOverlapMatrixTests</code>, <code>NullableBoxingTests</code>, <code>NullableUnseenWriteMatrixTests</code>, для генератора — <code>GeneratedStructEffectMatrixTests</code>.</p>
   </div>
 </section>
 
@@ -1662,7 +1828,7 @@ _settings.Limits.Max = 100;                                  // worker
   <h3>Opaque Call: <code>UnknownEffect</code></h3>
   <p><strong>Opaque Call</strong> не считается «ничего не делающим». Его эффект — один <strong>Access</strong> вида <code>UnknownEffect</code>, который читает и пишет всё, что достижимо из receiver и аргументов, до глубины summaries и wildcard дальше. В процедуре конфликта он ведёт себя как запись. Но есть важные сужения, каждое из которых снимает огромный шум:</p>
   <ul>
-    <li>Объект одного <strong>Execution Instance</strong> (<code>Owned</code>, <code>ThreadConfined</code>) такой вызов только <em>читает</em>: вызов ничей <strong>Ownership</strong> не меняет. Это явное допущение модели анализа, а не гарантия поведения любой внешней библиотеки.</li>
+    <li>Объект одного <strong>Execution Instance</strong> (<code>Owned</code>, <code>ThreadConfined</code>) такой вызов только <em>читает</em>: вызов ничей <strong>Ownership</strong> не меняет. Это явное допущение модели анализа, а не гарантия поведения любой внешней библиотеки. На <code>TreeConfined</code>-объекте эффект остаётся чтением и записью: две задачи одного запроса могут вызвать библиотеку одновременно.</li>
     <li><code>readonly</code>-поле тоже только читается (кроме reflection), а то, на что оно указывает, получает эффект целиком.</li>
     <li>Через receiver виден только тип, объявивший член: библиотечный член, вызванный на объекте из исходников (<code>base</code>-конструктор, унаследованный <code>HttpContext</code>), полей исходников не видит.</li>
     <li>На <strong>Collection Structure</strong> thread-safe коллекции эффект атомарен, как её собственные члены.</li>
@@ -1699,7 +1865,7 @@ byte first = buffer.Bytes[0]; // чтение может пересечься с
   <div class="prose">
   <p>Тела <code>Random.NextBytes</code> и подходящей модели нет, поэтому его неизвестный эффект относится к фоновому <strong>Execution Instance</strong> и к переданному массиву. Он не исчезает и не переносится в место постановки работы в очередь. Замок, удерживаемый при постановке, фоновую работу не защищает. То же правило действует для callback таймера и делегата без доступного тела, отданного неизвестному вызову; его проверяет <code>BodylessWorkTests</code>.</p>
   <h3>Semantic Gap</h3>
-  <p><strong>Opaque Call</strong> становится <strong>Semantic Gap</strong>, только когда его <code>UnknownEffect</code> достаёт до изменяемого <strong>Heap Region</strong> с <strong>Ownership</strong> <code>Escaped</code>/<code>Shared</code>/<code>Unknown</code>, когда ему передан делегат, или когда его результат записывается в поле общего <strong>Heap Region</strong>. Вызов только со строками, числами и неизменяемыми типами <strong>Semantic Gap</strong> не бывает (<code>reflection-primitive-args-no-gap</code> <span class="chip ok">нет <strong>Semantic Gaps</strong></span>). Виды <strong>Semantic Gap</strong>: <code>reflection</code>, <code>dynamic</code>, <code>unresolved-dispatch</code> (interface/virtual/delegate-вызов без известного объекта), <code>model-gap</code> (service locator с неконстантным типом) и <code>unknown-library</code>. <strong>Semantic Gap</strong> один на callee в пределах <strong>Process Scope</strong>. Их порядок в отчёте — <strong>Materiality</strong>: сначала число <strong>Execution Roots</strong>, потом число <strong>Heap Regions</strong>, потом число мест вызова, без общего «скора».</p>
+  <p><strong>Opaque Call</strong> становится <strong>Semantic Gap</strong>, только когда его <code>UnknownEffect</code> достаёт до изменяемого <strong>Heap Region</strong> с <strong>Ownership</strong> <code>TreeConfined</code>/<code>Escaped</code>/<code>Shared</code>/<code>Unknown</code>, когда ему передан делегат, или когда его результат записывается в поле общего <strong>Heap Region</strong>. Вызов только со строками, числами и неизменяемыми типами <strong>Semantic Gap</strong> не бывает (<code>reflection-primitive-args-no-gap</code> <span class="chip ok">нет <strong>Semantic Gaps</strong></span>). Виды <strong>Semantic Gap</strong>: <code>reflection</code>, <code>dynamic</code>, <code>unresolved-dispatch</code> (interface/virtual/delegate-вызов без известного объекта), <code>model-gap</code> (service locator с неконстантным типом) и <code>unknown-library</code>. <strong>Semantic Gap</strong> один на callee в пределах <strong>Process Scope</strong>. Их порядок в отчёте — <strong>Materiality</strong>: сначала число <strong>Execution Roots</strong>, потом число <strong>Heap Regions</strong>, потом число мест вызова, без общего «скора».</p>
   <p>Классический пример, где <strong>Semantic Gap</strong> честно оставляет неопределённость, — <code>Channel&lt;T&gt;</code> (<code>channel-handoff</code> <span class="chip ok">нет <strong>Findings</strong></span>): объект, прочитанный consumer-ом, с записанным producer-ом не связан, а запись в канал общего объекта видна как <strong>Semantic Gap</strong> в <strong>Coverage</strong> — неопределённость, а не безопасность.</p>
   <p><strong>Semantic Gaps</strong> видны в <strong>Coverage</strong>, uncertainty и confidence; AI-разрешение <strong>Semantic Gaps</strong> с повторным fixpoint не подключено. <strong>Known Call</strong> с <strong>Delegate Fate</strong> <code>unknown-execution</code> — другой случай: <strong>Library Model</strong> уже дала консервативный ответ о делегате, поэтому сам вызов не становится <strong>Semantic Gap</strong>.</p>
   </div>
@@ -1837,13 +2003,15 @@ foreach (var value in _filter.Matching) { }</code></pre>
   <div class="table-wrap"><table>
     <thead><tr><th>Поле <strong>Library Model</strong></th><th>Смысл</th><th>Пример</th></tr></thead>
     <tbody>
-      <tr><td><code>effects</code></td><td><code>reads-deep</code> читает достижимый граф, <code>writes-arg</code> пишет собственные поля аргумента, <code>writes-cells</code> — ячейки массива.</td><td><code>Array.Sort</code> пишет ячейки, переданный comparison выполняется сейчас.</td></tr>
+      <tr><td><code>effects</code></td><td><code>reads-deep</code> читает достижимый граф, <code>writes-arg</code> пишет собственные поля аргумента, <code>writes-cells</code> — ячейки массива. <code>reads-deep</code> на <code>this</code> читает объекты, которые держит receiver; собственные поля библиотечного receiver-а — состояние библиотеки, а не ресурс. <code>writes-arg</code> на <code>this</code> запрещён.</td><td><code>Array.Sort</code> пишет ячейки, переданный comparison выполняется сейчас.</td></tr>
+      <tr><td><code>calls</code></td><td>Какие члены равенства, хэша или порядка пользовательских объектов (<code>Equals</code>, <code>GetHashCode</code>, <code>CompareTo</code>, <code>Compare</code>) вызов исполняет прямо сейчас: <code>on</code> — на каких объектах, <code>inputs</code> — что получают параметры. Член исполняется в <strong>Execution Instance</strong> вызывающего, под его замками, 0..n раз. Пишется рядом с <code>reads-deep</code> тех же значений: сам deep read пользовательских членов не исполняет.</td><td>Поиск по равенству зовёт <code>Equals</code> пользовательских элементов, сортировка — их <code>CompareTo</code>. Такие записи выдаёт генератор.</td></tr>
       <tr><td><code>stores</code></td><td>Какие объекты записываются в ячейки. Требует <code>writes-cells</code> на той же цели.</td><td><code>Array.Fill</code> записывает <code>arg:value</code>; <code>Array.Copy</code> — элементы источника.</td></tr>
       <tr><td><code>outputs</code></td><td>Что получает <code>out</code> или <code>ref</code> параметр; это присваивание самой ссылки.</td><td><code>Array.Resize</code> передаёт в <code>ref array</code> новый массив с прежними элементами.</td></tr>
       <tr><td><code>keeps</code>, <code>kept:cache</code></td><td>Библиотечный объект сохраняет переданный объект и возвращает его другим вызовам.</td><td><code>Set</code> кладёт объект в cache, <code>TryGetValue</code> отдаёт его через <code>out</code>.</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
+  <p>Если запись модели (<code>writes-arg</code>, <code>writes-cells</code>, <code>out</code>/<code>ref</code>-выход) попадает в struct-хранилище, после вызова там может лежать значение — по тому же правилу, что и для неизвестного вызова (<a href="#edge-structs">подробнее</a>). <code>Nullable&lt;T&gt;</code> и <code>KeyValuePair</code> держат то, из чего их создали: <code>Value</code>, <code>Key</code>, <code>GetValueOrDefault()</code> и <code>Deconstruct</code> отдают именно эти объекты.</p>
   <p><code>writes-cells</code> на <code>this</code> допустим только для instance-члена <code>System.Array</code>; параметр-цель должен быть массивом или <code>System.Array</code>. Писать <code>stores</code> без соответствующего эффекта нельзя. <code>outputs</code> проверяется против реальных <code>ref/out</code> параметров и типов. Эти ограничения не дают синтаксически правильному JSON молча создавать бессмысленные связи.</p>
   <p>Следующий фрагмент взят из <strong>Library Models</strong> слоя project demo: библиотека вызывает factory, оставляет результат у cache и возвращает либо его, либо ранее сохранённый объект. Это часть записи <strong>Library Model</strong>, без её identity и диапазона версии:</p>
   </div>
@@ -1859,7 +2027,7 @@ foreach (var value in _filter.Matching) { }</code></pre>
   </div>
   <div class="note code-map">
     <div class="note-title">Примеры и регрессионные тесты</div>
-    <p>Demo: <code>linq-predicate-runs-now</code>, <code>linq-where-tolist-runs-in-caller</code>, <code>linq-groupby-key-and-elements</code>, <code>project-model-holder-fate</code>, <code>array-sort-writes-cells</code>, <code>project-model-kept-object</code>, <code>project-model-try-get-value</code>. Тесты: <code>DelegateFateTests</code>, <code>HolderFateTests</code>, <code>LibrarySequenceTests</code>, <code>LinqBuiltInResultTests</code>, <code>ModelCellWriteTests</code>, <code>ModelOutputTests</code>, <code>KeptObjectTests</code>, <code>NewResultTests</code>.</p>
+    <p>Demo: <code>linq-predicate-runs-now</code>, <code>linq-where-tolist-runs-in-caller</code>, <code>linq-groupby-key-and-elements</code>, <code>project-model-holder-fate</code>, <code>array-sort-writes-cells</code>, <code>project-model-kept-object</code>, <code>project-model-try-get-value</code>. Тесты: <code>DelegateFateTests</code>, <code>HolderFateTests</code>, <code>LibrarySequenceTests</code>, <code>LinqBuiltInResultTests</code>, <code>ModelCellWriteTests</code>, <code>ModelOutputTests</code>, <code>KeptObjectTests</code>, <code>NewResultTests</code>, <code>ModelCallTests</code>.</p>
   </div>
 </section>
 
@@ -1885,17 +2053,18 @@ Get-Content scratch/parser-fate.json</code></pre>
   </div>
   <ol class="steps">
     <li><strong>Найти implementation DLL.</strong> <code>ImplementationAssemblies</code> выбирает локальную сборку и зависимости, проверяет, что это не reference assembly, записывает assembly version, file version и MVID. <code>System.Private.CoreLib</code> намеренно отклоняется.</li>
-    <li><strong>Декомпилировать и получить Roslyn Compilation.</strong> <code>LibraryCompilation</code> использует встроенный ICSharpCode.Decompiler и создаёт деревья C# в памяти. Тела с ошибками компиляции превращаются в <code>extern</code>, затем выполняется повторная проверка, максимум три переписывания. Так они становятся обычными <strong>Opaque Calls</strong> движка. Ошибка декларации или оставшаяся ошибка делает библиотеку непригодной.</li>
-    <li><strong>Проверить область применения.</strong> Найти member по declaration id. <code>EngineClaims</code> отклоняет сборку, если её член уже принадлежит специальному recognizer движка: иначе такой вызов мог бы анализироваться по встроенной семантике вместо исследуемого тела.</li>
+    <li><strong>Декомпилировать и получить Roslyn Compilation.</strong> <code>LibraryCompilation</code> использует встроенный ICSharpCode.Decompiler и создаёт деревья C# в памяти. Тела с ошибками компиляции превращаются в <code>extern</code>, затем выполняется повторная проверка, максимум три переписывания. Так же <code>extern</code> становится заглушка intrinsic — тело, которое только вызывает сам член (<code>MemoryMarshal.GetArrayDataReference</code>, аппаратные intrinsics): настоящий код для неё подставляет JIT. Так они становятся обычными <strong>Opaque Calls</strong> движка. Ошибка декларации или оставшаяся ошибка делает библиотеку непригодной.</li>
+    <li><strong>Проверить область применения.</strong> Найти member по declaration id. Член, который есть только в открытой копии (например, setter, появившийся у get-only auto-property после открытия полей), сборке не принадлежит: ответ <code>member-not-found</code>. <code>EngineClaims</code> отклоняет сборку, если её член уже принадлежит специальному recognizer движка: иначе такой вызов мог бы анализироваться по встроенной семантике вместо исследуемого тела. Virtual-член или незапечатанный override в незапечатанном типе получает отказ <code>overridable</code>: модель применяется по члену, который назван в вызове, а исполнится override типа объекта, поэтому одно тело его поведение не описывает.</li>
     <li><strong>Синтезировать Driver.</strong> <code>DriverSynthesizer</code> подбирает типы и аргументы, создаёт пробные делегаты и объекты. <strong>Probe</strong> оставляет отслеживаемую запись. <strong>Driver</strong> содержит подготовку, вызов члена, ожидание результата задачи и перечисление результата, когда эти действия нужны. Для возможного <strong>Holder</strong> создаются дополнительные вызовы его членов — triggers: они проверяют, кто запускает сохранённый делегат.</li>
     <li><strong>Прогнать общий движок.</strong> <code>ScopePipeline.Run</code> получает две компиляции — библиотеку и <strong>Driver</strong> — и <code>DriverRootProvider</code>. Главный проход использует setup/call/enumeration <strong>Execution Roots</strong>. Он строит IR, summaries, heap, <strong>Execution Instances</strong> и <strong>Accesses</strong>. Pairing, Z3 и пользовательский отчёт генератору не нужны. <strong>Library Models</strong> слоя built-in для исследуемой сборки исключены, чтобы её <code>extern</code>-тела не получали готовые ответы.</li>
     <li><strong>Классифицировать делегаты.</strong> <code>FateClassifier</code> сопоставляет записи <strong>Probes</strong> с исполнениями и проверяет по куче, кто сохраняет делегат. Для <strong>Holder</strong> нужен отдельный подтверждающий проход: доступные triggers должны покрывать его члены, и хотя бы один обязан вызвать сохранённый делегат в собственном исполнении. Передача в другую работу, ошибка или превышение лимита расширяют ответ до <code>unknown-execution</code>.</li>
-    <li><strong>Построить и проверить модель.</strong> <code>EffectReader</code> собирает чтения и записи, а <code>ValueProvenance</code> выясняет происхождение результатов, аргументов делегатов и сохраняемых объектов. Каждый объект должен получить описание в языке модели. Готовая запись проходит собственный JSON-reader и проверку против символа члена. Затем <code>GeneratedDocument</code> записывает ответ с <code>schemaVersion: 3</code>; CLI сохраняет UTF-8 без BOM с завершающим переводом строки.</li>
+    <li><strong>Построить и проверить модель.</strong> <code>EffectReader</code> собирает чтения и записи, а <code>ValueProvenance</code> выясняет происхождение результатов, аргументов делегатов и сохраняемых объектов. Свидетель <code>Equals</code>, <code>GetHashCode</code>, <code>CompareTo</code> или <code>Compare</code>, исполненный во время вызова, даёт запись <code>calls</code>. Эффект на struct в состоянии библиотеки описывается так же, как тот же эффект на класс в том же месте. Каждый объект должен получить описание в языке модели. Готовая запись проходит собственный JSON-reader и проверку против символа члена. Затем <code>GeneratedDocument</code> записывает ответ с <code>schemaVersion: 3</code>; CLI сохраняет UTF-8 без BOM с завершающим переводом строки.</li>
   </ol>
   <div class="prose">
   <p><strong>Driver</strong> строится из сигнатуры, поэтому его сложность — отдельная часть продукта: receiver может требовать конструктора или фабрики, generic-параметр — удовлетворения constraints, интерфейс — пробной реализации. <code>TypeShape</code> различает immutable, delegate, коллекции, task и другие формы; <code>ParameterKinds</code> определяет, как переданный аргумент способен нести <strong>Probe</strong>. Классификация может относиться и к callback, переданному внутри объекта, а не только к параметру типа <code>Func&lt;&gt;</code>.</p>
+  <p><strong>Probe</strong> и <strong>Seed</strong> стоят за пользовательский объект <em>любого</em> типа, который может объявить программа. Поэтому проверка типа или dispatch на пробе отбрасывает ветку, только если программа не может такой тип унаследовать: sealed-класс, значимый тип или тип, недоступный другой сборке. Например, <code>Convert.ToInt32(object)</code> на пробе — неразрешённый вызов <code>IConvertible.ToInt32</code>, а не мёртвая ветка. Параметр под <code>where T : struct</code> получает собственную пробу-struct <code>Probe_&lt;T&gt;</code>: пользовательская struct тоже может держать объекты и исполнять на них свои <code>Equals</code>, <code>GetHashCode</code>, <code>CompareTo</code>.</p>
   <h3>Почему Driver заполняет поля пробными объектами</h3>
-  <p>Пустой объект настроек может скрыть пользовательский код: в настоящей программе там, например, лежит пользовательский конвертер. Поэтому подготовка добавляет <strong>Seed</strong> — пробный объект — в поля, которые могут хранить пользовательские объекты: у receiver, аргументов и в статическом состоянии библиотеки. Доступ к закрытым полям открывается только в копии декомпилированного кода в памяти. Исходная DLL и пользовательский проект не меняются.</p>
+  <p>Пустой объект настроек может скрыть пользовательский код: в настоящей программе там, например, лежит пользовательский конвертер. Поэтому подготовка добавляет <strong>Seed</strong> — пробный объект — в поля, которые могут хранить пользовательские объекты: у receiver, аргументов и в статическом состоянии библиотеки. Доступ к закрытым полям открывается только в копии декомпилированного кода в памяти. Исходная DLL и пользовательский проект не меняются. Struct-receiver, struct-аргумент и поле struct-типа засеваются вдоль своих путей прямо на месте, как поля объекта, — никогда через копию. В <code>unseeded</code> попадает только то, что подготовка засеять не может, например struct за свойством или <code>readonly</code>-полем: это копия.</p>
   <p>Члены пробного объекта служат наблюдаемыми точками вызова — <strong>Witnesses</strong>. Они позволяют заметить, что библиотека передала объект пользовательскому коду, в том числе через <code>out</code>. Генератор учитывает происхождение таких значений и отказывается от модели, если не может надёжно выразить его. Неизвестное значение не становится известным только потому, что рядом в том же поле хранится пробный объект. Подробное правило — <a href="adr/0013-a-driver-seeds-what-a-program-could-have-put-there.md">ADR 0013</a>.</p>
   <h3>Почему одного наблюдения недостаточно</h3>
   <p>Допустим, <strong>Driver</strong> видит вызов <code>callback()</code> внутри библиотечного метода. Этого мало для <code>invoke-now</code>: библиотека могла ещё сохранить callback в поле и вызвать после завершения метода. И наоборот, отсутствие видимого вызова не означает, что callback никогда не запустится: его может вызвать фреймворк за пределами достижимых <strong>Execution Roots</strong>. Это <strong>Open-world Rule</strong>.</p>
@@ -1927,24 +2096,25 @@ Get-Content scratch/parser-fate.json</code></pre>
   <div class="table-wrap"><table>
     <thead><tr><th>Причина</th><th>Как понимать</th></tr></thead>
     <tbody>
-      <tr><td><code>unknown-touch</code></td><td>Пробный или достижимый из него объект попал в код, действия которого анализ не может проследить.</td></tr>
+      <tr><td><code>unknown-touch</code></td><td>Пробный или достижимый из него объект — или любой изменяемый вход: аргумент, receiver, seed — попал в код, действия которого анализ не может проследить. Не считаются касанием неизменяемый объект (<code>string</code>, <code>Type</code>), то, что только захватил переданный делегат, и <code>object.GetType()</code>. Сюда же относится вызов члена receiver-а, за которым стоит пробный override (<code>receiver-member-unseen</code>), и вызов на receiver-е, который положил туда невидимый код (<code>call-receiver-unfollowed</code>).</td></tr>
       <tr><td><code>incomplete</code></td><td>Член прочитал поле, которое подготовка не смогла заполнить или достичь.</td></tr>
       <tr><td><code>library-state</code></td><td>Член меняет уже существовавшее состояние библиотеки вне связей хранения, которые умеет описать модель.</td></tr>
-      <tr><td><code>vocabulary</code></td><td>Наблюдаемый эффект или происхождение значения нельзя выразить языком модели; сюда относится и отклонение записи её проверкой.</td></tr>
+      <tr><td><code>vocabulary</code></td><td>Наблюдаемый эффект или происхождение значения нельзя выразить языком модели; сюда относится и отклонение записи её проверкой. Примеры: запись в хранилище вызывающего через собственный struct-receiver или <code>ref</code>-параметр, запись в объект, который держит receiver (<code>receiver-object-write</code>), пользовательский <code>Equals</code>/<code>CompareTo</code>, исполненный только при перечислении результата (<code>call-at-enumeration</code>).</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
   <p><code>causes</code> — строки вида <code>код: пояснение</code> с конкретным полем, параметром или вызовом. Они отсортированы по коду, по одной строке на каждый обнаруженный код. <code>modelReason</code> выбирается по порядку проверок из таблицы, а не по алфавиту. Это диагностический список обнаруженных причин, не обещание перечислить все проблемы: дорогая проверка <code>library-state</code> выполняется лишь при отсутствии первых двух причин. Для чтения отказа начните с <code>modelReason</code>, затем смотрите слова в <code>causes</code>.</p>
-  <p>Основные причины отказа: <code>corelib</code>, <code>no-implementation</code>, <code>reference-assembly</code>, <code>library-does-not-compile</code>, <code>member-not-found</code>, <code>accessor</code>, <code>engine-recognized</code>, <code>driver-not-synthesized</code>, <code>not-a-candidate</code>, <code>body-does-not-compile</code>, <code>closure-bound</code>, <code>analysis-failed</code>. Это ответ о границе анализа, а не доказательство отсутствия эффектов у библиотеки.</p>
+  <p>Основные причины отказа: <code>corelib</code>, <code>no-implementation</code>, <code>reference-assembly</code>, <code>library-does-not-compile</code>, <code>member-not-found</code>, <code>accessor</code>, <code>engine-recognized</code>, <code>driver-not-synthesized</code>, <code>not-a-candidate</code>, <code>body-does-not-compile</code>, <code>overridable</code>, <code>closure-bound</code>, <code>analysis-failed</code>. <code>analysis-failed</code> выдаётся и тогда, когда вызов <strong>Driver</strong> не исполнил тело самого члена (receiver ушёл в override подкласса): увиденное описывало бы другой член. Это ответ о границе анализа, а не доказательство отсутствия эффектов у библиотеки.</p>
   <h3>Отдельная проверка CoreLib</h3>
   <p>Публичная команда <code>generate</code> отвечает <code>corelib</code> для <code>System.Private.CoreLib</code>. Для разработки существует отдельный инструмент <code>tools/ConcurrencyHunter.CoreLibGeneration</code> и скрипт <code>build/generate-corelib.ps1</code>. Он исследует члены установленной .NET 8 CoreLib, сохраняет ответы в <code>answers.jsonl</code> и сравнивает <code>snapshot.tsv</code> с эталоном <code>skills/hunt/evals/models/corelib-generation.tsv</code>. Это проверка генератора; обычный <strong>Run</strong> эти результаты не загружает.</p>
-  <p>Только в этом режиме граф виртуальных и интерфейсных вызовов ограничен типами, которые анализ видит созданными; для значимых типов учитывается упаковка в объект (<em>boxing</em>). Тела <code>System.SR</code>, обслуживающие строки ресурсов runtime, не обходятся. Если разрешение вызова вывело за выбранный набор, сохраняется неизвестный вызов. Это позволяет ограничить объём работы, не выдавая пропущенное тело за отсутствие эффектов (<a href="adr/0019-corelib-generation-reaches-only-the-types-it-constructs.md">ADR 0019</a>).</p>
+  <p>Только в этом режиме граф виртуальных и интерфейсных вызовов ограничен типами, которые анализ видит созданными; для значимых типов учитывается упаковка в объект (<em>boxing</em>), а значимый тип самого <strong>Driver</strong> считается созданным там, где его создают, — он стоит за struct пользователя, и constrained-вызов доходит до его override без бокса. Тела <code>System.SR</code>, обслуживающие строки ресурсов runtime, не обходятся. Если разрешение вызова вывело за выбранный набор, сохраняется неизвестный вызов. Это позволяет ограничить объём работы, не выдавая пропущенное тело за отсутствие эффектов (<a href="adr/0019-corelib-generation-reaches-only-the-types-it-constructs.md">ADR 0019</a>).</p>
+  <p><code>Comparer&lt;T&gt;.Default</code> и <code>EqualityComparer&lt;T&gt;.Default</code> CoreLib строит отражением, через вызов без тела. В генерации CoreLib на этом месте куча создаёт тот компаратор, который выбрала бы CoreLib 8.0 для конкретного типа: <code>GenericComparer&lt;X&gt;</code>, если X реализует <code>IComparable&lt;X&gt;</code>, иначе <code>NullableComparer</code>, <code>EnumComparer</code> или <code>ObjectComparer</code>; для равенства — так же. Проба, которой нужен такой компаратор, реализует <code>IComparable&lt;T&gt;</code> или <code>IEquatable&lt;T&gt;</code> свидетелями, поэтому сравнение доходит до пользовательского члена (<code>DefaultComparers</code>, <code>ComparisonWitnesses</code>).</p>
   <p>Особый случай — <code>System.Runtime.CompilerServices.Unsafe</code>: его декомпилированный C# не описывает операции, которые реально выполняет runtime. <code>LibraryCompilation</code> убирает тела этих членов в своей копии, делая их <code>extern</code>. Вызов такого члена учитывается как работа без доступного тела. Причина <code>body-does-not-compile</code> используется и для таких намеренно исключённых тел, поэтому не всегда означает ошибку компиляции.</p>
   <p>Компиляции декомпилированных библиотек повторно используются внутри процесса по пути implementation и набору зависимостей. Это локальная экономия работы генератора; кэша пользовательских <strong>Findings</strong> между <strong>Runs</strong> она не создаёт.</p>
   </div>
   <div class="note code-map">
     <div class="note-title">Где в коде и чем проверять</div>
-    <p><a href="../src/ConcurrencyHunter.Cli/GenerateCommand.cs">GenerateCommand.cs</a> — CLI и запись файла; <a href="../src/ConcurrencyHunter.Core/Providers/LibraryModels/Generation/">Generation/</a> — компоненты из описания. Начните с <code>ModelGenerator</code>, <code>FateClassifier</code>, <code>EffectReader</code> и <code>ValueProvenance</code>; <code>ValueObservation</code> проверяет, не потеряно ли неизвестное происхождение объекта. Формат и причины отказов проверяют <code>GeneratedDocumentTests</code> и <code>GenerationCauseTests</code>. Тесты компонентов лежат в <code>Core.Tests/Providers/</code>, матрицы и сравнение с gold — в <code>Core.Tests/Generation/</code>. Обращение к реальным пакетам включается отдельно; подробности — в <a href="#testing">разделе проверок</a>.</p>
+    <p><a href="../src/ConcurrencyHunter.Cli/GenerateCommand.cs">GenerateCommand.cs</a> — CLI и запись файла; <a href="../src/ConcurrencyHunter.Core/Providers/LibraryModels/Generation/">Generation/</a> — компоненты из описания. Начните с <code>ModelGenerator</code>, <code>FateClassifier</code>, <code>EffectReader</code> и <code>ValueProvenance</code>; <code>ValueObservation</code> проверяет, не потеряно ли неизвестное происхождение объекта. Формат и причины отказов проверяют <code>GeneratedDocumentTests</code>, <code>GenerationCauseTests</code> и <code>OverridableMemberTests</code>; struct — <code>GeneratedStructEffectMatrixTests</code>, <code>StructSeedTests</code>, <code>ProbeStructTests</code>; компараторы CoreLib — <code>DefaultComparerSelectionMatrixTests</code> и <code>ComparisonWitnessMatrixTests</code>. Тесты компонентов лежат в <code>Core.Tests/Providers/</code>, матрицы и сравнение с gold — в <code>Core.Tests/Generation/</code>. Обращение к реальным пакетам включается отдельно; подробности — в <a href="#testing">разделе проверок</a>.</p>
   </div>
 </section>
 
@@ -1984,8 +2154,8 @@ Get-Content scratch/parser-fate.json</code></pre>
   <div class="table-wrap"><table>
     <thead><tr><th>Проект / каталог</th><th>Ответственность</th><th>С чего начать чтение</th></tr></thead>
     <tbody>
-      <tr><td><code>ConcurrencyHunter.Analysis/Ir</code></td><td>Независимый от Roslyn язык операций.</td><td><a href="../src/ConcurrencyHunter.Analysis/Ir/IrOperations.cs">IrOperations.cs</a>, <code>IrSchema</code>, <code>IrPrinter</code>, <code>IrValidator</code>.</td></tr>
-      <tr><td><code>Analysis/CallGraph</code>, <code>Heap</code></td><td>Достижимость тел, summaries, <strong>Heap Regions</strong>, <strong>Points-to</strong>, DI, значения <strong>Library Models</strong>.</td><td><a href="../src/ConcurrencyHunter.Analysis/Heap/MethodSummary.cs">MethodSummary.cs</a>, <code>MethodSummaryBuilder</code>, <a href="../src/ConcurrencyHunter.Analysis/Heap/WholeProgram.cs">WholeProgram.cs</a>.</td></tr>
+      <tr><td><code>ConcurrencyHunter.Analysis/Ir</code></td><td>Независимый от Roslyn язык операций, хранилище struct и ячейки захвата.</td><td><a href="../src/ConcurrencyHunter.Analysis/Ir/IrOperations.cs">IrOperations.cs</a>, <code>IrSchema</code>, <code>IrPrinter</code>, <code>IrValidator</code>, <code>StructStorage</code>.</td></tr>
+      <tr><td><code>Analysis/CallGraph</code>, <code>Heap</code></td><td>Достижимость тел, summaries, <strong>Heap Regions</strong>, <strong>Points-to</strong>, DI, значения <strong>Library Models</strong>, невидимые записи в struct-хранилище, компараторы CoreLib.</td><td><a href="../src/ConcurrencyHunter.Analysis/Heap/MethodSummary.cs">MethodSummary.cs</a>, <code>MethodSummaryBuilder</code>, <a href="../src/ConcurrencyHunter.Analysis/Heap/WholeProgram.cs">WholeProgram.cs</a>, <code>UnseenWrites</code>, <code>DefaultComparers</code>.</td></tr>
       <tr><td><code>Analysis/Execution</code></td><td><strong>Execution Instances</strong> и <strong>Ownership</strong>: кто делает <strong>Access</strong> и может ли пересечься с другим.</td><td><code>ExecutionModel</code>, <code>HappensBefore</code>.</td></tr>
       <tr><td><code>Analysis/Accesses</code></td><td><strong>Accesses</strong>, замки, <strong>Unknown Effects</strong>, <strong>Semantic Gaps</strong>, пары.</td><td><code>InterproceduralAccesses</code>, <code>MustHeldLocks</code>, <code>UnknownCalls</code>, <code>CandidateIndex</code>.</td></tr>
       <tr><td><code>Analysis/Analysis</code>, <code>Solving</code></td><td><strong>Resources</strong>, <strong>Guards</strong>, запросы решателю, правила и confidence.</td><td><code>ConflictFindings</code>, <code>SolverRefinement</code>.</td></tr>
@@ -2009,7 +2179,7 @@ Get-Content scratch/parser-fate.json</code></pre>
     <li>Проследите <code>PhaseOneAnalyzer</code> и <code>ScopePipeline</code>. На этом уровне важно понять вход и результат каждого шага.</li>
     <li>Прочитайте типы <code>IrBody</code>, <code>MethodSummary</code>, <code>HeapSolution</code>, <code>ExecutionAnalysis</code> и <code>Access</code>. Они связывают стадии.</li>
     <li>Запустите небольшой тест из <code>Engine/</code> под отладчиком, например из <code>CompoundAssignmentLoweringTests</code> или <code>LibrarySequenceTests</code>. <code>EngineFixture</code> строит тестовую программу из строки C#.</li>
-    <li>Сопоставьте результат с demo-кейсом и ручным ожиданием в <code>expected-findings.json</code>. Затем читайте соответствующий ADR: 0006 — <strong>Construction</strong>, 0008 — порядок, 0010 — коллекции, 0011 — итераторы, 0012–0015 — <strong>Library Models</strong>, пробные объекты и события, 0016–0018 — неизменяемая куча и обход исполнений, 0019 — исследование CoreLib.</li>
+    <li>Сопоставьте результат с demo-кейсом и ручным ожиданием в <code>expected-findings.json</code>. Затем читайте соответствующий ADR: 0006 — <strong>Construction</strong>, 0008 — порядок, 0010 — коллекции, 0011 — итераторы, 0012–0015 — <strong>Library Models</strong>, пробные объекты и события, 0016–0018 — неизменяемая куча и обход исполнений, 0019 — исследование CoreLib, 0020 — <code>TreeConfined</code>, 0021 — предел решателя по счётчику работы Z3.</li>
   </ol>
   </div>
 </section>
@@ -2053,7 +2223,8 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
       <tr><td><code>Generation/ModelEvalTests</code></td><td>Включаются через <code>CH_MODEL_EVALS=1</code>. Читают установленные .NET 8, Polly 7.2.3 и Google.Protobuf 3.21.9; под флагом отсутствие входа — ошибка. Проверяют нулевое <strong>Unsafe Narrowing</strong>, точность и <code>generator-snapshot.json</code>. Обычный прогон без флага их не проверяет.</td></tr>
       <tr><td><code>build/check-docs.ps1</code></td><td>После правок <code>SPEC.md</code> или <code>CONTEXT.md</code> проверяет, что требования и словарь не содержат историю разработки. В CI автоматически не запускается.</td></tr>
       <tr><td><code>build/generate-corelib.ps1</code></td><td>Сравнивает ответы по CoreLib с отдельным TSV-эталоном. <code>-Members</code> выбирает список id; тот же <code>-Out</code> возобновляет прерванный запуск. Полный прогон длительный, он не часть обычного тестового suite.</td></tr>
-      <tr><td>Упаковка и CI</td><td>Workflow <code>build-concurrency-hunter.yml</code> вызывает <code>package.ps1</code> на Windows. Тесты demo входят в тестовый проект; отдельные скрипты baseline и статики ожиданий запускаются отдельно. Валидатор всего монорепозитория — <code>npm run validate:plugins</code>.</td></tr>
+      <tr><td>Упаковка и CI</td><td>Workflow <code>build-concurrency-hunter.yml</code> на Windows сначала запускает <code>build/test-bundle-extraction.ps1</code>, затем <code>package.ps1</code>. Тесты demo входят в тестовый проект; отдельные скрипты baseline и статики ожиданий запускаются отдельно. Валидатор всего монорепозитория — <code>npm run validate:plugins</code>.</td></tr>
+      <tr><td>Распаковка bundle</td><td><code>package.ps1</code> и <code>check-test-baseline.ps1</code> направляют распаковку .NET bundle в собственный временный каталог (<code>DOTNET_BUNDLE_EXTRACT_BASE_DIR</code>), который наследуют дочерние процессы, удаляют его в <code>finally</code> и возвращают значение переменной вызывающего. Прямой <code>dotnet test</code> этой изоляции не использует. <code>test-bundle-extraction.ps1</code> проверяет оба скрипта без сборки.</td></tr>
     </tbody>
   </table></div>
   <div class="prose">
@@ -2090,10 +2261,11 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
   <div class="prose">
   <p>Эти правила записаны в SPEC и ADR, но в коде их легко нарушить незаметно — одна правка в одном слое без соседнего. Перед каждым изменением движка стоит перечитать список.</p>
   <ol>
-    <li><strong>Unknown — не safe.</strong> Пару удаляет только доказательство. Недоступный решатель, таймаут, слитый контекст, <strong>Opaque Call</strong>, неизвестный компаратор снижают уверенность, но пару оставляют.</li>
+    <li><strong>Unknown — не safe.</strong> Пару удаляет только доказательство. Недоступный решатель, исчерпанный предел запроса или бюджет, слитый контекст, <strong>Opaque Call</strong>, неизвестный компаратор снижают уверенность, но пару оставляют.</li>
     <li><strong>Protection Result — самый опасный вердикт.</strong> <code>sufficient</code> только при общем объекте, совместимых режимах и удержании на всех путях. Никакого распознавания по имени или форме пользовательского типа.</li>
     <li><strong>Happens-before только удаляет пары.</strong> Ребро без доказанной identity handle или без <strong>Join</strong> на всех путях не добавляется.</li>
-    <li><strong>Opaque Call не меняет Ownership.</strong> Объект одного <strong>Execution Instance</strong> он только читает, общий — читает и пишет.</li>
+    <li><strong>Opaque Call не меняет Ownership.</strong> Объект одного <strong>Execution Instance</strong> он только читает; общий и <code>TreeConfined</code> — читает и пишет.</li>
+    <li><strong>Struct — часть хранилища, копия — не место.</strong> Любая новая конструкция, которая даёт ссылку на хранилище struct или копию, должна вести себя одинаково в lowering, summary, куче, доступах и генераторе. Ошибка в одну сторону теряет гонку, в другую — сообщает гонку на чужой копии.</li>
     <li><strong>Текст AI не меняет анализ.</strong> MCP принимает <strong>Narrative</strong>, проверяет ссылки на evidence и рекомендации. Протокола принятия AI-фактов сейчас нет. Его будущие гарантии нельзя выдавать за поведение работающего кода.</li>
     <li><strong>Library Model — часть семантики, а не косметика отчёта.</strong> Ошибочное <code>effects: {}</code>, потерянный результат или слишком узкая <strong>Delegate Fate</strong> способны скрыть гонку. Проверяйте и JSON-контракт, и путь объектов через весь движок.</li>
     <li><strong>Open-world Rule.</strong> Генератор не вправе считать делегат безопасным только потому, что не нашёл его вызов. Для точной <strong>Delegate Fate</strong> нужны и место выполнения делегата, и доказательство того, кто сохраняет делегат.</li>
@@ -2102,7 +2274,7 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
     <li><strong>Никакого декартова перебора.</strong> Новые виды <strong>Resources</strong> встраиваются в <strong>Buckets</strong> <code>CandidateIndex</code>.</li>
     <li><strong><code>Analysis</code> не ссылается ни на что.</strong> Roslyn-специфичное остаётся во frontend, граница — IR.</li>
     <li><strong>Ожидания demo пишутся руками до реализации.</strong> Подтверждённый false positive или false negative получает минимальный demo-кейс.</li>
-    <li><strong>Детерминизм.</strong> Все порядки обхода и сортировки ordinal и стабильны: demo-гейт требует одинаковый результат на трёх прогонах.</li>
+    <li><strong>Детерминизм.</strong> Все порядки обхода и сортировки ordinal и стабильны: demo-гейт требует одинаковый результат на трёх прогонах. Ответы решателя не зависят от нагрузки машины: он ограничен счётчиком работы Z3, а не временем. По часам идут только <strong>Deadline</strong> всего <strong>Run</strong> и предохранитель решателя от патологического запроса.</li>
     <li><strong>Разделяйте требования и реализацию.</strong> Это руководство описывает работающий код. <code>SPEC</code> описывает целиком первую версию, включая ещё не подключённые возможности; их временные границы перечислены в <code>PLAN</code>. Приоритет источников: PRD, затем более поздний ADR, SPEC и SCENARIOS. История не должна подменять объяснение текущего поведения.</li>
   </ol>
   </div>
@@ -2146,6 +2318,7 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
     <li>Ветка в <code>LowerValue</code> или <code>LowerTop</code>; новая цель присваивания — <code>LowerStore</code>, адресуемая или RMW-цель — <code>LowerAddress</code> и <code>TryLocation</code>.</li>
     <li>Каждое новое определение локальной переменной — в <code>SsaPlan.Scan</code> <strong>в том же порядке вычисления</strong>, иначе лоуеринг бросит «No SSA definition was planned».</li>
     <li>Новый вид операции: запись в <code>IrOperations.cs</code>, ветка в <code>IrPrinter</code> (тест <code>Every_operation_kind_has_a_text_form</code> упадёт без неё), правила в <code>IrValidator</code>, обработка в <code>MethodSummaryBuilder</code>, <code>ReachableSet</code>, <code>HappensBefore</code> и <code>InterproceduralAccesses</code>; подумайте о повышении <code>IrSchema.VERSION</code>.</li>
+    <li>Если конструкция даёт ссылку на хранилище struct или копию, добавьте её строкой в матрицу <code>StructPlaceMatrix</code> движка и в <code>GeneratedStructEffectMatrixTests</code> генератора: обе должны сойтись во всех клетках «место × маршрут × использование».</li>
   </ol>
 
   <h3>Новый вид Heap Region</h3>
@@ -2164,9 +2337,9 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
   <div class="table-wrap"><table>
     <thead><tr><th>Область</th><th>Доступное поведение</th><th>Что ещё не подключено или ограничено</th></tr></thead>
     <tbody>
-      <tr><td>Анализ приложения</td><td><strong>Process Scopes</strong>, <strong>Execution Roots</strong> ASP.NET Core и Hosting, IR, summaries, <strong>Points-to</strong>, <strong>Ownership</strong>, <strong>Execution Instances</strong>, <strong>Happens-before</strong>, синхронизация, коллекции, Z3, DCA1001–1004.</td><td>Модель ограничена поддержанными конструкциями и <strong>Execution Roots</strong>. Неизвестное отражается в <strong>Coverage</strong>; отсутствие <strong>Findings</strong> само по себе не доказывает безопасность.</td></tr>
+      <tr><td>Анализ приложения</td><td><strong>Process Scopes</strong>, <strong>Execution Roots</strong> ASP.NET Core и Hosting, IR, summaries, <strong>Points-to</strong>, <strong>Ownership</strong> с <code>TreeConfined</code>, <strong>Execution Instances</strong>, <strong>Happens-before</strong>, синхронизация, коллекции, struct в памяти кучи, ячейки захвата, Z3 с детерминированным пределом, DCA1001–1004.</td><td>Модель ограничена поддержанными конструкциями и <strong>Execution Roots</strong>. Неизвестное отражается в <strong>Coverage</strong>; отсутствие <strong>Findings</strong> само по себе не доказывает безопасность.</td></tr>
       <tr><td>Библиотеки</td><td>Built-in и project <strong>Library Models</strong> в JSON, точная идентичность, диапазоны версий, приоритет project, <strong>Model Lock</strong>. <strong>Delegate Fates</strong>, включая <code>not-run</code>, аксессоры, LINQ без comparer, результаты задач, ячейки, <code>ref/out</code>, <strong>Kept Objects</strong>.</td><td>Операторы LINQ с comparer рассматриваются как <strong>Opaque Calls</strong>. Изменяемое внутреннее состояние произвольной библиотеки не описывается автоматически. Нет entity tracking EF Core.</td></tr>
-      <tr><td>Генерация</td><td>Отдельная команда <code>generate</code>: implementation DLL → декомпиляция → <strong>Driver</strong> → общий анализ → классификация и целая запись модели либо причины отказа. Для CoreLib есть отдельный инструмент разработки.</td><td>Нет автоматического вызова из <code>hunt</code>/<code>metrics</code>, загрузки generated-слоя и установки ответа в проектный файл моделей. <code>startup</code> и <code>di-factory</code> генератор не выводит.</td></tr>
+      <tr><td>Генерация</td><td>Отдельная команда <code>generate</code>: implementation DLL → декомпиляция → <strong>Driver</strong> → общий анализ → классификация и целая запись модели либо причины отказа. Для CoreLib есть отдельный инструмент разработки.</td><td>Нет автоматического вызова из <code>hunt</code>/<code>metrics</code>, загрузки generated-слоя и установки ответа в проектный файл моделей. Встроенных сгенерированных моделей, в том числе для CoreLib, пока нет. <code>startup</code> и <code>di-factory</code> генератор не выводит; virtual-членам отказывает (<code>overridable</code>).</td></tr>
       <tr><td>AI и MCP</td><td>Пять инструментов <strong>Run</strong> и <strong>Narrative</strong>; отчёт <strong>Server</strong> с проверкой evidence.</td><td><strong>Library Models</strong> от AI, resolver <strong>Semantic Gaps</strong>, <code>get_gaps</code>/<code>submit_inferences</code>/<code>run_continue</code>/<code>run_cancel</code> отсутствуют; <code>Cancelled</code> не входит в enum статусов.</td></tr>
       <tr><td>DI и платформенные границы</td><td>Поддержанные generic-регистрации, фабрики, lifetime и service locator.</td><td>Keyed, открытые generics и <code>Type</code>-формы регистраций не поддержаны полностью. Нет специальной модели <code>[ThreadStatic]</code>, <code>ThreadLocal</code>, <code>AsyncLocal</code>; их изоляцию нельзя считать доказанной.</td></tr>
       <tr><td>Эксплуатация</td><td>Windows x64, отчёт и metrics, локальные <strong>Library Models</strong> и <strong>Model Lock</strong>.</td><td>Нет пользовательских <strong>Suppressions</strong>, инкрементального кэша результатов анализа между <strong>Runs</strong>, Linux-пакета и второй волны провайдеров <strong>Execution Roots</strong>. <code>Channel</code> и event-ожидания не доказывают передачу <strong>Ownership</strong> или порядок.</td></tr>
@@ -2194,8 +2367,8 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
       <tr><td>Программа попала в анализ?</td><td>Проекты и diagnostics в <strong>Coverage</strong>, <code>ProcessScopes</code>, <strong>Execution Roots</strong> и DI.</td><td>Проект не загрузился, нет провайдера <strong>Execution Roots</strong>, регистрация не поддержана.</td></tr>
       <tr><td>Нужное тело достижимо?</td><td><code>ReachableSet</code>, <code>lowered-not-reached</code>, <code>outside-lowered-set</code>, сообщения <code>lowering:</code>.</td><td>Пропущен неявный вызов; неверный dispatch; тело не удалось опустить.</td></tr>
       <tr><td>Операции сохранились?</td><td><code>IrPrinter</code>, load/store/call и provenance.</td><td>Потеря receiver, индекса или RHS; getter/setter не вызван; ссылка потеряла адрес.</td></tr>
-      <tr><td>Два пути ведут к одному объекту?</td><td><code>MethodSummary</code>, <code>HeapSolution</code>: <strong>Heap Regions</strong>, поля, контексты, возвраты, <strong>Element Storage</strong> коллекций.</td><td>Фабрика не вернула <strong>Alias</strong>; <strong>Library Model</strong> не описала result/keeps; разные объекты ошибочно слились.</td></tr>
-      <tr><td>Кто исполняет <strong>Access</strong>?</td><td><code>ExecutionAnalysis</code>, <strong>Ownership</strong>, <strong>Spawn Sites</strong>/<strong>Joins</strong>, <strong>Delegate Fate</strong> и момент перечисления.</td><td>Делегат отнесён к созданию вместо перечисления; чужой замок перенесён через <strong>Spawn Site</strong>.</td></tr>
+      <tr><td>Два пути ведут к одному объекту?</td><td><code>MethodSummary</code>, <code>HeapSolution</code>: <strong>Heap Regions</strong>, поля, контексты, возвраты, <strong>Element Storage</strong> коллекций, ячейки захвата; счётчик <code>unresolved-base</code>.</td><td>Фабрика не вернула <strong>Alias</strong>; <strong>Library Model</strong> не описала result/keeps; разные объекты ошибочно слились; struct-хранилище прочитано как копия или копия — как хранилище.</td></tr>
+      <tr><td>Кто исполняет <strong>Access</strong>?</td><td><code>ExecutionAnalysis</code>, <strong>Ownership</strong>, <strong>Spawn Sites</strong>/<strong>Joins</strong>, <strong>Delegate Fate</strong> и момент перечисления.</td><td>Делегат отнесён к созданию вместо перечисления; чужой замок перенесён через <strong>Spawn Site</strong>; объект запроса ошибочно <code>Escaped</code> или, наоборот, <code>TreeConfined</code> при публикации.</td></tr>
       <tr><td>На каком фильтре исчезла пара?</td><td><code>Access</code>, <code>CandidateIndex</code>, <strong>Protection</strong>, counters, запрос Z3.</td><td>Ошибочно доказана изоляция, одинаковый lock, порядок или несовместимость <strong>Guards</strong>.</td></tr>
       <tr><td>Пара есть, а отчёт другой?</td><td><code>ConflictFindings</code>, <strong>Occurrences</strong>, <strong>Fingerprint</strong>, group, <code>findings.json</code>.</td><td>Слияние identity или неверная классификация операции; это уже слой <strong>Findings</strong>.</td></tr>
       <tr><td><code>generate</code> не дал точного ответа или модели?</td><td><code>reason</code>, <code>detail</code>, <code>modelReason</code>, <code>causes</code>, <code>externBodies</code>, <code>refusals</code>, <code>setupWidened</code>, <code>reachedBodies</code>; затем <strong>Driver</strong> и <code>ModelGenerator.Trace</code> в тесте.</td><td>Нет implementation DLL, потеряно тело/объект, callback сохранён или ушёл в другой <strong>Execution Instance</strong>.</td></tr>
@@ -2215,10 +2388,11 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
     <thead><tr><th scope="col">Термин</th><th scope="col">Значение</th></tr></thead>
     <tbody>
       <tr><td><strong>Access</strong></td><td>Одна операция над <strong>Resource</strong> вместе с <strong>Execution Instance</strong>, удерживаемым <strong>Protection</strong> и <strong>Guard</strong>.</td></tr>
-      <tr><td><strong>Access Path</strong></td><td>Путь поле за полем от <strong>Heap Region</strong> до места в памяти. Последний шаг в массив или коллекцию задаётся через <strong>Selector</strong>.</td></tr>
+      <tr><td><strong>Access Path</strong></td><td>Путь поле за полем от <strong>Heap Region</strong> до места в памяти. Шаг в массив или коллекцию задаётся через <strong>Selector</strong>. Struct в поле или ячейке — часть этого хранилища, поэтому путь идёт дальше через её поля: <code>_state</code>, <code>Count</code>. Имя локальной переменной в путь не входит, кроме захваченной: её <strong>Capture Cell</strong> — поле замыкания.</td></tr>
       <tr><td><strong>Atomic Operation</strong></td><td>Операция, которую платформа выполняет неделимо над одним местом: <code>Interlocked</code>, <code>Volatile</code>, <code>volatile</code>. Свойство операции, а не <strong>Protection</strong>.</td></tr>
       <tr><td><strong>Bucket</strong></td><td>Ячейка индекса <strong>Candidates</strong>: <strong>Accesses</strong> одного <strong>Process Scope</strong> к одному <strong>Resource</strong>.</td></tr>
       <tr><td><strong>Candidate</strong></td><td>Пара <strong>Accesses</strong>, прошедшая дешёвые фильтры.</td></tr>
+      <tr><td><strong>Capture Cell</strong></td><td>Хранилище переменной, которую захватывает лямбда или local function: ячейка замыкания <code>closure:&lt;член&gt;</code>, которое создаёт каждый запуск объявившего её тела. Вложенные тела одного запуска делят ячейку, два запуска — никогда. <span class="en">(не display class, captured local)</span></td></tr>
       <tr><td><strong>CFG (Control Flow Graph)</strong></td><td>Граф возможных путей выполнения кода внутри метода. Узлы — блоки последовательных инструкций; рёбра — переходы между ними, в том числе при ветвлении, повторении цикла и исключении. Например, у <code>if (ready) Save(); Log();</code> есть путь через <code>Save()</code> и путь сразу к <code>Log()</code>. Анализ использует <strong>CFG</strong>, чтобы проверить, может ли операция повториться и выполняется ли ожидание задачи или удерживается ли замок на всех нужных путях.</td></tr>
       <tr><td><strong>Collection Structure</strong></td><td>Собственная форма коллекции (количество, слоты, порядок) — отдельный <strong>Resource</strong> от ячеек.</td></tr>
       <tr><td><strong>Confidence Label</strong></td><td>High (80+), Medium (55–79), Low. Не severity: severity — отдельная оценка последствий.</td></tr>
@@ -2238,10 +2412,10 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
       <tr><td><strong>Gap Packet</strong></td><td>Термин SPEC для будущего вопроса к AI о <strong>Semantic Gap</strong>; текущие MCP-инструменты таких пакетов не выдают.</td></tr>
       <tr><td><strong>Guard</strong></td><td>Условие пути, при котором выполняется <strong>Access</strong>. Два <strong>Accesses</strong> с несовместимыми <strong>Guards</strong> не встречаются. <span class="en">(не <strong>Protection</strong>, lock)</span></td></tr>
       <tr><td><strong>Happens-before</strong></td><td>Доказанный порядок двух событий: путь через <strong>Spawn Site</strong>, <strong>Join</strong>, продолжения и startup внутри одного <strong>Instance Tree</strong>.</td></tr>
-      <tr><td><strong>Heap Region</strong></td><td>Идентичность объекта или множества объектов: место аллокации с контекстом, статика, DI-экземпляр. <span class="en">(не object, instance)</span></td></tr>
+      <tr><td><strong>Heap Region</strong></td><td>Идентичность объекта или множества объектов: место аллокации с контекстом, статика, DI-экземпляр, замыкание с ячейками захвата. Struct своего <strong>Heap Region</strong> не имеет: в куче она часть хранилища держателя, а бокс — регион бокса. <span class="en">(не object, instance)</span></td></tr>
       <tr><td><strong>Holder</strong></td><td>Объект, который хранит делегат. Отличается от <strong>Kept Object</strong> связями в анализе и правилами вызова делегатов.</td></tr>
       <tr><td><strong>Inferred Fact</strong></td><td>Термин SPEC для проверенной гипотезы AI. Приём таких фактов и их применение к анализу пока не реализованы.</td></tr>
-      <tr><td><strong>Instance Tree</strong></td><td><strong>Execution Root</strong>, который запускается не более раза и не пересекается сам с собой, вместе с порождёнными из него однократными <strong>Execution Instances</strong>. Единственное место, где путь <strong>Happens-before</strong> считается доказательством.</td></tr>
+      <tr><td><strong>Instance Tree</strong></td><td><strong>Execution Root</strong>, который запускается не более раза и не пересекается сам с собой, вместе с порождёнными из него однократными <strong>Execution Instances</strong>. Единственное место, где путь <strong>Happens-before</strong> считается доказательством. Для доступов к <code>TreeConfined</code>-объекту таким деревом служит один запуск его создателя, как бы часто тот ни запускался.</td></tr>
       <tr><td><strong>Join</strong></td><td>Точка, которая выполняется только после завершения другого <strong>Execution Instance</strong>, доказанная на всех путях для handle именно этого <strong>Execution Instance</strong>. <code>WhenAny</code>, ожидание с таймаутом, event-ожидание и <code>Dispose()</code> — не <strong>Join</strong>.</td></tr>
       <tr><td><strong>Kept Object</strong></td><td>Обычный объект, который библиотека сохраняет и отдаёт другим вызовам. Передаётся как данные; его нельзя смешивать с <strong>Holder</strong>, который хранит делегат.</td></tr>
       <tr><td><strong>Known Call</strong></td><td>Вызов без тела, описанный <strong>Library Model</strong> для точного члена и версии.</td></tr>
@@ -2255,17 +2429,17 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
       <tr><td><strong>Occurrence</strong></td><td>Пара <strong>Execution Roots</strong>, которой достигается <strong>Finding</strong>.</td></tr>
       <tr><td><strong>Opaque Call</strong></td><td>Вызов без тела, для которого нет подходящей <strong>Library Model</strong> или который <strong>Library Model</strong> слоя project явно оставила как <strong>Opaque Call</strong>. Получает <strong>Unknown Effect</strong>.</td></tr>
       <tr><td><strong>Open-world Rule</strong></td><td>Отсутствие наблюдаемого вызова не доказывает, что callback не запустят извне.</td></tr>
-      <tr><td><strong>Ownership</strong></td><td><code>Owned</code>, <code>ThreadConfined</code>, <code>Escaped</code>, <code>Shared</code> или <code>Unknown</code> — с цепочкой доказательств.</td></tr>
+      <tr><td><strong>Ownership</strong></td><td><code>Owned</code>, <code>ThreadConfined</code>, <code>TreeConfined</code>, <code>Escaped</code>, <code>Shared</code> или <code>Unknown</code> — с цепочкой доказательств. <code>TreeConfined</code> — объект, который создаёт один <strong>Execution Instance</strong> и до которого, кроме него, доходит только работа одного его запуска; объекты двух запусков никогда не встречаются.</td></tr>
       <tr><td><strong>Probe</strong></td><td>Делегат или объект с отслеживаемой записью, используемый в <strong>Driver</strong>.</td></tr>
       <tr><td><strong>Process Scope</strong></td><td>Исполняемый проект вместе с проектами, которые он загружает. Статик в двух <strong>Process Scopes</strong> — два объекта. <span class="en">(не solution, app)</span></td></tr>
       <tr><td><strong>Protection</strong></td><td>Синхронизатор и режим, удерживаемые на всех путях к <strong>Access</strong>.</td></tr>
       <tr><td><strong>Protection Result</strong></td><td>Результат проверки синхронизации для пары <strong>Accesses</strong>: <code>sufficient</code>, <code>partial</code>, <code>different-identity</code>, <code>incompatible-mode</code>, <code>unprotected</code>.</td></tr>
       <tr><td><strong>Reachable Set</strong></td><td>Тела методов, достижимые из <strong>Execution Roots</strong> и <strong>Spawn Sites</strong>. Только они опускаются в IR и считаются в <strong>Coverage</strong>.</td></tr>
       <tr><td><strong>Report Bundle</strong></td><td>Файлы отчёта: <code>report.md</code>, <code>findings.json</code>, <code>run-metadata.json</code>.</td></tr>
-      <tr><td><strong>Resource</strong></td><td><strong>Heap Region</strong> плюс <strong>Access Path</strong> — единица, по которой сравниваются <strong>Accesses</strong>. <span class="en">(не shared state, variable)</span></td></tr>
+      <tr><td><strong>Resource</strong></td><td><strong>Heap Region</strong> плюс <strong>Access Path</strong> — единица, по которой сравниваются <strong>Accesses</strong>. Два <strong>Accesses</strong> встречаются и тогда, когда путь одного продолжает путь другого на том же регионе: вся struct встречает каждое своё поле, и пара называется более длинным путём. <span class="en">(не shared state, variable)</span></td></tr>
       <tr><td><strong>Run</strong></td><td>Один запуск команды от <code>run_start</code> до <strong>Terminal Status</strong>. <span class="en">(не scan, session, job)</span></td></tr>
       <tr><td><strong>Seed</strong></td><td>Пробный объект, который подготовка Driver помещает в поле библиотеки, способное хранить пользовательский объект.</td></tr>
-      <tr><td><strong>Selector</strong></td><td>Последний шаг <strong>Access Path</strong> в массив или коллекцию: константа, символическое выражение, диапазон или неизвестно.</td></tr>
+      <tr><td><strong>Selector</strong></td><td>Шаг <strong>Access Path</strong> сразу после поля массива или коллекции: константа, символическое выражение, диапазон или неизвестно. Обычно последний, но если ячейка держит struct, за ним идут её поля: <code>_slots</code>, <code>[0]</code>, <code>Hits</code>.</td></tr>
       <tr><td><strong>Semantic Gap</strong></td><td>Неразобранный вызов, который трогает общее изменяемое состояние или получает делегат.</td></tr>
       <tr><td><strong>Server</strong></td><td>Анализатор за MCP: хранит состояние <strong>Run</strong> и <strong>Deadline</strong>, сам AI не запускает.</td></tr>
       <tr><td><strong>Skeleton</strong></td><td>Часть отчёта, которую <strong>Server</strong> пишет сам.</td></tr>
@@ -2283,7 +2457,7 @@ Get-Content scratch/metrics.log -Tail 50</code></pre>
 </section>
 </div>
     <footer class="end">
-      <p>Актуальность: <time datetime="2026-10-11">11 октября 2026 года</time>. Базовый Git-коммит: <code>2397623914592c775c0fb6baf53e323df1b5154a</code>. Руководство также учитывает незакоммиченные изменения рабочей копии, проверенные при его обновлении; один этот коммит не воспроизводит всё описанное состояние.</p>
+      <p>Актуальность: <time datetime="2026-10-18">18 октября 2026 года</time>. Базовый Git-коммит: <code>c70b07f2b15476ddde19b58352566c6e18f99cff</code> (ветка <code>feature/race-hunter</code>).</p>
       <p>Основание руководства — исходники и тесты <code>src/</code>, кейсы <code>demo/</code>, <code>CONTEXT.md</code>, PRD, SPEC и ADR. Руководство объясняет текущее поведение; требования к полной первой версии и временные границы реализации сверяйте с основными документами проекта.</p>
     </footer>
   </main>
