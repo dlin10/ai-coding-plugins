@@ -12,8 +12,9 @@ cache   ██░░░░░░ 18 min  5h ░░░░░░░░ 3% resets i
 - **The countdown and the limits.** How much of the prompt cache's life is left, counted from the main
   conversation's last request (blue, orange once a quarter of it is left, `cold` once it has gone); the
   five-hour window's share and time to reset; the weekly window's share. The limits are the ones the
-  status line gets from the API's rate-limit headers, so off a subscription there are none. A resumed or
-  reloaded session keeps the windows it last showed until its first request brings new ones.
+  status line gets from the API's rate-limit headers, so off a subscription there are none. They are the
+  account's, so every session of the mod shares the newest reading through the mod's store: an idle,
+  resumed or new session shows what another session last read, within five seconds.
 - **Auto** opens a small dialog of the mod's own asking how long to keep the cache warm —
   `1 h (1 warm-up)`, `2 h (2 warm-ups)`, `4 h`, `8 h`, or a number of hours typed under **Other** (no
   field on mobile); **Cancel** or Esc closes it — then warms the cache two minutes before each cooling

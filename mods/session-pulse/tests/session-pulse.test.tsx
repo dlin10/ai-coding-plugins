@@ -63,7 +63,13 @@ function world(on: On, store: Record<string, unknown> = {}) {
     asked: 0,
   }
   const clock = mock.clock(on, { now: START })
-  mock.store(on, store)
+  // The store every session of the mod shares; a test writes to it as another session would.
+  const kept: Record<string, unknown> = { ...store }
+  on('store.get', ($, e) => ({ value: kept[e.key] }))
+  on('store.set', ($, e) => {
+    kept[e.key] = e.value
+    return { value: undefined }
+  })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.usage', () => ({
     value: { startedAt: START, context: { window: 200_000 }, rateLimits: state.rateLimits },
@@ -104,7 +110,7 @@ function world(on: On, store: Record<string, unknown> = {}) {
     return { deny: 'the mod asks in a dialog of its own' }
   })
 
-  return { state, clock }
+  return { state, clock, kept }
 }
 
 async function start($: Engine) {
@@ -158,6 +164,46 @@ describe('limits', () => {
       expect(spread[0]?.children.at(-1)).toMatchObject({ type: 'Button', props: { key: 'auto' } })
       await ui.unmount()
     }
+  })
+
+  test('a reading shares the windows with every session of the mod', async ($, on) => {
+    const { state, clock, kept } = world(on)
+    await start($)
+    state.rateLimits = [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }]
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
+
+    expect(kept.limits).toEqual({ at: clock.now(), windows: state.rateLimits })
+  })
+
+  test('an idle session takes the newer windows another session read', async ($, on) => {
+    const { clock, kept } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await ui.find({ text: /^week/ })).toBeUndefined()
+
+    kept.limits = {
+      at: clock.now() + 1,
+      windows: [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }],
+    }
+    await clock.advance(5_000)
+    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
+
+    kept.limits = { at: 0, windows: [] }
+    await clock.advance(5_000)
+    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
+  })
+
+  test('a fresh session starts from the windows the store holds', async ($, on) => {
+    world(on, {
+      limits: {
+        at: START - MINUTE,
+        windows: [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }],
+      },
+    })
+    await start($)
+
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
   })
 
   test('a reload before the first reading keeps the windows the band showed', async ($, on) => {

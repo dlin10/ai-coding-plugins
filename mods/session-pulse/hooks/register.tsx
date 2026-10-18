@@ -23,6 +23,9 @@ import {
 
 const COMMAND = 'session-pulse'
 const STORED_TTL = 'ttlMs'
+// The rate limits are the account's, so every session of the mod shares the
+// newest reading through the store: an idle session takes what another read.
+const STORED_LIMITS = 'limits'
 const AUTO_QUESTION = 'How long should auto-warming keep the cache warm?'
 // The mod's own dialog: AskUserQuestion raised outside a turn leaves the
 // desktop showing the session as working once it is answered.
@@ -45,6 +48,24 @@ const toLimits = (windows: readonly Limit[]): Limit[] =>
 let lastTickWrite = 0
 let lastTickMinute = 0
 let isTurnRunning = false
+let limitsAt = 0
+
+async function shareLimits($: EngineInterface, windows: readonly Limit[]) {
+  const at = await $.clock.now()
+  const shown = toLimits(windows)
+  await update($, limits, () => shown)
+  limitsAt = at
+  await $.store.set(STORED_LIMITS, { at, windows: shown })
+}
+
+async function takeSharedLimits($: EngineInterface) {
+  const stored = await $.store.get(STORED_LIMITS)
+  if (typeof stored !== 'object' || stored === null) return
+  const { at, windows } = stored as { at?: unknown; windows?: unknown }
+  if (typeof at !== 'number' || at <= limitsAt || !Array.isArray(windows) || windows.length === 0) return
+  limitsAt = at
+  await update($, limits, () => toLimits(windows as Limit[]))
+}
 
 /**
  * Reads the main thread's cached prefix once more with a one-word fork, which
@@ -112,6 +133,7 @@ async function startAuto($: EngineInterface, hours: number) {
 // minutes, so it is redrawn when the minute changes, or every half minute for
 // the reset times.
 async function tick($: EngineInterface) {
+  await takeSharedLimits($)
   const at = await $.clock.now()
   const reading = await read($, cache)
   const ttl = await read($, ttlMs)
@@ -148,9 +170,10 @@ export const register: Register = (on, options) => {
     })
 
     // Before its first request a process has no reading yet; a reload or resume
-    // keeps the windows the session's state already holds.
+    // keeps the windows the session's state already holds, or takes the store's.
     const usage = await $.session.usage()
-    if (usage.rateLimits.length > 0) await update($, limits, () => toLimits(usage.rateLimits))
+    if (usage.rateLimits.length > 0) await shareLimits($, usage.rateLimits)
+    else await takeSharedLimits($)
 
     const stored = await $.store.get(STORED_TTL)
     const learned = typeof stored === 'number' ? stored : undefined
@@ -172,7 +195,8 @@ export const register: Register = (on, options) => {
 
   on('session.measure', async ($, e, next) => {
     if (e.changed.includes('rateLimits')) {
-      await update($, limits, () => toLimits(e.rateLimits))
+      if (e.rateLimits.length > 0) await shareLimits($, e.rateLimits)
+      else await update($, limits, () => [])
     }
 
     return next(e)
