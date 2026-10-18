@@ -127,6 +127,32 @@ describe('limits', () => {
       await ui.unmount()
     }
   })
+
+  test('Auto sits at the right end of the main row', async ($, on) => {
+    world(on)
+    await start($)
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      const spread = (await ui.findAll({ type: 'Box' })).filter(box => box.props.justifyContent === 'space-between')
+      expect(spread).toHaveLength(1)
+      expect(spread[0]?.children.at(-1)).toMatchObject({ type: 'Button', props: { key: 'auto' } })
+      await ui.unmount()
+    }
+  })
+
+  test('a reload before the first reading keeps the windows the band showed', async ($, on) => {
+    const { state } = world(on)
+    await start($)
+    state.rateLimits = [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }]
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
+
+    state.rateLimits = []
+    await start($)
+
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
+  })
 })
 
 describe('cache', () => {
