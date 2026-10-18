@@ -42,11 +42,6 @@ internal sealed class ForgeTools
         "every CONTEXT.md and docs/adr/**: nothing of theirs is sent, and the critic is told they were left out. For what " +
         "is not the run's work, such as run tooling or generated output, and only after asking the user. This call only.";
 
-    private const string UNTRACKED_BY_REFERENCE_DESCRIPTION =
-        "List the window's untracked files for the critic to read from the working tree with its own tools, instead of " +
-        "embedding their contents, which takes their size off the prompt; their contents are still checked for secrets. " +
-        "Only after asking the user. This call only.";
-
     [McpServerTool(Name = "forge.begin"), Description("Starts a run, takes a working-tree baseline excluding `CONTEXT.md` and `docs/adr/**`, and returns the run id, the capability profile, and the connecting client. `workerTools` names the MCP servers every critic, builder, and Scout of the run may call without being asked; omit it for the Roslyn servers alone.")]
     public static async Task<string> Begin(McpServer server,
                                            CatalogCache catalogs,
@@ -520,8 +515,7 @@ internal sealed class ForgeTools
     /// <param name="userGrantedRound">Whether the user granted exactly one round beyond the cap.</param>
     /// <param name="fast">Whether the critic runs at the vendor's Fast tier.</param>
     /// <param name="excludePaths">Paths this round leaves out of the review window.</param>
-    /// <param name="untrackedByReference">Whether untracked files reach the critic by path instead of by content.</param>
-    [McpServerTool(Name = "forge.review.code"), Description("Runs one decision-free code-review round against the approved plan and the code-phase ledger projection. Saved fullGate=beforeNextRound blocks review while fixes await full host verification, before cap/grant or worker startup. Saved final allows review and returns current pendingFullGateFindingIds, including an empty array. Critic assessments do not verify pending fixes. The Critic assesses every displayed unresolved ID and may only propose reopening settled IDs. Apply dispositions, reopening answers, duplicate closures and fixes through forge.review.fix. A prompt longer than the critic's vendor accepts — codex takes 1,048,576 characters — is refused before the critic starts, with the sizes that make it up and nothing counted; excludePaths and untrackedByReference narrow the round.")]
+    [McpServerTool(Name = "forge.review.code"), Description("Runs one decision-free code-review round against the approved plan and the code-phase ledger projection. Saved fullGate=beforeNextRound blocks review while fixes await full host verification, before cap/grant or worker startup. Saved final allows review and returns current pendingFullGateFindingIds, including an empty array. Critic assessments do not verify pending fixes. The Critic assesses every displayed unresolved ID and may only propose reopening settled IDs. Apply dispositions, reopening answers, duplicate closures and fixes through forge.review.fix. A prompt longer than the critic's vendor accepts — codex takes 1,048,576 characters — gives the critic its untracked files by path, then the tracked files' diffs too, and says so in the summary; one still too long with every file given by path is refused before the critic starts, with its sizes and nothing counted, and excludePaths narrows the round.")]
     public static async Task<string> ReviewCode(CatalogCache catalogs,
                                                 SessionRoots roots,
                                                 [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -532,18 +526,16 @@ internal sealed class ForgeTools
                                                 [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
                                                 [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false,
                                                 [Description(FAST_DESCRIPTION)] bool fast = false,
-                                                [Description(EXCLUDE_PATHS_DESCRIPTION)] string[]? excludePaths = null,
-                                                [Description(UNTRACKED_BY_REFERENCE_DESCRIPTION)] bool untrackedByReference = false)
+                                                [Description(EXCLUDE_PATHS_DESCRIPTION)] string[]? excludePaths = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.review.code",
             [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
              ("userGrantedRound", userGrantedRound ? "true" : "false"),
-             ("excludePaths", excludePaths is { Length: > 0 } ? string.Join(", ", excludePaths) : null),
-             ("untrackedByReference", Flag(untrackedByReference))],
+             ("excludePaths", excludePaths is { Length: > 0 } ? string.Join(", ", excludePaths) : null)],
             async () =>
             {
-                var scope = ReviewScope.From(excludePaths, untrackedByReference);
+                var scope = ReviewScope.From(excludePaths);
                 CodeReview.RequireReady(run, run.ReadState());
                 var critic = VendorFactory.Create(vendor, workspaceRoot);
                 var selection = await FastTier.ConfirmAsync(catalogs, critic, new Selection(model, effort, fast), workspaceRoot, ct);
@@ -624,14 +616,13 @@ internal sealed class ForgeTools
                                          [Description("For review.fix only. " + NOTE_DESCRIPTION)] string? note = null,
                                          [Description(FAST_DESCRIPTION + " Not for scout, which uses its persisted selection.")] bool fast = false,
                                          [Description("For review.code only. " + EXCLUDE_PATHS_DESCRIPTION)] string[]? excludePaths = null,
-                                         [Description("For review.code only. " + UNTRACKED_BY_REFERENCE_DESCRIPTION)] bool untrackedByReference = false,
                                          [Description("For review.fix only: exactly full (default) or targeted (case-sensitive). Requires non-empty fixFindingIds.")] string? gate = null)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
         return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft, null,
                          deferred, revision, userGrantedRound, question, sessionMode, ct,
                          id => VendorFactory.Create(id, workspaceRoot), null, decisions, fixAttemptId,
-                         fixFindingIds, catalogs, fast, note, excludePaths, untrackedByReference, gate);
+                         fixFindingIds, catalogs, fast, note, excludePaths, gate);
     }
 
     internal static Task<string> StartWork(JobRegistry registry,
@@ -680,8 +671,7 @@ internal sealed class ForgeTools
                                                  CatalogCache? catalogs = null,
                                                  bool fast = false,
                                                  string? note = null,
-                                                 string[]? excludePaths = null,
-                                                 bool untrackedByReference = false, string? gate = null)
+                                                 string[]? excludePaths = null, string? gate = null)
     {
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
@@ -693,15 +683,12 @@ internal sealed class ForgeTools
              ("fixAttemptId", fixAttemptId),
              ("fixFindingIds", fixFindingIds is { Length: > 0 } ? string.Join(", ", fixFindingIds) : null),
              ("note", note), ("gate", gate),
-             ("excludePaths", excludePaths is { Length: > 0 } ? string.Join(", ", excludePaths) : null),
-             ("untrackedByReference", untrackedByReference ? "true" : null)],
+             ("excludePaths", excludePaths is { Length: > 0 } ? string.Join(", ", excludePaths) : null)],
             async () =>
             {
                 if (act == "review.fix") run.ReadState();
                 var selection = model is null ? null : new Selection(model, effort, fast);
-                var scope = excludePaths is null && !untrackedByReference
-                    ? null
-                    : ReviewScope.From(excludePaths, untrackedByReference);
+                var scope = excludePaths is null ? null : ReviewScope.From(excludePaths);
                 WorkAct.ValidateArguments(act, planDraft, selection, findings, deferred, revision,
                                           userGrantedRound, question, sessionMode, decisions, fixAttemptId,
                                           fixFindingIds, note, scope, gate);

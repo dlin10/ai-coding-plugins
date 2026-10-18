@@ -114,14 +114,14 @@ public sealed class AskingTheUserSkillTests
 
     /// <summary>
     /// The refusal of an oversized round leaves the orchestrator a scope decision, so the skill
-    /// sends it to the user with both remedies and rules out the workaround run
+    /// sends it to the user with its remedy and rules out the workaround run
     /// 20261004-093111-b79938 fell back on.
     /// </summary>
     [Fact]
     public void Narrowing_an_oversized_round_is_asked_and_never_done_by_moving_files()
     {
         Contains("### When a round is too large for the critic's vendor", "Show the user those sizes and ask how to narrow the round",
-                 "`untrackedByReference: true`", "`excludePaths`", "Neither is remembered: pass the same arguments on every later round",
+                 "`excludePaths`", "`excludePaths` is not remembered: pass the same paths on every later round",
                  "Do not move files out of the repository to make a round fit", Skill());
     }
 

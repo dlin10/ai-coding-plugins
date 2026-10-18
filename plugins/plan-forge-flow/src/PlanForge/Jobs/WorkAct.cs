@@ -114,7 +114,7 @@ internal sealed class WorkAct
         if (gate is not null && act != "review.fix")
             throw new ArgumentRejectedException($"gate is not used by {act}");
         if (scope is not null && act != "review.code")
-            throw new ArgumentRejectedException($"excludePaths and untrackedByReference are not used by {act}");
+            throw new ArgumentRejectedException($"excludePaths is not used by {act}");
 
         if (act == "scout")
         {
