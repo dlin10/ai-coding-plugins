@@ -10,12 +10,13 @@ using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
 using RoslynMcpExtension.Services;
+using RoslynMcpExtension.Shared;
 
 namespace RoslynMcpExtension;
 
 [ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
-[InstalledProductRegistration("Roslyn MCP Extension", "Exposes Roslyn code analysis via MCP", "1.9.0")]
+[InstalledProductRegistration("Roslyn MCP Extension", "Exposes Roslyn code analysis via MCP", ExtensionVersion.Value)]
 [ProvideOptionPage(typeof(SettingsPage), "Roslyn MCP Extension", "General", 0, 0, true)]
 [ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExists_string, PackageAutoLoadFlags.BackgroundLoad)]
 [Guid("b8a7f3e2-1c4d-4e5f-9a6b-8c7d0e1f2a3b")]
@@ -41,7 +42,6 @@ public sealed class RoslynMcpPackage : AsyncPackage
         try
         {
             Logger = OutputLogger.Create();
-            Logger?.Log("Extension loading...");
 
             if (await GetServiceAsync(typeof(SComponentModel)) is not IComponentModel componentModel)
             {
@@ -67,10 +67,7 @@ public sealed class RoslynMcpPackage : AsyncPackage
 
             var settings = (SettingsPage)GetDialogPage(typeof(SettingsPage));
             if (settings.AutoStart)
-            {
-                Logger?.Log("Auto-starting MCP server...");
                 RequestEnsureServer();
-            }
 
             Logger?.Log("Extension loaded");
         }

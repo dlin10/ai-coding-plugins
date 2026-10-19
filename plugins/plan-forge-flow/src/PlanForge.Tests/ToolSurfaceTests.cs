@@ -145,8 +145,9 @@ public sealed class ToolSurfaceTests
         Assert.Contains("array", properties.GetProperty("builderRoots").GetRawText(), StringComparison.Ordinal);
     }
 
+    /// <summary>The published surface includes the bounded Evidence map beside all existing tools.</summary>
     [Fact]
-    public void The_published_surface_has_eighteen_tools_including_both_scout_tools()
+    public void The_published_surface_has_twenty_one_tools_including_the_evidence_map()
     {
         var tools = typeof(ForgeTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Select(method => method.GetCustomAttribute<McpServerToolAttribute>())
@@ -154,9 +155,27 @@ public sealed class ToolSurfaceTests
             .Select(attribute => attribute!.Name)
             .ToList();
 
-        Assert.Equal(18, tools.Count);
+        Assert.Equal(21, tools.Count);
+        Assert.Contains("forge.plan.outline", tools);
+        Assert.Contains("forge.plan.patch", tools);
+        Assert.Contains("forge.evidence.map", tools);
         Assert.Contains("forge.scout.select", tools);
         Assert.Contains("forge.scout.run", tools);
+    }
+
+    [Fact]
+    public void Patch_requires_the_base_hash_and_edits_and_publishes_the_edit_fields()
+    {
+        var schema = SchemaFor(nameof(ForgeTools.PatchPlan));
+        Assert.Equal(["workspaceRoot", "runId", "baseHash", "edits"],
+                     schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
+        var properties = schema.GetProperty("properties");
+        Assert.Equal("string", properties.GetProperty("baseHash").GetProperty("type").GetString());
+        var edits = properties.GetProperty("edits");
+        Assert.Equal("array", edits.GetProperty("type").GetString());
+        var items = edits.GetProperty("items");
+        Assert.Equal(["op", "target", "targetHash", "content"],
+                     items.GetProperty("properties").EnumerateObject().Select(property => property.Name));
     }
 
     [Fact]

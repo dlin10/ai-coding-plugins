@@ -21,6 +21,20 @@ const BAND = {
   },
 } as const
 
+const DIALOG = {
+  plugin: 'session-pulse',
+  component: 'Pane',
+  requestId: 'session-pulse-auto',
+  props: {
+    title: 'Auto-warm',
+    isFocused: true,
+    bodyColumns: 100,
+    placement: 'inline',
+    scroll: { offset: 0, bodyRows: 4 },
+    view: {},
+  },
+} as const
+
 const TOGGLE = {
   command: 'session-pulse',
   args: '',
@@ -33,8 +47,9 @@ type World = {
   rateLimits: SessionRateLimit[]
   forks: number
   forkRead: number
-  answer: string | null
-  compactions: number
+  opened: string[]
+  closed: string[]
+  asked: number
 }
 
 function world(on: On, store: Record<string, unknown> = {}) {
@@ -43,11 +58,18 @@ function world(on: On, store: Record<string, unknown> = {}) {
     rateLimits: [],
     forks: 0,
     forkRead: 80_000,
-    answer: null,
-    compactions: 0,
+    opened: [],
+    closed: [],
+    asked: 0,
   }
   const clock = mock.clock(on, { now: START })
-  mock.store(on, store)
+  // The store every session of the mod shares; a test writes to it as another session would.
+  const kept: Record<string, unknown> = { ...store }
+  on('store.get', ($, e) => ({ value: kept[e.key] }))
+  on('store.set', ($, e) => {
+    kept[e.key] = e.value
+    return { value: undefined }
+  })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.usage', () => ({
     value: { startedAt: START, context: { window: 200_000 }, rateLimits: state.rateLimits },
@@ -55,6 +77,14 @@ function world(on: On, store: Record<string, unknown> = {}) {
   on('session.measure', ($, e) => ({ changed: [...e.changed] }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('ui.toast', () => ({ value: undefined }))
+  on('ui.open', ($, e) => {
+    state.opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', ($, e) => {
+    state.closed.push(e.id)
+    return { value: undefined }
+  })
   on('turn.step', async function* ($, e) {
     return {
       turnId: e.turnId,
@@ -75,17 +105,12 @@ function world(on: On, store: Record<string, unknown> = {}) {
     }
     return { value: { isAnswered: true, text: 'ok', usage } }
   })
-  on('session.compact', () => {
-    state.compactions += 1
-    return { messages: [{ role: 'user', text: 'Conversation summary', toolUses: [] }] }
-  })
-  on('tool.call', { tool: 'AskUserQuestion' }, ($, e) => {
-    if (state.answer === null) return { deny: 'skipped' }
-    const question = e.questions[0]?.question ?? ''
-    return { result: { questions: e.questions, answers: { [question]: state.answer } } }
+  on('tool.call', { tool: 'AskUserQuestion' }, () => {
+    state.asked += 1
+    return { deny: 'the mod asks in a dialog of its own' }
   })
 
-  return { state, clock }
+  return { state, clock, kept }
 }
 
 async function start($: Engine) {
@@ -127,10 +152,76 @@ describe('limits', () => {
       await ui.unmount()
     }
   })
+
+  test('Auto Warm sits at the right end of the main row', async ($, on) => {
+    world(on)
+    await start($)
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      const spread = (await ui.findAll({ type: 'Box' })).filter(box => box.props.justifyContent === 'space-between')
+      expect(spread).toHaveLength(1)
+      expect(spread[0]?.children.at(-1)).toMatchObject({ type: 'Button', props: { key: 'auto' } })
+      await ui.unmount()
+    }
+  })
+
+  test('a reading shares the windows with every session of the mod', async ($, on) => {
+    const { state, clock, kept } = world(on)
+    await start($)
+    state.rateLimits = [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }]
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
+
+    expect(kept.limits).toEqual({ at: clock.now(), windows: state.rateLimits })
+  })
+
+  test('an idle session takes the newer windows another session read', async ($, on) => {
+    const { clock, kept } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await ui.find({ text: /^week/ })).toBeUndefined()
+
+    kept.limits = {
+      at: clock.now() + 1,
+      windows: [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }],
+    }
+    await clock.advance(5_000)
+    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
+
+    kept.limits = { at: 0, windows: [] }
+    await clock.advance(5_000)
+    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
+  })
+
+  test('a fresh session starts from the windows the store holds', async ($, on) => {
+    world(on, {
+      limits: {
+        at: START - MINUTE,
+        windows: [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }],
+      },
+    })
+    await start($)
+
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
+  })
+
+  test('a reload before the first reading keeps the windows the band showed', async ($, on) => {
+    const { state } = world(on)
+    await start($)
+    state.rateLimits = [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }]
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
+
+    state.rateLimits = []
+    await start($)
+
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
+  })
 })
 
 describe('cache', () => {
-  test('counts down from the last request, warns, then goes cold', async ($, on) => {
+  test('counts down from the last request, then goes cold, in the one row', async ($, on) => {
     const { state, clock } = world(on)
     await start($)
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
@@ -142,59 +233,16 @@ describe('cache', () => {
 
     await clock.advance(42 * MINUTE)
     expect(await ui.find({ text: /^██░░░░░░ 18 min$/ })).toBeDefined()
-    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
 
-    await clock.advance(13 * MINUTE)
-    expect(await ui.find({ text: /^cools in 5 min$/ })).toBeDefined()
-    expect(await ui.find({ text: /^next turn re-reads ~81K tokens$/ })).toBeDefined()
-    expect(await ui.find({ key: 'warm' })).toBeDefined()
+    await clock.advance(14 * MINUTE)
+    expect(await ui.find({ text: /^█░░░░░░░ 4 min$/ })).toBeDefined()
+    expect(await ui.find({ text: /cools in|re-reads/ })).toBeUndefined()
+    expect((await ui.findAll({ type: 'Button' })).map(button => button.key)).toEqual(['auto'])
 
-    await clock.advance(7 * MINUTE)
-    expect(await ui.find({ text: /^cold for 2m$/ })).toBeDefined()
-    expect(await ui.find({ key: 'warm' })).toBeUndefined()
-  })
-
-  test('warming reads the cache through a fork and restarts the countdown', async ($, on) => {
-    const { state, clock } = world(on)
-    await start($)
-    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-    state.usage = usage(79_000, 2_000)
-    await step($)
-    await clock.advance(56 * MINUTE)
-
-    await ui.press({ key: 'warm' })
-    expect(state.forks).toBe(1)
-    expect(await ui.find({ text: /^████████ 60 min$/ })).toBeDefined()
-    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
-  })
-
-  test('hiding the warning keeps it hidden until the next request', async ($, on) => {
-    const { state, clock } = world(on)
-    await start($)
-    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-    state.usage = usage(79_000, 2_000)
-    await step($)
-    await clock.advance(56 * MINUTE)
-
-    await ui.press({ key: 'warn-hide' })
-    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
-
-    await step($, 1)
-    await clock.advance(56 * MINUTE)
-    expect(await ui.find({ text: /cools in/ })).toBeDefined()
-  })
-
-  test('compacting runs the session compaction and hides the warning', async ($, on) => {
-    const { state, clock } = world(on)
-    await start($)
-    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-    state.usage = usage(79_000, 2_000)
-    await step($)
-    await clock.advance(56 * MINUTE)
-
-    await ui.press({ key: 'compact' })
-    expect(state.compactions).toBe(1)
-    expect(await ui.find({ text: /cools in/ })).toBeUndefined()
+    await clock.advance(6 * MINUTE)
+    expect(await ui.find({ text: /^░░░░░░░░ cold$/ })).toBeDefined()
+    expect(await ui.find({ text: /cold for/ })).toBeUndefined()
+    expect((await ui.findAll({ type: 'Button' })).map(button => button.key)).toEqual(['auto'])
   })
 
   test('a subagent request leaves the countdown alone', async ($, on) => {
@@ -206,58 +254,115 @@ describe('cache', () => {
     expect(await ui.find({ text: /no requests yet/ })).toBeDefined()
   })
 
-  test('a miss after ten quiet minutes teaches a five-minute TTL', async ($, on) => {
+  test('a lone miss after quiet minutes keeps the hour: an entry can be evicted early', async ($, on) => {
     const { state, clock } = world(on)
     await start($)
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     state.usage = usage(0, 50_000)
     await step($)
     await clock.advance(10 * MINUTE)
-    state.usage = usage(0, 50_000)
     await step($, 1)
+    expect(await ui.find({ text: /^████████ 60 min$/ })).toBeDefined()
+  })
+
+  test('two misses in a row after quiet minutes teach a five-minute TTL', async ($, on) => {
+    const { state, clock } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    state.usage = usage(0, 50_000)
+    await step($)
+    await clock.advance(10 * MINUTE)
+    await step($, 1)
+    await clock.advance(MINUTE)
+    state.usage = usage(50_000, 1_000)
+    await step($, 2)
+    await clock.advance(10 * MINUTE)
+    state.usage = usage(0, 51_000)
+    await step($, 3)
     expect(await ui.find({ text: /^████████ 5 min$/ })).toBeDefined()
+  })
+
+  test('a hit after quiet minutes between two misses keeps the hour', async ($, on) => {
+    const { state, clock } = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    state.usage = usage(0, 50_000)
+    await step($)
+    await clock.advance(10 * MINUTE)
+    await step($, 1)
+    await clock.advance(10 * MINUTE)
+    state.usage = usage(50_000, 1_000)
+    await step($, 2)
+    await clock.advance(10 * MINUTE)
+    state.usage = usage(0, 51_000)
+    await step($, 3)
+    expect(await ui.find({ text: /^████████ 60 min$/ })).toBeDefined()
   })
 })
 
 describe('auto-warming', () => {
-  test('asks for how long, then warms before each cooling', async ($, on) => {
+  test('asks for how long in a dialog of its own, then warms before each cooling', async ($, on) => {
     const { state, clock } = world(on)
-    state.answer = autoLabel(2, HOUR)
     await start($)
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     state.usage = usage(79_000, 2_000)
     await step($)
 
     await ui.press({ key: 'auto' })
-    expect(await ui.find({ key: 'auto', text: 'Auto 0/2' })).toBeDefined()
+    expect(state.opened).toEqual(['session-pulse-auto'])
+    const dialog = await $.ui.mount({ ...DIALOG, surface: 'terminal' })
+    expect(await dialog.find({ key: 'auto-2', text: autoLabel(2, HOUR) })).toBeDefined()
+
+    await dialog.press({ key: 'auto-2' })
+    expect(state.closed).toEqual(['session-pulse-auto'])
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm 0/2' })).toBeDefined()
 
     await clock.advance(59 * MINUTE)
     expect(state.forks).toBe(1)
-    expect(await ui.find({ key: 'auto', text: 'Auto 1/2' })).toBeDefined()
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm 1/2' })).toBeDefined()
 
     await clock.advance(58 * MINUTE)
     expect(state.forks).toBe(2)
 
     await clock.advance(10 * MINUTE)
     expect(state.forks).toBe(2)
-    expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm' })).toBeDefined()
   })
 
-  test('skipping the question leaves it off, and a second press turns it off', async ($, on) => {
+  test('Cancel leaves it off, typed hours start it, and a second press turns it off', async ($, on) => {
     const { state } = world(on)
     await start($)
-    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
     state.usage = usage(79_000, 2_000)
     await step($)
 
     await ui.press({ key: 'auto' })
-    expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+    const dialog = await $.ui.mount({ ...DIALOG, surface: 'desktop' })
+    await dialog.press({ key: 'auto-cancel' })
+    expect(state.closed).toEqual(['session-pulse-auto'])
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm' })).toBeDefined()
 
-    state.answer = '3'
     await ui.press({ key: 'auto' })
-    expect(await ui.find({ key: 'auto', text: 'Auto 0/3' })).toBeDefined()
+    await dialog.input({ key: 'auto-hours', text: '3' })
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm 0/3' })).toBeDefined()
     await ui.press({ key: 'auto' })
-    expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm' })).toBeDefined()
+  })
+
+  test('the dialog never goes through AskUserQuestion, on any surface', async ($, on) => {
+    const { state } = world(on)
+    await start($)
+
+    for (const surface of ['terminal', 'desktop', 'mobile'] as const) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      await ui.press({ key: 'auto' })
+      const dialog = await $.ui.mount({ ...DIALOG, surface })
+      expect(await dialog.find({ key: 'auto-1' })).toBeDefined()
+      await dialog.press({ key: 'auto-cancel' })
+      await dialog.unmount()
+      await ui.unmount()
+    }
+    expect(state.asked).toBe(0)
   })
 })
 

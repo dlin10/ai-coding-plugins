@@ -1,3 +1,4 @@
+using PlanForge.Advisors;
 using PlanForge.Run;
 
 namespace PlanForge.Mcp;
@@ -11,6 +12,9 @@ namespace PlanForge.Mcp;
 /// <param name="BuilderRoots">Compatibility-only paths retained in the run state.</param>
 internal sealed record GateSettings(IReadOnlyDictionary<string, string>? Environment, IReadOnlyList<string>? BuilderRoots)
 {
+    /// <summary>Checks gate settings before persistence, refusing server-only Advisor credential names.</summary>
+    /// <param name="environment">The optional environment required by host gates.</param>
+    /// <param name="builderRoots">The optional compatibility-only absolute paths.</param>
     public static GateSettings Validate(IReadOnlyDictionary<string, string>? environment, IReadOnlyList<string>? builderRoots)
     {
         if (environment is not null)
@@ -19,6 +23,8 @@ internal sealed record GateSettings(IReadOnlyDictionary<string, string>? Environ
             {
                 if (string.IsNullOrWhiteSpace(name) || name.Contains('=') || name.Any(char.IsWhiteSpace))
                     throw new ArgumentRejectedException($"gateEnvironment has a name that is not a variable name: '{name}'");
+                if (AdvisorCatalog.Default.SecretVariables.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    throw new ArgumentRejectedException($"gateEnvironment.{name} is a server-only Advisor credential");
                 if (value is null)
                     throw new ArgumentRejectedException($"gateEnvironment.{name} has no value");
             }

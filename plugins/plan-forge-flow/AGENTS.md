@@ -32,7 +32,7 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all eighteen `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all twenty-one `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
 the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
@@ -143,6 +143,30 @@ Worker tools, so Critic and Scout stay read-only only while the servers named th
 [docs/adr/0017](docs/adr/0017-grant-worker-tools-by-exact-server-name.md). `CONTEXT.md` documents
 what was measured for each.
 
+## The Advisor seam
+
+`Advisors/IAdvisor.cs` is the judgment seam for external typed Choice services; Jev is the first
+implementation, not a Vendor or Worker. `forge.begin` and `forge.status` discover configured and
+partly configured Advisors from the server process environment on each call. A configured Advisor
+is consent to send excerpts from every repository forge runs in on that machine. With none, no
+external request is made and the Evidence check stays manual. `forge.evidence.map` runs only after
+the Orchestrator's manual Evidence check; `Evidence/` owns candidate selection, answer validation,
+status, content-addressed storage and resumable progress. The Evidence map and Scout report never
+become Critic, Builder or Scout input. A `covered` is advice and removes nothing.
+
+Advisor credentials are read only from the environment when needed and never become tool arguments
+or results, exception messages, logs (`forge.log` or `flow_log.md`), telemetry or persisted Run
+content (`evidence-map.json`, `scout-answers.json`, `state.json`). Jev requires secret
+`PLANFORGE_JEV_API_KEY`; optional `PLANFORGE_JEV_MODEL` defaults to pinned `jev-1.13.0` and accepts
+only `jev-<major>.<minor>.<patch>`. `GateSettings.Validate` refuses any secret variable named by
+`AdvisorCatalog.Default`, ignoring case, so `forge.plan.confirm` never persists it; report its name,
+never its value. `StreamingProcess.Build` strips every such variable from child environments after
+`ProcessSpec.Environment` overlays, also ignoring case. This covers Vendor CLIs, catalogue probes,
+gates and git, including an overlay that names the secret. Other variables, including the model,
+gate environment and Vendor overlays, still reach the child. Do not inspect or rewrite state
+written before 0.50.0 for this rule. The Telemetry collector is `planforge.exe` itself, starts no
+process and talks only to loopback; its environment is outside this stripping rule.
+
 ## Prompts are data, not code
 
 Role prompts live under `prompts/` and are copied beside the binary, so they can be edited and tuned
@@ -178,8 +202,8 @@ beside the binary. Do not move it in with the prompts.
 ## Run state, and the absence of locks
 
 Everything a run knows lives under `.forge/<runId>/`: `state.json`, `decision-ledger.json`, `PLAN.md`,
-`SCOUT.md`, `flow_log.md`, `forge.log`, `telemetry.json`, `orchestrator-phase.json`,
-`baseline.patch`. **Not under
+`scout-answers.json`, `evidence-map.json`, `flow_log.md`, `forge.log`, `telemetry.json`,
+`orchestrator-phase.json`, `baseline.patch`. **Not under
 `workspaceRoot`** — that argument is the
 git window and the workers' working directory, and the run's own files follow the *session* instead,
 the directory the host names through MCP's roots capability (`Run/SessionRoots.cs`), falling back to
@@ -189,18 +213,20 @@ carries the measurement and the deprecation that hangs over it, and
 collapse the two roots back together in either direction: pinning `workspaceRoot` to the session
 shrinks the review to the session's subtree, and pinning the run folder to `workspaceRoot` puts
 `PLAN.md` where the host cannot linkify it. The Flow log is the user-facing audit — every Scout
-outcome, critique, assessment, reopening proposal, decision, build result, fix attempt and closure,
-plus the Orchestrator's own revision — and nothing ever feeds it back to a Worker.
+outcome, Evidence map call, critique, assessment, reopening proposal, decision, build result, fix
+attempt and closure, plus the Orchestrator's own revision — and nothing ever feeds it back to a
+Worker.
 `decision-ledger.json` is the sole authoritative finding state and the only source for bounded
 Critic projections. It keeps immutable finding `origin`, mutable `activePhase`, dispositions,
 applied decision batches and fix attempts; malformed or unknown state stops the call rather than
 recovering to an empty ledger. `PLAN.md` is the run's plan *as it currently stands*, not the approved
-one: `forge.plan.write`
+one: `forge.plan.write` or `forge.plan.patch`
 puts the draft there ahead of the round that judges it — a separate call because a draft streamed
 into the review call is not on disk until that call arrives, which made the link late by the whole
 of the upload plus the critique — and `forge.plan.review` reads it from there when it is handed no
-draft of its own. Approval is `state.json`'s `approved`, and a write or a round run after it takes
-that flag back — see
+draft of its own. Approval is `state.json`'s `approved`, and either writer or a round run after it
+takes that flag back. A patch checks the current plan hash without a lock; that check and the
+replacement are not atomic together — see
 [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md) and
 [docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md). There are no locks and no Git refs —
 concurrent runs in one workspace are allowed and expected, and the baseline is a commit SHA plus a
@@ -237,10 +263,19 @@ that two waiters do not come back together. Keep the *mean* where it is. Waiting
 more, and a caller that retries every millisecond holds its thread instead of parking it — a backoff
 starting at one millisecond doubled the suite's running time and starved the tasks sharing its pool.
 
-`telemetry.json` holds two kinds of record: `vendor.usage`, one per Worker attempt, and
-`orchestrator.usage`, one per closed Orchestrator phase (`Orchestration/OrchestratorPhases.cs`).
-Resumed-attempt growth reads `vendor.usage` records only, and neither writer may disturb the other
-kind or a file that is not a JSON array of objects. A record is placed by its `at`, its opening,
+`scout-answers.json` is the only Scout report: appended numbered entries hold the complete answer
+as returned, stable item identities and locator checks. `evidence-map.json` keeps content-addressed
+judgments, last-complete item marks and the latest map result; it is advisory, never Worker input.
+
+`telemetry.json` holds three kinds of record: `vendor.usage`, one per Worker attempt,
+`orchestrator.usage`, one per closed Orchestrator phase (`Orchestration/OrchestratorPhases.cs`), and
+`advisor.usage`, one per accepted Evidence map call, including cancellation or failure. The Advisor
+record keeps models, request/failure and judgment counts, reported tokens, cache hits, latency
+p50/p90, duration, completion and stop reason, with no content. Each accepted call attempts one
+Flow-log entry and one usage record in finalization, even when storing the map fails; a record's
+own failure is logged and does not change the call's outcome or prevent the other record.
+Resumed-attempt growth reads `vendor.usage` records only, and no writer may disturb the other
+kinds or a file that is not a JSON array of objects. A record is placed by its `at`, its opening,
 not at the end of the file, so any record kind you add must stamp `at` with its opening. The open
 phase lives in its own run file,
 `orchestrator-phase.json`, not in `state.json`, which a background Job rewrites while a poll runs;

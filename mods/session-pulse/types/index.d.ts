@@ -21,8 +21,6 @@ declare module 'claude-code' {
       isTtlLearned: boolean
       now: number
       isHidden: boolean
-      /** The `at` of the cache reading whose warning the person hid. */
-      warnHiddenAt: number | null
       isWarming: boolean
       auto: AutoWarm | null
     }

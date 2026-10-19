@@ -1,5 +1,57 @@
 # Plan Forge Flow releases
 
+## 0.50.0
+
+An optional, shadow-mode Evidence map advises the Orchestrator after its manual Evidence check.
+See `docs/adr/0036` and `docs/adr/0037`.
+
+- `forge.evidence.map` is the twenty-first tool. Code selects every candidate judgment, validates
+  typed Choice answers and settles statuses, retaining contradictions and accounting for unchecked
+  items. Bounded calls resume from content-addressed `evidence-map.json`; flags distinguish new
+  issues from those carried from the last complete map. The manual check remains mandatory and
+  neither the map nor the Scout report is sent to the Critic, Builder or Scout.
+- Advisors are external typed-question services, separate from Vendors and Workers. Jev is first,
+  configured by `PLANFORGE_JEV_API_KEY` and optional pinned `PLANFORGE_JEV_MODEL` (default
+  `jev-1.13.0`). `forge.begin` and `forge.status` report configured and partly configured Advisors
+  without credential values. With none, no external request is made; with several, the Orchestrator asks once.
+- Configuring an Advisor consents to sending Scout-item and implication text, plan units and Change
+  points, which may quote code, from every repository forge runs in on that machine. Jev requests
+  go to TypeSafe's standard, non-zero-retention service. Locator windows are checked and hashed
+  locally, never sent, and external URLs are never fetched.
+- The Scout report is only `scout-answers.json`: complete numbered answers with stable item IDs and
+  locator checks. `SCOUT.md` is no longer written; the server never reads, changes or removes an
+  earlier version's file. Scout tool results still return the complete answer, unclipped.
+- Advisor secrets stay in the server environment: no tool arguments, results, exception messages,
+  logs, telemetry or persisted Run content. Secret gate-environment names are refused ignoring
+  case, and child environments strip them after overlays. State written before 0.50.0 is untouched.
+- Each accepted map call attempts one content-free Flow-log entry and one `advisor.usage` record,
+  even on cancellation or failure. `telemetry.json` has three kinds: Worker `vendor.usage`,
+  Orchestrator `orchestrator.usage` and Advisor `advisor.usage`, with Advisor models, counts,
+  tokens, cache hits and latency recorded without content.
+- The skill places map calls after the manual check and before plan reviews, with stable Change
+  points, explicit not-indexed-answer handling and manual checks for new unchecked flags. Sanitized
+  fixtures run without network by default; an opt-in Jev evaluation reports quality, latency and
+  cost without quality thresholds. README documents the disclosure, configuration and invocation.
+
+## 0.49.0
+
+Plans can be revised by snapshot targets between review rounds. See `docs/adr/0035`.
+
+- `forge.plan.outline` returns the plan hash and document-order targets with IDs, kinds, labels,
+  hashes and character sizes. `forge.plan.patch` applies local edits against that exact snapshot,
+  checks the complete result, and returns the new outline, change summary, sizes and documents.
+- `forge.plan.write` keeps the whole-draft route and also returns the outline read back from the
+  written plan, or null for blank plan text.
+- A replay after a lost patch answer conflicts as stale. Read the outline and redo the edits against
+  its current hash; equal text is never proof that a patch was applied. The hash check takes no lock.
+- A successful patch uses the whole-write lifecycle: approval is withdrawn, build progress and the
+  Builder session reset, and the complete plan is persisted without a Worker, gate or review round.
+  The reopening Flow entry names its cause: review round, whole-draft write or patch.
+- A reproducible comparison test covers small and large plans: a patch and a whole-draft update
+  produce identical plans, the submitted patch payload is smaller, and answers carry no plan text
+  beyond labels. Payload, supplied, plan-before, removed, written and plan-after sizes are measured
+  in UTF-16 characters and UTF-8 bytes; no host-token or latency saving is claimed.
+
 ## 0.48.0
 
 A code-review round too long for its critic's vendor is given by path instead of refused. See

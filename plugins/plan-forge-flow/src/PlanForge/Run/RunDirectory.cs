@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlanForge.Acts;
 using PlanForge.Diagnostics;
+using PlanForge.Evidence;
 using PlanForge.Infrastructure;
 using PlanForge.Repo;
 using PlanForge.Vendors;
@@ -21,7 +22,10 @@ internal sealed class RunDirectory
     private const string JOBS_FOLDER = "jobs";
     private const string BASELINE_FILE_NAME = "baseline.patch";
     private const string PLAN_FILE_NAME = "PLAN.md";
-    private const string SCOUT_REPORT_FILE_NAME = "SCOUT.md";
+    /// <summary>The sole Scout report file written by this version.</summary>
+    private const string SCOUT_ANSWERS_FILE_NAME = "scout-answers.json";
+    /// <summary>The content-addressed Evidence map file.</summary>
+    private const string EVIDENCE_MAP_FILE_NAME = "evidence-map.json";
     private const string DECISION_LEDGER_FILE_NAME = "decision-ledger.json";
     private const string REVIEW_DIFFS_FOLDER_PREFIX = "review-round-";
 
@@ -88,9 +92,12 @@ internal sealed class RunDirectory
     public string PlanPath => System.IO.Path.Combine(Path, PLAN_FILE_NAME);
 
     /// <summary>
-    /// The run's cumulative Scout report: every successful answer, appended as a numbered section.
+    /// The run's cumulative Scout report: every successful answer as a JSON entry.
     /// </summary>
-    public string ScoutReportPath => System.IO.Path.Combine(Path, SCOUT_REPORT_FILE_NAME);
+    public string ScoutAnswersPath => System.IO.Path.Combine(Path, SCOUT_ANSWERS_FILE_NAME);
+
+    /// <summary>The Run's stored Evidence judgments and latest map.</summary>
+    public string EvidenceMapPath => System.IO.Path.Combine(Path, EVIDENCE_MAP_FILE_NAME);
 
     internal string DecisionLedgerPath => System.IO.Path.Combine(Path, DECISION_LEDGER_FILE_NAME);
 
@@ -232,22 +239,46 @@ internal sealed class RunDirectory
 
     public string ReadPlan() => AtomicFile.Read(PlanPath);
 
-    /// <summary>
-    /// Appends one successful Scout answer to the run's Scout report as its own numbered section; the
-    /// whole file is replaced atomically, so a reader never sees half a section.
-    /// </summary>
-    public void AppendScoutAnswer(int number, string question, string answer)
+    /// <summary>Appends one validated answer under the file's process-local mutation lock.</summary>
+    /// <param name="entry">The complete answer and its recorded locator checks.</param>
+    public void AppendScoutAnswer(ScoutAnswerEntry entry)
     {
-        var section = new StringBuilder().Append("# Scout answer ").AppendLine(number.ToString())
-                                         .AppendLine()
-                                         .Append("Question: ").AppendLine(question.ReplaceLineEndings(" "))
-                                         .AppendLine()
-                                         .Append(answer)
-                                         .ToString();
-        var report = File.Exists(ScoutReportPath)
-            ? AtomicFile.Read(ScoutReportPath).TrimEnd() + Environment.NewLine + Environment.NewLine + section
-            : section;
-        AtomicFile.Write(ScoutReportPath, report);
+        AtomicFile.Update(ScoutAnswersPath, text =>
+        {
+            var entries = ScoutAnswers.Read(text);
+            entries.Add(entry);
+            ScoutAnswers.Validate(entries);
+            return JsonSerializer.Serialize(entries, ScoutAnswersJson.Default.ListScoutAnswerEntry);
+        });
+    }
+
+    /// <summary>Reads the validated Scout entries, or an empty list when no answer has been stored.</summary>
+    public IReadOnlyList<ScoutAnswerEntry> ReadScoutAnswers() =>
+        ScoutAnswers.Read(File.Exists(ScoutAnswersPath) ? AtomicFile.Read(ScoutAnswersPath) : null);
+
+    /// <summary>Appends one content-free Evidence map accounting entry, even for an interrupted call.</summary>
+    /// <param name="progress">The mapper's final running accounting.</param>
+    public void AppendFlowEvidenceMap(EvidenceMapProgress progress)
+    {
+        var result = progress.Result!;
+        var entry = new StringBuilder().AppendLine("## Evidence map").AppendLine()
+                                       .Append("Advisor: ").AppendLine(result.Advisor)
+                                       .Append("Requested model: ").AppendLine(result.RequestedModel)
+                                       .Append("Served model: ").AppendLine(result.ServedModel ?? "unknown")
+                                       .Append("required: ").AppendLine(result.Required.ToString())
+                                       .Append("checkedThisCall: ").AppendLine(result.CheckedThisCall.ToString())
+                                       .Append("remaining: ").AppendLine(result.Remaining.ToString())
+                                       .Append("cacheHits: ").AppendLine(result.CacheHits.ToString());
+        foreach (var status in new[] { "contradiction", "unchecked", "context_only", "covered", "excluded", "uncertain", "no_candidates", "no_coverage_established" })
+        {
+            var flags = result.Flags.Where(flag => flag.Status == status).ToArray();
+            entry.Append(status).Append(": ").Append(flags.Length)
+                 .Append(" (new ").Append(flags.Count(flag => flag.Change == "new"))
+                 .Append(", carried ").Append(flags.Count(flag => flag.Change == "carried")).AppendLine(")");
+        }
+        entry.Append("notIndexedAnswers: ").AppendLine(string.Join(", ", result.NotIndexedAnswers))
+             .Append("complete: ").AppendLine(result.Complete ? "true" : "false").AppendLine();
+        AtomicFile.Append(FlowLogPath, entry.ToString());
     }
 
     /// <summary>
@@ -472,16 +503,18 @@ internal sealed class RunDirectory
     }
 
     /// <summary>
-    /// A review round run against an already-approved plan takes the approval back, and the user
+    /// A review round or plan write takes an existing approval back, and the user
     /// meets that as a build refusing for no visible reason unless it is in the timeline. The
     /// entry names the task count that went with it, because that is the part that costs money to
     /// rebuild.
     /// </summary>
-    public void AppendFlowReopened(int tasksCompleted) =>
+    /// <param name="tasksCompleted">The completed tasks whose progress was reset.</param>
+    /// <param name="cause">The action that invalidated the approval.</param>
+    public void AppendFlowReopened(int tasksCompleted, string cause) =>
         AtomicFile.Append(FlowLogPath,
             new StringBuilder().AppendLine("## Plan reopened")
                                .AppendLine()
-                               .Append("A review round ran against the approved plan, so the approval no longer holds. ")
+                               .Append("The approval no longer holds because ").Append(cause).Append(". ")
                                .Append("Build progress was reset from ").Append(tasksCompleted)
                                .AppendLine(tasksCompleted == 1 ? " completed task." : " completed tasks.")
                                .AppendLine()
@@ -489,6 +522,22 @@ internal sealed class RunDirectory
                                .AppendLine("and it will start from the first task.")
                                .AppendLine()
                                .ToString());
+
+    public void AppendFlowPlanPatched(string baseHash, string planHash,
+                                      IReadOnlyList<PlanPatchChange> changes, PlanPatchSizes sizes)
+    {
+        var entry = new StringBuilder().AppendLine("## Plan patched")
+                                       .AppendLine()
+                                       .Append("Plan hash: ").Append(baseHash).Append(" → ").AppendLine(planHash)
+                                       .AppendLine();
+        foreach (var change in changes)
+            entry.Append("- ").Append(change.Op).Append(' ').Append(change.Target).Append(": ").AppendLine(change.Label);
+        entry.AppendLine();
+        foreach (var (name, size) in sizes.Measurements())
+            entry.Append(name).Append(": ").Append(size.Characters).Append(" characters, ")
+                 .Append(size.Utf8Bytes).AppendLine(" UTF-8 bytes");
+        AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
+    }
 
     /// <summary>
     /// Records that a round ran past its cap because the user granted it, so a reader of
@@ -796,7 +845,7 @@ internal sealed class RunDirectory
 /// <param name="CriticInstructions">The user's text for the run's critics, from <c>forge.instructions.set</c>.</param>
 /// <param name="BuilderInstructions">The user's text for the run's builder, from <c>forge.instructions.set</c>.</param>
 /// <param name="Scout">The lazy Scout choice and its current continuation state, or null before the choice is made.</param>
-/// <param name="ScoutAnswers">How many answers <c>SCOUT.md</c> holds, which numbers the next one.</param>
+/// <param name="ScoutAnswers">How many Scout answers have consumed a number, which numbers the next one.</param>
 /// <param name="BuilderSessionScope">
 /// The plan task or code-review round <see cref="BuilderSessionId"/> belongs to; a builder turn of
 /// any other scope starts a session of its own. Null for a run begun before sessions had scopes,

@@ -322,45 +322,17 @@ function validateSync() {
     }
   }
 
-  // 3 + 4. roslyn-mcp: the vsixmanifest Identity Version is the single source of
-  // truth for the extension version; README and the two C# strings must match it.
+  // 3. roslyn-mcp: the plugin and its extension share one version, written once in
+  // Directory.Build.props; everything built takes it from there, so only the host
+  // manifests (and through check 2 the README title) can drift from it.
   const roslynDir = join(pluginsDir, 'roslyn-mcp');
-  const vsixVersion = extractVersion(
-    join(roslynDir, 'extension', 'src', 'RoslynMcpExtension', 'source.extension.vsixmanifest'),
-    /<Identity[^>]*\bVersion="(\d+\.\d+\.\d+)"/,
-    'Identity Version',
-  );
-  if (vsixVersion) {
-    const checks = [
-      {
-        path: join(roslynDir, 'README.md'),
-        regex: /\*\*v(\d+\.\d+\.\d+)\*\*/,
-        what: 'bundled VSIX version (**vX.Y.Z**)',
-      },
-      {
-        path: join(roslynDir, 'extension', 'src', 'RoslynMcpExtension', 'RoslynMcpPackage.cs'),
-        regex: /InstalledProductRegistration\([^)]*"(\d+\.\d+\.\d+)"\)/,
-        what: 'InstalledProductRegistration version',
-      },
-      {
-        path: join(roslynDir, 'extension', 'src', 'RoslynMcpExtension.Server', 'Program.cs'),
-        regex: /Version = "(\d+\.\d+\.\d+)"/,
-        what: 'ServerInfo.Version',
-      },
-      {
-        path: join(roslynDir, 'extension', 'src', 'RoslynMcpExtension.Server.Tests', 'PackagedValidationTests.cs'),
-        regex: /Assert\.Equal\("(\d+\.\d+\.\d+)", initialized/,
-        what: 'packaged serverInfo.version assertion',
-      },
-    ];
-    for (const { path, regex, what } of checks) {
-      const version = extractVersion(path, regex, what);
-      if (version && version !== vsixVersion) {
-        fail(
-          `${relative(repoRoot, path)}: ${what} is ${version} but source.extension.vsixmanifest says ${vsixVersion}`,
-        );
-      }
-    }
+  const propsPath = join(roslynDir, 'extension', 'src', 'Directory.Build.props');
+  const extensionVersion = extractVersion(propsPath, /<Version>(\d+\.\d+\.\d+)<\/Version>/, '<Version>');
+  const pluginVersion = readJson(join(roslynDir, '.codex-plugin', 'plugin.json'))?.version;
+  if (extensionVersion && pluginVersion && pluginVersion !== extensionVersion) {
+    fail(
+      `plugins/roslyn-mcp: host manifests say ${pluginVersion} but ${relative(repoRoot, propsPath)} says ${extensionVersion}`,
+    );
   }
 }
 

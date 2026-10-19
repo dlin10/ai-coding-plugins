@@ -423,6 +423,7 @@ public sealed class PlanReviewTests : IDisposable
         Assert.Equal(0, state.TasksCompleted);
         Assert.Equal(string.Empty, state.BuilderSessionId);
         Assert.Contains("## Plan reopened", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+        Assert.Contains("the plan was rewritten with forge.plan.write", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -460,6 +461,7 @@ public sealed class PlanReviewTests : IDisposable
         var flow = File.ReadAllText(run.FlowLogPath);
         Assert.Contains("## Plan reopened", flow, StringComparison.Ordinal);
         Assert.Contains("reset from 3 completed tasks", flow, StringComparison.Ordinal);
+        Assert.Contains("a review round ran", flow, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -1,8 +1,8 @@
-# Plan Forge Flow 0.48.0
+# Plan Forge Flow 0.50.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
-typed .NET 10 executable named `planforge` that exposes eighteen tools. Release 0.16.0 supports only
+typed .NET 10 executable named `planforge` that exposes twenty-one tools. Release 0.16.0 supports only
 Windows x64.
 
 The host agent is the orchestrator. It runs the interview and revises the plan between review
@@ -24,19 +24,22 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 
 | Tool | What it does |
 |---|---|
-| `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background |
+| `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background; reports configured and partly configured `advisors` |
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable, and the efforts each model offers at Fast speed |
 | `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort/Fast selection or an explicit decision to continue without Scout |
-| `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `SCOUT.md` |
+| `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `scout-answers.json` |
+| `forge.evidence.map` | After the manual Evidence check, asks a configured Advisor how Scout items and Orchestrator implications bear on the plan; returns flags and resumable progress, storing judgments in `evidence-map.json` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
-| `forge.plan.write` | Writes the current draft to `PLAN.md` and answers with its path, running no worker, so the plan is readable before the round that judges it |
+| `forge.plan.write` | Writes the first draft or a complete rewrite to `PLAN.md` and answers with its outline (null for blank plan text) and path, running no worker |
+| `forge.plan.outline` | Returns the current plan hash and snapshot targets with IDs, kinds, labels, hashes and character sizes, without plan text beyond labels |
+| `forge.plan.patch` | Revises selected targets against the exact outline hash; answers with the new outline, change summary, character and UTF-8 byte sizes, and document paths, running no worker |
 | `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
 | `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
 | `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and optional case-sensitive `fullGate=beforeNextRound\|final`; omission preserves timing/settings, explicit settings replace, empty settings clear. Approval resets the global gate failure, preserving attempts; approved false changes no PLAN/state/ledger or approval and accepts no decisions |
 | `forge.build.next` | Builds one task; only the server runs its executable gate, withholds the task on failure and briefs the retry. The Builder checks conditions and may run separate checks |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan. Saved beforeNextRound refuses pending fixes; final permits them and returns current pending IDs (including []); assessments do not verify them. A prompt longer than the critic's vendor accepts gives the critic its files by path, untracked files first; one too long even then is refused before it starts, with its sizes, and `excludePaths` narrows that one round |
 | `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs executable G entries by default (`gate=full`) or only the approved Fix gate (`gate=targeted`), leaving findings pending full host verification. Retry preserves gate, attempt and exact IDs |
-| `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempts, plus a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, and active-job liveness |
+| `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempts, plus a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, active-job liveness, and current configured and partly configured `advisors` |
 | `forge.work.start` | On Cursor hosts, starts one worker act, including Scout, as a background job; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding |
 | `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call, and reports its latest stdout activity and recognised event |
 | `forge.work.cancel` | Requests cancellation of a background worker act; terminal jobs are unchanged and running jobs finish as failed |
@@ -98,8 +101,9 @@ The requirements are under review beside the tasks, and only what they exclude i
 aimed at the wrong thing is a finding rather than a clean approve.
 
 Both reviews are one round per call, because the orchestrator has to take a turn in between: it
-revises the plan after `forge.plan.review` and writes the new draft before the next round, and after
-`forge.review.code` it filters the findings against the approved plan before `forge.review.fix`
+revises the plan after `forge.plan.review` with a patch for some targets or a whole-draft write for
+a rewrite before the next round, and after `forge.review.code` it filters the findings against the
+approved plan before `forge.review.fix`
 relays them. That turn is recorded rather than assumed — a plan-review round after the first is
 refused without an account of what the previous one changed, and it lands in the flow log where the
 user reads the two loops as a conversation. The critic and the builder never talk directly.
@@ -125,13 +129,20 @@ one `fixAttemptId` names one exact sorted ID set and one immutable gate mode. Cu
 retry that same attempt, set and gate, while a completed retry returns its saved terminal result
 with current pending annotations. Background fetch keeps its historical completion snapshot.
 
-The plan itself is readable from the first round rather than at the end of them: each round starts
-with `forge.plan.write`, which puts the draft at `PLAN.md` and hands back its path in seconds, and
-the round then reads it from there — so what the verdicts are about is a document you can open
-before the first verdict, not after it. The price is that an approval is no longer final within a
-run — a round, or a write, run after one takes it back and resets the build progress. See
-[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md) and
-[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md).
+The plan is readable from the first round: `forge.plan.write` puts the first draft at `PLAN.md`
+and returns its outline and document path before review starts. Later revisions use
+`forge.plan.patch` for selected targets or `forge.plan.write` for a rewrite; each round reads the
+complete document with `planDraft` omitted. A patch uses the current plan hash and each target's
+ID and hash from `forge.plan.outline`. On a stale-base refusal, read the outline and redo the
+edits against its current hash; never resend the refused patch unchanged. A replay after a lost
+answer conflicts, and equal text is never proof of success.
+
+A round, a whole-draft write or a patch after approval withdraws it and resets build progress and
+the Builder session. The Flow log names the cause. The patch hash check and replacement take no
+lock and are not atomic together. See
+[docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md),
+[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md) and
+[docs/adr/0035](docs/adr/0035-patch-the-plan-against-a-snapshot-outline.md).
 
 Approval does not go through MCP elicitation, and since 0.8.0 there is no code here that can ask the
 user anything. The orchestrator reads the drift out of `forge.status`, shows the user the plan and
@@ -184,6 +195,71 @@ reaches every project and is lost on upgrade, so what a user wants said for one 
 `forge.instructions.set` instead. The shared [Roslyn contract](prompts/roslyn-contract.md) is
 appended to every role's prompt; the [scope contract](prompts/scope-contract.md) is appended for
 code review, where the Critic judges against the approved plan.
+
+## Advisor and Evidence map
+
+An Advisor is an external service answering typed Choice questions, with a probability for each
+option. TypeSafe's Jev is the configured implementation. The optional Evidence map is shadow-mode
+advice after the Orchestrator's mandatory manual Evidence check: code chooses the items and
+candidate plan units, validates every answer and settles each item's status. A `covered` removes
+nothing. The Orchestrator handles flags the manual check had not handled, calls again until
+`complete` or until `checkedThisCall` is 0, and checks new unchecked items by hand if incomplete.
+The map is never shown to the Critic, Builder or Scout and has no place in code review.
+
+Configure Jev in the environment inherited by the server process:
+
+| Variable | Meaning |
+|---|---|
+| `PLANFORGE_JEV_API_KEY` | Required secret; configuring it is consent to send excerpts from every repository forge runs in on that machine |
+| `PLANFORGE_JEV_MODEL` | Optional pinned model, default `jev-1.13.0`; must match `^jev-\d+\.\d+\.\d+$`; `jev-latest` and `jev-preview` are invalid |
+
+Unset, empty or whitespace values are unset. An Advisor is configured only when all required
+variables are set and all set variables are valid. `forge.begin` and `forge.status` read the server
+process environment at each call and report `advisors.configured` (id and model) and
+`advisors.partlyConfigured` (id and variable names with missing/invalid problems), never credential
+values.
+A vendor's own variables do not configure an Advisor. With none configured there is no external
+call and the Evidence check stays manual; with one the Orchestrator uses it, and with several it
+asks once which to use and passes that id on each map call.
+
+Requests send the text of Scout items and Orchestrator-derived implications, plan units, and
+Change points, which may themselves quote code, to TypeSafe at
+`https://api.typesafe.ai/v1/systemone`. No repository file and no code around a locator is read for
+sending: repository locators are resolved locally and only their window hashes enter cache keys.
+External URLs are never fetched. The sensitive-content check guards the strings before sending.
+Configuring an Advisor applies to every repository forge runs in on that machine, rather than one
+Run. **TypeSafe's standard service is not zero-retention.**
+
+The credential is read only from the environment when needed, stays in the server process, and
+is never a tool argument or result, exception message, log, telemetry record or persisted Run
+content. `forge.plan.confirm` refuses the gate-environment name `PLANFORGE_JEV_API_KEY`, ignoring
+case, naming only the variable. Child processes — Vendor CLIs, catalogue probes, gates and git —
+have all Advisor secret variables removed after environment overlays, even when an overlay names
+them. Other variables, including `PLANFORGE_JEV_MODEL`, still reach children. The loopback-only
+Telemetry collector is Plan Forge itself, starts no process and retains its environment. State
+written before 0.50.0 is not inspected or rewritten for this rule.
+
+The default tests use a sanitized, hand-labelled fixture and a fake Advisor, without network.
+Each label keeps the fake's script (its answers, including refusals and abstentions written only to
+reach the unchecked and uncertain paths, and the status they settle to) apart from the semantic
+truth (the status and obligations a correct Advisor should reach). The default tests check the
+script; the live evaluation measures against the truth.
+To opt into the live evaluation, set `PLANFORGE_JEV_API_KEY` in the test process environment (and
+optionally `PLANFORGE_JEV_MODEL`), then run from the monorepo root under pwsh 7:
+
+```powershell
+dotnet test plugins/plan-forge-flow/src/PlanForgeFlow.sln --nologo --disable-build-servers -nodeReuse:false --filter "FullyQualifiedName~EvidenceMapLiveEvaluationTests&Category=Integration" --logger "console;verbosity=detailed" *> $env:TEMP/planforge-evidence-evaluation.log
+Get-Content $env:TEMP/planforge-evidence-evaluation.log -Tail 50
+```
+
+This deliberately calls the real service and costs money; without the key it fails naming the
+variable. It resumes each of two fixture plans until complete or no progress and reports pooled
+candidate recall, obligation recall, false coverage, abstentions, unchecked share, locator validity,
+latency p50/p90, input/output tokens, completion and estimated cost, with no quality threshold.
+Cost uses USD 0.042 per million input tokens for `jev-1.13.0` (2026-10-19 price; output free);
+missing usage or a ratio with no denominator is reported as null. Test output includes the JSON
+report and its temporary-file path. See [ADR 0036](docs/adr/0036-advise-the-evidence-check-through-a-configured-advisor.md)
+and [ADR 0037](docs/adr/0037-keep-the-scout-report-as-json-only.md).
 
 ## Requirements
 
@@ -250,24 +326,25 @@ instead.
     state.json
     decision-ledger.json    # authoritative current finding state and idempotency records
     PLAN.md               # the plan as it currently stands, rewritten before every review round
-    SCOUT.md              # every successful Scout answer of the run, appended as numbered sections
+    scout-answers.json    # the only Scout report: numbered answers with stable item IDs and locator checks
+    evidence-map.json     # content-addressed judgments, the last complete map and latest call result
     flow_log.md           # the user-facing audit; never Worker input
     forge.log
-    telemetry.json        # per-Worker and per-Orchestrator-phase timing and token counters
+    telemetry.json        # Worker, Orchestrator-phase and Advisor usage; three record kinds
     orchestrator-phase.json   # the open Orchestrator phase, so a later server process can close it
     baseline.patch
 ```
 
-`PLAN.md`, `flow_log.md`, `SCOUT.md`, `decision-ledger.json` and the indented `telemetry.json` are
-human-readable. The tools hand back the plan and timeline paths on worker results, and hand back Scout
+`PLAN.md`, `flow_log.md`, `scout-answers.json`, `evidence-map.json`, `decision-ledger.json` and the
+indented `telemetry.json` are human-readable. The tools hand back the plan and timeline paths on worker results, and hand back Scout
 metadata only after a successful Scout call, so the orchestrator can put the current documents in
 front of you while the run is still moving; telemetry stays at the stable Run path and adds no MCP
 result.
 
-Each telemetry entry's `at` is the local time the server starts that attempt's vendor process,
-formatted as `yyyy-MM-dd HH:mm:ss`. Entries are appended on completion; sort by `at` for start
-order. `wallDuration` is the process lifetime, `toolDuration` is the union of its observed
-tool-use/result intervals, and `duration` is their difference: time outside tool calls, including
+Each telemetry entry's `at` is its opening in local time, formatted as `yyyy-MM-dd HH:mm:ss`:
+the Worker process start, Orchestrator phase opening or Evidence map call start. Records are written
+on completion and inserted in opening order. For Worker records, `wallDuration` is the process
+lifetime, `toolDuration` is the union of its observed tool-use/result intervals, and `duration` is their difference: time outside tool calls, including
 API waits. Parallel calls count once. A background command contributes only until its tool call
 returns, even if the command keeps running. Tool intervals use the server's monotonic clock when
 stream events arrive and are bounded by the process lifetime; stream buffering can affect them.
@@ -289,8 +366,14 @@ tokens include what the Worker's subagents and context compaction used.
 
 ### The Orchestrator's records
 
-The file holds two kinds of record: `vendor.usage`, one per Worker attempt, as above, and
-`orchestrator.usage`, one per Orchestrator phase. `forge.begin` opens the `interview` phase, and
+The file holds three kinds of record: `vendor.usage`, one per Worker attempt, as above,
+`orchestrator.usage`, one per Orchestrator phase, and `advisor.usage`, one per accepted Evidence
+map call. An Advisor record holds requested and served model, request/failure and judgment counts,
+reported tokens, cache hits, latency p50/p90, duration, completion and stop reason, with no content.
+Each such call also attempts one content-free `## Evidence map` entry in `flow_log.md`, including on
+cancellation or failure. Neither record changes the map's outcome if its own write fails.
+
+`forge.begin` opens the `interview` phase, and
 the Orchestrator declares each later one — `planning`, `plan_revision`, `approval`, `build`,
 `code_review`, `wrap_up` — through the `phase` argument of `forge.log.append` when it begins it;
 `done` closes the last. Each declaration closes the open phase and writes its record. The open

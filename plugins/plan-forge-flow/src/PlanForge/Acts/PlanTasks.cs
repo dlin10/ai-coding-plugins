@@ -5,12 +5,46 @@ namespace PlanForge.Acts;
 
 internal sealed record PlanTask(int Number, string Text);
 
+internal sealed record PlanTaskLayout(int Start, int End, IReadOnlyList<int> TaskStarts);
+
 /// <summary>
 /// Splits an approved plan into the tasks the Builder works one at a time. Ported from the old
 /// CanonicalText, minus the content hashing — nothing downstream binds to a plan hash any more.
 /// </summary>
 internal static partial class PlanTasks
 {
+    internal static PlanTaskLayout? Locate(string plan)
+    {
+        var normalized = plan.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var headings = ApproachHeading().Matches(normalized);
+        if (headings.Count != 1) return null;
+
+        var originalIndices = new int[normalized.Length + 1];
+        var normalizedIndex = 0;
+        for (var index = 0; index < plan.Length; index++)
+        {
+            if (plan[index] == '\r' && index + 1 < plan.Length && plan[index + 1] == '\n') continue;
+            originalIndices[normalizedIndex++] = index;
+        }
+        originalIndices[normalized.Length] = plan.Length;
+
+        var approachStart = headings[0].Index + headings[0].Length;
+        var approach = normalized[approachStart..];
+        var nextHeading = NextHeading().Match(approach);
+        var end = nextHeading.Success ? approachStart + nextHeading.Index + 1 : normalized.Length;
+        if (nextHeading.Success) approach = approach[..nextHeading.Index];
+
+        var taskStarts = new List<int>();
+        foreach (Match match in NumberedTask().Matches(approach))
+        {
+            var digit = approachStart + match.Groups[1].Index;
+            var lineStart = normalized.LastIndexOf('\n', digit - 1) + 1;
+            taskStarts.Add(originalIndices[lineStart]);
+        }
+
+        return new PlanTaskLayout(originalIndices[headings[0].Index], originalIndices[end], taskStarts);
+    }
+
     public static IReadOnlyList<PlanTask> Parse(string plan)
     {
         var normalized = plan.Replace("\r\n", "\n", StringComparison.Ordinal);

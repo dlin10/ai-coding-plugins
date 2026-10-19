@@ -24,4 +24,10 @@
   <ItemGroup>
     <ProjectReference Include="../PlanForge/PlanForge.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Fixtures/EvidenceMap/repo/**/*.cs" />
+    <None Include="Fixtures/EvidenceMap/repo/**/*.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Fixtures/EvidenceMap/**/*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

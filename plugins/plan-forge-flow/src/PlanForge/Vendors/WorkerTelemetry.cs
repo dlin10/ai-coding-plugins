@@ -277,7 +277,7 @@ internal sealed record OrchestratorUsageRecord(string At,
                                                string? UsageMissing);
 
 /// <summary>
-/// The one owner of <c>telemetry.json</c>: every record of either kind is written here, under one
+/// The one owner of <c>telemetry.json</c>: every record kind is written here, under one
 /// gate per file, at the place its <c>at</c> — its opening — gives it, which is after the elements
 /// that opened no later. Elements already in the file are kept as they are, in the order they are in,
 /// whatever their <c>event</c>.
@@ -315,6 +315,14 @@ internal static class WorkerTelemetryFile
     public static void Append(string path, RunLog log, OrchestratorUsageRecord record) =>
         Append(path, log, _ => record, added => added.At,
                TelemetryJson.Default.OrchestratorUsageRecord, ("event", record.Event));
+
+    /// <summary>Writes one Advisor call record beside the existing telemetry kinds.</summary>
+    /// <param name="path">The Run's telemetry file.</param>
+    /// <param name="log">The diagnostic log for a failed write.</param>
+    /// <param name="record">The content-free call accounting.</param>
+    public static void Append(string path, RunLog log, AdvisorUsageRecord record) =>
+        Append(path, log, _ => record, added => added.At,
+               TelemetryJson.Default.AdvisorUsageRecord, ("event", record.Event));
 
     /// <summary>
     /// Where a record opened at <paramref name="at"/> goes: after the last element that opened no
@@ -439,4 +447,5 @@ internal static class WorkerTelemetryFile
                              DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(WorkerUsageRecord))]
 [JsonSerializable(typeof(OrchestratorUsageRecord))]
+[JsonSerializable(typeof(AdvisorUsageRecord))]
 internal sealed partial class TelemetryJson : JsonSerializerContext;

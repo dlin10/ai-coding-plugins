@@ -32,6 +32,7 @@ public sealed class ScoutToolTests : IDisposable
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
+    /// <summary>Direct result carries the complete report and documents.</summary>
     [Fact]
     public async Task Direct_result_carries_the_complete_report_and_documents()
     {
@@ -45,7 +46,7 @@ public sealed class ScoutToolTests : IDisposable
         Assert.True(scout.TryGetProperty("dependentsAndPinnedBehaviour", out _));
         Assert.False(scout.TryGetProperty("truncated", out _));
         Assert.False(root.TryGetProperty("report", out _));
-        Assert.Equal(run.ScoutReportPath, root.GetProperty("documents").GetProperty("scout").GetProperty("path").GetString());
+        Assert.Equal(run.ScoutAnswersPath, root.GetProperty("documents").GetProperty("scout").GetProperty("path").GetString());
     }
 
     [Fact]
@@ -264,6 +265,7 @@ public sealed class ScoutToolTests : IDisposable
         Assert.False(root.TryGetProperty("scout", out _));
     }
 
+    /// <summary>Background successful scout fetch includes scout metadata.</summary>
     [Fact]
     public async Task Background_successful_scout_fetch_includes_scout_metadata()
     {
@@ -276,7 +278,7 @@ public sealed class ScoutToolTests : IDisposable
         var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace,
             run.RunId, started.JobId, CancellationToken.None))!;
 
-        Assert.Equal(run.ScoutReportPath, fetch["documents"]!["scout"]!["path"]!.GetValue<string>());
+        Assert.Equal(run.ScoutAnswersPath, fetch["documents"]!["scout"]!["path"]!.GetValue<string>());
     }
 
     [Fact]
@@ -400,6 +402,7 @@ public sealed class ScoutToolTests : IDisposable
             "build.next", null, null, null, null, null, false));
     }
 
+    /// <summary>The background result and logs contain the report JSON without its store path.</summary>
     [Fact]
     public async Task Background_result_job_file_and_tool_result_log_contain_the_report_json()
     {
@@ -415,7 +418,7 @@ public sealed class ScoutToolTests : IDisposable
         var log = AtomicFile.Read(run.DiagnosticLogPath);
         Assert.Contains("dependentsAndPinnedBehaviour", job, StringComparison.Ordinal);
         Assert.Contains("dependentsAndPinnedBehaviour", log, StringComparison.Ordinal);
-        Assert.DoesNotContain("SCOUT.md", job, StringComparison.Ordinal);
+        Assert.DoesNotContain("scout-answers.json", job, StringComparison.Ordinal);
         using var report = JsonDocument.Parse(fetch["result"]!.GetValue<string>());
         Assert.False(report.RootElement.TryGetProperty("truncated", out _));
     }

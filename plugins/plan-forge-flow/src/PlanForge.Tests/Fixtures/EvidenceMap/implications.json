@@ -1,0 +1,15 @@
+[
+  {
+    "text": "Every consumer of UnknownCalls.Of, including ConsumerGraph and SpawnCollector, must handle SummarySpawn without discarding work.",
+    "derivedFrom": [
+      "A1.confirmedFacts.1"
+    ]
+  },
+  {
+    "text": "WireCache compatibility must be verified for stored records and round trips.",
+    "derivedFrom": [
+      "A1.confirmedFacts.3",
+      "A2.confirmedFacts.1"
+    ]
+  }
+]

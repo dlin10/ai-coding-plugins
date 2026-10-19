@@ -192,10 +192,11 @@ public sealed class ScoutSkillTests
         Contains("the complete Scout answer under `scout`", Skill());
     }
 
+    /// <summary>The Scout tool table promises the complete answer and the JSON-only report.</summary>
     [Fact]
     public void Tool_table_says_scout_run_returns_the_complete_answer()
     {
-        Contains("It returns the complete Scout answer under `scout`, unclipped, and appends it to `SCOUT.md`", Skill());
+        Contains("It returns the complete Scout answer under `scout`, unclipped, and appends it to `scout-answers.json`", Skill());
     }
 
     [Fact]
@@ -260,18 +261,20 @@ public sealed class ScoutSkillTests
         Contains("at most six questions total: two Vendor questions, two model/effort questions, and one Fast question for each role whose choice offers it", "Ask them role by role, the critic's first", "A single just-in-time Scout selection round is additional", "no numeric cap on the domain interview", Skill());
     }
 
+    /// <summary>The README lists both Scout tools within the twenty-one-tool surface.</summary>
     [Fact]
-    public void Readme_lists_both_scout_tools_and_eighteen_tools()
+    public void Readme_lists_both_scout_tools_and_twenty_one_tools()
     {
         var readme = File.ReadAllText(Path.Combine(RepositoryRoot(), "README.md"));
-        Contains("exposes eighteen tools", "`forge.scout.select`", "`forge.scout.run`", readme);
+        Contains("exposes twenty-one tools", "`forge.scout.select`", "`forge.scout.run`", readme);
     }
 
+    /// <summary>The maintainer guide names four participants, twenty-one tools and Scout's boundary.</summary>
     [Fact]
-    public void Agents_names_four_participants_eighteen_tools_and_scout_boundary()
+    public void Agents_names_four_participants_twenty_one_tools_and_scout_boundary()
     {
         var agents = File.ReadAllText(Path.Combine(RepositoryRoot(), "AGENTS.md"));
-        Contains("all eighteen `forge.*` tools", "## The four participants", "**Scout**", "Read-only and", "non-writable", agents);
+        Contains("all twenty-one `forge.*` tools", "## The four participants", "**Scout**", "Read-only and", "non-writable", agents);
     }
 
     [Fact]
