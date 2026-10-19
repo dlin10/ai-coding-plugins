@@ -198,7 +198,7 @@ The decision is how the run generates:
   framework is the patch installed on the machine, and binding it by MVID would make every machine with
   another patch generate the member again and write a file of its own. A model is not yet bound to the
   generator's version either, so a model an older generator wrote, or one written against another patch,
-  stays until its file is removed; binding to the generator's version is run B4's.
+  stays until its file is removed; binding to the generator's version is run B3b's.
 - The **Generation budget** is two limits of time, the run's and each member's. A member that reaches its
   own limit is refused with `timeout` and is not generated again; the members the run's limit does not
   reach stay opaque in that run. Members handed a delegate come first, then the rest by id. The values
@@ -212,7 +212,7 @@ The decision is how the run generates:
 - The generator reads the ASP.NET Core shared framework, as the implementation of its own members and as
   a reference of the packages built on it.
 - Inside a generation, a call of another library's member that has no model stays opaque: generation
-  does not follow dependencies yet. That is run B4's, with the generator's precision.
+  does not follow dependencies yet. That is run B4b's, after the generator's precision.
 
 Rejected: generating only where `.concurrency-hunter/models/` exists. It changes no one's run, but no
 team gets a model it did not ask for. Rejected: generating in memory and writing only where the folder
