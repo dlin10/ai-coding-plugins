@@ -7,16 +7,25 @@ using PlanForge.Run;
 
 namespace PlanForge.Tests;
 
-/// <summary>Hand-labelled answers and expectations for one item in one fixture plan.</summary>
+/// <summary>One item in one fixture plan: its candidates, the fake Advisor's script and the semantic truth.</summary>
 /// <param name="Id">The stable item identity.</param>
 /// <param name="Text">The exact text used to look up scripted answers.</param>
-/// <param name="Status">The expected item status.</param>
-/// <param name="Candidates">The expected candidate unit ids.</param>
-/// <param name="Obligations">Units explicitly obliged to act on this item.</param>
+/// <param name="Candidates">The expected candidate unit ids, selected by code without any model.</param>
+/// <param name="Script">What the fake Advisor answers and the status those answers settle to.</param>
+/// <param name="Truth">What a correct Advisor should conclude; the live metrics measure against it.</param>
+internal sealed record EvidenceLabel(string Id, string Text, string[] Candidates, EvidenceScript Script, EvidenceTruth Truth);
+
+/// <summary>The fake Advisor's answers for one item, including refusals and abstentions written only to
+/// exercise the unchecked and uncertain paths.</summary>
+/// <param name="Status">The status the scripted answers settle to.</param>
 /// <param name="Relevance">The scripted relevance choice, absent for implications.</param>
 /// <param name="Pairs">The scripted answers for every candidate unit.</param>
-internal sealed record EvidenceLabel(string Id, string Text, string Status, string[] Candidates,
-                                     string[] Obligations, string? Relevance, Dictionary<string, EvidencePairLabel> Pairs);
+internal sealed record EvidenceScript(string Status, string? Relevance, Dictionary<string, EvidencePairLabel> Pairs);
+
+/// <summary>The semantic expectation for one item, independent of any script or model answer.</summary>
+/// <param name="Status">The status a correct Advisor's answers settle to.</param>
+/// <param name="Obligations">Units that explicitly commit the plan to act on this item.</param>
+internal sealed record EvidenceTruth(string Status, string[] Obligations);
 
 /// <summary>The two scripted answers for a candidate pair.</summary>
 /// <param name="Relationship">A relationship choice or refused.</param>
@@ -129,8 +138,8 @@ internal sealed class LabelledAdvisor : IAdvisor
         foreach (var question in request.Questions)
         {
             var role = question.Id.Split(':')[0];
-            var pair = role == "relevance" ? null : label.Pairs[units[question.Id[(question.Id.IndexOf(':') + 1)..]]];
-            var choice = role == "relevance" ? label.Relevance! : role == "relationship" ? pair!.Relationship : pair!.Obligation;
+            var pair = role == "relevance" ? null : label.Script.Pairs[units[question.Id[(question.Id.IndexOf(':') + 1)..]]];
+            var choice = role == "relevance" ? label.Script.Relevance! : role == "relationship" ? pair!.Relationship : pair!.Obligation;
             answers.Add(question.Id, choice == "refused" ? new Refused()
                 : new Answered(choice, question.Options.ToDictionary(option => option.Value,
                     option => option.Value == choice ? 1d : 0d), 1));

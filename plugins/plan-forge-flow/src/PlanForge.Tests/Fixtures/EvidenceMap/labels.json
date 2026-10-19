@@ -3,671 +3,845 @@
     {
       "id": "A1.confirmedFacts.1",
       "text": "UnknownCalls.Of feeds ConsumerGraph and SpawnCollector; both discard SummarySpawn today.",
-      "status": "covered",
       "candidates": [
         "X",
         "T1",
         "T2"
       ],
-      "obligations": [
-        "T2"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T1": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
-        },
-        "T2": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T1": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          },
+          "T2": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T2"
+        ]
       }
     },
     {
       "id": "A1.confirmedFacts.2",
       "text": "OrderPolicy promises depth first traversal.",
-      "status": "covered",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [
-        "T3"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T3"
+        ]
       }
     },
     {
       "id": "A1.confirmedFacts.3",
       "text": "WireCache assignments must remain stable.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     },
     {
       "id": "A1.confirmedFacts.4",
       "text": "PlatformBanner controls a local display preference only.",
-      "status": "context_only",
       "candidates": [
         "X",
         "T5"
       ],
-      "obligations": [],
-      "relevance": "context_only",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T5": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "context_only",
+        "relevance": "context_only",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T5": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A1.materialAssumptions.1",
       "text": "ContractProbe may cross an undocumented compatibility boundary.",
-      "status": "unchecked",
       "candidates": [
         "X",
         "T8"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T8": {
-          "relationship": "supports",
-          "obligation": "refused"
+      "script": {
+        "status": "unchecked",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T8": {
+            "relationship": "supports",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T8"
+        ]
       }
     },
     {
       "id": "A1.materialAssumptions.2",
       "text": "RetryBudget may have an unbounded failure policy.",
-      "status": "uncertain",
       "candidates": [
         "X",
         "T6"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T6": {
-          "relationship": "supports",
-          "obligation": "insufficient_context"
+      "script": {
+        "status": "uncertain",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T6": {
+            "relationship": "supports",
+            "obligation": "insufficient_context"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T6"
+        ]
       }
     },
     {
       "id": "A1.openDecisions.1",
       "text": "LegacyBridge revival is optional.",
-      "status": "excluded",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "supports",
-          "obligation": "explicit_exclusion"
+      "script": {
+        "status": "excluded",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "supports",
+            "obligation": "explicit_exclusion"
+          }
         }
+      },
+      "truth": {
+        "status": "excluded",
+        "obligations": []
       }
     },
     {
       "id": "A1.likelyChangeSurface.1",
       "text": "ProbeCatalog lists probes without committing to run them.",
-      "status": "no_coverage_established",
       "candidates": [
         "X",
         "T7"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T7": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "no_coverage_established",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T7": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "no_coverage_established",
+        "obligations": []
       }
     },
     {
       "id": "A1.verificationEvidence.1",
       "text": "the office wall is blue.",
-      "status": "no_candidates",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
+      "script": {
+        "status": "no_candidates",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A1.dependentsAndPinnedBehaviour.1",
       "text": "WireCache round trips pin stored assignments.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     },
     {
       "id": "A2.confirmedFacts.1",
       "text": "WireCache readers require stable stored records.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     },
     {
       "id": "A2.confirmedFacts.2",
       "text": "PlatformBanner colour has no effect on record handling.",
-      "status": "context_only",
       "candidates": [
         "X",
         "T5"
       ],
-      "obligations": [],
-      "relevance": "context_only",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T5": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "context_only",
+        "relevance": "context_only",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T5": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A2.materialAssumptions.1",
       "text": "ContractProbe compatibility has no authoritative specification.",
-      "status": "unchecked",
       "candidates": [
         "X",
         "T8"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T8": {
-          "relationship": "supports",
-          "obligation": "refused"
+      "script": {
+        "status": "unchecked",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T8": {
+            "relationship": "supports",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T8"
+        ]
       }
     },
     {
       "id": "A2.openDecisions.1",
       "text": "RetryBudget limits cannot be inferred from the current notes.",
-      "status": "uncertain",
       "candidates": [
         "X",
         "T6"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T6": {
-          "relationship": "supports",
-          "obligation": "insufficient_context"
+      "script": {
+        "status": "uncertain",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T6": {
+            "relationship": "supports",
+            "obligation": "insufficient_context"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T6"
+        ]
       }
     },
     {
       "id": "A2.openDecisions.2",
       "text": "LegacyBridge compatibility mode can stay retired.",
-      "status": "excluded",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "supports",
-          "obligation": "explicit_exclusion"
+      "script": {
+        "status": "excluded",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "supports",
+            "obligation": "explicit_exclusion"
+          }
         }
+      },
+      "truth": {
+        "status": "excluded",
+        "obligations": []
       }
     },
     {
       "id": "A2.likelyChangeSurface.1",
       "text": "ProbeCatalog inventory does not ensure verification.",
-      "status": "no_coverage_established",
       "candidates": [
         "X",
         "T7"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T7": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "no_coverage_established",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T7": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "no_coverage_established",
+        "obligations": []
       }
     },
     {
       "id": "A2.verificationEvidence.1",
       "text": "WireCache fixtures must preserve compatibility.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     },
     {
       "id": "A2.verificationEvidence.2",
       "text": "the office desk is round.",
-      "status": "no_candidates",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
+      "script": {
+        "status": "no_candidates",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A2.dependentsAndPinnedBehaviour.1",
       "text": "ContractProbe callers have unknown compatibility expectations.",
-      "status": "unchecked",
       "candidates": [
         "X",
         "T8"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T8": {
-          "relationship": "supports",
-          "obligation": "refused"
+      "script": {
+        "status": "unchecked",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T8": {
+            "relationship": "supports",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T8"
+        ]
       }
     },
     {
       "id": "A2.dependentsAndPinnedBehaviour.2",
       "text": "OrderPolicy repeatability is a pinned contract.",
-      "status": "covered",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [
-        "T3"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T3"
+        ]
       }
     },
     {
       "id": "A3.confirmedFacts.1",
       "text": "OrderPolicy now requires breadth first traversal, contradicting the early depth first report.",
-      "status": "contradiction",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "contradicts",
-          "obligation": "refused"
+      "script": {
+        "status": "contradiction",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "contradicts",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "contradiction",
+        "obligations": []
       }
     },
     {
       "id": "A3.confirmedFacts.2",
       "text": "OrderPolicy must stop preserving depth first order.",
-      "status": "contradiction",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "contradicts",
-          "obligation": "refused"
+      "script": {
+        "status": "contradiction",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "contradicts",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "contradiction",
+        "obligations": []
       }
     },
     {
       "id": "A3.materialAssumptions.1",
       "text": "ContractProbe callers may require unavailable compatibility evidence.",
-      "status": "unchecked",
       "candidates": [
         "X",
         "T8"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T8": {
-          "relationship": "supports",
-          "obligation": "refused"
+      "script": {
+        "status": "unchecked",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T8": {
+            "relationship": "supports",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T8"
+        ]
       }
     },
     {
       "id": "A3.materialAssumptions.2",
       "text": "PlatformBanner is only background for this change.",
-      "status": "context_only",
       "candidates": [
         "X",
         "T5"
       ],
-      "obligations": [],
-      "relevance": "context_only",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T5": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "context_only",
+        "relevance": "context_only",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T5": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A3.openDecisions.1",
       "text": "LegacyBridge revival remains deliberately excluded.",
-      "status": "excluded",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "supports",
-          "obligation": "explicit_exclusion"
+      "script": {
+        "status": "excluded",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "supports",
+            "obligation": "explicit_exclusion"
+          }
         }
+      },
+      "truth": {
+        "status": "excluded",
+        "obligations": []
       }
     },
     {
       "id": "A3.openDecisions.2",
       "text": "RetryBudget needs context beyond these notes.",
-      "status": "uncertain",
       "candidates": [
         "X",
         "T6"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T6": {
-          "relationship": "supports",
-          "obligation": "insufficient_context"
+      "script": {
+        "status": "uncertain",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T6": {
+            "relationship": "supports",
+            "obligation": "insufficient_context"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T6"
+        ]
       }
     },
     {
       "id": "A3.likelyChangeSurface.1",
       "text": "ProbeCatalog presence alone promises no action.",
-      "status": "no_coverage_established",
       "candidates": [
         "X",
         "T7"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T7": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "no_coverage_established",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T7": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "no_coverage_established",
+        "obligations": []
       }
     },
     {
       "id": "A3.verificationEvidence.1",
       "text": "the office floor is tiled.",
-      "status": "no_candidates",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
+      "script": {
+        "status": "no_candidates",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A3.dependentsAndPinnedBehaviour.1",
       "text": "OrderPolicy callers now demand breadth first order.",
-      "status": "contradiction",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "contradicts",
-          "obligation": "refused"
+      "script": {
+        "status": "contradiction",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "contradicts",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "contradiction",
+        "obligations": []
       }
     },
     {
       "id": "A3.dependentsAndPinnedBehaviour.2",
       "text": "PlatformBanner layout is unrelated to summary records.",
-      "status": "context_only",
       "candidates": [
         "X",
         "T5"
       ],
-      "obligations": [],
-      "relevance": "context_only",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T5": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "context_only",
+        "relevance": "context_only",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T5": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "H1",
       "text": "Every consumer of UnknownCalls.Of, including ConsumerGraph and SpawnCollector, must handle SummarySpawn without discarding work.",
-      "status": "covered",
       "candidates": [
         "X",
         "T1",
         "T2"
       ],
-      "obligations": [
-        "T2"
-      ],
-      "relevance": null,
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T1": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
-        },
-        "T2": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": null,
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T1": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          },
+          "T2": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T2"
+        ]
       }
     },
     {
       "id": "H2",
       "text": "WireCache compatibility must be verified for stored records and round trips.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": null,
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": null,
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     }
   ],
@@ -675,667 +849,841 @@
     {
       "id": "A1.confirmedFacts.1",
       "text": "UnknownCalls.Of feeds ConsumerGraph and SpawnCollector; both discard SummarySpawn today.",
-      "status": "no_coverage_established",
       "candidates": [
         "X",
         "T1",
         "T2"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T1": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
-        },
-        "T2": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "no_coverage_established",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T1": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          },
+          "T2": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "no_coverage_established",
+        "obligations": []
       }
     },
     {
       "id": "A1.confirmedFacts.2",
       "text": "OrderPolicy promises depth first traversal.",
-      "status": "covered",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [
-        "T3"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T3"
+        ]
       }
     },
     {
       "id": "A1.confirmedFacts.3",
       "text": "WireCache assignments must remain stable.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     },
     {
       "id": "A1.confirmedFacts.4",
       "text": "PlatformBanner controls a local display preference only.",
-      "status": "context_only",
       "candidates": [
         "X",
         "T5"
       ],
-      "obligations": [],
-      "relevance": "context_only",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T5": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "context_only",
+        "relevance": "context_only",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T5": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A1.materialAssumptions.1",
       "text": "ContractProbe may cross an undocumented compatibility boundary.",
-      "status": "unchecked",
       "candidates": [
         "X",
         "T8"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T8": {
-          "relationship": "supports",
-          "obligation": "refused"
+      "script": {
+        "status": "unchecked",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T8": {
+            "relationship": "supports",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T8"
+        ]
       }
     },
     {
       "id": "A1.materialAssumptions.2",
       "text": "RetryBudget may have an unbounded failure policy.",
-      "status": "uncertain",
       "candidates": [
         "X",
         "T6"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T6": {
-          "relationship": "supports",
-          "obligation": "insufficient_context"
+      "script": {
+        "status": "uncertain",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T6": {
+            "relationship": "supports",
+            "obligation": "insufficient_context"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T6"
+        ]
       }
     },
     {
       "id": "A1.openDecisions.1",
       "text": "LegacyBridge revival is optional.",
-      "status": "excluded",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "supports",
-          "obligation": "explicit_exclusion"
+      "script": {
+        "status": "excluded",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "supports",
+            "obligation": "explicit_exclusion"
+          }
         }
+      },
+      "truth": {
+        "status": "excluded",
+        "obligations": []
       }
     },
     {
       "id": "A1.likelyChangeSurface.1",
       "text": "ProbeCatalog lists probes without committing to run them.",
-      "status": "no_coverage_established",
       "candidates": [
         "X",
         "T7"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T7": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "no_coverage_established",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T7": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "no_coverage_established",
+        "obligations": []
       }
     },
     {
       "id": "A1.verificationEvidence.1",
       "text": "the office wall is blue.",
-      "status": "no_candidates",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
+      "script": {
+        "status": "no_candidates",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A1.dependentsAndPinnedBehaviour.1",
       "text": "WireCache round trips pin stored assignments.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     },
     {
       "id": "A2.confirmedFacts.1",
       "text": "WireCache readers require stable stored records.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     },
     {
       "id": "A2.confirmedFacts.2",
       "text": "PlatformBanner colour has no effect on record handling.",
-      "status": "context_only",
       "candidates": [
         "X",
         "T5"
       ],
-      "obligations": [],
-      "relevance": "context_only",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T5": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "context_only",
+        "relevance": "context_only",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T5": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A2.materialAssumptions.1",
       "text": "ContractProbe compatibility has no authoritative specification.",
-      "status": "unchecked",
       "candidates": [
         "X",
         "T8"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T8": {
-          "relationship": "supports",
-          "obligation": "refused"
+      "script": {
+        "status": "unchecked",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T8": {
+            "relationship": "supports",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T8"
+        ]
       }
     },
     {
       "id": "A2.openDecisions.1",
       "text": "RetryBudget limits cannot be inferred from the current notes.",
-      "status": "uncertain",
       "candidates": [
         "X",
         "T6"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T6": {
-          "relationship": "supports",
-          "obligation": "insufficient_context"
+      "script": {
+        "status": "uncertain",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T6": {
+            "relationship": "supports",
+            "obligation": "insufficient_context"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T6"
+        ]
       }
     },
     {
       "id": "A2.openDecisions.2",
       "text": "LegacyBridge compatibility mode can stay retired.",
-      "status": "excluded",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "supports",
-          "obligation": "explicit_exclusion"
+      "script": {
+        "status": "excluded",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "supports",
+            "obligation": "explicit_exclusion"
+          }
         }
+      },
+      "truth": {
+        "status": "excluded",
+        "obligations": []
       }
     },
     {
       "id": "A2.likelyChangeSurface.1",
       "text": "ProbeCatalog inventory does not ensure verification.",
-      "status": "no_coverage_established",
       "candidates": [
         "X",
         "T7"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T7": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "no_coverage_established",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T7": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "no_coverage_established",
+        "obligations": []
       }
     },
     {
       "id": "A2.verificationEvidence.1",
       "text": "WireCache fixtures must preserve compatibility.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     },
     {
       "id": "A2.verificationEvidence.2",
       "text": "the office desk is round.",
-      "status": "no_candidates",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
+      "script": {
+        "status": "no_candidates",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A2.dependentsAndPinnedBehaviour.1",
       "text": "ContractProbe callers have unknown compatibility expectations.",
-      "status": "unchecked",
       "candidates": [
         "X",
         "T8"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T8": {
-          "relationship": "supports",
-          "obligation": "refused"
+      "script": {
+        "status": "unchecked",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T8": {
+            "relationship": "supports",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T8"
+        ]
       }
     },
     {
       "id": "A2.dependentsAndPinnedBehaviour.2",
       "text": "OrderPolicy repeatability is a pinned contract.",
-      "status": "covered",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [
-        "T3"
-      ],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T3"
+        ]
       }
     },
     {
       "id": "A3.confirmedFacts.1",
       "text": "OrderPolicy now requires breadth first traversal, contradicting the early depth first report.",
-      "status": "contradiction",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "contradicts",
-          "obligation": "refused"
+      "script": {
+        "status": "contradiction",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "contradicts",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "contradiction",
+        "obligations": []
       }
     },
     {
       "id": "A3.confirmedFacts.2",
       "text": "OrderPolicy must stop preserving depth first order.",
-      "status": "contradiction",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "contradicts",
-          "obligation": "refused"
+      "script": {
+        "status": "contradiction",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "contradicts",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "contradiction",
+        "obligations": []
       }
     },
     {
       "id": "A3.materialAssumptions.1",
       "text": "ContractProbe callers may require unavailable compatibility evidence.",
-      "status": "unchecked",
       "candidates": [
         "X",
         "T8"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T8": {
-          "relationship": "supports",
-          "obligation": "refused"
+      "script": {
+        "status": "unchecked",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T8": {
+            "relationship": "supports",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T8"
+        ]
       }
     },
     {
       "id": "A3.materialAssumptions.2",
       "text": "PlatformBanner is only background for this change.",
-      "status": "context_only",
       "candidates": [
         "X",
         "T5"
       ],
-      "obligations": [],
-      "relevance": "context_only",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T5": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "context_only",
+        "relevance": "context_only",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T5": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A3.openDecisions.1",
       "text": "LegacyBridge revival remains deliberately excluded.",
-      "status": "excluded",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "supports",
-          "obligation": "explicit_exclusion"
+      "script": {
+        "status": "excluded",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "supports",
+            "obligation": "explicit_exclusion"
+          }
         }
+      },
+      "truth": {
+        "status": "excluded",
+        "obligations": []
       }
     },
     {
       "id": "A3.openDecisions.2",
       "text": "RetryBudget needs context beyond these notes.",
-      "status": "uncertain",
       "candidates": [
         "X",
         "T6"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T6": {
-          "relationship": "supports",
-          "obligation": "insufficient_context"
+      "script": {
+        "status": "uncertain",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T6": {
+            "relationship": "supports",
+            "obligation": "insufficient_context"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T6"
+        ]
       }
     },
     {
       "id": "A3.likelyChangeSurface.1",
       "text": "ProbeCatalog presence alone promises no action.",
-      "status": "no_coverage_established",
       "candidates": [
         "X",
         "T7"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T7": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "no_coverage_established",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T7": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "no_coverage_established",
+        "obligations": []
       }
     },
     {
       "id": "A3.verificationEvidence.1",
       "text": "the office floor is tiled.",
-      "status": "no_candidates",
       "candidates": [
         "X"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
+      "script": {
+        "status": "no_candidates",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "A3.dependentsAndPinnedBehaviour.1",
       "text": "OrderPolicy callers now demand breadth first order.",
-      "status": "contradiction",
       "candidates": [
         "X",
         "T3"
       ],
-      "obligations": [],
-      "relevance": "implies_action",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T3": {
-          "relationship": "contradicts",
-          "obligation": "refused"
+      "script": {
+        "status": "contradiction",
+        "relevance": "implies_action",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T3": {
+            "relationship": "contradicts",
+            "obligation": "refused"
+          }
         }
+      },
+      "truth": {
+        "status": "contradiction",
+        "obligations": []
       }
     },
     {
       "id": "A3.dependentsAndPinnedBehaviour.2",
       "text": "PlatformBanner layout is unrelated to summary records.",
-      "status": "context_only",
       "candidates": [
         "X",
         "T5"
       ],
-      "obligations": [],
-      "relevance": "context_only",
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T5": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "context_only",
+        "relevance": "context_only",
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T5": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "context_only",
+        "obligations": []
       }
     },
     {
       "id": "H1",
       "text": "Every consumer of UnknownCalls.Of, including ConsumerGraph and SpawnCollector, must handle SummarySpawn without discarding work.",
-      "status": "no_coverage_established",
       "candidates": [
         "X",
         "T1",
         "T2"
       ],
-      "obligations": [],
-      "relevance": null,
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T1": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
-        },
-        "T2": {
-          "relationship": "supports",
-          "obligation": "mentioned_only"
+      "script": {
+        "status": "no_coverage_established",
+        "relevance": null,
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T1": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          },
+          "T2": {
+            "relationship": "supports",
+            "obligation": "mentioned_only"
+          }
         }
+      },
+      "truth": {
+        "status": "no_coverage_established",
+        "obligations": []
       }
     },
     {
       "id": "H2",
       "text": "WireCache compatibility must be verified for stored records and round trips.",
-      "status": "covered",
       "candidates": [
         "X",
         "T4"
       ],
-      "obligations": [
-        "T4"
-      ],
-      "relevance": null,
-      "pairs": {
-        "X": {
-          "relationship": "unrelated",
-          "obligation": "absent"
-        },
-        "T4": {
-          "relationship": "supports",
-          "obligation": "explicit_obligation"
+      "script": {
+        "status": "covered",
+        "relevance": null,
+        "pairs": {
+          "X": {
+            "relationship": "unrelated",
+            "obligation": "absent"
+          },
+          "T4": {
+            "relationship": "supports",
+            "obligation": "explicit_obligation"
+          }
         }
+      },
+      "truth": {
+        "status": "covered",
+        "obligations": [
+          "T4"
+        ]
       }
     }
   ]

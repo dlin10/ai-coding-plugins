@@ -34,6 +34,14 @@ public sealed class EvidenceMetricsTests
         Assert.Equal(0.5, report.FalseCoverage);
     }
 
+    /// <summary>A scripted status never counts as the truth: a fake's covered script cannot hide false coverage.</summary>
+    [Fact]
+    public void False_coverage_reads_the_truth_not_the_script()
+    {
+        var report = Report([Item("a")], [Label("a", "excluded", scriptStatus: "covered")]);
+        Assert.Equal(1d, report.FalseCoverage);
+    }
+
     /// <summary>Refused questions do not enter either side of the abstention ratio.</summary>
     [Fact]
     public void Abstentions_count_only_valid_checked_questions()
@@ -180,11 +188,13 @@ public sealed class EvidenceMetricsTests
 
     /// <summary>Builds an independent label with only the axes needed by an arithmetic example.</summary>
     /// <param name="id">The item identity.</param>
-    /// <param name="status">The expected status.</param>
+    /// <param name="status">The truth status.</param>
     /// <param name="candidates">The labelled candidate units.</param>
-    /// <param name="obligations">The labelled obligation units.</param>
+    /// <param name="obligations">The truth obligation units.</param>
+    /// <param name="scriptStatus">The fake's scripted status, which metrics must never read.</param>
     private static EvidenceLabel Label(string id, string status = "covered", string[]? candidates = null,
-                                       string[]? obligations = null) => new(id, id, status, candidates ?? [], obligations ?? [], null, []);
+                                       string[]? obligations = null, string scriptStatus = "unchecked") =>
+        new(id, id, candidates ?? [], new(scriptStatus, null, []), new(status, obligations ?? []));
 
     /// <summary>Builds an item independently of production selection and verdict code.</summary>
     /// <param name="id">The item identity.</param>

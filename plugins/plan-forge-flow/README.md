@@ -240,6 +240,10 @@ Telemetry collector is Plan Forge itself, starts no process and retains its envi
 written before 0.50.0 is not inspected or rewritten for this rule.
 
 The default tests use a sanitized, hand-labelled fixture and a fake Advisor, without network.
+Each label keeps the fake's script (its answers, including refusals and abstentions written only to
+reach the unchecked and uncertain paths, and the status they settle to) apart from the semantic
+truth (the status and obligations a correct Advisor should reach). The default tests check the
+script; the live evaluation measures against the truth.
 To opt into the live evaluation, set `PLANFORGE_JEV_API_KEY` in the test process environment (and
 optionally `PLANFORGE_JEV_MODEL`), then run from the monorepo root under pwsh 7:
 

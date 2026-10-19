@@ -9,8 +9,8 @@ internal sealed record EvidenceEvaluation(EvidenceMap Map, IReadOnlyList<Evidenc
 
 /// <summary>Pooled evaluation ratios, latency, reported usage and completion; empty denominators stay unknown.</summary>
 /// <param name="CandidateRecall">Selected labelled candidate pairs divided by labelled pairs.</param>
-/// <param name="ObligationRecall">Explicit obligations divided by checked labelled obligation pairs.</param>
-/// <param name="FalseCoverage">Incorrectly covered items divided by all covered items.</param>
+/// <param name="ObligationRecall">Explicit obligations divided by checked truth obligation pairs.</param>
+/// <param name="FalseCoverage">Covered items whose truth is not covered, divided by all covered items.</param>
 /// <param name="Abstentions">Insufficient-context answers divided by checked questions.</param>
 /// <param name="UncheckedShare">Unchecked items divided by every observed item.</param>
 /// <param name="LocatorValidity">Resolved repository items divided by repository items.</param>
@@ -58,7 +58,7 @@ internal static class EvidenceMetrics
                 candidateTotal += label.Candidates.Length;
                 if (!observed.TryGetValue(label.Id, out var item)) continue;
                 candidateSelected += label.Candidates.Count(item.CandidateUnitIds.Contains);
-                foreach (var unit in label.Obligations)
+                foreach (var unit in label.Truth.Obligations)
                 {
                     var answer = item.Judgments.FirstOrDefault(judgment => judgment.UnitId == unit)
                                      ?.Questions.GetValueOrDefault("obligation")?.Answer;
@@ -74,7 +74,7 @@ internal static class EvidenceMetrics
                 if (item.Status == "covered")
                 {
                     covered++;
-                    if (labels[item.Id].Status != "covered") falselyCovered++;
+                    if (labels[item.Id].Truth.Status != "covered") falselyCovered++;
                 }
                 if (item.LocatorCheck is not null)
                 {

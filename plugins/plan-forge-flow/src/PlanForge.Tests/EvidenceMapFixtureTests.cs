@@ -34,7 +34,7 @@ public sealed class EvidenceMapFixtureTests
             var map = await fixture.Map(plan);
             Assert.True(map.Result.Complete);
             foreach (var label in fixture.Labels[plan])
-                Assert.Equal(label.Status, Assert.Single(map.Observation, item => item.Id == label.Id).Status);
+                Assert.Equal(label.Script.Status, Assert.Single(map.Observation, item => item.Id == label.Id).Status);
         }
     }
 
