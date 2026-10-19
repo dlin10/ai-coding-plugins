@@ -1,4 +1,4 @@
-# Session Pulse 0.3.2
+# Session Pulse 0.3.3
 
 A Claude Code mod that keeps the session's cost in view above the prompt and keeps the prompt cache from
 going cold while you are away.
@@ -34,12 +34,15 @@ input-token equivalents, against about 160K for the rewrite.
 
 ## The cache TTL
 
-The API does not report how long a cache entry lives. With `cacheTtl` set to `auto` (the default) the mod
-starts at an hour, as Claude Code's subscription cache lives, and learns from what the requests say:
+A mod is not told how long a cache entry lives: the usage it sees has no split between five-minute and
+one-hour writes. With `cacheTtl` set to `auto` (the default) the mod starts at an hour, as Claude Code's
+subscription cache lives, and learns from what the requests say:
 
-- a request on the same model that reads almost nothing from the cache after five and a half minutes to
-  an hour of quiet points to five minutes;
-- one that still reads most of it after more than five and a half minutes proves an hour.
+- two requests in a row on the same model that read almost nothing from the cache, each after five and
+  a half minutes to an hour of quiet, point to five minutes. A lone one does not: the API can evict an
+  hour-long entry early;
+- one that still reads most of it after more than five and a half minutes proves an hour, and starts
+  the count of misses over.
 
 The learned value is kept across sessions. Set `cacheTtl` to `5m` or `1h` in `/config` to pin it
 instead.

@@ -4,6 +4,7 @@ import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 import type { CacheReading, Limit } from '../types'
 import {
   AUTO_HOURS,
+  FIVE_MINUTES,
   MINUTE,
   ONE_HOUR,
   autoLabel,
@@ -49,6 +50,7 @@ let lastTickWrite = 0
 let lastTickMinute = 0
 let isTurnRunning = false
 let limitsAt = 0
+let quietMisses = 0
 
 async function shareLimits($: EngineInterface, windows: readonly Limit[]) {
   const at = await $.clock.now()
@@ -240,7 +242,15 @@ export const register: Register = (on, options) => {
     await update($, now, () => at)
 
     if (pinnedTtl === undefined && previous !== null && previous.model !== '') {
-      const learned = learnTtl(previous, current)
+      // A lone miss can be an entry evicted before its hour, so five minutes
+      // takes two in a row; a hit after the same quiet starts the count over.
+      let learned = learnTtl(previous, current)
+      if (learned === FIVE_MINUTES) {
+        quietMisses += 1
+        if (quietMisses < 2) learned = undefined
+      } else if (learned !== undefined) {
+        quietMisses = 0
+      }
       if (learned !== undefined && learned !== (await read($, ttlMs))) {
         await update($, ttlMs, () => learned)
         await update($, isTtlLearned, () => true)
