@@ -5,4 +5,20 @@
     <RootNamespace>RoslynMcpExtension.Shared</RootNamespace>
   </PropertyGroup>
 
+  <!-- InstalledProductRegistration takes the version as an attribute argument, which must be a constant,
+       so the version from Directory.Build.props is generated as one here for every project to share. -->
+  <Target Name="GenerateExtensionVersion" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <ExtensionVersionFile>$(IntermediateOutputPath)ExtensionVersion.g.cs</ExtensionVersionFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(ExtensionVersionFile)"
+                      Lines="namespace RoslynMcpExtension.Shared { public static class ExtensionVersion { public const string Value = &quot;$(Version)&quot;%3B } }"
+                      Overwrite="true"
+                      WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(ExtensionVersionFile)" />
+      <FileWrites Include="$(ExtensionVersionFile)" />
+    </ItemGroup>
+  </Target>
+
 </Project>

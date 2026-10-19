@@ -10,6 +10,8 @@
   <ItemGroup>
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
     <PackageReference Include="StreamJsonRpc" VersionOverride="[2.25.29]" />
+    <!-- StreamJsonRpc 2.25.29 brings MessagePack 2.5.302 (GHSA-qhrr-8q5h-9q3h); drop once it brings 2.5.303 or later. -->
+    <PackageReference Include="MessagePack" VersionOverride="2.5.303" />
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 

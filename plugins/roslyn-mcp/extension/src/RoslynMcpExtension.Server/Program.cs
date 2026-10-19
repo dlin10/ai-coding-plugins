@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using RoslynMcpExtension.Server;
 using RoslynMcpExtension.Server.Tools;
+using RoslynMcpExtension.Shared;
 
 var pipeOption = new Option<string>("--pipe")
 {
@@ -101,8 +102,6 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
         return;
     }
 
-    await rpcClient.LogAsync($"Connected to Visual Studio via pipe: {pipeName}");
-
     WebApplication app;
     try
     {
@@ -125,7 +124,7 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
                 options.ServerInfo = new Implementation
                 {
                     Name = serverName,
-                    Version = "1.9.0"
+                    Version = ExtensionVersion.Value
                 };
                 options.ServerInstructions = ServerInstructions(solutionPath, port);
             })
@@ -177,12 +176,9 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
 
 		await app.StartAsync();
 		await rpcClient.ReadyAsync();
-		await rpcClient.LogAsync($"MCP Server listening on {bindingUrl}");
-		await rpcClient.LogAsync($"Streamable HTTP (stateless): {bindingUrl}/mcp");
 		await rpcClient.LogAsync("Tools: roslyn_validate_file, roslyn_get_diagnostics, roslyn_find_references, roslyn_find_implementations, roslyn_find_callers, roslyn_go_to_definition, roslyn_get_document_symbols, roslyn_search_symbols, roslyn_find_dead_code, roslyn_get_symbol_info, roslyn_describe_type");
 
 		await app.WaitForShutdownAsync();
-        await rpcClient.LogAsync("Server shutdown complete");
     }
     catch (IOException ex)
     {

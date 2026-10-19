@@ -38,6 +38,7 @@ internal static class CodeMemberInfoFactory
             info.Name = symbol.Name;
 
         info.FullName = symbol.ToDisplayString();
+        info.LogName = symbol.ToDisplayString(SymbolDisplayFormat.CSharpShortErrorMessageFormat);
         info.MemberType = GetMemberType(symbol);
         info.Accessibility = symbol.DeclaredAccessibility.ToString();
         info.SymbolId = SymbolIdOf(symbol);
