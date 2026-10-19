@@ -170,10 +170,10 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.scout.select', 'forge.scout.run', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.outline', 'forge.plan.patch', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.scout.select', 'forge.scout.run', 'forge.evidence.map', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.outline', 'forge.plan.patch', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
-        if ($tools.Count -ne 20) { throw "published executable must expose exactly twenty forge.* tools, found $($tools.Count)" }
+        if ($tools.Count -ne 21) { throw "published executable must expose exactly twenty-one forge.* tools, found $($tools.Count)" }
         # The canvas is two halves that only work together: the tool has to point at the resource,
         # and the resource has to come back as an MCP App. Either half alone renders nothing.
         $planShow = $tools | Where-Object { $_.name -eq 'forge.plan.show' } | Select-Object -First 1

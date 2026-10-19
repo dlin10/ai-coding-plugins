@@ -315,11 +315,12 @@ public sealed class DecisionLedgerSkillTests
         Assert.False(SchemaFor(nameof(ForgeTools.ReviewCode)).GetProperty("properties").TryGetProperty("decisions", out _));
     }
 
+    /// <summary>Packaging pins the twenty-one-tool surface and decision schema fields.</summary>
     [Fact]
-    public void Package_contract_still_requires_twenty_tools_and_new_schema_fields()
+    public void Package_contract_still_requires_twenty_one_tools_and_new_schema_fields()
     {
         var package = Read("build", "package.ps1");
-        Contains("if ($tools.Count -ne 20)", "forge.plan.review schema is missing decisions", "forge.review.fix schema is missing", "fixFindingIds", package);
+        Contains("if ($tools.Count -ne 21)", "forge.plan.review schema is missing decisions", "forge.review.fix schema is missing", "fixFindingIds", package);
     }
 
     private static string Description(string methodName)

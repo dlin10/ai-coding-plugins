@@ -5,12 +5,13 @@ namespace PlanForge.Tests;
 
 public sealed class MatrixCheckSkillTests
 {
+    /// <summary>The matrix and Impact pass precede the first write, and the Evidence check precedes review.</summary>
     [Fact]
     public void The_matrix_check_is_made_while_the_approach_is_drafted_before_the_impact_pass()
     {
         Contains("### The matrix check", "before the Impact pass and before the first `forge.plan.write`",
                  "decide yourself whether the plan needs a matrix task", Skill());
-        Contains("until the matrix check below, the Impact pass and the Evidence check",
+        Contains("The draft is not ready for its first `forge.plan.write` until the matrix check below and the Impact pass described under \"Scout reconnaissance\" have run against it, nor for its first review until the Evidence check has.",
                  "made its matrix check, and before the first `forge.plan.write`, ask the Scout one Impact pass", Skill());
     }
 

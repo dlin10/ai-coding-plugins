@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -8,7 +9,9 @@ using ModelContextProtocol;
 using ModelContextProtocol.Extensions.Apps;
 using ModelContextProtocol.Server;
 using PlanForge.Acts;
+using PlanForge.Advisors;
 using PlanForge.Diagnostics;
+using PlanForge.Evidence;
 using PlanForge.Jobs;
 using PlanForge.Orchestration;
 using PlanForge.Prompts;
@@ -27,6 +30,9 @@ internal sealed class ForgeTools
     private const int DEFAULT_CODE_REVIEW_CAP = 3;
     private const int WORK_POLL_TIMEOUT_SECONDS = 45;
     private const string SOURCE = "server";
+
+    /// <summary>Only one Evidence map may mutate a Run in this server process at a time.</summary>
+    private static readonly ConcurrentDictionary<string, byte> EvidenceMaps = new(StringComparer.OrdinalIgnoreCase);
 
     private const string FAST_DESCRIPTION =
         "Run the worker at the vendor's Fast tier: quicker, at a higher usage price. Only for a model and effort forge.models " +
@@ -65,13 +71,15 @@ internal sealed class ForgeTools
     /// <param name="workspaceRoot">The workspace root of the new Run.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     /// <param name="workerTools">The MCP servers the Run's workers may call unasked, or null for the default.</param>
+    /// <param name="environment">The environment lookup for Advisor discovery, or null for the process environment.</param>
     internal static async Task<string> Begin(SessionRoots roots,
                                              string client,
                                              CapabilityProfile profile,
                                              Action<string> beginProbing,
                                              string workspaceRoot,
                                              CancellationToken ct,
-                                             string[]? workerTools = null)
+                                             string[]? workerTools = null,
+                                             Func<string, string?>? environment = null)
     {
         using var scope = OrchestratorCall.Join(workspaceRoot, null);
         var granted = WorkerTools.Effective(WorkerTools.Validate(workerTools));
@@ -100,7 +108,8 @@ internal sealed class ForgeTools
                 await scope.Call.Phases.BeginAsync(run, scope.Call, ct);
 
                 return JsonSerializer.Serialize(
-                    new BeginResult(runId, run.Path, profile.ToString(), baseline.Head, client),
+                    new BeginResult(runId, run.Path, profile.ToString(), baseline.Head, client,
+                                    AdvisorCatalog.Default.Discover(environment ?? Environment.GetEnvironmentVariable)),
                     ForgeToolJson.Default.BeginResult);
             });
     }
@@ -190,7 +199,14 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.scout.run"), Description("Answers one bounded Scout question and returns the complete sourced answer under `scout`, unclipped, which is also appended as a numbered section to the run's `SCOUT.md`. The Vendor, model, effort and Worker-tool grant come only from the persisted Scout selection; pass `sessionMode` explicitly as `continue` to use the current anchor or `fresh` to clear it before starting a new session. A failure before the answer is appended leaves `SCOUT.md` as it was, and the call returns a fixed safe failure.")]
+    /// <summary>Answers a Scout question and appends its complete answer to scout-answers.json.</summary>
+    /// <param name="roots">The host's session roots.</param>
+    /// <param name="workspaceRoot">The absolute repository root.</param>
+    /// <param name="runId">The Run receiving the answer.</param>
+    /// <param name="question">The bounded reconnaissance question.</param>
+    /// <param name="sessionMode">Whether to continue or start a fresh session.</param>
+    /// <param name="ct">Cancels the Scout turn.</param>
+    [McpServerTool(Name = "forge.scout.run"), Description("Answers one bounded Scout question and returns the complete sourced answer under `scout`, unclipped, which is also appended as a numbered entry to the run's `scout-answers.json`. The Vendor, model, effort and Worker-tool grant come only from the persisted Scout selection; pass `sessionMode` explicitly as `continue` to use the current anchor or `fresh` to clear it before starting a new session. A failure before the answer is appended leaves `scout-answers.json` as it was, and the call returns a fixed safe failure.")]
     public static Task<string> ScoutRun(SessionRoots roots,
                                         [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                         [Description("Run id from forge.begin.")] string runId,
@@ -224,6 +240,100 @@ internal sealed class ForgeTools
                 return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new ScoutRunResult(outcome, Documents(run, includeScout: true)),
                                                                           ForgeToolJson.Default.ScoutRunResult),
                                             act.SpeedWarning);
+            });
+    }
+
+    /// <summary>Advises the manual Evidence check in bounded portions through a configured Advisor.</summary>
+    /// <param name="roots">The host's session roots.</param>
+    /// <param name="workspaceRoot">The absolute repository root.</param>
+    /// <param name="runId">The Run receiving the map.</param>
+    /// <param name="changePoints">Every Change point accumulated by the Run's Impact passes.</param>
+    /// <param name="ct">Caller cancellation, propagated after persistence and records.</param>
+    /// <param name="advisor">The configured Advisor id, or null to select the sole configured Advisor.</param>
+    /// <param name="implications">Optional obligations derived from existing Scout items.</param>
+    [McpServerTool(Name = "forge.evidence.map"), Description("Advises the manual Evidence check through a configured Advisor in a bounded call. Call again until complete is true or checkedThisCall is zero. Supply all Change points and optional implications citing Scout item ids. A credential is never an argument: configuration comes only from the server process environment.")]
+    public static Task<string> EvidenceMap(SessionRoots roots,
+                                            [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                            [Description("Run id from forge.begin.")] string runId,
+                                            [Description("All Run Change points: 1-200 non-blank strings, each at most 2000 characters.")] string[] changePoints,
+                                            CancellationToken ct,
+                                            [Description("Configured Advisor id; omit when exactly one is configured.")] string? advisor = null,
+                                            [Description("At most 500 derived obligations, each with text and 1-20 existing Scout item ids in derivedFrom.")] EvidenceImplication[]? implications = null) =>
+        EvidenceMap(roots, workspaceRoot, runId, changePoints, ct, Environment.GetEnvironmentVariable,
+                    (environment, id) => AdvisorCatalog.Default.Select(environment, id), TimeProvider.System, advisor, implications);
+
+    /// <summary>Runs the tool with local configuration, service construction and time seams.</summary>
+    /// <param name="roots">The host's session roots.</param>
+    /// <param name="workspaceRoot">The absolute repository root.</param>
+    /// <param name="runId">The Run receiving the map.</param>
+    /// <param name="changePoints">All accumulated Change points.</param>
+    /// <param name="ct">Caller cancellation.</param>
+    /// <param name="environment">The process environment lookup, never logged.</param>
+    /// <param name="advisorFactory">Selects and constructs a configured Advisor.</param>
+    /// <param name="clock">The clock for portion budgets and usage.</param>
+    /// <param name="advisor">An optional explicit Advisor id.</param>
+    /// <param name="implications">Optional derived obligations.</param>
+    internal static async Task<string> EvidenceMap(SessionRoots roots, string workspaceRoot, string runId,
+                                                    string[] changePoints, CancellationToken ct,
+                                                    Func<string, string?> environment,
+                                                    Func<Func<string, string?>, string?, IAdvisor> advisorFactory,
+                                                    TimeProvider clock, string? advisor = null,
+                                                    EvidenceImplication[]? implications = null)
+    {
+        var mapper = new EvidenceMapper(clock);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
+        return await LoggedAsync(run, workspaceRoot, "forge.evidence.map",
+            [("advisor", advisor), ("changePoints", changePoints?.Length.ToString(CultureInfo.InvariantCulture)),
+             ("implications", implications?.Length.ToString(CultureInfo.InvariantCulture))], async () =>
+            {
+                if (!EvidenceMaps.TryAdd(run.Path, 0))
+                    throw new ArgumentRejectedException("an Evidence map is already running for this Run");
+                try
+                {
+                    var plan = File.Exists(run.PlanPath) ? run.ReadPlan() : null;
+                    if (string.IsNullOrWhiteSpace(plan))
+                        throw new ArgumentRejectedException("forge.evidence.map requires a non-blank PLAN.md");
+                    if (changePoints is null || changePoints.Length == 0)
+                        throw new ArgumentRejectedException("changePoints must contain 1-200 entries");
+                    if (changePoints.Length > 200)
+                        throw new ArgumentRejectedException("changePoints[200] exceeds the limit of 200 Change points");
+                    for (var index = 0; index < changePoints.Length; index++)
+                    {
+                        if (string.IsNullOrWhiteSpace(changePoints[index]) || changePoints[index].Length > 2000)
+                            throw new ArgumentRejectedException($"changePoints[{index}] must be non-blank and at most 2000 characters");
+                        SensitiveInput.Guard(changePoints[index], $"changePoints[{index}]");
+                    }
+                    var state = run.ReadState();
+                    IReadOnlyList<ScoutAnswerEntry> entries;
+                    try { entries = run.ReadScoutAnswers(); }
+                    catch (JsonException) { throw new ArgumentRejectedException("scout-answers.json is malformed"); }
+                    EvidenceIndex items;
+                    try { items = EvidenceIndex.Of(entries, state.ScoutAnswers, implications, state.WorkspaceRoot); }
+                    catch (JsonException) { throw new ArgumentRejectedException("scout-answers.json is malformed"); }
+                    var selected = advisorFactory(environment, advisor);
+                    try { mapper.Prepare(plan, items, changePoints, selected, run.EvidenceMapPath); }
+                    catch (JsonException) { throw new ArgumentRejectedException("evidence-map.json is malformed"); }
+
+                    EvidenceMapResult mapped;
+                    try
+                    {
+                        var map = await mapper.MapPreparedAsync(ct).ConfigureAwait(false);
+                        mapped = map.Result;
+                    }
+                    finally
+                    {
+                        try { run.AppendFlowEvidenceMap(mapper.Progress); }
+                        catch (Exception error)
+                        {
+                            run.Log.Write("error", SOURCE, "evidence.flow.write.failed", ("error", error.GetType().Name));
+                        }
+                        WorkerTelemetryFile.Append(run.TelemetryPath, run.Log, AdvisorUsageRecord.From(mapper.Progress, selected));
+                    }
+                    var result = JsonSerializer.SerializeToNode(mapped, ForgeToolJson.Default.EvidenceMapResult)!.AsObject();
+                    result["documents"] = JsonSerializer.SerializeToNode(Documents(run), ForgeToolJson.Default.RunDocuments);
+                    return result.ToJsonString();
+                }
+                finally { EvidenceMaps.TryRemove(run.Path, out _); }
             });
     }
 
@@ -904,12 +1014,29 @@ internal sealed class ForgeTools
             });
     }
 
+    /// <summary>Reports the Run and the server's current Advisor configuration.</summary>
+    /// <param name="registry">The server's active jobs.</param>
+    /// <param name="roots">The session roots advertised by the host.</param>
+    /// <param name="workspaceRoot">The Run's workspace root.</param>
+    /// <param name="runId">The Run to read.</param>
+    /// <param name="ct">Caller cancellation.</param>
     [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing. `ledger` is the compact source-of-truth summary of current finding IDs by disposition and active phase, so a resumed Orchestrator need not read run files. Also returns saved `run.fullGate` timing and current `ledger.pendingFullGateFindingIds` and covering attempts; corrupted or unknown saved timing, including non-string JSON, is refused without changing the run. Log the failure with forge.log.append and start a new run; do not hand-edit run files. beforeNextRound blocks review with pending fixes; final permits review, but full verification remains required before successful completion. Also returns run progress, `run.scout` with enabled/selection, current session and last failure, filtered drift, and active-job liveness. Call it before approval, retry or a round-cap decision.")]
     public static async Task<string> Status(JobRegistry registry,
                                             SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                             [Description("Run id from forge.begin.")] string runId,
-                                            CancellationToken ct)
+                                            CancellationToken ct) =>
+        await Status(registry, roots, workspaceRoot, runId, ct, environment: null);
+
+    /// <summary>Reports run status with Advisor discovery from the environment of this call.</summary>
+    /// <param name="registry">The server's active jobs.</param>
+    /// <param name="roots">The session roots advertised by the host.</param>
+    /// <param name="workspaceRoot">The Run's workspace root.</param>
+    /// <param name="runId">The Run to read.</param>
+    /// <param name="ct">Caller cancellation.</param>
+    /// <param name="environment">The environment lookup, or null for the process environment.</param>
+    internal static async Task<string> Status(JobRegistry registry, SessionRoots roots, string workspaceRoot, string runId,
+                                              CancellationToken ct, Func<string, string?>? environment = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.status", [],
@@ -924,13 +1051,21 @@ internal sealed class ForgeTools
                     : null;
 
                 return JsonSerializer.Serialize(new StatusResult(state, drifted, active,
-                                                                  run.ReadDecisionLedger().Summary),
+                                                                  run.ReadDecisionLedger().Summary,
+                                                                  AdvisorCatalog.Default.Discover(environment ?? Environment.GetEnvironmentVariable)),
                                                 ForgeToolJson.Default.StatusResult);
             });
     }
 
-    public static Task<string> Status(SessionRoots roots, string workspaceRoot, string runId, CancellationToken ct) =>
-        Status(new JobRegistry(), roots, workspaceRoot, runId, ct);
+    /// <summary>Reports status without a server-owned job registry, for in-process callers.</summary>
+    /// <param name="roots">The session roots advertised by the host.</param>
+    /// <param name="workspaceRoot">The Run's workspace root.</param>
+    /// <param name="runId">The Run to read.</param>
+    /// <param name="ct">Caller cancellation.</param>
+    /// <param name="environment">The environment lookup, or null for the process environment.</param>
+    internal static Task<string> Status(SessionRoots roots, string workspaceRoot, string runId, CancellationToken ct,
+                                        Func<string, string?>? environment = null) =>
+        Status(new JobRegistry(), roots, workspaceRoot, runId, ct, environment);
 
     /// <summary>
     /// The orchestrator's own entry point into the run log. Everything else here logs itself; this
@@ -987,6 +1122,7 @@ internal sealed class ForgeTools
     /// to be read as a user document here.
     /// </remarks>
     /// <param name="run">The run whose user-facing files are described.</param>
+    /// <param name="includeScout">Whether to include the Scout report when it exists.</param>
     private static RunDocuments Documents(RunDirectory run, bool includeScout = false) =>
         new(File.Exists(run.FlowLogPath)
                 ? new RunDocument(run.FlowLogPath,
@@ -999,8 +1135,8 @@ internal sealed class ForgeTools
                                   + "file to the user now and again after each later round, so they can "
                                   + "watch it change. Link it; do not paste the draft into the chat.")
                 : null,
-            includeScout && File.Exists(run.ScoutReportPath)
-                ? new RunDocument(run.ScoutReportPath,
+            includeScout && File.Exists(run.ScoutAnswersPath)
+                ? new RunDocument(run.ScoutAnswersPath,
                                   "show the Scout report to the user now, and show it again after each later successful Scout call appends its answer.")
                 : null);
 
@@ -1142,7 +1278,15 @@ internal sealed class ForgeTools
     private static string NewRunId() => $"{DateTimeOffset.Now:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("n")[..6]}";
 }
 
-internal sealed record BeginResult(string RunId, string RunPath, string Profile, string BaselineHead, string Client);
+/// <summary>The new Run and the Advisors configured when it began.</summary>
+/// <param name="RunId">The new Run's identifier.</param>
+/// <param name="RunPath">The directory holding its documents.</param>
+/// <param name="Profile">The host capability profile.</param>
+/// <param name="BaselineHead">The captured baseline commit.</param>
+/// <param name="Client">The client name from the handshake.</param>
+/// <param name="Advisors">Configured and partly configured Advisors, without credentials.</param>
+internal sealed record BeginResult(string RunId, string RunPath, string Profile, string BaselineHead, string Client,
+                                   AdvisorDiscovery Advisors);
 
 internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList<string> DriftedFiles);
 
@@ -1183,8 +1327,13 @@ internal sealed record PlanViewResult(string RunId,
 /// to show it to the user <em>before</em> asking, and the decision call is where it would arrive
 /// too late to matter.
 /// </summary>
+/// <param name="Run">The Run's saved state.</param>
+/// <param name="DriftedFiles">Paths changed since the baseline.</param>
+/// <param name="ActiveJob">The running job, if any.</param>
+/// <param name="Ledger">The current finding summary.</param>
+/// <param name="Advisors">Current Advisor discovery, without credentials.</param>
 internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedFiles, ActiveJob? ActiveJob,
-                                    LedgerSummary Ledger);
+                                    LedgerSummary Ledger, AdvisorDiscovery Advisors);
 
 internal sealed record ScoutSelectionResult(ScoutState Scout, string SessionState);
 
@@ -1280,6 +1429,8 @@ internal sealed record CatalogModel(string Id,
 [JsonSerializable(typeof(LedgerDispositionDecision))]
 [JsonSerializable(typeof(LedgerReopeningDecision))]
 [JsonSerializable(typeof(LedgerClosureDecision))]
+[JsonSerializable(typeof(EvidenceImplication))]
+[JsonSerializable(typeof(EvidenceImplication[]))]
 [JsonSerializable(typeof(PlanEdit))]
 [JsonSerializable(typeof(IReadOnlyList<PlanEdit?>))]
 internal sealed partial class ToolArgumentJson : JsonSerializerContext
@@ -1299,6 +1450,11 @@ internal sealed partial class ToolArgumentJson : JsonSerializerContext
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(EvidenceMapResult))]
+[JsonSerializable(typeof(AdvisorDiscovery))]
+[JsonSerializable(typeof(ConfiguredAdvisor))]
+[JsonSerializable(typeof(PartlyConfiguredAdvisor))]
+[JsonSerializable(typeof(AdvisorProblem))]
 [JsonSerializable(typeof(BeginResult))]
 [JsonSerializable(typeof(ApproveResult))]
 [JsonSerializable(typeof(PlanWriteResult))]

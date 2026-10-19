@@ -1,5 +1,38 @@
 # Plan Forge Flow releases
 
+## 0.50.0
+
+An optional, shadow-mode Evidence map advises the Orchestrator after its manual Evidence check.
+See `docs/adr/0036` and `docs/adr/0037`.
+
+- `forge.evidence.map` is the twenty-first tool. Code selects every candidate judgment, validates
+  typed Choice answers and settles statuses, retaining contradictions and accounting for unchecked
+  items. Bounded calls resume from content-addressed `evidence-map.json`; flags distinguish new
+  issues from those carried from the last complete map. The manual check remains mandatory and
+  neither the map nor the Scout report is sent to the Critic, Builder or Scout.
+- Advisors are external typed-question services, separate from Vendors and Workers. Jev is first,
+  configured by `PLANFORGE_JEV_API_KEY` and optional pinned `PLANFORGE_JEV_MODEL` (default
+  `jev-1.13.0`). `forge.begin` and `forge.status` report configured and partly configured Advisors
+  without credential values. With none, no external request is made; with several, the Orchestrator asks once.
+- Configuring an Advisor consents to sending Scout-item and implication text, plan units and Change
+  points, which may quote code, from every repository forge runs in on that machine. Jev requests
+  go to TypeSafe's standard, non-zero-retention service. Locator windows are checked and hashed
+  locally, never sent, and external URLs are never fetched.
+- The Scout report is only `scout-answers.json`: complete numbered answers with stable item IDs and
+  locator checks. `SCOUT.md` is no longer written; the server never reads, changes or removes an
+  earlier version's file. Scout tool results still return the complete answer, unclipped.
+- Advisor secrets stay in the server environment: no tool arguments, results, exception messages,
+  logs, telemetry or persisted Run content. Secret gate-environment names are refused ignoring
+  case, and child environments strip them after overlays. State written before 0.50.0 is untouched.
+- Each accepted map call attempts one content-free Flow-log entry and one `advisor.usage` record,
+  even on cancellation or failure. `telemetry.json` has three kinds: Worker `vendor.usage`,
+  Orchestrator `orchestrator.usage` and Advisor `advisor.usage`, with Advisor models, counts,
+  tokens, cache hits and latency recorded without content.
+- The skill places map calls after the manual check and before plan reviews, with stable Change
+  points, explicit not-indexed-answer handling and manual checks for new unchecked flags. Sanitized
+  fixtures run without network by default; an opt-in Jev evaluation reports quality, latency and
+  cost without quality thresholds. README documents the disclosure, configuration and invocation.
+
 ## 0.49.0
 
 Plans can be revised by snapshot targets between review rounds. See `docs/adr/0035`.
