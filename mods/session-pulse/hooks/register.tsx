@@ -352,7 +352,7 @@ export const register: Register = (on, options) => {
         {row('cache', cacheParts, ...limitParts)}
         <Button
           key="auto"
-          label={plan === null ? 'Auto' : `Auto ${plan.done}/${plan.total}`}
+          label={plan === null ? 'Auto Warm' : `Auto Warm ${plan.done}/${plan.total}`}
           variant={plan === null ? 'secondary' : 'primary'}
           onPress={() => chooseAuto($)}
         />
