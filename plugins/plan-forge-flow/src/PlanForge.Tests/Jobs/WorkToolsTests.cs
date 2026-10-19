@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using PlanForge.Acts;
 using PlanForge.Diagnostics;
+using PlanForge.Evidence;
 using PlanForge.Infrastructure;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
@@ -154,6 +155,10 @@ public sealed class WorkToolsTests : IDisposable
             ForgeToolJson.Default.BuildNextResult), StringComparison.Ordinal);
         Assert.Contains("\"fix\"", JsonSerializer.Serialize(new ReviewFixResult(build, documents),
             ForgeToolJson.Default.ReviewFixResult), StringComparison.Ordinal);
+        var evidence = new EvidenceMapResult("fixture", "requested", null, false, 1, 0, 0, 1, null,
+                                             new Dictionary<string, int> { ["unchecked"] = 1 }, [], [], "map.json");
+        Assert.Contains("\"remaining\"", JsonSerializer.Serialize(evidence, ForgeToolJson.Default.EvidenceMapResult),
+                        StringComparison.Ordinal);
         var outline = PlanOutline.Of("# Plan\n");
         Assert.Contains("\"outline\"", JsonSerializer.Serialize(new PlanOutlineResult("run", outline, documents),
             ForgeToolJson.Default.PlanOutlineResult), StringComparison.Ordinal);

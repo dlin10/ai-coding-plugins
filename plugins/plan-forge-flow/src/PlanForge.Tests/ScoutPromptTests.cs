@@ -95,12 +95,21 @@ public sealed class ScoutPromptTests : IDisposable
         Assert.DoesNotContain(ScoutRoleText, taskPrompt, StringComparison.Ordinal);
     }
 
+    /// <summary>Seeds the Run with a JSON Scout answer that must never enter Worker prompts.</summary>
+    /// <param name="approved">Whether the Run is ready to build.</param>
     private RunDirectory NewRun(bool approved = false)
     {
         var runId = Guid.NewGuid().ToString("N");
         var run = RunDirectory.Create(_workspace, runId);
         run.WritePlan("## Approach\n\n1. Build tracked.cs.\n");
-        run.AppendScoutAnswer(1, "scout question", $"{ScoutRoleText}\n\n{ReportText}\n");
+        var report = new ScoutReport
+        {
+            Summary = ReportText,
+            ConfirmedFacts = [new ScoutItem { Text = ScoutRoleText, SourceKind = "external", Source = "https://example.com/reference" }],
+            MaterialAssumptions = [], OpenDecisions = [], LikelyChangeSurface = [],
+            VerificationEvidence = [], DependentsAndPinnedBehaviour = []
+        };
+        run.AppendScoutAnswer(new ScoutAnswerEntry(1, "scout question", report, ScoutLocators.Of(_workspace, report)));
         run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.UtcNow, 0, 5,
                                     BaselineHead: "base", Approved: approved, CodeReviewRoundCap: 3));
         return run;

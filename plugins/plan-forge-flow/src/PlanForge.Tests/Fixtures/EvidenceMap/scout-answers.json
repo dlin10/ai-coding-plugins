@@ -1,0 +1,397 @@
+[
+  {
+    "number": 1,
+    "question": "Sanitized reconnaissance pass 1: what contracts and consumers matter?",
+    "report": {
+      "summary": "Orientation and the original ordering contract.",
+      "confirmedFacts": [
+        {
+          "text": "UnknownCalls.Of feeds ConsumerGraph and SpawnCollector; both discard SummarySpawn today.",
+          "sourceKind": "repository",
+          "source": "src/UnknownCalls.cs#Of"
+        },
+        {
+          "text": "OrderPolicy promises depth first traversal.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#OrderPolicy"
+        },
+        {
+          "text": "WireCache assignments must remain stable.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#WireCache"
+        },
+        {
+          "text": "PlatformBanner controls a local display preference only.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#PlatformBanner"
+        }
+      ],
+      "materialAssumptions": [
+        {
+          "text": "ContractProbe may cross an undocumented compatibility boundary.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#ContractProbe"
+        },
+        {
+          "text": "RetryBudget may have an unbounded failure policy.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#RetryBudget"
+        }
+      ],
+      "openDecisions": [
+        {
+          "text": "LegacyBridge revival is optional.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#LegacyBridge"
+        }
+      ],
+      "likelyChangeSurface": [
+        {
+          "text": "ProbeCatalog lists probes without committing to run them.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#ProbeCatalog"
+        }
+      ],
+      "verificationEvidence": [
+        {
+          "text": "the office wall is blue.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#QuietNotes"
+        }
+      ],
+      "dependentsAndPinnedBehaviour": [
+        {
+          "text": "WireCache round trips pin stored assignments.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#WireCache"
+        }
+      ]
+    },
+    "locators": {
+      "confirmedFacts": [
+        {
+          "resolved": true,
+          "window": "ce919be32559da09",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "6f449fb6af29e700",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "e99509db5ce3825a",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "15f5550df2ad011e",
+          "reason": null
+        }
+      ],
+      "materialAssumptions": [
+        {
+          "resolved": true,
+          "window": "f50be040e4601db8",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "8d5daa5cfafcab0e",
+          "reason": null
+        }
+      ],
+      "openDecisions": [
+        {
+          "resolved": true,
+          "window": "de5e780817b63461",
+          "reason": null
+        }
+      ],
+      "likelyChangeSurface": [
+        {
+          "resolved": true,
+          "window": "a0df3f08b0710699",
+          "reason": null
+        }
+      ],
+      "verificationEvidence": [
+        {
+          "resolved": true,
+          "window": "849b899a5b15e65e",
+          "reason": null
+        }
+      ],
+      "dependentsAndPinnedBehaviour": [
+        {
+          "resolved": true,
+          "window": "e99509db5ce3825a",
+          "reason": null
+        }
+      ]
+    }
+  },
+  {
+    "number": 2,
+    "question": "Sanitized reconnaissance pass 2: what contracts and consumers matter?",
+    "report": {
+      "summary": "Impact pass over consumers and pinned behaviour.",
+      "confirmedFacts": [
+        {
+          "text": "WireCache readers require stable stored records.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#WireCache"
+        },
+        {
+          "text": "PlatformBanner colour has no effect on record handling.",
+          "sourceKind": "external",
+          "source": "https://example.invalid/display"
+        }
+      ],
+      "materialAssumptions": [
+        {
+          "text": "ContractProbe compatibility has no authoritative specification.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#ContractProbe"
+        }
+      ],
+      "openDecisions": [
+        {
+          "text": "RetryBudget limits cannot be inferred from the current notes.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#RetryBudget"
+        },
+        {
+          "text": "LegacyBridge compatibility mode can stay retired.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#LegacyBridge"
+        }
+      ],
+      "likelyChangeSurface": [
+        {
+          "text": "ProbeCatalog inventory does not ensure verification.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#ProbeCatalog"
+        }
+      ],
+      "verificationEvidence": [
+        {
+          "text": "WireCache fixtures must preserve compatibility.",
+          "sourceKind": "repository",
+          "source": "src/absent.cs:1"
+        },
+        {
+          "text": "the office desk is round.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#QuietNotes"
+        }
+      ],
+      "dependentsAndPinnedBehaviour": [
+        {
+          "text": "ContractProbe callers have unknown compatibility expectations.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#ContractProbe"
+        },
+        {
+          "text": "OrderPolicy repeatability is a pinned contract.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#OrderPolicy"
+        }
+      ]
+    },
+    "locators": {
+      "confirmedFacts": [
+        {
+          "resolved": true,
+          "window": "e99509db5ce3825a",
+          "reason": null
+        },
+        null
+      ],
+      "materialAssumptions": [
+        {
+          "resolved": true,
+          "window": "f50be040e4601db8",
+          "reason": null
+        }
+      ],
+      "openDecisions": [
+        {
+          "resolved": true,
+          "window": "8d5daa5cfafcab0e",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "de5e780817b63461",
+          "reason": null
+        }
+      ],
+      "likelyChangeSurface": [
+        {
+          "resolved": true,
+          "window": "a0df3f08b0710699",
+          "reason": null
+        }
+      ],
+      "verificationEvidence": [
+        {
+          "resolved": false,
+          "window": null,
+          "reason": "missing_file"
+        },
+        {
+          "resolved": true,
+          "window": "849b899a5b15e65e",
+          "reason": null
+        }
+      ],
+      "dependentsAndPinnedBehaviour": [
+        {
+          "resolved": true,
+          "window": "f50be040e4601db8",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "6f449fb6af29e700",
+          "reason": null
+        }
+      ]
+    }
+  },
+  {
+    "number": 3,
+    "question": "Sanitized reconnaissance pass 3: what contracts and consumers matter?",
+    "report": {
+      "summary": "Follow-up evidence conflicts with the original ordering contract.",
+      "confirmedFacts": [
+        {
+          "text": "OrderPolicy now requires breadth first traversal, contradicting the early depth first report.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#OrderPolicy"
+        },
+        {
+          "text": "OrderPolicy must stop preserving depth first order.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#OrderPolicy"
+        }
+      ],
+      "materialAssumptions": [
+        {
+          "text": "ContractProbe callers may require unavailable compatibility evidence.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#ContractProbe"
+        },
+        {
+          "text": "PlatformBanner is only background for this change.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#PlatformBanner"
+        }
+      ],
+      "openDecisions": [
+        {
+          "text": "LegacyBridge revival remains deliberately excluded.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#LegacyBridge"
+        },
+        {
+          "text": "RetryBudget needs context beyond these notes.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#RetryBudget"
+        }
+      ],
+      "likelyChangeSurface": [
+        {
+          "text": "ProbeCatalog presence alone promises no action.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#ProbeCatalog"
+        }
+      ],
+      "verificationEvidence": [
+        {
+          "text": "the office floor is tiled.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#QuietNotes"
+        }
+      ],
+      "dependentsAndPinnedBehaviour": [
+        {
+          "text": "OrderPolicy callers now demand breadth first order.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#OrderPolicy"
+        },
+        {
+          "text": "PlatformBanner layout is unrelated to summary records.",
+          "sourceKind": "repository",
+          "source": "src/Runtime.cs#PlatformBanner"
+        }
+      ]
+    },
+    "locators": {
+      "confirmedFacts": [
+        {
+          "resolved": true,
+          "window": "6f449fb6af29e700",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "6f449fb6af29e700",
+          "reason": null
+        }
+      ],
+      "materialAssumptions": [
+        {
+          "resolved": true,
+          "window": "f50be040e4601db8",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "15f5550df2ad011e",
+          "reason": null
+        }
+      ],
+      "openDecisions": [
+        {
+          "resolved": true,
+          "window": "de5e780817b63461",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "8d5daa5cfafcab0e",
+          "reason": null
+        }
+      ],
+      "likelyChangeSurface": [
+        {
+          "resolved": true,
+          "window": "a0df3f08b0710699",
+          "reason": null
+        }
+      ],
+      "verificationEvidence": [
+        {
+          "resolved": true,
+          "window": "849b899a5b15e65e",
+          "reason": null
+        }
+      ],
+      "dependentsAndPinnedBehaviour": [
+        {
+          "resolved": true,
+          "window": "6f449fb6af29e700",
+          "reason": null
+        },
+        {
+          "resolved": true,
+          "window": "15f5550df2ad011e",
+          "reason": null
+        }
+      ]
+    }
+  }
+]

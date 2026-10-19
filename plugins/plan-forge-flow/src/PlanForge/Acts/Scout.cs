@@ -27,6 +27,11 @@ internal sealed class Scout
     /// <summary>Set when the question's Fast turn was served at standard speed for part of it.</summary>
     internal string? SpeedWarning { get; private set; }
 
+    /// <summary>Runs a bounded question, guards its plain strings and records the complete answer.</summary>
+    /// <param name="run">The Run receiving the answer.</param>
+    /// <param name="question">The bounded reconnaissance question.</param>
+    /// <param name="sessionMode">Whether to start fresh or continue the Scout session.</param>
+    /// <param name="ct">Cancels the Scout turn.</param>
     public async Task<ScoutReport> RunAsync(RunDirectory run,
                                             string question,
                                             string sessionMode,
@@ -67,13 +72,20 @@ internal sealed class Scout
 
             var report = await started.RunAsync(prompt, Schemas.ScoutReport, ct).ConfigureAwait(false);
             SpeedWarning = started.SpeedWarning;
-            var rendered = Render(report);
 
             // The complete report is guarded before the atomic append, so the previous
             // report survives a sensitive Vendor answer.
             try
             {
-                SensitiveInput.Guard(rendered, "the Scout response");
+                SensitiveInput.Guard(report.Summary, "the Scout response");
+                foreach (var category in ScoutCategories.Of(report))
+                {
+                    foreach (var item in category.Items)
+                    {
+                        SensitiveInput.Guard(item.Text, "the Scout response");
+                        SensitiveInput.Guard(item.Source, "the Scout response");
+                    }
+                }
             }
             catch (SensitiveContentException)
             {
@@ -88,12 +100,13 @@ internal sealed class Scout
                 ScoutAnswers = number
             };
             run.WriteState(state);
-            run.AppendScoutAnswer(number, question, rendered);
+            run.AppendScoutAnswer(new ScoutAnswerEntry(number, question, report,
+                                                       ScoutLocators.Of(state.WorkspaceRoot, report)));
             run.AppendFlowScoutOutcome("completed", question);
             run.Log.Write("info", "scout", "scout.completed",
                 ("vendor", _vendor.Id), ("model", selected.Model), ("effort", selected.Effort),
                 ("fast", selected.Fast ? "true" : "false"),
-                ("sessionMode", ActualSessionMode(resumeToken)), ("report", run.ScoutReportPath));
+                ("sessionMode", ActualSessionMode(resumeToken)), ("report", run.ScoutAnswersPath));
 
             return report;
         }
@@ -139,33 +152,6 @@ internal sealed class Scout
             .AppendLine()
             .AppendLine(workspaceRoot)
             .ToString();
-
-    private static string Render(ScoutReport report)
-    {
-        var text = new StringBuilder()
-            .AppendLine("## Summary")
-            .AppendLine()
-            .AppendLine(report.Summary)
-            .AppendLine();
-
-        Section(text, "Confirmed facts", report.ConfirmedFacts);
-        Section(text, "Material assumptions", report.MaterialAssumptions);
-        Section(text, "Open decisions", report.OpenDecisions);
-        Section(text, "Likely change surface", report.LikelyChangeSurface);
-        Section(text, "Verification evidence", report.VerificationEvidence);
-        Section(text, "Dependents and pinned behaviour", report.DependentsAndPinnedBehaviour);
-
-        return text.ToString();
-
-        static void Section(StringBuilder text, string heading, IReadOnlyList<ScoutItem> items)
-        {
-            text.Append("## ").AppendLine(heading).AppendLine();
-            foreach (var item in items)
-                text.Append("- ").Append(item.Text).Append(" — ").Append(item.SourceKind)
-                    .Append(':').Append(' ').AppendLine(item.Source);
-            text.AppendLine();
-        }
-    }
 
     private static ScoutFailure FailureFor(Exception error) =>
         error switch

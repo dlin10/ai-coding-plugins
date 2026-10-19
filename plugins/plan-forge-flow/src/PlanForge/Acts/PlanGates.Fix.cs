@@ -86,7 +86,11 @@ internal static partial class PlanGates
         return inline.Success ? Normalize(inline.Groups[1].Value) : null;
     }
 
-    private static bool OpensFixFence(string line, out char character, out int length)
+    /// <summary>Recognizes a backtick or tilde fence opener after leading whitespace.</summary>
+    /// <param name="line">The line or gate command suffix to inspect.</param>
+    /// <param name="character">The character that opens the fence, when recognized.</param>
+    /// <param name="length">The number of repeated opening characters.</param>
+    internal static bool OpensFixFence(string line, out char character, out int length)
     {
         var trimmed = line.TrimStart();
         character = trimmed.Length > 0 ? trimmed[0] : default;
@@ -96,18 +100,25 @@ internal static partial class PlanGates
         return length >= 3;
     }
 
-    private static bool ClosesFixFence(string line, char character, int length)
+    /// <summary>Recognizes a fence closing with the opening character and at least its length.</summary>
+    /// <param name="line">The complete line to inspect.</param>
+    /// <param name="character">The opening fence's character.</param>
+    /// <param name="length">The minimum closing fence length.</param>
+    internal static bool ClosesFixFence(string line, char character, int length)
     {
         var trimmed = line.Trim();
         return trimmed.Length >= length && trimmed.All(value => value == character);
     }
 
+    /// <summary>Matches a real Fix gate label at the beginning of a line.</summary>
     [GeneratedRegex(@"^[ \t]*(?:\d+\.[ \t]+)?\*\*Fix gate:?\*\*:?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex FixLabel();
+    internal static partial Regex FixLabel();
 
+    /// <summary>Matches a numbered, case-sensitive G entry at the beginning of a line.</summary>
     [GeneratedRegex(@"^[ \t]*\d+\.[ \t]+\*\*G\d+[.:]?\*\*[:.]?(?=[ \t]|$)", RegexOptions.CultureInvariant)]
-    private static partial Regex RealGEntry();
+    internal static partial Regex RealGEntry();
 
+    /// <summary>Matches a level-one or level-two heading that ends the Gates section.</summary>
     [GeneratedRegex(@"^#{1,2}[ \t]+", RegexOptions.CultureInvariant)]
-    private static partial Regex FixSectionEnd();
+    internal static partial Regex FixSectionEnd();
 }

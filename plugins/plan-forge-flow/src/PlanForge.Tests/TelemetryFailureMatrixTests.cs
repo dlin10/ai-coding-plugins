@@ -135,6 +135,9 @@ public sealed class TelemetryFailureMatrixTests : IDisposable
         return cells;
     }
 
+    /// <summary>Every failure and call combination preserves its expected outcome and records.</summary>
+    /// <param name="failure">The telemetry failure injected into the call.</param>
+    /// <param name="call">The tool call exercised by the matrix cell.</param>
     [Theory]
     [MemberData(nameof(Cells))]
     public async Task Every_cell_gets_its_expected_answer(Failure failure, Call call)
@@ -189,7 +192,7 @@ public sealed class TelemetryFailureMatrixTests : IDisposable
 
         if (failure == Failure.RecordNotAppendable)
         {
-            Assert.Equal("{}", File.ReadAllText(TelemetryPath(runId)));
+            Assert.Equal("{}", AtomicFile.Read(TelemetryPath(runId)));
         }
         else
         {
@@ -391,7 +394,7 @@ public sealed class TelemetryFailureMatrixTests : IDisposable
         var head = (await new GitClient(_repo).OutputAsync(["rev-parse", "HEAD"], CancellationToken.None)).Trim();
         var root = JsonDocument.Parse(result).RootElement;
 
-        Assert.Equal(["runId", "runPath", "profile", "baselineHead", "client"], root.EnumerateObject().Select(property => property.Name));
+        Assert.Equal(["runId", "runPath", "profile", "baselineHead", "client", "advisors"], root.EnumerateObject().Select(property => property.Name));
         Assert.Equal(Run(runId).Path, root.GetProperty("runPath").GetString());
         Assert.Equal("Text", root.GetProperty("profile").GetString());
         Assert.Equal(head, root.GetProperty("baselineHead").GetString());
@@ -404,8 +407,10 @@ public sealed class TelemetryFailureMatrixTests : IDisposable
 
     private string TelemetryPath(string runId) => Path.Combine(Run(runId).Path, "telemetry.json");
 
+    /// <summary>Reads the Run usage records while allowing concurrent file writers.</summary>
+    /// <param name="runId">The Run whose telemetry is read.</param>
     private JsonElement[] Records(string runId) =>
-        File.Exists(TelemetryPath(runId)) ? [.. JsonDocument.Parse(File.ReadAllText(TelemetryPath(runId))).RootElement.EnumerateArray()] : [];
+        File.Exists(TelemetryPath(runId)) ? [.. JsonDocument.Parse(AtomicFile.Read(TelemetryPath(runId))).RootElement.EnumerateArray()] : [];
 
     private IReadOnlyList<JsonElement> LogEntries(string runId) =>
         [.. AtomicFile.Read(Run(runId).DiagnosticLogPath)

@@ -145,8 +145,9 @@ public sealed class ToolSurfaceTests
         Assert.Contains("array", properties.GetProperty("builderRoots").GetRawText(), StringComparison.Ordinal);
     }
 
+    /// <summary>The published surface includes the bounded Evidence map beside all existing tools.</summary>
     [Fact]
-    public void The_published_surface_has_twenty_tools_including_both_plan_revision_tools()
+    public void The_published_surface_has_twenty_one_tools_including_the_evidence_map()
     {
         var tools = typeof(ForgeTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Select(method => method.GetCustomAttribute<McpServerToolAttribute>())
@@ -154,9 +155,10 @@ public sealed class ToolSurfaceTests
             .Select(attribute => attribute!.Name)
             .ToList();
 
-        Assert.Equal(20, tools.Count);
+        Assert.Equal(21, tools.Count);
         Assert.Contains("forge.plan.outline", tools);
         Assert.Contains("forge.plan.patch", tools);
+        Assert.Contains("forge.evidence.map", tools);
         Assert.Contains("forge.scout.select", tools);
         Assert.Contains("forge.scout.run", tools);
     }

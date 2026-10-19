@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using PlanForge.Advisors;
 using PlanForge.Diagnostics;
 using PlanForge.Vendors;
 
@@ -436,7 +437,9 @@ internal static class StreamingProcess
         }
     }
 
-    private static ProcessStartInfo Build(ProcessSpec spec)
+    /// <summary>Builds redirected child start information, removing Advisor secrets after environment overlays.</summary>
+    /// <param name="spec">The executable, arguments, working directory, stdin and environment overlay.</param>
+    internal static ProcessStartInfo Build(ProcessSpec spec)
     {
         var info = new ProcessStartInfo(spec.FileName)
         {
@@ -466,6 +469,12 @@ internal static class StreamingProcess
             {
                 info.Environment[pair.Key] = pair.Value;
             }
+        }
+
+        var secrets = AdvisorCatalog.Default.SecretVariables;
+        foreach (var name in info.Environment.Keys.Where(name => secrets.Contains(name, StringComparer.OrdinalIgnoreCase)).ToArray())
+        {
+            info.Environment.Remove(name);
         }
 
         foreach (var argument in spec.Arguments)

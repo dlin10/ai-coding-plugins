@@ -61,10 +61,11 @@ sentences of explanation and no code.
 
 | Tool | When |
 |---|---|
-| `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client` and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic, builder, and scout may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — all three roles get the same grant. |
+| `forge.begin` | Once, before anything else. Returns the `runId`, the connecting `client`, the configured and partly configured `advisors`, and the capability `profile`, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background. Its optional `workerTools` names the MCP servers every critic, builder, and scout may call without being asked; omit it and they get the Roslyn servers (`roslyn-*`). Pass it only when the task needs another server, and never name one that changes files — all three roles get the same grant. |
 | `forge.models` | At the first Scout need and again immediately before the Critic/Builder Vendor question. Returns each vendor's model catalogue, newest first, with `available` and the reason when a vendor is not; successful entries are served from `CatalogCache`, while unavailable entries are probed again. |
 | `forge.scout.select` | Once, just in time when broad reconnaissance first becomes necessary. Persists one exact Scout Vendor/model/effort selection or the explicit decline to continue without Scout; a later enabling call must also be explicit. |
-| `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the complete Scout answer under `scout`, unclipped, and appends it to `SCOUT.md`. |
+| `forge.scout.run` | On non-Cursor hosts, runs one bounded Scout question directly. Always pass the required `sessionMode`: `continue` only for a direct follow-up in the same investigation, or `fresh` for an independent question, new subsystem, stale evidence, or deliberate reset. It returns the complete Scout answer under `scout`, unclipped, and appends it to `scout-answers.json`. |
+| `forge.evidence.map` | After the manual Evidence check and before plan review, asks a configured Advisor about every Scout item and supplied implication. Pass every Impact pass Change point in `changePoints`, optional `implications` with Scout item IDs in `derivedFrom`, and the selected `advisor` when needed. Returns flags, progress, `complete`, `checkedThisCall`, not-indexed answer numbers and document paths; call directly on every host. |
 | `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
 | `forge.plan.write` | For the first draft and genuine rewrites. Writes the complete draft to `PLAN.md`, runs no worker, and answers with the outline read back from the file (null for blank plan text) and its path under `documents`. Surface that path, then run the round. |
 | `forge.plan.outline` | Reads the current plan hash and snapshot Edit targets: ID, kind, label, hash and size, without plan text beyond labels. Refuses a missing or blank plan; write the first draft with `forge.plan.write`. |
@@ -75,7 +76,7 @@ sentences of explanation and no code.
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | Saved `fullGate=beforeNextRound` refuses review with pending fixes; `final` permits it and returns current `pendingFullGateFindingIds`, including []. Critic assessments do not verify them. On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
 | `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note`. Optional case-sensitive `gate=full\|targeted` defaults to full and requires fix IDs when explicit. Targeted runs only the Fix gate and leaves findings pending full host verification. Retry with the same gate, attempt and exact IDs. |
-| `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempt IDs; malformed saved timing stops state reads without mutation. Before asking for approval, after a resumed run, and any time the user asks where things stand. Carries a compact ledger summary with current IDs, dispositions and active phases, the drift, job liveness, and `run.scout` with enabled/selection, current session, and last failure. |
+| `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempt IDs; malformed saved timing stops state reads without mutation. Before asking for approval, after a resumed run, and any time the user asks where things stand. Carries a compact ledger summary with current IDs, dispositions and active phases, the drift, job liveness, and `run.scout` with enabled/selection, current session, and last failure, plus the configured and partly configured `advisors` read from the server process environment at this call, with ids, configured models and variable names/problems, never credential values. |
 | `forge.work.start` | On Cursor, starts one worker act, including `scout`. `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools, and `review.fix` the same `note` and optional `gate=full\|targeted` (only with fix IDs); retries preserve gate, attempt and exact IDs. Pending-review and Fix gate checks match direct calls; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
 | `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job and reports its latest stdout activity and recognised event. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
 | `forge.work.cancel` | On Cursor, requests cancellation of one job without waiting for it to stop. Use only when the user explicitly asks, or after showing its liveness and obtaining confirmation; then poll and fetch it normally. A terminal job is a successful no-op. |
@@ -229,7 +230,7 @@ read nothing, and the same selection fails the same way until its vendor is repa
 what the failure says, and ask whether to repair the vendor and retry, reselect, or continue without
 Scout. Scout may use already available internet without per-call authorization or a widened grant. Require typed
 repository citations (path plus positive line or non-empty symbol) and external citations (an
-absolute HTTP(S) URL). Surface `SCOUT.md` only after each successful Scout call.
+absolute HTTP(S) URL). Surface `scout-answers.json` only after each successful Scout call.
 Do not copy Scout's report into Critic or Builder prompts automatically; only derived conclusions
 the Orchestrator deliberately puts into a plan or task may reach those Workers.
 
@@ -283,17 +284,54 @@ Run the first Impact pass with `sessionMode: fresh`, so the orientation framing 
 enumeration. Its result carries the complete answer: fold it into the plan — tasks for affected
 consumers, tests to update, artefacts to re-record — before the plan is written. When a revision
 introduces a Change point no Impact pass has checked, ask again with `sessionMode: continue` about
-the new Change points only, before that revision is written. When the Run continues without Scout,
+the new Change points only, before its review. When the Run continues without Scout,
 make the same check yourself with reference and caller queries and text search, and record what
 you searched with `forge.log.append`.
 
 ### The Evidence check
 
-After each Impact pass, and before the review that follows it, check the plan against every fact in
-`SCOUT.md` — every answer of the Run, not only the last — that bears on a Change point. Each such
-fact is either used by the plan or departed from on purpose. Record a deliberate departure with
-`forge.log.append`, and state it in the plan as well — in the exclusions or the task text — wherever
-a Critic would otherwise raise it: the Critic never reads the Run log.
+After the matrix check and the Impact pass, write the first draft with `forge.plan.write`. Then,
+after each Impact pass and before the review that follows it, make the manual Evidence check over
+every entry of `scout-answers.json` — every answer of the Run, not only the last — comparing every
+fact that bears on a Change point with the plan. Each such fact is either used by the plan or
+departed from on purpose. Record a deliberate departure with `forge.log.append`, and patch it into
+the plan as well — in the exclusions or the task text — wherever a Critic would otherwise raise
+it: the Critic never reads the Run log.
+
+With no configured Advisor, that completes the Evidence check. With one, use it after the manual
+check; with several, ask the user once which Advisor to use, as for a Vendor, and pass its id as
+`advisor` on every call. `forge.begin` and `forge.status` report `advisors`; a partly configured
+Advisor is not configured. An Advisor answers typed Choice questions, and its Evidence map is
+shadow-mode advice: a `covered` excuses nothing and removes no manual check.
+
+1. Call `forge.evidence.map` with every Change point of the Run's Impact passes and your
+   implications. Each implication has `text` and `derivedFrom`, the existing Scout item IDs it
+   rests on (`A{number}.{category}.{position}`, with positions starting at 1). The server keeps
+   judgments and the latest result in `evidence-map.json`.
+2. Call again until `complete` is true or a call's `checkedThisCall` is 0. Keep the Change-point
+   list the same from call to call until an Impact pass adds Change points, then append those.
+   Only while the list would otherwise pass 200, merge related Change points into one entry each.
+   A changed list re-asks the whole map. If merging related ones cannot bring it to 200, make no
+   further map call in this Run: log `Evidence map: stopped, N Change points` with
+   `forge.log.append`, tell the user, and rely on the manual Evidence check alone from then on,
+   as with no configured Advisor.
+3. Take up only the flags the manual check had not handled, decide each as you always do, and
+   patch the plan where needed. Log one line `Evidence map: raised N, already handled M, new K`
+   with `forge.log.append`, adding "incomplete" when the map did not complete and the not-indexed
+   answer numbers when there are any. Not-indexed answers are evidence the map could not read:
+   tell the user their numbers and make sure the manual Evidence check covered them, from the
+   complete answers received in Scout results or from an earlier version's `SCOUT.md`, which you
+   read yourself — the server never does.
+4. Before every later plan-review round, call the map again the same way and take up only `new`
+   flags. When the map did not complete, check every `new` unchecked item by hand. A revision
+   with a new Change point gets its Impact pass and manual Evidence check before its review.
+
+The Evidence map is never shown to the Critic, Builder or Scout and has no place in code review.
+Each accepted map call attempts to write an `## Evidence map` Flow-log entry and an `advisor.usage`
+record to
+`telemetry.json`, with counts, models and usage, never item or plan text. The Telemetry file has
+three kinds: `vendor.usage` for Worker attempts, `orchestrator.usage` for Orchestrator phases, and
+`advisor.usage` for Evidence map calls.
 
 ## Act 1: the interview
 
@@ -500,8 +538,9 @@ State the builder's selection at the top of the plan, above `## Requirements`, i
 model, effort, and `Fast` when the user chose it. The critic judges the plan's depth against the
 builder named there.
 
-The draft is not ready for its first `forge.plan.write` until the matrix check below, the Impact
-pass and the Evidence check described under "Scout reconnaissance" have run against it.
+The draft is not ready for its first `forge.plan.write` until the matrix check below and the Impact
+pass described under "Scout reconnaissance" have run against it, nor for its first review until the
+Evidence check has.
 
 ### The matrix check
 
@@ -566,7 +605,7 @@ next round. The
 Critic is a fresh process each round and receives only the current plan-phase ledger projection, so
 it converges on current findings without being anchored by the transcript.
 
-A revision that introduces a Change point no Impact pass has checked gets its own Impact pass and Evidence check before it is written.
+A revision that introduces a Change point no Impact pass has checked gets its own Impact pass and Evidence check before its review.
 
 From the second round on, sort each critique's new findings by the rule they are about. When more
 than half of them are combinations or edge cases of one rule and the plan has no matrix task for

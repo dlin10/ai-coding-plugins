@@ -82,6 +82,18 @@ internal static class AtomicFile
         }
     }
 
+    /// <summary>Reads, transforms and replaces a file under its process-local mutation lock.</summary>
+    /// <param name="path">The file to update, which may not yet exist.</param>
+    /// <param name="change">Transforms the contents, or null for an absent file; throwing leaves the file untouched.</param>
+    public static void Update(string path, Func<string?, string> change)
+    {
+        lock (MUTATIONS.GetOrAdd(Path.GetFullPath(path), _ => new object()))
+        {
+            var content = File.Exists(path) ? Read(path) : null;
+            Write(path, change(content));
+        }
+    }
+
     /// <summary>
     /// Appends under an exclusive handle. Two processes appending at once would otherwise be free
     /// to interleave inside one entry, and the flow log is written as the user-facing audit trail.

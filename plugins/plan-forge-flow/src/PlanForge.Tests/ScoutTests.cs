@@ -151,6 +151,7 @@ public sealed class ScoutTests : IDisposable
         Assert.False(SchemaInPrompt.TryExtract(json.ToJsonString(), Schemas.ScoutReport, out _, out _));
     }
 
+    /// <summary>The Scout prompt contains only the question and repository location.</summary>
     [Fact]
     public async Task Scout_prompt_contains_only_the_question_and_repository_location()
     {
@@ -164,9 +165,9 @@ public sealed class ScoutTests : IDisposable
         Assert.Contains("Which entry points exist?", session.PromptText, StringComparison.Ordinal);
         Assert.Contains(_workspace, session.PromptText, StringComparison.Ordinal);
         Assert.DoesNotContain("PLAN.md", session.PromptText, StringComparison.Ordinal);
-        Assert.DoesNotContain("SCOUT.md", session.PromptText, StringComparison.Ordinal);
+        Assert.DoesNotContain("scout-answers.json", session.PromptText, StringComparison.Ordinal);
         Assert.DoesNotContain("old selection", session.PromptText, StringComparison.Ordinal);
-        Assert.Contains("Question: Which entry points exist?", File.ReadAllText(run.FlowLogPath),
+        Assert.Contains("Question: Which entry points exist?", AtomicFile.Read(run.FlowLogPath),
                         StringComparison.Ordinal);
     }
 
@@ -246,8 +247,9 @@ public sealed class ScoutTests : IDisposable
         Assert.False(scout.TryGetProperty("truncated", out _));
     }
 
+    /// <summary>The sixth category is stored in the report.</summary>
     [Fact]
-    public async Task The_sixth_category_is_rendered_into_the_report()
+    public async Task The_sixth_category_is_stored_in_the_report()
     {
         var run = NewRun();
         var vendor = new RecordingVendor("codex");
@@ -256,10 +258,9 @@ public sealed class ScoutTests : IDisposable
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "dependents", "fresh",
                                   CancellationToken.None, _ => vendor, _prompts);
 
-        var text = File.ReadAllText(run.ScoutReportPath);
-        Assert.Contains("## Dependents and pinned behaviour", text, StringComparison.Ordinal);
-        Assert.Contains("dependent", text, StringComparison.Ordinal);
-        Assert.Contains("src/PlanForge/Mcp/ForgeTools.cs#ForgeTools.ScoutRun", text, StringComparison.Ordinal);
+        var item = Assert.Single(Assert.Single(run.ReadScoutAnswers()).Report.DependentsAndPinnedBehaviour);
+        Assert.Equal("dependent", item.Text);
+        Assert.Equal("src/PlanForge/Mcp/ForgeTools.cs#ForgeTools.ScoutRun", item.Source);
     }
 
     [Fact]
@@ -312,8 +313,9 @@ public sealed class ScoutTests : IDisposable
         Assert.Equal("vendor_failed", run.ReadState().Scout!.LastFailure!.Code);
     }
 
+    /// <summary>Each successful answer is appended as a numbered entry.</summary>
     [Fact]
-    public async Task Each_successful_answer_is_appended_as_a_numbered_section()
+    public async Task Each_successful_answer_is_appended_as_a_numbered_entry()
     {
         var run = NewRun();
         var first = new RecordingVendor("codex");
@@ -325,19 +327,14 @@ public sealed class ScoutTests : IDisposable
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "second", "continue",
                                   CancellationToken.None, _ => second, _prompts);
 
-        var current = File.ReadAllText(run.ScoutReportPath);
-        var ordered = new[] { "# Scout answer 1", "Question: first", "first report",
-                              "# Scout answer 2", "Question: second", "second report" };
-        var previous = -1;
-        foreach (var value in ordered)
-        {
-            var position = current.IndexOf(value, previous + 1, StringComparison.Ordinal);
-            Assert.True(position > previous, $"Missing or out of order: {value}");
-            previous = position;
-        }
+        var entries = run.ReadScoutAnswers();
+        Assert.Equal([1, 2], entries.Select(entry => entry.Number));
+        Assert.Equal(["first", "second"], entries.Select(entry => entry.Question));
+        Assert.Equal(["first report", "second report"], entries.Select(entry => entry.Report.Summary));
         Assert.Equal(2, run.ReadState().ScoutAnswers);
     }
 
+    /// <summary>A failed answer appends nothing.</summary>
     [Fact]
     public async Task A_failed_answer_appends_nothing()
     {
@@ -346,16 +343,17 @@ public sealed class ScoutTests : IDisposable
         first.Enqueue(ValidReport("first report"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var previous = AtomicFile.Read(run.ScoutAnswersPath);
 
         var failed = new RecordingVendor("codex");
         failed.Enqueue(new VendorException("vendor failure", 1), "two");
         await Assert.ThrowsAsync<ScoutException>(() => ForgeTools.ScoutRun(SessionRoots.None,
             _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => failed, _prompts));
 
-        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.Equal(previous, AtomicFile.Read(run.ScoutAnswersPath));
     }
 
+    /// <summary>An invalid answer appends nothing.</summary>
     [Fact]
     public async Task An_invalid_answer_appends_nothing()
     {
@@ -364,7 +362,7 @@ public sealed class ScoutTests : IDisposable
         first.Enqueue(ValidReport("first report"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var previous = AtomicFile.Read(run.ScoutAnswersPath);
 
         var invalid = new RecordingVendor("codex");
         invalid.Enqueue(new JsonException("invalid"), "two");
@@ -372,9 +370,10 @@ public sealed class ScoutTests : IDisposable
             _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => invalid, _prompts));
 
         Assert.StartsWith("invalid_output:", error.Message, StringComparison.Ordinal);
-        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.Equal(previous, AtomicFile.Read(run.ScoutAnswersPath));
     }
 
+    /// <summary>A cancelled answer appends nothing and claims no append.</summary>
     [Fact]
     public async Task A_cancelled_answer_appends_nothing_and_claims_no_append()
     {
@@ -383,37 +382,43 @@ public sealed class ScoutTests : IDisposable
         first.Enqueue(ValidReport("first report"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var previous = AtomicFile.Read(run.ScoutAnswersPath);
 
         var cancelled = new RecordingVendor("codex");
         cancelled.Enqueue(new OperationCanceledException(), "two");
         await Assert.ThrowsAsync<OperationCanceledException>(() => ForgeTools.ScoutRun(SessionRoots.None,
             _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => cancelled, _prompts));
 
-        var flowLog = File.ReadAllText(run.FlowLogPath);
+        var flowLog = AtomicFile.Read(run.FlowLogPath);
         var cancellation = flowLog[flowLog.LastIndexOf("## Scout cancelled", StringComparison.Ordinal)..];
-        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.Equal(previous, AtomicFile.Read(run.ScoutAnswersPath));
         Assert.DoesNotContain("appended", cancellation, StringComparison.Ordinal);
         Assert.DoesNotContain("replaced", cancellation, StringComparison.Ordinal);
     }
 
+    /// <summary>A legacy SCOUT.md is neither opened nor changed.</summary>
     [Fact]
-    public async Task An_existing_report_without_numbered_answers_stays_above_answer_one()
+    public async Task A_legacy_scout_md_is_neither_read_nor_changed()
     {
         var run = NewRun();
         const string legacy = "# Scout report\n\n## Summary\n\nlegacy\n";
-        File.WriteAllText(run.ScoutReportPath, legacy);
+        var legacyPath = Path.Combine(run.Path, "SCOUT.md");
+        File.WriteAllText(legacyPath, legacy);
+        var previous = File.ReadAllBytes(legacyPath);
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(ValidReport("new report"), "one");
 
-        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
-                                  CancellationToken.None, _ => vendor, _prompts);
+        using (new FileStream(legacyPath, FileMode.Open, FileAccess.Read, FileShare.None))
+            await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
+                                      CancellationToken.None, _ => vendor, _prompts);
 
-        var current = File.ReadAllText(run.ScoutReportPath);
-        Assert.StartsWith(legacy.TrimEnd(), current, StringComparison.Ordinal);
-        Assert.Contains("# Scout answer 1", current, StringComparison.Ordinal);
+        Assert.Equal(previous, File.ReadAllBytes(legacyPath));
+        var entry = Assert.Single(run.ReadScoutAnswers());
+        Assert.Equal(1, entry.Number);
+        Assert.Equal("new report", entry.Report.Summary);
     }
 
+    /// <summary>A successful answer records its append in the Flow log.</summary>
     [Fact]
     public async Task A_completed_answer_is_recorded_as_appended_in_the_flow_log()
     {
@@ -424,11 +429,12 @@ public sealed class ScoutTests : IDisposable
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => vendor, _prompts);
 
-        var flowLog = File.ReadAllText(run.FlowLogPath);
+        var flowLog = AtomicFile.Read(run.FlowLogPath);
         Assert.Contains("The answer was appended to the Scout report.", flowLog, StringComparison.Ordinal);
         Assert.DoesNotContain("replaced", flowLog, StringComparison.Ordinal);
     }
 
+    /// <summary>Answer text cannot change the next number.</summary>
     [Fact]
     public async Task Answer_text_cannot_change_the_next_number()
     {
@@ -454,11 +460,11 @@ public sealed class ScoutTests : IDisposable
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "second", "continue",
                                   CancellationToken.None, _ => second, _prompts);
 
-        var current = File.ReadAllText(run.ScoutReportPath);
-        Assert.Equal("# Scout answer 2", current.Split('\n').Last(line => line.StartsWith("# Scout answer ", StringComparison.Ordinal)).TrimEnd());
+        Assert.Equal([1, 2], run.ReadScoutAnswers().Select(entry => entry.Number));
         Assert.Equal(2, run.ReadState().ScoutAnswers);
     }
 
+    /// <summary>An answer cancelled while its session anchor is read appends nothing.</summary>
     [Fact]
     public async Task An_answer_cancelled_while_its_session_anchor_is_read_appends_nothing()
     {
@@ -467,16 +473,17 @@ public sealed class ScoutTests : IDisposable
         first.Enqueue(ValidReport("first report"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var previous = AtomicFile.Read(run.ScoutAnswersPath);
         var vendor = new CancellingAnchorVendor(ValidReport("second report"));
 
         await Assert.ThrowsAsync<OperationCanceledException>(() => ForgeTools.ScoutRun(SessionRoots.None,
             _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => vendor, _prompts));
 
-        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.Equal(previous, AtomicFile.Read(run.ScoutAnswersPath));
         Assert.Equal(1, run.ReadState().ScoutAnswers);
     }
 
+    /// <summary>A state write failure appends nothing.</summary>
     [Fact]
     public async Task A_state_write_failure_appends_nothing()
     {
@@ -485,7 +492,7 @@ public sealed class ScoutTests : IDisposable
         first.Enqueue(ValidReport("first report"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var previous = AtomicFile.Read(run.ScoutAnswersPath);
         var second = new RecordingVendor("codex");
         second.Enqueue(ValidReport("second report"), "two");
 
@@ -493,9 +500,10 @@ public sealed class ScoutTests : IDisposable
             await Assert.ThrowsAsync<ScoutException>(() => ForgeTools.ScoutRun(SessionRoots.None,
                 _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => second, _prompts));
 
-        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.Equal(previous, AtomicFile.Read(run.ScoutAnswersPath));
     }
 
+    /// <summary>A failed append skips its number.</summary>
     [Fact]
     public async Task A_failed_append_skips_its_number()
     {
@@ -504,15 +512,15 @@ public sealed class ScoutTests : IDisposable
         first.Enqueue(ValidReport("first report"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var previous = AtomicFile.Read(run.ScoutAnswersPath);
         var second = new RecordingVendor("codex");
         second.Enqueue(ValidReport("second report"), "two");
 
-        using (new FileStream(run.ScoutReportPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (new FileStream(run.ScoutAnswersPath, FileMode.Open, FileAccess.Read, FileShare.Read))
             await Assert.ThrowsAsync<ScoutException>(() => ForgeTools.ScoutRun(SessionRoots.None,
                 _workspace, run.RunId, "second", "continue", CancellationToken.None, _ => second, _prompts));
 
-        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.Equal(previous, AtomicFile.Read(run.ScoutAnswersPath));
         Assert.Equal(2, run.ReadState().ScoutAnswers);
 
         var third = new RecordingVendor("codex");
@@ -520,9 +528,7 @@ public sealed class ScoutTests : IDisposable
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "third", "continue",
                                   CancellationToken.None, _ => third, _prompts);
 
-        var current = File.ReadAllText(run.ScoutReportPath);
-        Assert.Equal("# Scout answer 3", current.Split('\n').Last(line => line.StartsWith("# Scout answer ", StringComparison.Ordinal)).TrimEnd());
-        Assert.DoesNotContain("# Scout answer 2", current, StringComparison.Ordinal);
+        Assert.Equal([1, 3], run.ReadScoutAnswers().Select(entry => entry.Number));
     }
 
     [Fact]
@@ -554,6 +560,7 @@ public sealed class ScoutTests : IDisposable
         Assert.Null(run.ReadState().Scout!.LastFailure);
     }
 
+    /// <summary>A sensitive report preserves the previous report with the exact safe explanation.</summary>
     [Fact]
     public async Task A_sensitive_report_preserves_the_previous_report_with_the_exact_safe_explanation()
     {
@@ -562,7 +569,7 @@ public sealed class ScoutTests : IDisposable
         first.Enqueue(ValidReport("safe prior"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var previous = File.ReadAllText(run.ScoutReportPath);
+        var previous = AtomicFile.Read(run.ScoutAnswersPath);
 
         var sensitive = new RecordingVendor("codex");
         sensitive.Enqueue(ValidReport("password=sk-Lq83Hd0PzX7vNm41RbTuKcWy"), "two");
@@ -571,10 +578,11 @@ public sealed class ScoutTests : IDisposable
                                 CancellationToken.None, _ => sensitive, _prompts));
 
         Assert.Equal("sensitive_output: Scout response contained sensitive content, was not persisted, and the previous report was preserved.", error.Message);
-        Assert.Equal(previous, File.ReadAllText(run.ScoutReportPath));
+        Assert.Equal(previous, AtomicFile.Read(run.ScoutAnswersPath));
         Assert.Equal("sensitive_output", run.ReadState().Scout!.LastFailure!.Code);
     }
 
+    /// <summary>A secret only in dependents is refused.</summary>
     [Fact]
     public async Task A_secret_only_in_dependents_is_refused()
     {
@@ -583,7 +591,7 @@ public sealed class ScoutTests : IDisposable
         first.Enqueue(ValidReport("safe prior"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var previous = File.ReadAllBytes(run.ScoutReportPath);
+        var previous = AtomicFile.Read(run.ScoutAnswersPath);
 
         var baseReport = ValidReport("safe summary");
         var sensitiveReport = new ScoutReport
@@ -606,7 +614,7 @@ public sealed class ScoutTests : IDisposable
 
         Assert.Equal("sensitive_output", run.ReadState().Scout!.LastFailure!.Code);
         Assert.Contains("sensitive_output", error.Message, StringComparison.Ordinal);
-        Assert.Equal(previous, File.ReadAllBytes(run.ScoutReportPath));
+        Assert.Equal(previous, AtomicFile.Read(run.ScoutAnswersPath));
     }
 
     [Fact]
@@ -629,7 +637,7 @@ public sealed class ScoutTests : IDisposable
 
     /// <summary>
     /// A Scout whose commands never started answered without reading the repository, so nothing it
-    /// said reaches SCOUT.md; the failure names the vendor's error code and no other vendor words.
+    /// said reaches scout-answers.json; the failure names the vendor's error code and no other vendor words.
     /// See docs/adr/0031.
     /// </summary>
     [Fact]
@@ -640,7 +648,7 @@ public sealed class ScoutTests : IDisposable
         first.Enqueue(ValidReport("first report"), "one");
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "first", "fresh",
                                   CancellationToken.None, _ => first, _prompts);
-        var before = File.ReadAllText(run.ScoutReportPath);
+        var before = AtomicFile.Read(run.ScoutAnswersPath);
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new NoShellException("codex could not start a shell for the Scout: \"MALICIOUS output\".",
                                             "Retry once codex can start a sandboxed command.", "helper_unknown_error"),
@@ -656,12 +664,13 @@ public sealed class ScoutTests : IDisposable
         Assert.Contains("no_shell", error.Message, StringComparison.Ordinal);
         Assert.Contains("helper_unknown_error", error.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("MALICIOUS", error.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("MALICIOUS", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
-        Assert.Contains("no_shell", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
-        Assert.Equal(before, File.ReadAllText(run.ScoutReportPath));
+        Assert.DoesNotContain("MALICIOUS", AtomicFile.Read(run.FlowLogPath), StringComparison.Ordinal);
+        Assert.Contains("no_shell", AtomicFile.Read(run.FlowLogPath), StringComparison.Ordinal);
+        Assert.Equal(before, AtomicFile.Read(run.ScoutAnswersPath));
         Assert.Equal(1, run.ReadState().ScoutAnswers);
     }
 
+    /// <summary>Direct caller cancellation records cancellation without a Scout failure.</summary>
     [Fact]
     public async Task Direct_cancellation_is_reported_as_cancellation_without_a_failure()
     {
@@ -675,7 +684,7 @@ public sealed class ScoutTests : IDisposable
 
         Assert.Null(run.ReadState().Scout!.LastFailure);
         Assert.Contains("scout.cancelled", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
-        var flowLog = File.ReadAllText(run.FlowLogPath);
+        var flowLog = AtomicFile.Read(run.FlowLogPath);
         Assert.Contains("## Scout cancelled", flowLog, StringComparison.Ordinal);
         Assert.Contains("Question: cancel", flowLog, StringComparison.Ordinal);
     }
@@ -730,6 +739,7 @@ public sealed class ScoutTests : IDisposable
         Assert.Contains("invalid_output", error.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>A failed background Scout exposes safe diagnostics in results and logs.</summary>
     [Fact]
     public async Task A_failed_background_job_exposes_only_the_safe_failure_text()
     {
@@ -749,9 +759,10 @@ public sealed class ScoutTests : IDisposable
         Assert.DoesNotContain("malicious", fetch.ToJsonString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("vendor_failed", fetch["error"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.DoesNotContain("malicious", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("malicious", File.ReadAllText(run.FlowLogPath), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("malicious", AtomicFile.Read(run.FlowLogPath), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>A successful result exposes the latest report document metadata.</summary>
     [Fact]
     public async Task A_successful_result_exposes_the_latest_report_document_metadata()
     {
@@ -762,9 +773,9 @@ public sealed class ScoutTests : IDisposable
         using var result = JsonDocument.Parse(await ForgeTools.ScoutRun(
             SessionRoots.None, _workspace, run.RunId, "document", "fresh", CancellationToken.None, _ => vendor, _prompts));
 
-        Assert.Equal(run.ScoutReportPath, result.RootElement.GetProperty("documents")
+        Assert.Equal(run.ScoutAnswersPath, result.RootElement.GetProperty("documents")
             .GetProperty("scout").GetProperty("path").GetString());
-        Assert.Contains("document", File.ReadAllText(run.ScoutReportPath), StringComparison.Ordinal);
+        Assert.Contains("document", AtomicFile.Read(run.ScoutAnswersPath), StringComparison.Ordinal);
     }
 
     private RunDirectory NewRun(ScoutState? scout = null)
