@@ -153,7 +153,7 @@ describe('limits', () => {
     }
   })
 
-  test('Auto sits at the right end of the main row', async ($, on) => {
+  test('Auto Warm sits at the right end of the main row', async ($, on) => {
     world(on)
     await start($)
 
@@ -282,18 +282,18 @@ describe('auto-warming', () => {
 
     await dialog.press({ key: 'auto-2' })
     expect(state.closed).toEqual(['session-pulse-auto'])
-    expect(await ui.find({ key: 'auto', text: 'Auto 0/2' })).toBeDefined()
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm 0/2' })).toBeDefined()
 
     await clock.advance(59 * MINUTE)
     expect(state.forks).toBe(1)
-    expect(await ui.find({ key: 'auto', text: 'Auto 1/2' })).toBeDefined()
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm 1/2' })).toBeDefined()
 
     await clock.advance(58 * MINUTE)
     expect(state.forks).toBe(2)
 
     await clock.advance(10 * MINUTE)
     expect(state.forks).toBe(2)
-    expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm' })).toBeDefined()
   })
 
   test('Cancel leaves it off, typed hours start it, and a second press turns it off', async ($, on) => {
@@ -307,13 +307,13 @@ describe('auto-warming', () => {
     const dialog = await $.ui.mount({ ...DIALOG, surface: 'desktop' })
     await dialog.press({ key: 'auto-cancel' })
     expect(state.closed).toEqual(['session-pulse-auto'])
-    expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm' })).toBeDefined()
 
     await ui.press({ key: 'auto' })
     await dialog.input({ key: 'auto-hours', text: '3' })
-    expect(await ui.find({ key: 'auto', text: 'Auto 0/3' })).toBeDefined()
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm 0/3' })).toBeDefined()
     await ui.press({ key: 'auto' })
-    expect(await ui.find({ key: 'auto', text: 'Auto' })).toBeDefined()
+    expect(await ui.find({ key: 'auto', text: 'Auto Warm' })).toBeDefined()
   })
 
   test('the dialog never goes through AskUserQuestion, on any surface', async ($, on) => {
