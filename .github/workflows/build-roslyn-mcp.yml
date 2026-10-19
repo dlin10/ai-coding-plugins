@@ -39,10 +39,11 @@ jobs:
       - name: Verify bundled VSIX version
         shell: pwsh
         run: |
-          $sourcePath = 'plugins/roslyn-mcp/extension/src/RoslynMcpExtension/source.extension.vsixmanifest'
+          # The manifest's Identity Version is a build token; the version itself is written in Directory.Build.props.
+          $sourcePath = 'plugins/roslyn-mcp/extension/src/Directory.Build.props'
           $vsixPath = 'plugins/roslyn-mcp/assets/RoslynMcpExtension.vsix'
           [xml] $source = Get-Content -Raw $sourcePath
-          $sourceVersion = $source.SelectSingleNode("//*[local-name()='Identity']").Version
+          $sourceVersion = $source.SelectSingleNode('//Version').InnerText
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [System.IO.Compression.ZipFile]::OpenRead($vsixPath)
           try {

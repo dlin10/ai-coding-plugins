@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 
 namespace RoslynMcpExtension.Shared;
 
@@ -49,6 +50,13 @@ public class SymbolLocation
     public int EndLine { get; set; }
     public int? EnclosingStartLine { get; set; }
     public int? EnclosingEndLine { get; set; }
+    /// <summary>
+    /// The short form the extension's Output pane names the symbol by, such as <c>Type.Method(string)</c>. Never
+    /// sent to a client: [IgnoreDataMember] drops it on the hop from Visual Studio to the server, and the MCP
+    /// response leaves out a property that is null.
+    /// </summary>
+    [IgnoreDataMember]
+    public string? LogName { get; set; }
 }
 
 public class DiagnosticInfo

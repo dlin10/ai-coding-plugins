@@ -1,4 +1,4 @@
-# Roslyn MCP 0.9.0
+# Roslyn MCP 2.0.0
 
 Roslyn MCP packages a Visual Studio extension and agent guidance that expose the live Roslyn workspace to **Codex**, **Claude Code**, and **Cursor**. Each solution uses its own MCP port, so multiple Visual Studio instances can serve different solutions without cross-talk, whether those solutions live in one repository or in several.
 
@@ -90,7 +90,7 @@ Every result that reports a symbol carries its `symbolId`, the documentation com
 
 ## Contents
 
-- `assets/RoslynMcpExtension.vsix` — bundled extension, **v1.9.0**.
+- `assets/RoslynMcpExtension.vsix` — bundled extension, the same version as the plugin.
 - `.codex-plugin/`, `.claude-plugin/`, `.cursor-plugin/` — host manifests.
 - `skills/` — installation, repository setup, and Roslyn-first routing.
 - `commands/` — thin Claude Code command shims over the canonical skills.
@@ -105,7 +105,7 @@ The extension targets .NET Framework 4.8 and the server targets .NET 10. Build w
 msbuild extension/src/RoslynMcpExtension.slnx /p:Configuration=Release /t:Rebuild /restore
 ```
 
-When changing the extension, update its version consistently in `source.extension.vsixmanifest`, `RoslynMcpPackage.cs`, `Program.cs`, and the bundled-version statement above. Replace `assets/RoslynMcpExtension.vsix` with the Release output. Plugin manifest versions are a separate tri-host release version and must remain equal to one another.
+The plugin and the extension share one version, written once as `<Version>` in `extension/src/Directory.Build.props`; the VSIX manifest, the package registration and the server's `serverInfo` all take it from there. To release, change it there, in the three host manifests and in the title above, then replace `assets/RoslynMcpExtension.vsix` with the Release output. `npm run validate:plugins` fails while any of them differ.
 
 ## Validation
 

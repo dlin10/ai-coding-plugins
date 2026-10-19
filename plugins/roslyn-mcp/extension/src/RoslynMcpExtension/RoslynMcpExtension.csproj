@@ -61,6 +61,10 @@
     </Content>
   </ItemGroup>
 
+  <!-- source.extension.vsixmanifest takes its Identity Version from this target, so the version
+       stays written only in Directory.Build.props. -->
+  <Target Name="GetVsixVersion" Returns="$(Version)" />
+
   <!-- Publish before VSIX item collection; static globs evaluate too early and pack a stale server. -->
   <Target Name="PublishServerBeforeVsix" BeforeTargets="GetVsixSourceItems">
     <Exec Command="dotnet publish ..\RoslynMcpExtension.Server\RoslynMcpExtension.Server.csproj -c $(Configuration) -o $(OutputPath)RoslynMcpExtension.Server --no-self-contained" />

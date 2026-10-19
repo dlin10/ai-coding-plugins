@@ -191,7 +191,7 @@ internal sealed class McpServerSession : IMcpServerSession
 
 			analysisService.ServerReadyHandler = readyHandler;
 
-			logger?.Log($"Starting MCP server on port {options.Port} (pipe: {pipeName})...");
+			var startTime = Stopwatch.StartNew();
 			child = ChildProcessHandle.Start(CreateStartInfo(dotnetPath, serverPath, serverDir, pipeName, options), logger);
 
 			var deadline = Task.Delay(StartTimeout);
@@ -211,7 +211,7 @@ internal sealed class McpServerSession : IMcpServerSession
 			if (await Task.WhenAny(readySource.Task, child.Exited, deadline).ConfigureAwait(false) != readySource.Task)
 				return await AbortAsync().ConfigureAwait(false);
 
-			logger?.Log($"MCP Server started on http://localhost:{options.Port}/mcp (pipe: {pipeName})");
+			logger?.Log($"MCP Server started on http://localhost:{options.Port}/mcp in {startTime.ElapsedMilliseconds} ms");
 			return ServerStartResult.Started(new McpServerSession(options, pipe, rpc, serverProxy, child, analysisService, readyHandler, logger));
 		}
 		catch (Exception ex)

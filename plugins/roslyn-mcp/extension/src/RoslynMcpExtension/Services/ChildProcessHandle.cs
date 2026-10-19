@@ -92,8 +92,9 @@ internal sealed class ChildProcessHandle : IDisposable
 	{
 		try
 		{
+			// A clean exit is the shutdown the session asked for, or a dropped pipe the session reports itself.
 			var exitCode = TryReadExitCode();
-			if (_exited.TrySetResult(exitCode))
+			if (_exited.TrySetResult(exitCode) && exitCode != 0)
 				_logger?.Log($"MCP Server process exited with code {exitCode?.ToString() ?? "unknown"}");
 		}
 		catch
