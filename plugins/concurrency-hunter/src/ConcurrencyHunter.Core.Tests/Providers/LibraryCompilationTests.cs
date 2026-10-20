@@ -269,6 +269,209 @@ public sealed class LibraryCompilationTests
     }
 
     [Fact]
+    public void Installed_System_Text_Json_and_System_Net_Security_compile()
+    {
+        foreach (var name in new[] { "System.Text.Json", "System.Net.Security" })
+        {
+            var resolution = ImplementationAssemblies.ForThisProcess().Resolve(name, "10.0", null, "net10.0");
+            Assert.True(resolution.Reason is null, resolution.Detail);
+            var result = LibraryCompilation.Compile(resolution.Assembly!, CancellationToken.None);
+
+            Assert.True(result.Reason is null, $"{name}: {result.Reason}: {string.Join(", ", result.Errors)}");
+            Assert.NotNull(result.Compilation);
+        }
+    }
+
+    [Theory]
+    [InlineData("set", "", false)]
+    [InlineData("set", "private", false)]
+    [InlineData("set", "internal", false)]
+    [InlineData("set", "protected", false)]
+    [InlineData("init", "", false)]
+    [InlineData("init", "private", false)]
+    [InlineData("init", "internal", false)]
+    [InlineData("init", "protected", false)]
+    [InlineData("set", "", true)]
+    public void A_trimmed_auto_property_without_a_getter_gets_one(string setter, string modifier, bool isStatic)
+    {
+        var result = CompileSource($$"""
+            public class Holder
+            {
+                public {{(isStatic ? "static" : "")}} int Value { {{modifier}} {{setter}}; }
+            }
+            """);
+
+        Assert.True(result.Reason is null, $"{result.Reason}: {string.Join(", ", result.Errors)}");
+        Assert.Empty(result.Compilation!.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        var property = result.Compilation.GetTypeByMetadataName("Holder")!.GetMembers("Value").OfType<IPropertySymbol>().Single();
+        Assert.NotNull(property.GetMethod);
+        Assert.Equal(Accessibility.Public, property.GetMethod.DeclaredAccessibility);
+        Assert.False(property.SetMethod!.IsExtern);
+        Assert.Equal(modifier switch
+        {
+            "private" => Accessibility.Private,
+            "internal" => Accessibility.Internal,
+            "protected" => Accessibility.Protected,
+            _ => Accessibility.Public
+        }, property.SetMethod.DeclaredAccessibility);
+        Assert.Equal(setter == "init", property.SetMethod.IsInitOnly);
+        var syntax = result.Compilation.SyntaxTrees.Single().GetRoot().DescendantNodes().OfType<PropertyDeclarationSyntax>().Single();
+        Assert.All(syntax.AccessorList!.Accessors, accessor =>
+        {
+            Assert.Null(accessor.Body);
+            Assert.Null(accessor.ExpressionBody);
+            Assert.True(accessor.SemicolonToken.IsKind(SyntaxKind.SemicolonToken));
+        });
+        Assert.Empty(result.ExternMembers);
+    }
+
+    [Fact]
+    public void An_accessor_modifier_without_a_trimmed_getter_is_not_rewritten()
+    {
+        var result = CompileSource("public class Holder { public int Value { private get; } }");
+
+        Assert.Equal(GenerationReasons.LIBRARY_DOES_NOT_COMPILE, result.Reason);
+        Assert.Null(result.Compilation);
+        Assert.Contains("CS0276", result.Errors);
+        Assert.Empty(result.ExternMembers);
+    }
+
+    [Fact]
+    public void An_explicit_interface_event_in_error_calls_a_bodiless_member()
+    {
+        var result = CompileSource("""
+            public interface ISource { event System.Action Changed; }
+            public class Source : ISource
+            {
+                event System.Action ISource.Changed { add { Missing.Log(value); } remove { } }
+            }
+            """);
+
+        var method = Assert.Single(EventForwarders(result));
+        Assert.False(method.IsStatic);
+        Assert.Equal("Changed__extern", method.Name);
+        Assert.Equal(2, result.ExternBodies);
+    }
+
+    [Fact]
+    public void A_static_explicit_interface_event_in_error_calls_a_static_bodiless_member()
+    {
+        var result = CompileSource("""
+            public interface ISource<T> where T : ISource<T> { static abstract event System.Action Changed; }
+            public class Source : ISource<Source>
+            {
+                static event System.Action ISource<Source>.Changed { add { Missing.Log(value); } remove { } }
+            }
+            """);
+
+        Assert.True(Assert.Single(EventForwarders(result)).IsStatic);
+    }
+
+    [Theory]
+    [InlineData("two-instance", false)]
+    [InlineData("instance-and-static", false)]
+    [InlineData("member", false)]
+    [InlineData("partial", false)]
+    [InlineData("type", false)]
+    [InlineData("type", true)]
+    [InlineData("type-parameter", false)]
+    [InlineData("type-parameter", true)]
+    public void Explicit_interface_events_in_error_get_distinct_bodiless_members(string collision, bool isStatic)
+    {
+        var typeName = collision == "type" ? "Changed__extern" : "Source";
+        var typeParameters = collision == "type-parameter" ? "<Changed__extern>" : "";
+        var type = typeName + typeParameters;
+        var declaration = isStatic ? "static " : "";
+        var contract = isStatic ? $"IStaticSource<{type}>" : "ISource";
+        var otherContract = collision == "instance-and-static" ? $"IStaticSource<{type}>" : "IOtherSource";
+        var secondEvent = collision is "two-instance" or "instance-and-static";
+        var result = CompileSource($$"""
+            public interface ISource { event System.Action Changed; }
+            public interface IOtherSource { event System.Action Changed; }
+            public interface IStaticSource<T> where T : IStaticSource<T> { static abstract event System.Action Changed; }
+            public partial class {{type}} : {{contract}}{{(secondEvent ? ", " + otherContract : "")}}
+            {
+                {{declaration}}event System.Action {{contract}}.Changed { add { Missing.Log(); } remove { } }
+                {{(secondEvent ? (collision == "instance-and-static" ? "static " : "") + "event System.Action " + otherContract + ".Changed { add { } remove { Missing.Log(); } }" : "")}}
+                {{(collision == "member" ? "private void Changed__extern() { } private int Changed__extern1;" : "")}}
+            }
+            {{(collision == "partial" ? "public partial class " + type + " { private int Changed__extern; private void Changed__extern1() { } }" : "")}}
+            """);
+
+        var methods = EventForwarders(result);
+        Assert.Equal(secondEvent ? 2 : 1, methods.Count);
+        Assert.Equal(methods.Count, methods.Select(method => method.Name).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(methods, method =>
+        {
+            Assert.NotEqual(method.ContainingType.Name, method.Name);
+            Assert.DoesNotContain(method.ContainingType.TypeParameters, parameter => parameter.Name == method.Name);
+            Assert.Single(method.ContainingType.GetMembers(method.Name));
+        });
+        Assert.Contains(methods, method => method.Name == (collision is "member" or "partial" ? "Changed__extern2" : "Changed__extern1"));
+    }
+
+    [Fact]
+    public void Subscribing_through_the_interface_to_an_explicit_event_in_error_hands_the_delegate_to_an_opaque_call()
+    {
+        var result = CompileSource("""
+            public sealed class Ledger { public int Total; }
+            public interface ISource { event System.Action Changed; }
+            public sealed class Source : ISource
+            {
+                event System.Action ISource.Changed { add { Missing.Log(value); } remove { } }
+            }
+            """);
+        EventForwarders(result);
+
+        var run = Analyze(result, "ISource source = new Source(); Action handler = () => Shared.Total++; source.Changed += handler; source.Changed -= handler;");
+        var gap = Assert.Single(run.Collection.Coverage.Gaps, gap => gap.Kind == SemanticGapKinds.UNKNOWN_LIBRARY &&
+                                                                   gap.Callee == "Source.Changed__extern(Action)");
+        Assert.Equal(2, gap.CallSites);
+        Assert.Equal(2, gap.Sites.Count);
+        var heap = run.Execution.Heap.Heap;
+        var handoff = Assert.Single(heap.DelegateHandoffs);
+        Assert.Equal(2, handoff.Sites.Count);
+        Assert.Contains(handoff.Sites, site => heap.Instances[site.CallerInstance].BodyId.Contains("add_Changed", StringComparison.Ordinal));
+        Assert.Contains(handoff.Sites, site => heap.Instances[site.CallerInstance].BodyId.Contains("remove_Changed", StringComparison.Ordinal));
+        Assert.EndsWith("#lambda1", heap.Instances[Assert.Single(handoff.Callees)].BodyId, StringComparison.Ordinal);
+    }
+
+    private static IReadOnlyList<IMethodSymbol> EventForwarders(LibraryCompilationResult result)
+    {
+        Assert.True(result.Reason is null, $"{result.Reason}: {string.Join(", ", result.Errors)}");
+        Assert.Empty(result.Compilation!.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        var methods = new List<IMethodSymbol>();
+        foreach (var tree in result.Compilation.SyntaxTrees)
+        {
+            var model = result.Compilation.GetSemanticModel(tree);
+            foreach (var @event in tree.GetRoot().DescendantNodes().OfType<EventDeclarationSyntax>().Where(@event => @event.ExplicitInterfaceSpecifier is not null))
+            {
+                IMethodSymbol? forwarded = null;
+                foreach (var accessor in @event.AccessorList!.Accessors)
+                {
+                    var statement = Assert.IsType<ExpressionStatementSyntax>(Assert.Single(accessor.Body!.Statements));
+                    var call = Assert.IsType<InvocationExpressionSyntax>(statement.Expression);
+                    Assert.Equal("value", Assert.Single(call.ArgumentList.Arguments).Expression.ToString());
+                    var method = Assert.IsAssignableFrom<IMethodSymbol>(model.GetSymbolInfo(call).Symbol);
+                    Assert.True(method.IsExtern);
+                    Assert.Equal(@event.Modifiers.Any(SyntaxKind.StaticKeyword), method.IsStatic);
+                    var declaration = Assert.IsType<MethodDeclarationSyntax>(Assert.Single(method.DeclaringSyntaxReferences).GetSyntax());
+                    Assert.Same(@event.Parent, declaration.Parent);
+                    Assert.Null(declaration.Body);
+                    Assert.Null(declaration.ExpressionBody);
+                    Assert.Contains(method.GetDocumentationCommentId()!, result.ExternMembers);
+                    Assert.Contains(model.GetDeclaredSymbol(accessor)!.GetDocumentationCommentId()!, result.ExternMembers);
+                    if (forwarded is not null)
+                        Assert.True(SymbolEqualityComparer.Default.Equals(forwarded, method));
+                    forwarded = method;
+                }
+                methods.Add(forwarded!);
+            }
+        }
+        return methods;
+    }
+
+    [Fact]
     public void A_custom_event_accessor_in_error_makes_a_field_like_extern_event()
     {
         var result = CompileSource("""

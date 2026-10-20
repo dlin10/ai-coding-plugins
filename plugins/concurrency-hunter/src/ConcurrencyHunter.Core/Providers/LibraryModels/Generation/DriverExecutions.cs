@@ -44,10 +44,14 @@ public sealed class DriverExecutions
     {
         _treeRoots = executions.Executions.ToDictionary(execution => execution.Id, execution => execution.TreeRootId, StringComparer.Ordinal);
         foreach (var action in driver.Actions.Concat(driver.Triggers.Select(trigger => trigger.Action)))
+        {
+            WorkCancellation.Check();
             _actionsByRoot[DriverRootProvider.RootId(action)] = action;
+        }
         foreach (var execution in executions.Executions.Where(execution => execution.Kind == ExecutionKind.UnknownEnumeration &&
                                                                            execution.Subject is { } subject && reachableFromResult.Contains(subject)))
         {
+            WorkCancellation.Check();
             _artefacts.Add(execution.Id);
         }
     }

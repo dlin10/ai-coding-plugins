@@ -43,18 +43,26 @@ public static class FieldSymbols
 
     private static IEnumerable<INamedTypeSymbol> AllTypes(INamespaceOrTypeSymbol container)
     {
+        WorkCancellation.Check();
         foreach (var member in container.GetMembers())
         {
+            WorkCancellation.Check();
             if (member is INamespaceSymbol @namespace)
             {
                 foreach (var type in AllTypes(@namespace))
+                {
+                    WorkCancellation.Check();
                     yield return type;
+                }
             }
             else if (member is INamedTypeSymbol type)
             {
                 yield return type;
                 foreach (var nested in AllTypes(type))
+                {
+                    WorkCancellation.Check();
                     yield return nested;
+                }
             }
         }
     }
@@ -70,6 +78,7 @@ public static class FieldSymbols
         var brackets = 0;
         foreach (var character in identity)
         {
+            WorkCancellation.Check();
             if (character == '[')
                 brackets++;
             else if (character == ']')

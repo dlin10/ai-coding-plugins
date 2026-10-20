@@ -42,6 +42,7 @@ public static class ParameterKinds
     /// <param name="type">The type.</param>
     public static ParameterKind Of(ITypeSymbol type)
     {
+        WorkCancellation.Check();
         switch (TypeShape.Of(type))
         {
             case TypeShapeKind.RefLikeOrPointer:
@@ -79,12 +80,16 @@ public static class ParameterKinds
     /// <summary>Whether a value of <paramref name="type"/> can carry a user object and makes its member a generation candidate: a
     /// <c>Task&lt;T&gt;</c> or <c>ValueTask&lt;T&gt;</c> exactly when its completion type T can, as the value handed directly would.</summary>
     /// <param name="type">The receiver or parameter type.</param>
-    public static bool IsCandidate(ITypeSymbol type) => TypeShape.Of(type) switch
+    public static bool IsCandidate(ITypeSymbol type)
     {
-        TypeShapeKind.Delegate or TypeShapeKind.Reference or TypeShapeKind.StructWithReferences => true,
-        TypeShapeKind.TaskOfT => TaskTypes.CompletionType(type) is { } completion && IsCandidate(completion),
-        _ => false
-    };
+        WorkCancellation.Check();
+        return TypeShape.Of(type) switch
+        {
+            TypeShapeKind.Delegate or TypeShapeKind.Reference or TypeShapeKind.StructWithReferences => true,
+            TypeShapeKind.TaskOfT => TaskTypes.CompletionType(type) is { } completion && IsCandidate(completion),
+            _ => false
+        };
+    }
 
     /// <summary>Whether the type is one of the sequence interfaces axis 4 fills with a list.</summary>
     /// <param name="type">The type.</param>
@@ -138,13 +143,18 @@ internal static class Derivation
         var signatures = new HashSet<string>(StringComparer.Ordinal);
         for (var current = type; current is not null; current = current.BaseType)
         {
+            WorkCancellation.Check();
             foreach (var member in current.GetMembers())
             {
+                WorkCancellation.Check();
                 if (member.IsStatic || member is not (IMethodSymbol { MethodKind: MethodKind.Ordinary } or IPropertySymbol or IEventSymbol))
                     continue;
                 var isOverridden = overridden.Contains(member.OriginalDefinition);
                 for (var hidden = Overridden(member); hidden is not null; hidden = Overridden(hidden))
+                {
+                    WorkCancellation.Check();
                     overridden.Add(hidden.OriginalDefinition);
+                }
                 if (isOverridden || !(member.IsVirtual || member.IsAbstract || member.IsOverride) || member.IsSealed ||
                     member is IMethodSymbol { Name: "Finalize", Parameters.Length: 0 } || !signatures.Add(Signature(member)))
                 {
@@ -171,15 +181,19 @@ internal static class Derivation
 
     /// <summary>Whether code in another assembly, a subclass included, can name the type.</summary>
     /// <param name="type">The type.</param>
-    internal static bool IsVisible(ITypeSymbol type) => type switch
+    internal static bool IsVisible(ITypeSymbol type)
     {
-        IArrayTypeSymbol array => IsVisible(array.ElementType),
-        IPointerTypeSymbol pointer => IsVisible(pointer.PointedAtType),
-        ITypeParameterSymbol or IDynamicTypeSymbol => true,
-        INamedTypeSymbol named => (named.ContainingType is null ? named.DeclaredAccessibility == Accessibility.Public : IsVisibleToSubclass(named.DeclaredAccessibility)) &&
-                                  (named.ContainingType is null || IsVisible(named.ContainingType)) && named.TypeArguments.All(IsVisible),
-        _ => false
-    };
+        WorkCancellation.Check();
+        return type switch
+        {
+            IArrayTypeSymbol array => IsVisible(array.ElementType),
+            IPointerTypeSymbol pointer => IsVisible(pointer.PointedAtType),
+            ITypeParameterSymbol or IDynamicTypeSymbol => true,
+            INamedTypeSymbol named => (named.ContainingType is null ? named.DeclaredAccessibility == Accessibility.Public : IsVisibleToSubclass(named.DeclaredAccessibility)) &&
+                                      (named.ContainingType is null || IsVisible(named.ContainingType)) && named.TypeArguments.All(IsVisible),
+            _ => false
+        };
+    }
 
     /// <summary>Whether every type a member's signature names passes <paramref name="test"/>.</summary>
     /// <param name="member">The member.</param>

@@ -38,13 +38,20 @@ public static class ProgramIndexBuilder
         var sourceTypes = compilations.SelectMany(compilation => SourceTypes(compilation.Assembly.GlobalNamespace)).ToArray();
         var types = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
         foreach (var type in sourceTypes)
+        {
+            WorkCancellation.Check();
             types.TryAdd(SymbolNames.TypeKey(type), type);
+        }
 
         var sourceCompilations = new Dictionary<INamedTypeSymbol, Compilation>(SymbolEqualityComparer.Default);
         foreach (var compilation in compilations)
         {
+            WorkCancellation.Check();
             foreach (var type in SourceTypes(compilation.Assembly.GlobalNamespace))
+            {
+                WorkCancellation.Check();
                 sourceCompilations.TryAdd(type, compilation);
+            }
         }
 
         var closedTypes = new Dictionary<string, ClosedGenericType>(StringComparer.Ordinal);
@@ -52,11 +59,18 @@ public static class ProgramIndexBuilder
         var variantTypes = new Dictionary<string, ProgramVariantType>(StringComparer.Ordinal);
         foreach (var type in sourceTypes)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
+            {
+                WorkCancellation.Check();
                 types.TryAdd(SymbolNames.TypeKey(baseType.OriginalDefinition), baseType.OriginalDefinition);
+            }
             foreach (var @interface in type.AllInterfaces)
+            {
+                WorkCancellation.Check();
                 types.TryAdd(SymbolNames.TypeKey(@interface.OriginalDefinition), @interface.OriginalDefinition);
+            }
             AddMentionedTypes(type, closedTypes, variantTypes);
         }
 
@@ -72,8 +86,10 @@ public static class ProgramIndexBuilder
 
         foreach (var compilation in compilations)
         {
+            WorkCancellation.Check();
             foreach (var mentioned in Mentions.GetValue(compilation, key => Mentioned(key, cancellationToken)))
             {
+                WorkCancellation.Check();
                 symbols.TryAdd(SymbolNames.TypeKey(mentioned.Type), mentioned.Type);
                 if (mentioned.Immutable)
                     AddImmutable(mentioned.Type);
@@ -84,6 +100,7 @@ public static class ProgramIndexBuilder
 
         foreach (var member in sourceTypes.SelectMany(type => type.GetMembers()))
         {
+            WorkCancellation.Check();
             switch (member)
             {
                 case IFieldSymbol field:
@@ -94,7 +111,10 @@ public static class ProgramIndexBuilder
                     break;
                 case IMethodSymbol method:
                     foreach (var parameter in method.Parameters)
+                    {
+                        WorkCancellation.Check();
                         AddImmutable(parameter.Type);
+                    }
                     break;
             }
         }
@@ -103,12 +123,15 @@ public static class ProgramIndexBuilder
         var interfaceMappings = new List<ProgramInterfaceMapping>();
         foreach (var type in sourceTypes)
         {
+            WorkCancellation.Check();
             var typeKey = SymbolNames.TypeKey(type);
             foreach (var @interface in type.AllInterfaces)
             {
+                WorkCancellation.Check();
                 var interfaceKey = SymbolNames.TypeKey(@interface);
                 foreach (var member in @interface.GetMembers().OfType<IMethodSymbol>())
                 {
+                    WorkCancellation.Check();
                     var implementation = type.FindImplementationForInterfaceMember(member) as IMethodSymbol;
                     interfaceMappings.Add(new ProgramInterfaceMapping(typeKey, interfaceKey,
                         IrLowering.RootBodyId(member.OriginalDefinition),
@@ -126,10 +149,13 @@ public static class ProgramIndexBuilder
         }
         foreach (var type in types.Values.Where(type => type.TypeKind != TypeKind.Interface))
         {
+            WorkCancellation.Check();
             foreach (var @interface in type.AllInterfaces)
             {
+                WorkCancellation.Check();
                 foreach (var member in @interface.GetMembers().OfType<IMethodSymbol>())
                 {
+                    WorkCancellation.Check();
                     if (type.FindImplementationForInterfaceMember(member) is not IMethodSymbol implementation)
                         continue;
                     var implementationId = IrLowering.RootBodyId(implementation.OriginalDefinition);
@@ -146,8 +172,10 @@ public static class ProgramIndexBuilder
         var fields = new List<ProgramField>();
         foreach (var (typeKey, type) in types)
         {
+            WorkCancellation.Check();
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 var methodId = IrLowering.RootBodyId(method);
                 if (!methods.ContainsKey(methodId))
@@ -166,7 +194,10 @@ public static class ProgramIndexBuilder
         }
 
         foreach (var (key, type) in types)
+        {
+            WorkCancellation.Check();
             symbols.TryAdd(key, type);
+        }
 
         return new ProgramIndex(scopeId,
                                 types.Select(pair => Type(pair.Key, pair.Value, sourceCompilations.GetValueOrDefault(pair.Value), cancellationToken))
@@ -191,18 +222,31 @@ public static class ProgramIndexBuilder
     {
         IEnumerable<ITypeSymbol> Parts(ITypeSymbol type)
         {
+            WorkCancellation.Check();
             yield return type;
             if (type is IArrayTypeSymbol array)
                 foreach (var part in Parts(array.ElementType))
+                {
+                    WorkCancellation.Check();
                     yield return part;
+                }
             if (type is INamedTypeSymbol named)
             {
                 if (named.ContainingType is { } containing)
                     foreach (var part in Parts(containing))
+                    {
+                        WorkCancellation.Check();
                         yield return part;
+                    }
                 foreach (var argument in named.TypeArguments.Where(argument => argument.TypeKind != TypeKind.TypeParameter))
+                {
+                    WorkCancellation.Check();
                     foreach (var part in Parts(argument))
+                    {
+                        WorkCancellation.Check();
                         yield return part;
+                    }
+                }
             }
         }
         var available = symbols.Values.SelectMany(Parts).Distinct<ITypeSymbol>(SymbolEqualityComparer.Default).ToArray();
@@ -216,6 +260,7 @@ public static class ProgramIndexBuilder
         var answers = new ConcurrentDictionary<(string Type, string Interface), bool>();
         INamedTypeSymbol Construct(INamedTypeSymbol definition, ITypeSymbol[] arguments, ref int offset)
         {
+            WorkCancellation.Check();
             var type = definition.ContainingType is { } containing
                 ? Construct(containing, arguments, ref offset).GetTypeMembers(definition.Name, definition.Arity).Single()
                 : definition;
@@ -225,6 +270,7 @@ public static class ProgramIndexBuilder
         }
         ITypeSymbol? Resolve(string key)
         {
+            WorkCancellation.Check();
             if (resolved.TryGetValue(key, out var known))
                 return known;
             if (key.EndsWith(']') && key.LastIndexOf('[') is var rankStart && rankStart > 0 &&
@@ -265,17 +311,20 @@ public static class ProgramIndexBuilder
         };
     }
 
-    private static ProgramType Type(string typeKey, INamedTypeSymbol type, Compilation? source, CancellationToken cancellationToken) =>
-        new(typeKey, SymbolNames.Type(type), type.ContainingAssembly.Name,
-            type.BaseType is null ? null : SymbolNames.TypeKey(type.BaseType),
-            type.Interfaces.Select(SymbolNames.TypeKey).ToArray(),
-            type.TypeKind == TypeKind.Interface, type.IsAbstract, type.IsSealed, type.TypeKind == TypeKind.Delegate, type.IsValueType,
-            TypeArguments(type).Select(SymbolNames.TypeKey).ToArray())
-        {
-            IsSource = source is not null,
-            InstanceFields = source is null ? [] : InstanceFields(type, source, cancellationToken),
-            IsVisibleOutside = Derivation.IsVisible(type)
-        };
+    private static ProgramType Type(string typeKey, INamedTypeSymbol type, Compilation? source, CancellationToken cancellationToken)
+    {
+        WorkCancellation.Check();
+        return new(typeKey, SymbolNames.Type(type), type.ContainingAssembly.Name,
+                type.BaseType is null ? null : SymbolNames.TypeKey(type.BaseType),
+                type.Interfaces.Select(SymbolNames.TypeKey).ToArray(),
+                type.TypeKind == TypeKind.Interface, type.IsAbstract, type.IsSealed, type.TypeKind == TypeKind.Delegate, type.IsValueType,
+                TypeArguments(type).Select(SymbolNames.TypeKey).ToArray())
+            {
+                IsSource = source is not null,
+                InstanceFields = source is null ? [] : InstanceFields(type, source, cancellationToken),
+                IsVisibleOutside = Derivation.IsVisible(type)
+            };
+    }
 
     /// <summary>The instance fields a source type declares, named as accesses name them: its fields, the backing fields of its
     /// automatic properties and of a record's positional ones, the backing field a property's accessors name with <c>field</c>,
@@ -316,6 +365,7 @@ public static class ProgramIndexBuilder
     private static ProgramMethod Method(IMethodSymbol method, string typeKey, IReadOnlyDictionary<string, List<string>> implementations,
                                         IReadOnlyList<Compilation> compilations, CancellationToken cancellationToken)
     {
+        WorkCancellation.Check();
         var methodId = IrLowering.RootBodyId(method);
         var hasSourceBody = HasSourceBody(method, compilations, cancellationToken);
         return new ProgramMethod(
@@ -382,6 +432,7 @@ public static class ProgramIndexBuilder
     private static IReadOnlyList<string> NestedBodyIds(IMethodSymbol method, IReadOnlyList<Compilation> compilations,
                                                        CancellationToken cancellationToken)
     {
+        WorkCancellation.Check();
         var tree = method.DeclaringSyntaxReferences.FirstOrDefault()?.SyntaxTree ?? method.ContainingType.DeclaringSyntaxReferences[0].SyntaxTree;
         if (CompilationOf(tree, compilations) is not { } compilation)
             return [];
@@ -395,6 +446,7 @@ public static class ProgramIndexBuilder
     /// <param name="cancellationToken">Cancels the walk.</param>
     private static IReadOnlyList<string> NestedBodyIds(IMethodSymbol method, Compilation compilation, CancellationToken cancellationToken)
     {
+        WorkCancellation.Check();
         try
         {
             return IrLowering.NestedBodyIds(method, compilation, cancellationToken)
@@ -422,9 +474,11 @@ public static class ProgramIndexBuilder
         var mentioned = new List<MentionedType>();
         foreach (var tree in compilation.SyntaxTrees)
         {
+            WorkCancellation.Check();
             var model = compilation.GetSemanticModel(tree);
             foreach (var node in tree.GetRoot(cancellationToken).DescendantNodes())
             {
+                WorkCancellation.Check();
                 if (node is GenericNameSyntax name)
                 {
                     var symbol = model.GetSymbolInfo(name, cancellationToken).Symbol;
@@ -437,6 +491,7 @@ public static class ProgramIndexBuilder
                                  _ => []
                              })
                     {
+                        WorkCancellation.Check();
                         mentioned.Add(new MentionedType(argument, Immutable: true, Closed: true));
                     }
                 }
@@ -452,15 +507,25 @@ public static class ProgramIndexBuilder
 
     /// <summary>The closed generic types a source type's declaration mentions: its base types, interfaces, field types and
     /// member signatures.</summary>
+    /// <param name="type">The source type whose declaration is inspected.</param>
+    /// <param name="closedTypes">Receives the closed generic types mentioned.</param>
+    /// <param name="variantTypes">Receives the mentioned types and their supertypes.</param>
     private static void AddMentionedTypes(INamedTypeSymbol type, Dictionary<string, ClosedGenericType> closedTypes,
                                           Dictionary<string, ProgramVariantType> variantTypes)
     {
         for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
+        {
+            WorkCancellation.Check();
             AddClosed(baseType, closedTypes, variantTypes);
+        }
         foreach (var @interface in type.AllInterfaces)
+        {
+            WorkCancellation.Check();
             AddClosed(@interface, closedTypes, variantTypes);
+        }
         foreach (var member in type.GetMembers())
         {
+            WorkCancellation.Check();
             switch (member)
             {
                 case IFieldSymbol field:
@@ -472,7 +537,10 @@ public static class ProgramIndexBuilder
                 case IMethodSymbol method:
                     AddClosed(method.ReturnType, closedTypes, variantTypes);
                     foreach (var parameter in method.Parameters)
+                    {
+                        WorkCancellation.Check();
                         AddClosed(parameter.Type, closedTypes, variantTypes);
+                    }
                     break;
             }
         }
@@ -481,11 +549,15 @@ public static class ProgramIndexBuilder
     private static void AddClosed(ITypeSymbol type, Dictionary<string, ClosedGenericType> closedTypes,
                                   Dictionary<string, ProgramVariantType> variantTypes)
     {
+        WorkCancellation.Check();
         if (type is INamedTypeSymbol namedType && !ContainsTypeParameter(namedType))
         {
             var supertypes = new List<string> { SymbolNames.TypeKey(type) };
             for (var current = namedType.BaseType; current is not null; current = current.BaseType)
+            {
+                WorkCancellation.Check();
                 supertypes.Add(SymbolNames.TypeKey(current));
+            }
             supertypes.AddRange(namedType.AllInterfaces.Select(SymbolNames.TypeKey));
             variantTypes.TryAdd(SymbolNames.TypeKey(type), new ProgramVariantType(SymbolNames.TypeKey(type), type.IsReferenceType, supertypes));
         }
@@ -496,7 +568,10 @@ public static class ProgramIndexBuilder
                 break;
             case INamedTypeSymbol named:
                 foreach (var argument in TypeArguments(named))
+                {
+                    WorkCancellation.Check();
                     AddClosed(argument, closedTypes, variantTypes);
+                }
                 if (!SymbolEqualityComparer.Default.Equals(named, named.OriginalDefinition) && !named.IsUnboundGenericType &&
                     !TypeArguments(named).Any(ContainsTypeParameter))
                 {
@@ -509,16 +584,24 @@ public static class ProgramIndexBuilder
     }
 
     /// <summary>The type arguments of a type and of the types containing it, outermost first.</summary>
-    private static IEnumerable<ITypeSymbol> TypeArguments(INamedTypeSymbol type) =>
-        (type.ContainingType is { } containing ? TypeArguments(containing) : []).Concat(type.TypeArguments);
-
-    private static bool ContainsTypeParameter(ITypeSymbol type) => type switch
+    /// <param name="type">The type whose arguments and containing types are inspected.</param>
+    private static IEnumerable<ITypeSymbol> TypeArguments(INamedTypeSymbol type)
     {
-        ITypeParameterSymbol => true,
-        IArrayTypeSymbol array => ContainsTypeParameter(array.ElementType),
-        INamedTypeSymbol named => TypeArguments(named).Any(ContainsTypeParameter),
-        _ => false
-    };
+        WorkCancellation.Check();
+        return (type.ContainingType is { } containing ? TypeArguments(containing) : []).Concat(type.TypeArguments);
+    }
+
+    private static bool ContainsTypeParameter(ITypeSymbol type)
+    {
+        WorkCancellation.Check();
+        return type switch
+        {
+            ITypeParameterSymbol => true,
+            IArrayTypeSymbol array => ContainsTypeParameter(array.ElementType),
+            INamedTypeSymbol named => TypeArguments(named).Any(ContainsTypeParameter),
+            _ => false
+        };
+    }
 
     private static ProgramMethodKind Kind(IMethodSymbol method) => method.MethodKind switch
     {
@@ -543,12 +626,16 @@ public static class ProgramIndexBuilder
     {
         foreach (var type in @namespace.GetTypeMembers().SelectMany(NestedAndSelf))
         {
+            WorkCancellation.Check();
             if (type.DeclaringSyntaxReferences.Length != 0)
                 yield return type;
         }
 
         foreach (var nested in @namespace.GetNamespaceMembers().SelectMany(SourceTypes))
+        {
+            WorkCancellation.Check();
             yield return nested;
+        }
     }
 
     private static IEnumerable<INamedTypeSymbol> NestedAndSelf(INamedTypeSymbol type) =>

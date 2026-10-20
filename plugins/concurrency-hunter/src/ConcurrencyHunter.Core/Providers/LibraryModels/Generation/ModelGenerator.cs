@@ -148,7 +148,9 @@ public static class ModelGenerator
     internal static GenerationTrace Trace(GenerationRequest request, ImplementationAssemblies resolver, CancellationToken cancellationToken,
                                           Action<GenerationStage, int>? checkReported = null)
     {
-        var checks = new GenerationChecks(cancellationToken, checkReported);
+        using var work = WorkCancellation.Enter(cancellationToken);
+        GenerationChecks checks = new(WorkCancellation.Token, checkReported);
+        checks.Check(GenerationStage.Resolve);
         var facts = new Facts(request);
         if (Unnamed(facts) is { } unnamed)
             return unnamed;
@@ -179,12 +181,14 @@ public static class ModelGenerator
     internal static GenerationTrace Trace(GenerationRequest request, LibraryCompilationResult library, CancellationToken cancellationToken,
                                           LibraryModels? models = null, Action<GenerationStage, int>? checkReported = null)
     {
+        using var work = WorkCancellation.Enter(cancellationToken);
         var facts = new Facts(request);
-        return Unnamed(facts) ?? Classify(facts, library, new GenerationChecks(cancellationToken, checkReported), models);
+        return Unnamed(facts) ?? Classify(facts, library, new GenerationChecks(WorkCancellation.Token, checkReported), models);
     }
 
     private static GenerationTrace Classify(Facts facts, LibraryCompilationResult library, GenerationChecks checks, LibraryModels? models = null)
     {
+        WorkCancellation.Check();
         facts.ExternBodies = library.ExternBodies;
         if (library.Compilation is not { } compilation)
             return facts.Refused(library.Reason ?? GenerationReasons.LIBRARY_DOES_NOT_COMPILE, string.Join(", ", library.Errors));
@@ -249,6 +253,7 @@ public static class ModelGenerator
         {
             while (true)
             {
+                WorkCancellation.Check();
                 run = Pipeline(triggers: false, GenerationStage.Analyze);
                 dropped.UnionWith(run.LoweringDiagnostics);
                 run = run with { LoweringDiagnostics = dropped.ToArray() };
@@ -419,12 +424,16 @@ public static class ModelGenerator
     private static bool IsDiagnostics(INamedTypeSymbol type)
     {
         while (type.ContainingType is { } containing)
+        {
+            WorkCancellation.Check();
             type = containing;
+        }
         var space = type.ContainingNamespace.ToDisplayString();
         if (space == TRACING || (space == "System.Diagnostics" && type.Name is "StackTrace" or "StackFrame" or "StackFrameHelper"))
             return true;
         for (var baseType = type.BaseType; baseType is not null; baseType = baseType.BaseType)
         {
+            WorkCancellation.Check();
             if (baseType.Name == "EventSource" && baseType.ContainingNamespace.ToDisplayString() == TRACING)
                 return true;
         }
@@ -463,6 +472,7 @@ public static class ModelGenerator
         var effects = new List<LibraryEffect>();
         foreach (var (parameter, observed) in reader.Effects)
         {
+            WorkCancellation.Check();
             foreach (var effect in observed)
             {
                 checks.Check(GenerationStage.BuildModel);
@@ -548,16 +558,20 @@ public static class ModelGenerator
         });
     }
 
-    private static bool NamesElements(LibraryValue value, string parameter) => value switch
+    private static bool NamesElements(LibraryValue value, string parameter)
     {
-        ElementsValue { Source: ArgumentValue argument } when argument.Parameter == parameter => true,
-        ElementsValue elements => NamesElements(elements.Source, parameter),
-        SequenceValue sequence => sequence.Values.Any(item => NamesElements(item, parameter)),
-        GroupingValue grouping => NamesElements(grouping.Key, parameter) || NamesElements(grouping.Values, parameter),
-        // A completion value is what a task completes with, never the elements of the argument that names the task.
-        CompletionValue => false,
-        _ => false
-    };
+        WorkCancellation.Check();
+        return value switch
+        {
+            ElementsValue { Source: ArgumentValue argument } when argument.Parameter == parameter => true,
+            ElementsValue elements => NamesElements(elements.Source, parameter),
+            SequenceValue sequence => sequence.Values.Any(item => NamesElements(item, parameter)),
+            GroupingValue grouping => NamesElements(grouping.Key, parameter) || NamesElements(grouping.Values, parameter),
+            // A completion value is what a task completes with, never the elements of the argument that names the task.
+            CompletionValue => false,
+            _ => false
+        };
+    }
 
     /// <summary>The built-in models without those whose assembly ranges name the implementation assembly: the built-in layer serves only
     /// calls that leave the decompiled assembly, so a member of it made <c>extern</c> stays an opaque call.</summary>

@@ -10,6 +10,9 @@ internal static class ProviderSupport
     /// <summary>One <see cref="RootDiscoveryDiagnosticCode.UnsupportedAssemblyVersion"/> per compilation and referenced assembly of
     /// <paramref name="ranges"/> whose version is outside its range, and the compilations with at least one such assembly, which
     /// root discovery skips.</summary>
+    /// <param name="context">The root discovery context whose references are inspected.</param>
+    /// <param name="providerId">The provider reporting the diagnostics.</param>
+    /// <param name="ranges">The supported versions of the assemblies the provider recognizes.</param>
     internal static (List<RootDiscoveryDiagnostic> Diagnostics, IReadOnlySet<Compilation> Skipped) VersionDiagnostics(
         RootDiscoveryContext context, string providerId, IReadOnlyList<SupportedAssemblyVersion> ranges)
     {
@@ -17,9 +20,11 @@ internal static class ProviderSupport
         var skipped = new HashSet<Compilation>();
         foreach (var compilation in context.Compilations)
         {
+            WorkCancellation.Check();
             var reported = new HashSet<string>(StringComparer.Ordinal);
             foreach (var range in ranges)
             {
+                WorkCancellation.Check();
                 var assembly = ExactSymbols.FindReferencedAssembly(compilation, range.AssemblyName);
                 if (assembly is null || range.Contains(assembly.Identity.Version) || !reported.Add(assembly.Identity.Name))
                     continue;
@@ -69,6 +74,7 @@ internal static class ProviderSupport
     {
         for (var current = type; current is not null && baseType is not null; current = current.BaseType)
         {
+            WorkCancellation.Check();
             if (SymbolEqualityComparer.Default.Equals(current.OriginalDefinition, baseType))
                 return true;
         }
@@ -80,6 +86,7 @@ internal static class ProviderSupport
     {
         for (IMethodSymbol? current = method; current is not null; current = current.OverriddenMethod)
         {
+            WorkCancellation.Check();
             if (SymbolEqualityComparer.Default.Equals(current.OriginalDefinition, baseMethod.OriginalDefinition))
                 return true;
         }

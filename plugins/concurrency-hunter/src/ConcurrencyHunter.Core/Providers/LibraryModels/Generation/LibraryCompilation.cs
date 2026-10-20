@@ -46,6 +46,9 @@ public sealed record DecompiledModule(IReadOnlyList<SyntaxTree> Trees, IReadOnly
 /// <summary>What a test hooks into one library compilation to hold it at a known place; <c>null</c> in production.</summary>
 internal sealed class LibraryCompilationProbe
 {
+    /// <summary>Told the full name of each type a worker starts, before its cancellation check.</summary>
+    public Action<string>? TypeStarting { get; init; }
+
     /// <summary>Told the full name of each type after its output pass, on the worker that printed it.</summary>
     public Action<string>? TypePrinted { get; init; }
 
@@ -86,6 +89,7 @@ public static class LibraryCompilation
     /// dependency paths.</summary>
     /// <param name="assembly">The implementation assembly, not a reference assembly.</param>
     /// <param name="cancellationToken">Cancels the decompilation and the compilation.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public static LibraryCompilationResult Compile(ImplementationAssembly assembly, CancellationToken cancellationToken) =>
         Compile(assembly, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
 
@@ -93,6 +97,7 @@ public static class LibraryCompilation
     /// <param name="assembly">The implementation assembly.</param>
     /// <param name="selectedMembers">Documentation ids of whole members to make extern.</param>
     /// <param name="cancellationToken">Cancels the decompilation and compilation.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     internal static LibraryCompilationResult Compile(ImplementationAssembly assembly, IReadOnlySet<string> selectedMembers,
                                                      CancellationToken cancellationToken) =>
         Compile(assembly, selectedMembers, new GenerationChecks(cancellationToken));
@@ -101,6 +106,7 @@ public static class LibraryCompilation
     /// <param name="assembly">The implementation assembly, not a reference assembly.</param>
     /// <param name="checks">The generation's checks, which cancel the decompilation, the rewrite rounds, the compilation and the wait for
     /// one another caller started.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     internal static LibraryCompilationResult Compile(ImplementationAssembly assembly, GenerationChecks checks) =>
         Compile(assembly, new HashSet<string>(StringComparer.Ordinal), checks);
 
@@ -125,6 +131,7 @@ public static class LibraryCompilation
                   "\nextern:\n" + Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", selection.Order(StringComparer.Ordinal))));
         while (true)
         {
+            checks.Check(GenerationStage.CompileLibrary);
             // The value overload: the factory overload may run for several callers, and only the caller whose instance the cache holds
             // owns the entry it records.
             var created = Started(key, assembly, selection, checks, probe);
@@ -147,6 +154,7 @@ public static class LibraryCompilation
     /// <summary>Removes the entries a run created from the cache (R12), each only while its key still maps to the instance the run added:
     /// an entry that left the cache and was created again by another caller stays.</summary>
     /// <param name="created">The entries the run's <see cref="CompilationOwnership"/> recorded.</param>
+    // cleanup: удаляет записи кеша, созданные раном, и после отмены
     internal static void Release(IEnumerable<OwnedCompilation> created)
     {
         foreach (var (key, entry) in created)
@@ -193,11 +201,12 @@ public static class LibraryCompilation
     /// dropped silently.</summary>
     /// <param name="assembly">The implementation assembly.</param>
     /// <param name="cancellationToken">Cancels the decompilation.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     internal static DecompiledModule Decompile(ImplementationAssembly assembly, CancellationToken cancellationToken) =>
         Decompile(assembly, new GenerationChecks(cancellationToken));
 
     /// <summary>Decompiles the whole module in memory (<see cref="Decompile(ImplementationAssembly, CancellationToken)"/>) as a stage of
-    /// a generation. Each worker checks before the output pass of its type, and a cancelled decompilation throws
+    /// a generation. Each worker checks at the start of its type and before its output pass, and a cancelled decompilation throws
     /// <see cref="OperationCanceledException"/>, never an <see cref="AggregateException"/> of them; the output a worker is printing when
     /// the token fires runs to its end, at most one type per worker.</summary>
     /// <param name="assembly">The implementation assembly.</param>
@@ -226,11 +235,13 @@ public static class LibraryCompilation
             var fullName = metadata.GetString(definition.Namespace) is { Length: > 0 } ns
                 ? ns + "." + metadata.GetString(definition.Name)
                 : metadata.GetString(definition.Name);
-            var name = string.Concat(fullName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
-            var decompiler = project.Create(typeSystem);
-            decompiler.CancellationToken = cancellationToken;
+            probe?.TypeStarting?.Invoke(fullName);
             try
             {
+                checks.Check(GenerationStage.CompileLibrary);
+                var name = string.Concat(fullName.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+                var decompiler = project.Create(typeSystem);
+                decompiler.CancellationToken = cancellationToken;
                 trees[index] = Parse(decompiler.DecompileTypes([types[index]]), settings, $"{assembly.AssemblyName}/{name}.cs", checks);
                 probe?.TypePrinted?.Invoke(fullName);
             }
@@ -243,6 +254,7 @@ public static class LibraryCompilation
                 failures[index] = $"{fullName}: {error.GetType().Name}: {error.Message}";
             }
         });
+        WorkCancellation.Check();
         cancellationToken.ThrowIfCancellationRequested();
 
         var attributes = project.Create(typeSystem);
@@ -259,6 +271,7 @@ public static class LibraryCompilation
     /// <param name="references">The references of the platform version.</param>
     /// <param name="cancellationToken">Cancels the compilation.</param>
     /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     internal static LibraryCompilationResult CompileModule(string assemblyName, DecompiledModule module, IReadOnlyList<MetadataReference> references,
                                                            CancellationToken cancellationToken, IReadOnlySet<string>? selectedMembers = null) =>
         CompileModule(assemblyName, module, references, new GenerationChecks(cancellationToken), selectedMembers);
@@ -294,6 +307,7 @@ public static class LibraryCompilation
     /// <param name="cancellationToken">Cancels the compilation.</param>
     /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
     /// <param name="openFields">Whether to open seed and path fields for the model driver.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     internal static LibraryCompilationResult CompileTrees(string assemblyName, IReadOnlyList<SyntaxTree> trees,
                                                           IReadOnlyList<MetadataReference> references, CancellationToken cancellationToken,
                                                           IReadOnlySet<string>? selectedMembers = null, bool openFields = true) =>
@@ -317,6 +331,7 @@ public static class LibraryCompilation
                                                    new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
                                                                                 nullableContextOptions: NullableContextOptions.Disable));
         var externMembers = new SortedSet<string>(StringComparer.Ordinal);
+        var issuedNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         var externBodies = 0;
         if (selectedMembers is { Count: > 0 })
         {
@@ -330,6 +345,7 @@ public static class LibraryCompilation
                 while (root.DescendantNodes().OfType<EventFieldDeclarationSyntax>()
                            .FirstOrDefault(field => field.Declaration.Variables.Count > 1 && Selected(field, model, selectedMembers, cancellationToken)) is { } field)
                 {
+                    WorkCancellation.Check();
                     cancellationToken.ThrowIfCancellationRequested();
                     root = root.ReplaceNode(field, field.Declaration.Variables.Select(variable =>
                         field.WithDeclaration(field.Declaration.WithVariables(SingletonSeparatedList(variable)))));
@@ -347,12 +363,16 @@ public static class LibraryCompilation
                     continue;
                 foreach (var field in members.OfType<EventFieldDeclarationSyntax>())
                 {
+                    WorkCancellation.Check();
                     foreach (var variable in field.Declaration.Variables)
+                    {
+                        WorkCancellation.Check();
                         externMembers.UnionWith(DeclaredSymbols(model.GetDeclaredSymbol(variable, cancellationToken)));
+                    }
                 }
 
                 var (rewritten, removed) = Rewrite(root, members, new HashSet<(TypeDeclarationSyntax, bool)>(), model,
-                                                   externMembers, cancellationToken);
+                                                   externMembers, issuedNames, cancellationToken);
                 externBodies += removed;
                 compilation = compilation.ReplaceSyntaxTree(currentTree, CSharpSyntaxTree.ParseText(rewritten.ToFullString(), (CSharpParseOptions)currentTree.Options,
                                                                                                       currentTree.FilePath, cancellationToken: cancellationToken));
@@ -378,8 +398,11 @@ public static class LibraryCompilation
             if (members.Count == 0)
                 continue;
             foreach (var member in members)
+            {
+                WorkCancellation.Check();
                 replacedMembers.UnionWith(DeclaredSymbols(model.GetDeclaredSymbol(member, cancellationToken)));
-            var (rewritten, removed) = Rewrite(root, members, new HashSet<(TypeDeclarationSyntax, bool)>(), model, externMembers, cancellationToken);
+            }
+            var (rewritten, removed) = Rewrite(root, members, new HashSet<(TypeDeclarationSyntax, bool)>(), model, externMembers, issuedNames, cancellationToken);
             externBodies += removed;
             compilation = compilation.ReplaceSyntaxTree(tree, CSharpSyntaxTree.ParseText(rewritten.ToFullString(), (CSharpParseOptions)tree.Options,
                                                                                            tree.FilePath, cancellationToken: cancellationToken));
@@ -389,9 +412,13 @@ public static class LibraryCompilation
         {
             checks.Check(GenerationStage.CompileLibrary);
             var targets = new Targets();
+            issuedNames.Clear();
             var unusable = new SortedSet<string>(StringComparer.Ordinal);
-            foreach (var error in compilation.GetDiagnostics(cancellationToken).Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
+            // Getter targets are known before CS0276 is assigned to the same property, regardless of diagnostic order.
+            foreach (var error in compilation.GetDiagnostics(cancellationToken).Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+                                             .OrderBy(error => error.Id == "CS8051" ? 0 : 1))
             {
+                WorkCancellation.Check();
                 if (!targets.Add(error) && !BenignDeclarationErrors.Contains(error.Id))
                     unusable.Add(error.Id);
             }
@@ -417,9 +444,10 @@ public static class LibraryCompilation
 
             foreach (var tree in targets.Trees)
             {
+                WorkCancellation.Check();
                 var model = compilation.GetSemanticModel(tree);
                 var (rewritten, removed) = Rewrite(tree.GetRoot(cancellationToken), targets.MembersOf(tree), targets.InitializersOf(tree), model,
-                                                   externMembers, cancellationToken);
+                                                   externMembers, issuedNames, cancellationToken, targets.GettersOf(tree));
                 externBodies += removed;
                 compilation = compilation.ReplaceSyntaxTree(tree, CSharpSyntaxTree.ParseText(rewritten.ToFullString(), (CSharpParseOptions)tree.Options,
                                                                                                tree.FilePath, cancellationToken: cancellationToken));
@@ -447,7 +475,10 @@ public static class LibraryCompilation
             }
             : null);
         while (only is RefExpressionSyntax reference)
+        {
+            WorkCancellation.Check();
             only = reference.Expression;
+        }
         if (only is not InvocationExpressionSyntax invocation)
             return null;
         var name = invocation.Expression switch
@@ -505,51 +536,106 @@ public static class LibraryCompilation
         _ => false
     };
 
-    /// <summary>Rewrites one tree: each member in error made <c>extern</c>, and each type with an initializer in error stripped of
-    /// that kind's initializers, its constructors of that kind made <c>extern</c>.</summary>
+    /// <summary>Rewrites one tree: failing bodies become opaque, trimmed auto-properties gain a getter, and each type with an
+    /// initializer in error loses that kind's initializers and gets bodiless constructors of that kind.</summary>
     /// <param name="root">The tree's root.</param>
     /// <param name="members">The members whose bodies are in error.</param>
     /// <param name="initializers">The types with an initializer in error, with the kind: static or instance.</param>
     /// <param name="model">The semantic model of the tree before the rewrite.</param>
     /// <param name="externMembers">Receives the documentation ids of the members made <c>extern</c>.</param>
+    /// <param name="issuedNames">The helper names already issued to each type in this rewrite round, across its partial declarations.</param>
     /// <param name="cancellationToken">Cancels the rewrite.</param>
+    /// <param name="getters">The trimmed auto-properties that receive a getter without losing their auto setter.</param>
     private static (SyntaxNode Root, int RemovedBodies) Rewrite(SyntaxNode root, IReadOnlySet<MemberDeclarationSyntax> members,
                                                                 IReadOnlySet<(TypeDeclarationSyntax Type, bool Static)> initializers,
                                                                 SemanticModel model, ISet<string> externMembers,
-                                                                CancellationToken cancellationToken)
+                                                                Dictionary<string, HashSet<string>> issuedNames, CancellationToken cancellationToken,
+                                                                IReadOnlySet<PropertyDeclarationSyntax>? getters = null)
     {
         var removed = new HashSet<SyntaxNode>();
+        var eventNames = new Dictionary<EventDeclarationSyntax, string>();
+        var helpers = new Dictionary<TypeDeclarationSyntax, List<MethodDeclarationSyntax>>();
         foreach (var member in members)
         {
+            WorkCancellation.Check();
             removed.UnionWith(member.DescendantNodesAndSelf().Where(IsBody));
             foreach (var symbol in DeclaredSymbols(model.GetDeclaredSymbol(member, cancellationToken)))
+            {
+                WorkCancellation.Check();
                 externMembers.Add(symbol);
+            }
+            if (member is EventDeclarationSyntax { ExplicitInterfaceSpecifier: not null, Parent: TypeDeclarationSyntax type } @event &&
+                model.GetDeclaredSymbol(@event, cancellationToken) is IEventSymbol { AddMethod: { } add } eventSymbol)
+            {
+                var owner = eventSymbol.ContainingType;
+                var typeId = owner.GetDocumentationCommentId()!;
+                if (!issuedNames.TryGetValue(typeId, out var names))
+                {
+                    names = owner.MemberNames.Concat(owner.TypeParameters.Select(parameter => parameter.Name)).Append(owner.Name)
+                                 .ToHashSet(StringComparer.Ordinal);
+                    issuedNames.Add(typeId, names);
+                }
+                var stem = @event.Identifier.ValueText + "__extern";
+                var name = stem;
+                for (var suffix = 1; !names.Add(name); suffix++)
+                {
+                    WorkCancellation.Check();
+                    name = stem + suffix.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+                eventNames.Add(@event, name);
+                var modifiers = IsStatic(@event.Modifiers) ? TokenList(Token(SyntaxKind.StaticKeyword), Token(SyntaxKind.ExternKeyword))
+                                                          : TokenList(Token(SyntaxKind.ExternKeyword));
+                var helper = MethodDeclaration(PredefinedType(Token(SyntaxKind.VoidKeyword)), name).WithModifiers(modifiers)
+                    .WithParameterList(ParameterList(SingletonSeparatedList(Parameter(Identifier("value")).WithType(@event.Type))))
+                    .WithSemicolonToken(Token(SyntaxKind.SemicolonToken));
+                if (!helpers.TryGetValue(type, out var declarations))
+                    helpers[type] = declarations = [];
+                declarations.Add(helper);
+                var accessorId = add.GetDocumentationCommentId()!;
+                externMembers.Add($"M:{typeId[2..]}.{name}{accessorId[accessorId.IndexOf('(')..]}");
+            }
         }
 
         foreach (var (type, isStatic) in initializers)
         {
+            WorkCancellation.Check();
             removed.UnionWith(type.Members.OfType<ConstructorDeclarationSyntax>().Where(constructor => IsStatic(constructor.Modifiers) == isStatic && IsBody(constructor)));
             if (model.GetDeclaredSymbol(type, cancellationToken) is not { } typeSymbol)
                 continue;
             var constructors = isStatic ? typeSymbol.StaticConstructors : typeSymbol.InstanceConstructors;
             foreach (var constructor in constructors)
+            {
+                WorkCancellation.Check();
                 externMembers.Add(constructor.GetDocumentationCommentId()!);
+            }
             if (constructors.IsEmpty)
                 externMembers.Add($"M:{typeSymbol.GetDocumentationCommentId()![2..]}.{(isStatic ? "#cctor" : "#ctor")}");
         }
 
-        var rewritten = root.ReplaceNodes(members.Cast<SyntaxNode>().Concat(initializers.Select(initializer => initializer.Type)).Distinct(),
+        var rewritten = root.ReplaceNodes(members.Cast<SyntaxNode>().Concat(initializers.Select(initializer => initializer.Type))
+                                                .Concat(helpers.Keys).Concat(getters?.Cast<SyntaxNode>() ?? []).Distinct(),
                                           (original, current) =>
                                           {
                                               if (original is TypeDeclarationSyntax type && current is TypeDeclarationSyntax currentType &&
                                                   !members.Contains(type))
                                               {
                                                   foreach (var (_, isStatic) in initializers.Where(initializer => initializer.Type == type))
+                                                  {
+                                                      WorkCancellation.Check();
                                                       currentType = WithoutInitializers(currentType, isStatic);
+                                                  }
+                                                  if (helpers.TryGetValue(type, out var declarations))
+                                                      currentType = currentType.AddMembers(declarations.Select(declaration =>
+                                                          declaration.NormalizeWhitespace().WithLeadingTrivia(LineFeed).WithTrailingTrivia(LineFeed)).ToArray());
                                                   return currentType;
                                               }
 
-                                              return Extern((MemberDeclarationSyntax)current);
+                                              if (original is PropertyDeclarationSyntax property && getters?.Contains(property) == true)
+                                                  return ((PropertyDeclarationSyntax)current).AddAccessorListAccessors(
+                                                      AccessorDeclaration(SyntaxKind.GetAccessorDeclaration).WithSemicolonToken(Token(SyntaxKind.SemicolonToken)))
+                                                      .NormalizeWhitespace().WithLeadingTrivia(LineFeed).WithTrailingTrivia(LineFeed);
+                                              return Extern((MemberDeclarationSyntax)current,
+                                                            original is EventDeclarationSyntax @event ? eventNames.GetValueOrDefault(@event) : null);
                                           });
         return (rewritten, removed.Count);
     }
@@ -563,9 +649,10 @@ public static class LibraryCompilation
 
     /// <summary>A member without its body: a method, operator, conversion or destructor gains <c>extern</c> and loses <c>async</c>;
     /// a constructor also loses its initializer; a property or indexer gets bodiless accessors; an event with accessors becomes a
-    /// field-like <c>extern</c> event.</summary>
+    /// field-like <c>extern</c> event, or forwards to a bodiless helper when it explicitly implements an interface event.</summary>
     /// <param name="member">The member.</param>
-    private static MemberDeclarationSyntax Extern(MemberDeclarationSyntax member)
+    /// <param name="eventHelper">The bodiless helper an explicit interface event forwards its value to.</param>
+    private static MemberDeclarationSyntax Extern(MemberDeclarationSyntax member, string? eventHelper = null)
     {
         var semicolon = Token(SyntaxKind.SemicolonToken);
         MemberDeclarationSyntax bodiless = member switch
@@ -582,6 +669,10 @@ public static class LibraryCompilation
                                                        .WithModifiers(ExternModifiers(indexer.Modifiers)),
             EventFieldDeclarationSyntax field => field.WithModifiers(ExternModifiers(field.Modifiers))
                                                       .WithDeclaration(WithoutInitializers(field.Declaration)),
+            EventDeclarationSyntax { ExplicitInterfaceSpecifier: not null } @event => @event.WithAccessorList(
+                AccessorList(List(@event.AccessorList!.Accessors.Select(accessor => accessor.WithExpressionBody(null).WithSemicolonToken(default)
+                    .WithBody(Block(ExpressionStatement(InvocationExpression(IdentifierName(eventHelper!))
+                        .WithArgumentList(ArgumentList(SingletonSeparatedList(Argument(IdentifierName("value")))))))))))),
             EventDeclarationSyntax @event => EventFieldDeclaration(@event.AttributeLists, ExternModifiers(@event.Modifiers),
                                                                    VariableDeclaration(@event.Type, SingletonSeparatedList(VariableDeclarator(@event.Identifier)))),
             _ => member
@@ -608,6 +699,7 @@ public static class LibraryCompilation
     /// <param name="isStatic">Whether the static initializers and constructor are meant, else the instance ones.</param>
     private static TypeDeclarationSyntax WithoutInitializers(TypeDeclarationSyntax type, bool isStatic)
     {
+        WorkCancellation.Check();
         var members = type.Members.Select(member => member switch
         {
             FieldDeclarationSyntax field when !field.Modifiers.Any(SyntaxKind.ConstKeyword) && IsStatic(field.Modifiers) == isStatic =>
@@ -633,40 +725,60 @@ public static class LibraryCompilation
 
     private static bool IsStatic(SyntaxTokenList modifiers) => modifiers.Any(SyntaxKind.StaticKeyword);
 
-    /// <summary>The members and type initializers the errors of one compilation are in, by tree.</summary>
+    /// <summary>The failing bodies, initializers and trimmed auto-properties of one compilation, by tree.</summary>
     private sealed class Targets
     {
         private readonly Dictionary<SyntaxTree, HashSet<MemberDeclarationSyntax>> _members = [];
+        private readonly Dictionary<SyntaxTree, HashSet<PropertyDeclarationSyntax>> _getters = [];
         private readonly Dictionary<SyntaxTree, HashSet<(TypeDeclarationSyntax Type, bool Static)>> _initializers = [];
         private readonly SortedSet<string> _codes = new(StringComparer.Ordinal);
 
-        public bool IsEmpty => _members.Count == 0 && _initializers.Count == 0;
+        public bool IsEmpty => _members.Count == 0 && _initializers.Count == 0 && _getters.Count == 0;
 
-        public IEnumerable<SyntaxTree> Trees => _members.Keys.Union(_initializers.Keys).ToArray();
+        public IEnumerable<SyntaxTree> Trees => _members.Keys.Union(_initializers.Keys).Union(_getters.Keys).ToArray();
 
         public IEnumerable<string> Codes => _codes;
 
         public IReadOnlySet<MemberDeclarationSyntax> MembersOf(SyntaxTree tree) => _members.GetValueOrDefault(tree) ?? [];
 
+        public IReadOnlySet<PropertyDeclarationSyntax> GettersOf(SyntaxTree tree) => _getters.GetValueOrDefault(tree) ?? [];
+
         public IReadOnlySet<(TypeDeclarationSyntax Type, bool Static)> InitializersOf(SyntaxTree tree) => _initializers.GetValueOrDefault(tree) ?? [];
 
-        /// <summary>Records the member or initializer an error is in; <c>false</c> for an error outside every body.</summary>
+        /// <summary>Records a failing body or initializer, or a trimmed auto-property; <c>false</c> for other declaration errors.</summary>
         /// <param name="error">The error.</param>
         public bool Add(Diagnostic error)
         {
+            WorkCancellation.Check();
             if (error.Location.SourceTree is not { } tree)
                 return false;
             var span = error.Location.SourceSpan;
             var flow = FlowErrors.Contains(error.Id);
-            foreach (var node in tree.GetRoot().FindNode(span, getInnermostNodeForTie: true).AncestorsAndSelf())
+            var location = tree.GetRoot().FindNode(span, getInnermostNodeForTie: true);
+            if (error.Id is "CS8051" or "CS0276" && location.AncestorsAndSelf().OfType<PropertyDeclarationSyntax>().FirstOrDefault() is { } property)
             {
+                if (error.Id == "CS8051" && property.AccessorList?.Accessors is [{ Body: null, ExpressionBody: null } setter] &&
+                    setter.Kind() is SyntaxKind.SetAccessorDeclaration or SyntaxKind.InitAccessorDeclaration)
+                {
+                    if (!_getters.TryGetValue(tree, out var getters))
+                        _getters[tree] = getters = [];
+                    getters.Add(property);
+                    _codes.Add(error.Id);
+                    return true;
+                }
+                if (error.Id == "CS0276" && GettersOf(tree).Contains(property))
+                    return true;
+            }
+            foreach (var node in location.AncestorsAndSelf())
+            {
+                WorkCancellation.Check();
                 switch (node)
                 {
                     case AccessorDeclarationSyntax accessor:
-                        if (accessor.Parent?.Parent is not BasePropertyDeclarationSyntax property ||
+                        if (accessor.Parent?.Parent is not BasePropertyDeclarationSyntax accessorOwner ||
                             !flow && !Within(accessor.Body, span) && !Within(accessor.ExpressionBody, span))
                             return false;
-                        return AddMember(tree, property, error.Id);
+                        return AddMember(tree, accessorOwner, error.Id);
                     case ArrowExpressionClauseSyntax { Parent: MemberDeclarationSyntax arrowOwner } when arrowOwner is PropertyDeclarationSyntax or IndexerDeclarationSyntax:
                         return AddMember(tree, arrowOwner, error.Id);
                     case BaseMethodDeclarationSyntax method:
@@ -731,6 +843,7 @@ public static class LibraryCompilation
         {
             foreach (var reference in references)
             {
+                WorkCancellation.Check();
                 if (AssemblyFile.Read(reference) is { } file)
                     _paths.TryAdd(file.Name, reference);
             }
@@ -750,6 +863,7 @@ public static class LibraryCompilation
         /// <summary>A snapshot changes nothing: the references are fixed for the resolver's life.</summary>
         public IDisposable BeginSnapshot() => new Snapshot();
 
+        // bounded: forwards disposal to the opened PE files, without re-entering this resolver.
         public void Dispose()
         {
             foreach (var opened in _opened.Values.Where(opened => opened.IsValueCreated))

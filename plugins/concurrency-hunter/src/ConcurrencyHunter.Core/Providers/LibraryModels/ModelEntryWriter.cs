@@ -46,6 +46,7 @@ internal static class ModelEntryWriter
             var fates = new JsonObject();
             foreach (var fate in model.Fates.OrderBy(fate => fate.Parameter, StringComparer.Ordinal))
             {
+                WorkCancellation.Check();
                 checks?.Check(GenerationStage.BuildModel);
                 var value = new JsonObject { ["fate"] = LibraryFate.Text(fate.Kind) };
                 if (fate.Holder is { } holder)
@@ -64,6 +65,7 @@ internal static class ModelEntryWriter
             var outputs = new JsonObject();
             foreach (var output in model.Outputs.OrderBy(pair => pair.Key, StringComparer.Ordinal))
             {
+                WorkCancellation.Check();
                 checks?.Check(GenerationStage.BuildModel);
                 outputs[output.Key] = ResultText(output.Value);
             }
@@ -77,6 +79,7 @@ internal static class ModelEntryWriter
             var calls = new JsonArray();
             foreach (var call in model.Calls.DistinctBy(call => call.Canonical).OrderBy(call => call.Canonical, StringComparer.Ordinal))
             {
+                WorkCancellation.Check();
                 checks?.Check(GenerationStage.BuildModel);
                 var value = new JsonObject { ["member"] = call.Member, ["on"] = call.On.Canonical };
                 if (call.Inputs.Count != 0)
@@ -104,22 +107,27 @@ internal static class ModelEntryWriter
 
     /// <summary>Writes a result with recursive set ordering, retaining a dictionary's key and value positions.</summary>
     /// <param name="result">The result to write.</param>
-    private static string ResultText(LibraryResult result) => result.Kind switch
+    private static string ResultText(LibraryResult result)
     {
-        LibraryResultKind.OneOf => $"[{LibraryResult.Set(result.Values)}]",
-        LibraryResultKind.Sequence => $"sequence({LibraryResult.Set(result.Values)})",
-        LibraryResultKind.Collection => $"collection({LibraryResult.Set(result.Values)})",
-        LibraryResultKind.Dictionary => $"dictionary({string.Join(',', result.Values.Select(value => value.Canonical))})",
-        LibraryResultKind.New => "new",
-        LibraryResultKind.Task => $"task({ResultText(result.Inner!)})",
-        _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
-    };
+        WorkCancellation.Check();
+        return result.Kind switch
+        {
+            LibraryResultKind.OneOf => $"[{LibraryResult.Set(result.Values)}]",
+            LibraryResultKind.Sequence => $"sequence({LibraryResult.Set(result.Values)})",
+            LibraryResultKind.Collection => $"collection({LibraryResult.Set(result.Values)})",
+            LibraryResultKind.Dictionary => $"dictionary({string.Join(',', result.Values.Select(value => value.Canonical))})",
+            LibraryResultKind.New => "new",
+            LibraryResultKind.Task => $"task({ResultText(result.Inner!)})",
+            _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
+        };
+    }
 
     private static JsonObject Values<T>(IEnumerable<T> entries, Func<T, string> key, Func<T, IEnumerable<string>> values, GenerationChecks? checks)
     {
         var result = new JsonObject();
         foreach (var entry in entries)
         {
+            WorkCancellation.Check();
             checks?.Check(GenerationStage.BuildModel);
             result[key(entry)] = TextArray(values(entry));
         }

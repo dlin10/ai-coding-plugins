@@ -10,8 +10,9 @@ namespace ConcurrencyHunter.Analysis;
 /// <param name="Mode">What the analysis does with the generated layer.</param>
 /// <param name="Install">The install implementations are resolved from, or <c>null</c> for this process's.</param>
 /// <param name="Generator">The generator call, or <c>null</c> for the model generator over <paramref name="Install"/>.</param>
+/// <param name="BeforeFileRead">A test hook before a writer re-reads a generated file under its lock.</param>
 internal sealed record GenerationSetup(ModelGeneration Mode, ImplementationAssemblies? Install = null,
-                                       Func<GenerationRequest, CancellationToken, GeneratedAnswer>? Generator = null);
+                                       Func<GenerationRequest, CancellationToken, GeneratedAnswer>? Generator = null, Action? BeforeFileRead = null);
 
 /// <summary>A run's dealings with the generated layer, scope by scope (R1, R2, R4, R5): which library members a scope's direct opaque calls
 /// reach and which of them are generation targets, the generated layer a scope's second analysis reads, and what each target stands for
@@ -24,6 +25,7 @@ internal sealed class GenerationPass : IDisposable
     private readonly ImplementationAssemblies _install;
     private readonly RunGeneration _generation;
     private readonly CancellationToken _cancellationToken;
+    private readonly Action? _beforeFileRead;
     private readonly Dictionary<(Compilation Compilation, string TargetMethodId), (IMethodSymbol Member, IdentifiedGenerationTarget Target)?> _targets = new();
     private int _reported;
 
@@ -34,6 +36,7 @@ internal sealed class GenerationPass : IDisposable
         _generation = new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RUN_LIMIT, RunGeneration.MEMBER_LIMIT, TimeProvider.System,
                                         setup.Generator ?? ((request, token) => ModelGenerator.Generate(request, _install, token)));
         _cancellationToken = cancellationToken;
+        _beforeFileRead = setup.BeforeFileRead;
     }
 
     /// <summary>What the analysis does with the generated layer: never <see cref="ModelGeneration.None"/>, for which there is no pass.</summary>
@@ -63,6 +66,7 @@ internal sealed class GenerationPass : IDisposable
         var found = new Dictionary<(Compilation Compilation, string TargetMethodId), GenerationCandidate>();
         foreach (var group in run.Heap!.Instances.Values.GroupBy(instance => instance.BodyId, StringComparer.Ordinal))
         {
+            WorkCancellation.Check();
             _cancellationToken.ThrowIfCancellationRequested();
             var summary = group.First().Summary;
             var opaque = summary.OpaqueCalls.Where(call => !call.IsKnown).ToArray();
@@ -71,9 +75,13 @@ internal sealed class GenerationPass : IDisposable
 
             var operations = new Dictionary<int, IrCallOperation>();
             foreach (var operation in body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>())
+            {
+                WorkCancellation.Check();
                 operations.TryAdd(operation.Id, operation);
+            }
             foreach (var call in opaque)
             {
+                WorkCancellation.Check();
                 if (!operations.TryGetValue(call.OperationId, out var operationOfCall) || operationOfCall.TargetMethodId is not { } targetId ||
                     TargetOf(compilation, targetId) is not { } resolved)
                     continue;
@@ -99,7 +107,7 @@ internal sealed class GenerationPass : IDisposable
         if (Mode == ModelGeneration.Generate)
         {
             _generation.Generate(models, candidates);
-            _generation.EndScope();
+            _generation.EndScope(_beforeFileRead);
         }
 
         return _generation.Layer(models, candidates);
@@ -139,6 +147,7 @@ internal sealed class GenerationPass : IDisposable
         var reached = new List<ReachedTarget>();
         foreach (var candidate in candidates)
         {
+            WorkCancellation.Check();
             if (RunGeneration.Decide(models, layer.Table, candidate).Layer is DescribingLayer.Project or DescribingLayer.BuiltIn)
                 continue;
             var definition = (candidate.Member.ReducedFrom ?? candidate.Member).OriginalDefinition;

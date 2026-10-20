@@ -38,11 +38,17 @@ internal static class ConflictFindings
         $"Contexts of {method} were merged; the objects involved may be more than one.";
 
     internal static (IReadOnlyList<Finding> Findings, IReadOnlyList<FindingGroup> Groups) Create(IEnumerable<AccessPair> pairs,
-                                                                                                 CancellationToken cancellationToken) =>
-        Create(pairs, [], cancellationToken);
+                                                                                                 CancellationToken cancellationToken)
+    {
+        WorkCancellation.Check();
+        return Create(pairs, [], cancellationToken);
+    }
 
     /// <summary>Folds the pairs into findings, one per rule, resource and unordered pair of sites (R5), each with its occurrences, and
     /// groups them by rule and resource. <paramref name="accesses"/> are the scope's accesses the site ordinals are counted over.</summary>
+    /// <param name="pairs">The feasible pairs to fold.</param>
+    /// <param name="accesses">The scope accesses used to number sites.</param>
+    /// <param name="cancellationToken">Cancels the folding at its next check.</param>
     internal static (IReadOnlyList<Finding> Findings, IReadOnlyList<FindingGroup> Groups) Create(IEnumerable<AccessPair> pairs,
                                                                                                  IReadOnlyList<Access> accesses,
                                                                                                  CancellationToken cancellationToken)
@@ -90,13 +96,17 @@ internal static class ConflictFindings
         var findingGroups = new List<FindingGroup>();
         foreach (var (group, index) in groups.Select((group, index) => (group, index)))
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             var groupId = $"G{index + 1}";
             var first = group[0].Evidence;
             var groupFingerprint = Hash($"ch-gfp-1|{first.Key.Rule}|{ResourceText(first.Resource)}");
             var groupFindings = new List<Finding>();
             foreach (var item in group)
+            {
+                WorkCancellation.Check();
                 groupFindings.Add(BuildFinding(item, groupId, $"F{findings.Count + groupFindings.Count + 1}", ordinals) with { GroupFingerprint = groupFingerprint });
+            }
             findings.AddRange(groupFindings);
             var owner = first.AccessB.Resource.Identity == first.Resource.Identity ? first.AccessB : first.AccessA;
             owner = first.AccessA.Resource.Identity == first.Resource.Identity ? first.AccessA : owner;
@@ -131,7 +141,11 @@ internal static class ConflictFindings
                                  occurrences.Max(Score));
     }
 
-    private static string PathText(Candidate candidate) => PathText(candidate.AccessA);
+    private static string PathText(Candidate candidate)
+    {
+        WorkCancellation.Check();
+        return PathText(candidate.AccessA);
+    }
 
     private static string PathText(Access access) => string.Join(" → ", access.CallPath);
 
@@ -193,7 +207,11 @@ internal static class ConflictFindings
         return folded with { Evidence = evidence with { Key = evidence.Key with { Rule = PROTECTION_RULE } } };
     }
 
-    private static int Score(Candidate candidate) => Score(Components(candidate), IsCapped(candidate.Resource, candidate.GapChecks));
+    private static int Score(Candidate candidate)
+    {
+        WorkCancellation.Check();
+        return Score(Components(candidate), IsCapped(candidate.Resource, candidate.GapChecks));
+    }
 
     /// <summary>What a pair is expected to score before the solver is asked, which is what the budget is spent in the order of
     /// (TD-103): every component but the path feasibility is decided by then — the resource's identity, how protected the pair is
@@ -209,17 +227,25 @@ internal static class ConflictFindings
 
     /// <summary>The score of an occurrence whose claim is not proven whole is never above the top of the Medium band, so its label
     /// is never High and still follows from the score (TD-039, TD-103, TD-108).</summary>
-    private static int Score(ConfidenceComponents components, bool isCapped) =>
-        isCapped ? Math.Min(Score(components), MEDIUM_MAXIMUM) : Score(components);
+    /// <param name="components">The confidence components to score.</param>
+    /// <param name="isCapped">Whether the score is capped.</param>
+    private static int Score(ConfidenceComponents components, bool isCapped)
+    {
+        WorkCancellation.Check();
+        return isCapped ? Math.Min(Score(components), MEDIUM_MAXIMUM) : Score(components);
+    }
 
     /// <summary>Whether a semantic gap decides one of the occurrence's checks, or its resource is a wildcard that names no field.</summary>
     private static bool IsCapped(AccessResource resource, IReadOnlyList<GapCheck> gapChecks) => resource.IsWildcard || gapChecks.Count != 0;
 
     /// <summary>Every component a semantic gap decides counts <see cref="GAP_DECIDED_COMPONENT"/> (TD-039).</summary>
+    /// <param name="components">The confidence components before applying gaps.</param>
+    /// <param name="gapChecks">The gap decisions affecting this finding.</param>
     private static ConfidenceComponents WithGaps(ConfidenceComponents components, IReadOnlyList<GapCheck> gapChecks)
     {
         foreach (var component in gapChecks.Select(check => check.Component).Distinct(StringComparer.Ordinal))
         {
+            WorkCancellation.Check();
             components = component switch
             {
                 GapComponents.OPERATION => components with { Operation = GAP_DECIDED_COMPONENT },
@@ -353,12 +379,15 @@ internal static class ConflictFindings
     /// side A's sites, then side B's, each side in occurrence order and path order, a repeated (API, member, location) kept at its
     /// first place. Ids continue the finding's scheme as <c>&lt;findingId&gt;.SP1</c>, <c>.SP2</c>, …
     /// </summary>
+    /// <param name="findingId">The finding whose spawn evidence is built.</param>
+    /// <param name="occurrences">The occurrences whose spawn sites are combined.</param>
     internal static IReadOnlyList<EvidenceItem> SpawnEvidence(string findingId, IReadOnlyList<FindingOccurrence> occurrences)
     {
         var items = new List<EvidenceItem>();
         var seen = new HashSet<(string, string, string)>();
         foreach (var site in occurrences.SelectMany(occurrence => occurrence.SpawnSitesA).Concat(occurrences.SelectMany(occurrence => occurrence.SpawnSitesB)))
         {
+            WorkCancellation.Check();
             var named = site.Segment[(site.Segment.IndexOf(':') + 1)..];
             var at = named.IndexOf('@');
             var (api, member) = at < 0 ? (named, "") : (named[..at], named[(at + 1)..]);

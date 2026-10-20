@@ -22,8 +22,10 @@ public static class InjectionBindings
         var results = new List<TypeInjectionBindings>();
         foreach (var compilation in compilations)
         {
+            WorkCancellation.Check();
             foreach (var type in SourceTypes(compilation.Assembly.GlobalNamespace))
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 if (type.TypeKind == TypeKind.Class && !type.IsStatic && !type.IsAbstract && !type.IsImplicitlyDeclared)
                     results.Add(Bind(type, compilations, index, rootDirectory, cancellationToken));
@@ -34,19 +36,26 @@ public static class InjectionBindings
     }
 
     public static TypeInjectionBindings Bind(INamedTypeSymbol type, IReadOnlyList<Compilation> compilations, DiIndex index,
-                                             string rootDirectory, CancellationToken cancellationToken) =>
-        new Binder(type, compilations, index, rootDirectory, cancellationToken).Bind();
+                                             string rootDirectory, CancellationToken cancellationToken)
+    {
+        WorkCancellation.Check();
+        return new Binder(type, compilations, index, rootDirectory, cancellationToken).Bind();
+    }
 
     private static IEnumerable<INamedTypeSymbol> SourceTypes(INamespaceSymbol @namespace)
     {
         foreach (var type in @namespace.GetTypeMembers().SelectMany(NestedAndSelf))
         {
+            WorkCancellation.Check();
             if (type.DeclaringSyntaxReferences.Length != 0)
                 yield return type;
         }
 
         foreach (var nested in @namespace.GetNamespaceMembers().SelectMany(SourceTypes))
+        {
+            WorkCancellation.Check();
             yield return nested;
+        }
     }
 
     private static IEnumerable<INamedTypeSymbol> NestedAndSelf(INamedTypeSymbol type) =>
@@ -97,7 +106,10 @@ public static class InjectionBindings
                                                 .ToArray();
             var origins = new Dictionary<IParameterSymbol, IParameterSymbol>(SymbolEqualityComparer.Default);
             foreach (var parameter in constructor.Parameters.Where(parameter => !IsWrittenInConstructor(type, constructor, parameter)))
+            {
+                WorkCancellation.Check();
                 origins[parameter] = parameter;
+            }
             var currentType = type;
             var constructedType = type;
             var currentConstructor = constructor;
@@ -105,6 +117,7 @@ public static class InjectionBindings
             var linkEvidence = new List<BindingEvidence>();
             while (true)
             {
+                WorkCancellation.Check();
                 BindLevel(currentType, constructedType, currentConstructor, origins, chainBreak, linkEvidence);
 
                 var baseType = currentType.BaseType;
@@ -116,6 +129,7 @@ public static class InjectionBindings
                 var nextOrigins = new Dictionary<IParameterSymbol, IParameterSymbol>(SymbolEqualityComparer.Default);
                 foreach (var (argument, parameter) in link.Arguments)
                 {
+                    WorkCancellation.Check();
                     if (argument is not null && origins.TryGetValue(argument, out var origin))
                     {
                         nextOrigins[parameter] = origin;
@@ -139,6 +153,12 @@ public static class InjectionBindings
 
         /// <summary>Binds the members <paramref name="declaringType"/> declares. <paramref name="constructedType"/> is that type as
         /// the bound type inherits it (a closed generic base), which is how lowering names the members' containing type.</summary>
+        /// <param name="declaringType">The type declaring the members to bind.</param>
+        /// <param name="constructedType">The declaring type as inherited by the bound type.</param>
+        /// <param name="constructor">The constructor invoked for the declaring type.</param>
+        /// <param name="origins">The mapping from this constructor's parameters to the bound type's constructor parameters.</param>
+        /// <param name="chainBreak">The reason the constructor chain is not pass-through, if any.</param>
+        /// <param name="linkEvidence">The evidence for pass-through arguments along the constructor chain.</param>
         private void BindLevel(INamedTypeSymbol declaringType, INamedTypeSymbol constructedType, IMethodSymbol constructor,
                                IReadOnlyDictionary<IParameterSymbol, IParameterSymbol> origins, string? chainBreak,
                                IReadOnlyList<BindingEvidence> linkEvidence)
@@ -146,6 +166,7 @@ public static class InjectionBindings
             var inherited = !SymbolEqualityComparer.Default.Equals(declaringType, type.OriginalDefinition);
             foreach (var candidate in Candidates(declaringType))
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 var member = $"{SymbolNames.Type(constructedType)}.{candidate.Symbol.Name}";
                 var (parameter, stores) = candidate.Kind == InjectionMemberKind.PrimaryConstructorParameter
@@ -229,6 +250,7 @@ public static class InjectionBindings
                  current is not null && !SymbolEqualityComparer.Default.Equals(current, declaringType);
                  current = current.BaseType?.OriginalDefinition)
             {
+                WorkCancellation.Check();
                 yield return current;
             }
         }
@@ -262,6 +284,7 @@ public static class InjectionBindings
         {
             foreach (var reference in member.DeclaringSyntaxReferences)
             {
+                WorkCancellation.Check();
                 var syntax = reference.GetSyntax(cancellationToken);
                 var initializer = syntax switch
                 {
@@ -289,6 +312,7 @@ public static class InjectionBindings
         {
             while (expression is ParenthesizedExpressionSyntax or PostfixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.SuppressNullableWarningExpression })
             {
+                WorkCancellation.Check();
                 expression = expression is ParenthesizedExpressionSyntax parenthesized
                     ? parenthesized.Expression
                     : ((PostfixUnaryExpressionSyntax)expression).Operand;
@@ -311,6 +335,7 @@ public static class InjectionBindings
         {
             foreach (var reference in constructor.DeclaringSyntaxReferences)
             {
+                WorkCancellation.Check();
                 var syntax = reference.GetSyntax(cancellationToken);
                 if (syntax is ConstructorDeclarationSyntax)
                 {
@@ -319,14 +344,21 @@ public static class InjectionBindings
                 else if (syntax is TypeDeclarationSyntax declaration)
                 {
                     foreach (var primaryBase in declaration.BaseList?.Types.OfType<PrimaryConstructorBaseTypeSyntax>() ?? [])
+                    {
+                        WorkCancellation.Check();
                         yield return primaryBase;
+                    }
                 }
             }
 
             foreach (var declaration in Declarations(declaringType))
             {
+                WorkCancellation.Check();
                 foreach (var initializer in declaration.Members.SelectMany(Initializers))
+                {
+                    WorkCancellation.Check();
                     yield return initializer;
+                }
             }
         }
 
@@ -344,6 +376,7 @@ public static class InjectionBindings
             const string IMPLICIT = "the base constructor is called implicitly without arguments";
             foreach (var reference in constructor.DeclaringSyntaxReferences)
             {
+                WorkCancellation.Check();
                 var syntax = reference.GetSyntax(cancellationToken);
                 ArgumentListSyntax? arguments = null;
                 SyntaxNode? linkSyntax = null;
@@ -376,6 +409,7 @@ public static class InjectionBindings
                 var links = new List<(IParameterSymbol?, IParameterSymbol)>();
                 for (var position = 0; position < arguments.Arguments.Count; position++)
                 {
+                    WorkCancellation.Check();
                     var argument = arguments.Arguments[position];
                     var parameter = argument.NameColon is { } name
                         ? baseConstructor.Parameters.FirstOrDefault(candidate => candidate.Name == name.Name.Identifier.ValueText)
@@ -398,6 +432,7 @@ public static class InjectionBindings
         {
             foreach (var member in declaringType.GetMembers())
             {
+                WorkCancellation.Check();
                 switch (member)
                 {
                     case IFieldSymbol { IsStatic: false, IsConst: false, IsReadOnly: true, IsImplicitlyDeclared: false } field:
@@ -413,7 +448,10 @@ public static class InjectionBindings
             if (PrimaryConstructor(declaringType) is { } primary)
             {
                 foreach (var parameter in primary.Parameters.Where(parameter => IsCaptured(declaringType, parameter)))
+                {
+                    WorkCancellation.Check();
                     yield return new Candidate(parameter, InjectionMemberKind.PrimaryConstructorParameter);
+                }
             }
         }
 
@@ -435,6 +473,7 @@ public static class InjectionBindings
         {
             for (var current = type; current is not null && current.DeclaringSyntaxReferences.Length != 0; current = current.BaseType)
             {
+                WorkCancellation.Check();
                 if (Candidates(current).Any() || current.InstanceConstructors.Any(constructor => constructor.Parameters.Length != 0))
                     return true;
             }
@@ -454,9 +493,11 @@ public static class InjectionBindings
             var target = symbol.OriginalDefinition;
             foreach (var declaration in Declarations(declaringType))
             {
+                WorkCancellation.Check();
                 var model = Model(declaration.SyntaxTree);
                 foreach (var identifier in declaration.DescendantNodes().OfType<IdentifierNameSyntax>())
                 {
+                    WorkCancellation.Check();
                     if (identifier.Identifier.ValueText != symbol.Name ||
                         !SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(identifier, cancellationToken).Symbol?.OriginalDefinition, target))
                     {
@@ -479,7 +520,10 @@ public static class InjectionBindings
             }
 
             while (expression.Parent is ParenthesizedExpressionSyntax or PostfixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.SuppressNullableWarningExpression })
+            {
+                WorkCancellation.Check();
                 expression = (ExpressionSyntax)expression.Parent;
+            }
 
             switch (expression.Parent)
             {
@@ -513,7 +557,10 @@ public static class InjectionBindings
         {
             SyntaxNode current = tuple;
             while (current.Parent is ArgumentSyntax { Parent: TupleExpressionSyntax outer })
+            {
+                WorkCancellation.Check();
                 current = outer;
+            }
             return current.Parent is AssignmentExpressionSyntax assignment && assignment.Left == current;
         }
 

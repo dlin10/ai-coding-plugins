@@ -190,15 +190,15 @@ The decision is how the run generates:
 - A file keeps the generator's answer about each member: its model, or a **Generation refusal** with the
   cause. A later run reads it and generates nothing that has an answer. A file keeps nothing that depends
   on the run or the machine: a member the run's budget did not reach, a run that stopped, an
-  implementation that is not on disk. The run adds files and entries and never deletes a file: a run sees
-  one solution, and a repository may hold several.
+  implementation that is not on disk. Within one generator version the run adds and replaces entries
+  and never deletes a file: a run sees one solution, and a repository may hold several.
 - A generated model of a package's member belongs to the package's assembly by name, version and MVID.
   One of a shared framework's member belongs to the assembly by name and version within the framework's
   major version, as `generated/<framework>/<major>.0/<assembly>.json`: the implementation of a shared
   framework is the patch installed on the machine, and binding it by MVID would make every machine with
-  another patch generate the member again and write a file of its own. A model is not yet bound to the
-  generator's version either, so a model an older generator wrote, or one written against another patch,
-  stays until its file is removed; binding to the generator's version is run B3b's.
+  another patch generate the member again and write a file of its own. The file also names the generator
+  version, a fingerprint of the sources the engine and generator were built from; a different version
+  holds no answers, and the run's first write replaces the whole file ([ADR 0023](0023-a-generated-file-names-the-fingerprint-of-the-sources-its-generator-was-built-from.md)).
 - The **Generation budget** is two limits of time, the run's and each member's. A member that reaches its
   own limit is refused with `timeout` and is not generated again; the members the run's limit does not
   reach stay opaque in that run. Members handed a delegate come first, then the rest by id. The values

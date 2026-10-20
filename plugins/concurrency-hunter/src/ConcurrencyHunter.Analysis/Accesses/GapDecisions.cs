@@ -39,8 +39,12 @@ internal sealed class GapOrigins
         _heap = heap;
         foreach (var gap in gaps)
         {
+            WorkCancellation.Check();
             foreach (var site in gap.Sites)
+            {
+                WorkCancellation.Check();
                 _sites.TryAdd((site.BodyId, site.OperationId), gap);
+            }
         }
 
         _callees = heap.Edges.GroupBy(edge => (edge.CallerInstance, edge.OperationId))
@@ -83,9 +87,11 @@ internal sealed class GapOrigins
         var pending = new Queue<(MethodInstance Instance, ValueOrigin Origin, int Depth)>([(instance, origin, 0)]);
         while (pending.TryDequeue(out var item))
         {
+            WorkCancellation.Check();
             var (current, from, depth) = item;
             foreach (var operation in from.Calls.Order())
             {
+                WorkCancellation.Check();
                 if (!visited.Add($"call|{current.Id}|{operation}"))
                     continue;
                 if (_sites.TryGetValue((current.BodyId, operation), out var gap))
@@ -99,10 +105,14 @@ internal sealed class GapOrigins
                     continue;
                 foreach (var callee in _callees.GetValueOrDefault((current.Id, operation)) ?? [])
                 {
+                    WorkCancellation.Check();
                     if (_heap.Instances.TryGetValue(callee, out var calleeInstance))
                     {
                         foreach (var returned in calleeInstance.Summary.Returns)
+                        {
+                            WorkCancellation.Check();
                             pending.Enqueue((calleeInstance, returned.Producers, depth + 1));
+                        }
                     }
                 }
             }
@@ -113,16 +123,21 @@ internal sealed class GapOrigins
             // A parameter is what each caller handed over at the call that bound it.
             foreach (var ordinal in from.Parameters.Order())
             {
+                WorkCancellation.Check();
                 if (!visited.Add($"parameter|{current.Id}|{ordinal}"))
                     continue;
                 foreach (var (callerId, operation) in _callers.GetValueOrDefault(current.Id) ?? [])
                 {
+                    WorkCancellation.Check();
                     if (!_heap.Instances.TryGetValue(callerId, out var caller))
                         continue;
                     foreach (var argument in caller.Summary.Calls.Where(call => call.OperationId == operation)
                                                    .SelectMany(call => call.Arguments)
                                                    .Where(argument => argument.ParameterOrdinal == ordinal))
+                    {
+                        WorkCancellation.Check();
                         pending.Enqueue((caller, argument.Producers, depth + 1));
+                    }
                 }
             }
 
@@ -130,19 +145,28 @@ internal sealed class GapOrigins
             // (R4).
             foreach (var cell in from.Captured.OrderBy(cell => cell.SymbolKey, StringComparer.Ordinal))
             {
+                WorkCancellation.Check();
                 var closures = Closures(current, cell);
                 if (!visited.Add($"captured|{string.Join(",", closures.Order(StringComparer.Ordinal))}|{WholeProgram.ClosureSlot(cell)}"))
                     continue;
                 foreach (var owner in _heap.ClosureOwners(current, cell).Select(id => _heap.Instances.GetValueOrDefault(id)).OfType<MethodInstance>())
                 {
+                    WorkCancellation.Check();
                     foreach (var variable in owner.Summary.Variables.Where(variable => variable.SymbolKey == cell.SymbolKey))
+                    {
+                        WorkCancellation.Check();
                         pending.Enqueue((owner, variable.Producers, depth + 1));
+                    }
                 }
 
                 foreach (var sharing in _heap.Instances.Values.Where(instance => Closures(instance, cell).Overlaps(closures)))
                 {
+                    WorkCancellation.Check();
                     foreach (var store in sharing.Summary.CapturedStores.Where(store => store.Cell == cell))
+                    {
+                        WorkCancellation.Check();
                         pending.Enqueue((sharing, store.Producers, depth + 1));
+                    }
                 }
             }
 
@@ -152,11 +176,13 @@ internal sealed class GapOrigins
                                                .Concat(from.Keys.Select(keys => (keys, PathValue.KEYS)))
                                                .Concat(from.Kept.Select(keepers => (keepers, PathValue.KEPT))))
             {
+                WorkCancellation.Check();
                 var targets = holders.SelectMany(value => _heap.Resolve(current.Id, value)).ToHashSet(StringComparer.Ordinal);
                 if (!visited.Add($"{slot}|{string.Join(",", targets.Order(StringComparer.Ordinal))}"))
                     continue;
                 foreach (var (storing, store) in _elementStores.Value.Where(item => item.Store.Slot == slot))
                 {
+                    WorkCancellation.Check();
                     if (store.Arrays.SelectMany(value => _heap.Resolve(storing.Id, value)).Any(targets.Contains))
                         pending.Enqueue((storing, store.Producers, depth + 1));
                 }
@@ -165,12 +191,14 @@ internal sealed class GapOrigins
             // A field read gives back what any store put into that field of the objects it reads.
             foreach (var field in from.Fields)
             {
+                WorkCancellation.Check();
                 var slot = FieldSlot.Key(field.Field);
                 var targets = Targets(current, field.Field, field.Bases);
                 if (!visited.Add($"field|{slot}|{string.Join(",", targets.Order(StringComparer.Ordinal))}"))
                     continue;
                 foreach (var (storing, store) in _stores.Value[slot])
                 {
+                    WorkCancellation.Check();
                     if (Targets(storing, store.Field, store.Bases).Overlaps(targets))
                         pending.Enqueue((storing, store.Producers, depth + 1));
                 }
@@ -178,6 +206,7 @@ internal sealed class GapOrigins
                 // A field of a struct's copy or storage also holds what each copy into it carried from the same field of its sources (R2).
                 foreach (var (copying, copy) in _copies.Value)
                 {
+                    WorkCancellation.Check();
                     if (copy.Targets.SelectMany(value => _heap.Resolve(copying.Id, value)).Any(targets.Contains))
                         pending.Enqueue((copying, ValueOrigin.None with { Fields = [new FieldOrigin(field.Field, copy.Sources)] }, depth + 1));
                 }
@@ -216,11 +245,11 @@ public static class GapDecisions
         var facts = new ExecutionFacts(input, new GapOrigins(input.Heap, gaps));
         return pairs.Select(pair =>
                     {
-                        var checks = pair.First.GapChecks.Concat(pair.Second.GapChecks)
+                        var gapChecks = pair.First.GapChecks.Concat(pair.Second.GapChecks)
                                          .Concat(facts.Overlap(pair.First, pair.Second))
                                          .Distinct()
                                          .ToArray();
-                        return checks.Length == 0 ? pair : pair with { GapChecks = checks };
+                        return gapChecks.Length == 0 ? pair : pair with { GapChecks = gapChecks };
                     })
                     .ToArray();
     }
@@ -251,28 +280,41 @@ public static class GapDecisions
             {
                 foreach (var (waitingAccess, spawned) in new[] { (firstAccess, second), (secondAccess, first) })
                 {
+                    WorkCancellation.Check();
                     var waiting = waitingAccess.ExecutionId;
                     // Only a join before the waiting side's access on every path could order it; one it may run ahead of decides nothing.
                     if (input.Executions.Execution(spawned).Kind is ExecutionKind.Spawn or ExecutionKind.TimerCallback)
                     {
                         foreach (var join in Of(waiting).Joins.Where(join => input.Executions.JoinDominates(join.Instance, join.OperationId, waitingAccess)))
+                        {
+                            WorkCancellation.Check();
                             yield return Check(join.Gap, JOIN_REASON);
+                        }
 
                         // A continuation is ordered after the work its antecedent is, never after the rest of the execution that started
                         // it: only against such work does the antecedent's identity decide the pair.
                         if (spawned != input.Executions.Execution(waiting).ParentId)
                         {
                             foreach (var gap in Of(waiting).Continuations)
+                            {
+                                WorkCancellation.Check();
                                 yield return Check(gap, CONTINUATION_REASON);
+                            }
                         }
                     }
                 }
             }
 
             foreach (var gap in Of(first).Timers.Concat(Of(second).Timers))
+            {
+                WorkCancellation.Check();
                 yield return Check(gap, TIMER_REASON);
+            }
             foreach (var gap in Of(first).Delegates.Concat(Of(second).Delegates))
+            {
+                WorkCancellation.Check();
                 yield return Check(gap, DELEGATE_REASON);
+            }
         }
 
         private static GapCheck Check(SemanticGap gap, string reason) => new(gap.Callee, gap.Kind, GapComponents.OVERLAP, reason);
@@ -283,14 +325,17 @@ public static class GapDecisions
 
         private Facts Of(string execution)
         {
+            WorkCancellation.Check();
             if (_facts.TryGetValue(execution, out var cached))
                 return cached;
 
             var joins = new List<GapJoin>();
             foreach (var instance in (_instances.GetValueOrDefault(execution) ?? []).Select(id => input.Heap.Instances[id]))
             {
+                WorkCancellation.Check();
                 foreach (var join in instance.Summary.Joins.Where(join => _unprovenJoins.Contains(new OperationSite(instance.BodyId, join.OperationId))))
                 {
+                    WorkCancellation.Check();
                     joins.AddRange(join.Handles.SelectMany(handle => origins.Of(instance, handle.Producers))
                                        .Select(gap => new GapJoin(instance.Id, join.OperationId, gap)));
                 }
@@ -303,6 +348,7 @@ public static class GapDecisions
             {
                 foreach (var instance in input.Heap.Instances.Values.Where(instance => instance.BodyId == origin.BodyId))
                 {
+                    WorkCancellation.Check();
                     if (spawned.Kind == ExecutionKind.Spawn)
                     {
                         continuations.AddRange(instance.Summary.Spawns.Where(spawn => spawn.OperationId == origin.OperationId && spawn.Kind == IrSpawnKind.ContinueWith &&
@@ -316,6 +362,7 @@ public static class GapDecisions
             {
                 foreach (var site in input.Executions.TimerCallbackSites.GetValueOrDefault(execution) ?? [])
                 {
+                    WorkCancellation.Check();
                     var subscriber = input.Heap.Instances[site.CallerInstance];
                     timers.AddRange(subscriber.Summary.Timers.Where(timer => timer.OperationId == site.OperationId)
                                               .SelectMany(timer => origins.Of(subscriber, timer.Timer.Producers)));

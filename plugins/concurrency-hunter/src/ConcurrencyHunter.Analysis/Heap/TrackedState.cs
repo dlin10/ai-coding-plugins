@@ -40,16 +40,30 @@ internal sealed class StateKey : IEquatable<StateKey>
     {
         var path = new Stack<object>();
         for (var key = this; key.Parent is not null; key = key.Parent)
+        {
+            WorkCancellation.Check();
             path.Push(key.Entry!);
+        }
         var member = new StateKey(name);
         foreach (var entry in path)
+        {
+            WorkCancellation.Check();
             member = member.Child(entry);
+        }
         return member;
     }
 
-    public bool Equals(StateKey? other) => ReferenceEquals(this, other) ||
-        other is not null && _hash == other._hash && State == other.State && Equals(Entry, other.Entry) && Equals(Parent, other.Parent);
-    public override bool Equals(object? obj) => obj is StateKey key && Equals(key);
+    public bool Equals(StateKey? other)
+    {
+        WorkCancellation.Check();
+        return ReferenceEquals(this, other) ||
+            other is not null && _hash == other._hash && State == other.State && Equals(Entry, other.Entry) && Equals(Parent, other.Parent);
+    }
+    public override bool Equals(object? obj)
+    {
+        WorkCancellation.Check();
+        return obj is StateKey key && Equals(key);
+    }
     public override int GetHashCode() => _hash;
     public override string ToString() => Parent is null ? State : $"{Parent}/{(ReferenceEquals(Entry, AllEntries) ? "all" : Entry)}";
 
@@ -93,16 +107,21 @@ internal abstract class TrackedContainer : ITrackedState
     }
     protected void AttachValue(object? value, StateKey? key)
     {
+        WorkCancellation.Check();
         if (key is not null)
             AttachValue(value, key, _read!, _write!);
     }
     internal static void AttachValue(object? value, StateKey key, Action<StateKey> read, Action<StateKey> write)
     {
+        WorkCancellation.Check();
         if (value is ITrackedState tracked)
             tracked.Attach(key, read, write);
         else if (value is ITuple tuple)
             for (var index = 0; index < tuple.Length; index++)
+            {
+                WorkCancellation.Check();
                 AttachValue(tuple[index], key.Child(index), read, write);
+            }
     }
 }
 
@@ -134,6 +153,7 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     public bool IsReadOnly => false;
     public bool Contains(T item)
     {
+        WorkCancellation.Check();
         ReadItem(item);
         return _items.Contains(item);
     }
@@ -145,6 +165,7 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     }
     public bool Add(T item)
     {
+        WorkCancellation.Check();
         if (!_items.Add(item)) return false;
         if (Key is not null)
         {
@@ -153,7 +174,11 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
         }
         return true;
     }
-    void ICollection<T>.Add(T item) => Add(item);
+    void ICollection<T>.Add(T item)
+    {
+        WorkCancellation.Check();
+        Add(item);
+    }
 
     // The readers of the contents, and for the first item the readers of whether the set is empty.
     private void Grew(int before)
@@ -166,6 +191,7 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     // A removal reads what it may remove: run again after an add, it would remove what that add added.
     public bool Remove(T item)
     {
+        WorkCancellation.Check();
         ReadItem(item);
         if (!_items.Remove(item)) return false;
         Shrank();
@@ -173,6 +199,7 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     }
     public void Clear()
     {
+        WorkCancellation.Check();
         Read(Key?.All);
         if (_items.Count == 0) return;
         _items.Clear();
@@ -180,6 +207,7 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     }
     public int RemoveWhere(Predicate<T> match)
     {
+        WorkCancellation.Check();
         Read(Key?.All);
         var removed = _items.RemoveWhere(match);
         if (removed != 0) Shrank();
@@ -187,18 +215,23 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     }
     public void UnionWith(IEnumerable<T> other)
     {
+        WorkCancellation.Check();
         var source = Source(other);
         var before = _items.Count;
         if (Key is null || !_itemsRead || ReferenceEquals(source, _items))
             _items.UnionWith(source);
         else
             foreach (var item in source)
+            {
+                WorkCancellation.Check();
                 if (_items.Add(item))
                     Write(Key.Child(item!));
+            }
         if (Key is not null && _items.Count != before) Grew(before);
     }
     public void ExceptWith(IEnumerable<T> other)
     {
+        WorkCancellation.Check();
         Read(Key?.All);
         var before = _items.Count;
         _items.ExceptWith(Source(other));
@@ -206,6 +239,7 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     }
     public void IntersectWith(IEnumerable<T> other)
     {
+        WorkCancellation.Check();
         Read(Key?.All);
         var before = _items.Count;
         _items.IntersectWith(Source(other));
@@ -213,20 +247,25 @@ internal sealed class TrackedSet<T> : TrackedContainer, ISet<T>, IReadOnlySet<T>
     }
     public void SymmetricExceptWith(IEnumerable<T> other)
     {
+        WorkCancellation.Check();
         Read(Key?.All);
         var before = new HashSet<T>(_items, _items.Comparer);
         _items.SymmetricExceptWith(Source(other));
         if (!before.SetEquals(_items)) Shrank();
     }
-    public bool IsSubsetOf(IEnumerable<T> other) { Read(Key?.All); return _items.IsSubsetOf(other); }
-    public bool IsSupersetOf(IEnumerable<T> other) { Read(Key?.All); return _items.IsSupersetOf(other); }
-    public bool IsProperSupersetOf(IEnumerable<T> other) { Read(Key?.All); return _items.IsProperSupersetOf(other); }
-    public bool IsProperSubsetOf(IEnumerable<T> other) { Read(Key?.All); return _items.IsProperSubsetOf(other); }
-    public bool Overlaps(IEnumerable<T> other) { Read(Key?.All); return _items.Overlaps(other); }
-    public bool SetEquals(IEnumerable<T> other) { Read(Key?.All); return _items.SetEquals(other); }
-    public void CopyTo(T[] array, int arrayIndex) { Read(Key?.All); _items.CopyTo(array, arrayIndex); }
-    public IEnumerator<T> GetEnumerator() { Read(Key?.All); return _items.GetEnumerator(); }
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    public bool IsSubsetOf(IEnumerable<T> other) { WorkCancellation.Check(); Read(Key?.All); return _items.IsSubsetOf(other); }
+    public bool IsSupersetOf(IEnumerable<T> other) { WorkCancellation.Check(); Read(Key?.All); return _items.IsSupersetOf(other); }
+    public bool IsProperSupersetOf(IEnumerable<T> other) { WorkCancellation.Check(); Read(Key?.All); return _items.IsProperSupersetOf(other); }
+    public bool IsProperSubsetOf(IEnumerable<T> other) { WorkCancellation.Check(); Read(Key?.All); return _items.IsProperSubsetOf(other); }
+    public bool Overlaps(IEnumerable<T> other) { WorkCancellation.Check(); Read(Key?.All); return _items.Overlaps(other); }
+    public bool SetEquals(IEnumerable<T> other) { WorkCancellation.Check(); Read(Key?.All); return _items.SetEquals(other); }
+    public void CopyTo(T[] array, int arrayIndex) { WorkCancellation.Check(); Read(Key?.All); _items.CopyTo(array, arrayIndex); }
+    public IEnumerator<T> GetEnumerator() { WorkCancellation.Check(); Read(Key?.All); return _items.GetEnumerator(); }
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        WorkCancellation.Check();
+        return GetEnumerator();
+    }
 }
 
 internal sealed class TrackedList<T> : TrackedContainer, IList<T>, IReadOnlyList<T>
@@ -250,19 +289,29 @@ internal sealed class TrackedList<T> : TrackedContainer, IList<T>, IReadOnlyList
     protected override void AttachContents(Action<StateKey> read, Action<StateKey> write)
     {
         for (var index = 0; index < _items.Count; index++)
+        {
+            WorkCancellation.Check();
             AttachValue(_items[index], Key!.Child(index), read, write);
+        }
     }
-    public void Add(T item) { AttachValue(item, Key?.Child(_items.Count)); _items.Add(item); Write(); }
-    public void AddRange(IEnumerable<T> items) { foreach (var item in items.ToArray()) Add(item); }
-    public void Clear() { if (_items.Count == 0) return; _items.Clear(); Write(); }
-    public bool Contains(T item) { Read(Key?.All); return _items.Contains(item); }
-    public int IndexOf(T item) { Read(Key?.All); return _items.IndexOf(item); }
-    public void Insert(int index, T item) { AttachValue(item, Key?.Child(index)); _items.Insert(index, item); Write(); }
-    public bool Remove(T item) { if (!_items.Remove(item)) return false; Write(); return true; }
-    public void RemoveAt(int index) { _items.RemoveAt(index); Write(); }
-    public void CopyTo(T[] array, int arrayIndex) { Read(Key?.All); _items.CopyTo(array, arrayIndex); }
-    public IEnumerator<T> GetEnumerator() { Read(Key?.All); return _items.GetEnumerator(); }
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    public void Add(T item) { WorkCancellation.Check(); AttachValue(item, Key?.Child(_items.Count)); _items.Add(item); Write(); }
+    public void AddRange(IEnumerable<T> items) { foreach (var item in items.ToArray()) {
+        WorkCancellation.Check();
+        Add(item);
+    } }
+    public void Clear() { WorkCancellation.Check(); if (_items.Count == 0) return; _items.Clear(); Write(); }
+    public bool Contains(T item) { WorkCancellation.Check(); Read(Key?.All); return _items.Contains(item); }
+    public int IndexOf(T item) { WorkCancellation.Check(); Read(Key?.All); return _items.IndexOf(item); }
+    public void Insert(int index, T item) { WorkCancellation.Check(); AttachValue(item, Key?.Child(index)); _items.Insert(index, item); Write(); }
+    public bool Remove(T item) { WorkCancellation.Check(); if (!_items.Remove(item)) return false; Write(); return true; }
+    public void RemoveAt(int index) { WorkCancellation.Check(); _items.RemoveAt(index); Write(); }
+    public void CopyTo(T[] array, int arrayIndex) { WorkCancellation.Check(); Read(Key?.All); _items.CopyTo(array, arrayIndex); }
+    public IEnumerator<T> GetEnumerator() { WorkCancellation.Check(); Read(Key?.All); return _items.GetEnumerator(); }
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        WorkCancellation.Check();
+        return GetEnumerator();
+    }
 }
 
 /// <summary>A map whose entry key changes only when the map binds or unbinds the key: a container it holds keeps its contents under an
@@ -280,7 +329,10 @@ internal sealed class TrackedMap<TKey, TValue> : TrackedContainer, IReadOnlyDict
     }
     internal TrackedMap(IEnumerable<KeyValuePair<TKey, TValue>> items, IEqualityComparer<TKey>? comparer = null) : this(comparer)
     {
-        foreach (var pair in items) _items.Add(pair.Key, pair.Value);
+        foreach (var pair in items) {
+            WorkCancellation.Check();
+            _items.Add(pair.Key, pair.Value);
+        }
     }
     private StateKey? Entry(TKey key)
     {
@@ -293,7 +345,10 @@ internal sealed class TrackedMap<TKey, TValue> : TrackedContainer, IReadOnlyDict
     private StateKey? EmptinessKey => Key is null ? null : _emptiness ??= Key.Child(StateKey.Emptiness);
     protected override void AttachContents(Action<StateKey> read, Action<StateKey> write)
     {
-        foreach (var pair in _items) AttachValue(pair.Value, ValueKey(pair.Value, Entry(pair.Key))!, read, write);
+        foreach (var pair in _items) {
+            WorkCancellation.Check();
+            AttachValue(pair.Value, ValueKey(pair.Value, Entry(pair.Key))!, read, write);
+        }
     }
     public int Count { get { Read(Key?.All); return _items.Count; } }
 
@@ -314,11 +369,12 @@ internal sealed class TrackedMap<TKey, TValue> : TrackedContainer, IReadOnlyDict
             Bound(entry, !bound);
         }
     }
-    public bool ContainsKey(TKey key) { Read(Entry(key)); return _items.ContainsKey(key); }
-    public bool ContainsValue(TValue value) { Read(Key?.All); return _items.ContainsValue(value); }
-    public bool TryGetValue(TKey key, out TValue value) { Read(Entry(key)); return _items.TryGetValue(key, out value!); }
+    public bool ContainsKey(TKey key) { WorkCancellation.Check(); Read(Entry(key)); return _items.ContainsKey(key); }
+    public bool ContainsValue(TValue value) { WorkCancellation.Check(); Read(Key?.All); return _items.ContainsValue(value); }
+    public bool TryGetValue(TKey key, out TValue value) { WorkCancellation.Check(); Read(Entry(key)); return _items.TryGetValue(key, out value!); }
     public void Add(TKey key, TValue value)
     {
+        WorkCancellation.Check();
         var entry = Entry(key);
         Read(entry);
         AttachValue(value, ValueKey(value, entry));
@@ -344,6 +400,7 @@ internal sealed class TrackedMap<TKey, TValue> : TrackedContainer, IReadOnlyDict
     }
     public bool Remove(TKey key)
     {
+        WorkCancellation.Check();
         var entry = Entry(key);
         Read(entry);
         if (!_items.Remove(key)) return false;
@@ -353,10 +410,17 @@ internal sealed class TrackedMap<TKey, TValue> : TrackedContainer, IReadOnlyDict
     }
     public void Clear()
     {
-        foreach (var key in _items.Keys.ToArray()) Remove(key);
+        foreach (var key in _items.Keys.ToArray()) {
+            WorkCancellation.Check();
+            Remove(key);
+        }
     }
-    public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() { Read(Key?.All); return _items.GetEnumerator(); }
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator() { WorkCancellation.Check(); Read(Key?.All); return _items.GetEnumerator(); }
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        WorkCancellation.Check();
+        return GetEnumerator();
+    }
     bool IDictionary.IsFixedSize => false;
     bool IDictionary.IsReadOnly => false;
     bool ICollection.IsSynchronized => false;
@@ -364,11 +428,15 @@ internal sealed class TrackedMap<TKey, TValue> : TrackedContainer, IReadOnlyDict
     ICollection IDictionary.Keys => Keys.ToArray();
     ICollection IDictionary.Values => Values.ToArray();
     object? IDictionary.this[object key] { get => this[(TKey)key]; set => this[(TKey)key] = (TValue)value!; }
-    void IDictionary.Add(object key, object? value) => Add((TKey)key, (TValue)value!);
+    void IDictionary.Add(object key, object? value)
+    {
+        WorkCancellation.Check();
+        Add((TKey)key, (TValue)value!);
+    }
     bool IDictionary.Contains(object key) => key is TKey typed && ContainsKey(typed);
-    void IDictionary.Remove(object key) { if (key is TKey typed) Remove(typed); }
-    IDictionaryEnumerator IDictionary.GetEnumerator() { Read(Key?.All); return ((IDictionary)_items).GetEnumerator(); }
-    void ICollection.CopyTo(Array array, int index) { Read(Key?.All); ((ICollection)_items).CopyTo(array, index); }
+    void IDictionary.Remove(object key) { WorkCancellation.Check(); if (key is TKey typed) Remove(typed); }
+    IDictionaryEnumerator IDictionary.GetEnumerator() { WorkCancellation.Check(); Read(Key?.All); return ((IDictionary)_items).GetEnumerator(); }
+    void ICollection.CopyTo(Array array, int index) { WorkCancellation.Check(); Read(Key?.All); ((ICollection)_items).CopyTo(array, index); }
 }
 
 internal sealed class TrackedValue<T>(T initial = default!) : TrackedContainer

@@ -28,6 +28,7 @@ internal sealed class EffectiveFlowGraph
         var edges = new HashSet<FlowEdge>();
         foreach (var block in graph.Blocks)
         {
+            WorkCancellation.Check();
             AddBranch(edges, block.Ordinal, block.ConditionalSuccessor);
             AddBranch(edges, block.Ordinal, block.FallThroughSuccessor);
         }
@@ -55,6 +56,7 @@ internal sealed class EffectiveFlowGraph
         edges.Add(new FlowEdge(source, finallyRegions[0].FirstBlockOrdinal, IrEdgeKind.FinallyEntry));
         for (var index = 0; index < finallyRegions.Length - 1; index++)
         {
+            WorkCancellation.Check();
             edges.Add(new FlowEdge(
                 finallyRegions[index].LastBlockOrdinal,
                 finallyRegions[index + 1].FirstBlockOrdinal,
@@ -73,27 +75,36 @@ internal sealed class EffectiveFlowGraph
     private static void AddExceptionalEdges(ControlFlowRegion region, ControlFlowGraph graph,
                                             HashSet<FlowEdge> edges)
     {
+        WorkCancellation.Check();
         if (region.Kind == ControlFlowRegionKind.Try && region.EnclosingRegion is not null)
         {
             var handlers = HandlerRegions(region.EnclosingRegion).ToArray();
             for (var ordinal = region.FirstBlockOrdinal; ordinal <= region.LastBlockOrdinal; ordinal++)
             {
+                WorkCancellation.Check();
                 if (graph.Blocks[ordinal].Kind == BasicBlockKind.Block)
                 {
                     foreach (var handler in handlers)
+                    {
+                        WorkCancellation.Check();
                         edges.Add(new FlowEdge(ordinal, handler.FirstBlockOrdinal, IrEdgeKind.Exceptional));
+                    }
                 }
             }
         }
 
         foreach (var nested in region.NestedRegions)
+        {
+            WorkCancellation.Check();
             AddExceptionalEdges(nested, graph, edges);
+        }
     }
 
     private static IEnumerable<ControlFlowRegion> HandlerRegions(ControlFlowRegion parent)
     {
         foreach (var sibling in parent.NestedRegions)
         {
+            WorkCancellation.Check();
             if (sibling.Kind is ControlFlowRegionKind.Catch or ControlFlowRegionKind.Finally)
             {
                 yield return sibling;
@@ -103,6 +114,7 @@ internal sealed class EffectiveFlowGraph
                 foreach (var handler in sibling.NestedRegions.Where(nested =>
                              nested.Kind is ControlFlowRegionKind.Filter or ControlFlowRegionKind.Catch))
                 {
+                    WorkCancellation.Check();
                     yield return handler;
                 }
             }

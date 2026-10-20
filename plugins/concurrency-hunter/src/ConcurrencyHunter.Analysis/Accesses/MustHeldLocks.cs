@@ -117,6 +117,8 @@ internal static class MustHeldLocks
     /// weakening the paths inside a body get: keeping the first state's properties would carry a mode, a section or a proof of
     /// release that only one of the entries has (TD-083).
     /// </summary>
+    /// <param name="left">The first must-held state.</param>
+    /// <param name="right">The second must-held state.</param>
     internal static Dictionary<string, HeldLock>? Join(Dictionary<string, HeldLock>? left, Dictionary<string, HeldLock>? right)
     {
         if (left is null)
@@ -127,6 +129,7 @@ internal static class MustHeldLocks
         var joined = new Dictionary<string, HeldLock>(StringComparer.Ordinal);
         foreach (var (key, held) in left)
         {
+            WorkCancellation.Check();
             if (!right.TryGetValue(key, out var other))
                 continue;
             var mode = held.Lock.Mode == other.Lock.Mode ? held.Lock.Mode : IrLockMode.Read;
@@ -199,6 +202,7 @@ internal static class MustHeldLocks
         var backward = Reachable(Reversed(successors, cancellationToken), end, cancellationToken);
         foreach (var (block, index) in forward)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             if ((block, index) == end || !backward.Contains((block, index)) || index >= body.Blocks[block].Operations.Count)
                 continue;
@@ -230,6 +234,7 @@ internal static class MustHeldLocks
         var queue = new Queue<(int Block, int Index)>([first]);
         while (queue.Count > 0)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             var position = queue.Dequeue();
             if (position == end)
@@ -241,6 +246,7 @@ internal static class MustHeldLocks
                 continue;
             foreach (var next in successors.GetValueOrDefault(position) ?? [])
             {
+                WorkCancellation.Check();
                 if (seen.Add(next))
                     queue.Enqueue(next);
             }
@@ -276,30 +282,40 @@ internal static class MustHeldLocks
         var positions = new Dictionary<int, (int Block, int Index)>();
         for (var ordinal = 0; ordinal < body.Blocks.Count; ordinal++)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             var operations = body.Blocks[ordinal].Operations;
             for (var index = 0; index < operations.Count; index++)
+            {
+                WorkCancellation.Check();
                 positions[operations[index].Id] = (ordinal, index);
+            }
         }
 
         var regions = body.Regions.ToDictionary(region => region.Id);
         var successors = new Dictionary<(int Block, int Index), List<(int Block, int Index)>>();
         for (var ordinal = 0; ordinal < body.Blocks.Count; ordinal++)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             var block = body.Blocks[ordinal];
             // The position after a block's last operation stands for its exit, so that a block with no operations still carries
             // control through.
             for (var index = 0; index < block.Operations.Count; index++)
+            {
+                WorkCancellation.Check();
                 Link((ordinal, index), (ordinal, index + 1));
+            }
 
             foreach (var branch in new[] { block.ConditionalBranch, block.FallThroughBranch }.OfType<IrBranch>())
             {
+                WorkCancellation.Check();
                 // A branch runs every `finally` it leaves, in order, and goes on to its destination from the end of the last of
                 // them; the blocks of a `finally` end in no destination of their own, so nothing else would join the two.
                 var leaving = (Block: ordinal, Index: block.Operations.Count);
                 foreach (var regionId in branch.FinallyRegions.Where(regions.ContainsKey))
                 {
+                    WorkCancellation.Check();
                     var region = regions[regionId];
                     if (region.FirstBlockOrdinal < 0 || region.LastBlockOrdinal >= body.Blocks.Count)
                         continue;
@@ -337,9 +353,11 @@ internal static class MustHeldLocks
         var queue = new Queue<(int Block, int Index)>([from]);
         while (queue.Count > 0)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             foreach (var next in edges.GetValueOrDefault(queue.Dequeue()) ?? [])
             {
+                WorkCancellation.Check();
                 if (seen.Add(next))
                     queue.Enqueue(next);
             }
@@ -354,9 +372,11 @@ internal static class MustHeldLocks
         var reversed = new Dictionary<(int Block, int Index), List<(int Block, int Index)>>();
         foreach (var (position, next) in edges)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             foreach (var target in next)
             {
+                WorkCancellation.Check();
                 if (!reversed.TryGetValue(target, out var sources))
                     reversed[target] = sources = [];
                 sources.Add(position);
@@ -371,8 +391,11 @@ internal static class MustHeldLocks
     /// <param name="effectOf">The lock effect of each operation of the body.</param>
     /// <param name="key">The key of the lock.</param>
     /// <param name="cancellationToken">Cancels the solver at its next block or operation.</param>
-    private static Solver Dual(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, CancellationToken cancellationToken) =>
-        new(body, operation => Dual(effectOf(operation), key), null, NullGuards(body, effectOf, key, cancellationToken), cancellationToken);
+    private static Solver Dual(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, CancellationToken cancellationToken)
+    {
+        WorkCancellation.Check();
+        return new(body, operation => Dual(effectOf(operation), key), null, NullGuards(body, effectOf, key, cancellationToken), cancellationToken);
+    }
 
     /// <summary>
     /// The values a release of <paramref name="key"/> is performed on, by the lock it releases. Nothing is ever held on an object
@@ -392,6 +415,7 @@ internal static class MustHeldLocks
         var copies = new Dictionary<int, int>();
         foreach (var operation in operations)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             switch (operation)
             {
@@ -407,6 +431,7 @@ internal static class MustHeldLocks
         var subjects = new Dictionary<int, LockObject>();
         foreach (var operation in operations)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             if (effectOf(operation) is not { Kind: LockEffectKind.Release, Lock: { } released } ||
                 !string.Equals(released.Key, key, StringComparison.Ordinal))
@@ -428,6 +453,7 @@ internal static class MustHeldLocks
         var guards = new Dictionary<int, LockObject>(subjects);
         foreach (var value in copies.Keys)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             if (subjects.TryGetValue(Origin(copies, value), out var released))
                 guards[value] = released;
@@ -436,12 +462,17 @@ internal static class MustHeldLocks
         return guards;
     }
 
+    /// <param name="copies">The value copies in the body.</param>
+    /// <param name="value">The value whose origin is sought.</param>
     /// <summary>The value <paramref name="value"/> is a copy of, as far back as the body copies it.</summary>
     private static int Origin(IReadOnlyDictionary<int, int> copies, int value)
     {
         var seen = new HashSet<int>();
         while (seen.Add(value) && copies.TryGetValue(value, out var source))
+        {
+            WorkCancellation.Check();
             value = source;
+        }
         return value;
     }
 
@@ -477,6 +508,7 @@ internal static class MustHeldLocks
             var entries = Solve(0, body.Blocks.Count - 1, 0, Empty);
             for (var ordinal = 0; ordinal < body.Blocks.Count; ordinal++)
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 if (entries[ordinal] is { } entry)
                     Transfer(body.Blocks[ordinal], entry, (operation, state) => result[operation.Id] = state);
@@ -507,6 +539,7 @@ internal static class MustHeldLocks
             var unpaired = new HashSet<string>(StringComparer.Ordinal);
             foreach (var operation in body.Blocks.SelectMany(block => block.Operations))
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 if (effectOf(operation) is not { Kind: LockEffectKind.Release, Lock: { Primitive: IrSynchronizationPrimitive.SemaphoreSlim } released } effect ||
                     !states.TryGetValue(operation.Id, out var state))
@@ -541,11 +574,13 @@ internal static class MustHeldLocks
             var crossed = new HashSet<(string Key, int Acquisition)>();
             foreach (var (_, operation) in operations)
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!states.TryGetValue(operation.Id, out var state) || !suspensions.Contains(operation.Id))
                     continue;
                 foreach (var held in state.Values)
                 {
+                    WorkCancellation.Check();
                     // A synchronous foreach keeps the caller's header lock while its iterator is suspended.
                     // The iterator's own acquisition can resume on another thread; the caller's does not.
                     if (body.IsIterator && Empty.TryGetValue(held.Lock.Key, out var inherited) &&
@@ -560,6 +595,7 @@ internal static class MustHeldLocks
 
             foreach (var operationId in states.Keys.ToArray())
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 states[operationId] = Marked(states[operationId]);
             }
@@ -591,12 +627,14 @@ internal static class MustHeldLocks
             var released = new HashSet<(string Key, int Acquisition)>();
             foreach (var region in body.Regions.Where(region => region.Kind == IrRegionKind.Finally))
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 if (region.FirstBlockOrdinal >= entries.Length || entries[region.FirstBlockOrdinal] is not { } entry)
                     continue;
 
                 foreach (var (key, held) in entry)
                 {
+                    WorkCancellation.Check();
                     cancellationToken.ThrowIfCancellationRequested();
                     // A finally that never completes normally proves nothing about what it releases, so it is left out.
                     var dual = MustHeldLocks.Dual(body, effectOf, key, cancellationToken);
@@ -623,11 +661,13 @@ internal static class MustHeldLocks
             entries[entry - first] = entryState;
             while (true)
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 var incoming = new Dictionary<string, HeldLock>?[entries.Length];
                 incoming[entry - first] = entryState;
                 for (var ordinal = first; ordinal <= last; ordinal++)
                 {
+                    WorkCancellation.Check();
                     cancellationToken.ThrowIfCancellationRequested();
                     if (entries[ordinal - first] is not { } state)
                         continue;
@@ -641,6 +681,7 @@ internal static class MustHeldLocks
 
                 foreach (var handler in body.Regions.Where(region => region.Kind is IrRegionKind.Catch or IrRegionKind.Filter or IrRegionKind.Finally))
                 {
+                    WorkCancellation.Check();
                     cancellationToken.ThrowIfCancellationRequested();
                     if (handler.FirstBlockOrdinal < first || handler.FirstBlockOrdinal > last || handler.FirstBlockOrdinal == entry ||
                         Protected(handler) is not { } protectedRegion ||
@@ -697,6 +738,7 @@ internal static class MustHeldLocks
             Dictionary<string, HeldLock>? owned = null;
             for (var ordinal = guarded.FirstBlockOrdinal; ordinal <= guarded.LastBlockOrdinal; ordinal++)
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 var index = ordinal - first;
                 if (index < 0 || index >= entries.Length || entries[index] is not { } blockEntry)
@@ -726,6 +768,7 @@ internal static class MustHeldLocks
             Dictionary<string, HeldLock>? state = exit;
             foreach (var regionId in branch.FinallyRegions)
             {
+                WorkCancellation.Check();
                 var finallyRegion = _regions[regionId];
                 if (finallyRegion.FirstBlockOrdinal >= first && finallyRegion.FirstBlockOrdinal <= last)
                 {
@@ -755,6 +798,7 @@ internal static class MustHeldLocks
                                           .Take(finallyRegion.LastBlockOrdinal - finallyRegion.FirstBlockOrdinal + 1)
                                           .SelectMany(block => block.Operations))
             {
+                WorkCancellation.Check();
                 if (operation is IrCallOperation { EnumerationRole: IrEnumerationRole.Dispose } &&
                     effectOf(operation) is { Kind: LockEffectKind.IteratorState } effect)
                     ApplyIteratorState(exit, effect);
@@ -777,6 +821,7 @@ internal static class MustHeldLocks
             Dictionary<string, HeldLock>? minimum = null;
             for (var ordinal = region.FirstBlockOrdinal; ordinal <= region.LastBlockOrdinal; ordinal++)
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 if (entries[ordinal - first] is not { } entry)
                     continue;
@@ -805,6 +850,7 @@ internal static class MustHeldLocks
             var state = new Dictionary<string, HeldLock>(entry, StringComparer.Ordinal);
             foreach (var operation in block.Operations)
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 record?.Invoke(operation, new Dictionary<string, HeldLock>(state, StringComparer.Ordinal));
                 // The success flag of a conditional entry travels with the value it is copied into.
@@ -864,6 +910,7 @@ internal static class MustHeldLocks
         {
             foreach (var key in effect.IteratorKeys ?? new HashSet<string>(StringComparer.Ordinal))
             {
+                WorkCancellation.Check();
                 if (state.TryGetValue(key, out var previous) && previous.Lock.IsLifted &&
                     previous.Lock.Site.StartsWith(effect.IteratorSite ?? "", StringComparison.Ordinal))
                     state.Remove(key);
@@ -871,12 +918,14 @@ internal static class MustHeldLocks
             // As a release performed here would: an object not held as such may be any held monitor.
             foreach (var released in effect.IteratorReleases ?? [])
             {
+                WorkCancellation.Check();
                 if (!state.Remove(released.Key) && released.IdentityUnknown)
                     state.Clear();
             }
             LetGo(state, effect.MayReleases);
             foreach (var (key, held) in effect.IteratorLocks ?? new Dictionary<string, HeldLock>())
             {
+                WorkCancellation.Check();
                 if (!state.ContainsKey(key))
                     state[key] = held;
             }
@@ -922,11 +971,14 @@ internal static class MustHeldLocks
 
         /// <summary>A state after the given exits, as a release performed here would leave it: an object not held as such may be
         /// any held monitor.</summary>
+        /// <param name="state">The state before the exits.</param>
+        /// <param name="released">The lock objects released by the exits.</param>
         private static Dictionary<string, HeldLock> Without(IReadOnlyDictionary<string, HeldLock> state, IReadOnlyList<LockObject> released)
         {
             var left = Copy(state);
             foreach (var exit in released)
             {
+                WorkCancellation.Check();
                 if (!left.Remove(exit.Key) && exit.IdentityUnknown)
                     left.Clear();
             }
@@ -936,10 +988,13 @@ internal static class MustHeldLocks
         /// <summary>A must-state after an operation that may let these locks go: none of them is held any longer, and an object
         /// nothing names may be any held lock. A named object nobody holds here is not one of this state's, so it takes nothing
         /// away — a semaphore a callee signals is not a reason to forget the monitor its caller holds.</summary>
+        /// <param name="state">The state to update.</param>
+        /// <param name="released">The lock objects the operation may release.</param>
         private static Dictionary<string, HeldLock> LetGo(Dictionary<string, HeldLock> state, IReadOnlyList<LockObject>? released)
         {
             foreach (var exit in released ?? [])
             {
+                WorkCancellation.Check();
                 if (!state.Remove(exit.Key) && !exit.NamesObject)
                     state.Clear();
             }
@@ -953,6 +1008,7 @@ internal static class MustHeldLocks
         {
             for (var index = 0; index < left.Length; index++)
             {
+                WorkCancellation.Check();
                 var (first, second) = (left[index], right[index]);
                 if (first is null || second is null)
                 {

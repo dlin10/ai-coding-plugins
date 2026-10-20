@@ -41,12 +41,16 @@ public static class SeedableFields
 
     /// <summary>The static field whose storage a value is a struct's storage in, through every struct around it: none for any other value.</summary>
     /// <param name="value">A base of an access.</param>
-    private static IEnumerable<IrFieldRef> StaticStorageOf(AbstractValue value) => value switch
+    private static IEnumerable<IrFieldRef> StaticStorageOf(AbstractValue value)
     {
-        StructPlaceValue place => StaticStorageOf(place.Base),
-        StaticHolderValue holder => [holder.Field],
-        _ => []
-    };
+        WorkCancellation.Check();
+        return value switch
+        {
+            StructPlaceValue place => StaticStorageOf(place.Base),
+            StaticHolderValue holder => [holder.Field],
+            _ => []
+        };
+    }
 
     private static IEnumerable<IrFieldRef> ReferenceLoads(ScopeRun run)
     {
@@ -60,6 +64,7 @@ public static class SeedableFields
         var seen = new HashSet<(string Instance, ReferenceTarget Target)>();
         while (pending.TryDequeue(out var item))
         {
+            WorkCancellation.Check();
             var (instance, target) = item;
             if (!seen.Add((instance.Id, target)))
                 continue;
@@ -71,20 +76,28 @@ public static class SeedableFields
                 case ReferenceCall call:
                     foreach (var edge in outgoing[(instance.Id, call.OperationId)])
                     {
+                        WorkCancellation.Check();
                         var callee = heap.Instances[edge.CalleeInstance];
                         foreach (var returned in callee.Summary.ReferenceReturns)
+                        {
+                            WorkCancellation.Check();
                             pending.Enqueue((callee, returned));
+                        }
                     }
                     break;
                 case ReferenceParameter parameter:
                     foreach (var edge in incoming[instance.Id])
                     {
+                        WorkCancellation.Check();
                         var caller = heap.Instances[edge.CallerInstance];
                         var arguments = caller.Summary.Calls.Where(call => call.OperationId == edge.OperationId)
                                               .SelectMany(call => call.Arguments)
                                               .Where(argument => argument.ParameterOrdinal == parameter.Ordinal);
                         foreach (var reference in arguments.SelectMany(argument => argument.References))
+                        {
+                            WorkCancellation.Check();
                             pending.Enqueue((caller, reference));
+                        }
                     }
                     break;
             }
@@ -126,6 +139,7 @@ public static class SeedableFields
     /// <param name="type">The field or auto-property type.</param>
     public static bool Seed(ITypeSymbol type)
     {
+        WorkCancellation.Check();
         var shape = TypeShape.Of(type);
         if (shape == TypeShapeKind.Delegate)
             return true;
@@ -151,6 +165,7 @@ public static class SeedableFields
     /// <param name="type">The field or auto-property type.</param>
     public static bool Path(ITypeSymbol type)
     {
+        WorkCancellation.Check();
         if (Struct(type))
             return true;
         if (TypeShape.Of(type) != TypeShapeKind.Reference)
@@ -190,6 +205,7 @@ public static class SeedableFields
 
     private static bool HasStructConstraint(ITypeParameterSymbol parameter, HashSet<ITypeParameterSymbol> seen)
     {
+        WorkCancellation.Check();
         if (!seen.Add(parameter))
             return false;
         if (parameter.HasValueTypeConstraint || parameter.HasUnmanagedTypeConstraint ||

@@ -30,8 +30,11 @@ public static class MethodSummaryBuilder
     /// <param name="reachable">The reachable set that decides whether a callee has a body in the run
     /// (<see cref="ReachableSetResult.HasBody"/>); <see langword="null"/> for its source body.</param>
     public static MethodSummary Build(IrBody body, ProgramIndex index, AnalysisLimits limits, Func<string, IrBody?>? bodies = null,
-                                      ReachableSetResult? reachable = null) =>
-        new Builder(body, index, limits, bodies, reachable).Build();
+                                      ReachableSetResult? reachable = null)
+    {
+        WorkCancellation.Check();
+        return new Builder(body, index, limits, bodies, reachable).Build();
+    }
 
     /// <summary>The method ids a virtual or interface call could run a source body for: every source-bodied method, and every method
     /// such a method overrides or implements, directly or through the methods it overrides. A source body the run has not is still
@@ -44,12 +47,14 @@ public static class MethodSummaryBuilder
             var ids = new HashSet<string>(StringComparer.Ordinal);
             foreach (var method in program.Methods.Where(method => method.HasSourceBody))
             {
+                WorkCancellation.Check();
                 ids.Add(method.MethodId);
                 ids.UnionWith(method.ImplementedInterfaceMethodIds);
                 var visited = new HashSet<string>(StringComparer.Ordinal);
                 for (var overridden = method.OverriddenMethodId; overridden is not null && visited.Add(overridden);
                      overridden = program.Method(overridden)?.OverriddenMethodId)
                 {
+                    WorkCancellation.Check();
                     ids.Add(overridden);
                     ids.UnionWith(program.Method(overridden)?.ImplementedInterfaceMethodIds ?? []);
                 }
@@ -124,8 +129,12 @@ public static class MethodSummaryBuilder
             _values = body.Values.ToDictionary(value => value.Id);
             foreach (var operation in _operations)
             {
+                WorkCancellation.Check();
                 foreach (var defined in operation.DefinedValues)
+                {
+                    WorkCancellation.Check();
                     _definitions[defined] = operation;
+                }
             }
 
             _parameterOrdinals = body.Parameters.ToDictionary(parameter => parameter.Value, parameter => parameter.Ordinal);
@@ -152,6 +161,7 @@ public static class MethodSummaryBuilder
                                          .ToDictionary(call => call.Id, call => call.ResultValue!.Value);
             foreach (var operation in _operations)
             {
+                WorkCancellation.Check();
                 switch (operation)
                 {
                     case IrSpawnOperation { HandleValue: int handle }:
@@ -250,11 +260,13 @@ public static class MethodSummaryBuilder
             // passed: what each of its reference fields holds goes there, as into any storage a struct is copied into (R2, R4).
             foreach (var (value, ordinal) in _parameterOrdinals)
             {
+                WorkCancellation.Check();
                 if (_values[value].StructTypeKey is { } captured && CellOf(_values[value]) is { } cell)
                     copies.Add(new StructCopy(-1, new HashSet<AbstractValue> { CellStorage(cell, captured) }, new HashSet<AbstractValue> { new ParameterValue(ordinal) }));
             }
             foreach (var operation in _operations)
             {
+                WorkCancellation.Check();
                 var locks = held.GetValueOrDefault(operation.Id) ?? [];
                 accesses.AddRange(CellAccesses(operation, locks, delegates, copies));
                 accesses.AddRange(ReceiverCopies(operation, locks));
@@ -449,6 +461,7 @@ public static class MethodSummaryBuilder
                         {
                             foreach (var store in library.Stores)
                             {
+                                WorkCancellation.Check();
                                 var target = store.Key == IrLibraryCall.RECEIVER ? call.ReceiverValue : call.ArgumentAt(store.Key);
                                 elements.Add(new ElementTransfer(call.Id, ElementOperationKind.Store, Final(Points(target), delegates),
                                                                  new HashSet<AbstractValue> { new LibraryStoredValue(call.Id, store.Key) })
@@ -458,6 +471,8 @@ public static class MethodSummaryBuilder
                                 });
                             }
                             foreach (var keep in library.Keeps)
+                            {
+                                WorkCancellation.Check();
                                 elements.Add(new ElementTransfer(call.Id, ElementOperationKind.Store,
                                                                  new HashSet<AbstractValue> { new LibraryKeeperValue(call.Id, keep.Key) },
                                                                  new HashSet<AbstractValue> { new LibraryKeepingValue(call.Id, keep.Key) })
@@ -466,6 +481,7 @@ public static class MethodSummaryBuilder
                                     IsCollection = true,
                                     Producers = ValueOrigin.Union(keep.Value.Select(value => ModelOrigin(call, value, delegates)))
                                 });
+                            }
                             argumentEffects.AddRange(CollectionObjects.LibraryEffects(opaqueCalls[^1], locks, Bind));
 
                             IEnumerable<SummaryArgumentEffect> Bind(IrLibraryEffectKind kind, int ordinal)
@@ -482,12 +498,15 @@ public static class MethodSummaryBuilder
                                 }
                                 foreach (var argument in library.Effects.Where(effect => effect.Kind == kind && effect.ParameterOrdinal == ordinal)
                                                                        .SelectMany(effect => effect.Arguments))
+                                {
+                                    WorkCancellation.Check();
                                     yield return new SummaryArgumentEffect(kind, call.Id, Final(Points(argument.Value), delegates), Collection(argument.Value),
                                                                           argument.IsSlice, call.Provenance, locks)
                                     {
                                         IsSequence = argument.IsSequence,
                                         ValueId = argument.Value
                                     };
+                                }
                             }
                         }
 
@@ -604,6 +623,7 @@ public static class MethodSummaryBuilder
             accesses.RemoveAll(access => collections.Receivers.Contains(access.OperationId));
             for (var index = 0; index < accesses.Count; index++)
             {
+                WorkCancellation.Check();
                 if (collections.InterfaceReceivers.TryGetValue(accesses[index].OperationId, out var receiver))
                     accesses[index] = accesses[index] with { InterfaceReceiver = receiver };
             }
@@ -612,6 +632,7 @@ public static class MethodSummaryBuilder
             // A member no field names carries its cell, its index and its checks to where the heap names its collections.
             foreach (var (callId, index) in standingEffects)
             {
+                WorkCancellation.Check();
                 var standing = collections.Standing[callId];
                 var call = (IrCallOperation)_operations.First(operation => operation.Id == callId);
                 var key = EffectsOf(call)?.KeyArgument is int ordinal ? call.ArgumentAt(ordinal) : null;
@@ -629,12 +650,21 @@ public static class MethodSummaryBuilder
             var conditions = accesses.Select(access => access.OperationId).Distinct()
                                      .ToDictionary(operation => operation, Conditions);
             for (var index = 0; index < accesses.Count; index++)
+            {
+                WorkCancellation.Check();
                 accesses[index] = accesses[index] with { Conditions = conditions[accesses[index].OperationId] };
+            }
             for (var index = 0; index < referenceAccesses.Count; index++)
+            {
+                WorkCancellation.Check();
                 referenceAccesses[index] = referenceAccesses[index] with { Conditions = Conditions(referenceAccesses[index].OperationId) };
+            }
             // An argument effect runs where its call runs, under the call's guards like any access there.
             for (var index = 0; index < argumentEffects.Count; index++)
+            {
+                WorkCancellation.Check();
                 argumentEffects[index] = argumentEffects[index] with { Conditions = Conditions(argumentEffects[index].OperationId) };
+            }
 
             var refParameters = _body.Parameters.Where(parameter => parameter.RefKind is IrRefKind.Ref or IrRefKind.Out)
                                      .Select(parameter =>
@@ -749,6 +779,7 @@ public static class MethodSummaryBuilder
                 yield break;
             foreach (var read in operation.Operands.Distinct())
             {
+                WorkCancellation.Check();
                 if (WorksOnStorage(operation, read) || CellOf(_values[read]) is not { } cell)
                     continue;
                 yield return new SummaryAccess(operation.Id, SummaryAccessKind.Load, cell.Field, CellBases(cell), operation.Provenance, locks, null,
@@ -803,6 +834,7 @@ public static class MethodSummaryBuilder
                 yield break;
             foreach (var read in operation.Operands.Distinct())
             {
+                WorkCancellation.Check();
                 if (!NamesReceiver(read) || WorksOnStorage(operation, read))
                     continue;
                 yield return new SummaryAccess(operation.Id, SummaryAccessKind.Load, StructStorage.WholeStorage(_values[read].StructTypeKey!),
@@ -814,19 +846,22 @@ public static class MethodSummaryBuilder
         /// <summary>Whether a value is the receiver of a struct member, the storage the member was called on: <c>this</c>, or a temporary an
         /// assignment or a conversion gives it.</summary>
         /// <param name="value">The value.</param>
-        private bool NamesReceiver(int value) =>
-            _values[value] switch
-            {
-                { StructTypeKey: null } => false,
-                { Kind: IrValueKind.Receiver } => true,
-                { Kind: IrValueKind.Temporary } => _definitions.GetValueOrDefault(value) switch
+        private bool NamesReceiver(int value)
+        {
+            WorkCancellation.Check();
+            return _values[value] switch
                 {
-                    IrAssignOperation assign => NamesReceiver(assign.SourceValue),
-                    IrConvertOperation { ConversionKind: not IrConversionKind.Unboxing } convert => NamesReceiver(convert.OperandValue),
+                    { StructTypeKey: null } => false,
+                    { Kind: IrValueKind.Receiver } => true,
+                    { Kind: IrValueKind.Temporary } => _definitions.GetValueOrDefault(value) switch
+                    {
+                        IrAssignOperation assign => NamesReceiver(assign.SourceValue),
+                        IrConvertOperation { ConversionKind: not IrConversionKind.Unboxing } convert => NamesReceiver(convert.OperandValue),
+                        _ => false
+                    },
                     _ => false
-                },
-                _ => false
-            };
+                };
+        }
 
         /// <summary>Whether an operation takes the value of a variable from its capture cell, which a value it computes depends on as a
         /// value computed from a field load depends on that load (R4).</summary>
@@ -864,52 +899,75 @@ public static class MethodSummaryBuilder
             // names (R4).
             foreach (var store in ReferenceStores(delegates))
             {
+                WorkCancellation.Check();
                 foreach (var source in store.Producers.Calls)
+                {
+                    WorkCancellation.Check();
                     stores.Add(new SummaryResultStore(source, store.Bases, store.Field.IsStatic ? store.Field : null));
+                }
             }
 
             foreach (var store in ReferenceElementStores(delegates))
             {
+                WorkCancellation.Check();
                 foreach (var source in store.Producers.Calls)
+                {
+                    WorkCancellation.Check();
                     stores.Add(new SummaryResultStore(source, store.Arrays, null));
+                }
             }
 
             foreach (var operation in _operations)
             {
+                WorkCancellation.Check();
                 if (operation is IrCallOperation original)
                 {
                     foreach (var (modelCall, receiverKinds) in LibraryModelCalls(original))
                     {
+                        WorkCancellation.Check();
                         var model = modelCall.Library!;
                         if (!model.InRange || model.DeclaredOpaque)
                             continue;
                         foreach (var store in model.Stores)
                         {
+                            WorkCancellation.Check();
                             var target = store.Key == IrLibraryCall.RECEIVER ? modelCall.ReceiverValue : modelCall.ArgumentAt(store.Key);
                             foreach (var source in ValueOrigin.Union(store.Value.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
+                            {
+                                WorkCancellation.Check();
                                 stores.Add(new SummaryResultStore(source, Final(Points(target), delegates), null)
                                 {
                                     Receivers = Final(Points(original.ReceiverValue), delegates),
                                     ReceiverKinds = receiverKinds,
                                     InterfaceMethod = receiverKinds is null ? null : InterfaceMethodOf(original)
                                 });
+                            }
                         }
 
                         foreach (var keep in model.Keeps)
                         {
+                            WorkCancellation.Check();
                             foreach (var source in ValueOrigin.Union(keep.Value.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
+                            {
+                                WorkCancellation.Check();
                                 stores.Add(new SummaryResultStore(source, new HashSet<AbstractValue> { new LibraryKeeperValue(modelCall.Id, keep.Key) }, null));
+                            }
                         }
 
                         foreach (var output in model.Outputs)
                         {
+                            WorkCancellation.Check();
                             if (modelCall.ArgumentAt(output.Key) is not int argument)
                                 continue;
                             foreach (var reference in References(argument))
                             {
+                                WorkCancellation.Check();
                                 foreach (var source in ValueOrigin.Union(output.Value.Values.Select(value => ModelOrigin(modelCall, value, delegates))).Calls)
+                                {
+                                    WorkCancellation.Check();
                                     stores.Add(new SummaryResultStore(source, new HashSet<AbstractValue> { new ReferenceLocationValue(reference, Read: false) },
                                                                       null));
+                                }
                             }
                         }
                     }
@@ -929,8 +987,10 @@ public static class MethodSummaryBuilder
 
                 foreach (var (value, target, field, kinds) in written)
                 {
+                    WorkCancellation.Check();
                     foreach (var source in Producers(value).Calls)
                     {
+                        WorkCancellation.Check();
                         stores.Add(new SummaryResultStore(source, Final(Points(target), delegates), field)
                         {
                             TargetKinds = kinds,
@@ -949,6 +1009,7 @@ public static class MethodSummaryBuilder
                 yield return (call, null);
             foreach (var implementation in call.Implementations.Where(implementation => implementation.Library is not null))
             {
+                WorkCancellation.Check();
                 yield return (call with
                 {
                     Library = implementation.Library,
@@ -959,27 +1020,31 @@ public static class MethodSummaryBuilder
             }
         }
 
-        private ValueOrigin ModelOrigin(IrCallOperation call, IrModelValue value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) => value switch
+        private ValueOrigin ModelOrigin(IrCallOperation call, IrModelValue value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
         {
-            IrModelNew => ValueOrigin.None,
-            IrModelArgument argument => call.ArgumentAt(argument.ParameterOrdinal) is int input ? Producers(input) : ValueOrigin.None,
-            IrModelThis => call.ReceiverValue is int receiver ? Producers(receiver) : ValueOrigin.None,
-            IrModelElements { Source: IrModelArgument argument } => call.ArgumentAt(argument.ParameterOrdinal) is int input
-                ? new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []) { Elements = [Final(Points(input), delegates)] } : ValueOrigin.None,
-            IrModelElements { Source: IrModelThis } => new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []) { Elements = [Final(Points(call.ReceiverValue), delegates)] },
-            IrModelElements elements => ModelOrigin(call, elements.Source, delegates),
-            // What a task completes with comes from wherever the task's own value does, as an argument's comes from its producers.
-            IrModelCompletion completion => ModelOrigin(call, completion.Source, delegates),
-            IrModelSequence sequence => ValueOrigin.Union(sequence.Values.Select(item => ModelOrigin(call, item, delegates))),
-            IrModelGrouping grouping => ValueOrigin.Union([ModelOrigin(call, grouping.Key, delegates), ModelOrigin(call, grouping.Values, delegates)]),
-            IrModelReturns => new ValueOrigin(new HashSet<int> { call.Id }, new HashSet<int>(), []),
-            IrModelKept kept => new ValueOrigin(new HashSet<int>(), new HashSet<int>(), [])
+            WorkCancellation.Check();
+            return value switch
             {
-                Kept = [new HashSet<AbstractValue> { new LibraryKeeperValue(call.Id, kept.KeeperOrdinal, Read: true) }]
-            },
-            IrModelHolderArgument => ValueOrigin.None,
-            _ => throw new System.Diagnostics.UnreachableException($"Unknown value kind {value.GetType().Name}.")
-        };
+                IrModelNew => ValueOrigin.None,
+                IrModelArgument argument => call.ArgumentAt(argument.ParameterOrdinal) is int input ? Producers(input) : ValueOrigin.None,
+                IrModelThis => call.ReceiverValue is int receiver ? Producers(receiver) : ValueOrigin.None,
+                IrModelElements { Source: IrModelArgument argument } => call.ArgumentAt(argument.ParameterOrdinal) is int input
+                    ? new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []) { Elements = [Final(Points(input), delegates)] } : ValueOrigin.None,
+                IrModelElements { Source: IrModelThis } => new ValueOrigin(new HashSet<int>(), new HashSet<int>(), []) { Elements = [Final(Points(call.ReceiverValue), delegates)] },
+                IrModelElements elements => ModelOrigin(call, elements.Source, delegates),
+                // What a task completes with comes from wherever the task's own value does, as an argument's comes from its producers.
+                IrModelCompletion completion => ModelOrigin(call, completion.Source, delegates),
+                IrModelSequence sequence => ValueOrigin.Union(sequence.Values.Select(item => ModelOrigin(call, item, delegates))),
+                IrModelGrouping grouping => ValueOrigin.Union([ModelOrigin(call, grouping.Key, delegates), ModelOrigin(call, grouping.Values, delegates)]),
+                IrModelReturns => new ValueOrigin(new HashSet<int> { call.Id }, new HashSet<int>(), []),
+                IrModelKept kept => new ValueOrigin(new HashSet<int>(), new HashSet<int>(), [])
+                {
+                    Kept = [new HashSet<AbstractValue> { new LibraryKeeperValue(call.Id, kept.KeeperOrdinal, Read: true) }]
+                },
+                IrModelHolderArgument => ValueOrigin.None,
+                _ => throw new System.Diagnostics.UnreachableException($"Unknown value kind {value.GetType().Name}.")
+            };
+        }
 
         /// <summary>Which objects a call puts the argument of <paramref name="ordinal"/> into: for its own member, every object it is on
         /// where that member holds it (null) and none where it does not (empty); for a call through an interface, the kinds of objects it
@@ -1013,6 +1078,7 @@ public static class MethodSummaryBuilder
             var targets = Final(Points(collection), delegates);
             for (var position = 0; position < call.ArgumentValues.Count; position++)
             {
+                WorkCancellation.Check();
                 var ordinal = position < call.ArgumentParameterOrdinals.Count ? call.ArgumentParameterOrdinals[position] : position;
                 if (!InterproceduralAccesses.IsHeldArgument(member, ordinal))
                     continue;
@@ -1111,8 +1177,10 @@ public static class MethodSummaryBuilder
             var receivers = Final(Points(collection), delegates);
             foreach (var (modelCall, kinds) in LibraryModelCalls(call).Where(item => item.Kinds is not null))
             {
+                WorkCancellation.Check();
                 foreach (var keep in modelCall.Library!.Keeps)
                 {
+                    WorkCancellation.Check();
                     yield return new ElementTransfer(call.Id, ElementOperationKind.Store,
                                                      new HashSet<AbstractValue> { new LibraryKeeperValue(call.Id, keep.Key) },
                                                      new HashSet<AbstractValue> { new LibraryKeepingValue(call.Id, keep.Key) })
@@ -1128,6 +1196,7 @@ public static class MethodSummaryBuilder
 
             foreach (var (implementation, kinds) in ImplementationGroups(call))
             {
+                WorkCancellation.Check();
                 var member = implementation.Member;
                 if (member.View is not null)
                 {
@@ -1167,13 +1236,17 @@ public static class MethodSummaryBuilder
                 if (Refused(member))
                     continue;
                 foreach (var store in CollectionStores(call, member, collection, delegates, implementation.TakesPair))
+                {
+                    WorkCancellation.Check();
                     yield return store with { ArrayKinds = kinds, InterfaceMethod = method };
+                }
 
                 var (handsOut, handsOutByOut) = InterproceduralAccesses.HandsOutHeld(member);
                 var handedOut = (handsOut && call.ResultValue is not null ? new int?[] { null } : [])
                     .Concat(handsOutByOut ? call.RefResults.Keys.Select(ordinal => (int?)ordinal) : []);
                 foreach (var ordinal in handedOut)
                 {
+                    WorkCancellation.Check();
                     yield return new ElementTransfer(call.Id, ElementOperationKind.Store, receivers, new HashSet<AbstractValue>())
                     {
                         Slot = DecidedSlot(call, ordinal),
@@ -1495,6 +1568,7 @@ public static class MethodSummaryBuilder
             var pending = new Stack<int>([value]);
             while (pending.TryPop(out var current))
             {
+                WorkCancellation.Check();
                 if (!visited.Add(current))
                     continue;
                 // A parameter is what the caller handed over, and a field what some store put there: the origin goes on there (R6).
@@ -1535,7 +1609,10 @@ public static class MethodSummaryBuilder
                                       ? HandedOut(call, outOrdinal)
                                       : []) is { Count: > 0 } handedOut:
                         foreach (var slot in handedOut)
+                        {
+                            WorkCancellation.Check();
                             (slot == PathValue.KEYS ? keys : elements).Add(_points[held].ToHashSet());
+                        }
                         break;
                     // An element of a deconstructed pair is read from the pair's key or value storage.
                     case IrComputeOperation { OperandValues: [var deconstructed] } compute when PairElement(compute, deconstructed) is { } slot:
@@ -1545,6 +1622,7 @@ public static class MethodSummaryBuilder
                     case IrLoadReferenceOperation load:
                         foreach (var cell in References(load.AddressValue).OfType<ReferenceCell>())
                         {
+                            WorkCancellation.Check();
                             if (IsCellItself(cell))
                                 elements.Add(Extend(cell.Bases, FieldSlot.Key(cell.Field)));
                             else if (cell.Leaf() is var (field, holders))
@@ -1564,14 +1642,20 @@ public static class MethodSummaryBuilder
                     // A combined delegate comes from wherever the delegates it may run come from (R3).
                     case IrCombineDelegatesOperation combine:
                         foreach (var operand in combine.ContributingOperands)
+                        {
+                            WorkCancellation.Check();
                             pending.Push(operand);
+                        }
                         break;
                     case IrConvertOperation convert:
                         pending.Push(convert.OperandValue);
                         break;
                     case IrPhiOperation phi:
                         foreach (var input in phi.Inputs)
+                        {
+                            WorkCancellation.Check();
                             pending.Push(input.Value);
+                        }
                         break;
                     case IrAwaitOperation awaited:
                         pending.Push(awaited.TaskValue ?? awaited.AwaitableValue);
@@ -1654,8 +1738,11 @@ public static class MethodSummaryBuilder
                 SourceCalls = _sourceCalls[value], Completions = _completions[value], CompletedCalls = _completedCalls[value], Producers = Producers(value)
             };
 
-        private SummaryValue? Value(int? value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
-            value is int id ? Value(id, delegates) : null;
+        private SummaryValue? Value(int? value, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates)
+        {
+            WorkCancellation.Check();
+            return value is int id ? Value(id, delegates) : null;
+        }
 
         private CallArgument[] Arguments(IrCallOperation call, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
             call.ArgumentValues.Select((value, position) => new CallArgument(
@@ -1688,6 +1775,7 @@ public static class MethodSummaryBuilder
             var pending = new Stack<int>([value]);
             while (pending.TryPop(out var current))
             {
+                WorkCancellation.Check();
                 if (!visited.Add(current))
                     continue;
                 var irValue = _values[current];
@@ -1709,7 +1797,10 @@ public static class MethodSummaryBuilder
                     if (CompletedWith(completed) is not { } values)
                         return false;
                     foreach (var completion in values)
+                    {
+                        WorkCancellation.Check();
                         pending.Push(completion);
+                    }
                     continue;
                 }
 
@@ -1722,7 +1813,10 @@ public static class MethodSummaryBuilder
                         break;
                     case IrPhiOperation phi:
                         foreach (var input in phi.Inputs)
+                        {
+                            WorkCancellation.Check();
                             pending.Push(input.Value);
+                        }
                         break;
                     case IrConvertOperation convert:
                         pending.Push(convert.OperandValue);
@@ -1746,6 +1840,7 @@ public static class MethodSummaryBuilder
             var pending = new Stack<int>([task]);
             while (pending.TryPop(out var current))
             {
+                WorkCancellation.Check();
                 if (!visited.Add(current))
                     continue;
                 if (_sameTasks.TryGetValue(current, out var same))
@@ -1763,7 +1858,10 @@ public static class MethodSummaryBuilder
                         continue;
                     case IrPhiOperation phi:
                         foreach (var input in phi.Inputs)
+                        {
+                            WorkCancellation.Check();
                             pending.Push(input.Value);
+                        }
                         continue;
                     case IrConvertOperation convert:
                         pending.Push(convert.OperandValue);
@@ -1831,6 +1929,7 @@ public static class MethodSummaryBuilder
         {
             foreach (var value in _body.Values)
             {
+                WorkCancellation.Check();
                 _points[value.Id] = [];
                 _dependencies[value.Id] = [];
                 _unknown[value.Id] = [];
@@ -1842,9 +1941,11 @@ public static class MethodSummaryBuilder
             var changed = true;
             while (changed)
             {
+                WorkCancellation.Check();
                 changed = false;
                 foreach (var value in _body.Values)
                 {
+                    WorkCancellation.Check();
                     var points = EvaluatePoints(value);
                     if (!points.SetEquals(_points[value.Id]))
                     {
@@ -2016,14 +2117,18 @@ public static class MethodSummaryBuilder
 
         /// <summary>Whether a model value may deliver a <c>completion(…)</c> value: one itself, what a keeper keeps, or one inside it.</summary>
         /// <param name="value">The model value.</param>
-        private static bool CarriesCompletion(IrModelValue value) => value switch
+        private static bool CarriesCompletion(IrModelValue value)
         {
-            IrModelCompletion or IrModelKept => true,
-            IrModelElements elements => CarriesCompletion(elements.Source),
-            IrModelSequence sequence => sequence.Values.Any(CarriesCompletion),
-            IrModelGrouping grouping => CarriesCompletion(grouping.Key) || CarriesCompletion(grouping.Values),
-            _ => false
-        };
+            WorkCancellation.Check();
+            return value switch
+            {
+                IrModelCompletion or IrModelKept => true,
+                IrModelElements elements => CarriesCompletion(elements.Source),
+                IrModelSequence sequence => sequence.Values.Any(CarriesCompletion),
+                IrModelGrouping grouping => CarriesCompletion(grouping.Key) || CarriesCompletion(grouping.Values),
+                _ => false
+            };
+        }
 
         /// <summary>The source calls a value comes from through the completion of the task a call gave, each with how many times the
         /// value consumed that call's task (<see cref="SummaryValue.CompletedCalls"/>), followed over the same steps as its source calls.</summary>
@@ -2140,6 +2245,7 @@ public static class MethodSummaryBuilder
         /// <param name="seen">The values already followed, which a cycle of phis does not follow again.</param>
         private HashSet<AbstractValue>? Present(int value, HashSet<int> seen)
         {
+            WorkCancellation.Check();
             if (!seen.Add(value))
                 return [];
             if (_values[value] is var irValue && irValue.StructTypeKey is not null && !IsNullable(irValue))
@@ -2159,6 +2265,7 @@ public static class MethodSummaryBuilder
             var present = new HashSet<AbstractValue>();
             foreach (var source in from.ToArray())
             {
+                WorkCancellation.Check();
                 if (Present(source, seen) is not { } reached)
                     return null;
                 present.UnionWith(reached);
@@ -2426,13 +2533,17 @@ public static class MethodSummaryBuilder
         /// <summary>What a struct's storage is reached from, past every struct field and the path of the object holding it, and how many
         /// field segments lead there: those of the object's path and those of the struct fields, a cell not among them.</summary>
         /// <param name="value">A base of an access.</param>
-        private static (AbstractValue Root, int Depth) PlaceDepth(AbstractValue value) => value switch
+        private static (AbstractValue Root, int Depth) PlaceDepth(AbstractValue value)
         {
-            StructPlaceValue place when PlaceDepth(place.Base) is var (root, depth) =>
-                (root, depth + place.Slot.Split(FieldSlot.PATH_SEPARATOR).Count(segment => segment != PathValue.ELEMENT)),
-            PathValue { IsWildcard: false } path => (path.Base, path.Segments.Count),
-            _ => (value, 0)
-        };
+            WorkCancellation.Check();
+            return value switch
+            {
+                StructPlaceValue place when PlaceDepth(place.Base) is var (root, depth) =>
+                    (root, depth + place.Slot.Split(FieldSlot.PATH_SEPARATOR).Count(segment => segment != PathValue.ELEMENT)),
+                PathValue { IsWildcard: false } path => (path.Base, path.Segments.Count),
+                _ => (value, 0)
+            };
+        }
 
         /// <summary>The cell of a collection a field access's struct storage stands in, where the body names it: the cell whose address
         /// the receiver is, through the struct fields between them (R1). Its selector names the cell the access touches a field of the
@@ -2448,8 +2559,10 @@ public static class MethodSummaryBuilder
         /// <param name="seen">The values already followed.</param>
         private IEnumerable<StorageCellOf?> StorageCells(int? receiver, HashSet<int> seen)
         {
+            WorkCancellation.Check();
             for (var value = receiver; value is int current && _values[current].StructTypeKey is not null;)
             {
+                WorkCancellation.Check();
                 if (!seen.Add(current))
                     return [];
                 switch (Definition(current))
@@ -2483,8 +2596,11 @@ public static class MethodSummaryBuilder
         /// <param name="Width">The narrowest width the index passes through from that parameter.</param>
         private sealed record StorageCellOf(ElementSelector Selector, ValueTerm? Term, int? Parameter, int? Width);
 
-        private HashSet<AbstractValue> Extend(IEnumerable<AbstractValue> bases, string segment) =>
-            bases.Select(@base => Extend(@base, segment)).ToHashSet();
+        private HashSet<AbstractValue> Extend(IEnumerable<AbstractValue> bases, string segment)
+        {
+            WorkCancellation.Check();
+            return bases.Select(@base => Extend(@base, segment)).ToHashSet();
+        }
 
         private AbstractValue Extend(AbstractValue @base, string segment)
         {
@@ -2502,6 +2618,7 @@ public static class MethodSummaryBuilder
             var delegates = new Dictionary<CreationSite, DelegateCreationValue>();
             foreach (var create in _operations.OfType<IrCreateDelegateOperation>())
             {
+                WorkCancellation.Check();
                 var captured = create.CapturedSymbolKeys.Distinct(StringComparer.Ordinal)
                                      .ToDictionary(key => key, key => (IReadOnlySet<AbstractValue>)VariablePoints(key), StringComparer.Ordinal);
                 if (create.ReceiverValue is int bound)
@@ -2520,6 +2637,7 @@ public static class MethodSummaryBuilder
         /// <param name="visited">The body ids already inspected, so recursion through nested bodies stops.</param>
         private bool UsesReceiver(string bodyId, HashSet<string> visited)
         {
+            WorkCancellation.Check();
             if (!visited.Add(bodyId))
                 return false;
             if ((_bodies?.Invoke(bodyId) ?? (bodyId == _body.BodyId ? _body : null)) is not { } body)
@@ -2667,6 +2785,7 @@ public static class MethodSummaryBuilder
         /// <param name="value">The value whose collection is sought.</param>
         private ArgumentCollection? Collection(int value)
         {
+            WorkCancellation.Check();
             var slice = Slice(value);
             if (Definition(slice.Array) is IrCallOperation { ReceiverValue: int dictionary } view && IsLiveView(view) && view.ResultValue == slice.Array)
                 return Collection(dictionary);
@@ -2678,7 +2797,11 @@ public static class MethodSummaryBuilder
             return CallCollection(value) is { } call ? new ArgumentCollection(call, slice.Shift, slice.Length) : null;
         }
 
-        private IReadOnlyList<ReferenceTarget> References(int value, int depth = 0) => References(value, depth, []) ?? [];
+        private IReadOnlyList<ReferenceTarget> References(int value, int depth = 0)
+        {
+            WorkCancellation.Check();
+            return References(value, depth, []) ?? [];
+        }
 
         /// <summary>The places a reference may point to (<see cref="References(int, int)"/>), null for a value the walk is already
         /// following: a <c>ref</c> local reassigned in a loop reaches its own phi back, which names nothing its other inputs do not.</summary>
@@ -2818,6 +2941,7 @@ public static class MethodSummaryBuilder
         /// <param name="depth">How many slices of the chain have been unwound so far.</param>
         private SliceOf Slice(int value, int depth = 0)
         {
+            WorkCancellation.Check();
             var origin = Origin(value);
             if (depth < SLICE_DEPTH && Definition(origin) is IrCallOperation { Method: var method } call && call.ResultValue == origin &&
                 MemberOf(method) is "AsSpan" or "Slice" && DeclaresKnownSlices(call) && call.ArgumentValues.Count != 0)
@@ -2869,6 +2993,7 @@ public static class MethodSummaryBuilder
         /// <param name="depth">How deep into the expression the term already is.</param>
         private ValueTerm Term(int value, int depth = 0)
         {
+            WorkCancellation.Check();
             var origin = Origin(value);
             var type = _values.TryGetValue(origin, out var named) ? named.Type : null;
             // A value carries the signedness of its own type: it is what decides how the value reaches a wider one, and reading
@@ -2945,6 +3070,7 @@ public static class MethodSummaryBuilder
             var interfaceReceivers = new Dictionary<int, (IReadOnlyList<IrImplementation>, string)>();
             foreach (var member in members.Where(member => member.Call.Collection is null))
             {
+                WorkCancellation.Check();
                 if (HolderLoad(member.Call.ReceiverValue!.Value) is { } load)
                     interfaceReceivers.TryAdd(load.Id, (member.Call.Implementations, InterfaceMethodOf(member.Call)!));
             }
@@ -2953,6 +3079,7 @@ public static class MethodSummaryBuilder
             var standing = new Dictionary<int, (ElementSelector?, IReadOnlyList<SummaryMemberCheck>)>();
             foreach (var member in members)
             {
+                WorkCancellation.Check();
                 if (member.Load is null)
                 {
                     standing[member.Call.Id] = (member.Selector, Checks(member, members, sameCollectionUndecided: true)
@@ -2961,17 +3088,17 @@ public static class MethodSummaryBuilder
                     continue;
                 }
 
-                var checks = Checks(member, members);
+                var memberChecks = Checks(member, members);
                 // The sequence is contained by one cell only where every read it depends on is that cell: a read of the
                 // collection's own structure, of another key or of a key nothing proves the same crosses cells, and only the
                 // whole collection contains a dependency that crosses them. What the changing member does to the structure does
                 // not decide this — a member that only reads the structure, an update in place among them, still makes a
                 // sequence whose two ends only the whole collection holds (ADR 0010).
-                var onCell = member.Selector is { } selector && checks.All(check => check.Selector?.IsProvenSameAs(selector) == true);
-                var onElement = checks.Count != 0 && onCell && Changes(member.Effects.Element);
-                var onStructure = checks.Count != 0 && !onElement;
+                var onCell = member.Selector is { } selector && memberChecks.All(check => check.Selector?.IsProvenSameAs(selector) == true);
+                var onElement = memberChecks.Count != 0 && onCell && Changes(member.Effects.Element);
+                var onStructure = memberChecks.Count != 0 && !onElement;
                 // Only the access the sequence is reported on carries its checks; the other resource keeps its own operation.
-                var dependencies = checks.Select(check => (ValueDependency)new LoadDependency(check.Call.Id)).ToHashSet();
+                var dependencies = memberChecks.Select(check => (ValueDependency)new LoadDependency(check.Call.Id)).ToHashSet();
                 if (member.Effects.Structure != IrCollectionEffect.None)
                 {
                     accesses.Add(Access(member, member.Effects.Structure, null, onStructure,
@@ -3032,6 +3159,7 @@ public static class MethodSummaryBuilder
             var visited = new HashSet<int>();
             while (visited.Add(receiver))
             {
+                WorkCancellation.Check();
                 switch (Definition(receiver))
                 {
                     case IrLoadFieldOperation load:
@@ -3162,6 +3290,7 @@ public static class MethodSummaryBuilder
             var guards = new List<(int, bool)>();
             foreach (var candidate in _body.Blocks)
             {
+                WorkCancellation.Check();
                 if (candidate.Ordinal == block || candidate.ConditionalBranch is not { ConditionValue: int condition, Destination: int taken } branch ||
                     candidate.FallThroughBranch?.Destination is not { } skipped || !Dominators[block].Contains(candidate.Ordinal))
                 {
@@ -3195,6 +3324,7 @@ public static class MethodSummaryBuilder
 
         private SummaryPredicate Predicate(int value, bool expected)
         {
+            WorkCancellation.Check();
             var origin = Origin(value);
             switch (Definition(origin))
             {
@@ -3310,6 +3440,7 @@ public static class MethodSummaryBuilder
             var visited = new HashSet<int>();
             while (visited.Add(origin) && Definition(origin) is IrConvertOperation { ConversionKind: IrConversionKind.Numeric } convert)
             {
+                WorkCancellation.Check();
                 narrowest = Math.Min(narrowest ?? int.MaxValue, Width(TypeOf(origin)));
                 origin = Origin(convert.OperandValue);
             }
@@ -3332,6 +3463,7 @@ public static class MethodSummaryBuilder
             var uses = _operations.Where(operation => operation.Operands.Contains(value)).ToArray();
             foreach (var store in uses.OfType<IrStoreFieldOperation>().Where(store => store.ReceiverValue == value))
             {
+                WorkCancellation.Check();
                 if (uses.All(use => use == store || Dominates(store.Id, use.Id)))
                     overwritten.Add(FieldSlot.Key(store.Field));
             }
@@ -3370,9 +3502,11 @@ public static class MethodSummaryBuilder
                                                         block => block.Predecessors.Count == 0 ? [block.Ordinal] : new HashSet<int>(all));
                 for (var changed = true; changed;)
                 {
+                    WorkCancellation.Check();
                     changed = false;
                     foreach (var block in _body.Blocks.Where(block => block.Predecessors.Count != 0))
                     {
+                        WorkCancellation.Check();
                         var dominators = block.Predecessors.Select(predecessor => _dominators[predecessor])
                                               .Aggregate(new HashSet<int>(all), (common, next) => common.Intersect(next).ToHashSet());
                         dominators.Add(block.Ordinal);
@@ -3413,6 +3547,7 @@ public static class MethodSummaryBuilder
             var visited = new HashSet<int>();
             while (visited.Add(origin))
             {
+                WorkCancellation.Check();
                 if (Definition(origin) is IrLoadReferenceOperation load && ForwardedReferenceValue(load) is int stored)
                     origin = Origin(stored);
                 else if (Definition(origin) is IrConvertOperation { ConversionKind: IrConversionKind.Numeric } convert &&
@@ -3452,6 +3587,7 @@ public static class MethodSummaryBuilder
             var visited = new HashSet<int>();
             while (visited.Add(value) && _definitions.TryGetValue(value, out var definition))
             {
+                WorkCancellation.Check();
                 if (definition is IrAssignOperation assign)
                     value = assign.SourceValue;
                 else if (definition is IrConvertOperation { ConversionKind: not IrConversionKind.Numeric } convert)
@@ -3501,6 +3637,7 @@ public static class MethodSummaryBuilder
             var pending = new Stack<int>([address]);
             while (pending.TryPop(out var value))
             {
+                WorkCancellation.Check();
                 if (!seen.Add(value))
                     continue;
                 if (_values[value] is { IsReference: false, SymbolKey: { } key })
@@ -3515,7 +3652,10 @@ public static class MethodSummaryBuilder
                         break;
                     case IrPhiOperation phi:
                         foreach (var input in phi.Inputs)
+                        {
+                            WorkCancellation.Check();
                             pending.Push(input.Value);
+                        }
                         break;
                     case IrConvertOperation convert:
                         pending.Push(convert.OperandValue);
@@ -3540,6 +3680,7 @@ public static class MethodSummaryBuilder
             var pending = new Stack<int>([ordinal]);
             while (pending.TryPop(out var current))
             {
+                WorkCancellation.Check();
                 if (!visited.Add(current))
                     continue;
 
@@ -3556,7 +3697,10 @@ public static class MethodSummaryBuilder
                 }
                 else
                     foreach (var predecessor in block.FlowPredecessors)
+                    {
+                        WorkCancellation.Check();
                         pending.Push(predecessor.BlockOrdinal);
+                    }
             }
 
             return result;
@@ -3573,6 +3717,7 @@ public static class MethodSummaryBuilder
                 return null;
             foreach (var operation in _body.Blocks[block].Operations.TakeWhile(operation => operation.Id != load.Id).Reverse())
             {
+                WorkCancellation.Check();
                 var writes = WrittenThrough(operation, variables.Single()).ToArray();
                 if (writes is [{ Value: var value, Definite: true }])
                     return value;
@@ -3601,6 +3746,7 @@ public static class MethodSummaryBuilder
                 var block = _body.Blocks[ordinalOfBlock];
                 foreach (var variable in WrittenVariables(load.AddressValue))
                 {
+                    WorkCancellation.Check();
                     var inBlock = LastWritten(block.Operations.TakeWhile(operation => operation.Id != load.Id), variable);
                     if (inBlock is { } writes)
                         written.UnionWith(writes.Values);
@@ -3613,7 +3759,10 @@ public static class MethodSummaryBuilder
                         if (block.FlowPredecessors.Count == 0 && incoming is int value)
                             written.Add(value);
                         foreach (var predecessor in block.FlowPredecessors)
+                        {
+                            WorkCancellation.Check();
                             written.UnionWith(WrittenAtEnd(predecessor.BlockOrdinal, variable, incoming));
+                        }
                     }
                 }
             }
@@ -3639,6 +3788,7 @@ public static class MethodSummaryBuilder
             IrCallOperation? lastCall = null;
             foreach (var operation in operations)
             {
+                WorkCancellation.Check();
                 var written = WrittenThrough(operation, variable).ToArray();
                 if (written.Length == 0 ||
                     operation is IrStoreReferenceOperation store && lastCall is not null && lastCall.RefResults.Values.Contains(store.Value))

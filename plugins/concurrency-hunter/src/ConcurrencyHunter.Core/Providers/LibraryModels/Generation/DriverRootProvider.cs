@@ -29,11 +29,13 @@ public sealed class DriverRootProvider(bool triggers = false) : IExecutionRootPr
         var roots = new List<ExecutionRootDescriptor>();
         foreach (var compilation in context.Compilations.Where(compilation => compilation.AssemblyName == DriverSynthesizer.ASSEMBLY))
         {
+            WorkCancellation.Check();
             context.CancellationToken.ThrowIfCancellationRequested();
             if (compilation.Assembly.GetTypeByMetadataName(DriverSynthesizer.DRIVER_TYPE) is not { } driver)
                 continue;
             foreach (var action in driver.GetMembers().OfType<IMethodSymbol>().Where(IsAction))
             {
+                WorkCancellation.Check();
                 var symbol = SymbolNames.Method(action);
                 roots.Add(new ExecutionRootDescriptor(
                     RootId(action.Name),

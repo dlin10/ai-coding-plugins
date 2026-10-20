@@ -46,6 +46,7 @@ public sealed class HostingRootProvider : IExecutionRootProvider
                                  .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         foreach (var hosted in context.DiIndex.HostedServices)
         {
+            WorkCancellation.Check();
             context.CancellationToken.ThrowIfCancellationRequested();
             var implementation = hosted.ImplementationType;
             if (sourceTypes.TryGetValue(hosted.ImplementationTypeKey, out var declared) &&
@@ -61,7 +62,10 @@ public sealed class HostingRootProvider : IExecutionRootProvider
             }
 
             foreach (var diagnostic in context.DiIndex.Diagnostics.Where(diagnostic => diagnostic.Subject == implementation))
+            {
+                WorkCancellation.Check();
                 diagnostics.Add(Diagnostic(diagnostic.Code, implementation, diagnostic.Message));
+            }
 
             var typeRoots = sourceTypes.TryGetValue(hosted.ImplementationTypeKey, out var type) && ProviderSupport.CompilationOf(context, type) is { } compilation
                 ? Roots(context, compilation, type, hosted).ToArray()
@@ -92,6 +96,7 @@ public sealed class HostingRootProvider : IExecutionRootProvider
 
         foreach (var (interfaceName, methodName, kind) in InterfaceLifecycle)
         {
+            WorkCancellation.Check();
             var @interface = ExactSymbols.FindType(compilation, Hosting, interfaceName);
             if (@interface is null || !type.AllInterfaces.Contains(@interface, SymbolEqualityComparer.Default) ||
                 @interface.GetMembers(methodName).OfType<IMethodSymbol>().FirstOrDefault() is not { } member ||
@@ -110,6 +115,7 @@ public sealed class HostingRootProvider : IExecutionRootProvider
         var isOne = hosted.InstanceCount == HostedServiceInstanceCount.One;
         foreach (var (method, kind) in lifecycle.Where(item => ProviderSupport.HasSourceBody(item.Method)))
         {
+            WorkCancellation.Check();
             var symbol = SymbolNames.Method(method);
             yield return new ExecutionRootDescriptor(
                 $"hosting:{kind}:{type.ContainingAssembly.Name}:{type.GetDocumentationCommentId()}:{method.GetDocumentationCommentId()}",
@@ -136,10 +142,13 @@ public sealed class HostingRootProvider : IExecutionRootProvider
     }
 
     /// <summary>The declaration the runtime dispatches to for <paramref name="baseMethod"/> on <paramref name="type"/>.</summary>
+    /// <param name="type">The runtime type to dispatch on.</param>
+    /// <param name="baseMethod">The virtual method whose implementation is requested.</param>
     private static IMethodSymbol? MostDerived(INamedTypeSymbol type, IMethodSymbol baseMethod)
     {
         for (var current = type; current is not null; current = current.BaseType)
         {
+            WorkCancellation.Check();
             var match = current.GetMembers(baseMethod.Name).OfType<IMethodSymbol>()
                                .FirstOrDefault(candidate => ProviderSupport.Overrides(candidate, baseMethod));
             if (match is not null)

@@ -61,6 +61,7 @@ public static class CollectionObjects
         var visited = new HashSet<string>(StringComparer.Ordinal);
         for (var key = region.TypeKey; key is not null && visited.Add(key); key = program.Type(key)?.BaseTypeKey)
         {
+            WorkCancellation.Check();
             if (KindOfType(key) is { } kind)
                 return kind == LIST && TakesSnapshot(region, summaries) ? SNAPSHOT : kind;
         }
@@ -89,6 +90,7 @@ public static class CollectionObjects
             .Select(region => (Region: region, Implementation: call.Implementations.FirstOrDefault(implementation => implementation.Kind == kindOf(region))))
             .Where(item => item.Implementation?.Library is not null).GroupBy(item => item.Implementation!))
         {
+            WorkCancellation.Check();
             var receivers = group.Select(item => (AbstractValue)new RegionValue(item.Region)).ToHashSet();
             yield return call with
             {
@@ -107,16 +109,19 @@ public static class CollectionObjects
     /// <param name="resolve">Resolves an abstract receiver to heap regions.</param>
     /// <param name="kindOf">Classifies a receiver, excluding source implementations.</param>
     public static IEnumerable<SummaryOpaqueCall> LibraryCalls(CallTransfer call, Func<AbstractValue, IReadOnlySet<string>> resolve,
-                                                               Func<string, string?> kindOf) =>
-        LibraryCalls(new SummaryOpaqueCall(call.OperationId, call.Callee ?? call.Target, [])
-        {
-            Receivers = call.Receivers,
-            Arguments = call.Arguments,
-            Implementations = call.Implementations,
-            Provenance = call.Provenance,
-            Conditions = call.Conditions,
-            HeldLocks = call.HeldLocks
-        }, resolve, kindOf);
+                                                               Func<string, string?> kindOf)
+    {
+        WorkCancellation.Check();
+        return LibraryCalls(new SummaryOpaqueCall(call.OperationId, call.Callee ?? call.Target, [])
+            {
+                Receivers = call.Receivers,
+                Arguments = call.Arguments,
+                Implementations = call.Implementations,
+                Provenance = call.Provenance,
+                Conditions = call.Conditions,
+                HeldLocks = call.HeldLocks
+            }, resolve, kindOf);
+    }
 
     /// <summary>The effects and enumerations of a known library call, using its direct parameter bindings and enumeration moments.</summary>
     /// <param name="call">The direct or projected library call.</param>
@@ -137,32 +142,51 @@ public static class CollectionObjects
         var library = call.Library!;
         var deferred = library.Result?.Leaf.Kind == IrResultKind.Sequence;
         foreach (var effect in library.Effects)
-        foreach (var bound in Bind(effect.Kind, effect.ParameterOrdinal))
-            yield return bound with { IsDeferred = deferred, Conditions = call.Conditions };
+        {
+            WorkCancellation.Check();
+            foreach (var bound in Bind(effect.Kind, effect.ParameterOrdinal))
+            {
+                WorkCancellation.Check();
+                yield return bound with { IsDeferred = deferred, Conditions = call.Conditions };
+            }
+        }
         foreach (var moment in new[] { false, true })
         {
+            WorkCancellation.Check();
             foreach (var kept in library.EnumeratedKeepers(moment))
+            {
+                WorkCancellation.Check();
                 yield return new SummaryArgumentEffect(IrLibraryEffectKind.Enumerate, call.OperationId,
                     new HashSet<AbstractValue> { new PathValue(new LibraryKeeperValue(call.OperationId, kept.KeeperOrdinal, Read: true), [PathValue.KEPT]) },
                     null, false, call.Provenance, heldLocks) { IsDeferred = moment, Conditions = call.Conditions };
+            }
             foreach (var ordinal in library.EnumeratedArguments(moment))
             {
+                WorkCancellation.Check();
                 if (deferred == moment && library.Effects.Any(effect => effect.ParameterOrdinal == ordinal && effect.Kind == IrLibraryEffectKind.DeepRead))
                     continue;
                 foreach (var bound in Bind(IrLibraryEffectKind.Enumerate, ordinal))
+                {
+                    WorkCancellation.Check();
                     yield return bound with { IsDeferred = moment, Conditions = call.Conditions };
+                }
             }
             // What the tasks a completion names complete with is enumerated as that value handed over directly would be (R2): the tasks
             // are reached from the call's own values through any elements(…) and completion(…), and a value holding them is enumerated as
             // elements(…) of it is. What a delegate gives back, the heap enumerates (WholeProgram.EnumeratedReturned).
             foreach (var completion in library.EnumeratedCompletions(moment).Where(IrLibraryCall.ReachesCallValues))
             {
+                WorkCancellation.Check();
                 foreach (var holder in IrLibraryCall.CompletionHolders(completion))
                 {
+                    WorkCancellation.Check();
                     if (holder is IrModelArgument or IrModelThis)
                     {
                         foreach (var bound in Bind(IrLibraryEffectKind.Enumerate, holder is IrModelArgument argument ? argument.ParameterOrdinal : IrLibraryCall.RECEIVER))
+                        {
+                            WorkCancellation.Check();
                             yield return bound with { IsDeferred = moment, Conditions = call.Conditions };
+                        }
                     }
                     else if (Reached(holder) is { Count: > 0 } holders)
                         yield return Enumeration(holders, moment);
@@ -174,15 +198,19 @@ public static class CollectionObjects
         }
 
         // The values a model value reaches from the call's own values, as paths through what it names the elements and completion of.
-        IReadOnlySet<AbstractValue> Reached(IrModelValue value) => value switch
+        IReadOnlySet<AbstractValue> Reached(IrModelValue value)
         {
-            IrModelArgument argument => Values(argument.ParameterOrdinal),
-            IrModelThis => Values(IrLibraryCall.RECEIVER),
-            IrModelKept kept => new HashSet<AbstractValue> { new PathValue(new LibraryKeeperValue(call.OperationId, kept.KeeperOrdinal, Read: true), [PathValue.KEPT]) },
-            IrModelElements elements => Through(Reached(elements.Source), PathValue.ELEMENT),
-            IrModelCompletion inner => Through(Reached(inner.Source), PathValue.COMPLETION),
-            _ => new HashSet<AbstractValue>()
-        };
+            WorkCancellation.Check();
+            return value switch
+            {
+                IrModelArgument argument => Values(argument.ParameterOrdinal),
+                IrModelThis => Values(IrLibraryCall.RECEIVER),
+                IrModelKept kept => new HashSet<AbstractValue> { new PathValue(new LibraryKeeperValue(call.OperationId, kept.KeeperOrdinal, Read: true), [PathValue.KEPT]) },
+                IrModelElements elements => Through(Reached(elements.Source), PathValue.ELEMENT),
+                IrModelCompletion inner => Through(Reached(inner.Source), PathValue.COMPLETION),
+                _ => new HashSet<AbstractValue>()
+            };
+        }
 
         SummaryArgumentEffect Enumeration(IReadOnlySet<AbstractValue> values, bool moment) =>
             new(IrLibraryEffectKind.Enumerate, call.OperationId, values, null, false, call.Provenance!, heldLocks) { IsDeferred = moment, Conditions = call.Conditions };

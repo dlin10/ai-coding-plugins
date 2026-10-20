@@ -36,6 +36,7 @@ public static partial class WholeProgram
                 throw new InvalidOperationException($"A query of the solved heap wrote {key}: the heap is frozen after its solve.");
             var version = ++_writeClock;
             _writes[key] = version;
+            // bounded: walks the parents of one state key, as many as the key's nesting depth; cleanup after a cancellation writes through here.
             for (var parent = key; parent is not null; parent = parent.Parent)
                 _writes[parent.All] = version;
         }
@@ -111,8 +112,11 @@ public static partial class WholeProgram
         {
             _rebuilding = new();
             foreach (var id in _instanceOrder)
+            {
+                CheckCancellation();
                 if (_history.TryGetValue(id, out var history))
                     _rebuilding.Union(history.Contribution);
+            }
         }
 
         private void BuildReachIndex()
@@ -143,6 +147,7 @@ public static partial class WholeProgram
             _reachIndex = null;
             foreach (var id in _instanceOrder.ToArray())
             {
+                CheckCancellation();
                 var contribution = new RebuiltState();
                 _rebuilding = contribution;
                 Process(_instances[id]);
@@ -151,13 +156,22 @@ public static partial class WholeProgram
             AssembleContributions();
             EscapeCapturedHolders();
             foreach (var state in _registrations.Values.ToArray())
+            {
+                CheckCancellation();
                 ConstructFactory(state);
+            }
             foreach (var (target, region) in _sinks.ToArray())
+            {
+                CheckCancellation();
                 Add(target, Object(region));
+            }
             if (_changes != before)
                 throw new InvalidOperationException("The full pass after convergence added a solver fact.");
             foreach (var pair in counters)
+            {
+                CheckCancellation();
                 _counters[pair.Key] = pair.Value;
+            }
         }
 
         private sealed class RebuiltState
@@ -194,6 +208,7 @@ public static partial class WholeProgram
                 FateRuns.UnionWith(other.FateRuns);
                 foreach (var pair in other.Handoffs)
                 {
+                    WorkCancellation.Check();
                     if (!Handoffs.TryGetValue(pair.Key, out var handoff))
                         Handoffs.Add(pair.Key, handoff = ([], new(StringComparer.Ordinal)));
                     handoff.Sites.UnionWith(pair.Value.Sites);
@@ -205,6 +220,7 @@ public static partial class WholeProgram
             {
                 foreach (var pair in source)
                 {
+                    WorkCancellation.Check();
                     if (!target.TryGetValue(pair.Key, out var values))
                         target.Add(pair.Key, values = new(pair.Value.Comparer));
                     values.UnionWith(pair.Value);

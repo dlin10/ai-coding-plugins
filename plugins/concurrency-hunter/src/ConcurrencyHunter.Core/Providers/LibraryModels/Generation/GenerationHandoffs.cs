@@ -109,7 +109,9 @@ public sealed class GenerationHandoffs
         }
 
         foreach (var (site, regions) in checks.Each(calls))
+        {
             File(site, regions, direct[site], keepCall: true);
+        }
 
         foreach (var handoff in checks.Each(_heap.DelegateHandoffs))
         {
@@ -117,7 +119,9 @@ public sealed class GenerationHandoffs
             var inputs = Close(handed);
             var directInputs = _reachability.From(handed, captures: false);
             foreach (var site in checks.Each(handoff.Sites))
+            {
                 File((site.CallerInstance, site.OperationId), inputs, directInputs, keepCall: false);
+            }
         }
 
         foreach (var handoff in checks.Each(_heap.StartupDelegates))
@@ -128,6 +132,7 @@ public sealed class GenerationHandoffs
 
         foreach (var instance in checks.Each(_heap.Instances.Values).Where(IsWitness))
         {
+            checks.Check();
             var received = Received(_heap, instance);
             // A witness stands for a user's override, which reaches what it is given only through what a user can name (question 142).
             var receipts = _reachability.VisibleFrom(received.Receivers.Concat(received.Parameters.Values.SelectMany(values => values)));
@@ -166,9 +171,11 @@ public sealed class GenerationHandoffs
         var program = run.ScopeProgram!.Program;
         foreach (var instance in checks.Each(_heap.Instances.Values).Where(instance => OutsideSetup(ExecutionsOf(instance.Id))))
         {
+            checks.Check();
             foreach (var call in checks.Each(instance.Summary.Calls).Where(call => call.Kind is IrCallKind.Virtual or IrCallKind.Interface or IrCallKind.Delegate &&
                                                                                    call.Receivers.Count != 0 && call.Receivers.All(ReadsStorage)))
             {
+                checks.Check();
                 // A receiver the dispatch can run on — an object that may be of the call's target type — is one the analysis follows.
                 var target = call.TargetContainingTypeKey is { } key ? ProgramIndex.Substitute(key, instance.Substitution) : null;
                 if (call.Receivers.SelectMany(value => _heap.Resolve(instance.Id, value)).Any(region => MayBe(program, region, target)))
@@ -267,12 +274,21 @@ public sealed class GenerationHandoffs
         var ids = instances.Select(instance => instance.Id).ToHashSet(StringComparer.Ordinal);
         var unseen = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var (instance, operation) in _checks.Each(_heap.UnresolvedDispatches.Concat(_heap.UnresolvedCallTargets)).Where(site => ids.Contains(site.Instance)))
+        {
+            _checks.Check();
             unseen.Add($"unresolved dispatch: {instance}#{operation}");
+        }
         var bodies = instances.Select(instance => instance.BodyId).ToHashSet(StringComparer.Ordinal);
         foreach (var (body, operation) in _checks.Each(_heap.NoReceiverObjects).Where(site => bodies.Contains(site.BodyId)))
+        {
+            _checks.Check();
             unseen.Add($"no receiver object: {body}#{operation}");
+        }
         foreach (var dropped in _checks.Each(run.LoweringDiagnostics).Where(diagnostic => diagnostic.StartsWith(LOWERING, StringComparison.Ordinal)))
+        {
+            _checks.Check();
             unseen.Add(dropped);
+        }
         foreach (var body in _checks.Each(bodies))
         {
             if (run.Reachable.Bodies.TryGetValue(body, out var ir) &&
@@ -352,7 +368,9 @@ public sealed class GenerationHandoffs
                 continue;
             found.UnionWith(unfollowed[current]);
             foreach (var callee in _checks.Each(edges[current]))
+            {
                 pending.Push(callee);
+            }
         }
         return found.Count == 0 ? null : found.Min;
     }
@@ -399,6 +417,7 @@ public sealed class GenerationHandoffs
     {
         foreach (var ordinal in _checks.Each(call.Receivers).Select(ParameterBase).OfType<int>().Distinct())
         {
+            _checks.Check();
             var bound = _checks.Each(_heap.Edges).Any(edge => edge.CalleeInstance == instance.Id &&
                                                 _heap.Instances[edge.CallerInstance].Summary.Calls
                                                      .Where(caller => caller.OperationId == edge.OperationId)
@@ -411,12 +430,16 @@ public sealed class GenerationHandoffs
 
     /// <summary>The ordinal of the parameter a value is, or is a path from; <c>null</c> for any other value.</summary>
     /// <param name="value">The value.</param>
-    private static int? ParameterBase(AbstractValue value) => value switch
+    private static int? ParameterBase(AbstractValue value)
     {
-        ParameterValue parameter => parameter.Ordinal,
-        PathValue path => ParameterBase(path.Base),
-        _ => null
-    };
+        WorkCancellation.Check();
+        return value switch
+        {
+            ParameterValue parameter => parameter.Ordinal,
+            PathValue path => ParameterBase(path.Base),
+            _ => null
+        };
+    }
 
     /// <summary>The engine's unresolved calls, excluding runtime identity casts that do not hand a value to unknown code.</summary>
     /// <param name="run">The completed generator run.</param>
@@ -447,6 +470,7 @@ public sealed class GenerationHandoffs
         var parameters = instance.Parameters.ToDictionary(pair => pair.Key, pair => Objects(pair.Value));
         foreach (var value in instance.Summary.Stores.Where(store => IsWitnessField(store.Field)).SelectMany(store => store.Values))
         {
+            WorkCancellation.Check();
             var target = ReceivedFrom(value) switch
             {
                 Heap.ThisValue => receivers,
@@ -466,24 +490,32 @@ public sealed class GenerationHandoffs
             var pending = new Stack<string>(regions);
             while (pending.TryPop(out var region))
             {
+                WorkCancellation.Check();
                 if (!heap.Regions.TryGetValue(region, out var held) || held.Kind != HeapRegionKind.StructCopy)
                     objects.Add(region);
                 else if (copies.Add(region))
                 {
                     foreach (var target in heap.FieldsOf(region).SelectMany(slot => heap.PointsTo(region, slot)))
+                    {
+                        WorkCancellation.Check();
                         pending.Push(target);
+                    }
                 }
             }
 
             return objects;
         }
 
-        static AbstractValue ReceivedFrom(AbstractValue value) => value switch
+        static AbstractValue ReceivedFrom(AbstractValue value)
         {
-            PathValue path => ReceivedFrom(path.Base),
-            StructPlaceValue place => ReceivedFrom(place.Base),
-            _ => value
-        };
+            WorkCancellation.Check();
+            return value switch
+            {
+                PathValue path => ReceivedFrom(path.Base),
+                StructPlaceValue place => ReceivedFrom(place.Base),
+                _ => value
+            };
+        }
     }
 
     /// <summary>Whether an instance is a witness of a member the analysis takes to read what it gets — a getter, <c>ToString</c>, or

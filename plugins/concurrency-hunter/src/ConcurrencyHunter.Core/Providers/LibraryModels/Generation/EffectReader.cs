@@ -158,6 +158,7 @@ public sealed class EffectReader
 
             foreach (var parameter in _driver.Member.Parameters)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 var probes = _driver.Parameters.FirstOrDefault(candidate => candidate.Ordinal == parameter.Ordinal)?.Probes
                                     .Where(probe => probe.Variant == variant).ToArray() ?? [];
                 var field = parameter.RefKind is RefKind.Ref or RefKind.Out ? $"Out_{parameter.Name}_{variant}"
@@ -182,6 +183,7 @@ public sealed class EffectReader
         }
         foreach (var factory in _stage.Each(probes.Select(Allocations.ProbeBody)))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var made = _stage.Each(_heap.Regions.Values).Where(region => region.SiteBodyId == factory).Select(region => region.Identity).ToArray();
             roots.UnionWith(made);
             own.UnionWith(made);
@@ -248,7 +250,10 @@ public sealed class EffectReader
             if (belowUser)
                 _receiverUserObjects.Add(current.Region);
             foreach (var (_, target) in _reachability.Edges(current.Region))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 pending.Push((target, belowUser));
+            }
         }
     }
 
@@ -295,6 +300,7 @@ public sealed class EffectReader
     {
         foreach (var (instanceId, receivers) in _handoffs.UnseenMembersOutsideSetup)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var input = _inputs.FirstOrDefault(input => !input.IsReceiver && receivers.Any(input.Reached.Contains)) ??
                         _inputs.FirstOrDefault(input => input.IsReceiver && receivers.Any(input.Reached.Contains));
             if (input is not null)
@@ -312,6 +318,7 @@ public sealed class EffectReader
         var unsupported = _handoffs.HandedOnlyToUnsupportedOutsideSetup.Contains(region);
         foreach (var ((instanceId, operation), regions) in _handoffs.HandoffsOutsideSetup)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (!regions.Contains(region))
                 continue;
             if (!_heap.Instances.TryGetValue(instanceId, out var instance))
@@ -366,12 +373,14 @@ public sealed class EffectReader
         var enumeration = IsEnumerationRead(instance, access.Access.OperationId);
         foreach (var input in Inputs(action))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (input.ProbeGraph.Contains(access.RegionId) || input.IsCollection && input.Roots.Contains(access.RegionId))
                 AddEffect(input.Name, READS_DEEP, action, enumeration, [access.RegionId]);
         }
     }
 
     // A field of a struct kept in a cell is a write into that cell, as the store of the whole cell is (R7).
+    // bounded: overload forwarding terminates at the implementation overload.
     private void ReadStore(ExecutionAccess access, string action) =>
         ReadStore(access.RegionId, access.Slot, access.Access.Field,
                   access.Access.IsOnCollection && access.Access.Selector is not null || FieldSlot.Root(access.Slot) == PathValue.ELEMENT, action,
@@ -399,6 +408,7 @@ public sealed class EffectReader
         var handled = false;
         foreach (var input in Inputs(action))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (input.IsArray && input.Roots.Contains(region) && cell)
             {
                 AddEffect(input.Name, WRITES_CELLS, action, enumeration: false, []);
@@ -469,6 +479,7 @@ public sealed class EffectReader
         var seeds = SetupSlotValues().GetValueOrDefault((FieldSlot.Key(store.Field), region));
         foreach (var value in store.Values)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var seedable = ReadsOwnSlot(instance, value, store.Field, region) || value is not (PathValue or StaticFieldValue);
             if (!_observation.Resolve(instance, value).All(stored => Origin(stored).Role == DriverRole.ProbeDelegate ||
                                                                      seedable && Origin(stored).Role == DriverRole.Seed &&
@@ -508,13 +519,17 @@ public sealed class EffectReader
         _setupSlotValues = [];
         foreach (var access in _analysis.Accesses.Where(access => access.Access.Kind == SummaryAccessKind.Store && access.Executions.Any(_executions.InSetup)))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (!IsDelegateField(access.Access.Field) || !_heap.Instances.TryGetValue(access.InstanceId, out var instance))
                 continue;
             var key = (FieldSlot.Key(access.Access.Field), access.RegionId);
             if (!_setupSlotValues.TryGetValue(key, out var values))
                 _setupSlotValues[key] = values = new HashSet<string>(StringComparer.Ordinal);
             foreach (var value in access.Access.Values.Where(value => !ReadsField(value, access.Access.Field)))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 values.UnionWith(_observation.Resolve(instance, value));
+            }
         }
         return _setupSlotValues;
     }
@@ -560,6 +575,7 @@ public sealed class EffectReader
         foreach (var storage in instance.Summary.StructCopies.Where(copy => stores.Contains(copy.OperationId)).SelectMany(copy => copy.Targets)
                                         .SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (_heap.Located(storage, "") is ({ } region, { Length: > 0 } slot))
                 yield return (region, slot, StructStorage.WholeStorage(_heap.Regions[storage].TypeKey ?? ""));
         }
@@ -588,9 +604,11 @@ public sealed class EffectReader
             yield break;
         foreach (var access in instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var slot = StructStorage.IsWholeStorage(access.Field) ? "" : FieldSlot.Key(access.Field);
             foreach (var region in access.Bases.SelectMany(value => _heap.Resolve(instance.Id, value)))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (_heap.Located(region, slot, copies: true) is ({ } holder, var written) && constructed.Contains(holder))
                     yield return written;
             }
@@ -600,6 +618,7 @@ public sealed class EffectReader
         foreach (var storage in instance.Summary.StructCopies.Where(copy => stores.Contains(copy.OperationId)).SelectMany(copy => copy.Targets)
                                         .SelectMany(value => _heap.Resolve(instance.Id, value)))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (_heap.Located(storage, "", copies: true) is ({ } holder, var written) && constructed.Contains(holder))
                 yield return written;
         }
@@ -643,6 +662,7 @@ public sealed class EffectReader
     /// <param name="unobserved">Whether a store through a reference has no proven place.</param>
     private IReadOnlySet<(string Region, string? Slot)> StoreTargets(MethodInstance instance, out bool unobserved)
     {
+        _checks.Check(GenerationStage.ReadEffects);
         unobserved = false;
         var targets = instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store)
                               .SelectMany(access => StoreTargets(instance, access).Where(place => !IsDelegateSlotStore(instance, access, place.Region)))
@@ -653,6 +673,7 @@ public sealed class EffectReader
         foreach (var target in instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store)
                                        .SelectMany(access => access.Targets))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var fields = ValueProvenance.ReferenceFields(_heap, instance, target);
             targets.UnionWith(fields.Select(place => (place.Region, (string?)place.Slot)));
             targets.UnionWith(ValueProvenance.ReferenceStorage(_heap, instance, target, out var unproven)
@@ -682,16 +703,24 @@ public sealed class EffectReader
                 _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.STRUCT_STORAGE_WRITE, $"this: {constructed} in {instance.BodyId}");
             foreach (var action in actions)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 // A whole struct stored through a reference writes the storage it reaches, as the same store made directly does (R7).
                 foreach (var (region, slot, field) in ReferenceStructStores(instance))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     ReadStore(region, slot, field, FieldSlot.Root(slot) == PathValue.ELEMENT, action);
+                }
                 // So does any other store through a reference into a field — an `out` or `ref` helper's, a `ref` local's (R1).
                 foreach (var (region, slot, field) in ReferenceFieldStores(instance))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     ReadStore(region, slot, field, cell: false, action);
+                }
 
                 var cells = CellStoreTargets(instance, PathValue.ELEMENT);
                 foreach (var region in CellStoreTargets(instance))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     var inputs = Inputs(action).Where(input => input.Reached.Contains(region)).ToArray();
                     var arrays = inputs.Where(input => input.IsArray && input.Roots.Contains(region)).ToArray();
                     if (arrays.Length != 0)
@@ -701,7 +730,10 @@ public sealed class EffectReader
                         if (cells.Contains(region))
                         {
                             foreach (var array in arrays)
+                            {
+                                _checks.Check(GenerationStage.ReadEffects);
                                 AddEffect(array.Name, WRITES_CELLS, action, enumeration: false, []);
+                            }
                         }
                         continue;
                     }
@@ -713,9 +745,15 @@ public sealed class EffectReader
                 }
 
                 foreach (var access in instance.Summary.ReferenceAccesses)
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     ReadReferenceAccess(instance, access, action);
+                }
                 foreach (var effect in instance.Summary.ArgumentEffects)
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     ReadArgumentEffect(instance, effect, action);
+                }
             }
         }
     }
@@ -745,10 +783,14 @@ public sealed class EffectReader
                 var targets = StoreTargets(instance, out var unobserved);
                 foreach (var (region, slot) in targets)
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     if (_allocations.CreatedByCall(region))
                         continue;
                     foreach (var action in actions.Where(action => slot is null || !StructStorageStore(region, slot, action)))
+                    {
+                        _checks.Check(GenerationStage.ReadEffects);
                         AddStateStore(region, action);
+                    }
                 }
                 if (unobserved)
                 {
@@ -773,7 +815,10 @@ public sealed class EffectReader
             if (!reached.Add(current))
                 continue;
             foreach (var callee in _stage.Each(calls[current]))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 pending.Push(callee);
+            }
         }
         return reached;
     }
@@ -782,12 +827,16 @@ public sealed class EffectReader
     {
         foreach (var target in access.Targets)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var arrays = ValueProvenance.ReferenceArrays(_heap, instance, target, out var unobserved);
             if (unobserved && access.Kind == SummaryAccessKind.Store)
                 _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.UNPROVEN_REFERENCE_STORE, $"in {instance.BodyId}#{access.OperationId}");
             foreach (var input in Inputs(action).Where(input => input.IsArray && input.Roots.Any(arrays.Contains)))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 AddEffect(input.Name, access.Kind == SummaryAccessKind.Store ? WRITES_CELLS : READS_DEEP, action, enumeration: false,
                           input.Roots.Where(arrays.Contains));
+            }
             switch (target)
             {
                 case ReferenceParameter parameter when access.Kind == SummaryAccessKind.Store && Parameter(parameter.Ordinal) is
@@ -824,6 +873,7 @@ public sealed class EffectReader
                          !WritesArrayCellsOnly(effect, regions);
             foreach (var input in inputs)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (reads)
                     AddEffect(input.Name, READS_DEEP, action, enumeration, regions.Where(input.Reached.Contains));
                 if (writes)
@@ -837,6 +887,7 @@ public sealed class EffectReader
 
         foreach (var input in inputs)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             switch (effect.Kind)
             {
                 case IrLibraryEffectKind.DeepRead:
@@ -901,16 +952,21 @@ public sealed class EffectReader
     {
         foreach (var input in _inputs)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (input.Reached.Any(_handoffs.WitnessedOutsideSetup.Contains))
                 AddEffect(input.Name, READS_DEEP, input.Action, enumeration: false, input.Reached.Where(_handoffs.WitnessedOutsideSetup.Contains));
         }
 
         foreach (var regions in _handoffs.HandoffsOutsideSetup.Values)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (!regions.Any(_witnessObjects.Contains))
                 continue;
             foreach (var input in _inputs.Where(input => input.Reached.Any(regions.Contains)))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 AddEffect(input.Name, READS_DEEP, input.Action, enumeration: false, regions.Where(input.Reached.Contains));
+            }
         }
     }
 
@@ -992,6 +1048,7 @@ public sealed class EffectReader
         foreach (var effect in instance.Summary.ArgumentEffects.Where(effect => effect.OperationId == operationId &&
                                                                                  effect.Kind == IrLibraryEffectKind.Enumerate))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (effect.Member is null || effect.Member.Member.EndsWith(".GetEnumerator", StringComparison.Ordinal) ||
                 effect.Member.Member.EndsWith(".MoveNext", StringComparison.Ordinal) ||
                 effect.Member.Member.EndsWith(".get_Current", StringComparison.Ordinal) ||
@@ -1104,7 +1161,7 @@ public sealed class EffectReader
 
     private bool ReferencesWitness(MethodInstance instance, ReferenceTarget target, HashSet<(string Instance, ReferenceTarget Target)> seen)
     {
-        _stage.Check();
+        _checks.Check(GenerationStage.ReadEffects);
         if (!seen.Add((instance.Id, target)))
             return false;
         if (target is ReferenceCell cell)
@@ -1125,16 +1182,20 @@ public sealed class EffectReader
         member.EndsWith(".MoveNext", StringComparison.Ordinal) || member.EndsWith(".get_Current", StringComparison.Ordinal) ||
         member.EndsWith(".CopyTo", StringComparison.Ordinal);
 
-    private static ISymbol? SeedField(IOperation target) => target switch
+    private static ISymbol? SeedField(IOperation target)
     {
-        ISimpleAssignmentOperation assignment => SeedField(assignment.Target),
-        IEventAssignmentOperation subscription => SeedField(subscription.EventReference),
-        IEventReferenceOperation @event => @event.Event,
-        IFieldReferenceOperation field => field.Field,
-        IPropertyReferenceOperation property => property.Property,
-        IConversionOperation conversion => SeedField(conversion.Operand),
-        _ => null
-    };
+        WorkCancellation.Check();
+        return target switch
+        {
+            ISimpleAssignmentOperation assignment => SeedField(assignment.Target),
+            IEventAssignmentOperation subscription => SeedField(subscription.EventReference),
+            IEventReferenceOperation @event => @event.Event,
+            IFieldReferenceOperation field => field.Field,
+            IPropertyReferenceOperation property => property.Property,
+            IConversionOperation conversion => SeedField(conversion.Operand),
+            _ => null
+        };
+    }
 
     private static bool Matches(IrFieldRef field, ISymbol member)
     {

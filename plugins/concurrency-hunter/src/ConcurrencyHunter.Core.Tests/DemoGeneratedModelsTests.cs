@@ -17,6 +17,19 @@ public sealed class DemoGeneratedModelsTests
     private const string OPTIONS_CREATE = "M:Microsoft.Extensions.Options.Options.Create``1(``0)";
     private const string POLLY_EXECUTE = "M:Polly.ResiliencePipeline.Execute";
 
+    /// <summary>Every committed generated file names the generator built from the current sources.</summary>
+    [Fact]
+    public void Committed_files_name_the_current_generator()
+    {
+        var files = Directory.GetFiles(Path.Combine(DemoModels(), "generated"), "*.json", SearchOption.AllDirectories);
+        Assert.NotEmpty(files);
+        Assert.All(files, path =>
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal(GeneratorVersion.Fingerprint, document.RootElement.GetProperty("generator").GetString());
+        });
+    }
+
     /// <summary>A run that only reads the files has nothing left to generate; if it does, a model is missing from the committed files and
     /// <c>build/record-demo-models.ps1</c> writes it.</summary>
     [Fact]

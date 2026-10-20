@@ -66,11 +66,13 @@ internal sealed record GenerationSnapshot(string Implementation, IReadOnlyList<G
     /// <exception cref="FormatException">A row does not have four parts, or a member stands twice.</exception>
     public static GenerationSnapshot Parse(IEnumerable<string> lines)
     {
+        WorkCancellation.Check();
         var implementation = "";
         var commit = "";
         var rows = new List<GenerationSnapshotRow>();
         foreach (var line in lines.Where(line => line.Length != 0))
         {
+            WorkCancellation.Check();
             if (line.StartsWith(COMMIT, StringComparison.Ordinal))
                 commit = line[COMMIT.Length..];
             else if (line.StartsWith(HEADER, StringComparison.Ordinal))
@@ -98,8 +100,10 @@ internal static class CoreLibGeneration
         pending.Push(LibraryFieldOpening.Unopened(compilation).Assembly.GlobalNamespace);
         while (pending.TryPop(out var current))
         {
+            WorkCancellation.Check();
             foreach (var member in current.GetMembers())
             {
+                WorkCancellation.Check();
                 switch (member)
                 {
                     case INamespaceSymbol @namespace:
@@ -141,6 +145,7 @@ internal static class CoreLibGeneration
                                        .GroupBy(member => $"{earlier[member].Outcome} -> {later[member].Outcome}", StringComparer.Ordinal)
                                        .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal))
         {
+            WorkCancellation.Check();
             AddMembers(report, transition.Key, transition, examples);
         }
         AddMembers(report, "models changed", both.Where(member => earlier[member].Outcome == GenerationSnapshotRow.MODEL &&
@@ -169,6 +174,7 @@ internal static class CoreLibGeneration
     {
         foreach (var value in before.Keys.Union(after.Keys).Order(StringComparer.Ordinal))
         {
+            WorkCancellation.Check();
             var (was, now) = (before.GetValueOrDefault(value), after.GetValueOrDefault(value));
             if (was != now)
                 report.Add($"{label} {value}: {was} -> {now}");

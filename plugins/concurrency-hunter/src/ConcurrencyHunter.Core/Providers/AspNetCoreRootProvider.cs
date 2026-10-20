@@ -110,9 +110,11 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
 
         foreach (var (compilation, controller) in controllers)
         {
+            WorkCancellation.Check();
             var apiController = HasApiController(controller);
             foreach (var action in Actions(compilation, controller))
             {
+                WorkCancellation.Check();
                 context.CancellationToken.ThrowIfCancellationRequested();
                 var symbol = SymbolNames.Method(action);
                 var parameters = action.Parameters.Select(parameter => new ParameterBinding(
@@ -167,7 +169,10 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
     private static IEnumerable<INamedTypeSymbol> BaseChain(INamedTypeSymbol? type)
     {
         for (var current = type; current is not null; current = current.BaseType)
+        {
+            WorkCancellation.Check();
             yield return current;
+        }
     }
 
     private static IEnumerable<IMethodSymbol> Actions(Compilation compilation, INamedTypeSymbol controller)
@@ -175,8 +180,10 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
         var effective = new List<IMethodSymbol>();
         foreach (var type in BaseChain(controller))
         {
+            WorkCancellation.Check();
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
             {
+                WorkCancellation.Check();
                 if (method.MethodKind != MethodKind.Ordinary || method.IsStatic || method.DeclaredAccessibility != Accessibility.Public ||
                     effective.Any(chosen => SameSignature(chosen, method)))
                 {
@@ -201,7 +208,10 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
     private static IEnumerable<IMethodSymbol> Overridden(IMethodSymbol method)
     {
         for (IMethodSymbol? current = method; current is not null; current = current.OverriddenMethod)
+        {
+            WorkCancellation.Check();
             yield return current;
+        }
     }
 
     private static bool SameSignature(IMethodSymbol first, IMethodSymbol second) =>
@@ -216,6 +226,9 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
     /// <c>BindServiceMethod</c> (the generated <c>*Base</c>), whatever its streaming kind. The service is created per call, unless it is
     /// registered in DI, in which case the registration decides.
     /// </summary>
+    /// <param name="context">The compilations, DI index and cancellation of root discovery.</param>
+    /// <param name="roots">Receives the discovered service method roots.</param>
+    /// <param name="diagnostics">Receives root discovery diagnostics.</param>
     private void DiscoverGrpcServices(RootDiscoveryContext context, List<ExecutionRootDescriptor> roots,
                                       List<RootDiscoveryDiagnostic> diagnostics)
     {
@@ -226,6 +239,7 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
                        .OrderBy(group => group.Key!.GetDocumentationCommentId(), StringComparer.Ordinal);
         foreach (var group in services)
         {
+            WorkCancellation.Check();
             context.CancellationToken.ThrowIfCancellationRequested();
             var service = (INamedTypeSymbol)group.Key!;
             var display = SymbolNames.Type(service);
@@ -244,6 +258,7 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
             var mapping = group.OrderBy(call => call.Syntax.SyntaxTree.FilePath, StringComparer.Ordinal).ThenBy(call => call.Syntax.SpanStart).First();
             foreach (var method in ServiceMethods(service, bindBase))
             {
+                WorkCancellation.Check();
                 var symbol = SymbolNames.Method(method);
                 roots.Add(new ExecutionRootDescriptor(
                     $"aspnetcore:{GRPC_METHOD}:{service.ContainingAssembly.Name}:{service.GetDocumentationCommentId()}:{method.GetDocumentationCommentId()}",
@@ -268,12 +283,15 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
 
     /// <summary>The declaration the runtime dispatches to on <paramref name="service"/> for each public virtual method of the bind base,
     /// when it is a public override with a source body.</summary>
+    /// <param name="service">The mapped service implementation.</param>
+    /// <param name="bindBase">The generated service base declaring the virtual methods.</param>
     private static IEnumerable<IMethodSymbol> ServiceMethods(INamedTypeSymbol service, INamedTypeSymbol bindBase)
     {
         foreach (var virtualMethod in bindBase.GetMembers().OfType<IMethodSymbol>()
                                               .Where(method => method is { MethodKind: MethodKind.Ordinary, IsVirtual: true, IsStatic: false,
                                                                            DeclaredAccessibility: Accessibility.Public }))
         {
+            WorkCancellation.Check();
             var dispatched = BaseChain(service).TakeWhile(type => !SymbolEqualityComparer.Default.Equals(type, bindBase))
                                                .SelectMany(type => type.GetMembers(virtualMethod.Name).OfType<IMethodSymbol>())
                                                .FirstOrDefault(candidate => candidate.IsOverride && ProviderSupport.Overrides(candidate, virtualMethod));
@@ -295,6 +313,7 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
 
         foreach (var group in mappings)
         {
+            WorkCancellation.Check();
             var member = (IMethodSymbol)group.Key!;
             var ordered = group.OrderBy(mapping => mapping.Call.Syntax.SyntaxTree.FilePath, StringComparer.Ordinal)
                                .ThenBy(mapping => mapping.Call.Syntax.SpanStart)
@@ -302,6 +321,7 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
             IReadOnlyDictionary<(SyntaxTree, Microsoft.CodeAnalysis.Text.TextSpan), string>? nestedIds = null;
             for (var index = 0; index < ordered.Length; index++)
             {
+                WorkCancellation.Check();
                 context.CancellationToken.ThrowIfCancellationRequested();
                 var (call, _) = ordered[index];
                 var number = index + 1;
@@ -381,6 +401,7 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
     }
 
     /// <summary>The handler a mapping call registers, when it is a source method group, a lambda or a local function.</summary>
+    /// <param name="operation">The mapping call whose handler is inspected.</param>
     private static (IMethodSymbol Method, SyntaxNode Syntax, bool IsMethodGroup)? Handler(IInvocationOperation operation)
     {
         var argument = operation.Arguments.LastOrDefault(candidate =>
@@ -390,7 +411,10 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
 
         var value = argument.Value;
         while (value is IConversionOperation conversion)
+        {
+            WorkCancellation.Check();
             value = conversion.Operand;
+        }
         if (value is not IDelegateCreationOperation creation)
             return null;
 
@@ -414,6 +438,7 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
             return true;
         for (var type = method.ContainingType; type is not null; type = type.ContainingType)
         {
+            WorkCancellation.Check();
             if (type.IsGenericType)
                 return true;
         }
@@ -425,7 +450,10 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
     {
         var symbol = call.Model.GetEnclosingSymbol(call.Syntax.SpanStart);
         while (symbol is IMethodSymbol { MethodKind: MethodKind.AnonymousFunction or MethodKind.LocalFunction })
+        {
+            WorkCancellation.Check();
             symbol = symbol.ContainingSymbol;
+        }
         return symbol as IMethodSymbol;
     }
 
@@ -433,6 +461,7 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
     {
         foreach (var attribute in parameter.GetAttributes())
         {
+            WorkCancellation.Check();
             if (IsAttribute(attribute, "Microsoft.AspNetCore.Mvc.FromServicesAttribute"))
                 return ParameterBindingKind.DiService;
             if (BaseChain(attribute.AttributeClass).Any(current =>
@@ -444,6 +473,7 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
 
         foreach (var attribute in parameter.GetAttributes())
         {
+            WorkCancellation.Check();
             if (attribute.AttributeClass is { } attributeClass && attributeClass.Name.StartsWith("From", StringComparison.Ordinal) &&
                 attributeClass.ContainingNamespace?.ToDisplayString() == "Microsoft.AspNetCore.Mvc" &&
                 ExactSymbols.IsInRange(attributeClass.ContainingAssembly, MvcCore))
@@ -560,11 +590,14 @@ public sealed class AspNetCoreRootProvider : IExecutionRootProvider
         var nameSet = names.ToHashSet(StringComparer.Ordinal);
         foreach (var compilation in context.Compilations)
         {
+            WorkCancellation.Check();
             foreach (var tree in compilation.SyntaxTrees)
             {
+                WorkCancellation.Check();
                 SemanticModel? model = null;
                 foreach (var syntax in tree.GetRoot(context.CancellationToken).DescendantNodes().OfType<InvocationExpressionSyntax>())
                 {
+                    WorkCancellation.Check();
                     var name = syntax.Expression switch
                     {
                         MemberAccessExpressionSyntax memberAccess => memberAccess.Name.Identifier.ValueText,

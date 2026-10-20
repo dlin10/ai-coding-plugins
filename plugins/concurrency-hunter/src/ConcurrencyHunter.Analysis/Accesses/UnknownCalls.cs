@@ -48,9 +48,11 @@ public static class UnknownCalls
         var calls = new List<UnknownCall>();
         foreach (var instance in heap.Instances.Values.OrderBy(instance => instance.Id, StringComparer.Ordinal))
         {
+            WorkCancellation.Check();
             var summary = instance.Summary;
             foreach (var call in summary.OpaqueCalls.Where(call => !call.IsKnown))
             {
+                WorkCancellation.Check();
                 var isLocator = call.ServiceCall is { Kind: not IrServiceCallKind.ScopeCreation } && locators.Contains((instance.BodyId, call.OperationId));
                 // What no recognizer models of a call of a recognized type has the unknown effect of an unresolved call, and is no
                 // semantic gap (question 144).
@@ -72,7 +74,10 @@ public static class UnknownCalls
                 var projected = CollectionObjects.LibraryCalls(call, value => heap.Resolve(instance.Id, value),
                     region => CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries)).ToArray();
                 foreach (var direct in projected.Where(direct => !direct.IsKnown))
+                {
+                    WorkCancellation.Check();
                     AddLibraryUnknown(direct);
+                }
                 if (projected.Length != 0)
                 {
                     receivers = receivers.SelectMany(value => heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal)
@@ -130,9 +135,13 @@ public static class UnknownCalls
             // with no receiver object at all sees only its arguments (R1).
             foreach (var call in summary.Calls.Where(call => heap.UnresolvedDispatches.Contains((instance.Id, call.OperationId))))
             {
+                WorkCancellation.Check();
                 foreach (var direct in CollectionObjects.LibraryCalls(call, value => heap.Resolve(instance.Id, value),
                     region => CollectionObjects.KindOf(heap.Regions[region], scope.Program, scope.Summaries, call.Target)).Where(direct => !direct.IsKnown))
+                {
+                    WorkCancellation.Check();
                     AddLibraryUnknown(direct);
+                }
                 var unresolved = heap.UnresolvedDispatchReceivers.GetValueOrDefault((instance.Id, call.OperationId)) ?? new HashSet<(string, string?)>();
                 var receivers = unresolved.Where(receiver => !HasLibrary(call.Implementations, receiver.Region, call.Target)).ToHashSet();
                 if (unresolved.Count != 0 && receivers.Count == 0)
@@ -165,6 +174,7 @@ public static class UnknownCalls
             foreach (var call in summary.OpaqueCalls.Where(call => InterproceduralAccesses.RunsFactories(call.Collection) &&
                                                                    heap.UnresolvedDispatches.Contains((instance.Id, call.OperationId))))
             {
+                WorkCancellation.Check();
                 var member = call.Collection!;
                 var inputs = heap.UnresolvedFactoryInputs.GetValueOrDefault((instance.Id, call.OperationId)) ?? new HashSet<IrFactoryInput>();
                 var handed = call.Arguments.Where(argument => !member.Factories.Contains(argument.ParameterOrdinal) &&
@@ -199,6 +209,7 @@ public static class UnknownCalls
             foreach (var call in summary.OpaqueCalls.Where(call => heap.UnresolvedFateInputs.ContainsKey((instance.Id, call.OperationId)) &&
                                                                    heap.UnresolvedDispatches.Contains((instance.Id, call.OperationId))))
             {
+                WorkCancellation.Check();
                 var inputs = heap.UnresolvedFateInputs.GetValueOrDefault((instance.Id, call.OperationId)) ?? new HashSet<string>();
                 IReadOnlyList<CallArgument> handed = inputs.Count == 0
                     ? []
@@ -231,6 +242,7 @@ public static class UnknownCalls
         // execution running the work: it sees its receivers through the type declaring the member and what it is handed whole (question 145).
         foreach (var work in heap.UnresolvedWork)
         {
+            WorkCancellation.Check();
             if (!heap.Instances.TryGetValue(work.Site.Instance, out var starter))
                 continue;
             IReadOnlyList<CallArgument> handed = work.Inputs.Count == 0
@@ -261,13 +273,16 @@ public static class UnknownCalls
         foreach (var escaped in heap.LibrarySequences.Values.Where(sequence => !sequence.IsGrouping && heap.UnknownIterators.Contains(sequence.RegionId))
                                     .OrderBy(sequence => sequence.RegionId, StringComparer.Ordinal))
         {
+            WorkCancellation.Check();
             foreach (var sequence in EnumeratedSequences(heap, escaped.RegionId, new HashSet<string>(StringComparer.Ordinal)))
             {
+                WorkCancellation.Check();
                 if (!heap.Instances.TryGetValue(sequence.CreatorInstance, out var creator))
                     continue;
                 var provenance = creator.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == sequence.CreatorOperation)?.Provenance;
                 foreach (var dispatch in sequence.Unresolved)
                 {
+                    WorkCancellation.Check();
                     IReadOnlyList<CallArgument> handed = dispatch.Inputs.Count == 0
                         ? []
                         : [new CallArgument(-1, dispatch.Inputs.Select(region => (AbstractValue)new RegionValue(region)).ToHashSet())];
@@ -298,15 +313,23 @@ public static class UnknownCalls
         implementations.Any(implementation => implementation.Library is not null && implementation.Kind == kind);
 
     /// <summary>A library sequence and every library sequence enumerating it enumerates, through its sources.</summary>
+    /// <param name="heap">The solved heap.</param>
+    /// <param name="region">The sequence region to enumerate.</param>
+    /// <param name="visited">The regions already visited in this walk.</param>
     internal static IEnumerable<LibrarySequence> EnumeratedSequences(HeapSolution heap, string region, HashSet<string> visited)
     {
+        WorkCancellation.Check();
         if (!visited.Add(region) || !heap.LibrarySequences.TryGetValue(region, out var sequence) || sequence.IsGrouping)
             yield break;
         yield return sequence;
         foreach (var source in sequence.Sources)
         {
+            WorkCancellation.Check();
             foreach (var enumerated in EnumeratedSequences(heap, source, visited))
+            {
+                WorkCancellation.Check();
                 yield return enumerated;
+            }
         }
     }
 
@@ -328,10 +351,13 @@ public static class UnknownCalls
         private readonly HashSet<string> _minimalApiBodies =
             scope.Roots.Where(root => root.RootKind == MINIMAL_API).Select(root => root.Entry.BodyKey).ToHashSet(StringComparer.Ordinal);
 
-        public bool Contains(string bodyId, SummaryOpaqueCall call) =>
-            call.IsRecognized || call.Collection is not null || call.ServiceCall is not null ||
-            _registrations.Contains((_memberOf.GetValueOrDefault(bodyId) ?? bodyId, call.OperationId)) ||
-            IsMapping(call.Callee) && call.Delegates.Any(created => _minimalApiBodies.Contains(created.Target));
+        public bool Contains(string bodyId, SummaryOpaqueCall call)
+        {
+            WorkCancellation.Check();
+            return call.IsRecognized || call.Collection is not null || call.ServiceCall is not null ||
+                _registrations.Contains((_memberOf.GetValueOrDefault(bodyId) ?? bodyId, call.OperationId)) ||
+                IsMapping(call.Callee) && call.Delegates.Any(created => _minimalApiBodies.Contains(created.Target));
+        }
 
         /// <summary>Whether a callee is a <c>Map*</c> member, such as <c>EndpointRouteBuilderExtensions.MapGet(…)</c>.</summary>
         private static bool IsMapping(string callee)
@@ -383,8 +409,11 @@ public static class UnknownCalls
         /// including when a DI region is labelled with the service interface.</summary>
         /// <param name="regionId">The receiver or argument region.</param>
         /// <param name="declaringTypeKey">The declaring type through which a receiver is seen, or null for an unrestricted object.</param>
-        public IReadOnlyList<IrFieldRef> FieldsOf(string regionId, string? declaringTypeKey = null) =>
-            UnseenWrites.FieldsOf(scope.Program, heap.Regions[regionId].TypeKey, LibraryFieldsOf(regionId), declaringTypeKey) ?? [];
+        public IReadOnlyList<IrFieldRef> FieldsOf(string regionId, string? declaringTypeKey = null)
+        {
+            WorkCancellation.Check();
+            return UnseenWrites.FieldsOf(scope.Program, heap.Regions[regionId].TypeKey, LibraryFieldsOf(regionId), declaringTypeKey) ?? [];
+        }
 
         /// <summary>The values an unknown effect starts from: the receivers it may see, and every argument, an array created for the
         /// call by its elements. Through a receiver of a member a type of the run's own declares, only that type's state and its bases'
@@ -411,11 +440,17 @@ public static class UnknownCalls
             }
 
             foreach (var argument in call.Arguments)
+            {
+                WorkCancellation.Check();
                 yield return argument.CreatedElements is { } elements
                     ? new Start(elements.SelectMany(element => element.Values).ToHashSet(), null, null)
                     : new Start(argument.Values, argument.Collection, null) { IsFresh = argument.IsFresh };
+            }
             foreach (var created in call.Delegates)
+            {
+                WorkCancellation.Check();
                 yield return new Start(new HashSet<AbstractValue> { created }, null, null);
+            }
         }
 
         /// <summary>The delegate regions the call is handed, directly or in an array or a collection it is handed: each runs in an
@@ -432,14 +467,19 @@ public static class UnknownCalls
         }
 
         /// <summary>The mutable regions the call's unknown effect and delegates reach, and whether it is handed a delegate.</summary>
+        /// <param name="call">The unknown call whose reach is computed.</param>
         public (IReadOnlySet<string> Regions, bool TakesDelegate) Of(UnknownCall call)
         {
             var reached = new HashSet<string>(StringComparer.Ordinal);
             var visited = new HashSet<string>(StringComparer.Ordinal);
             foreach (var start in Starts(call))
             {
+                WorkCancellation.Check();
                 foreach (var region in start.Values.SelectMany(value => heap.Resolve(call.Instance.Id, value)).Distinct(StringComparer.Ordinal))
+                {
+                    WorkCancellation.Check();
                     Visit(region, reached, visited, start.DeclaringTypeKey);
+                }
             }
 
             return (reached, Delegates(call).Any());
@@ -449,8 +489,11 @@ public static class UnknownCalls
         /// type of the run's own declares, only those that type and its bases declare (R1, <see cref="UnseenWrites.Seen"/>).</summary>
         /// <param name="fields">The object's fields.</param>
         /// <param name="declaringTypeKey">The type declaring the member the object is the receiver of, or null for an object seen whole.</param>
-        public IReadOnlyList<IrFieldRef> Seen(IReadOnlyList<IrFieldRef> fields, string? declaringTypeKey) =>
-            UnseenWrites.Seen(scope.Program, fields, declaringTypeKey);
+        public IReadOnlyList<IrFieldRef> Seen(IReadOnlyList<IrFieldRef> fields, string? declaringTypeKey)
+        {
+            WorkCancellation.Check();
+            return UnseenWrites.Seen(scope.Program, fields, declaringTypeKey);
+        }
 
         /// <summary>The fields of types from metadata the program names on an object, its own or inherited: what the heap knows of the
         /// state a library type gives it (R1).</summary>
@@ -462,6 +505,7 @@ public static class UnknownCalls
             var pending = new Stack<string>([start]);
             while (pending.TryPop(out var regionId))
             {
+                WorkCancellation.Check();
                 // A receiver seen as its declaring type only is not yet seen whole: the same object handed as an argument still is.
                 var isRestrictedStart = regionId == start && declaringTypeKey is not null;
                 if (!visited.Add(isRestrictedStart ? $"{regionId}|{declaringTypeKey}" : regionId))
@@ -473,7 +517,10 @@ public static class UnknownCalls
                 if (step.Captures is { } captures)
                 {
                     foreach (var captured in captures)
+                    {
+                        WorkCancellation.Check();
                         pending.Push(captured);
+                    }
                     continue;
                 }
 
@@ -487,11 +534,15 @@ public static class UnknownCalls
                 // A slot of a struct the object keeps is decided by the field, or the cell, the struct is kept in (R1).
                 foreach (var (slot, targets) in step.Slots)
                 {
+                    WorkCancellation.Check();
                     var root = FieldSlot.Root(slot);
                     if (restricted is null || restricted.Contains(root) || root == PathValue.KEPT || step.IsCollection && PathValue.IsStorage(root))
                     {
                         foreach (var target in targets)
+                        {
+                            WorkCancellation.Check();
                             pending.Push(target);
+                        }
                     }
                 }
             }
@@ -545,15 +596,18 @@ public static class UnknownCalls
         /// <param name="heap">The solved heap whose instances' accesses name the fields and resolve the objects.</param>
         private static IReadOnlyDictionary<string, IReadOnlyList<IrFieldRef>> LibraryFields(ScopeProgram scope, HeapSolution heap)
         {
+            WorkCancellation.Check();
             var named = heap.Instances.Values.SelectMany(instance =>
                 UnseenWrites.LibraryFields(scope.Program, instance.Summary, instance.Substitution)
                             .Select(item => (Instance: instance, item.Field, item.Bases)));
             var fields = new Dictionary<string, Dictionary<string, IrFieldRef>>(StringComparer.Ordinal);
             foreach (var (instance, field, bases) in named)
             {
+                WorkCancellation.Check();
                 foreach (var region in bases.Where(value => value is not PathValue { IsWildcard: true })
                                             .SelectMany(value => heap.Resolve(instance.Id, value)))
                 {
+                    WorkCancellation.Check();
                     if (!fields.TryGetValue(region, out var byKey))
                         fields.Add(region, byKey = new Dictionary<string, IrFieldRef>(StringComparer.Ordinal));
                     byKey.TryAdd(FieldSlot.Key(field), field);

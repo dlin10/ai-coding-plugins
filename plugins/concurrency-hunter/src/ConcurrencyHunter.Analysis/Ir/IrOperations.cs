@@ -199,6 +199,7 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
     {
         for (var position = 0; position < ArgumentValues.Count; position++)
         {
+            WorkCancellation.Check();
             // A call the lowering recorded no ordinals for passed them in parameter order, which is what position means there.
             var bound = position < ArgumentParameterOrdinals.Count ? ArgumentParameterOrdinals[position] : position;
             if (bound == ordinal)
@@ -216,6 +217,7 @@ public sealed record IrCallOperation(int Id, int? ResultValue, IrCallKind CallKi
         var highest = -1;
         for (var position = 0; position < ArgumentValues.Count; position++)
         {
+            WorkCancellation.Check();
             var bound = position < ArgumentParameterOrdinals.Count ? ArgumentParameterOrdinals[position] : position;
             if (bound > highest)
                 (highest, last) = (bound, ArgumentValues[position]);
@@ -417,7 +419,11 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     /// <summary>The ordinals of the parameters whose argument the model names the elements of in its inputs or its result, outside a
     /// <c>sequence(…)</c> a value builds: the call enumerates each once (R3). What a built sequence names the elements of, that sequence
     /// enumerates where it is enumerated (R5).</summary>
-    public IEnumerable<int> EnumeratedArguments() => EnumeratedArguments(Values());
+    public IEnumerable<int> EnumeratedArguments()
+    {
+        WorkCancellation.Check();
+        return EnumeratedArguments(Values());
+    }
 
     /// <summary>The argument ordinals enumerated once at the selected moment, including the receiver ordinal.</summary>
     /// <param name="deferred">Whether the enumerations belong to the sequence result instead of the call.</param>
@@ -448,7 +454,10 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
         var depth = 1;
         var source = completion.Source;
         for (; source is IrModelCompletion inner; depth++)
+        {
+            WorkCancellation.Check();
             source = inner.Source;
+        }
         return (source, depth);
     }
 
@@ -460,12 +469,16 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
 
     /// <summary>The value a value reaches what it names from, under every <c>elements(…)</c> and <c>completion(…)</c>.</summary>
     /// <param name="value">The model value.</param>
-    private static IrModelValue Root(IrModelValue value) => value switch
+    private static IrModelValue Root(IrModelValue value)
     {
-        IrModelElements elements => Root(elements.Source),
-        IrModelCompletion completion => Root(completion.Source),
-        _ => value
-    };
+        WorkCancellation.Check();
+        return value switch
+        {
+            IrModelElements elements => Root(elements.Source),
+            IrModelCompletion completion => Root(completion.Source),
+            _ => value
+        };
+    }
 
     /// <summary>The values holding the tasks a completion reaches through <c>elements(…)</c>: enumerating the completion values enumerates
     /// each, as its synchronous twin <c>elements(…)</c> of it does (R2).</summary>
@@ -475,6 +488,7 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
         for (var inner = completion.Source; inner is IrModelElements or IrModelCompletion;
              inner = inner is IrModelElements elements ? elements.Source : ((IrModelCompletion)inner).Source)
         {
+            WorkCancellation.Check();
             if (inner is IrModelElements { Source: var holder })
                 yield return holder;
         }
@@ -488,7 +502,11 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     };
 
     /// <summary>The ordinals of the delegate parameters whose returns the model names the elements of, outside a built sequence.</summary>
-    public IEnumerable<int> EnumeratedReturns() => EnumeratedReturns(Values());
+    public IEnumerable<int> EnumeratedReturns()
+    {
+        WorkCancellation.Check();
+        return EnumeratedReturns(Values());
+    }
 
     /// <summary>The delegate-return ordinals enumerated once at the selected moment.</summary>
     /// <param name="deferred">Whether the enumerations belong to the sequence result instead of the call.</param>
@@ -543,16 +561,20 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     /// a built sequence yields its own only where it is enumerated, which the elements of it are.</summary>
     /// <param name="value">The model value to inspect.</param>
     /// <param name="intoSequences">Whether nested sequence values belong to this enumeration moment.</param>
-    private static IEnumerable<IrModelValue> Enumerated(IrModelValue value, bool intoSequences) => value switch
+    private static IEnumerable<IrModelValue> Enumerated(IrModelValue value, bool intoSequences)
     {
-        IrModelElements { Source: IrModelArgument or IrModelReturns or IrModelThis or IrModelKept or IrModelCompletion } elements => [elements.Source],
-        IrModelElements { Source: IrModelSequence sequence } => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
-        IrModelElements elements => Enumerated(elements.Source, intoSequences),
-        IrModelSequence sequence when intoSequences => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
-        IrModelGrouping grouping => Enumerated(grouping.Key, intoSequences).Concat(Enumerated(grouping.Values, intoSequences)),
-        IrModelSequence or IrModelArgument or IrModelReturns or IrModelHolderArgument or IrModelThis or IrModelKept or IrModelNew or IrModelCompletion => [],
-        _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
-    };
+        WorkCancellation.Check();
+        return value switch
+        {
+            IrModelElements { Source: IrModelArgument or IrModelReturns or IrModelThis or IrModelKept or IrModelCompletion } elements => [elements.Source],
+            IrModelElements { Source: IrModelSequence sequence } => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
+            IrModelElements elements => Enumerated(elements.Source, intoSequences),
+            IrModelSequence sequence when intoSequences => sequence.Values.SelectMany(item => Enumerated(item, intoSequences)),
+            IrModelGrouping grouping => Enumerated(grouping.Key, intoSequences).Concat(Enumerated(grouping.Values, intoSequences)),
+            IrModelSequence or IrModelArgument or IrModelReturns or IrModelHolderArgument or IrModelThis or IrModelKept or IrModelNew or IrModelCompletion => [],
+            _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
+        };
+    }
 }
 
 public enum IrFateKind { InvokeNow, Iterator, Holder, Startup, UnknownExecution, NotRun }

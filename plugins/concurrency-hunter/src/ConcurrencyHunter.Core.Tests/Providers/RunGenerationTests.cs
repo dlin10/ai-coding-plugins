@@ -345,6 +345,30 @@ public sealed class RunGenerationTests : IDisposable
     }
 
     [Fact]
+    public void Enclosing_cancellation_during_a_member_is_cancelled_and_not_kept()
+    {
+        var alpha = Candidate(Project(), "Alpha");
+        using var cancellation = new CancellationTokenSource();
+        var checksAfterCancellation = 0;
+        var subject = Subject((_, token) =>
+        {
+            cancellation.Cancel();
+            Assert.True(token.IsCancellationRequested);
+            throw new OperationCanceledException(token);
+        });
+        using (WorkCancellation.Enter(cancellation.Token, () =>
+        {
+            if (cancellation.IsCancellationRequested)
+                checksAfterCancellation++;
+        }))
+            Assert.ThrowsAny<OperationCanceledException>(() => subject.Generate(LibraryModels.BuiltIn, [alpha]));
+        subject.EndScope();
+        Assert.Null(subject.AnswerOf(alpha.Target));
+        Assert.False(File.Exists(alpha.Target.Key.PathUnder(_repository)));
+        Assert.Equal(0, checksAfterCancellation);
+    }
+
+    [Fact]
     public void Exception_is_failed_and_not_kept()
     {
         var project = Project();
@@ -535,7 +559,7 @@ public sealed class RunGenerationTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var header = $"{{\"name\":\"{key.AssemblyName}\",\"version\":\"{key.AssemblyVersion}\",\"mvid\":\"{key.Mvid:D}\",\"package\":\"{key.Package}\"," +
                      $"\"packageVersion\":\"{key.PackageVersion}\"}}";
-        File.WriteAllText(path, $"{{\"schemaVersion\":1,\"assembly\":{header},\"members\":[{string.Join(',', entries)}]}}", new UTF8Encoding(false));
+        File.WriteAllText(path, $"{{\"schemaVersion\":2,\"generator\":\"{GeneratorVersion.Fingerprint}\",\"assembly\":{header},\"members\":[{string.Join(',', entries)}]}}", new UTF8Encoding(false));
     }
 
     /// <summary>The entries of a key's file by member.</summary>

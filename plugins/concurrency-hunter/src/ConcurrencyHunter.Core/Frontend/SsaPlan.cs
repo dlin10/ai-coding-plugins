@@ -28,11 +28,18 @@ internal sealed class SsaPlan
         _initializerOwner = initializerOwner;
         _flowGraph = flowGraph;
         foreach (var parameter in method.Parameters)
+        {
+            WorkCancellation.Check();
             GetVariable(parameter, null);
+        }
         foreach (var block in graph.Blocks)
         {
+            WorkCancellation.Check();
             foreach (var operation in block.Operations)
+            {
+                WorkCancellation.Check();
                 Scan(operation, block.Ordinal);
+            }
             if (block.BranchValue is not null)
                 Scan(block.BranchValue, block.Ordinal);
         }
@@ -99,6 +106,7 @@ internal sealed class SsaPlan
     {
         foreach (var block in graph.Blocks)
         {
+            WorkCancellation.Check();
             _entry.Add(block.Ordinal, []);
             _exit.Add(block.Ordinal, []);
         }
@@ -106,11 +114,14 @@ internal sealed class SsaPlan
         var changed = true;
         while (changed)
         {
+            WorkCancellation.Check();
             changed = false;
             foreach (var block in graph.Blocks)
             {
+                WorkCancellation.Check();
                 foreach (var variable in _variables)
                 {
+                    WorkCancellation.Check();
                     var incoming = Incoming(block.Ordinal, variable);
                     if (!_entry[block.Ordinal].TryGetValue(variable, out var oldEntry) || oldEntry != incoming)
                     {
@@ -176,6 +187,7 @@ internal sealed class SsaPlan
 
     private void Scan(IOperation operation, int blockOrdinal)
     {
+        WorkCancellation.Check();
         switch (operation)
         {
             case IFlowAnonymousFunctionOperation:
@@ -217,18 +229,26 @@ internal sealed class SsaPlan
                 Scan(@switch.Value, blockOrdinal);
                 foreach (var clause in @switch.Cases.SelectMany(@case => @case.Clauses).OfType<IPatternCaseClauseOperation>())
                 {
+                    WorkCancellation.Check();
                     ScanPattern(clause.Pattern, blockOrdinal);
                     if (clause.Guard is not null)
                         Scan(clause.Guard, blockOrdinal);
                 }
                 foreach (var @case in @switch.Cases)
+                {
+                    WorkCancellation.Check();
                     foreach (var body in @case.Body)
+                    {
+                        WorkCancellation.Check();
                         Scan(body, blockOrdinal);
+                    }
+                }
                 return;
             case ISwitchExpressionOperation @switch:
                 Scan(@switch.Value, blockOrdinal);
                 foreach (var arm in @switch.Arms)
                 {
+                    WorkCancellation.Check();
                     ScanPattern(arm.Pattern, blockOrdinal);
                     if (arm.Guard is not null)
                         Scan(arm.Guard, blockOrdinal);
@@ -260,11 +280,15 @@ internal sealed class SsaPlan
         }
 
         foreach (var child in operation.ChildOperations)
+        {
+            WorkCancellation.Check();
             Scan(child, blockOrdinal);
+        }
     }
 
     private void ScanPattern(IPatternOperation pattern, int blockOrdinal)
     {
+        WorkCancellation.Check();
         switch (pattern)
         {
             case IDeclarationPatternOperation { DeclaredSymbol: { } symbol }:
@@ -274,9 +298,13 @@ internal sealed class SsaPlan
                 if (recursive.DeclaredSymbol is { } declared)
                     AddDefinition(blockOrdinal, GetVariable(declared, recursive));
                 foreach (var positional in recursive.DeconstructionSubpatterns)
+                {
+                    WorkCancellation.Check();
                     ScanPattern(positional, blockOrdinal);
+                }
                 foreach (var property in recursive.PropertySubpatterns)
                 {
+                    WorkCancellation.Check();
                     Scan(property.Member, blockOrdinal);
                     ScanPattern(property.Pattern, blockOrdinal);
                 }
@@ -285,7 +313,10 @@ internal sealed class SsaPlan
                 if (list.DeclaredSymbol is { } listSymbol)
                     AddDefinition(blockOrdinal, GetVariable(listSymbol, list));
                 foreach (var element in list.Patterns)
+                {
+                    WorkCancellation.Check();
                     ScanPattern(element, blockOrdinal);
+                }
                 return;
             case ISlicePatternOperation slice:
                 if (slice.Pattern is not null)
@@ -301,7 +332,10 @@ internal sealed class SsaPlan
         }
 
         foreach (var child in pattern.ChildOperations)
+        {
+            WorkCancellation.Check();
             Scan(child, blockOrdinal);
+        }
     }
 
     /// <summary>A call defines a new version of every local or parameter it passes by <c>ref</c> or <c>out</c>, after its
@@ -312,9 +346,13 @@ internal sealed class SsaPlan
     private void ScanCall(IOperation call, IEnumerable<IArgumentOperation> arguments, int blockOrdinal)
     {
         foreach (var child in call.ChildOperations)
+        {
+            WorkCancellation.Check();
             Scan(child, blockOrdinal);
+        }
         foreach (var argument in arguments)
         {
+            WorkCancellation.Check();
             if (argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out && RefArgumentVariable(argument) is { } variable &&
                 DefinesVersion(variable.Symbol!, binds: false))
             {
@@ -334,11 +372,15 @@ internal sealed class SsaPlan
 
     private void ScanTarget(IOperation target, int blockOrdinal, bool binds)
     {
+        WorkCancellation.Check();
         target = Unwrap(target);
         if (target is ITupleOperation tuple)
         {
             foreach (var element in tuple.Elements)
+            {
+                WorkCancellation.Check();
                 ScanTarget(element, blockOrdinal, binds: false);
+            }
             return;
         }
 
@@ -363,16 +405,23 @@ internal sealed class SsaPlan
         }
 
         foreach (var child in target.ChildOperations)
+        {
+            WorkCancellation.Check();
             Scan(child, blockOrdinal);
+        }
     }
 
     private void DefineTarget(IOperation target, int blockOrdinal)
     {
+        WorkCancellation.Check();
         target = Unwrap(target);
         if (target is ITupleOperation tuple)
         {
             foreach (var element in tuple.Elements)
+            {
+                WorkCancellation.Check();
                 DefineTarget(element, blockOrdinal);
+            }
             return;
         }
 
@@ -467,12 +516,16 @@ internal sealed class SsaPlan
         return variable;
     }
 
-    private static IOperation Unwrap(IOperation operation) => operation switch
+    private static IOperation Unwrap(IOperation operation)
     {
-        IDeclarationExpressionOperation declaration => Unwrap(declaration.Expression),
-        IConversionOperation conversion => Unwrap(conversion.Operand),
-        _ => operation
-    };
+        WorkCancellation.Check();
+        return operation switch
+        {
+            IDeclarationExpressionOperation declaration => Unwrap(declaration.Expression),
+            IConversionOperation conversion => Unwrap(conversion.Operand),
+            _ => operation
+        };
+    }
 
     private static bool IsPrimaryConstructorParameter(IParameterSymbol parameter) =>
         parameter.ContainingSymbol is IMethodSymbol { MethodKind: MethodKind.Constructor } &&

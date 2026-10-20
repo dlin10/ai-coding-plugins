@@ -29,6 +29,7 @@ public static class ExactSymbols
 
     private static string MetadataName(INamedTypeSymbol type)
     {
+        WorkCancellation.Check();
         if (type.ContainingType is not null)
             return MetadataName(type.ContainingType) + "+" + type.MetadataName;
         return type.ContainingNamespace.IsGlobalNamespace

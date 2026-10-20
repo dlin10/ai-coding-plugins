@@ -17,17 +17,24 @@ public static class SymbolNames
 
     /// <summary>The DI index's type key: <see cref="TypeIdentity"/> qualified by the assembly declaring the type, or the key
     /// of an array's element or a pointer's target, so same-named types of two projects in one scope stay apart.</summary>
-    public static string TypeKey(ITypeSymbol type) => type switch
+    /// <param name="type">The type whose key is requested.</param>
+    public static string TypeKey(ITypeSymbol type)
     {
-        IArrayTypeSymbol array => $"{TypeKey(array.ElementType)}[{new string(',', array.Rank - 1)}]",
-        IPointerTypeSymbol pointer => $"{TypeKey(pointer.PointedAtType)}*",
-        _ => type.ContainingAssembly is { } assembly ? DiIndex.TypeKey(assembly.Name, TypeIdentity(type)) : TypeIdentity(type)
-    };
+        WorkCancellation.Check();
+        return type switch
+        {
+            IArrayTypeSymbol array => $"{TypeKey(array.ElementType)}[{new string(',', array.Rank - 1)}]",
+            IPointerTypeSymbol pointer => $"{TypeKey(pointer.PointedAtType)}*",
+            _ => type.ContainingAssembly is { } assembly ? DiIndex.TypeKey(assembly.Name, TypeIdentity(type)) : TypeIdentity(type)
+        };
+    }
 
     /// <summary>A type's name as it identifies the type beside its declaring assembly: the display name, except that in a
     /// generic type (or a type nested in one) every type argument is its own <see cref="TypeKey"/>.</summary>
+    /// <param name="type">The type whose identity is requested.</param>
     public static string TypeIdentity(ITypeSymbol type)
     {
+        WorkCancellation.Check();
         if (type is not INamedTypeSymbol named || !IsOrInGenericType(named))
             return Type(type);
 
@@ -42,6 +49,7 @@ public static class SymbolNames
     {
         for (INamedTypeSymbol? current = type; current is not null; current = current.ContainingType)
         {
+            WorkCancellation.Check();
             if (current.IsGenericType)
                 return true;
         }

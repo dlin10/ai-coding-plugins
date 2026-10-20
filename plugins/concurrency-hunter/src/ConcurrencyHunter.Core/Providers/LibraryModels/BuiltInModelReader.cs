@@ -28,6 +28,7 @@ internal static class BuiltInModelReader
             var members = new List<LibraryModel>();
             foreach (var entry in file.Models)
             {
+                WorkCancellation.Check();
                 if (entry is null || entry.Member is null || !IsMemberId(entry.Member) || entry.Opaque is not null || entry.Effects is null)
                     throw new LibraryModelException("A built-in model entry needs an exact member and effects, and cannot be opaque.");
                 var assemblies = Assemblies(entry.Assemblies) ?? defaults;
@@ -37,9 +38,12 @@ internal static class BuiltInModelReader
                 var effects = new List<LibraryEffect>();
                 foreach (var (parameter, kinds) in entry.Effects)
                 {
+                    WorkCancellation.Check();
                     if (string.IsNullOrWhiteSpace(parameter) || kinds is not { Length: > 0 } || kinds.Distinct(StringComparer.Ordinal).Count() != kinds.Length)
                         throw new LibraryModelException($"{entry.Member} has invalid effects.");
                     foreach (var kind in kinds)
+                    {
+                        WorkCancellation.Check();
                         effects.Add(kind switch
                         {
                             "reads-deep" => LibraryEffect.DeepReadOf(parameter),
@@ -47,6 +51,7 @@ internal static class BuiltInModelReader
                             "writes-cells" => LibraryEffect.WriteCellsOf(parameter),
                             _ => throw new LibraryModelException($"{entry.Member} has an unknown effect kind.")
                         });
+                    }
                 }
                 var (result, fates, stores, outputs, keeps) = LibraryVocabulary.Entry(entry.Result, (entry.Fates ?? []).Select(fate =>
                     new RawFate(fate.Key, fate.Value.Fate, fate.Value.Holder, fate.Value.Inputs)).ToArray(), effects, entry.Stores, entry.Outputs, entry.Keeps);
@@ -65,6 +70,7 @@ internal static class BuiltInModelReader
             var types = new List<ImmutableLibraryType>();
             foreach (var entry in file.ImmutableTypes ?? [])
             {
+                WorkCancellation.Check();
                 if (entry is null || entry.Type is null || DeclarationId.Parse(entry.Type) is not { IsType: true })
                     throw new LibraryModelException("An immutable type needs a T: declaration id.");
                 var assemblies = Assemblies(entry.Assemblies) ?? defaults;
@@ -113,6 +119,7 @@ internal static class BuiltInModelReader
 
     private static void CheckDuplicates(JsonElement element)
     {
+        WorkCancellation.Check();
         if (element.ValueKind == JsonValueKind.Null)
             throw new LibraryModelException("A built-in library model cannot contain null.");
         if (element.ValueKind == JsonValueKind.Object)
@@ -120,6 +127,7 @@ internal static class BuiltInModelReader
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in element.EnumerateObject())
             {
+                WorkCancellation.Check();
                 if (!names.Add(property.Name))
                     throw new LibraryModelException($"Repeated JSON property '{property.Name}'.");
                 CheckDuplicates(property.Value);
@@ -128,7 +136,10 @@ internal static class BuiltInModelReader
         else if (element.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in element.EnumerateArray())
+            {
+                WorkCancellation.Check();
                 CheckDuplicates(item);
+            }
         }
     }
 }

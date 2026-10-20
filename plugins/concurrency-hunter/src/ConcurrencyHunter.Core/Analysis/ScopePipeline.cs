@@ -100,13 +100,18 @@ public static class ScopePipeline
         int? reachableBodies = null;
         var completed = new Dictionary<ScopeStep, TimeSpan>();
         var counters = new Dictionary<ScopeStep, IReadOnlyDictionary<string, int>>();
+        IDisposable? work = null;
 
         void Begin(ScopeStep next)
         {
+            work?.Dispose();
+            work = WorkCancellation.Enter(cancellationToken);
             current = next;
             started = false;
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             stepStarted?.Invoke(next);
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             step.Restart();
             started = true;
@@ -114,6 +119,7 @@ public static class ScopePipeline
 
         TimeSpan Complete()
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             step.Stop();
             completed[current] = step.Elapsed;
@@ -133,10 +139,12 @@ public static class ScopePipeline
             var rootIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var provider in registry.Providers)
             {
+                WorkCancellation.Check();
                 var result = provider.Discover(context);
                 var providerDiagnostics = result.Diagnostics.ToList();
                 foreach (var root in result.Roots)
                 {
+                    WorkCancellation.Check();
                     if (rootIds.Add(root.StableRootId))
                     {
                         roots.Add(root);
@@ -243,6 +251,10 @@ public static class ScopePipeline
                                               new Dictionary<ScopeStep, TimeSpan>(completed), reachableBodies,
                                               new Dictionary<ScopeStep, IReadOnlyDictionary<string, int>>(counters), error, cancellationToken);
         }
+        finally
+        {
+            work?.Dispose();
+        }
     }
 
     /// <summary>The member provider of one scope: a body id maps to the first source method of the scope's compilations that has it,
@@ -266,12 +278,17 @@ public static class ScopePipeline
         var methods = new Dictionary<string, (IMethodSymbol Method, Compilation Compilation)>(StringComparer.Ordinal);
         foreach (var compilation in compilations)
         {
+            WorkCancellation.Check();
             foreach (var method in Methods(compilation.Assembly.GlobalNamespace))
+            {
+                WorkCancellation.Check();
                 methods.TryAdd(IrLowering.RootBodyId(method), (method, compilation));
+            }
         }
 
         return bodyId =>
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             if (!methods.TryGetValue(bodyId, out var member))
                 return [];
@@ -294,7 +311,10 @@ public static class ScopePipeline
             if (loweredMethod is null)
                 return [];
             foreach (var (type, supertypes) in loweredMethod.MetadataSupertypes)
+            {
+                WorkCancellation.Check();
                 metadataSupertypes[type] = supertypes;
+            }
             return loweredMethod.NestedBodies.Prepend(loweredMethod.Body).ToArray();
         };
     }

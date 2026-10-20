@@ -26,23 +26,55 @@ public sealed class ExecutionSet : IReadOnlySet<string>
     /// <summary>The set's bits, which the caller must not change.</summary>
     internal ulong[] Words => _bits;
 
-    public bool Contains(string item) => _ids.TryGetNumber(item, out var number) && Bits.Contains(_bits, number);
+    public bool Contains(string item)
+    {
+        WorkCancellation.Check();
+        return _ids.TryGetNumber(item, out var number) && Bits.Contains(_bits, number);
+    }
 
-    public IEnumerator<string> GetEnumerator() => ((IEnumerable<string>)Ordered()).GetEnumerator();
+    public IEnumerator<string> GetEnumerator()
+    {
+        WorkCancellation.Check();
+        return ((IEnumerable<string>)Ordered()).GetEnumerator();
+    }
 
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        WorkCancellation.Check();
+        return GetEnumerator();
+    }
 
-    public bool IsProperSubsetOf(IEnumerable<string> other) => Copy().IsProperSubsetOf(other);
+    public bool IsProperSubsetOf(IEnumerable<string> other)
+    {
+        WorkCancellation.Check();
+        return Copy().IsProperSubsetOf(other);
+    }
 
-    public bool IsProperSupersetOf(IEnumerable<string> other) => Copy().IsProperSupersetOf(other);
+    public bool IsProperSupersetOf(IEnumerable<string> other)
+    {
+        WorkCancellation.Check();
+        return Copy().IsProperSupersetOf(other);
+    }
 
-    public bool IsSubsetOf(IEnumerable<string> other) => Copy().IsSubsetOf(other);
+    public bool IsSubsetOf(IEnumerable<string> other)
+    {
+        WorkCancellation.Check();
+        return Copy().IsSubsetOf(other);
+    }
 
-    public bool IsSupersetOf(IEnumerable<string> other) => Copy().IsSupersetOf(other);
+    public bool IsSupersetOf(IEnumerable<string> other)
+    {
+        WorkCancellation.Check();
+        return Copy().IsSupersetOf(other);
+    }
 
     public bool Overlaps(IEnumerable<string> other) => other.Any(Contains);
 
-    public bool SetEquals(IEnumerable<string> other) => Copy().SetEquals(other);
+    public bool SetEquals(IEnumerable<string> other)
+    {
+        WorkCancellation.Check();
+        return Copy().SetEquals(other);
+    }
 
     public override string ToString() => $"[{string.Join(", ", this)}]";
 
@@ -99,6 +131,7 @@ internal sealed class ExecutionIds
                 return ReferenceEquals(x, y);
             for (var index = 0; index < Math.Max(x.Length, y.Length); index++)
             {
+                WorkCancellation.Check();
                 if ((index < x.Length ? x[index] : 0) != (index < y.Length ? y[index] : 0))
                     return false;
             }
@@ -111,9 +144,15 @@ internal sealed class ExecutionIds
             var hash = new HashCode();
             var length = bits.Length;
             while (length > 0 && bits[length - 1] == 0)
+            {
+                WorkCancellation.Check();
                 length--;
+            }
             for (var index = 0; index < length; index++)
+            {
+                WorkCancellation.Check();
                 hash.Add(bits[index]);
+            }
             return hash.ToHashCode();
         }
     }
@@ -128,7 +167,10 @@ internal static class Bits
     {
         var set = EMPTY;
         foreach (var number in numbers)
+        {
+            WorkCancellation.Check();
             Add(ref set, number);
+        }
         return set;
     }
 
@@ -140,8 +182,12 @@ internal static class Bits
     {
         for (var index = 0; index < set.Length; index++)
         {
+            WorkCancellation.Check();
             for (var word = set[index]; word != 0; word &= word - 1)
+            {
+                WorkCancellation.Check();
                 yield return (index << 6) + BitOperations.TrailingZeroCount(word);
+            }
         }
     }
 
@@ -170,6 +216,7 @@ internal static class Bits
         var changed = false;
         for (var index = 0; index < source.Length; index++)
         {
+            WorkCancellation.Check();
             var current = index < set.Length ? set[index] : 0;
             var fresh = source[index] & ~current;
             if (fresh == 0)
@@ -196,6 +243,7 @@ internal static class Bits
         var changed = false;
         for (var index = 0; index < Math.Min(source.Length, mask.Length); index++)
         {
+            WorkCancellation.Check();
             var fresh = source[index] & mask[index] & ~(index < set.Length ? set[index] : 0);
             if (fresh == 0)
                 continue;
@@ -215,6 +263,7 @@ internal static class Bits
     {
         for (var index = 0; index < subset.Length; index++)
         {
+            WorkCancellation.Check();
             if ((subset[index] & ~(index < set.Length ? set[index] : 0)) != 0)
                 return false;
         }
@@ -236,6 +285,7 @@ internal static class Bits
         var changed = false;
         for (var index = 0; index < source.Length; index++)
         {
+            WorkCancellation.Check();
             if ((source[index] & ~(index < set.Length ? set[index] : 0)) == 0)
                 continue;
             if (index >= set.Length)
@@ -270,6 +320,7 @@ internal sealed class ExecutionLists<T>(IReadOnlyList<string> keys, Func<string,
 
     public bool TryGetValue(string key, out IReadOnlyList<T> value)
     {
+        WorkCancellation.Check();
         if (!_keys.Contains(key))
         {
             value = [];
@@ -285,8 +336,15 @@ internal sealed class ExecutionLists<T>(IReadOnlyList<string> keys, Func<string,
         }
     }
 
-    public IEnumerator<KeyValuePair<string, IReadOnlyList<T>>> GetEnumerator() =>
-        keys.Select(key => new KeyValuePair<string, IReadOnlyList<T>>(key, this[key])).GetEnumerator();
+    public IEnumerator<KeyValuePair<string, IReadOnlyList<T>>> GetEnumerator()
+    {
+        WorkCancellation.Check();
+        return keys.Select(key => new KeyValuePair<string, IReadOnlyList<T>>(key, this[key])).GetEnumerator();
+    }
 
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        WorkCancellation.Check();
+        return GetEnumerator();
+    }
 }

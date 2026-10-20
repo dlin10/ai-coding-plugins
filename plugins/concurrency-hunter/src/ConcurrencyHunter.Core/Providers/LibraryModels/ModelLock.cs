@@ -41,7 +41,11 @@ internal sealed class ModelLock
         }
     }
 
-    internal static ModelLock Read(string repositoryRoot, ProjectModelFiles files) => new(repositoryRoot, files);
+    internal static ModelLock Read(string repositoryRoot, ProjectModelFiles files)
+    {
+        WorkCancellation.Check();
+        return new ModelLock(repositoryRoot, files);
+    }
 
     internal IReadOnlyList<string> Diagnostics => _diagnostics;
 
@@ -76,7 +80,10 @@ internal sealed class ModelLock
             return;
         if (!_keepRemoved)
             foreach (var key in _rows.Keys.Where(key => !_namedPatterns.Contains(key.Pattern)).ToArray())
+            {
+                WorkCancellation.Check();
                 _rows.Remove(key);
+            }
         if (_rows.Count == 0 && _original is null && _diagnostics.Count == 0)
             return;
         var rows = _rows.OrderBy(row => row.Key.Pattern, StringComparer.Ordinal)
@@ -132,6 +139,7 @@ internal sealed class ModelLock
             throw new FormatException("lock needs schemaVersion 1 and a patterns array.");
         foreach (var row in patterns.EnumerateArray())
         {
+            WorkCancellation.Check();
             Properties(row, "pattern", "assembly", "version", "members");
             if (!row.TryGetProperty("pattern", out var patternValue) || patternValue.ValueKind != JsonValueKind.String ||
                 patternValue.GetString() is not { } pattern || !ProjectModelFiles.IsPattern(pattern) ||
@@ -157,8 +165,11 @@ internal sealed class ModelLock
             throw new FormatException("expected a JSON object.");
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
+        {
+            WorkCancellation.Check();
             if (!seen.Add(property.Name) || !names.Contains(property.Name, StringComparer.Ordinal))
                 throw new FormatException($"repeated or unknown property '{property.Name}'.");
+        }
         if (seen.Count != names.Length)
             throw new FormatException("object is missing a required property.");
     }

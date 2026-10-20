@@ -108,6 +108,7 @@ public sealed record AccessPathParts(IReadOnlyList<string> Segments, IReadOnlyLi
         var value = new StringBuilder(literal.Length);
         for (var index = 0; index < literal.Length; index++)
         {
+            WorkCancellation.Check();
             if (literal[index] != '\\')
             {
                 value.Append(literal[index]);
@@ -158,7 +159,10 @@ public sealed record AccessPathParts(IReadOnlyList<string> Segments, IReadOnlyLi
     {
         var count = 0;
         while (count < most && start + count < text.Length && char.IsAsciiHexDigit(text[start + count]))
+        {
+            WorkCancellation.Check();
             count++;
+        }
         return count;
     }
 }

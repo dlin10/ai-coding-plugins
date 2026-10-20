@@ -90,6 +90,7 @@ internal static class GenerationTargets
     internal static GenerationTargetAnswer Of(IMethodSymbol method, Compilation compilation, ImplementationAssemblies resolver,
                                               CancellationToken cancellationToken)
     {
+        WorkCancellation.Check();
         cancellationToken.ThrowIfCancellationRequested();
         var definition = (method.ReducedFrom ?? method).OriginalDefinition;
         if (FunctionPointers.In(definition))
@@ -112,6 +113,7 @@ internal static class GenerationTargets
             return new NoGenerationTarget(NoTargetReason.AmbiguousId);
 
         var version = assembly.Identity.Version;
+        WorkCancellation.Check();
         cancellationToken.ThrowIfCancellationRequested();
         switch (origin)
         {
@@ -164,6 +166,7 @@ internal static class GenerationTargets
                 : new UnavailableGenerationTarget(request.MemberId, lookupId, key(resolution.AssetMvid), resolution.Detail);
         }
 
+        WorkCancellation.Check();
         cancellationToken.ThrowIfCancellationRequested();
         return Forwards(implementation.Path, declaring)
             ? new NoGenerationTarget(NoTargetReason.Forwarded)
@@ -177,7 +180,10 @@ internal static class GenerationTargets
     private static bool Forwards(string implementationPath, INamedTypeSymbol declaring)
     {
         while (declaring.ContainingType is { } outer)
+        {
+            WorkCancellation.Check();
             declaring = outer;
+        }
         var @namespace = declaring.ContainingNamespace.IsGlobalNamespace ? "" : declaring.ContainingNamespace.ToDisplayString();
         try
         {
@@ -214,6 +220,7 @@ internal static class GenerationTargets
     {
         foreach (var reference in compilation.References.OfType<PortableExecutableReference>())
         {
+            WorkCancellation.Check();
             if (reference.FilePath is { } file && OriginOf(file, resolver) is FrameworkOrigin { Pack: NETCORE_PACK } pack)
                 return pack.Major;
         }
@@ -253,6 +260,7 @@ internal static class GenerationTargets
         var segments = new List<string>();
         foreach (var segment in path.Split('/', '\\'))
         {
+            WorkCancellation.Check();
             if (segment.Length == 0 || segment == ".")
                 continue;
             if (segment == ".." && segments.Count > 0)

@@ -15,12 +15,14 @@ public static class IrPrinter
 
         foreach (var value in body.Values.OrderBy(value => value.Id))
         {
+            WorkCancellation.Check();
             lines.Add(F($"value {Value(value.Id)} {value.Kind} type={Text(value.Type)} " +
                         $"name={Text(value.Name)} ssa={N(value.SsaVersion)}"));
         }
 
         foreach (var region in body.Regions.OrderBy(region => region.Id))
         {
+            WorkCancellation.Check();
             lines.Add(F($"region r{N(region.Id)} {region.Kind} parent={Region(region.Parent)} " +
                         $"blocks={N(region.FirstBlockOrdinal)}..{N(region.LastBlockOrdinal)} " +
                         $"catch={OptionalText(region.CatchType)}"));
@@ -28,11 +30,15 @@ public static class IrPrinter
 
         foreach (var block in body.Blocks.OrderBy(block => block.Ordinal))
         {
+            WorkCancellation.Check();
             lines.Add(F($"block b{N(block.Ordinal)} {block.Kind} region=r{N(block.Region)} " +
                         $"predecessors={Blocks(block.Predecessors)} " +
                         $"flow={FlowPredecessors(block.FlowPredecessors)}"));
             foreach (var operation in block.Operations)
+            {
+                WorkCancellation.Check();
                 lines.Add(F($"operation {N(operation.Id)} {Operation(operation)} | {Provenance(operation.Provenance)}"));
+            }
             if (block.ConditionalBranch is not null)
                 lines.Add("branch conditional " + Branch(block.ConditionalBranch));
             if (block.FallThroughBranch is not null)
@@ -149,7 +155,11 @@ public static class IrPrinter
         "[" + string.Join(",", predecessors.Select(predecessor =>
             F($"b{N(predecessor.BlockOrdinal)}:{predecessor.EdgeKind}"))) + "]";
     private static string Boolean(bool value) => value ? "true" : "false";
-    private static string Boolean(bool? value) => value is bool actual ? Boolean(actual) : "-";
+    private static string Boolean(bool? value)
+    {
+        WorkCancellation.Check();
+        return value is bool actual ? Boolean(actual) : "-";
+    }
     private static string Optional<T>(T? value) where T : struct, Enum => value is T actual ? actual.ToString() : "-";
     private static string OptionalText(string? value) => value is null ? "-" : Text(value);
     private static string Cell(IrClosureCell cell) => $"cell={Text(cell.Region)}/{Text(cell.Slot)}";

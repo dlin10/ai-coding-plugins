@@ -106,15 +106,17 @@ internal sealed class RunGeneration
     /// before is <c>budget</c> without a generation. An answer a file keeps waits for <see cref="EndScope"/>.</summary>
     /// <param name="models">The scope's models without the generated layer: they say whether a project or a built-in entry describes a member.</param>
     /// <param name="candidates">The scope's candidates, one per reached call.</param>
-    /// <exception cref="OperationCanceledException">The run's own token fired.</exception>
+    /// <exception cref="OperationCanceledException">The run or enclosing work was cancelled.</exception>
     internal void Generate(LibraryModels models, IReadOnlyList<GenerationCandidate> candidates)
     {
+        WorkCancellation.Check();
         _runToken.ThrowIfCancellationRequested();
         var wanted = Wanted(models, candidates);
         foreach (var (target, _) in wanted.OrderByDescending(item => item.HandedDelegate)
                                           .ThenBy(item => item.Target.MemberId, StringComparer.Ordinal)
                                           .ThenBy(item => item.Target.Key.Text, StringComparer.Ordinal))
         {
+            WorkCancellation.Check();
             var answer = GenerateOne(target);
             _answers[(target.MemberId, target.Key)] = answer;
             if (!GeneratedModelFiles.Keeps(answer.Outcome))
@@ -129,26 +131,39 @@ internal sealed class RunGeneration
     /// as wanted.</summary>
     /// <param name="models">The scope's models without the generated layer: they say whether a project or a built-in entry describes a member.</param>
     /// <param name="candidates">The scope's candidates, one per reached call.</param>
-    /// <exception cref="OperationCanceledException">The run's own token fired.</exception>
+    /// <exception cref="OperationCanceledException">The run or enclosing work was cancelled.</exception>
     internal IReadOnlyList<GenerationTarget> WouldGenerate(LibraryModels models, IReadOnlyList<GenerationCandidate> candidates)
     {
+        WorkCancellation.Check();
         _runToken.ThrowIfCancellationRequested();
         return [.. Wanted(models, candidates).Select(item => item.Target)];
     }
 
     /// <summary>Removes the library compilations this run's generations created from the cache (R12), however the analysis ended. An entry that
     /// was in the cache before the run, one another caller created meanwhile and one created again after this run's entry left stay.</summary>
+    // bounded: forwards once to library compilation cleanup.
     internal void Release() => LibraryCompilation.Release(_compilations.Created);
+
+    /// <summary>Ends a scope's generation step without a test hook.</summary>
+    internal void EndScope()
+    {
+        WorkCancellation.Check();
+        EndScope(null);
+    }
 
     /// <summary>Ends a scope's generation step: writes the answers a file keeps, each file under the lock every writer of it takes. An answer
     /// whose file cannot be written stays in memory and describes its calls in this run; the write error is a diagnostic.</summary>
+    /// <param name="beforeFileRead">A test hook before a writer re-reads a generated file under its lock.</param>
     /// <exception cref="OperationCanceledException">The run's own token fired, before or while a writer waited for a file's lock.</exception>
-    internal void EndScope()
+    internal void EndScope(Action? beforeFileRead)
     {
         var pending = _pending.OrderBy(entry => entry.Key.Text, StringComparer.Ordinal).ToArray();
         _pending.Clear();
         foreach (var (key, answers) in pending)
-            _diagnostics.AddRange(GeneratedModelFiles.Write(FileOf(key), answers, _runToken));
+        {
+            WorkCancellation.Check();
+            _diagnostics.AddRange(GeneratedModelFiles.Write(FileOf(key), answers, _runToken, beforeRead: beforeFileRead));
+        }
     }
 
     /// <summary>The generated layer a scope's analysis reads: the files its candidates name as the run read them, and the run's own answers
@@ -156,18 +171,21 @@ internal sealed class RunGeneration
     /// written or read. It is built over the same candidates <see cref="Generate"/> was given, and reuses the view that call built.</summary>
     /// <param name="models">The scope's models without the generated layer: they say whether a project or a built-in entry describes a member.</param>
     /// <param name="candidates">The scope's candidates, the list <see cref="Generate"/> was given.</param>
-    /// <exception cref="OperationCanceledException">The run's own token fired.</exception>
+    /// <exception cref="OperationCanceledException">The run or enclosing work was cancelled.</exception>
     internal ScopeLayer Layer(LibraryModels models, IReadOnlyList<GenerationCandidate> candidates)
     {
+        WorkCancellation.Check();
         _runToken.ThrowIfCancellationRequested();
         var (table, stored) = StoredView(candidates);
         var diagnostics = new List<string>(stored);
         foreach (var key in candidates.Select(candidate => candidate.Target.Key).Distinct())
         {
+            WorkCancellation.Check();
             var file = FileOf(key);
             var entries = new Dictionary<string, GeneratedModelEntry>(StringComparer.Ordinal);
             foreach (var ((member, answerKey), answer) in _answers)
             {
+                WorkCancellation.Check();
                 if (answerKey == key && GeneratedModelFiles.EntryOf(answer, file.DisplayPath) is { } entry)
                     entries[member] = entry;
             }
@@ -189,6 +207,7 @@ internal sealed class RunGeneration
         var wanted = new Dictionary<(string MemberId, GeneratedFileKey Key), (GenerationTarget Target, bool HandedDelegate)>();
         foreach (var candidate in candidates)
         {
+            WorkCancellation.Check();
             var identity = (candidate.Target.MemberId, candidate.Target.Key);
             if (_answers.ContainsKey(identity) || !Decide(models, stored, candidate).Generate || candidate.Target is not GenerationTarget target)
                 continue;
@@ -216,10 +235,16 @@ internal sealed class RunGeneration
 
         var table = new GeneratedModelTable();
         foreach (var candidate in candidates)
+        {
+            WorkCancellation.Check();
             table.MapType(candidate.Compilation, Definition(candidate.Member).ContainingType, candidate.Target.Key);
+        }
         var diagnostics = new List<string>();
         foreach (var key in candidates.Select(candidate => candidate.Target.Key).Distinct())
+        {
+            WorkCancellation.Check();
             diagnostics.AddRange(table.AddFile(FileOf(key)));
+        }
         _view = (candidates, table, diagnostics);
         return (table, diagnostics);
     }
@@ -230,6 +255,7 @@ internal sealed class RunGeneration
     /// <param name="candidate">The candidate.</param>
     internal static GeneratedDecision Decide(LibraryModels models, GeneratedModelTable stored, GenerationCandidate candidate)
     {
+        WorkCancellation.Check();
         // Without a compilation the models answer from the project and built-in layers alone; the match names its layer.
         var match = models.Find(candidate.Member);
         var answer = stored.Lookup(candidate.Compilation, Definition(candidate.Member), candidate.Target.LookupId) ?? StoredGeneratedAnswer.Absent;
@@ -239,16 +265,17 @@ internal sealed class RunGeneration
 
     /// <summary>One member's generation within its limits, classified as R3 and R4 say.</summary>
     /// <param name="target">The target.</param>
-    /// <exception cref="OperationCanceledException">The run's own token fired.</exception>
+    /// <exception cref="OperationCanceledException">The run or enclosing work was cancelled.</exception>
     private GeneratedModelAnswer GenerateOne(GenerationTarget target)
     {
+        WorkCancellation.Check();
         _runToken.ThrowIfCancellationRequested();
         var left = _runLimit - _spent;
         if (left <= TimeSpan.Zero)
             return Refused(target, GenerationOutcome.BUDGET, $"the run's generation budget of {Seconds(_runLimit)} s was spent before the member was reached");
 
         var ownLimitBinds = _memberLimit <= left;
-        using var member = CancellationTokenSource.CreateLinkedTokenSource(_runToken);
+        using var member = CancellationTokenSource.CreateLinkedTokenSource(_runToken, WorkCancellation.Token);
         using var timer = _time.CreateTimer(_ => Cut(member), null, ownLimitBinds ? _memberLimit : left, Timeout.InfiniteTimeSpan);
         var started = _time.GetTimestamp();
         try
@@ -259,8 +286,11 @@ internal sealed class RunGeneration
         }
         catch (Exception error)
         {
-            // Whatever a generation throws once the run is cancelled is the cancellation's fallout: the run's token decides.
-            _runToken.ThrowIfCancellationRequested();
+            // Cancellation of the run or enclosing work takes precedence over a member's slice or failure.
+            if (_runToken.IsCancellationRequested)
+                throw new OperationCanceledException(_runToken);
+            if (WorkCancellation.Token.IsCancellationRequested)
+                throw new OperationCanceledException(WorkCancellation.Token);
             if (error is OperationCanceledException && member.IsCancellationRequested)
             {
                 return ownLimitBinds

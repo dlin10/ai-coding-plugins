@@ -166,12 +166,14 @@ public sealed class Allocations
 
         foreach (var action in _callActions)
         {
+            _checks.Check();
             if (executions.Any(execution => DriverExecutions.IsOwn(execution, action)))
                 return new Allocation(AllocationKind.LibraryDuring, DriverRole.None, action);
         }
 
         foreach (var action in _callActions)
         {
+            _checks.Check();
             if (executions.Any(execution => _driverExecutions.InTree(execution, action)))
                 return new Allocation(AllocationKind.LibraryInChild, DriverRole.None, action);
         }
@@ -245,7 +247,10 @@ public sealed class Allocations
             if (instance.BodyId.EndsWith(bodySuffix, StringComparison.Ordinal))
                 return true;
             foreach (var caller in _checks.Each(_heap.Edges).Where(edge => edge.CalleeInstance == current).Select(edge => edge.CallerInstance))
+            {
+                _checks.Check();
                 pending.Push(caller);
+            }
         }
         return false;
     }
@@ -327,6 +332,7 @@ public sealed class Allocations
                 continue;
             foreach (var caller in _checks.Each(_heap.Edges).Where(edge => edge.CalleeInstance == current).Select(edge => edge.CallerInstance))
             {
+                _checks.Check();
                 if (!_heap.Instances.TryGetValue(caller, out var instance) || !instance.BodyId.StartsWith(_driverBodies, StringComparison.Ordinal))
                     continue;
                 if (IsWitnessBody(instance.BodyId))

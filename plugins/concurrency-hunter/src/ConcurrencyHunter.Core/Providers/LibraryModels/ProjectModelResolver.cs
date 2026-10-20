@@ -7,12 +7,14 @@ internal static class ProjectModelResolver
     internal static (LibraryModels Models, IReadOnlyList<ModelRejection> Rejections) Resolve(
         ProjectModelFiles files, IReadOnlyList<Compilation> compilations, ModelLock modelLock)
     {
+        WorkCancellation.Check();
         var rejections = new List<ModelRejection>(files.Rejections);
         var accepted = new List<(ProjectModelEntry Entry, string Id, SupportedAssemblyVersion Range, Version ResolvedVersion)>();
         var referenced = compilations.SelectMany(compilation => compilation.SourceModule.ReferencedAssemblySymbols.Append(compilation.Assembly))
                                      .DistinctBy(assembly => (assembly.Identity.Name, assembly.Identity.Version)).ToArray();
         foreach (var entry in files.Entries)
         {
+            WorkCancellation.Check();
             var named = referenced.Where(assembly => entry.Assemblies.Contains(assembly.Identity.Name, StringComparer.Ordinal)).ToArray();
             if (named.Length == 0)
                 continue;
@@ -20,6 +22,7 @@ internal static class ProjectModelResolver
             {
                 foreach (var assembly in named)
                 {
+                    WorkCancellation.Check();
                     var compilation = compilations.First(candidate => candidate.SourceModule.ReferencedAssemblySymbols
                         .Append(candidate.Assembly).Any(symbol => SymbolEqualityComparer.Default.Equals(symbol, assembly)));
                     var ids = modelLock.Members(entry.Member, assembly, compilation);
@@ -30,6 +33,7 @@ internal static class ProjectModelResolver
                     }
                     foreach (var id in ids)
                     {
+                        WorkCancellation.Check();
                         var resolvedMethod = DocumentationCommentId.GetSymbolsForDeclarationId(id, compilation)
                                                            .OfType<IMethodSymbol>()
                                                            .FirstOrDefault(candidate => SymbolEqualityComparer.Default.Equals(
@@ -84,6 +88,7 @@ internal static class ProjectModelResolver
             }
             foreach (var (resolved, compilation) in methods)
             {
+                WorkCancellation.Check();
                 var reason = RejectReason(entry, resolved, compilation);
                 if (reason is not null)
                 {
@@ -99,12 +104,16 @@ internal static class ProjectModelResolver
         var models = new List<LibraryModel>();
         foreach (var group in accepted.GroupBy(item => (item.Id, item.Range.AssemblyName, item.ResolvedVersion)))
         {
+            WorkCancellation.Check();
             var first = group.First().Entry;
             var conflict = group.Any(item => !Alike(first, item.Entry));
             if (conflict)
             {
                 foreach (var item in group.DistinctBy(item => (item.Entry.Path, item.Entry.Position)))
+                {
+                    WorkCancellation.Check();
                     rejections.Add(Rejected(item.Entry, "project entries disagree about this member; it is opaque."));
+                }
             }
             models.Add(new LibraryModel(group.Key.Id, group.Select(item => item.Range).Distinct().ToArray(),
                                         conflict ? [] : first.Effects, ModelLayer.Project, conflict || first.Opaque,
@@ -121,9 +130,13 @@ internal static class ProjectModelResolver
         return (models.Count == 0 ? LibraryModels.BuiltIn : LibraryModels.WithProject(models), rejections);
     }
 
-    private static bool Alike(ProjectModelEntry a, ProjectModelEntry b) => a.Opaque == b.Opaque &&
-        (a.Opaque || a.Effects.ToHashSet().SetEquals(b.Effects) && LibraryVocabulary.Alike(a.Result, a.Fates, b.Result, b.Fates, a.Stores, b.Stores, a.Outputs, b.Outputs, a.Keeps, b.Keeps) &&
-                     LibraryVocabulary.AlikeCalls(a.Calls, b.Calls));
+    private static bool Alike(ProjectModelEntry a, ProjectModelEntry b)
+    {
+        WorkCancellation.Check();
+        return a.Opaque == b.Opaque &&
+            (a.Opaque || a.Effects.ToHashSet().SetEquals(b.Effects) && LibraryVocabulary.Alike(a.Result, a.Fates, b.Result, b.Fates, a.Stores, b.Stores, a.Outputs, b.Outputs, a.Keeps, b.Keeps) &&
+                         LibraryVocabulary.AlikeCalls(a.Calls, b.Calls));
+    }
 
     /// <summary>The assembly and version range an entry supports for a referenced assembly: the entry's versions, or every version.</summary>
     /// <param name="entry">The project entry, or a generated model in its form.</param>

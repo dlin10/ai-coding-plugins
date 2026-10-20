@@ -53,12 +53,14 @@ internal sealed class ValueObservation
     /// references where the solved heap names none.</summary>
     /// <param name="instance">The instance expressing the value.</param>
     /// <param name="value">The symbolic value.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public IReadOnlySet<string> Resolve(MethodInstance instance, AbstractValue value) => Resolve(instance, value, []);
 
     /// <summary>Whether any alternative, or an unknown call among their origins, may hold an object the heap does not name.</summary>
     /// <param name="instance">The instance expressing the values.</param>
     /// <param name="values">The symbolic alternatives.</param>
     /// <param name="producers">Origins preserved through copies and merges.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public bool HasUnobservedValues(MethodInstance instance, IEnumerable<AbstractValue> values, ValueOrigin producers) =>
         HasUnobservedValues(instance, values, producers, []);
 
@@ -215,6 +217,7 @@ internal sealed class ValueObservation
         var holders = Resolve(instance, path.Base);
         foreach (var segment in path.Segments)
         {
+            _checks.Check();
             if (holders.Count == 0)
                 return false;
             if (segment == PathValue.WILDCARD)
@@ -274,9 +277,13 @@ internal sealed class ValueObservation
             // A captured variable's cell is a slot of the closure of each run of the body declaring it; every version of the variable,
             // and what a nested body assigns to it, goes there (R4).
             foreach (var variable in _checks.Each(summary.Variables.Where(variable => variable.Cell is not null)))
+            {
                 yield return (WholeProgram.ClosureSlot(variable.Cell!), new StorageWrite(instance, Closures(instance, variable.Cell!), variable.Values, variable.Producers));
+            }
             foreach (var store in _checks.Each(summary.CapturedStores))
+            {
                 yield return (WholeProgram.ClosureSlot(store.Cell), new StorageWrite(instance, Closures(instance, store.Cell), store.Values, store.Producers));
+            }
         }
     }
 
@@ -297,6 +304,7 @@ internal sealed class ValueObservation
         var pending = new Queue<string>(reached);
         while (pending.TryDequeue(out var region))
         {
+            _checks.Check();
             foreach (var next in _checks.Each(_heap.FieldsOf(region).SelectMany(slot => _heap.PointsTo(region, slot))))
             {
                 if (reached.Add(next))
@@ -411,22 +419,26 @@ internal sealed class ValueObservation
     /// <param name="value">The model value.</param>
     /// <param name="seen">Alternatives already visited on this path.</param>
     private bool HasUnobservedModelValue(MethodInstance instance, SummaryOpaqueCall call, IrModelValue value,
-                                         HashSet<(string Instance, AbstractValue Value)> seen) => value switch
+                                         HashSet<(string Instance, AbstractValue Value)> seen)
     {
-        IrModelNew => false,
-        IrModelThis => HasUnobservedValues(instance, call.Receivers, ValueOrigin.None, seen),
-        IrModelArgument argument => call.Arguments.Where(item => item.ParameterOrdinal == argument.ParameterOrdinal)
-                                        .Any(item => HasUnobservedValues(instance, item.Values, item.Producers, seen)),
-        IrModelCompletion completion => HasUnobservedModelTasks(instance, call, completion.Source, seen),
-        IrModelReturns returned => HasUnobservedReturns(instance, call, returned, seen),
-        IrModelKept kept => HasUnobserved(instance, Kept(call, kept), seen),
-        IrModelElements elements => HasUnobservedModelValue(instance, call, elements.Source, seen) ||
-                                    HasUnobservedWriteInto(ModelRegions(instance, call, elements.Source), PathValue.ELEMENT, seen),
-        IrModelSequence sequence => sequence.Values.Any(item => HasUnobservedModelValue(instance, call, item, seen)),
-        IrModelGrouping grouping => HasUnobservedModelValue(instance, call, grouping.Key, seen) ||
-                                    HasUnobservedModelValue(instance, call, grouping.Values, seen),
-        _ => true
-    };
+        _checks.Check();
+        return value switch
+        {
+            IrModelNew => false,
+            IrModelThis => HasUnobservedValues(instance, call.Receivers, ValueOrigin.None, seen),
+            IrModelArgument argument => call.Arguments.Where(item => item.ParameterOrdinal == argument.ParameterOrdinal)
+                                            .Any(item => HasUnobservedValues(instance, item.Values, item.Producers, seen)),
+            IrModelCompletion completion => HasUnobservedModelTasks(instance, call, completion.Source, seen),
+            IrModelReturns returned => HasUnobservedReturns(instance, call, returned, seen),
+            IrModelKept kept => HasUnobserved(instance, Kept(call, kept), seen),
+            IrModelElements elements => HasUnobservedModelValue(instance, call, elements.Source, seen) ||
+                                        HasUnobservedWriteInto(ModelRegions(instance, call, elements.Source), PathValue.ELEMENT, seen),
+            IrModelSequence sequence => sequence.Values.Any(item => HasUnobservedModelValue(instance, call, item, seen)),
+            IrModelGrouping grouping => HasUnobservedModelValue(instance, call, grouping.Key, seen) ||
+                                        HasUnobservedModelValue(instance, call, grouping.Values, seen),
+            _ => true
+        };
+    }
 
     /// <summary>Whether the tasks a model value names may be, or may complete with, an object the heap does not name: the value itself as
     /// <see cref="HasUnobservedModelValue"/> walks it, and what completed every task region it names, at any depth of <c>completion(…)</c>
@@ -447,6 +459,7 @@ internal sealed class ValueObservation
     /// <param name="value">The model value.</param>
     private IReadOnlySet<string> ModelRegions(MethodInstance instance, SummaryOpaqueCall call, IrModelValue value)
     {
+        _checks.Check();
         IEnumerable<string> regions = value switch
         {
             IrModelThis => call.Receivers.SelectMany(item => Resolve(instance, item)),
@@ -484,15 +497,19 @@ internal sealed class ValueObservation
 
     /// <summary>Whether a model value names what a delegate gives back, at any depth.</summary>
     /// <param name="value">The model value.</param>
-    private static bool NamesReturns(IrModelValue value) => value switch
+    private static bool NamesReturns(IrModelValue value)
     {
-        IrModelReturns => true,
-        IrModelCompletion completion => NamesReturns(completion.Source),
-        IrModelElements elements => NamesReturns(elements.Source),
-        IrModelSequence sequence => sequence.Values.Any(NamesReturns),
-        IrModelGrouping grouping => NamesReturns(grouping.Key) || NamesReturns(grouping.Values),
-        _ => false
-    };
+        WorkCancellation.Check();
+        return value switch
+        {
+            IrModelReturns => true,
+            IrModelCompletion completion => NamesReturns(completion.Source),
+            IrModelElements elements => NamesReturns(elements.Source),
+            IrModelSequence sequence => sequence.Values.Any(NamesReturns),
+            IrModelGrouping grouping => NamesReturns(grouping.Key) || NamesReturns(grouping.Values),
+            _ => false
+        };
+    }
 
     /// <summary>Whether what one run of the delegate a <c>returns:</c> names gives back may be an object the heap does not name: where
     /// the engine gave no answer, where some alternative of the delegate runs code the analysis does not see in full, or where a run's
@@ -565,7 +582,10 @@ internal sealed class ValueObservation
             {
                 IReadOnlySet<string> reached = Resolve(instance, path.Base, seen);
                 foreach (var segment in path.Segments)
+                {
+                    _checks.Check();
                     reached = reached.SelectMany(region => _heap.PointsTo(region, segment)).ToHashSet(StringComparer.Ordinal);
+                }
                 return reached;
             }
             case AllocationValue allocation:
@@ -578,11 +598,13 @@ internal sealed class ValueObservation
                 foreach (var intrinsic in instance.Summary.OpaqueCalls.Where(opaque => opaque.OperationId == call.OperationId &&
                     GenerationHandoffs.IsTransparentIntrinsic(opaque.Callee)))
                 {
+                    _checks.Check();
                     result.UnionWith(intrinsic.Arguments.SelectMany(argument => argument.Values)
                                              .SelectMany(argument => Resolve(instance, argument, seen)));
                 }
                 foreach (var edge in _heap.Edges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == call.OperationId))
                 {
+                    _checks.Check();
                     // An async body gives its call the task the heap makes for it; what it returns is that task's completion value.
                     if (!_heap.Instances.TryGetValue(edge.CalleeInstance, out var callee) ||
                         _run.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) && body is { IsAsync: true, IsAsyncIterator: false })
@@ -605,6 +627,7 @@ internal sealed class ValueObservation
                 var result = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var edge in _heap.Edges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == reference.OperationId))
                 {
+                    _checks.Check();
                     if (!_heap.Instances.TryGetValue(edge.CalleeInstance, out var callee))
                         continue;
                     result.UnionWith(callee.Summary.RefParameters.Where(parameter => parameter.Ordinal == reference.Ordinal)

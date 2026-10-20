@@ -75,6 +75,58 @@ public sealed class ModelGenerationModeTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadOnly_names_a_file_of_another_version_and_lists_its_target()
+    {
+        var image = Library("main");
+        var solution = Solution("Acme.Api.Touch(_state);", image);
+        var absent = await Run(solution, ModelGeneration.ReadOnly);
+        _ = await Run(solution, ModelGeneration.Generate);
+        var path = KeyOf(image).PathUnder(_repository)!;
+        File.WriteAllText(path, File.ReadAllText(path).Replace(GeneratorVersion.Fingerprint, "another-generator", StringComparison.Ordinal));
+        _requested.Clear();
+        var stored = Files();
+
+        var result = await Run(solution, ModelGeneration.ReadOnly);
+
+        Assert.Empty(_requested);
+        Assert.Equal(stored, Files());
+        Assert.Equal(absent.GenerationWanted, result.GenerationWanted);
+        Assert.Equal([(TOUCH, GenerationCauses.NOT_GENERATED)],
+                     Assert.Single(result.Coverage).GenerationRefusals.Select(item => (item.MemberId, item.Cause)));
+        Assert.Equal(0, Counter(result, CoverageCounters.KNOWN_CALL_GENERATED));
+        var display = Path.GetRelativePath(_repository, path).Replace('\\', '/');
+        Assert.EndsWith($"{display}: written by another generator version; its answers are not used.",
+                        Assert.Single(Assert.Single(result.Coverage).Diagnostics, diagnostic => diagnostic.Contains(display, StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Generate_replaces_a_file_of_another_version_whole()
+    {
+        var image = Library("main");
+        _ = await Run(Solution("Acme.Api.Touch(_state); Acme.Api.Alpha(_state);", image), ModelGeneration.Generate);
+        var key = KeyOf(image);
+        var path = key.PathUnder(_repository)!;
+        File.WriteAllText(path, File.ReadAllText(path).Replace(GeneratorVersion.Fingerprint, "another-generator", StringComparison.Ordinal));
+        _requested.Clear();
+
+        var result = await Run(Solution("Acme.Api.Touch(_state);", image), ModelGeneration.Generate);
+
+        Assert.Equal([TOUCH], _requested);
+        Assert.Equal(1, Counter(result, CoverageCounters.GENERATED_IN_RUN));
+        Assert.Empty(CountFindings(result));
+        var file = GeneratedModelFiles.Read(_repository, key);
+        Assert.Empty(file.Diagnostics);
+        Assert.Equal([TOUCH], file.Entries.Keys);
+        Assert.Contains($"\"generator\": \"{GeneratorVersion.Fingerprint}\"", File.ReadAllText(path), StringComparison.Ordinal);
+
+        // The next write in the same version keeps the first run's answer and adds the newly reached member.
+        _requested.Clear();
+        _ = await Run(Solution("Acme.Api.Touch(_state); Acme.Api.Poke(_state);", image), ModelGeneration.Generate);
+        Assert.Equal([POKE], _requested);
+        Assert.Equal(new[] { POKE, TOUCH }, GeneratedModelFiles.Read(_repository, key).Entries.Keys.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task ReadOnly_writes_nothing_and_lists_the_wanted_target()
     {
         var image = Library("main");

@@ -229,6 +229,7 @@ ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Project_model_case_is_opaque_b
 ConcurrencyHunter.Core.Tests.DemoGapCoverageTests.Reflection_call_with_only_strings_and_numbers_makes_no_gap	Passed
 ConcurrencyHunter.Core.Tests.DemoGeneratedModelsTests.A_demo_run_generates_nothing	Passed
 ConcurrencyHunter.Core.Tests.DemoGeneratedModelsTests.A_generate_run_of_the_demo_calls_no_generator_and_writes_nothing	Passed
+ConcurrencyHunter.Core.Tests.DemoGeneratedModelsTests.Committed_files_name_the_current_generator	Passed
 ConcurrencyHunter.Core.Tests.DemoGeneratedModelsTests.Polly_execute_refusal_is_named_in_coverage	Passed
 ConcurrencyHunter.Core.Tests.DemoGeneratedModelsTests.The_cases_rest_on_committed_models	Passed
 ConcurrencyHunter.Core.Tests.Engine.AccessExtractionTests.Access_carries_its_region_ownership_and_evidence_chain	Passed
@@ -501,6 +502,145 @@ ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.The_seventeenth_path_disc
 ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.Two_calls_in_one_execution_keep_their_own_guards	Passed
 ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.Two_calls_of_one_helper_under_different_guards_keep_both_paths	Passed
 ConcurrencyHunter.Core.Tests.Engine.CallSiteGuardTests.Two_calls_of_one_helper_under_guards_that_exclude_the_other_worker_keep_no_pair	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Analysis_code_checks_cancellation	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Bounded_marker_names_a_reason	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Check_helpers_reach_the_work_cancellation	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Checks_receivers_are_stage_checks	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Core_code_checks_cancellation	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Excluded_code_exists	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Frontend_code_checks_cancellation	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Generation_code_checks_cancellation	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { foreach (var x in _chec"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { _checks."···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { CheckCan"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { checks.C"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { Checks.C"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { if (flag"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { other.Ch"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { owner.Ch"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { Step(); "···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { this._ch"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { this.Che"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { token.Th"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Dispose() { while (true) { WorkCanc"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { foreach (var x in "···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { _ch"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { che"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { Che"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { if "···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { oth"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { own"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { Ste"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { thi"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { tok"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void DisposeAsync() { while (true) { Wor"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void PairWithGaps() { while (true) { Ste"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\n// bounded: forwards once "···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\n// bounded: two entries\n\"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\n// bounded: two entries\nt"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\n// bounded: two fixed entr"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\n// bounded:\nwhile (true) "···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo {  } while (true);\n} }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { _checks.Check(1); Ste"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { Check(); } while (tru"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { CheckCancellation(); "···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { checks.Check(); Step("···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { Checks.Check(); Step("···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { other.Check(); } whil"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { other.Each(items); } "···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { owner.Checks.Check();"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { Step(); WorkCancellat"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { this._checks.Check();"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { this.CheckCancellatio"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { token.ThrowIfCancella"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo { WorkCancellation.Chec"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ndo WorkCancellation.Check("···, expected: "body is not a block")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) {  }\n} }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { _checks.Check(1"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { Check(); }\n} }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { CheckCancellati"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { checks.Check();"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { Checks.Check();"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { other.Check(); "···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { other.Each(item"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { owner.Checks.Ch"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { Step(); WorkCan"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { this._checks.Ch"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { this.CheckCance"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { token.ThrowIfCa"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) { WorkCancellatio"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nfor (;;) WorkCancellation."···, expected: "body is not a block")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var item in items"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var item in items"···, expected: "body is not a block")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var item in items"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var x in _checks."···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var x in _checks."···, expected: "body is not a block")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var x in checks.E"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var x in Checks.E"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var x in other.Ea"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var x in owner._c"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nforeach (var x in this.che"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nitems.Select(x => x);\n} }", expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ntry { Step(); } finally { "···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\ntry { Step(); } finally { "···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { ((C)this).Wa"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { base.Walk();"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { C.Walk(); }\"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { C.Walk<int>("···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { CheckCancell"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { next?.Walk()"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { next?.Walk<i"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { next.Walk();"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { next.Walk(1)"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { next.Walk<in"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { this.Walk();"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { this.Walk<in"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { Walk(); }\n}"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() { Walk<int>();"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nvoid Walk() => Walk();\n} "···, expected: "body is not a block")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) {  }\n} }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { _checks.Che"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { Check(); }\"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { CheckCancel"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { checks.Chec"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { Checks.Chec"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { other.Check"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { other.Each("···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { owner.Check"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { Step(); }\n"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { Step(); Wor"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { this._check"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { this.CheckC"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { token.Throw"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) { WorkCancell"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Run() {\nwhile (true) WorkCancellat"···, expected: "body is not a block")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { ((C)this).Walk(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { ((C)this).Walk<int>(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { base.Walk(); } }", expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { base.Walk<int>(); } }", expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { C.Walk(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { C.Walk<int>(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { next?.Walk(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { next?.Walk<int>(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { next.Walk(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { next.Walk(1); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { next.Walk<int>(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { Other(); } void Other() { "···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { Step(); WorkCancellation.C"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { this.Walk(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { this.Walk<int>(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { token.ThrowIfCancellationR"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { Walk(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { Walk<int>(); } }", expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() { WorkCancellation.Check(); "···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C { void Walk() => Walk(); }", expected: "body is not a block")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C {\n// bounded: the two overloads forward o"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C {\n// cleanup: releases owned handles\nvoi"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C {\n// cleanup: releases owned handles\nvoi"···, expected: "check in cleanup")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class C {\n// cleanup:\nvoid Release() { while (tr"···, expected: "missing cancellation check")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class CandidateIndex { void Walk() { while (true) "···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class InterproceduralPairing { void Walk() { while"···, expected: "")	Passed
+ConcurrencyHunter.Core.Tests.Engine.CancellationCoverageTests.Recognizer_classifies_each_form(source: "class PhaseOneAnalyzer { void PairWithGaps() { whi"···, expected: "")	Passed
 ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.A_struct_whole_meets_each_field_below_it_across_an_alias_group	Passed
 ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.A_struct_whole_meets_each_field_below_it_and_is_named_by_the_longer_path	Passed
 ConcurrencyHunter.Core.Tests.Engine.CandidateIndexTests.Accesses_on_two_regions_are_never_compared	Passed
@@ -4553,11 +4693,22 @@ ConcurrencyHunter.Core.Tests.Engine.ElementSelectorTests.Writes_through_two_slic
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancellation_at_a_stage_start_leaves_that_stage_not_run	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancellation_in_the_reachable_set_reports_that_step_and_its_lowering_time	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancellation_inside_standing_member_accesses_stops_the_collection	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancellation_inside_the_lock_solving_of_the_collection_stops_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancellation_inside_the_return_summaries_fixpoint_stops_it	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancelled_access_collection_reports_its_counters	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancelled_execution_walk_reports_its_counters	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancelled_heap_solve_reports_its_counters	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancelled_lock_solving_stops_in_each_of_its_walks	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancelled_pipeline_reports_its_completed_stages	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Cancelled_return_summaries_stop_before_they_summarize_anything	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Completed_pipeline_reports_every_stage_finished	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Every_part_of_access_collection_attributes_cancellation(part: "coverage", enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Every_part_of_access_collection_attributes_cancellation(part: "coverage", enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Every_part_of_access_collection_attributes_cancellation(part: "entry", enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Every_part_of_access_collection_attributes_cancellation(part: "entry", enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Every_part_of_access_collection_attributes_cancellation(part: "preparation", enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.Every_part_of_access_collection_attributes_cancellation(part: "preparation", enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.EngineCancellationTests.The_return_summaries_check_as_they_materialize_the_call_edges	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCounterTests.Access_ref_parameter_chain_of_nine_is_found	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCounterTests.Engine_counters_reach_no_coverage_key	Passed
 ConcurrencyHunter.Core.Tests.Engine.EngineCounterTests.Heap_ref_parameter_chain_of_nine_is_found	Passed
@@ -6872,6 +7023,26 @@ ConcurrencyHunter.Core.Tests.Engine.SpawnHeapTests.Unsafe_queue_user_work_item_s
 ConcurrencyHunter.Core.Tests.Engine.SpawnHeapTests.When_all_with_a_list_does_not_know_its_tasks	Passed
 ConcurrencyHunter.Core.Tests.Engine.SpawnHeapTests.When_all_with_listed_tasks_remembers_them	Passed
 ConcurrencyHunter.Core.Tests.Engine.SpawnHeapTests.Work_item_execute_is_reached_and_writes_the_field_of_its_receiver	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_generation_stage_stops_it(name: "Analyze")	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_generation_stage_stops_it(name: "BuildModel")	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_generation_stage_stops_it(name: "Classify")	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_generation_stage_stops_it(name: "CompileLibrary")	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_generation_stage_stops_it(name: "ConfirmHolder")	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_generation_stage_stops_it(name: "EngineClaims")	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_generation_stage_stops_it(name: "ReadEffects")	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_generation_stage_stops_it(name: "Resolve")	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_generation_stage_stops_it(name: "Synthesize")	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_pipeline_step_stops_it(step: Accesses)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_pipeline_step_stops_it(step: Executions)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_pipeline_step_stops_it(step: ProgramIndex)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_pipeline_step_stops_it(step: ReachableSet)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_pipeline_step_stops_it(step: RootDiscovery)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Cancellation_deep_inside_each_pipeline_step_stops_it(step: SummariesAndFixpoint)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Decompilation_stops_every_worker_after_the_cancellation(workers: 1, enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Decompilation_stops_every_worker_after_the_cancellation(workers: 1, enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Decompilation_stops_every_worker_after_the_cancellation(workers: 4, enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Decompilation_stops_every_worker_after_the_cancellation(workers: 4, enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.StageCancellationTests.Every_scope_step_is_a_row_or_nested_in_one	Passed
 ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_by_value_type_parameter_constrained_to_struct_is_a_copy	Passed
 ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_cell_its_term_binds_to_a_constant_keeps_the_struct_fields_after_it	Passed
 ConcurrencyHunter.Core.Tests.Engine.StructAccessTests.A_cell_of_a_collection_struct_storage_holds_is_named_on_the_outermost_holder(holder: "private Rack _rack = Rack.One(); public void Hit()"···, region: "di:Holder@Singleton", path: "_rack.Items.[?].X")	Passed
@@ -7569,6 +7740,217 @@ ConcurrencyHunter.Core.Tests.Engine.WalkSchedulingTests.Each_node_of_an_acyclic_
 ConcurrencyHunter.Core.Tests.Engine.WalkSchedulingTests.Executions_reaching_a_shared_node_together_arrive_in_one_visit	Passed
 ConcurrencyHunter.Core.Tests.Engine.WalkSchedulingTests.Later_entry_reaches_known_nodes_through_their_stored_successors	Passed
 ConcurrencyHunter.Core.Tests.Engine.WalkSchedulingTests.Node_with_many_predecessors_is_walked_once_per_change_not_once_per_edge	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Analysis_stages_outside_the_pipeline_observe_the_work(stage: "Lock")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Analysis_stages_outside_the_pipeline_observe_the_work(stage: "Read")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Analysis_stages_outside_the_pipeline_observe_the_work(stage: "Resolve")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Check_outside_any_work_does_nothing	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Generate", enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Generate", enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Layer", enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Layer", enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Pipeline", enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Pipeline", enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Targets", enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Targets", enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "WouldGenerate", enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "WouldGenerate", enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Write", enclosing: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Direct_checks_report_before_any_token(place: "Write", enclosing: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Generation_observes_an_enclosing_cancellation_in_every_cell(enclosing: False, when: "before")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Generation_observes_an_enclosing_cancellation_in_every_cell(enclosing: False, when: "printed")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Generation_observes_an_enclosing_cancellation_in_every_cell(enclosing: False, when: "started")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Generation_observes_an_enclosing_cancellation_in_every_cell(enclosing: True, when: "before")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Generation_observes_an_enclosing_cancellation_in_every_cell(enclosing: True, when: "printed")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Generation_observes_an_enclosing_cancellation_in_every_cell(enclosing: True, when: "started")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Happens_before_queries_observe_the_work_in_every_cell(query: "JoinDominates", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Happens_before_queries_observe_the_work_in_every_cell(query: "JoinDominates", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Happens_before_queries_observe_the_work_in_every_cell(query: "JoinDominates", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Happens_before_queries_observe_the_work_in_every_cell(query: "Ordered", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Happens_before_queries_observe_the_work_in_every_cell(query: "Ordered", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Happens_before_queries_observe_the_work_in_every_cell(query: "Ordered", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Happens_before_queries_observe_the_work_in_every_cell(query: "UnprovenJoins", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Happens_before_queries_observe_the_work_in_every_cell(query: "UnprovenJoins", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Happens_before_queries_observe_the_work_in_every_cell(query: "UnprovenJoins", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "first", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "first", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "first", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "first", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "last", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "last", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "last", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "last", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "middle", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "middle", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "middle", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "middle", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "second", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "second", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "second", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: False, cut: "second", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "first", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "first", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "first", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "first", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "last", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "last", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "last", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "last", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "middle", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "middle", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "middle", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "middle", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "second", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "second", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "second", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Creator", warm: True, cut: "second", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "first", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "first", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "first", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "first", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "last", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "last", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "last", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "last", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "middle", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "middle", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "middle", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "middle", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "second", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "second", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "second", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: False, cut: "second", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "first", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "first", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "first", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "first", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "last", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "last", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "last", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "last", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "middle", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "middle", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "middle", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "middle", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "second", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "second", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "second", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "JoinDominates", warm: True, cut: "second", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "first", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "first", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "first", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "first", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "last", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "last", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "last", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "last", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "middle", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "middle", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "middle", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "middle", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "second", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "second", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "second", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: False, cut: "second", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "first", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "first", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "first", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "first", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "last", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "last", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "last", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "last", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "middle", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "middle", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "middle", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "middle", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "second", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "second", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "second", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "Ordered", warm: True, cut: "second", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "first", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "first", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "first", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "first", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "last", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "last", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "last", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "last", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "middle", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "middle", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "middle", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "middle", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "second", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "second", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "second", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "second", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "segment-first", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "segment-first", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "segment-last", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "segment-last", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "segment-middle", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: False, cut: "segment-middle", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "first", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "first", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "first", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "first", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "last", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "last", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "last", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "last", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "middle", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "middle", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "middle", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "middle", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "second", next: "live", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "second", next: "live", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "second", next: "outside", asynchronous: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Interrupted_happens_before_query_leaves_the_graph_unchanged(query: "UnprovenJoins", warm: True, cut: "second", next: "outside", asynchronous: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Member_generation_uses_the_effective_token(alreadyCompiled: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Member_generation_uses_the_effective_token(alreadyCompiled: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Nested_work_observes_an_enclosing_cancellation	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Nested_work_restores_the_outer_check	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Nested_work_without_an_observer_reports_to_the_outer_one	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Outside_suspends_an_enclosing_cancellation	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Shared_initialization_ignores_a_cancelled_work	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "Completion", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "Completion", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "Completion", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "DelegateCaptures", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "DelegateCaptures", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "DelegateCaptures", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "FieldsOf", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "FieldsOf", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "FieldsOf", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "PointsTo", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "PointsTo", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "PointsTo", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "Resolve", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "Resolve", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "Resolve", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "Solve", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "Solve", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "Solve", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "StaticRegionOf", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "StaticRegionOf", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Solved_heap_queries_observe_the_work_in_every_cell(query: "StaticRegionOf", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: False, generation: "cancelled", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: False, generation: "cancelled", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: False, generation: "cancelled", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: False, generation: "live", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: False, generation: "live", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: False, generation: "live", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: False, generation: "none", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: False, generation: "none", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: False, generation: "none", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: True, generation: "cancelled", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: True, generation: "cancelled", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: True, generation: "cancelled", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: True, generation: "live", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: True, generation: "live", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: True, generation: "live", work: "outside")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: True, generation: "none", work: "cancelled")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: True, generation: "none", work: "live")	Passed
+ConcurrencyHunter.Core.Tests.Engine.WorkCancellationTests.Stage_checks_observe_the_work_in_every_cell(each: True, generation: "none", work: "outside")	Passed
 ConcurrencyHunter.Core.Tests.Engine.WorklistTests.A_kept_union_sees_what_its_group_gained_and_reads_what_a_union_reads	Passed
 ConcurrencyHunter.Core.Tests.Engine.WorklistTests.A_struct_copy_adds_again_only_what_its_source_slot_gained	Passed
 ConcurrencyHunter.Core.Tests.Engine.WorklistTests.After_loop_contributions_are_rebuilt_every_pass	Passed
@@ -8889,6 +9271,8 @@ ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancella
 ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "ReadEffects")	Passed
 ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "Resolve")	Passed
 ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_each_stage_stops_the_generation(name: "Synthesize")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_the_handoffs_stops_their_construction_between_its_scans	Passed
+ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancellation_inside_the_reachability_stops_each_of_its_walks	Passed
 ConcurrencyHunter.Core.Tests.Generation.ModelGeneratorCancellationTests.Cancelled_token_resolves_nothing	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_holder_whose_Fire_trigger_runs_the_delegate_stays_a_holder_naming_Fire	Passed
 ConcurrencyHunter.Core.Tests.Generation.NotRunClassificationTests.A_holder_whose_members_never_run_the_delegate_is_unknown_execution	Passed
@@ -9871,11 +10255,13 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_o
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Decide_orders_the_layers_and_generates_only_what_no_answer_covers(project: "opaque", builtIn: "none", stored: "model", origin: "available", layer: "project", generate: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Entries_of_a_non_void_method_and_a_getter_are_found_by_their_calls	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Entry_applies_only_in_the_compilation_that_passes_it_in_either_order	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Entry_named_by_another_spelling_of_a_members_id_belongs_to_no_target	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Entry_of_another_mvid_is_not_applied	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Generated_entry_describes_the_call_as_known_generated	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Origin_follows_what_the_target_resolution_answered	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Project_entry_over_a_generated_model_keeps_the_member_opaque	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Scopes_apply_only_their_own_files	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Stores_apply_only_in_the_compilation_where_the_item_converts_in_either_order	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryApplicabilityTests.Two_projects_of_one_scope_with_two_assets_each_use_their_own_entry	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_carried_probe_gets_an_entry_without_a_fate_for_its_carrier	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedEntryTests.A_class_constructor_storing_its_argument_keeps_it_in_this	Passed
@@ -10051,6 +10437,9 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedFateTests.The_closure_bound_coun
 ConcurrencyHunter.Core.Tests.Providers.GeneratedFateTests.The_closure_bound_stops_a_driver_that_reaches_too_many_bodies	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedFateTests.Under_the_closure_bound_the_driver_is_classified	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedFateTests.When_two_reasons_apply_the_first_of_G6_wins	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedFileVersionMatrixTests.Every_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedFileVersionMatrixTests.Every_cell_gets_its_expected_answer	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedFileVersionMatrixTests.No_cell_applies_an_answer_of_another_version	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedLayerMatrixTests.Every_axis_value_occurs	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedLayerMatrixTests.Every_cell_gets_its_expected_answer	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedLayerMatrixTests.No_cell_narrows	Passed
@@ -10094,9 +10483,20 @@ ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Members_are_in_o
 ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Missing_concurrency_hunter_folder_is_created	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Model_round_trips	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.No_file_or_entry_is_deleted	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Non_IO_write_failure_is_not_retried(security: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Non_IO_write_failure_is_not_retried(security: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Overlapping_writers_keep_both_members	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Package_answer_lives_at_package_version_mvid	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Persistent_write_failure_preserves_the_original_and_removes_the_temporary(existing: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Persistent_write_failure_preserves_the_original_and_removes_the_temporary(existing: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Property_repeated_at_any_depth_makes_the_file_unreadable_and_it_is_not_rewritten(place: "entry")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Property_repeated_at_any_depth_makes_the_file_unreadable_and_it_is_not_rewritten(place: "model versions")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Property_repeated_at_any_depth_makes_the_file_unreadable_and_it_is_not_rewritten(place: "model")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Property_repeated_at_any_depth_makes_the_file_unreadable_and_it_is_not_rewritten(place: "refusal causes")	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Property_repeated_at_any_depth_makes_the_file_unreadable_and_it_is_not_rewritten(place: "refusal reason")	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Refusal_round_trips	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Transient_write_failure_retries_the_same_temporary_file(existing: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Transient_write_failure_retries_the_same_temporary_file(existing: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Unchanged_bytes_are_not_rewritten	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Unreadable_file_counts_as_empty_is_diagnosed_and_is_not_rewritten	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratedModelFilesTests.Writer_keeps_an_entry_another_writer_added_after_it_read	Passed
@@ -10112,6 +10512,28 @@ ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Missing_assets_of_o
 ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Package_asset_follows_the_scope_framework_not_the_host	Passed
 ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Two_versions_of_one_package_are_two_targets	Passed
 ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Types_of_one_assembly_forwarded_apart_get_their_own_answers_in_either_order	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Built_fingerprint_matches_the_sources	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_is_64_lowercase_hex	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "add-source", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "analysis-project", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "analysis-source", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "bin", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "build-properties", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "built-in-json", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "core-project", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "core-source", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "delete-source", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "generated-version", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "line-endings", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "nested-bin", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "nested-json", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "nested-obj", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "obj", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "other-json", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "other-project", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "package-properties", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "rename-source", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "unchanged", moves: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.HolderKeepsVocabularyTests.Result_beside_a_result_holder_is_still_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.HolderKeepsVocabularyTests.Result_holder_keeps_on_the_object_the_call_returns	Passed
 ConcurrencyHunter.Core.Tests.Providers.HolderKeepsVocabularyTests.Result_keeper_with_a_result_holder_is_accepted	Passed
@@ -10136,6 +10558,7 @@ ConcurrencyHunter.Core.Tests.Providers.HostingRootProviderTests.Hosting_Unregist
 ConcurrencyHunter.Core.Tests.Providers.HostingRootProviderTests.Hosting_Version7_NotChecked	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_bounded_range_takes_the_lowest_version_inside_it	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_cancelled_token_ends_the_resolution_between_nuspec_reads	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_cancelled_token_ends_the_scan_of_the_references_at_its_next_candidate	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_chain_past_the_round_bound_names_the_link_still_unsettled_and_follows_nothing_beyond_it	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_dependency_chain_deeper_than_any_fixed_small_bound_is_followed_to_its_end(depth: 127)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_dependency_chain_deeper_than_any_fixed_small_bound_is_followed_to_its_end(depth: 40)	Passed
@@ -10261,16 +10684,38 @@ ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_method_with_a_b
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_missing_type_in_a_signature_makes_the_library_not_compile	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_module_attribute_reserved_for_the_compiler_blocks_nothing	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_property_or_indexer_accessor_in_error_makes_the_member_extern	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_static_explicit_interface_event_in_error_calls_a_static_bodiless_member	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_trimmed_auto_property_without_a_getter_gets_one(setter: "init", modifier: "", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_trimmed_auto_property_without_a_getter_gets_one(setter: "init", modifier: "internal", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_trimmed_auto_property_without_a_getter_gets_one(setter: "init", modifier: "private", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_trimmed_auto_property_without_a_getter_gets_one(setter: "init", modifier: "protected", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_trimmed_auto_property_without_a_getter_gets_one(setter: "set", modifier: "", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_trimmed_auto_property_without_a_getter_gets_one(setter: "set", modifier: "", isStatic: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_trimmed_auto_property_without_a_getter_gets_one(setter: "set", modifier: "internal", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_trimmed_auto_property_without_a_getter_gets_one(setter: "set", modifier: "private", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_trimmed_auto_property_without_a_getter_gets_one(setter: "set", modifier: "protected", isStatic: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.A_type_the_decompiler_threw_on_makes_the_whole_library_unusable_and_is_named	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_accessor_modifier_without_a_trimmed_getter_is_not_rewritten	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_async_method_in_error_loses_async	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_async_method_of_an_emitted_assembly_decompiles_to_valid_identifiers	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_equality_operator_without_its_inequality_blocks_nothing	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_error_inside_a_lambda_or_a_local_function_makes_its_enclosing_method_extern	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_explicit_interface_event_in_error_calls_a_bodiless_member	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.An_initializer_error_makes_the_constructors_of_its_kind_extern_declaring_the_implicit_one	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Decompilation_stops_between_types	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Every_member_of_Unsafe_becomes_extern_and_a_type_of_its_name_elsewhere_keeps_its_bodies	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Explicit_interface_events_in_error_get_distinct_bodiless_members(collision: "instance-and-static", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Explicit_interface_events_in_error_get_distinct_bodiless_members(collision: "member", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Explicit_interface_events_in_error_get_distinct_bodiless_members(collision: "partial", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Explicit_interface_events_in_error_get_distinct_bodiless_members(collision: "two-instance", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Explicit_interface_events_in_error_get_distinct_bodiless_members(collision: "type-parameter", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Explicit_interface_events_in_error_get_distinct_bodiless_members(collision: "type-parameter", isStatic: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Explicit_interface_events_in_error_get_distinct_bodiless_members(collision: "type", isStatic: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Explicit_interface_events_in_error_get_distinct_bodiless_members(collision: "type", isStatic: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Installed_System_Linq_compiles_with_no_error_in_any_body_after_the_rewrite	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Installed_System_Linq_decompiles_to_one_tree_per_type	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Installed_System_Text_Json_and_System_Net_Security_compile	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Subscribing_through_the_interface_to_an_explicit_event_in_error_hands_the_delegate_to_an_opaque_call	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.The_same_path_under_two_frameworks_is_two_compilations	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Waiting_for_a_compilation_another_caller_started_stops_with_the_waiters_token	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryExternSelectionTests.Property_selected_through_one_accessor_loses_every_accessor_body	Passed
@@ -10334,6 +10779,7 @@ ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.Operator_semantics(row: "
 ConcurrencyHunter.Core.Tests.Providers.LinqFamilyTests.Operator_semantics(row: "Zip(first, second, resultSelector)", members: "Zip(first,second,resultSelector)", inputs: "resultSelector:[E(first)][E(second)]", result: "sequence(returns:resultSelector)", effects: "")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.A_complete_entry_has_the_expected_bytes	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Calls_have_one_order_whatever_order_they_are_built_in_and_round_trip	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Cancellation_between_two_outputs_stops_the_writing_before_the_next_one	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Dictionary_and_grouping_positions_remain_distinct(first: "[grouping(arg:items,arg:output)]", second: "[grouping(arg:output,arg:items)]")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Dictionary_and_grouping_positions_remain_distinct(first: "dictionary(arg:items,arg:output)", second: "dictionary(arg:output,arg:items)")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Entry_and_fate_properties_have_the_fixed_order	Passed
@@ -10346,6 +10792,7 @@ ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Recursive_set_order
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Task_results_write_their_completion_with_recursive_set_order(first: "task([arg:items,completion(arg:output)])", second: "task([completion(arg:output),arg:items])", written: "task([arg:items,completion(arg:output)])")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Task_results_write_their_completion_with_recursive_set_order(first: "task(dictionary(arg:output,completion(arg:items)))", second: "task(dictionary(arg:output,completion(arg:items)))", written: "task(dictionary(arg:output,completion(arg:items)))")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Task_results_write_their_completion_with_recursive_set_order(first: "task(task(sequence(arg:output,arg:items)))", second: "task(task(sequence(arg:items,arg:output)))", written: "task(task(sequence(arg:items,arg:output)))")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelEntryWriterTests.Writing_a_model_checks_at_each_part_it_writes	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Analyzer_overloads_default_to_ReadOnly	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilation_another_caller_created_during_the_run_stays	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilation_created_again_after_a_release_is_not_removed	Passed
@@ -10354,10 +10801,12 @@ ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilations_are
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilations_are_released_after_an_analysis_failure	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilations_created_by_a_run_are_released_after_it	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Compilations_present_before_the_run_are_kept	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.Generate_replaces_a_file_of_another_version_whole	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.None_ignores_a_stored_model	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.ReadOnly_and_None_runs_release_nothing	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.ReadOnly_applies_a_stored_model	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.ReadOnly_lists_a_target_of_two_scopes_once	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.ReadOnly_names_a_file_of_another_version_and_lists_its_target	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelGenerationModeTests.ReadOnly_writes_nothing_and_lists_the_wanted_target	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "[elements(arg:source),arg:defaultValue]", result: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "[elements(arg:source)]", result: True)	Passed
@@ -10646,6 +11095,7 @@ ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Budget_counts_only_tim
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Default_limits_are_the_server_constants	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Delegate_handed_members_go_first	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Described_member_is_not_generated	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Enclosing_cancellation_during_a_member_is_cancelled_and_not_kept	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Equal_ids_order_by_file_key	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Exception_is_failed_and_not_kept	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationTests.Member_cut_by_the_run_budget_is_budget_not_timeout	Passed

@@ -27,7 +27,11 @@ public sealed class SummaryCache(IReadOnlyDictionary<string, IrBody> bodies, Pro
     /// <summary>Whether a member has a body in the run (<see cref="ReachableSetResult.HasBody"/>), its source body without a reachable
     /// set.</summary>
     /// <param name="method">The member.</param>
-    public bool HasBody(ProgramMethod method) => reachable?.HasBody(method) ?? method.HasSourceBody;
+    public bool HasBody(ProgramMethod method)
+    {
+        WorkCancellation.Check();
+        return reachable?.HasBody(method) ?? method.HasSourceBody;
+    }
 
     public bool IsBuilt(string bodyId) => _summaries.ContainsKey(bodyId);
 
@@ -475,7 +479,10 @@ public sealed class HeapSolution
     {
         var regions = depth >= SummaryValue.MAX_COMPLETION_DEPTH ? new HashSet<string>(StringComparer.Ordinal) : tasks.ToHashSet(StringComparer.Ordinal);
         for (var level = 0; level < depth && regions.Count != 0; level++)
+        {
+            WorkCancellation.Check();
             regions = regions.SelectMany(completion).ToHashSet(StringComparer.Ordinal);
+        }
         return regions;
     }
 
@@ -581,7 +588,10 @@ public sealed class HeapSolution
     public (string Region, string Slot)? Located(string regionId, string slot, bool copies = false)
     {
         while (Regions.TryGetValue(regionId, out var region) && region.Kind == HeapRegionKind.StructStorage)
+        {
+            WorkCancellation.Check();
             (regionId, slot) = (region.Holder!, FieldSlot.Join(region.HolderSlot!, slot));
+        }
         return !copies && Regions.TryGetValue(regionId, out var holder) && holder.Kind == HeapRegionKind.StructCopy ? null : (regionId, slot);
     }
 
@@ -630,8 +640,11 @@ public sealed class HeapSolution
     /// writes (R4) (<see cref="WholeProgram.ClosureOwners"/>).</summary>
     /// <param name="instance">The instance.</param>
     /// <param name="cell">The capture cell.</param>
-    public IEnumerable<string> ClosureOwners(MethodInstance instance, IrClosureCell cell) =>
-        WholeProgram.ClosureOwners(instance.CellOwners, instance.NestedCellOwners, cell.Body, owner => Instances.GetValueOrDefault(owner)?.BodyId);
+    public IEnumerable<string> ClosureOwners(MethodInstance instance, IrClosureCell cell)
+    {
+        WorkCancellation.Check();
+        return WholeProgram.ClosureOwners(instance.CellOwners, instance.NestedCellOwners, cell.Body, owner => Instances.GetValueOrDefault(owner)?.BodyId);
+    }
 
     /// <summary>The closures holding a capture cell an instance reads or writes (R4), by their identities.</summary>
     /// <param name="instance">The instance.</param>
@@ -651,11 +664,26 @@ internal sealed class SolvedRegions(IReadOnlyDictionary<string, HeapRegion> solv
     public IEnumerable<string> Keys => solved.Keys;
     public IEnumerable<HeapRegion> Values => solved.Values;
     public int Count => solved.Count;
-    public bool ContainsKey(string key) => solved.ContainsKey(key) || named.ContainsKey(key);
-    public bool TryGetValue(string key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out HeapRegion value) =>
-        solved.TryGetValue(key, out value) || named.TryGetValue(key, out value);
-    public IEnumerator<KeyValuePair<string, HeapRegion>> GetEnumerator() => solved.GetEnumerator();
-    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    public bool ContainsKey(string key)
+    {
+        WorkCancellation.Check();
+        return solved.ContainsKey(key) || named.ContainsKey(key);
+    }
+    public bool TryGetValue(string key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out HeapRegion value)
+    {
+        WorkCancellation.Check();
+        return solved.TryGetValue(key, out value) || named.TryGetValue(key, out value);
+    }
+    public IEnumerator<KeyValuePair<string, HeapRegion>> GetEnumerator()
+    {
+        WorkCancellation.Check();
+        return solved.GetEnumerator();
+    }
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+    {
+        WorkCancellation.Check();
+        return GetEnumerator();
+    }
 }
 
 /// <summary>
@@ -667,8 +695,11 @@ internal sealed class SolvedRegions(IReadOnlyDictionary<string, HeapRegion> solv
 /// </summary>
 public static partial class WholeProgram
 {
-    public static HeapSolution Solve(ScopeProgram program, AnalysisLimits limits, CancellationToken cancellationToken) =>
-        Solve(program, limits, cancellationToken, new());
+    public static HeapSolution Solve(ScopeProgram program, AnalysisLimits limits, CancellationToken cancellationToken)
+    {
+        WorkCancellation.Check();
+        return Solve(program, limits, cancellationToken, new());
+    }
 
     /// <summary>The identity of the closure region of a member-body instance (R4): one per instance, as an allocation region is one per
     /// instance and site.</summary>
@@ -747,15 +778,27 @@ public static partial class WholeProgram
         public IEnumerable<string> Keys => regions.Keys.Select(region => region.Identity);
         public IEnumerable<HeapRegion> Values => regions.Values;
         public int Count => regions.Count;
-        public bool ContainsKey(string key) => interned.TryGetValue(key, out var region) && regions.ContainsKey(region);
+        public bool ContainsKey(string key)
+        {
+            WorkCancellation.Check();
+            return interned.TryGetValue(key, out var region) && regions.ContainsKey(region);
+        }
         public bool TryGetValue(string key, [MaybeNullWhen(false)] out HeapRegion value)
         {
+            WorkCancellation.Check();
             value = null;
             return interned.TryGetValue(key, out var region) && regions.TryGetValue(region, out value);
         }
-        public IEnumerator<KeyValuePair<string, HeapRegion>> GetEnumerator() =>
-            regions.Select(pair => new KeyValuePair<string, HeapRegion>(pair.Key.Identity, pair.Value)).GetEnumerator();
-        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        public IEnumerator<KeyValuePair<string, HeapRegion>> GetEnumerator()
+        {
+            WorkCancellation.Check();
+            return regions.Select(pair => new KeyValuePair<string, HeapRegion>(pair.Key.Identity, pair.Value)).GetEnumerator();
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+        {
+            WorkCancellation.Check();
+            return GetEnumerator();
+        }
     }
 
     /// <summary>A factory or instance registration's region: the scope its factory runs for, the factory instances, and whether
@@ -774,6 +817,7 @@ public static partial class WholeProgram
 
         public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
         {
+            WorkCancellation.Check();
             Instances.Attach(key.Member("RegistrationState.Instances"), read, write);
             _defaulted.Attach(key.Member("RegistrationState.Defaulted"), read, write);
         }
@@ -825,6 +869,7 @@ public static partial class WholeProgram
 
         public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
         {
+            WorkCancellation.Check();
             Receivers.Attach(key.Member("InstanceState.Receivers"), read, write);
             CellOwners.Attach(key.Member("InstanceState.CellOwners"), read, write);
             NestedCellOwners.Attach(key.Member("InstanceState.NestedCellOwners"), read, write);
@@ -869,6 +914,7 @@ public static partial class WholeProgram
 
         public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
         {
+            WorkCancellation.Check();
             CellOwners.Attach(key.Member("DelegateState.CellOwners"), read, write);
             NestedCellOwners.Attach(key.Member("DelegateState.NestedCellOwners"), read, write);
             CapturedReceivers.Attach(key.Member("DelegateState.CapturedReceivers"), read, write);
@@ -893,6 +939,7 @@ public static partial class WholeProgram
 
         public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
         {
+            WorkCancellation.Check();
             Handles.Attach(key.Member("SiteState.Handles"), read, write);
             Callees.Attach(key.Member("SiteState.Callees"), read, write);
             _tail.Attach(key.Member("SiteState.Tail"), read, write);
@@ -1112,6 +1159,7 @@ public static partial class WholeProgram
         /// <param name="query">The query.</param>
         private Func<TArgument, TResult> Query<TArgument, TResult>(Func<TArgument, TResult> query) => argument =>
         {
+            WorkCancellation.Check();
             Interlocked.Increment(ref _queries);
             try
             {
@@ -1127,6 +1175,7 @@ public static partial class WholeProgram
         /// <param name="query">The query.</param>
         private Func<TFirst, TSecond, TResult> Query<TFirst, TSecond, TResult>(Func<TFirst, TSecond, TResult> query) => (first, second) =>
         {
+            WorkCancellation.Check();
             Interlocked.Increment(ref _queries);
             try
             {
@@ -1140,6 +1189,7 @@ public static partial class WholeProgram
 
         private void CheckCancellation()
         {
+            WorkCancellation.Check();
             if (Solving)
                 _cancellationToken.ThrowIfCancellationRequested();
         }
@@ -2286,8 +2336,10 @@ public static partial class WholeProgram
             var summary = instance.Summary;
             foreach (var (field, bases) in UnseenWrites.LibraryFields(_program, summary, instance.Substitution))
             {
+                CheckCancellation();
                 foreach (var region in Eval(instance, bases.Where(value => value is not PathValue { IsWildcard: true })))
                 {
+                    CheckCancellation();
                     if (!_unseenLibraryFields.TryGetValue(region, out var fields))
                         _unseenLibraryFields.Add(region, fields = new(StringComparer.Ordinal));
                     if (fields.TryAdd(FieldSlot.Key(field), field))
@@ -2387,7 +2439,10 @@ public static partial class WholeProgram
             }
 
             foreach (var returned in summary.ReferenceReturns)
+            {
+                CheckCancellation();
                 AddLocations(instance.ReturnedLocations, ReferenceLocations(instance, returned));
+            }
 
             Add(instance.Yields, Eval(instance, summary.Yields));
             foreach (var @return in summary.Returns)
@@ -2417,8 +2472,12 @@ public static partial class WholeProgram
                 // The closures the delegate closes over are made where it is.
                 foreach (var (member, body) in created.Delegate.CapturedCells.Select(cell => (cell.Member, cell.Body)).Distinct())
                 {
+                    CheckCancellation();
                     foreach (var owner in Owners(instance, body))
+                    {
+                        CheckCancellation();
                         ClosureRegion(owner, member);
+                    }
                 }
                 if (created.Delegate.CapturedValues.TryGetValue("this", out var thisValues))
                     Add(state.CapturedReceivers, Eval(instance, thisValues));
@@ -2798,7 +2857,10 @@ public static partial class WholeProgram
                     continue;
                 var leftOut = ImplementationsWithoutBody(item, method, null, false);
                 foreach (var implementation in leftOut)
+                {
+                    CheckCancellation();
                     unresolved(implementation, item, implementation.ContainingTypeKey);
+                }
                 if (!dispatched && leftOut.Count == 0)
                 {
                     var implementation = _regions[item].TypeKey is { } type ? _program.Implementation(type, methodId, null) : null;
@@ -2925,7 +2987,10 @@ public static partial class WholeProgram
         {
             var regions = depth >= SummaryValue.MAX_COMPLETION_DEPTH ? [] : tasks.ToHashSet();
             for (var level = 0; level < depth && regions.Count != 0; level++)
+            {
+                CheckCancellation();
                 regions = regions.SelectMany(task => Completion([task])).ToHashSet();
+            }
             return regions;
         }
 
@@ -3030,7 +3095,10 @@ public static partial class WholeProgram
                 if (!carried.Add(region) || !_fields.TryGetValue((region, COMPLETION_FIELD), out var completion))
                     continue;
                 foreach (var value in completion)
+                {
+                    CheckCancellation();
                     pending.Push(value);
+                }
             }
             return carried;
         }
@@ -3195,7 +3263,10 @@ public static partial class WholeProgram
             if (call.DefaultComparer is { DefaultComparer: { } kind } mark)
             {
                 foreach (var comparer in DefaultComparer(caller, mark.Site, kind))
+                {
+                    CheckCancellation();
                     ConstructComparer(caller, call, comparer);
+                }
                 if (!_scope.Reachable.OpenDefaultComparerCalls.Contains((caller.BodyId, call.OperationId)) ||
                     !_program.IsOpen(ProgramIndex.Substitute(mark.Site.TypeKey, caller.Substitution)) &&
                     _scope.Reachable.DefaultComparerBindings.GetValueOrDefault((caller.BodyId, call.OperationId))?.Contains(ProgramIndex.Substitute(mark.Site.TypeKey, caller.Substitution)) == true)
@@ -3454,6 +3525,7 @@ public static partial class WholeProgram
             var receivers = new List<(RegionRef Region, string? DeclaringTypeKey)>();
             foreach (var receiver in state.CapturedReceivers)
             {
+                CheckCancellation();
                 var implementations = target is null ? [] : ImplementationsWithoutBody(receiver, target, state.ContainingTypeKey, state.IsNonVirtual);
                 receivers.AddRange(implementations.Select(implementation => (receiver, (string?)implementation.ContainingTypeKey)));
                 if (!ran && implementations.Count == 0)
@@ -3780,11 +3852,15 @@ public static partial class WholeProgram
                                          .ToArray();
                 foreach (var receiver in ModelValues(caller, call, model.On, returns, $"call{index}.on").ToArray())
                 {
+                    CheckCancellation();
                     foreach (var methodId in model.MethodIds)
                     {
                         CheckCancellation();
                         foreach (var callee in DispatchCallees(receiver, methodId, []).Callees)
+                        {
+                            CheckCancellation();
                             RunModelCall(caller, call.OperationId, inputs, callee);
+                        }
                     }
                 }
             }
@@ -3865,6 +3941,7 @@ public static partial class WholeProgram
 
             public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
             {
+                WorkCancellation.Check();
                 Callees.Attach(key.Member("SequenceState.Callees"), read, write);
                 Yields.Attach(key.Member("SequenceState.Yields"), read, write);
                 Sources.Attach(key.Member("SequenceState.Sources"), read, write);
@@ -3922,6 +3999,7 @@ public static partial class WholeProgram
         /// <param name="visited">The visited.</param>
         private void Consume(InstanceState consumer, int operationId, IEnumerable<RegionRef> regions, TrackedSet<RegionRef> visited)
         {
+            CheckCancellation();
             foreach (var region in regions.ToArray())
             {
                 CheckCancellation();
@@ -3988,7 +4066,10 @@ public static partial class WholeProgram
                     continue;
                 MarkDeferredWrites(sequence);
                 foreach (var source in sequence.Sources)
+                {
+                    CheckCancellation();
                     pending.Push(source);
+                }
             }
             return _unseenFilled.Count > before;
         }
@@ -4018,7 +4099,10 @@ public static partial class WholeProgram
         {
             var objects = CallResult(caller, call.OperationId).ToTrackedSet();
             for (var level = call.Library!.Result?.TaskDepth ?? call.Library.ReturnTaskDepth; level > 0; level--)
+            {
+                CheckCancellation();
                 objects = Completion(objects);
+            }
             return objects;
         }
 
@@ -4187,6 +4271,7 @@ public static partial class WholeProgram
         private TrackedSet<RegionRef> ModelValues(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, DelegateReturns returns,
                                                string path)
         {
+            CheckCancellation();
             switch (value)
             {
                 case IrModelThis:
@@ -4267,19 +4352,23 @@ public static partial class WholeProgram
         /// <param name="call">The known call.</param>
         /// <param name="value">The model value.</param>
         /// <param name="returns">What the call's delegates give back, and which may give back such an object.</param>
-        private bool ModelUnfollowed(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, DelegateReturns returns) => value switch
+        private bool ModelUnfollowed(InstanceState caller, SummaryOpaqueCall call, IrModelValue value, DelegateReturns returns)
         {
-            IrModelArgument argument => call.Arguments.Any(candidate => candidate.ParameterOrdinal == argument.ParameterOrdinal &&
-                                                                        Unfollowed(caller, candidate.UnknownSources, candidate.SourceCalls, candidate.Completions)),
-            IrModelReturns returned => returns.Unfollowed.Contains(returned.ParameterOrdinal),
-            IrModelKept kept => KeeperTargets(caller, call, kept.KeeperOrdinal, read: true)
-                .Any(keeper => _unfollowedKept.Contains(keeper) || _unfollowedKeptValues.Contains(keeper)),
-            IrModelElements elements => ModelUnfollowed(caller, call, elements.Source, returns),
-            IrModelSequence sequence => sequence.Values.Any(item => ModelUnfollowed(caller, call, item, returns)),
-            IrModelGrouping grouping => ModelUnfollowed(caller, call, grouping.Key, returns) ||
-                                        ModelUnfollowed(caller, call, grouping.Values, returns),
-            _ => false
-        };
+            CheckCancellation();
+            return value switch
+            {
+                IrModelArgument argument => call.Arguments.Any(candidate => candidate.ParameterOrdinal == argument.ParameterOrdinal &&
+                                                                            Unfollowed(caller, candidate.UnknownSources, candidate.SourceCalls, candidate.Completions)),
+                IrModelReturns returned => returns.Unfollowed.Contains(returned.ParameterOrdinal),
+                IrModelKept kept => KeeperTargets(caller, call, kept.KeeperOrdinal, read: true)
+                    .Any(keeper => _unfollowedKept.Contains(keeper) || _unfollowedKeptValues.Contains(keeper)),
+                IrModelElements elements => ModelUnfollowed(caller, call, elements.Source, returns),
+                IrModelSequence sequence => sequence.Values.Any(item => ModelUnfollowed(caller, call, item, returns)),
+                IrModelGrouping grouping => ModelUnfollowed(caller, call, grouping.Key, returns) ||
+                                            ModelUnfollowed(caller, call, grouping.Values, returns),
+                _ => false
+            };
+        }
 
         /// <summary>A fresh object a model hands to one delegate parameter at one call site.</summary>
         /// <param name="caller">The instance making the call.</param>
@@ -4752,6 +4841,7 @@ public static partial class WholeProgram
 
             public void Attach(StateKey key, Action<StateKey> read, Action<StateKey> write)
             {
+                WorkCancellation.Check();
                 Regions.Attach(key.Member("HeldDelegate.Regions"), read, write);
                 HolderArguments.Attach(key.Member("HeldDelegate.HolderArguments"), read, write);
                 NewInputs.Attach(key.Member("HeldDelegate.NewInputs"), read, write);
@@ -5079,7 +5169,10 @@ public static partial class WholeProgram
             if (_asyncSpawns.TryGetValue((caller.Id, call.OperationId), out var site))
             {
                 foreach (var handle in site.Handles.ToArray())
+                {
+                    CheckCancellation();
                     Complete(handle, [], true, new TaskCompleter(caller.Id, call.OperationId, TaskCompleterKind.Unseen));
+                }
             }
             if (!_rebuilding.UnresolvedReceivers.TryGetValue((caller.Id, call.OperationId), out var known))
                 _rebuilding.UnresolvedReceivers.Add((caller.Id, call.OperationId), known = []);
@@ -5119,7 +5212,10 @@ public static partial class WholeProgram
             // Its unknown effect may put a value into struct storage it reaches (R9).
             var unseen = UnseenWrites.OfGap(SemanticGapKinds.UNRESOLVED_DISPATCH);
             foreach (var group in receivers.GroupBy(receiver => receiver.DeclaringTypeKey))
+            {
+                CheckCancellation();
                 MarkUnseenReceivers(unseen, group.Select(receiver => (IEnumerable<RegionRef>)[receiver.Region]).ToArray(), group.Key);
+            }
             RecordUnseenStarts(unseen, handed, null);
         }
 
@@ -5297,7 +5393,10 @@ public static partial class WholeProgram
                 CheckCancellation();
                 Add(Parameter(callee, argument.ParameterOrdinal), Eval(caller, argument.Values));
                 foreach (var reference in argument.References)
+                {
+                    CheckCancellation();
                     AddLocations(ParameterLocations(callee, argument.ParameterOrdinal), ReferenceLocations(caller, reference));
+                }
             }
             if (_scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) && body.IsIterator)
             {
@@ -5480,43 +5579,47 @@ public static partial class WholeProgram
             return result;
         }
 
-        private TrackedSet<RegionRef> Eval(InstanceState instance, AbstractValue value) => value switch
+        private TrackedSet<RegionRef> Eval(InstanceState instance, AbstractValue value)
         {
-            ThisValue => new TrackedSet<RegionRef>(instance.Receivers),
-            ParameterValue parameter => new TrackedSet<RegionRef>(Parameter(instance, parameter.Ordinal)),
-            StaticFieldValue field => Load(StaticRegion(instance, field.Field), FieldSlot.Key(field.Field)),
-            // A box of an empty Nullable is null: no box is made where no struct reaches the boxing, nor where the Nullable is read from
-            // storage no struct was stored into (R2).
-            AllocationValue { Present: { } present } when !Eval(instance, present).Any(HoldsStruct) => [],
-            AllocationValue { DefaultComparer: { } kind } allocation => DefaultComparer(instance, allocation.Site, kind),
-            AllocationValue allocation => [AllocationRegion(instance, allocation.Site)],
-            CallResultValue result => new TrackedSet<RegionRef>(CallResult(instance, result.OperationId)),
-            LibraryKeeperValue keeper => _keeperCalls.TryGetValue((instance.Id, keeper.OperationId), out var keepingCalls)
-                ? keepingCalls.Values.Where(call => call.Library!.Keeps.ContainsKey(keeper.KeeperOrdinal) || call.Library.KeeperTypeKeys.ContainsKey(keeper.KeeperOrdinal))
-                    .SelectMany(call => KeeperTargets(instance, call, keeper.KeeperOrdinal, keeper.Read)).ToTrackedSet() : [],
-            LibraryKeepingValue keeping => new TrackedSet<RegionRef>(_libraryKeeping.GetValueOrDefault((instance.Id, keeping.OperationId, keeping.KeeperOrdinal)) ?? []),
-            LibraryStoredValue stored => new TrackedSet<RegionRef>(_libraryStored.GetValueOrDefault((instance.Id, stored.OperationId, stored.TargetOrdinal)) ?? []),
-            RefResultValue result => new TrackedSet<RegionRef>(RefResult(instance, result.OperationId, result.Ordinal)),
-            ReferenceLocationValue location => ReferenceLocations(instance, location.Target)
-                .SelectMany(target => location.Read ? Load(target.Region, target.Slot) : [target.Region]).ToTrackedSet(),
-            DelegateCreationValue created => [DelegateRegion(instance, created)],
-            CapturedValue captured => Owners(instance, captured.Cell.Body)
-                                              .SelectMany(owner => Load(ClosureRegion(owner, captured.Cell.Member), ClosureSlot(captured.Cell)))
-                                              .ToTrackedSet(),
-            ClosureValue closure => Owners(instance, closure.Body).Select(owner => ClosureRegion(owner, closure.Member))
-                                                                  .ToTrackedSet(),
-            AwaitResultValue awaited => Completion(instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId)
-                                                           .SelectMany(join => join.Handles)
-                                                           .SelectMany(handle => Eval(instance, handle.Values))),
-            PathValue path => EvalPath(instance, path),
-            RegionValue region => [Intern(region.RegionId)],
-            SolvedRegionValue solved => [solved.Region],
-            StructCopyValue copy => [CopyRegion(instance, copy)],
-            StructPlaceValue place => Eval(instance, place.Base).Select(holder => Storage(instance, holder, place.Slot, place.TypeKey))
-                                                                .ToTrackedSet(),
-            StaticHolderValue holder => [StaticRegion(instance, holder.Field)],
-            _ => []
-        };
+            CheckCancellation();
+            return value switch
+            {
+                ThisValue => new TrackedSet<RegionRef>(instance.Receivers),
+                ParameterValue parameter => new TrackedSet<RegionRef>(Parameter(instance, parameter.Ordinal)),
+                StaticFieldValue field => Load(StaticRegion(instance, field.Field), FieldSlot.Key(field.Field)),
+                // A box of an empty Nullable is null: no box is made where no struct reaches the boxing, nor where the Nullable is read from
+                // storage no struct was stored into (R2).
+                AllocationValue { Present: { } present } when !Eval(instance, present).Any(HoldsStruct) => [],
+                AllocationValue { DefaultComparer: { } kind } allocation => DefaultComparer(instance, allocation.Site, kind),
+                AllocationValue allocation => [AllocationRegion(instance, allocation.Site)],
+                CallResultValue result => new TrackedSet<RegionRef>(CallResult(instance, result.OperationId)),
+                LibraryKeeperValue keeper => _keeperCalls.TryGetValue((instance.Id, keeper.OperationId), out var keepingCalls)
+                    ? keepingCalls.Values.Where(call => call.Library!.Keeps.ContainsKey(keeper.KeeperOrdinal) || call.Library.KeeperTypeKeys.ContainsKey(keeper.KeeperOrdinal))
+                        .SelectMany(call => KeeperTargets(instance, call, keeper.KeeperOrdinal, keeper.Read)).ToTrackedSet() : [],
+                LibraryKeepingValue keeping => new TrackedSet<RegionRef>(_libraryKeeping.GetValueOrDefault((instance.Id, keeping.OperationId, keeping.KeeperOrdinal)) ?? []),
+                LibraryStoredValue stored => new TrackedSet<RegionRef>(_libraryStored.GetValueOrDefault((instance.Id, stored.OperationId, stored.TargetOrdinal)) ?? []),
+                RefResultValue result => new TrackedSet<RegionRef>(RefResult(instance, result.OperationId, result.Ordinal)),
+                ReferenceLocationValue location => ReferenceLocations(instance, location.Target)
+                    .SelectMany(target => location.Read ? Load(target.Region, target.Slot) : [target.Region]).ToTrackedSet(),
+                DelegateCreationValue created => [DelegateRegion(instance, created)],
+                CapturedValue captured => Owners(instance, captured.Cell.Body)
+                                                  .SelectMany(owner => Load(ClosureRegion(owner, captured.Cell.Member), ClosureSlot(captured.Cell)))
+                                                  .ToTrackedSet(),
+                ClosureValue closure => Owners(instance, closure.Body).Select(owner => ClosureRegion(owner, closure.Member))
+                                                                      .ToTrackedSet(),
+                AwaitResultValue awaited => Completion(instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId)
+                                                               .SelectMany(join => join.Handles)
+                                                               .SelectMany(handle => Eval(instance, handle.Values))),
+                PathValue path => EvalPath(instance, path),
+                RegionValue region => [Intern(region.RegionId)],
+                SolvedRegionValue solved => [solved.Region],
+                StructCopyValue copy => [CopyRegion(instance, copy)],
+                StructPlaceValue place => Eval(instance, place.Base).Select(holder => Storage(instance, holder, place.Slot, place.TypeKey))
+                                                                    .ToTrackedSet(),
+                StaticHolderValue holder => [StaticRegion(instance, holder.Field)],
+                _ => []
+            };
+        }
 
         private TrackedSet<RegionRef> EvalPath(InstanceState instance, PathValue path)
         {
@@ -5610,23 +5713,35 @@ public static partial class WholeProgram
             {
                 foreach (var target in whole)
                 {
+                    CheckCancellation();
                     foreach (var slot in UnseenWrites.OutputSlots(_program, TryGetRegion(target, out var region) ? region.TypeKey : null))
+                    {
+                        CheckCancellation();
                         MarkUnseen(target, slot, UnseenWriteKind.Output, isOwnReadonly: false);
+                    }
                 }
             }
             if (sources.Any(HoldsStruct))
             {
                 foreach (var target in whole)
+                {
+                    CheckCancellation();
                     Fill(target);
+                }
             }
             // A Nullable below the struct holds a value in the target where it does in the source (R2).
             foreach (var (source, below) in sources.Select(source => (source, TryGetRegion(source, out var region) ? PresenceSlots(region.TypeKey) : []))
                                                    .Where(pair => pair.Item2.Length != 0))
             {
+                CheckCancellation();
                 foreach (var slot in below.Where(slot => !IsOverwritten(copy, slot) && Holds(StorageAt(source, slot))))
                 {
+                    CheckCancellation();
                     foreach (var target in targets.Where(target => target != source))
+                    {
+                        CheckCancellation();
                         Fill(StorageAt(target, slot));
+                    }
                 }
             }
             foreach (var source in sources)
@@ -5638,6 +5753,7 @@ public static partial class WholeProgram
                     var held = Load(source, slot);
                     foreach (var target in targets.Where(target => target != source))
                     {
+                        CheckCancellation();
                         // The slot is read and the target's set made as on every processing; what the slot held when last added is
                         // there already.
                         var values = Field(target, slot);
@@ -5728,7 +5844,10 @@ public static partial class WholeProgram
                 return;
             var kind = UnseenWrites.OfGap(SemanticGapKinds.UNRESOLVED_DISPATCH);
             foreach (var group in seen.GroupBy(receiver => receiver.DeclaringTypeKey))
+            {
+                CheckCancellation();
                 MarkUnseenReceivers(kind, group.Select(receiver => (IEnumerable<RegionRef>)[receiver.Region]).ToArray(), group.Key);
+            }
             MarkUnseenArguments(instance, kind, call.Arguments);
         }
 
@@ -5761,8 +5880,11 @@ public static partial class WholeProgram
         private void MarkUnseenArguments(InstanceState instance, UnseenWriteKind kind, IEnumerable<CallArgument> arguments)
         {
             foreach (var argument in arguments)
+            {
+                CheckCancellation();
                 RecordUnseenStarts(kind, Eval(instance, argument.CreatedElements is { } elements ? elements.SelectMany(element => element.Values)
                                                                                                          : argument.Values), null);
+            }
         }
 
         /// <summary>Whether a region is an object of a type of the run's own with state of its own.</summary>
@@ -5791,7 +5913,10 @@ public static partial class WholeProgram
                 if (kind == UnseenWriteKind.ModelCells)
                 {
                     foreach (var slot in UnseenWrites.PresenceSlots(_program, UnseenWrites.ElementTypeKey(target.TypeKey), PathValue.ELEMENT))
+                    {
+                        CheckCancellation();
                         MarkUnseen(region, slot, kind, isOwnReadonly: false);
+                    }
                     continue;
                 }
 
@@ -5799,8 +5924,12 @@ public static partial class WholeProgram
                     continue;
                 foreach (var field in UnseenWrites.FieldsOf(_program, typeKey, _unseenLibraryFields.GetValueOrDefault(region)?.Values ?? []) ?? [])
                 {
+                    CheckCancellation();
                     foreach (var slot in UnseenWrites.PresenceSlots(_program, field.FieldTypeKey, FieldSlot.Key(field)))
+                    {
+                        CheckCancellation();
                         MarkUnseen(region, slot, kind, isOwnReadonly: false);
+                    }
                 }
             }
         }
@@ -5841,6 +5970,7 @@ public static partial class WholeProgram
         {
             foreach (var start in starts)
             {
+                CheckCancellation();
                 if (!_unseenStarts.TryGetValue((kind, restriction), out var group))
                     _unseenStarts.Add((kind, restriction), group = []);
                 group.Add(start);
@@ -5855,7 +5985,10 @@ public static partial class WholeProgram
             _counters[HeapCounters.UNSEEN_WRITE_ROUNDS]++;
             var before = _unseenFilled.Count;
             foreach (var (group, starts) in _unseenStarts)
+            {
+                CheckCancellation();
                 MarkUnseenWalk(group.Kind, starts, group.Restriction);
+            }
             return _unseenFilled.Count > before;
         }
 
@@ -5907,15 +6040,24 @@ public static partial class WholeProgram
                 if (path.Length == 0)
                 {
                     foreach (var kept in ReadUnseenSlot(holder, PathValue.KEPT))
+                    {
+                        CheckCancellation();
                         pending.Enqueue((kept, "", RegionType(kept), depth + 1, false, false));
+                    }
                 }
 
                 if (path.Length == 0 && InterproceduralAccesses.IsCollectionType(_program, typeKey))
                 {
                     foreach (var slot in UnseenWrites.PresenceSlots(_program, UnseenWrites.ElementTypeKey(typeKey), PathValue.ELEMENT))
+                    {
+                        CheckCancellation();
                         MarkUnseen(holder, slot, kind, isOwnReadonly: false);
+                    }
                     foreach (var element in ReadUnseenSlot(holder, PathValue.ELEMENT).Concat(ReadUnseenSlot(holder, PathValue.KEYS)))
+                    {
+                        CheckCancellation();
                         pending.Enqueue((element, "", RegionType(element), depth + 1, false, false));
+                    }
                     if (fields is null)
                         continue;
                 }
@@ -5927,26 +6069,38 @@ public static partial class WholeProgram
                 {
                     foreach (var field in fields ?? [])
                     {
+                        CheckCancellation();
                         var below = isReadonly || path.Length == 0 && UnseenWrites.IsOwnReadonly(_program, typeKey, field);
                         foreach (var slot in UnseenWrites.PresenceSlots(_program, field.FieldTypeKey, FieldSlot.Join(path, FieldSlot.Key(field))))
+                        {
+                            CheckCancellation();
                             MarkUnseen(holder, slot, kind, below);
+                        }
                     }
 
                     var prefix = path.Length == 0 ? "" : path + FieldSlot.PATH_SEPARATOR;
                     foreach (var slot in (_fieldsByRegion.GetValueOrDefault(holder) ?? []).Where(slot => slot.StartsWith(prefix, StringComparison.Ordinal)))
                     {
+                        CheckCancellation();
                         foreach (var target in ReadUnseenSlot(holder, slot))
+                        {
+                            CheckCancellation();
                             pending.Enqueue((target, "", RegionType(target), depth + 1, false, false));
+                        }
                     }
                     continue;
                 }
 
                 foreach (var field in fields)
                 {
+                    CheckCancellation();
                     var slot = FieldSlot.Join(path, FieldSlot.Key(field));
                     var below = isReadonly || path.Length == 0 && UnseenWrites.IsOwnReadonly(_program, typeKey, field);
                     foreach (var presence in UnseenWrites.PresenceSlots(_program, field.FieldTypeKey, slot))
+                    {
+                        CheckCancellation();
                         MarkUnseen(holder, presence, kind, below);
+                    }
                     // A struct the object keeps is part of it: its fields are walked through its storage, one level deeper (R1).
                     if (field.FieldTypeKey is { } fieldType && _program.Type(fieldType) is { IsValueType: true, IsSource: true } &&
                         _program.InstanceFieldsOf(fieldType) is { Count: > 0 })
@@ -5956,7 +6110,10 @@ public static partial class WholeProgram
                     }
 
                     foreach (var target in ReadUnseenSlot(holder, slot))
+                    {
+                        CheckCancellation();
                         pending.Enqueue((target, "", RegionType(target), depth + 1, false, false));
+                    }
                 }
             }
         }
@@ -5968,25 +6125,41 @@ public static partial class WholeProgram
         /// <param name="field">The slot path.</param>
         private IEnumerable<RegionRef> ReadUnseenSlot(RegionRef regionId, string field)
         {
+            CheckCancellation();
             if (!TryGetRegion(regionId, out var region))
                 yield break;
             if (region.Kind == HeapRegionKind.StructStorage)
             {
                 var holder = HolderOf(regionId, region);
                 foreach (var value in ReadUnseenSlot(holder, FieldSlot.Join(region.HolderSlot!, field)))
+                {
+                    CheckCancellation();
                     yield return value;
+                }
                 foreach (var held in ReadUnseenSlot(holder, region.HolderSlot!))
+                {
+                    CheckCancellation();
                     if (TryGetRegion(held, out var stored) && stored.Kind == HeapRegionKind.StructCopy)
                         foreach (var value in ReadUnseenSlot(held, field))
+                        {
+                            CheckCancellation();
                             yield return value;
+                        }
+                }
                 yield break;
             }
             if (!_groups.TryGetValue(GroupOf(regionId, region), out var members))
                 yield break;
             foreach (var member in members)
+            {
+                CheckCancellation();
                 if ((member == regionId || region.IsOpen || _regions[member].IsOpen) && _fields.GetValueOrDefault((member, field)) is { } values)
                     foreach (var value in values)
+                    {
+                        CheckCancellation();
                         yield return value;
+                    }
+            }
         }
 
         /// <summary>The type of a region, null for one the solve did not make.</summary>
@@ -6034,6 +6207,7 @@ public static partial class WholeProgram
         /// <param name="field">The field.</param>
         private TrackedSet<RegionRef> Load(RegionRef regionId, string field)
         {
+            CheckCancellation();
             if (!TryGetRegion(regionId, out var region))
                 return [];
             // A struct's storage holds nothing of its own: its fields are its holder's slots below its path (R1), and those of a struct
@@ -6042,7 +6216,10 @@ public static partial class WholeProgram
             {
                 var result = Load(HolderOf(regionId, region), FieldSlot.Join(region.HolderSlot!, field));
                 foreach (var held in HeldWhole(regionId, region))
+                {
+                    CheckCancellation();
                     result.UnionWith(Load(held, field));
+                }
                 return result;
             }
             // Any other region a query named holds nothing the solve put there.
@@ -6064,7 +6241,10 @@ public static partial class WholeProgram
             {
                 var result = new TrackedSet<RegionRef>();
                 foreach (var values in joined)
+                {
+                    CheckCancellation();
                     result.UnionWith(values);
+                }
                 return result;
             }
 
@@ -6276,9 +6456,12 @@ public static partial class WholeProgram
 
         private RegionRef Region(string identity, HeapRegionKind kind, string display, string? typeKey, string context, string? group,
                                  bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false,
-                                 string? modelCreationKey = null, (RegionRef Region, string Slot)? holder = null, string? siteBodyId = null) =>
-            Region(Intern(identity), kind, display, typeKey, context, group, merged, mayOverlapItself, site, exactType, modelCreationKey, holder,
-                   siteBodyId);
+                                 string? modelCreationKey = null, (RegionRef Region, string Slot)? holder = null, string? siteBodyId = null)
+        {
+            CheckCancellation();
+            return Region(Intern(identity), kind, display, typeKey, context, group, merged, mayOverlapItself, site, exactType, modelCreationKey, holder,
+                       siteBodyId);
+        }
 
         private RegionRef Region(RegionRef identity, HeapRegionKind kind, string display, string? typeKey, string context, string? group,
                                  bool merged = false, bool mayOverlapItself = false, CreationSite? site = null, bool exactType = false,
@@ -6326,6 +6509,7 @@ public static partial class WholeProgram
                 foreach (var cell in body.Blocks.SelectMany(block => block.Operations).OfType<IrCaptureOperation>()
                                          .Select(capture => capture.Cell).OfType<IrClosureCell>())
                 {
+                    CheckCancellation();
                     cells.TryAdd(cell.SymbolKey, cell);
                 }
             }
@@ -6501,6 +6685,7 @@ public static partial class WholeProgram
 
         private void Add<T>(TrackedSet<T> target, IEnumerable<T> values)
         {
+            CheckCancellation();
             foreach (var value in values.ToArray())
             {
                 CheckCancellation();

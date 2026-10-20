@@ -199,13 +199,25 @@ public static class PairProtection
     /// two objects are <see cref="DIFFERENT_IDENTITY"/> and one side alone is <see cref="PARTIAL"/> (TD-081, TD-083). An object the
     /// two sides hold by several mechanisms is decided by the strongest pair of holdings: one mechanism they share excludes them
     /// whatever else either of them also took.</summary>
+    /// <param name="first">The first access.</param>
+    /// <param name="second">The second access.</param>
     public static string Of(Access first, Access second)
     {
+        WorkCancellation.Check();
         var verdict = UNPROTECTED;
         foreach (var id in first.HeldProtectionIds.Intersect(second.HeldProtectionIds, StringComparer.Ordinal))
+        {
+            WorkCancellation.Check();
             foreach (var held in Held(first, id))
+            {
+                WorkCancellation.Check();
                 foreach (var other in Held(second, id))
+                {
+                    WorkCancellation.Check();
                     verdict = Stronger(verdict, Of(held, other));
+                }
+            }
+        }
         if (verdict != UNPROTECTED)
             return verdict;
 

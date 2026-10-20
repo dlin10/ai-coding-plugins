@@ -63,7 +63,11 @@ public sealed record AllocationValue(CreationSite Site) : AbstractValue
         other is not null && Site == other.Site && DefaultComparer == other.DefaultComparer &&
         (Present is null ? other.Present is null : other.Present?.SetEquals(Present) == true);
 
-    public override int GetHashCode() => Site.GetHashCode();
+    public override int GetHashCode()
+    {
+        WorkCancellation.Check();
+        return Site.GetHashCode();
+    }
 
     public override string ToString() => $"alloc:{Site.BodyId}#{Site.OperationId}";
 }
@@ -99,14 +103,22 @@ public sealed record RefResultValue(int OperationId, int Ordinal) : AbstractValu
 /// <param name="Read">Whether to read the location rather than name its storage.</param>
 public sealed record ReferenceLocationValue(ReferenceTarget Target, bool Read) : AbstractValue
 {
-    public bool Equals(ReferenceLocationValue? other) => other is not null && Read == other.Read &&
-        (Target is ReferenceCell a && other.Target is ReferenceCell b
-            ? a.Field == b.Field && a.Slot == b.Slot && a.IsOnCollection == b.IsOnCollection && a.Bases.SetEquals(b.Bases)
-            : Target.Equals(other.Target));
+    public bool Equals(ReferenceLocationValue? other)
+    {
+        WorkCancellation.Check();
+        return other is not null && Read == other.Read &&
+            (Target is ReferenceCell a && other.Target is ReferenceCell b
+                ? a.Field == b.Field && a.Slot == b.Slot && a.IsOnCollection == b.IsOnCollection && a.Bases.SetEquals(b.Bases)
+                : Target.Equals(other.Target));
+    }
 
-    public override int GetHashCode() => Target is ReferenceCell cell
-        ? HashCode.Combine(Read, cell.Field, cell.Slot, cell.IsOnCollection, cell.Bases.Aggregate(0, (hash, value) => hash ^ value.GetHashCode()))
-        : HashCode.Combine(Read, Target);
+    public override int GetHashCode()
+    {
+        WorkCancellation.Check();
+        return Target is ReferenceCell cell
+            ? HashCode.Combine(Read, cell.Field, cell.Slot, cell.IsOnCollection, cell.Bases.Aggregate(0, (hash, value) => hash ^ value.GetHashCode()))
+            : HashCode.Combine(Read, Target);
+    }
 }
 
 /// <summary>A copy of a struct held by value: the struct a value of the body holds, which is no location (R2). The heap keeps one
@@ -238,6 +250,7 @@ public static class FieldSlot
         var depth = 0;
         foreach (var character in type)
         {
+            WorkCancellation.Check();
             if (character == '<')
                 depth++;
             else if (character == '>')
@@ -296,7 +309,11 @@ public sealed record PathValue(AbstractValue Base, IReadOnlyList<string> Segment
 
     public bool IsWildcard => Segments is [WILDCARD];
 
-    public bool Equals(PathValue? other) => other is not null && Base.Equals(other.Base) && Segments.SequenceEqual(other.Segments);
+    public bool Equals(PathValue? other)
+    {
+        WorkCancellation.Check();
+        return other is not null && Base.Equals(other.Base) && Segments.SequenceEqual(other.Segments);
+    }
 
     public override int GetHashCode() => HashCode.Combine(Base, string.Join('', Segments));
 
@@ -702,10 +719,13 @@ public sealed record ReferenceCell(IrFieldRef Field, IReadOnlySet<AbstractValue>
     /// <summary>Two cells are one where every part is, the struct path field by field: a cell carried through a call or widened keeps
     /// its path, and is still the place it named.</summary>
     /// <param name="other">The other cell.</param>
-    public bool Equals(ReferenceCell? other) =>
-        other is not null && Field == other.Field && Equals(Bases, other.Bases) && Equals(Selector, other.Selector) &&
-        Equals(SelectorTerm, other.SelectorTerm) && IsOnCollection == other.IsOnCollection && IsTermBound == other.IsTermBound &&
-        StructPath.SequenceEqual(other.StructPath);
+    public bool Equals(ReferenceCell? other)
+    {
+        WorkCancellation.Check();
+        return other is not null && Field == other.Field && Equals(Bases, other.Bases) && Equals(Selector, other.Selector) &&
+            Equals(SelectorTerm, other.SelectorTerm) && IsOnCollection == other.IsOnCollection && IsTermBound == other.IsTermBound &&
+            StructPath.SequenceEqual(other.StructPath);
+    }
 
     public override int GetHashCode() => HashCode.Combine(Field, Bases, Selector, SelectorTerm, IsOnCollection, IsTermBound, StructPath.Count);
 
@@ -1093,7 +1113,11 @@ public sealed record SummaryValue(IReadOnlySet<AbstractValue> Values, IReadOnlyS
     /// <summary>How many times the value consumed the task a source call gave: each depth <see cref="CompletedCalls"/> records for it,
     /// or none where it records none.</summary>
     /// <param name="call">The source call.</param>
-    public IReadOnlyList<int> Depths(int call) => Depths(CompletedCalls, call);
+    public IReadOnlyList<int> Depths(int call)
+    {
+        WorkCancellation.Check();
+        return Depths(CompletedCalls, call);
+    }
 
     /// <summary>How many times a value consumed the task a source call gave, by the completed calls it records: each depth recorded for
     /// the call, or none (0) where none is.</summary>

@@ -184,6 +184,7 @@ public sealed class ValueProvenance
     /// <summary>The name of a region in the fate run at one entry place, or <c>null</c> when the vocabulary has none.</summary>
     /// <param name="region">The observed region.</param>
     /// <param name="place">Where it was observed.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public LibraryValue? Name(string region, ValuePlace place) => Name(region, place, _fate, ExpectedAction(place));
 
     /// <summary>The values a keeper region keeps, named by the model grammar.</summary>
@@ -220,6 +221,7 @@ public sealed class ValueProvenance
         var level = new List<(string Stored, string Candidate)> { (keeper, keeper) };
         for (var depth = 0; level.Count != 0; depth++)
         {
+            WorkCancellation.Check();
             if (level.Any(pair => pair.Stored == region && candidates.Contains(pair.Candidate)))
                 return true;
             if (depth == KEEPING_PATH_DEPTH)
@@ -227,11 +229,14 @@ public sealed class ValueProvenance
             var next = new List<(string Stored, string Candidate)>();
             foreach (var (stored, candidate) in level)
             {
+                WorkCancellation.Check();
                 var candidateTargets = edges(candidate).ToLookup(edge => edge.Field, edge => edge.Target, StringComparer.Ordinal);
                 foreach (var (field, storedTarget) in edges(stored))
                 {
+                    WorkCancellation.Check();
                     foreach (var candidateTarget in candidateTargets[field])
                     {
+                        WorkCancellation.Check();
                         if (seen.Add((storedTarget, candidateTarget)))
                             next.Add((storedTarget, candidateTarget));
                     }
@@ -272,7 +277,10 @@ public sealed class ValueProvenance
             }
             var completion = ResultOf(regions, type, ValuePlace.WholeResult, ValuePlace.ResultValue, _fate, DriverSynthesizer.CALL);
             for (var level = 0; completion is not null && level < depth; level++)
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 completion = new LibraryResult(LibraryResultKind.Task, [], completion);
+            }
             return completion;
         }
         // What a member of a type that holds no object returns — node.GetHashCode(), list.Count, ToString() — names nothing.
@@ -316,11 +324,15 @@ public sealed class ValueProvenance
                                           .ToHashSet(StringComparer.Ordinal);
         for (var level = 0; level < depth && tasks.Count != 0; level++)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (tasks.All(task => _fate.RootNames(task).Count != 0))
             {
                 LibraryResult named = new(LibraryResultKind.OneOf, Names(tasks, ValuePlace.ResultValue, _fate, null, markMissing: false));
                 for (var above = 0; above < level; above++)
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     named = new LibraryResult(LibraryResultKind.Task, [], named);
+                }
                 return named;
             }
             tasks = tasks.SelectMany(_fate.Heap.Completion).ToHashSet(StringComparer.Ordinal);
@@ -335,6 +347,7 @@ public sealed class ValueProvenance
         var bodies = _fate.Run.Reachable.Bodies;
         foreach (var body in _fate.MemberInstances(DriverSynthesizer.CALL).Select(instance => bodies.GetValueOrDefault(instance.BodyId)).OfType<IrBody>().Distinct())
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var nested = bodies.Values.Where(other => other.BodyId.StartsWith(body.BodyId + "#", StringComparison.Ordinal)).ToArray();
             if (nested.Length == 0)
                 continue;
@@ -347,6 +360,7 @@ public sealed class ValueProvenance
             var seen = new HashSet<int>();
             while (pending.TryPop(out var current))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (!seen.Add(current))
                     continue;
                 var definition = definitions.GetValueOrDefault(current);
@@ -363,7 +377,10 @@ public sealed class ValueProvenance
                         break;
                     case IrPhiOperation phi:
                         foreach (var input in phi.Inputs)
+                        {
+                            _checks.Check(GenerationStage.ReadEffects);
                             pending.Push(input.Value);
+                        }
                         break;
                 }
             }
@@ -393,9 +410,11 @@ public sealed class ValueProvenance
         var span = operation.Provenance.Span;
         foreach (var reference in _driver.Compilation.References.OfType<CompilationReference>())
         {
+            _checks.Check(GenerationStage.ReadEffects);
             foreach (var tree in reference.Compilation.SyntaxTrees.Where(tree => span.Path.Replace('\\', '/')
                 .EndsWith(tree.FilePath.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 var text = tree.GetText();
                 var start = text.Lines[span.StartLine - 1].Start + span.StartColumn - 1;
                 var end = text.Lines[span.EndLine - 1].Start + span.EndColumn - 1;
@@ -421,8 +440,10 @@ public sealed class ValueProvenance
         var values = new List<LibraryValue>();
         foreach (var instance in _fate.MemberInstances(DriverSynthesizer.CALL))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             foreach (var value in instance.Summary.Returns.SelectMany(returned => returned.Values))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (SymbolicName(value, instance) is { } named)
                     values.Add(named);
                 else if (complete)
@@ -438,30 +459,38 @@ public sealed class ValueProvenance
     /// <param name="value">The value.</param>
     /// <param name="instance">The member's instance expressing the value, which says what an <c>await</c> awaited; <c>null</c> names
     /// no awaited value.</param>
-    private LibraryValue? SymbolicName(AbstractValue value, MethodInstance? instance = null) => value switch
+    private LibraryValue? SymbolicName(AbstractValue value, MethodInstance? instance = null)
     {
-        ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length &&
-                                      TypeShape.Of(_driver.Member.Parameters[parameter.Ordinal].Type) != TypeShapeKind.Delegate =>
-            new ArgumentValue(_driver.Member.Parameters[parameter.Ordinal].Name),
-        ConcurrencyHunter.Heap.ThisValue => new ThisValue(),
-        PathValue path when SymbolicName(path.Base, instance) is { } root && path.Segments.All(segment => segment is ELEMENT or KEYS) =>
-            path.Segments.Aggregate(root, (current, _) => (LibraryValue)new ElementsValue(current)),
-        AwaitResultValue when instance is not null && SymbolicTask(value, instance) is { } awaited => awaited.Name,
-        _ => null
-    };
+        _checks.Check(GenerationStage.ReadEffects);
+        return value switch
+        {
+            ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length &&
+                                          TypeShape.Of(_driver.Member.Parameters[parameter.Ordinal].Type) != TypeShapeKind.Delegate =>
+                new ArgumentValue(_driver.Member.Parameters[parameter.Ordinal].Name),
+            ConcurrencyHunter.Heap.ThisValue => new ThisValue(),
+            PathValue path when SymbolicName(path.Base, instance) is { } root && path.Segments.All(segment => segment is ELEMENT or KEYS) =>
+                path.Segments.Aggregate(root, (current, _) => (LibraryValue)new ElementsValue(current)),
+            AwaitResultValue when instance is not null && SymbolicTask(value, instance) is { } awaited => awaited.Name,
+            _ => null
+        };
+    }
 
     /// <summary>A value of the member's own frame that is a task argument or what awaiting one yields, at any depth, with its type.</summary>
     /// <param name="value">The value.</param>
     /// <param name="instance">The member's instance expressing the value.</param>
-    private (LibraryValue Name, ITypeSymbol Type)? SymbolicTask(AbstractValue value, MethodInstance instance) => value switch
+    private (LibraryValue Name, ITypeSymbol Type)? SymbolicTask(AbstractValue value, MethodInstance instance)
     {
-        ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length =>
-            (new ArgumentValue(_driver.Member.Parameters[parameter.Ordinal].Name), _driver.Member.Parameters[parameter.Ordinal].Type),
-        AwaitResultValue awaited when instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId).SelectMany(join => join.Handles)
-                                              .SelectMany(handle => handle.Values).Distinct().ToArray() is [var task] &&
-                                      SymbolicTask(task, instance) is { } named => CompletionOf(named.Name, named.Type),
-        _ => null
-    };
+        _checks.Check(GenerationStage.ReadEffects);
+        return value switch
+        {
+            ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length =>
+                (new ArgumentValue(_driver.Member.Parameters[parameter.Ordinal].Name), _driver.Member.Parameters[parameter.Ordinal].Type),
+            AwaitResultValue awaited when instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId).SelectMany(join => join.Handles)
+                                                  .SelectMany(handle => handle.Values).Distinct().ToArray() is [var task] &&
+                                          SymbolicTask(task, instance) is { } named => CompletionOf(named.Name, named.Type),
+            _ => null
+        };
+    }
 
     /// <summary>The one name of a value reached through a task argument: what a task's completion slot holds is <c>completion(…)</c>
     /// around the task's own name, the argument's task itself being <c>arg:p</c>, and a <c>Task&lt;Task&lt;T&gt;&gt;</c> argument
@@ -480,6 +509,7 @@ public sealed class ValueProvenance
         var keeps = new SortedDictionary<string, IReadOnlyList<LibraryValue>>(StringComparer.Ordinal);
         foreach (var keeper in _keptByRegion.Values.OrderBy(keeper => keeper.Name, StringComparer.Ordinal))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var symbolic = _symbolicKeeps.GetValueOrDefault(keeper.Region) ?? [];
             var values = Order(Names(keeper.Regions, ValuePlace.KeptValue, _fate, null).Concat(symbolic));
             if (values.Count != 0)
@@ -493,6 +523,7 @@ public sealed class ValueProvenance
         var outputs = new SortedDictionary<string, LibraryResult>(StringComparer.Ordinal);
         foreach (var (parameter, regions) in raw)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var type = _driver.Member.Parameters.Single(candidate => candidate.Name == parameter).Type;
             var result = ResultOf(regions, type, ValuePlace.WholeOutput, ValuePlace.OutputValue, _fate, DriverSynthesizer.CALL);
             var symbolic = _symbolicOutputs.GetValueOrDefault(parameter) ?? [];
@@ -516,6 +547,7 @@ public sealed class ValueProvenance
         var stores = new SortedDictionary<string, IReadOnlyList<LibraryValue>>(StringComparer.Ordinal);
         foreach (var (parameter, regions) in raw)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var values = Names(regions, ValuePlace.Store, _fate, null);
             if (values.Count != 0)
                 stores[parameter] = values;
@@ -528,14 +560,19 @@ public sealed class ValueProvenance
         var inputs = new SortedDictionary<string, IReadOnlyList<IReadOnlyList<LibraryValue>>>(StringComparer.Ordinal);
         foreach (var group in _rawInputs.GroupBy(input => input.Parameter, StringComparer.Ordinal))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var count = group.Max(input => input.Index) + 1;
             var parameters = new IReadOnlyList<LibraryValue>[count];
             for (var index = 0; index < count; index++)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 var at = group.Where(input => input.Index == index).ToArray();
                 var values = new List<LibraryValue>();
                 foreach (var input in at)
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     values.AddRange(Names(input.Regions, ValuePlace.WholeDelegateInput, input.Context, input.ExpectedActions));
+                }
                 parameters[index] = Order(values);
             }
             inputs[group.Key] = parameters;
@@ -552,6 +589,7 @@ public sealed class ValueProvenance
         var expected = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.CALL };
         foreach (var instance in _fate.Heap.Instances.Values.Where(GenerationHandoffs.IsConventionWitness))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (CalledMember(instance.BodyId) is not var (member, count))
                 continue;
             var executions = _fate.Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal);
@@ -568,12 +606,16 @@ public sealed class ValueProvenance
             var inputs = new IReadOnlyList<LibraryValue>[count];
             for (var ordinal = 0; ordinal < count; ordinal++)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 var handed = parameters.GetValueOrDefault(ordinal) ?? new HashSet<string>(StringComparer.Ordinal);
                 Observe(handed, $"call:{member}:{ordinal}");
                 inputs[ordinal] = Names(handed, ValuePlace.CallValue, _fate, expected);
             }
             foreach (var on in Names(receivers, ValuePlace.CallValue, _fate, expected))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 calls.Add(new LibraryMemberCall(member, on, inputs));
+            }
         }
         return calls.DistinctBy(call => call.Canonical).OrderBy(call => call.Canonical, StringComparer.Ordinal).ToArray();
     }
@@ -606,7 +648,10 @@ public sealed class ValueProvenance
     {
         var triggers = new SortedDictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         foreach (var (parameter, members) in _holderTriggers)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             triggers[parameter] = members.Order(StringComparer.Ordinal).ToArray();
+        }
         return triggers;
     }
 
@@ -821,7 +866,10 @@ public sealed class ValueProvenance
     private void AddChain(HashSet<string> chain, IEnumerable<string> path)
     {
         foreach (var region in path.Where(region => !_fate.Allocations.CreatedByCall(region)))
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             chain.Add(region);
+        }
     }
 
     /// <summary>Records one step of a keeper's walk and queues its target.</summary>
@@ -833,6 +881,7 @@ public sealed class ValueProvenance
     private static void Push(Stack<(string Region, bool Written)> pending, Dictionary<string, HashSet<string>> predecessors, string from,
                              string to, bool written)
     {
+        WorkCancellation.Check();
         AddPredecessor(predecessors, from, to);
         pending.Push((to, written));
     }
@@ -881,14 +930,26 @@ public sealed class ValueProvenance
         if (_driver.Member.MethodKind != MethodKind.Constructor && TaskTypes.Depth(_driver.Member.ReturnType) > 0)
         {
             foreach (var instance in _fate.Heap.Instances.Values.Where(instance => instance.BodyId == ValueObservation.DriverBody(DriverSynthesizer.CALL)))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 foreach (var store in instance.Summary.Stores.Where(store => store.Field is
                     { IsStatic: true, Assembly: DriverSynthesizer.ASSEMBLY, ContainingType: DriverSynthesizer.KEEP_TYPE, Name: "R" }))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     result.UnionWith(ObservedValues(_fate, instance, store.Values, store.Producers));
+                }
+            }
             return result;
         }
         foreach (var instance in _fate.MemberInstances(DriverSynthesizer.CALL))
+        {
+            _checks.Check(GenerationStage.ReadEffects);
             foreach (var returned in instance.Summary.Returns)
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 result.UnionWith(ObservedValues(_fate, instance, returned.Values, returned.Producers));
+            }
+        }
         return result;
     }
 
@@ -910,6 +971,7 @@ public sealed class ValueProvenance
         var outputs = new SortedDictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
         foreach (var parameter in _driver.Member.Parameters.Where(parameter => parameter.RefKind is RefKind.Out or RefKind.Ref))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var field = $"Out_{parameter.Name}_{DriverSynthesizer.CALL_VARIANT}";
             var values = _fate.StaticTargets(DriverSynthesizer.DRIVER_TYPE, field).ToHashSet(StringComparer.Ordinal);
             var initial = _fate.InitialValues(field);
@@ -935,6 +997,7 @@ public sealed class ValueProvenance
         var assigned = _fate.RefAssigned(ordinal);
         foreach (var (instance, parameter) in _fate.RefValues(ordinal))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (parameter is null)
             {
                 _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.OUTPUT_UNOBSERVED, $"{_driver.Member.Parameters[ordinal].Name} in {instance.BodyId}");
@@ -942,6 +1005,7 @@ public sealed class ValueProvenance
             }
             foreach (var value in parameter.Values)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 values.UnionWith(ObservedValues(_fate, instance, [value], ValueOrigin.None));
                 if (_fate.IsMemberEntry(instance) && SymbolicName(value, instance) is { } named)
                     symbolic.Add(named);
@@ -955,17 +1019,23 @@ public sealed class ValueProvenance
         var stores = new SortedDictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
         foreach (var parameter in _driver.Member.Parameters.Where(parameter => parameter.Type is IArrayTypeSymbol))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var arrays = _fate.RootsOf(new ArgumentValue(parameter.Name)).ToHashSet(StringComparer.Ordinal);
             var values = _fate.Written.Where(edge => arrays.Contains(edge.Object) && edge.Field == ELEMENT)
                                       .Select(edge => edge.Value).ToHashSet(StringComparer.Ordinal);
             foreach (var array in arrays)
+            {
+                _checks.Check(GenerationStage.ReadEffects);
                 values.UnionWith(_fate.DirectElementStores(array));
+            }
             foreach (var instance in _fate.CallInstances())
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 foreach (var store in instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores)
                                               .Where(store => store.Kind == ElementOperationKind.Store &&
                                                               store.Arrays.Any(value => arrays.Any(array => _fate.Matches(instance, value, array)))))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     var stored = ObservedValues(_fate, instance, store.Values, store.Producers);
                     values.UnionWith(stored);
                 }
@@ -980,6 +1050,7 @@ public sealed class ValueProvenance
     {
         foreach (var parameter in _driver.Parameters)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             // A not-run delegate is handed nothing: it carries no inputs (R5).
             if (!_fates.TryGetValue(parameter.Name, out var fate) || fate.Fate == FateClassifier.NOT_RUN)
                 continue;
@@ -1007,6 +1078,7 @@ public sealed class ValueProvenance
         var ran = FateClassifier.TriggersThatRan(_driver, parameter, _confirmation.Run, _checks);
         foreach (var probe in parameter.Probes.Where(probe => ran.Contains(probe.Variant)))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var trigger = members[probe.Variant];
             if (!_holderTriggers.TryGetValue(parameter.Name, out var fired))
                 _holderTriggers[parameter.Name] = fired = new HashSet<string>(StringComparer.Ordinal);
@@ -1022,9 +1094,11 @@ public sealed class ValueProvenance
         var count = probes.Select(probe => probe.InputFields.Count).DefaultIfEmpty().Max();
         for (var index = 0; index < count; index++)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             var regions = new HashSet<string>(StringComparer.Ordinal);
             foreach (var probe in probes.Where(probe => probe.InputFields.Count > index))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 var field = probe.InputFields[index];
                 var type = _driver.Compilation.GetTypeByMetadataName(DriverSynthesizer.DRIVER_TYPE)!.GetMembers(field).OfType<IFieldSymbol>().Single().Type;
                 if (!CanHoldObject(type))
@@ -1042,8 +1116,10 @@ public sealed class ValueProvenance
     {
         foreach (var parameter in _driver.Parameters.Where(parameter => parameter.Kind != ParameterKind.Delegate))
         {
+            _checks.Check(GenerationStage.ReadEffects);
             foreach (var probe in parameter.Probes.Where(probe => probe.Variant == DriverSynthesizer.CALL_VARIANT))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (_fate.FiredExecutions(probe).Any(execution => _fate.Executions.InTree(execution, DriverSynthesizer.CALL)))
                     return parameter.Name;
             }
@@ -1216,6 +1292,7 @@ public sealed class ValueProvenance
     /// <param name="unobserved">Whether any binding has no proven reference location.</param>
     internal static IReadOnlySet<string> ReferenceArrays(HeapSolution heap, MethodInstance instance, ReferenceTarget target, out bool unobserved)
     {
+        WorkCancellation.Check();
         unobserved = false;
         return ReferenceArrays(heap, instance, target, fields: false, [], ref unobserved);
     }
@@ -1261,6 +1338,7 @@ public sealed class ValueProvenance
                                                         HashSet<(string Instance, ReferenceTarget Target)> seen, ref bool unobserved,
                                                         List<(string Region, string Slot, IrFieldRef Field)>? places = null)
     {
+        WorkCancellation.Check();
         if (!seen.Add((instance.Id, target)))
             return new HashSet<string>(StringComparer.Ordinal);
         switch (target)
@@ -1292,14 +1370,17 @@ public sealed class ValueProvenance
                 var arrays = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var edge in heap.Edges.Where(edge => edge.CalleeInstance == instance.Id))
                 {
+                    WorkCancellation.Check();
                     var caller = heap.Instances[edge.CallerInstance];
                     foreach (var argument in caller.Summary.Calls.Where(call => call.OperationId == edge.OperationId).SelectMany(call => call.Arguments)
                                                    .Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
                     {
+                        WorkCancellation.Check();
                         if (argument.References.Count == 0)
                         {
                             foreach (var path in argument.Values.OfType<PathValue>().Where(path => path.Segments.LastOrDefault() == ELEMENT))
                             {
+                                WorkCancellation.Check();
                                 var storage = path.Segments.Count == 1 ? path.Base : new PathValue(path.Base, path.Segments.Take(path.Segments.Count - 1).ToArray());
                                 var regions = heap.Resolve(caller.Id, storage);
                                 unobserved |= regions.Count == 0;
@@ -1307,7 +1388,10 @@ public sealed class ValueProvenance
                             }
                         }
                         foreach (var reference in argument.References)
+                        {
+                            WorkCancellation.Check();
                             arrays.UnionWith(ReferenceArrays(heap, caller, reference, fields, seen, ref unobserved, places));
+                        }
                     }
                 }
                 return arrays;
@@ -1321,10 +1405,14 @@ public sealed class ValueProvenance
                     unobserved = true;
                 foreach (var callee in callees)
                 {
+                    WorkCancellation.Check();
                     if (callee.Summary.ReferenceReturns.Count == 0)
                         unobserved = true;
                     foreach (var reference in callee.Summary.ReferenceReturns)
+                    {
+                        WorkCancellation.Check();
                         arrays.UnionWith(ReferenceArrays(heap, callee, reference, fields, seen, ref unobserved, places));
+                    }
                 }
                 return arrays;
             }
@@ -1441,6 +1529,7 @@ public sealed class ValueProvenance
             var incoming = Heap.Edges.ToLookup(edge => edge.CalleeInstance);
             foreach (var instance in Heap.Instances.Values)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (!(Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
                              .Any(execution => ActionOf(execution) is { } action && (expectedActions is null || expectedActions.Contains(action))))
                 {
@@ -1453,10 +1542,12 @@ public sealed class ValueProvenance
                     continue;
                 foreach (var edge in incoming[instance.Id])
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     var caller = Heap.Instances[edge.CallerInstance];
                     foreach (var argument in caller.Summary.Calls.Where(call => call.OperationId == edge.OperationId)
                                                    .SelectMany(call => call.Arguments).Where(argument => ordinals.Contains(argument.ParameterOrdinal)))
                     {
+                        _checks.Check(GenerationStage.ReadEffects);
                         var observed = ObserveValues(caller, argument.Values, argument.Producers, out var missing);
                         regions.UnionWith(observed);
                         unobserved |= missing;
@@ -1492,9 +1583,11 @@ public sealed class ValueProvenance
                          .Any(execution => Executions.InTree(execution, DriverSynthesizer.CALL) ||
                                            Executions.InTree(execution, DriverSynthesizer.ENUMERATE))))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 foreach (var parameter in instance.Summary.RefParameters.Where(parameter =>
                     RefersToParameter(instance, new ReferenceParameter(parameter.Ordinal), ordinal, roots, [])))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     yield return (instance, parameter);
                 }
                 if (!Run.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
@@ -1502,6 +1595,7 @@ public sealed class ValueProvenance
                 foreach (var access in instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store &&
                     access.Targets.Any(target => RefersToParameter(instance, target, ordinal, roots, []))))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     var store = body.Blocks.SelectMany(block => block.Operations).OfType<IrStoreReferenceOperation>()
                                     .FirstOrDefault(store => store.Id == access.OperationId);
                     var symbol = store is null ? null : body.Values[store.Value].SymbolKey;
@@ -1525,6 +1619,7 @@ public sealed class ValueProvenance
         private bool RefersToParameter(MethodInstance instance, ReferenceTarget target, int ordinal, IReadOnlySet<string> roots,
                                         HashSet<(string Instance, ReferenceTarget Target)> seen)
         {
+            _checks.Check(GenerationStage.ReadEffects);
             if (!seen.Add((instance.Id, target)))
                 return false;
             if (target is ReferenceParameter parameter)
@@ -1554,6 +1649,7 @@ public sealed class ValueProvenance
                 return true;
             foreach (var instance in MemberInstances(DriverSynthesizer.CALL).Concat(MemberInstances(DriverSynthesizer.ENUMERATE)))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (instance.Summary.Stores.Concat(instance.Summary.ReferenceStores).Any(store =>
                     (FieldMatches(edge.Field, store.Field.Name) && store.Bases.Any(value => Matches(instance, value, edge.Object)) ||
                      Places(instance, store.Bases, store.Field).Any(place => place.Object == edge.Object && FieldMatches(edge.Field, place.Field))) &&
@@ -1580,8 +1676,10 @@ public sealed class ValueProvenance
             var values = new HashSet<string>(StringComparer.Ordinal);
             foreach (var instance in StoreInstances(actions))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 foreach (var store in _stage.Each(instance.Summary.Stores.Concat(instance.Summary.ReferenceStores)).Where(store => FieldCarriesObject(store.Field)))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     // A store into a struct's storage the object keeps writes the object, at the slot path through the struct (R1).
                     var field = _stage.Each(Places(instance, store.Bases, store.Field)).Where(place => place.Object == @object)
                                                                                        .Select(place => place.Field).FirstOrDefault();
@@ -1593,9 +1691,13 @@ public sealed class ValueProvenance
                 foreach (var access in _stage.Each(instance.Summary.ReferenceAccesses).Where(access => access.Kind == SummaryAccessKind.Store &&
                     instance.Summary.ReferenceStores.All(store => store.OperationId != access.OperationId)))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     foreach (var place in _stage.Each(access.Targets).SelectMany(target => ReferenceFields(Heap, instance, target))
                                                 .Where(place => place.Region == @object && FieldCarriesObject(place.Field)))
+                    {
+                        _checks.Check(GenerationStage.ReadEffects);
                         values.UnionWith(ReferenceStoredValues(instance, access).Where(value => !IsPlacedSlotSeed(@object, place.Slot, value)));
+                    }
                 }
             }
             return values;
@@ -1640,7 +1742,10 @@ public sealed class ValueProvenance
             {
                 var transfers = instance.Summary.RefParameters.Where(parameter => access.Targets.Contains(new ReferenceParameter(parameter.Ordinal))).ToArray();
                 foreach (var parameter in transfers)
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     values.UnionWith(Held(ObserveValues(instance, parameter.Values, ValueOrigin.None, out _)));
+                }
                 if (transfers.Length == 0)
                 {
                     Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
@@ -1658,17 +1763,21 @@ public sealed class ValueProvenance
             var values = new HashSet<string>(StringComparer.Ordinal);
             foreach (var instance in StoreInstances(actions))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 foreach (var store in _stage.Each(instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores))
                                             .Where(store => store.Kind == ElementOperationKind.Store &&
                                                             _stage.Each(store.Arrays).Any(value => Matches(instance, value, @object))))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     values.UnionWith(Held(ObserveValues(instance, store.Values, store.Producers, out _)));
                 }
                 foreach (var access in _stage.Each(instance.Summary.ReferenceAccesses).Where(access => access.Kind == SummaryAccessKind.Store))
                 {
+                    _checks.Check(GenerationStage.ReadEffects);
                     var arrays = new HashSet<string>(StringComparer.Ordinal);
                     foreach (var target in _stage.Each(access.Targets))
                     {
+                        _checks.Check(GenerationStage.ReadEffects);
                         arrays.UnionWith(ReferenceArrays(Heap, instance, target, out var unobserved));
                         if (unobserved)
                         {
@@ -1689,6 +1798,7 @@ public sealed class ValueProvenance
                 (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
                              .Any(execution => ActionOf(execution) is { } action && actions.Contains(action)));
 
+        // bounded: delegates once to the wrapped value, without re-entering this method.
         public bool IsMemberEntry(MethodInstance instance) => Observation.IsMemberEntry(instance);
 
         public IEnumerable<MethodInstance> CallInstances() => _stage.Each(Heap.Instances.Values).Where(instance => IsLibraryBody(instance.BodyId) &&
@@ -1735,6 +1845,7 @@ public sealed class ValueProvenance
                 values.UnionWith(sequence.Yields);
             foreach (var iterator in Heap.IteratorObjects.Where(iterator => iterator.RegionId == region))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (!Heap.Instances.TryGetValue(iterator.Creation.CalleeInstance, out var callee))
                     continue;
                 values.UnionWith(ObserveValues(callee, callee.Summary.Yields, ValueOrigin.None, out _));
@@ -1742,6 +1853,7 @@ public sealed class ValueProvenance
             return values;
         }
 
+        // bounded: delegates once to the wrapped value, without re-entering this method.
         public IReadOnlySet<string> Resolve(MethodInstance instance, AbstractValue value) => Observation.Resolve(instance, value);
 
         /// <summary>Resolves every value and checks every alternative before their regions are merged.</summary>
@@ -1770,7 +1882,10 @@ public sealed class ValueProvenance
                 if (!_driver.Member.IsStatic && _driver.Member.MethodKind != MethodKind.Constructor)
                 {
                     foreach (var region in StaticTargets(DriverSynthesizer.DRIVER_TYPE, $"Recv_{Variant(variant)}"))
+                    {
+                        _checks.Check(GenerationStage.ReadEffects);
                         AddRootGraph(region, new ThisValue());
+                    }
                 }
                 foreach (var parameter in _driver.Member.Parameters.Where(parameter => parameter.RefKind != RefKind.Out &&
                                                                                 TypeShape.Of(parameter.Type) != TypeShapeKind.Delegate))
@@ -1780,6 +1895,7 @@ public sealed class ValueProvenance
                     var initial = parameter.RefKind == RefKind.Ref ? InitialValues(field) : StaticTargets(DriverSynthesizer.DRIVER_TYPE, field);
                     foreach (var region in initial)
                     {
+                        _checks.Check(GenerationStage.ReadEffects);
                         AddRootGraph(region, new ArgumentValue(parameter.Name), parameter.Type);
                     }
                 }
@@ -1788,11 +1904,15 @@ public sealed class ValueProvenance
             if (_driver.Member.MethodKind == MethodKind.Constructor)
             {
                 foreach (var region in StaticTargets(DriverSynthesizer.KEEP_TYPE, "R"))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     AddRootGraph(region, new ThisValue());
+                }
             }
 
             foreach (var parameter in _driver.Parameters)
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 foreach (var probe in parameter.Probes)
                 {
                     _checks.Check(GenerationStage.ReadEffects);
@@ -1820,7 +1940,10 @@ public sealed class ValueProvenance
                     if (!int.TryParse(field.Slot[prefix.Length..], out var ordinal))
                         continue;
                     foreach (var region in Reachability.Targets(field))
+                    {
+                        _checks.Check(GenerationStage.ReadEffects);
                         AddRootGraph(region, new HolderArgumentValue(ordinal));
+                    }
                 }
             }
         }
@@ -1847,12 +1970,18 @@ public sealed class ValueProvenance
                 foreach (var edge in Reachability.Edges(item.Region).Where(edge => (edge.Field is ELEMENT or KEYS) && !IsPair(item.Region) &&
                     (!Written.Contains(new WrittenEdge(item.Region, edge.Field, edge.Target)) ||
                      _placed.Contains(new WrittenEdge(item.Region, edge.Field, edge.Target)))))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     pending.Push((edge.Target, new ElementsValue(item.Value), null));
+                }
                 // What a task argument completes with is named through it, at every level, as the value handed directly would be (R2).
                 if (CompletionOf(item.Value, item.Type) is { } completion)
                 {
                     foreach (var target in Heap.Completion(item.Region))
+                    {
+                        _checks.Check(GenerationStage.ReadEffects);
                         pending.Push((target, completion.Name, completion.Type));
+                    }
                 }
             }
         }
@@ -1893,7 +2022,10 @@ public sealed class ValueProvenance
                                      .SelectMany(summary => summary.Values).SelectMany(value => Resolve(instance, value))
                                      .ToHashSet(StringComparer.Ordinal);
                 foreach (var (@object, field) in Reachability.WrittenPlaces(access))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     AddExistingEdges(written, @object, field, values);
+                }
             }
 
             var direct = MemberInstances(DriverSynthesizer.CALL).Select(instance => instance.Id)
@@ -1921,7 +2053,10 @@ public sealed class ValueProvenance
                 _checks.Check(GenerationStage.ReadEffects);
                 var values = store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
                 foreach (var (@object, field) in Places(instance, store.Bases, store.Field))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     AddExistingEdges(edges, @object, field, values);
+                }
             }
             foreach (var store in instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores)
                                           .Where(store => store.Kind == ElementOperationKind.Store))
@@ -1947,7 +2082,10 @@ public sealed class ValueProvenance
                         continue;
                     foreach (var edge in Reachability.Edges(@object).Where(edge => edge.Field.StartsWith(storage + FieldSlot.PATH_SEPARATOR, StringComparison.Ordinal) &&
                                                                                    held.Contains(edge.Target)))
+                    {
+                        _checks.Check(GenerationStage.ReadEffects);
                         edges.Add(new WrittenEdge(@object, edge.Field, edge.Target));
+                    }
                 }
             }
         }
@@ -1963,6 +2101,7 @@ public sealed class ValueProvenance
             var slot = StructStorage.IsWholeStorage(field) ? "" : FieldSlot.Key(field);
             foreach (var region in bases.SelectMany(value => Resolve(instance, value)).Distinct(StringComparer.Ordinal))
             {
+                _checks.Check(GenerationStage.ReadEffects);
                 if (Heap.Located(region, slot) is not var (@object, path))
                     continue;
                 yield return @object == region ? (region, field.Name) : (@object, path);
@@ -1989,7 +2128,10 @@ public sealed class ValueProvenance
                                      .SelectMany(summary => summary.Values).SelectMany(value => Resolve(instance, value))
                                      .ToHashSet(StringComparer.Ordinal);
                 foreach (var (@object, field) in Reachability.WrittenPlaces(access))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     AddExistingEdges(placed, @object, field, values);
+                }
             }
 
             foreach (var instance in setupOnly.Values)
@@ -2021,7 +2163,10 @@ public sealed class ValueProvenance
                                                      Allocations.Of(value).Role == DriverRole.Seed)
                                      .ToHashSet(StringComparer.Ordinal);
                 foreach (var (@object, field) in Reachability.WrittenPlaces(access))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
                     AddExistingEdges(placed, @object, field, values);
+                }
             }
             return placed;
         }
@@ -2051,15 +2196,20 @@ public sealed class ValueProvenance
 
         private bool IsLibraryBody(string body) => body.StartsWith($"body:{_driver.Member.ContainingAssembly.Name}:", StringComparison.Ordinal);
 
+        // bounded: delegates once to the wrapped value, without re-entering this method.
         private static string DriverBody(string action) => ValueObservation.DriverBody(action);
 
-        private static int ElementDepth(LibraryValue value) => value switch
+        private static int ElementDepth(LibraryValue value)
         {
-            ElementsValue elements => 1 + ElementDepth(elements.Source),
-            // What a task completes with is no element of anything: it stands at the depth of a whole value.
-            CompletionValue => 0,
-            _ => 0
-        };
+            WorkCancellation.Check();
+            return value switch
+            {
+                ElementsValue elements => 1 + ElementDepth(elements.Source),
+                // What a task completes with is no element of anything: it stands at the depth of a whole value.
+                CompletionValue => 0,
+                _ => 0
+            };
+        }
 
         // A bare field name is a slot of the object itself: a field of a struct its storage keeps is a slot path, matched whole (R1).
         private static bool FieldMatches(string edge, string field) => edge == field ||

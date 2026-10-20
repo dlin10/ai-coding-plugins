@@ -215,9 +215,10 @@ public sealed class GeneratedModelFilesTests
         Assert.DoesNotContain("\n\n", text);
         var lines = text.TrimEnd('\n').Split('\n');
         Assert.Equal("{", lines[0]);
-        Assert.Equal("  \"schemaVersion\": 1,", lines[1]);
-        Assert.Equal("  \"assembly\": {", lines[2]);
-        Assert.Equal("    \"name\": \"Polly\",", lines[3]);
+        Assert.Equal("  \"schemaVersion\": 2,", lines[1]);
+        Assert.Equal($"  \"generator\": \"{GeneratorVersion.Fingerprint}\",", lines[2]);
+        Assert.Equal("  \"assembly\": {", lines[3]);
+        Assert.Equal("    \"name\": \"Polly\",", lines[4]);
         Assert.All(lines, line => Assert.Equal(0, (line.Length - line.TrimStart(' ').Length) % 2));
         Assert.Contains("naïve — 漢字", text);
     }
@@ -459,6 +460,97 @@ public sealed class GeneratedModelFilesTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Transient_write_failure_retries_the_same_temporary_file(bool existing)
+    {
+        using var repository = new Repository();
+        var key = PackageKey();
+        if (existing)
+            Write(repository, key, GeneratedModelAnswer.OfModel(Model(FIRST)));
+        var file = GeneratedModelFiles.Read(repository.Root, key);
+        var attempts = 0;
+        var temporaries = new HashSet<string>(StringComparer.Ordinal);
+
+        var diagnostics = GeneratedModelFiles.Write(file, [GeneratedModelAnswer.OfModel(Model(SECOND))], CancellationToken.None,
+            replaceFile: (temporary, path) =>
+            {
+                temporaries.Add(temporary);
+                Assert.True(File.Exists(temporary));
+                if (++attempts <= 2)
+                    throw new IOException("temporarily held by another process");
+                if (existing)
+                    File.Replace(temporary, path, null);
+                else
+                    File.Move(temporary, path);
+            });
+
+        Assert.Empty(diagnostics);
+        Assert.Equal(3, attempts);
+        Assert.Single(temporaries);
+        Assert.Equal(existing ? new[] { FIRST, SECOND } : new[] { SECOND }, StoredMembers(repository, key));
+        Assert.Empty(Directory.GetFiles(repository.Root, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Persistent_write_failure_preserves_the_original_and_removes_the_temporary(bool existing)
+    {
+        using var repository = new Repository();
+        var key = PackageKey();
+        if (existing)
+            Write(repository, key, GeneratedModelAnswer.OfModel(Model(FIRST)));
+        var file = GeneratedModelFiles.Read(repository.Root, key);
+        var original = existing ? File.ReadAllBytes(file.FullPath!) : null;
+        var attempts = 0;
+        var temporaries = new HashSet<string>(StringComparer.Ordinal);
+
+        var diagnostics = GeneratedModelFiles.Write(file, [GeneratedModelAnswer.OfModel(Model(SECOND))], CancellationToken.None,
+            replaceFile: (temporary, _) =>
+            {
+                temporaries.Add(temporary);
+                attempts++;
+                throw new IOException("still held by another process");
+            });
+
+        Assert.Contains("cannot write file", Assert.Single(diagnostics), StringComparison.Ordinal);
+        Assert.Equal(5, attempts);
+        Assert.Single(temporaries);
+        Assert.Equal(existing, File.Exists(file.FullPath));
+        if (existing)
+            Assert.Equal(original, File.ReadAllBytes(file.FullPath!));
+        Assert.Empty(Directory.GetFiles(repository.Root, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Non_IO_write_failure_is_not_retried(bool security)
+    {
+        using var repository = new Repository();
+        var key = PackageKey();
+        Write(repository, key, GeneratedModelAnswer.OfModel(Model(FIRST)));
+        var file = GeneratedModelFiles.Read(repository.Root, key);
+        var original = File.ReadAllBytes(file.FullPath!);
+        var attempts = 0;
+
+        var diagnostics = GeneratedModelFiles.Write(file, [GeneratedModelAnswer.OfModel(Model(SECOND))], CancellationToken.None,
+            replaceFile: (_, _) =>
+            {
+                attempts++;
+                if (security)
+                    throw new System.Security.SecurityException("denied");
+                throw new UnauthorizedAccessException("denied");
+            });
+
+        Assert.Contains("cannot write file", Assert.Single(diagnostics), StringComparison.Ordinal);
+        Assert.Equal(1, attempts);
+        Assert.Equal(original, File.ReadAllBytes(file.FullPath!));
+        Assert.Empty(Directory.GetFiles(repository.Root, "*.tmp", SearchOption.AllDirectories));
+    }
+
     [Fact]
     public void Missing_concurrency_hunter_folder_is_created()
     {
@@ -690,7 +782,7 @@ public sealed class GeneratedModelFilesTests
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var header = $"{{\"name\":\"{key.AssemblyName}\",\"version\":\"{key.AssemblyVersion}\",\"mvid\":\"{key.Mvid:D}\",\"package\":\"{key.Package}\"," +
                      $"\"packageVersion\":\"{key.PackageVersion}\"}}";
-        File.WriteAllText(path, $"{{\"schemaVersion\":1,\"assembly\":{header},\"members\":[{string.Join(',', entries)}]}}", new UTF8Encoding(false));
+        File.WriteAllText(path, $"{{\"schemaVersion\":2,\"generator\":\"{GeneratorVersion.Fingerprint}\",\"assembly\":{header},\"members\":[{string.Join(',', entries)}]}}", new UTF8Encoding(false));
     }
 
     private static LibraryModel Rebuilt(ProjectModelEntry entry)

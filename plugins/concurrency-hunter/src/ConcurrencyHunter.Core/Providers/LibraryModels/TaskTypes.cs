@@ -23,7 +23,10 @@ internal static class TaskTypes
     {
         var depth = 0;
         for (var inner = CompletionType(type); inner is not null; inner = CompletionType(inner))
+        {
+            WorkCancellation.Check();
             depth++;
+        }
         return depth;
     }
 
@@ -33,7 +36,10 @@ internal static class TaskTypes
     internal static ITypeSymbol Innermost(ITypeSymbol type)
     {
         while (CompletionType(type) is { } inner)
+        {
+            WorkCancellation.Check();
             type = inner;
+        }
         return type;
     }
 

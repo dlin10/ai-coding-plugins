@@ -25,4 +25,24 @@
     <ProjectReference Include="..\ConcurrencyHunter.Analysis\ConcurrencyHunter.Analysis.csproj" />
   </ItemGroup>
 
+  <UsingTask TaskName="ComputeGeneratorFingerprint" TaskFactory="RoslynCodeTaskFactory"
+             AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <Task>
+      <Code Type="Class" Source="$(MSBuildThisFileDirectory)../../build/GeneratorFingerprint.cs" />
+    </Task>
+  </UsingTask>
+
+  <Target Name="GenerateGeneratorVersion" BeforeTargets="CoreCompile">
+    <ComputeGeneratorFingerprint PluginsRoot="$(MSBuildThisFileDirectory)../../../">
+      <Output TaskParameter="Fingerprint" PropertyName="_GeneratorFingerprint" />
+    </ComputeGeneratorFingerprint>
+    <WriteLinesToFile File="$(IntermediateOutputPath)GeneratorVersion.g.cs"
+                      Lines="namespace ConcurrencyHunter.Providers.LibraryModels { internal static class GeneratorVersion { internal const string Fingerprint = &quot;$(_GeneratorFingerprint)&quot;%3B } }"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)GeneratorVersion.g.cs" />
+      <FileWrites Include="$(IntermediateOutputPath)GeneratorVersion.g.cs" />
+    </ItemGroup>
+  </Target>
+
 </Project>

@@ -4,6 +4,7 @@
     <IsPackable>false</IsPackable>
     <AssemblyName>ConcurrencyHunter.Core.Tests</AssemblyName>
     <RootNamespace>ConcurrencyHunter.Core.Tests</RootNamespace>
+    <DefineConstants>$(DefineConstants);GENERATOR_FINGERPRINT_TESTS</DefineConstants>
     <!-- The suite runs sixteen classes at once over a heap of many gigabytes; the workstation collector
          collects it on one thread with every test stopped, and the run took 2.5 times as long. -->
     <ServerGarbageCollection>true</ServerGarbageCollection>
@@ -30,6 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="../../build/GeneratorFingerprint.cs" Link="GeneratorFingerprint.cs" />
     <ProjectReference Include="..\ConcurrencyHunter.Analysis\ConcurrencyHunter.Analysis.csproj" />
     <ProjectReference Include="..\ConcurrencyHunter.Core\ConcurrencyHunter.Core.csproj" />
     <ProjectReference Include="..\..\..\Common\Common.Roslyn\Common.Roslyn.csproj" />

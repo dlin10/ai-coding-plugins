@@ -33,6 +33,7 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, CancellationToken cancellationToken,
                                                     ModelGeneration generation = ModelGeneration.ReadOnly) =>
         AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, cancellationToken, generation);
@@ -44,6 +45,7 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, AnalysisLimits limits, CancellationToken cancellationToken,
                                                     ModelGeneration generation = ModelGeneration.ReadOnly) =>
         AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits, cancellationToken, generation);
@@ -57,6 +59,7 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                     CancellationToken cancellationToken, ModelGeneration generation = ModelGeneration.ReadOnly) =>
         AnalyzeAsync(solution, rootDirectory, registry, InterproceduralPairing.Pair, EnvironmentLimits(), cancellationToken, generation);
@@ -69,6 +72,7 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
     internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                       Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                       CancellationToken cancellationToken, ModelGeneration generation = ModelGeneration.ReadOnly) =>
@@ -95,6 +99,7 @@ public static class PhaseOneAnalyzer
     /// <param name="limits">The summary and heap limits.</param>
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
     private static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                      Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                      AnalysisLimits limits, CancellationToken cancellationToken,
@@ -112,6 +117,7 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
     internal static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                             Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                             AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
@@ -128,6 +134,7 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
     internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot,
                                                       CancellationToken cancellationToken, ModelGeneration generation = ModelGeneration.ReadOnly) =>
         AnalyzeAsync(solution, rootDirectory, repositoryRoot, new GenerationSetup(generation), cancellationToken);
@@ -140,6 +147,7 @@ public static class PhaseOneAnalyzer
     /// whose generated files it reads and writes.</param>
     /// <param name="generation">What the run does with the generated layer.</param>
     /// <param name="cancellationToken">Cancels the analysis.</param>
+    // bounded: forwards once to the analysis overload that owns the work.
     internal static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, string repositoryRoot, GenerationSetup generation,
                                                       CancellationToken cancellationToken) =>
         AnalyzeAsync(solution, rootDirectory, repositoryRoot, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair,
@@ -163,6 +171,7 @@ public static class PhaseOneAnalyzer
                                                             AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
                                                             GenerationSetup generation, CancellationToken cancellationToken)
     {
+        using var work = WorkCancellation.Enter(cancellationToken);
         using var solver = solverFactory();
         // One budget for the whole run, spent scope by scope: the budget belongs to the run (TD-094).
         var solverBudget = new SolverBudget(SolverPolicy.Budget);
@@ -195,6 +204,7 @@ public static class PhaseOneAnalyzer
 
         foreach (var scoped in discovery.Scopes)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             var scope = scoped.Scope;
             scopes.Add(scope);
@@ -204,6 +214,7 @@ public static class PhaseOneAnalyzer
             var compiledProjects = new List<(Project Project, Compilation Compilation)>();
             foreach (var project in scoped.Projects)
             {
+                WorkCancellation.Check();
                 if (await project.GetCompilationAsync(cancellationToken).ConfigureAwait(false) is { } compilation)
                 {
                     compilations.Add(compilation);
@@ -232,7 +243,9 @@ public static class PhaseOneAnalyzer
             AddTimes(timings, run);
             // Pairing spans the pairing and the gap marks only, as it did before the pipeline: the bookkeeping above is not its own.
             step.Restart();
-            var scopePairs = PairWithGaps(run, pairing);
+            PairAnalysis scopePairs;
+            using (WorkCancellation.Outside())
+                scopePairs = PairWithGaps(run, pairing);
             Record(timings, PAIRING, step);
 
             // The generated layer (R1, R2, R5): the analysis above had none. When it describes a call of the scope, the scope is analysed again
@@ -255,7 +268,9 @@ public static class PhaseOneAnalyzer
                     Debug.Assert(!second.Stopped, "the analysis run passes no reachable-body limit");
                     AddTimes(timings, second);
                     step.Restart();
-                    var secondPairs = PairWithGaps(second, pairing);
+                    PairAnalysis secondPairs;
+                    using (WorkCancellation.Outside())
+                        secondPairs = PairWithGaps(second, pairing);
                     Record(timings, PAIRING, step);
                     pairsRemoved = scopePairs.Pairs.Select(PairIdentity.Of).Distinct(StringComparer.Ordinal)
                                              .Except(secondPairs.Pairs.Select(PairIdentity.Of), StringComparer.Ordinal)
@@ -297,7 +312,10 @@ public static class PhaseOneAnalyzer
             candidates += scopePairs.Candidates;
             suppressed += scopePairs.Suppressed;
             foreach (var (reason, count) in scopePairs.Skips)
+            {
+                WorkCancellation.Check();
                 pairSkips[reason] = pairSkips.GetValueOrDefault(reason) + count;
+            }
             coverage.Add(new ScopeCoverage(scope.Id, run.RootsPerProvider, diagnostics, run.Index.Registrations.Count,
                                            Merged(collection.Coverage.Counters, refined.Counters, modelRejections.Count, generatedInRun, pairsRemoved))
             {
@@ -317,8 +335,11 @@ public static class PhaseOneAnalyzer
 
         modelLock.Write();
         foreach (var scopeCoverage in coverage)
+        {
+            WorkCancellation.Check();
             if (scopeCoverage.Diagnostics is List<string> scopeDiagnostics)
                 scopeDiagnostics.AddRange(modelLock.Diagnostics);
+        }
 
         // The time inside generations is the budget's measure, taken as the pass kept it: the analyses and the writes around them are
         // the steps' own.
@@ -361,7 +382,10 @@ public static class PhaseOneAnalyzer
     {
         var merged = new SortedDictionary<string, int>(counters.ToDictionary(), StringComparer.Ordinal);
         foreach (var (name, count) in solver)
+        {
+            WorkCancellation.Check();
             merged[name] = merged.GetValueOrDefault(name) + count;
+        }
         merged[CoverageCounters.MODEL_ENTRY_REJECTED] = rejected;
         merged[CoverageCounters.GENERATED_IN_RUN] = generatedInRun;
         merged[CoverageCounters.PAIRS_REMOVED_GENERATED] = pairsRemoved;

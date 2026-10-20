@@ -62,8 +62,13 @@ public static class PathConditions
     /// <summary>Whether the two paths cannot both be taken: one predicate of each, over one canonical subject, that contradict.
     /// The two sides are two executions, so only a subject proven to be one value in every execution is one value here; anything
     /// else each side holds its own copy of, and no branch either took rules the other out (TD-092).</summary>
-    public static bool Contradict(IReadOnlyList<PathPredicate> first, IReadOnlyList<PathPredicate> second) =>
-        first.Any(one => second.Any(other => Contradict(one, other)));
+    /// <param name="first">The first path conditions.</param>
+    /// <param name="second">The second path conditions.</param>
+    public static bool Contradict(IReadOnlyList<PathPredicate> first, IReadOnlyList<PathPredicate> second)
+    {
+        WorkCancellation.Check();
+        return first.Any(one => second.Any(other => Contradict(one, other)));
+    }
 
     private static bool Contradict(PathPredicate one, PathPredicate other)
     {

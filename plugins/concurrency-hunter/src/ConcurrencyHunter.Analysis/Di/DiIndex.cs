@@ -199,6 +199,7 @@ public sealed class DiIndex
                                   .ThenBy(group => group.Key, StringComparer.Ordinal);
         foreach (var group in hosted)
         {
+            WorkCancellation.Check();
             var implementation = group.First().ImplementationType!;
             var singletons = group.Count(registration => registration.Method != HOSTED_SERVICE_METHOD);
             var addHostedService = group.Count(registration => registration.Method == HOSTED_SERVICE_METHOD);

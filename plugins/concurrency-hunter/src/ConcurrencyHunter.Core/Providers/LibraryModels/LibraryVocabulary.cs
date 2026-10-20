@@ -242,6 +242,7 @@ internal static class LibraryVocabulary
         var fates = new Dictionary<string, LibraryFate>(StringComparer.Ordinal);
         foreach (var fate in raw)
         {
+            WorkCancellation.Check();
             // A key is a parameter name of the grammar, as `arg:` and `returns:` name one (review F-0073).
             if (ValueParser.Whole(fate.Parameter, parser => parser.Name()) is null)
                 throw new FormatException($"fates must be keyed by parameter names; '{fate.Parameter}' is none.");
@@ -277,6 +278,7 @@ internal static class LibraryVocabulary
 
         foreach (var effect in effects)
         {
+            WorkCancellation.Check();
             // The receiver's own fields are library state, so writes-arg on this would describe what a model may not change.
             if (effect.Parameter == "this" && effect.Kind == LibraryEffectKind.WriteArgument)
                 throw new FormatException("this is a target only of reads-deep and writes-cells.");
@@ -284,43 +286,63 @@ internal static class LibraryVocabulary
         var stores = new Dictionary<string, IReadOnlyList<LibraryValue>>(StringComparer.Ordinal);
         foreach (var (target, texts) in rawStores ?? new Dictionary<string, string[]>())
         {
+            WorkCancellation.Check();
             if (target != "this" && ValueParser.Whole(target, parser => parser.Name()) is null || texts.Length == 0)
                 throw new FormatException("stores must map a target to a non-empty array of values.");
             if (!effects.Any(effect => effect.Parameter == target && effect.Kind == LibraryEffectKind.WriteCells))
                 throw new FormatException($"stores target '{target}' needs writes-cells.");
             var values = texts.Select(text => LibraryValue.Parse(text) ?? throw new FormatException($"stores value '{text}' does not parse.")).ToArray();
             foreach (var value in values)
+            {
+                WorkCancellation.Check();
                 Place(value, fates, into: null, result: null, "stores", whole: true);
+            }
             stores.Add(target, values);
         }
         var outputs = new Dictionary<string, LibraryResult>(StringComparer.Ordinal);
         foreach (var (target, text) in rawOutputs ?? new Dictionary<string, string>())
         {
+            WorkCancellation.Check();
             if (ValueParser.Whole(target, parser => parser.Name()) is null)
                 throw new FormatException($"outputs target '{target}' must be a parameter name.");
             var output = LibraryResult.Parse(text) ?? throw new FormatException($"outputs value '{text}' does not parse.");
             if (OutputRefusal(output) is { } outputRefusal)
                 throw new FormatException(outputRefusal);
             foreach (var value in output.Values)
+            {
+                WorkCancellation.Check();
                 Place(value, fates, into: null, output, "outputs", whole: true);
+            }
             outputs.Add(target, output);
         }
         var keeps = new Dictionary<string, IReadOnlyList<LibraryValue>>(StringComparer.Ordinal);
         foreach (var (keeper, texts) in rawKeeps ?? new Dictionary<string, string[]>())
         {
+            WorkCancellation.Check();
             if (ValueParser.Whole(keeper, parser => parser.Name()) is null || texts.Length == 0)
                 throw new FormatException("keeps must map a keeper to a non-empty array of values.");
             if (keeper == "result" && KeepsResultRefusal(result, fates.Values) is { } keepsRefusal)
                 throw new FormatException(keepsRefusal);
             var values = texts.Select(text => LibraryValue.Parse(text) ?? throw new FormatException($"keeps value '{text}' does not parse.")).ToArray();
             foreach (var value in values)
+            {
+                WorkCancellation.Check();
                 Place(value, fates, into: null, result: null, "keeps", whole: true);
+            }
             keeps.Add(keeper, values);
         }
         foreach (var fate in fates.Values)
+        {
+            WorkCancellation.Check();
             foreach (var value in fate.Inputs?.SelectMany(input => input) ?? [])
+            {
+                WorkCancellation.Check();
                 Place(value, fates, fate, result: null, "input", whole: true);
+            }
+        }
         foreach (var value in result?.Leaf.Values ?? [])
+        {
+            WorkCancellation.Check();
             Place(value, fates, into: null, result, result!.Leaf.Kind switch
             {
                 LibraryResultKind.Sequence => "sequence(…)",
@@ -329,6 +351,7 @@ internal static class LibraryVocabulary
                 LibraryResultKind.OneOf => "result list",
                 _ => "result"
             }, whole: true);
+        }
         if (IteratorRefusal(result, fates.Values) is { } iteratorRefusal)
             throw new FormatException(iteratorRefusal);
         if (HolderResultRefusal(result, fates.Values) is { } holderRefusal)
@@ -377,6 +400,7 @@ internal static class LibraryVocabulary
     private static void Place(LibraryValue value, IReadOnlyDictionary<string, LibraryFate> fates, LibraryFate? into, LibraryResult? result,
                               string place, bool whole)
     {
+        WorkCancellation.Check();
         switch (value)
         {
             case HolderArgumentValue when into?.Kind != LibraryFateKind.Holder || !whole:
@@ -418,7 +442,10 @@ internal static class LibraryVocabulary
                 break;
             case SequenceValue sequence:
                 foreach (var item in sequence.Values)
+                {
+                    WorkCancellation.Check();
                     Place(item, fates, into, result, "sequence(…)", whole: false);
+                }
                 break;
             case GroupingValue grouping:
                 Place(grouping.Key, fates, into, result, "grouping(…)", whole: false);
@@ -440,6 +467,7 @@ internal static class LibraryVocabulary
         var calls = new List<LibraryMemberCall>();
         foreach (var call in raw)
         {
+            WorkCancellation.Check();
             if (call.Member is null || !LibraryMemberCall.Members.TryGetValue(call.Member, out var counts))
                 throw new FormatException($"a call needs a member of {string.Join(", ", LibraryMemberCall.Members.Keys)}; '{call.Member}' is none.");
             var inputs = call.Inputs ?? [];
@@ -551,11 +579,13 @@ internal static class LibraryVocabulary
             return false;
         foreach (var a in fatesA)
         {
+            WorkCancellation.Check();
             if (fatesB.FirstOrDefault(fate => fate.Parameter == a.Parameter) is not { } b || a.Kind != b.Kind || a.Holder != b.Holder)
                 return false;
             var count = Math.Max(a.Inputs?.Count ?? 0, b.Inputs?.Count ?? 0);
             for (var index = 0; index < count; index++)
             {
+                WorkCancellation.Check();
                 if (InputSet(a, index) != InputSet(b, index))
                     return false;
             }
@@ -584,9 +614,13 @@ internal static class LibraryVocabulary
         {
             foreach (var call in calls)
             {
+                WorkCancellation.Check();
                 _ = TypeOf(call.On);
                 foreach (var value in call.Inputs.SelectMany(input => input))
+                {
+                    WorkCancellation.Check();
                     _ = TypeOf(value);
+                }
             }
         }
 
@@ -604,6 +638,7 @@ internal static class LibraryVocabulary
                 throw new Refusal(iteratorRefusal);
             foreach (var effect in effects)
             {
+                WorkCancellation.Check();
                 var target = TargetType(effect.Parameter);
                 switch (effect.Kind)
                 {
@@ -621,6 +656,7 @@ internal static class LibraryVocabulary
             }
             foreach (var store in stores)
             {
+                WorkCancellation.Check();
                 var target = TargetType(store.Key);
                 ConvertAll(store.Value, target is IArrayTypeSymbol arrayType ? arrayType.ElementType : compilation.GetSpecialType(SpecialType.System_Object));
             }
@@ -630,6 +666,7 @@ internal static class LibraryVocabulary
                 throw new Refusal($"delegate-typed parameter '{unfated.Name}' has no fate.");
             foreach (var fate in fates)
             {
+                WorkCancellation.Check();
                 var parameter = method.Parameters.FirstOrDefault(candidate => candidate.Name == fate.Parameter) ??
                                 throw new Refusal($"fate names '{fate.Parameter}', which is no parameter.");
                 if (!IsDelegate(parameter.Type))
@@ -637,6 +674,7 @@ internal static class LibraryVocabulary
             }
             foreach (var fate in fates)
             {
+                WorkCancellation.Check();
                 var invoke = ((INamedTypeSymbol)method.Parameters.First(candidate => candidate.Name == fate.Parameter).Type).DelegateInvokeMethod!;
                 if (fate.Inputs is { } inputs && inputs.Count != invoke.Parameters.Length)
                     throw new Refusal($"inputs of '{fate.Parameter}' name {inputs.Count} parameters; its delegate takes {invoke.Parameters.Length}.");
@@ -648,7 +686,10 @@ internal static class LibraryVocabulary
                     throw new Refusal("holder result needs a constructor or a method returning a reference type, or a task whose innermost completion value is one.");
                 for (var index = 0; index < (fate.Inputs?.Count ?? 0); index++)
                 {
+                    WorkCancellation.Check();
                     foreach (var value in fate.Inputs![index])
+                    {
+                        WorkCancellation.Check();
                         if (value is NewValue)
                         {
                             if (fate.Kind is not (LibraryFateKind.InvokeNow or LibraryFateKind.Holder))
@@ -657,17 +698,23 @@ internal static class LibraryVocabulary
                         }
                         else if (value is not HolderArgumentValue)
                             Converts(value, invoke.Parameters[index].Type);
+                    }
                 }
             }
             foreach (var keep in keeps)
             {
+                WorkCancellation.Check();
                 if (keep.Key != "result")
                     _ = TargetType(keep.Key);
                 foreach (var value in keep.Value)
+                {
+                    WorkCancellation.Check();
                     CheckLeaves(value);
+                }
             }
             foreach (var output in outputs)
             {
+                WorkCancellation.Check();
                 var parameter = method.Parameters.FirstOrDefault(candidate => candidate.Name == output.Key) ??
                                 throw new Refusal($"outputs names '{output.Key}', which is no parameter.");
                 if (parameter.RefKind is not (RefKind.Out or RefKind.Ref))
@@ -687,6 +734,7 @@ internal static class LibraryVocabulary
         /// <param name="returnType">The type the member, or the task around this level, returns.</param>
         private void CheckMemberResult(LibraryResult form, ITypeSymbol returnType)
         {
+            WorkCancellation.Check();
             if (form.Kind == LibraryResultKind.Task)
             {
                 CheckMemberResult(form.Inner!, TaskTypes.CompletionType(returnType) ??
@@ -702,6 +750,7 @@ internal static class LibraryVocabulary
 
         private void CheckLeaves(LibraryValue value)
         {
+            WorkCancellation.Check();
             switch (value)
             {
                 case ElementsValue elements:
@@ -710,7 +759,10 @@ internal static class LibraryVocabulary
                     break;
                 case SequenceValue sequence:
                     foreach (var item in sequence.Values)
+                    {
+                        WorkCancellation.Check();
                         CheckLeaves(item);
+                    }
                     break;
                 case GroupingValue grouping:
                     CheckLeaves(grouping.Key);
@@ -762,11 +814,15 @@ internal static class LibraryVocabulary
         private void ConvertAll(IEnumerable<LibraryValue> values, ITypeSymbol destination)
         {
             foreach (var value in values)
+            {
+                WorkCancellation.Check();
                 Converts(value, destination);
+            }
         }
 
         private void Converts(LibraryValue value, ITypeSymbol destination)
         {
+            WorkCancellation.Check();
             switch (value)
             {
                 case SequenceValue sequence:
@@ -795,6 +851,7 @@ internal static class LibraryVocabulary
 
         private void Projected(LibraryValue value, ITypeSymbol destination, int depth)
         {
+            WorkCancellation.Check();
             if (depth == 0)
             {
                 Converts(value, destination);
@@ -804,7 +861,10 @@ internal static class LibraryVocabulary
             {
                 case SequenceValue sequence:
                     foreach (var item in sequence.Values)
+                    {
+                        WorkCancellation.Check();
                         Projected(item, destination, depth - 1);
+                    }
                     break;
                 case GroupingValue grouping:
                     Converts(grouping.Key, compilation.GetSpecialType(SpecialType.System_Object));
@@ -815,7 +875,10 @@ internal static class LibraryVocabulary
                     break;
                 case ArgumentValue or ReturnsValue or ThisValue or HolderArgumentValue or KeptValue or CompletionValue:
                     for (var step = 0; step < depth; step++)
+                    {
+                        WorkCancellation.Check();
                         value = new ElementsValue(value);
+                    }
                     var source = TypeOf(value);
                     if (source is not null && !Converts(source, destination))
                         throw new Refusal($"{value} is {source.ToDisplayString()}, which does not convert to {destination.ToDisplayString()}.");
@@ -835,6 +898,7 @@ internal static class LibraryVocabulary
 
         private ITypeSymbol? TypeOf(LibraryValue value)
         {
+            WorkCancellation.Check();
             switch (value)
             {
                 case ThisValue:
@@ -921,6 +985,7 @@ internal static class LibraryVocabulary
 
         internal LibraryValue? Value()
         {
+            WorkCancellation.Check();
             if (Take("new"))
                 return new NewValue();
             if (Take("this"))
@@ -946,6 +1011,7 @@ internal static class LibraryVocabulary
 
         internal LibraryResult? Result()
         {
+            WorkCancellation.Check();
             if (Take("new"))
                 return new LibraryResult(LibraryResultKind.New, []);
             if (Take("sequence("))
@@ -968,6 +1034,7 @@ internal static class LibraryVocabulary
             var values = new List<LibraryValue>();
             do
             {
+                WorkCancellation.Check();
                 if (Value() is not { } value)
                     return null;
                 values.Add(value);
@@ -983,7 +1050,10 @@ internal static class LibraryVocabulary
             else
                 return null;
             while (_at < text.Length && (char.IsAsciiLetterOrDigit(text[_at]) || text[_at] == '_'))
+            {
+                WorkCancellation.Check();
                 _at++;
+            }
             return text[start.._at];
         }
 
@@ -991,7 +1061,10 @@ internal static class LibraryVocabulary
         {
             var start = _at;
             while (_at < text.Length && char.IsAsciiDigit(text[_at]))
+            {
+                WorkCancellation.Check();
                 _at++;
+            }
             var digits = text[start.._at];
             return digits.Length > 0 && (digits == "0" || digits[0] != '0') && int.TryParse(digits, out var value) ? value : null;
         }

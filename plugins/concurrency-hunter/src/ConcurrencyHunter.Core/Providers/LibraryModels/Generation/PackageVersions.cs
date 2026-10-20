@@ -19,6 +19,7 @@ public sealed record PackageVersion(IReadOnlyList<int> Parts, IReadOnlyList<stri
     /// <param name="version">The version read.</param>
     public static bool TryParse(string? text, out PackageVersion version)
     {
+        WorkCancellation.Check();
         version = null!;
         if (string.IsNullOrWhiteSpace(text))
             return false;
@@ -32,6 +33,7 @@ public sealed record PackageVersion(IReadOnlyList<int> Parts, IReadOnlyList<stri
         var parts = new int[4];
         for (var i = 0; i < numbers.Length; i++)
         {
+            WorkCancellation.Check();
             if (numbers[i].Length == 0 || !numbers[i].All(char.IsAsciiDigit) || !int.TryParse(numbers[i], out parts[i]))
                 return false;
         }
@@ -51,10 +53,12 @@ public sealed record PackageVersion(IReadOnlyList<int> Parts, IReadOnlyList<stri
     /// <param name="other">The version compared with.</param>
     public int CompareTo(PackageVersion? other)
     {
+        WorkCancellation.Check();
         if (other is null)
             return 1;
         for (var i = 0; i < 4; i++)
         {
+            WorkCancellation.Check();
             var part = Parts[i].CompareTo(other.Parts[i]);
             if (part != 0)
                 return part;
@@ -64,6 +68,7 @@ public sealed record PackageVersion(IReadOnlyList<int> Parts, IReadOnlyList<stri
             return (Prerelease.Count == 0).CompareTo(other.Prerelease.Count == 0);
         for (var i = 0; i < Math.Min(Prerelease.Count, other.Prerelease.Count); i++)
         {
+            WorkCancellation.Check();
             var label = CompareLabel(Prerelease[i], other.Prerelease[i]);
             if (label != 0)
                 return label;
@@ -76,6 +81,7 @@ public sealed record PackageVersion(IReadOnlyList<int> Parts, IReadOnlyList<stri
     /// <param name="other">The version compared with.</param>
     public bool Equals(PackageVersion? other) => other is not null && CompareTo(other) == 0;
 
+    // bounded: delegates once to the wrapped value, without re-entering this method.
     public override int GetHashCode() => Normalized.GetHashCode(StringComparison.Ordinal);
 
     public override string ToString() => Normalized;
@@ -115,6 +121,7 @@ public sealed record PackageVersionRange(string Text, PackageVersion? Minimum, b
     /// <param name="range">The range read.</param>
     public static bool TryParse(string? text, out PackageVersionRange range)
     {
+        WorkCancellation.Check();
         range = null!;
         if (string.IsNullOrWhiteSpace(text))
             return false;

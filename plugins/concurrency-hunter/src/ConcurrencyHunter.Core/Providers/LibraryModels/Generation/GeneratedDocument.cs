@@ -12,6 +12,7 @@ public static class GeneratedDocument
     /// <param name="answer">The answer.</param>
     public static byte[] Write(GeneratedAnswer answer)
     {
+        WorkCancellation.Check();
         using var stream = new MemoryStream();
         using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
@@ -28,6 +29,7 @@ public static class GeneratedDocument
                 json.WriteStartObject("classified");
                 foreach (var (parameter, fate) in classified)
                 {
+                    WorkCancellation.Check();
                     json.WriteStartObject(parameter);
                     json.WriteString("fate", fate.Fate);
                     json.WriteString("holder", fate.Holder);
@@ -76,14 +78,20 @@ public static class GeneratedDocument
         WriteStrings(json, "defaultedValues", generation.DefaultedValues);
         json.WriteStartObject("refusals");
         foreach (var (parameter, refusal) in generation.Refusals)
+        {
+            WorkCancellation.Check();
             json.WriteString(parameter, refusal);
+        }
         json.WriteEndObject();
         WriteStrings(json, "setupWidened", generation.SetupWidened);
         json.WriteNumber("seeds", generation.Seeds);
         WriteStrings(json, "unseeded", generation.Unseeded);
         json.WriteStartObject("holderTriggers");
         foreach (var (parameter, triggers) in generation.HolderTriggers.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            WorkCancellation.Check();
             WriteStrings(json, parameter, triggers.Order(StringComparer.Ordinal));
+        }
         json.WriteEndObject();
         json.WriteNumber("reachedBodies", generation.ReachedBodies);
         // Always one decimal, as G-6's examples write it: 0.0, not 0.
@@ -96,7 +104,10 @@ public static class GeneratedDocument
     {
         json.WriteStartArray(name);
         foreach (var value in values)
+        {
+            WorkCancellation.Check();
             json.WriteStringValue(value);
+        }
         json.WriteEndArray();
     }
 }

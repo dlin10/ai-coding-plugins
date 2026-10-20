@@ -112,6 +112,7 @@ public static class UnseenWrites
                            .Concat(summary.ReferenceAccesses.SelectMany(access => access.Targets).OfType<ReferenceCell>().Select(cell => cell.Leaf()));
         foreach (var (field, bases) in named)
         {
+            WorkCancellation.Check();
             if (field.IsStatic || field.Kind != IrFieldKind.Field || program.Type(FieldSlot.TypeKey(field.Assembly, field.ContainingTypeId))?.IsSource == true)
                 continue;
             yield return (field with
@@ -149,7 +150,7 @@ public static class UnseenWrites
             return fields;
         var declared = new HashSet<string>(StringComparer.Ordinal);
         for (var key = declaringTypeKey; key is not null && declared.Add(FieldSlot.WithoutTypeArguments(key)); key = program.Type(key)?.BaseTypeKey)
-        {
+        { WorkCancellation.Check();
         }
 
         return fields.Where(field => declared.Contains(FieldSlot.TypeKey(field.Assembly, field.ContainingTypeId))).ToArray();
@@ -206,6 +207,7 @@ public static class UnseenWrites
     /// <param name="slots">The slots found.</param>
     private static void AddPresenceSlots(ProgramIndex program, string? typeKey, string slot, HashSet<string> enclosing, List<string> slots)
     {
+        WorkCancellation.Check();
         if (typeKey is null)
             return;
         // A Nullable is the struct it holds, at the same slot: a write of it may fill it, and each Nullable below the struct as well.
@@ -220,7 +222,10 @@ public static class UnseenWrites
         if (program.Type(typeKey) is not { IsValueType: true, IsSource: true } || !enclosing.Add(typeKey))
             return;
         foreach (var field in program.InstanceFieldsOf(typeKey) ?? [])
+        {
+            WorkCancellation.Check();
             AddPresenceSlots(program, field.FieldTypeKey, FieldSlot.Join(slot, FieldSlot.Key(field)), enclosing, slots);
+        }
         enclosing.Remove(typeKey);
     }
 
@@ -254,8 +259,10 @@ public static class UnseenWrites
 
         void Add(IEnumerable<TRegion> values, bool sequence)
         {
+            WorkCancellation.Check();
             foreach (var region in values.ToArray())
             {
+                WorkCancellation.Check();
                 if (view.LibrarySequenceYields(region) is { } yields)
                 {
                     if (sequences.Add(region))
@@ -296,13 +303,17 @@ public static class UnseenWrites
         var pending = new Queue<TRegion>(Reached(region));
         while (pending.TryDequeue(out var current))
         {
+            WorkCancellation.Check();
             if (!visited.Add(current))
                 continue;
             if (view.TypeKey(current) is { } type &&
                 (anything || program.Supertypes(type).Any(supertype => enumerated.Contains(supertype, StringComparer.Ordinal))))
                 yielded.Add(current);
             foreach (var next in Reached(current))
+            {
+                WorkCancellation.Check();
                 pending.Enqueue(next);
+            }
         }
 
         return yielded;

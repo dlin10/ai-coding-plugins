@@ -25,6 +25,7 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
         var definition = new System.Text.StringBuilder();
         for (var index = 0; index < typeKey.Length; index++)
         {
+            WorkCancellation.Check();
             if (typeKey[index] != '<')
             {
                 definition.Append(typeKey[index]);
@@ -36,6 +37,7 @@ public sealed class TypeSafety(ProgramIndex program, IReadOnlyDictionary<string,
             var count = 1;
             while (++index < typeKey.Length && depth != 0)
             {
+                WorkCancellation.Check();
                 if (typeKey[index] == '<')
                     depth++;
                 else if (typeKey[index] == '>')

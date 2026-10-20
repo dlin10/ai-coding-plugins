@@ -29,6 +29,7 @@ internal static class LibraryFieldOpening
         var baselineErrors = Errors(baseline, cancellationToken);
         while (true)
         {
+            WorkCancellation.Check();
             cancellationToken.ThrowIfCancellationRequested();
             var applied = plan.Apply(baseline, active, cancellationToken);
             var introduced = applied.Compilation.GetDiagnostics(cancellationToken)
@@ -43,7 +44,10 @@ internal static class LibraryFieldOpening
 
             var reverted = new HashSet<OpeningUnit>();
             foreach (var error in introduced)
+            {
+                WorkCancellation.Check();
                 reverted.UnionWith(applied.UnitsToRevert(error, active, cancellationToken));
+            }
             if (reverted.Count == 0)
                 reverted.UnionWith(active);
             active.ExceptWith(reverted);
@@ -91,17 +95,20 @@ internal static class LibraryFieldOpening
             var members = new List<OpeningMember>();
             for (var treeIndex = 0; treeIndex < trees.Length; treeIndex++)
             {
+                WorkCancellation.Check();
                 var tree = trees[treeIndex];
                 var model = compilation.GetSemanticModel(tree);
                 var root = tree.GetRoot(cancellationToken);
                 var unitByNode = new Dictionary<SyntaxNode, OpeningUnit>();
                 foreach (var type in root.DescendantNodes().OfType<TypeDeclarationSyntax>())
                 {
+                    WorkCancellation.Check();
                     // A struct's fields are opened by the rules of a class's: its storage is its holder's (R1), which setup seeds in place.
                     if (model.GetDeclaredSymbol(type, cancellationToken) is not ({ TypeKind: TypeKind.Class } or { TypeKind: TypeKind.Struct, IsRefLikeType: false }))
                         continue;
                     foreach (var field in type.Members.OfType<FieldDeclarationSyntax>())
                     {
+                        WorkCancellation.Check();
                         if (model.GetTypeInfo(field.Declaration.Type, cancellationToken).Type is not { } fieldType ||
                             !SeedableFields.Seed(fieldType) && !SeedableFields.Path(fieldType))
                         {
@@ -116,6 +123,7 @@ internal static class LibraryFieldOpening
 
                     foreach (var property in type.Members.OfType<PropertyDeclarationSyntax>().Where(IsAutoProperty))
                     {
+                        WorkCancellation.Check();
                         if (model.GetDeclaredSymbol(property, cancellationToken) is not { } propertySymbol ||
                             !SeedableFields.Seed(propertySymbol.Type) && !SeedableFields.Path(propertySymbol.Type))
                         {
@@ -130,6 +138,7 @@ internal static class LibraryFieldOpening
                     // A field-like event's storage is a slot the driver seeds by subscribing to the event (task 10).
                     foreach (var @event in type.Members.OfType<EventFieldDeclarationSyntax>())
                     {
+                        WorkCancellation.Check();
                         var events = @event.Declaration.Variables.Select(variable => model.GetDeclaredSymbol(variable, cancellationToken))
                                            .OfType<IEventSymbol>().ToArray();
                         if (events.Length != @event.Declaration.Variables.Count ||
@@ -154,6 +163,7 @@ internal static class LibraryFieldOpening
             var appliedTrees = new Dictionary<SyntaxTree, IReadOnlyDictionary<OpeningUnit, SyntaxNode>>();
             for (var index = 0; index < trees.Count; index++)
             {
+                WorkCancellation.Check();
                 var original = trees[index];
                 var relevant = Units.Where(unit => unit.TreeIndex == index).ToDictionary(unit => unit.Span);
                 var rewriter = new OpeningRewriter(relevant, active);
@@ -182,6 +192,7 @@ internal static class LibraryFieldOpening
                 required.Add(own);
             for (SyntaxNode? current = containingType; current is TypeDeclarationSyntax type; current = type.Parent?.AncestorsAndSelf().OfType<TypeDeclarationSyntax>().FirstOrDefault())
             {
+                WorkCancellation.Check();
                 if (model.GetDeclaredSymbol(type, cancellationToken) is not { } symbol ||
                     OpenTypeModifiers(type, symbol, model, cancellationToken) is not { } opened || Equivalent(type.Modifiers, opened))
                 {

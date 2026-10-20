@@ -46,7 +46,7 @@ public static partial class InterproceduralAccesses
                 var graph = new List<CallEdge>();
                 foreach (var edge in edges)
                 {
-                    Check();
+                    CheckCancellation();
                     graph.Add(edge);
                 }
 
@@ -54,31 +54,41 @@ public static partial class InterproceduralAccesses
                 _components = Components(graph);
                 foreach (var instance in heap.Instances.Keys)
                 {
-                    Check();
+                    CheckCancellation();
                     foreach (var kind in new[] { ReturnKind.Reference, ReturnKind.Collection })
+                    {
+                        CheckCancellation();
                         _items.Add((instance, kind), []);
+                    }
                 }
 
                 var changed = true;
                 while (changed)
                 {
-                    Check();
+                    CheckCancellation();
                     changed = false;
                     foreach (var instance in heap.Instances.Values)
-                    foreach (var kind in new[] { ReturnKind.Reference, ReturnKind.Collection })
                     {
-                        Check();
-                        var targets = kind == ReturnKind.Reference ? instance.Summary.ReferenceReturns : instance.Summary.CollectionReturns;
-                        foreach (var item in Map(instance, targets, []).ToArray())
+                        CheckCancellation();
+                        foreach (var kind in new[] { ReturnKind.Reference, ReturnKind.Collection })
                         {
-                            Check();
-                            changed |= _items[(instance.Id, kind)].Add(item);
+                            CheckCancellation();
+                            var targets = kind == ReturnKind.Reference ? instance.Summary.ReferenceReturns : instance.Summary.CollectionReturns;
+                            foreach (var item in Map(instance, targets, []).ToArray())
+                            {
+                                CheckCancellation();
+                                changed |= _items[(instance.Id, kind)].Add(item);
+                            }
                         }
                     }
                 }
             }
 
-            private void Check() => _cancellationToken.ThrowIfCancellationRequested();
+            private void CheckCancellation()
+            {
+                WorkCancellation.Check();
+                _cancellationToken.ThrowIfCancellationRequested();
+            }
 
             /// <summary>The edges grouped by a key, each group in the order its edges come, with a check for every edge and every group.</summary>
             /// <typeparam name="TKey">The type of the key.</typeparam>
@@ -93,7 +103,7 @@ public static partial class InterproceduralAccesses
                 var groups = new Dictionary<TKey, List<TValue>>();
                 foreach (var edge in edges)
                 {
-                    Check();
+                    CheckCancellation();
                     var group = key(edge);
                     if (!groups.TryGetValue(group, out var members))
                         groups.Add(group, members = []);
@@ -103,7 +113,7 @@ public static partial class InterproceduralAccesses
                 var grouped = new Dictionary<TKey, TValue[]>();
                 foreach (var (group, members) in groups)
                 {
-                    Check();
+                    CheckCancellation();
                     grouped.Add(group, members.ToArray());
                 }
 
@@ -126,7 +136,7 @@ public static partial class InterproceduralAccesses
             {
                 foreach (var target in targets)
                 {
-                    Check();
+                    CheckCancellation();
                     switch (target)
                     {
                         case ReferenceParameter parameter:
@@ -140,11 +150,17 @@ public static partial class InterproceduralAccesses
                             break;
                         case ReferenceCall call:
                             foreach (var item in Call(instance, call.OperationId, ReturnKind.Reference, mapping))
+                            {
+                                CheckCancellation();
                                 yield return item;
+                            }
                             break;
                         case ReferenceCallCollection call:
                             foreach (var item in Call(instance, call.OperationId, ReturnKind.Collection, mapping))
+                            {
+                                CheckCancellation();
                                 yield return Widen(item);
+                            }
                             break;
                         case ReferenceUnproven:
                             yield return UNPROVEN;
@@ -156,7 +172,7 @@ public static partial class InterproceduralAccesses
             private IEnumerable<ReturnItem> Call(MethodInstance caller, int operation, ReturnKind kind,
                                                  HashSet<(string Instance, int Operation, ReturnKind Kind)> mapping)
             {
-                Check();
+                CheckCancellation();
                 var key = (caller.Id, operation, kind);
                 if (!mapping.Add(key))
                     yield break;
@@ -167,13 +183,13 @@ public static partial class InterproceduralAccesses
                     foreach (var edge in _calls.GetValueOrDefault((caller.Id, operation)) ?? [])
                     {
                         // An edge whose callee returns nothing runs no loop below, so the edge checks for itself.
-                        Check();
+                        CheckCancellation();
                         foreach (var item in Of(edge.CalleeInstance, kind).ToArray())
                         {
-                            Check();
+                            CheckCancellation();
                             foreach (var carried in Carry(caller, call, edge.CalleeInstance, item, mapping))
                             {
-                                Check();
+                                CheckCancellation();
                                 yield return receiverFromCall ? Widen(carried, keepTerm: true) : carried;
                             }
                         }
@@ -188,22 +204,25 @@ public static partial class InterproceduralAccesses
             private IEnumerable<ReturnItem> Carry(MethodInstance caller, CallTransfer? call, string callee, ReturnItem item,
                                                   HashSet<(string Instance, int Operation, ReturnKind Kind)> mapping)
             {
-                Check();
+                CheckCancellation();
                 switch (item)
                 {
                     case ReturnParam parameter:
                         foreach (var argument in call?.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Ordinal) ?? [])
                         {
-                            Check();
+                            CheckCancellation();
                             foreach (var mapped in Map(caller, argument.References, mapping))
+                            {
+                                CheckCancellation();
                                 yield return mapped;
+                            }
                         }
 
                         break;
                     case ReturnParamCollection parameter:
                         foreach (var argument in call?.Arguments.Where(argument => argument.ParameterOrdinal == parameter.Element.Ordinal) ?? [])
                         {
-                            Check();
+                            CheckCancellation();
                             var collection = argument.Collection;
                             var selector = parameter.Element.Selector;
                             var term = parameter.Element.Term;
@@ -230,7 +249,10 @@ public static partial class InterproceduralAccesses
                                     break;
                                 case ReferenceCallCollection returned:
                                     foreach (var mapped in Call(caller, returned.OperationId, ReturnKind.Collection, mapping))
+                                    {
+                                        CheckCancellation();
                                         yield return Widen(mapped);
+                                    }
                                     break;
                                 default:
                                     yield return UNPROVEN;
@@ -259,11 +281,12 @@ public static partial class InterproceduralAccesses
                 var finished = new List<string>();
                 foreach (var root in _heap.Instances.Keys)
                 {
+                    CheckCancellation();
                     var pending = new Stack<(string Instance, bool Exit)>();
                     pending.Push((root, false));
                     while (pending.TryPop(out var node))
                     {
-                        Check();
+                        CheckCancellation();
                         if (node.Exit)
                             finished.Add(node.Instance);
                         else if (seen.Add(node.Instance))
@@ -271,7 +294,7 @@ public static partial class InterproceduralAccesses
                             pending.Push((node.Instance, true));
                             foreach (var child in next.GetValueOrDefault(node.Instance) ?? [])
                             {
-                                Check();
+                                CheckCancellation();
                                 pending.Push((child, false));
                             }
                         }
@@ -281,17 +304,17 @@ public static partial class InterproceduralAccesses
                 var component = 0;
                 foreach (var root in finished.AsEnumerable().Reverse())
                 {
-                    Check();
+                    CheckCancellation();
                     if (components.ContainsKey(root)) continue;
                     var pending = new Stack<string>();
                     pending.Push(root);
                     while (pending.TryPop(out var node))
                     {
-                        Check();
+                        CheckCancellation();
                         if (!components.TryAdd(node, component)) continue;
                         foreach (var parent in previous.GetValueOrDefault(node) ?? [])
                         {
-                            Check();
+                            CheckCancellation();
                             pending.Push(parent);
                         }
                     }

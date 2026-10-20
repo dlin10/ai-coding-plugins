@@ -118,6 +118,7 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
     /// <param name="cancellationToken">Cancels the resolution between nuspec reads and dependency rounds.</param>
     /// <exception cref="ArgumentException">The version or the framework does not parse.</exception>
     /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    // bounded: overload forwarding terminates at the implementation overload.
     public ImplementationResolution Resolve(string assemblyName, string version, string? packageId, string? framework,
                                             CancellationToken cancellationToken = default) =>
         Resolve(assemblyName, version, packageId, framework, new GenerationChecks(cancellationToken));
@@ -234,6 +235,7 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
         var references = new List<string>();
         foreach (var folder in folders.Concat(sharedDirectories))
         {
+            WorkCancellation.Check();
             foreach (var candidate in Directory.EnumerateFiles(folder, "*.dll").Select(Path.GetFullPath).Order(StringComparer.OrdinalIgnoreCase))
             {
                 checks.Check(GenerationStage.Resolve);
@@ -317,6 +319,7 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
             return "net" + text[".netframework".Length..].Replace(".", "", StringComparison.Ordinal);
         foreach (var prefix in new[] { ".netcoreapp", "netcoreapp" })
         {
+            WorkCancellation.Check();
             if (!text.StartsWith(prefix, StringComparison.Ordinal))
                 continue;
             var version = text[prefix.Length..];
@@ -416,8 +419,10 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
             var pending = new Queue<IReadOnlyList<Dependency>>([direct]);
             while (pending.TryDequeue(out var dependencies))
             {
+                WorkCancellation.Check();
                 foreach (var dependency in dependencies)
                 {
+                    WorkCancellation.Check();
                     if (string.Equals(dependency.Id, packageId, StringComparison.OrdinalIgnoreCase))
                         continue;
                     if (!ranges.TryGetValue(dependency.Id, out var reaching))

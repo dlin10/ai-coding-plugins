@@ -24,5 +24,9 @@ internal static class SourceSpans
         return (outsideRoot ? fullPath : relativePath).Replace('\\', '/');
     }
 
-    internal static SourceSpan From(SyntaxNode node, string rootDirectory) => From(node.GetLocation(), rootDirectory);
+    internal static SourceSpan From(SyntaxNode node, string rootDirectory)
+    {
+        WorkCancellation.Check();
+        return From(node.GetLocation(), rootDirectory);
+    }
 }

@@ -613,10 +613,10 @@
         "mvid": "f305635c-7d90-4597-8b9d-e051338bb803"
       },
       "classified": null,
-      "reason": "library-does-not-compile",
+      "reason": "closure-bound",
       "model": null,
       "modelReason": null,
-      "reachedBodies": 0
+      "reachedBodies": 1693
     },
     {
       "member": "M:System.Threading.Channels.ChannelWriter`1.TryWrite(`0)",
@@ -3405,10 +3405,10 @@
         "mvid": "b8bc9e03-64c5-4c68-bb03-2612a465aed6"
       },
       "classified": null,
-      "reason": "library-does-not-compile",
+      "reason": "analysis-failed",
       "model": null,
       "modelReason": null,
-      "reachedBodies": 0
+      "reachedBodies": 87
     }
   ],
   "packages": [
@@ -3534,9 +3534,9 @@
       "package": null,
       "implementationVersion": "10.0.13",
       "bodies": 870,
-      "externBodies": 0,
+      "externBodies": 1,
       "members": 1,
-      "driversSynthesized": 0
+      "driversSynthesized": 1
     },
     {
       "assembly": "System.ObjectModel",
@@ -3561,9 +3561,9 @@
       "package": null,
       "implementationVersion": "10.0.13",
       "bodies": 3296,
-      "externBodies": 0,
+      "externBodies": 31,
       "members": 1,
-      "driversSynthesized": 0
+      "driversSynthesized": 1
     },
     {
       "assembly": "System.Threading.Channels",

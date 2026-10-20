@@ -8,6 +8,7 @@ public static class RepositoryRoot
         string? gitRoot = null;
         for (var current = directory; current is not null; current = current.Parent)
         {
+            WorkCancellation.Check();
             if (Directory.Exists(Path.Combine(current.FullName, ".concurrency-hunter")))
                 return current.FullName;
             if (gitRoot is null && (Directory.Exists(Path.Combine(current.FullName, ".git")) ||

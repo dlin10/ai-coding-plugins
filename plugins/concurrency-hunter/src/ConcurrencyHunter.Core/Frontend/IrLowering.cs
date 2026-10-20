@@ -37,8 +37,11 @@ public static class IrLowering
     /// <param name="rootDirectory">The root directory source locations are made relative to.</param>
     /// <param name="cancellationToken">Cancels the lowering.</param>
     public static IrLoweredMethod Lower(IMethodSymbol method, Compilation compilation, string rootDirectory,
-                                        CancellationToken cancellationToken) =>
-        Lower(method, compilation, rootDirectory, cancellationToken, LibraryModels.BuiltIn);
+                                        CancellationToken cancellationToken)
+    {
+        WorkCancellation.Check();
+        return Lower(method, compilation, rootDirectory, cancellationToken, LibraryModels.BuiltIn);
+    }
 
     /// <summary>Lowers a member with a source body as <see cref="Lower(IMethodSymbol, Compilation, string, CancellationToken)"/> does,
     /// resolving known calls against <paramref name="libraryModels"/>.</summary>
@@ -55,11 +58,13 @@ public static class IrLowering
                                         CancellationToken cancellationToken, LibraryModels libraryModels,
                                         IReadOnlySet<string>? leftOutTypeKeys = null, IReadOnlySet<string>? silentTypeKeys = null)
     {
+        WorkCancellation.Check();
         var plan = Plan(method, compilation, cancellationToken);
         var nestedIds = new Dictionary<IMethodSymbol, string>(SymbolEqualityComparer.Default);
         var functions = new List<(ControlFlowGraph Graph, IMethodSymbol[] LocalFunctions, IFlowAnonymousFunctionOperation[] AnonymousFunctions)>();
         foreach (var segment in plan.Segments.OfType<GraphSegment>())
         {
+            WorkCancellation.Check();
             var lambdas = functions.Sum(function => function.AnonymousFunctions.Length);
             var (localFunctions, anonymousFunctions, ids) = AssignNestedIds(segment.Graph, plan.BodyId, nestedIds, lambdas);
             nestedIds = ids;
@@ -77,7 +82,10 @@ public static class IrLowering
         var body = new BodyLowerer(method, plan.Segments, plan.BodyId, ownerSymbol, !method.IsStatic, nestedIds, context).Lower();
         var nestedBodies = new List<IrBody>();
         foreach (var (graph, localFunctions, anonymousFunctions) in functions)
+        {
+            WorkCancellation.Check();
             nestedBodies.AddRange(LowerNestedFunctions(graph, localFunctions, anonymousFunctions, ownerSymbol, !method.IsStatic, nestedIds, context));
+        }
         return new IrLoweredMethod(body, nestedBodies) { MetadataSupertypes = context.MetadataSupertypes };
     }
 
@@ -95,6 +103,7 @@ public static class IrLowering
         var lambdas = 0;
         foreach (var segment in plan.Segments.OfType<GraphSegment>())
         {
+            WorkCancellation.Check();
             var (localFunctions, anonymousFunctions, nestedIds) = AssignNestedIds(segment.Graph, plan.BodyId, outerIds, lambdas);
             CollectNestedBodyIds(segment.Graph, localFunctions, anonymousFunctions, nestedIds, ids, cancellationToken);
             outerIds = nestedIds;
@@ -109,8 +118,10 @@ public static class IrLowering
                                              Dictionary<IMethodSymbol, string> nestedIds,
                                              Dictionary<(SyntaxTree, TextSpan), string> ids, CancellationToken cancellationToken)
     {
+        WorkCancellation.Check();
         foreach (var localFunction in localFunctions)
         {
+            WorkCancellation.Check();
             if (localFunction.DeclaringSyntaxReferences.FirstOrDefault() is { } reference)
                 ids[(reference.SyntaxTree, reference.Span)] = nestedIds[localFunction];
             var nestedGraph = graph.GetLocalFunctionControlFlowGraph(localFunction, cancellationToken);
@@ -120,6 +131,7 @@ public static class IrLowering
 
         foreach (var anonymousFunction in anonymousFunctions)
         {
+            WorkCancellation.Check();
             ids[(anonymousFunction.Syntax.SyntaxTree, anonymousFunction.Syntax.Span)] = nestedIds[anonymousFunction.Symbol];
             var nestedGraph = graph.GetAnonymousFunctionControlFlowGraph(anonymousFunction, cancellationToken);
             var nested = AssignNestedIds(nestedGraph, nestedIds[anonymousFunction.Symbol], nestedIds, 0);
@@ -144,6 +156,7 @@ public static class IrLowering
         var nestedIds = new Dictionary<IMethodSymbol, string>(outerIds, SymbolEqualityComparer.Default);
         foreach (var localFunction in localFunctions)
         {
+            WorkCancellation.Check();
             var ordinal = localOrdinals.GetValueOrDefault(localFunction.Name) + 1;
             localOrdinals[localFunction.Name] = ordinal;
             var suffix = localCounts[localFunction.Name] == 1 ? "" : $"~{ordinal}";
@@ -152,7 +165,10 @@ public static class IrLowering
 
         var anonymousFunctions = AnonymousFunctions(graph).ToArray();
         for (var index = 0; index < anonymousFunctions.Length; index++)
+        {
+            WorkCancellation.Check();
             nestedIds.Add(anonymousFunctions[index].Symbol, $"{bodyId}#lambda{lambdaOffset + index + 1}");
+        }
         return (localFunctions, anonymousFunctions, nestedIds);
     }
 
@@ -182,6 +198,7 @@ public static class IrLowering
         var nestedBodies = new List<IrBody>();
         foreach (var localFunction in localFunctions)
         {
+            WorkCancellation.Check();
             var nested = LowerGraph(
                 localFunction,
                 graph.GetLocalFunctionControlFlowGraph(localFunction, context.CancellationToken),
@@ -196,6 +213,7 @@ public static class IrLowering
 
         foreach (var anonymousFunction in anonymousFunctions)
         {
+            WorkCancellation.Check();
             var nested = LowerGraph(
                 anonymousFunction.Symbol,
                 graph.GetAnonymousFunctionControlFlowGraph(anonymousFunction, context.CancellationToken),
@@ -216,10 +234,13 @@ public static class IrLowering
         var seen = new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default);
         foreach (var block in graph.Blocks)
         {
+            WorkCancellation.Check();
             foreach (var root in block.Operations.Append(block.BranchValue).Where(operation => operation is not null))
             {
+                WorkCancellation.Check();
                 foreach (var anonymous in root!.DescendantsAndSelf().OfType<IFlowAnonymousFunctionOperation>())
                 {
+                    WorkCancellation.Check();
                     if (seen.Add(anonymous.Symbol))
                         yield return anonymous;
                 }
@@ -304,14 +325,17 @@ public static class IrLowering
         foreach (var declaration in type.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax(cancellationToken))
                                         .OfType<TypeDeclarationSyntax>())
         {
+            WorkCancellation.Check();
             var model = compilation.GetSemanticModel(declaration.SyntaxTree);
             foreach (var member in declaration.Members)
             {
+                WorkCancellation.Check();
                 switch (member)
                 {
                     case FieldDeclarationSyntax field:
                         foreach (var variable in field.Declaration.Variables)
                         {
+                            WorkCancellation.Check();
                             if (variable.Initializer is not null &&
                                 model.GetDeclaredSymbol(variable, cancellationToken) is IFieldSymbol { IsConst: false } symbol &&
                                 symbol.IsStatic == isStatic)
@@ -329,6 +353,7 @@ public static class IrLowering
                     case EventFieldDeclarationSyntax @event:
                         foreach (var variable in @event.Declaration.Variables)
                         {
+                            WorkCancellation.Check();
                             if (variable.Initializer is not null &&
                                 model.GetDeclaredSymbol(variable, cancellationToken) is IEventSymbol symbol && symbol.IsStatic == isStatic)
                             {
@@ -366,7 +391,10 @@ public static class IrLowering
         void AddInitializers(bool isStatic)
         {
             foreach (var (clause, member) in Initializers(type, isStatic, compilation, cancellationToken))
+            {
+                WorkCancellation.Check();
                 AddGraph(clause, member);
+            }
         }
 
         void AddImplicitBaseCall(SyntaxNode syntax)
@@ -468,6 +496,7 @@ public static class IrLowering
     {
         foreach (var ancestor in reference.Ancestors())
         {
+            WorkCancellation.Check();
             if (ancestor is AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax)
                 return false;
             if (ancestor is EqualsValueClauseSyntax
@@ -531,9 +560,15 @@ public static class IrLowering
 
             var supertypes = new HashSet<string>(StringComparer.Ordinal);
             for (ITypeSymbol? current = type; current is not null; current = current.BaseType)
+            {
+                WorkCancellation.Check();
                 supertypes.Add(TypeSafety.DefinitionOf(SymbolNames.TypeKey(current)));
+            }
             foreach (var @interface in type.AllInterfaces)
+            {
+                WorkCancellation.Check();
                 supertypes.Add(TypeSafety.DefinitionOf(SymbolNames.TypeKey(@interface)));
+            }
             MetadataSupertypes[TypeSafety.DefinitionOf(SymbolNames.TypeKey(type))] = supertypes;
         }
     }
@@ -550,6 +585,7 @@ public static class IrLowering
             var delegates = 0;
             foreach (var root in roots)
             {
+                WorkCancellation.Check();
                 var operation = compilation.GetSemanticModel(root.SyntaxTree).GetOperation(root, cancellationToken);
                 if (operation is null)
                     continue;
@@ -561,6 +597,7 @@ public static class IrLowering
                                        .Select(item => item.Operation);
                 foreach (var descendant in ordered)
                 {
+                    WorkCancellation.Check();
                     switch (descendant)
                     {
                         case IObjectCreationOperation or IArrayCreationOperation when descendant.Type is not null:
@@ -626,9 +663,11 @@ public static class IrLowering
             var seen = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
             for (var root = 0; root < roots.Count; root++)
             {
+                WorkCancellation.Check();
                 var model = compilation.GetSemanticModel(roots[root].SyntaxTree);
                 foreach (var node in roots[root].DescendantNodesAndSelf())
                 {
+                    WorkCancellation.Check();
                     if (node is not (VariableDeclaratorSyntax or SingleVariableDesignationSyntax or ParameterSyntax or ForEachStatementSyntax
                                      or CatchDeclarationSyntax) ||
                         model.GetDeclaredSymbol(node, cancellationToken) is not { } symbol || symbol is not (ILocalSymbol or IParameterSymbol) ||
@@ -644,9 +683,13 @@ public static class IrLowering
             var slots = new Dictionary<ISymbol, string>(SymbolEqualityComparer.Default);
             foreach (var named in declared.GroupBy(variable => variable.Symbol.Name, StringComparer.Ordinal))
             {
+                WorkCancellation.Check();
                 var ordinal = 0;
                 foreach (var (symbol, _, _) in named.OrderBy(variable => variable.Root).ThenBy(variable => variable.Start))
+                {
+                    WorkCancellation.Check();
                     slots[symbol] = ++ordinal == 1 ? symbol.Name : string.Create(CultureInfo.InvariantCulture, $"{symbol.Name}#{ordinal}");
+                }
             }
 
             return slots;
@@ -659,7 +702,10 @@ public static class IrLowering
         {
             var owner = symbol.ContainingSymbol;
             while (owner is IMethodSymbol { MethodKind: MethodKind.AnonymousFunction or MethodKind.LocalFunction })
+            {
+                WorkCancellation.Check();
                 owner = owner.ContainingSymbol;
+            }
             return owner is not IMethodSymbol member ||
                    SymbolEqualityComparer.Default.Equals(member.OriginalDefinition, method.OriginalDefinition);
         }
@@ -765,6 +811,12 @@ public static class IrLowering
             _context = context;
             _rootDirectory = Path.GetFullPath(context.RootDirectory);
             _cancellationToken = context.CancellationToken;
+        }
+
+        private void CheckCancellation()
+        {
+            WorkCancellation.Check();
+            _cancellationToken.ThrowIfCancellationRequested();
         }
 
         internal IrBody Lower()
@@ -892,17 +944,23 @@ public static class IrLowering
             var definitions = new Dictionary<int, IrOperation>();
             foreach (var operation in operations)
             {
+                CheckCancellation();
                 foreach (var value in operation.DefinedValues)
+                {
+                    CheckCancellation();
                     definitions[value] = operation;
+                }
             }
 
             var awaited = new HashSet<int>();
             foreach (var await in operations.OfType<IrAwaitOperation>())
             {
+                CheckCancellation();
                 var seen = new HashSet<int>();
                 var pending = new Stack<int>([await.TaskValue ?? await.AwaitableValue]);
                 while (pending.TryPop(out var value))
                 {
+                    CheckCancellation();
                     if (!seen.Add(value) || !definitions.TryGetValue(value, out var definition) ||
                         _values[value].Kind != IrValueKind.Temporary)
                     {
@@ -919,7 +977,10 @@ public static class IrLowering
                             break;
                         case IrPhiOperation phi:
                             foreach (var input in phi.Inputs)
+                            {
+                                CheckCancellation();
                                 pending.Push(input.Value);
+                            }
                             break;
                     }
                 }
@@ -954,13 +1015,20 @@ public static class IrLowering
             var whenAlls = operations.OfType<IrWhenAllOperation>().Select(whenAll => whenAll.ResultValue).ToHashSet();
             var unwraps = new Dictionary<int, int>();
             foreach (var unwrap in operations.OfType<IrUnwrapOperation>())
+            {
+                WorkCancellation.Check();
                 unwraps[unwrap.ResultValue] = unwrap.OuterValue;
+            }
             var spawns = new Dictionary<int, IrSpawnOperation>();
             foreach (var spawn in operations.OfType<IrSpawnOperation>().Where(spawn => spawn.HandleValue is not null))
+            {
+                WorkCancellation.Check();
                 spawns[spawn.HandleValue!.Value] = spawn;
+            }
             var sources = new Dictionary<int, List<int>>();
             foreach (var operation in operations)
             {
+                WorkCancellation.Check();
                 switch (operation)
                 {
                     case IrAssignOperation assign:
@@ -979,6 +1047,7 @@ public static class IrLowering
                 var pending = new Stack<int>([value]);
                 while (pending.TryPop(out var current))
                 {
+                    WorkCancellation.Check();
                     if (!seen.Add(current))
                         continue;
                     if (whenAlls.Contains(current))
@@ -988,7 +1057,10 @@ public static class IrLowering
                     if (spawns.TryGetValue(current, out var spawn) && (spawn.Kind == IrSpawnKind.Unrecognized || composite.Contains(spawn.Id)))
                         return true;
                     foreach (var source in sources.GetValueOrDefault(current) ?? [])
+                    {
+                        WorkCancellation.Check();
                         pending.Push(source);
+                    }
                 }
 
                 return false;
@@ -997,9 +1069,11 @@ public static class IrLowering
             var changed = true;
             while (changed)
             {
+                WorkCancellation.Check();
                 changed = false;
                 foreach (var continuation in continuations.Where(continuation => !composite.Contains(continuation.Id)))
                 {
+                    WorkCancellation.Check();
                     if (!Composite(continuation.AntecedentValue!.Value))
                         continue;
                     composite.Add(continuation.Id);
@@ -1046,6 +1120,7 @@ public static class IrLowering
             var current = new Dictionary<ISymbol, int>(SymbolEqualityComparer.Default);
             foreach (var parameter in _method.Parameters)
             {
+                CheckCancellation();
                 var value = AddValue(IrValueKind.Parameter, parameter.Type, parameter.Name, 0, SymbolKey(parameter),
                                      parameter.RefKind != RefKind.None);
                 _parameterValues[parameter] = value;
@@ -1057,6 +1132,7 @@ public static class IrLowering
             var blocks = new List<IrBlock> { new(0, IrBlockKind.Entry, 0, [], [], [], null, Jump(IrBranchKind.Regular, 1)) };
             foreach (var segment in _segments)
             {
+                CheckCancellation();
                 var offset = blocks.Count;
                 var entry = new IrFlowPredecessor(offset - 1, IrEdgeKind.Explicit);
                 if (segment is GraphSegment graphSegment)
@@ -1064,9 +1140,13 @@ public static class IrLowering
                     EnterSegment(graphSegment, offset);
                     _regionIds[_graph.Root] = 0;
                     foreach (var nested in _graph.Root.NestedRegions)
+                    {
+                        CheckCancellation();
                         AddRegion(nested, 0);
+                    }
                     foreach (var variable in _ssaPlan.Variables.Where(variable => variable.IsIncoming))
                     {
+                        CheckCancellation();
                         var value = variable.Symbol is { } symbol && current.TryGetValue(symbol, out var carried)
                             ? carried
                             : AddValue(variable.Kind, variable.Type, variable.Name, 0, KeyOf(variable), IsReference(variable));
@@ -1084,7 +1164,10 @@ public static class IrLowering
                     blocks.AddRange(lowered);
                     var exit = _graph.Blocks[^1].Ordinal;
                     foreach (var variable in _ssaPlan.Variables.Where(variable => variable.Symbol is not null))
+                    {
+                        CheckCancellation();
                         current[variable.Symbol!] = ResolveToken(_ssaPlan.Entry(exit, variable));
+                    }
                 }
                 else
                 {
@@ -1106,6 +1189,7 @@ public static class IrLowering
                 case PrimaryConstructorParametersSegment primary:
                     foreach (var parameter in primary.Parameters)
                     {
+                        CheckCancellation();
                         var location = GetPrimaryConstructorParameterLocation(parameter);
                         var syntax = parameter.DeclaringSyntaxReferences[0].GetSyntax(_cancellationToken);
                         _operations.Add(new IrStoreFieldOperation(
@@ -1164,6 +1248,7 @@ public static class IrLowering
             _referencedVariables.Clear();
             foreach (var operation in _graph.Blocks.SelectMany(block => block.Operations).SelectMany(operation => operation.DescendantsAndSelf()))
             {
+                CheckCancellation();
                 var target = operation switch
                 {
                     IVariableDeclaratorOperation { Symbol.RefKind: not RefKind.None, Initializer: { } initializer } => initializer.Value,
@@ -1189,15 +1274,23 @@ public static class IrLowering
         /// <param name="graph">The graph whose nested functions are searched.</param>
         private IEnumerable<ISymbol> NestedAssigned(ControlFlowGraph graph)
         {
+            CheckCancellation();
             var nested = graph.LocalFunctions.Select(local => (Function: local, Graph: graph.GetLocalFunctionControlFlowGraph(local, _cancellationToken)))
                               .Concat(AnonymousFunctions(graph).Select(anonymous => (Function: anonymous.Symbol,
                                                                                     Graph: graph.GetAnonymousFunctionControlFlowGraph(anonymous, _cancellationToken))));
             foreach (var (function, body) in nested)
             {
+                CheckCancellation();
                 foreach (var variable in SsaPlan.Create(function, body, EffectiveFlowGraph.Create(body)).AssignedCaptures)
+                {
+                    CheckCancellation();
                     yield return variable.Symbol!;
+                }
                 foreach (var symbol in NestedAssigned(body))
+                {
+                    CheckCancellation();
                     yield return symbol;
+                }
             }
         }
 
@@ -1208,6 +1301,7 @@ public static class IrLowering
 
             foreach (var variable in _ssaPlan.Variables.Where(variable => variable.IsIncoming))
             {
+                CheckCancellation();
                 var value = AddValue(variable.Kind, variable.Type, variable.Name, 0, KeyOf(variable), IsReference(variable));
                 _tokenValues.Add(variable.Incoming, value);
                 if (variable.Symbol is IParameterSymbol parameter && SymbolEqualityComparer.Default.Equals(parameter.ContainingSymbol, _method))
@@ -1219,15 +1313,23 @@ public static class IrLowering
         {
             foreach (var block in _graph.Blocks)
             {
+                CheckCancellation();
                 foreach (var (_, token) in _ssaPlan.Phis(block.Ordinal))
+                {
+                    CheckCancellation();
                     ResolveToken(token);
+                }
                 foreach (var definition in _ssaPlan.Definitions(block.Ordinal))
+                {
+                    CheckCancellation();
                     ResolveToken(definition.Token);
+                }
             }
         }
 
         private void AddRegion(ControlFlowRegion region, int? parent)
         {
+            CheckCancellation();
             var id = _regions.Count;
             _regionIds.Add(region, id);
             _regions.Add(new IrRegion(
@@ -1238,22 +1340,29 @@ public static class IrLowering
                 region.LastBlockOrdinal + _offset,
                 region.ExceptionType is null ? null : SymbolNames.Type(region.ExceptionType)));
             foreach (var nested in region.NestedRegions)
+            {
+                CheckCancellation();
                 AddRegion(nested, id);
+            }
         }
 
         private IrBlock LowerBlock(BasicBlock block)
         {
-            _cancellationToken.ThrowIfCancellationRequested();
+            CheckCancellation();
             _operations = [];
             _currentBlockOrdinal = block.Ordinal;
             _definitionPositions.Clear();
             _symbolValues.Clear();
             _captureValues.Clear();
             foreach (var variable in _ssaPlan.Variables)
+            {
+                CheckCancellation();
                 SetCurrent(variable, ResolveToken(_ssaPlan.Entry(block.Ordinal, variable)));
+            }
 
             foreach (var (variable, token) in _ssaPlan.Phis(block.Ordinal))
             {
+                CheckCancellation();
                 var inputs = _ssaPlan.PhiInputs(block.Ordinal, variable)
                     .Select(input => new IrPhiInput(
                         new IrFlowPredecessor(input.Edge.Source + _offset, input.Edge.Kind),
@@ -1272,6 +1381,7 @@ public static class IrLowering
             {
                 foreach (var variable in _ssaPlan.CapturedVariables)
                 {
+                    CheckCancellation();
                     _operations.Add(new IrCaptureOperation(
                         NextOperation(), ResolveToken(variable.Incoming), _bodyId,
                         Provenance(variable.FirstReference ?? _graph.OriginalOperation, "capture"))
@@ -1363,6 +1473,7 @@ public static class IrLowering
             var sections = LockSections().Where(candidate => candidate.Blocks.Contains(block.Ordinal)).ToArray();
             for (var index = 0; index < block.Operations.Length; index++)
             {
+                CheckCancellation();
                 var operation = block.Operations[index];
                 if (LockSectionOf(operation) is { } opened)
                 {
@@ -1385,6 +1496,7 @@ public static class IrLowering
                                                                     !CoversAfter(candidate, block, index))
                                                 .OrderBy(candidate => candidate.Statement.Statement.Span.Length))
                 {
+                    CheckCancellation();
                     Release(section, operation);
                 }
             }
@@ -1423,6 +1535,7 @@ public static class IrLowering
             foreach (var section in LockSections().Where(candidate => candidate.Blocks.Contains(block.Ordinal))
                                                   .OrderBy(candidate => candidate.Statement.Statement.Span.Length))
             {
+                CheckCancellation();
                 if (LeavesSection(block, section))
                     Release(section, block.Operations.LastOrDefault() ?? _graph.OriginalOperation);
             }
@@ -1464,8 +1577,10 @@ public static class IrLowering
             _lockSections = [];
             foreach (var block in _graph.Blocks)
             {
+                CheckCancellation();
                 foreach (var operation in block.Operations)
                 {
+                    CheckCancellation();
                     if (operation.Syntax is not LockStatementSyntax statement ||
                         operation.DescendantsAndSelf().FirstOrDefault(child => child.Syntax == statement.Expression &&
                                                                                child is not IInvalidOperation) is not { } gate ||
@@ -1496,7 +1611,7 @@ public static class IrLowering
 
         private void LowerTop(IOperation operation)
         {
-            _cancellationToken.ThrowIfCancellationRequested();
+            CheckCancellation();
             switch (operation)
             {
                 case IExpressionStatementOperation expression:
@@ -1504,11 +1619,17 @@ public static class IrLowering
                     break;
                 case IVariableDeclarationGroupOperation group:
                     foreach (var declaration in group.Declarations)
+                    {
+                        CheckCancellation();
                         LowerTop(declaration);
+                    }
                     break;
                 case IVariableDeclarationOperation declaration:
                     foreach (var declarator in declaration.Declarators)
+                    {
+                        CheckCancellation();
                         LowerTop(declarator);
+                    }
                     break;
                 case IVariableDeclaratorOperation declarator when declarator.Initializer is not null:
                     StoreSymbol(declarator.Symbol,
@@ -1536,7 +1657,7 @@ public static class IrLowering
 
         private int LowerValue(IOperation operation)
         {
-            _cancellationToken.ThrowIfCancellationRequested();
+            CheckCancellation();
             return operation switch
             {
                 INameOfOperation nameOf => Constant(nameOf, "nameof"),
@@ -1620,6 +1741,7 @@ public static class IrLowering
 
         private int LowerAddress(IOperation target)
         {
+            CheckCancellation();
             target = UnwrapTarget(target);
             switch (target)
             {
@@ -1991,7 +2113,10 @@ public static class IrLowering
             CollectTargetPlaces(deconstruction.Target, writes);
             CollectDeconstruction(deconstruction.Target, deconstruction.Value, null, deconstruction, info, stores);
             for (var index = 0; index < stores.Count; index++)
+            {
+                CheckCancellation();
                 writes[index](stores[index].Value, deconstruction, "deconstruction");
+            }
             if (stores.Count == 0)
                 return Unknown(deconstruction, "unsupported");
             return stores[^1].Value;
@@ -2003,6 +2128,7 @@ public static class IrLowering
                                            DeconstructionInfo info,
                                            List<(IOperation Target, int Value)> stores)
         {
+            CheckCancellation();
             var targetTuple = TupleOf(target);
             if (targetTuple is null)
             {
@@ -2014,8 +2140,11 @@ public static class IrLowering
             if (sourceTuple is not null && sourceTuple.Elements.Length == targetTuple.Elements.Length)
             {
                 for (var index = 0; index < targetTuple.Elements.Length; index++)
+                {
+                    CheckCancellation();
                     CollectDeconstruction(targetTuple.Elements[index], sourceTuple.Elements[index], null, deconstruction,
                                            NestedInfo(info, index), stores);
+                }
                 return;
             }
 
@@ -2028,6 +2157,7 @@ public static class IrLowering
             var outputs = deconstruct is not null ? CallDeconstruct(deconstruction, deconstruct, tupleValue) : null;
             for (var index = 0; index < targetTuple.Elements.Length; index++)
             {
+                CheckCancellation();
                 var element = targetTuple.Elements[index];
                 var elementValue = outputs is not null && index < outputs.Length
                     ? outputs[index]
@@ -2042,6 +2172,7 @@ public static class IrLowering
         /// <param name="writes">The writes collected so far.</param>
         private void CollectTargetPlaces(IOperation target, List<Action<int, IOperation, string>> writes)
         {
+            CheckCancellation();
             if (TupleOf(target) is not { } tuple)
             {
                 writes.Add(LowerCapturedStorePlace(target));
@@ -2049,7 +2180,10 @@ public static class IrLowering
             }
 
             foreach (var element in tuple.Elements)
+            {
+                CheckCancellation();
                 CollectTargetPlaces(element, writes);
+            }
         }
 
         private static DeconstructionInfo NestedInfo(DeconstructionInfo info, int index) =>
@@ -2084,6 +2218,7 @@ public static class IrLowering
             }
             foreach (var parameter in method.Parameters.Where(parameter => parameter.RefKind == RefKind.Out))
             {
+                CheckCancellation();
                 values.Add(Constant(source, null, "out-placeholder"));
                 ordinals.Add(parameter.Ordinal);
                 results.Add(parameter.Ordinal, AddTemporary(parameter.Type));
@@ -2094,16 +2229,21 @@ public static class IrLowering
             return results.OrderBy(pair => pair.Key).Select(pair => pair.Value).ToArray();
         }
 
-        private static ITupleOperation? TupleOf(IOperation operation) => operation switch
+        private static ITupleOperation? TupleOf(IOperation operation)
         {
-            IConversionOperation conversion => TupleOf(conversion.Operand),
-            IDeclarationExpressionOperation declaration => TupleOf(declaration.Expression),
-            ITupleOperation tuple => tuple,
-            _ => null
-        };
+            WorkCancellation.Check();
+            return operation switch
+            {
+                IConversionOperation conversion => TupleOf(conversion.Operand),
+                IDeclarationExpressionOperation declaration => TupleOf(declaration.Expression),
+                ITupleOperation tuple => tuple,
+                _ => null
+            };
+        }
 
         private int LowerStore(IOperation target, int value, IOperation source, string transformation)
         {
+            CheckCancellation();
             target = UnwrapTarget(target);
             switch (target)
             {
@@ -2218,12 +2358,16 @@ public static class IrLowering
             }
         }
 
-        private static IOperation UnwrapTarget(IOperation operation) => operation switch
+        private static IOperation UnwrapTarget(IOperation operation)
         {
-            IDeclarationExpressionOperation declaration => UnwrapTarget(declaration.Expression),
-            IConversionOperation conversion => UnwrapTarget(conversion.Operand),
-            _ => operation
-        };
+            WorkCancellation.Check();
+            return operation switch
+            {
+                IDeclarationExpressionOperation declaration => UnwrapTarget(declaration.Expression),
+                IConversionOperation conversion => UnwrapTarget(conversion.Operand),
+                _ => operation
+            };
+        }
 
         private int StoreSymbol(ISymbol symbol, int sourceValue, IOperation source, string transformation)
         {
@@ -2572,6 +2716,7 @@ public static class IrLowering
             var syntax = capture.Syntax;
             while (true)
             {
+                WorkCancellation.Check();
                 switch (syntax.Parent)
                 {
                     case RefExpressionSyntax or ParenthesizedExpressionSyntax:
@@ -2716,7 +2861,10 @@ public static class IrLowering
         {
             var syntax = captured.Syntax;
             while (syntax.Parent is ParenthesizedExpressionSyntax parenthesized)
+            {
+                WorkCancellation.Check();
                 syntax = parenthesized;
+            }
             return syntax.Parent is AssignmentExpressionSyntax { Right: not RefExpressionSyntax } assignment &&
                    assignment.IsKind(SyntaxKind.SimpleAssignmentExpression) && assignment.Left == syntax;
         }
@@ -2784,6 +2932,7 @@ public static class IrLowering
             foreach (var argument in operations.Where(argument => argument.Parameter?.RefKind == RefKind.Out ||
                                                                   argument.Parameter?.RefKind == RefKind.Ref && HasOutput(argument)))
             {
+                CheckCancellation();
                 if (arguments.At(argument.Parameter!.Ordinal) is not int address)
                     continue;
                 var written = HasOutput(argument) ? arguments.RefResults[argument.Parameter.Ordinal] : Unknown(argument.Value, "opaque-out-value");
@@ -2863,10 +3012,12 @@ public static class IrLowering
         /// <param name="operation">The operation whose value is tested.</param>
         private static bool IsAwaitedImmediately(IOperation operation)
         {
+            WorkCancellation.Check();
             var child = operation;
             var parent = operation.Parent;
             while (parent is IConversionOperation or IParenthesizedOperation)
             {
+                WorkCancellation.Check();
                 child = parent;
                 parent = parent.Parent;
             }
@@ -2910,6 +3061,7 @@ public static class IrLowering
             var workIsAsync = delegateOrdinals.Any(ordinal => Bcl.IsAsyncDelegate(ArgumentOperation(ordinal)));
             foreach (var parameter in original.Parameters.Where(parameter => parameter.Type is IArrayTypeSymbol { ElementType.TypeKind: TypeKind.Delegate }))
             {
+                CheckCancellation();
                 if (ArgumentValue(arguments, parameter.Ordinal) is not int array)
                     continue;
                 var listed = ListedElements(ArgumentOperation(parameter.Ordinal));
@@ -3193,7 +3345,11 @@ public static class IrLowering
             }).ToArray();
             return call with { Library = library with { Effects = effects } };
 
-            static IOperation Unwrapped(IOperation value) => value is IConversionOperation conversion ? Unwrapped(conversion.Operand) : value;
+            static IOperation Unwrapped(IOperation value)
+            {
+                WorkCancellation.Check();
+                return value is IConversionOperation conversion ? Unwrapped(conversion.Operand) : value;
+            }
 
             static bool IsImmutableValue(IOperation value) => IsImmutableType(Unwrapped(value).Type);
 
@@ -3215,7 +3371,10 @@ public static class IrLowering
         private IReadOnlyList<int>? ListedElements(IOperation? argument)
         {
             while (argument is IConversionOperation conversion)
+            {
+                CheckCancellation();
                 argument = conversion.Operand;
+            }
             return argument is not null && _listedElements.TryGetValue(argument, out var elements) ? elements : null;
         }
 
@@ -3223,6 +3382,7 @@ public static class IrLowering
         {
             for (var index = 0; index < arguments.Ordinals.Count; index++)
             {
+                WorkCancellation.Check();
                 if (arguments.Ordinals[index] == ordinal)
                     return arguments.Values[index];
             }
@@ -3359,8 +3519,11 @@ public static class IrLowering
                      .Select(argument => argument.Parameter!.Ordinal)
                      .ToArray();
 
-        private static IOperation WithoutConversions(IOperation value) =>
-            value is IConversionOperation conversion ? WithoutConversions(conversion.Operand) : value;
+        private static IOperation WithoutConversions(IOperation value)
+        {
+            WorkCancellation.Check();
+            return value is IConversionOperation conversion ? WithoutConversions(conversion.Operand) : value;
+        }
 
         /// <summary>Lowers a call that enters or leaves a synchronization primitive into that entry or exit (TD-080, TD-083). An
         /// entry with a timeout holds the primitive only where its success flag is true, and an asynchronous entry only where its
@@ -3591,6 +3754,7 @@ public static class IrLowering
             var refResults = new Dictionary<int, int>();
             foreach (var argument in arguments)
             {
+                CheckCancellation();
                 var ordinal = argument.Parameter?.Ordinal ?? -1;
                 if (LowerArgument(argument) is int value)
                 {
@@ -3611,6 +3775,7 @@ public static class IrLowering
             var finalVersions = new Dictionary<ISymbol, int>(SymbolEqualityComparer.Default);
             foreach (var (ordinal, symbol) in passedByReference)
             {
+                CheckCancellation();
                 if (!_ssaPlan.TryGetVariable(symbol, out var variable))
                     throw new InvalidOperationException($"No SSA variable was planned for '{symbol.Name}'.");
                 var defined = ResolveToken(NextDefinition(variable));
@@ -3618,7 +3783,10 @@ public static class IrLowering
                 finalVersions[symbol] = defined;
             }
             foreach (var (ordinal, symbol) in passedByReference)
+            {
+                CheckCancellation();
                 refResults[ordinal] = finalVersions[symbol];
+            }
 
             return new LoweredArguments(values, ordinals, refResults);
         }
@@ -3800,14 +3968,18 @@ public static class IrLowering
 
         /// <summary>Whether a type names a type parameter anywhere in it: its element, its type arguments or its containing types'.</summary>
         /// <param name="type">The type.</param>
-        private static bool NamesTypeParameter(ITypeSymbol type) => type switch
+        private static bool NamesTypeParameter(ITypeSymbol type)
         {
-            ITypeParameterSymbol => true,
-            IArrayTypeSymbol array => NamesTypeParameter(array.ElementType),
-            IPointerTypeSymbol pointer => NamesTypeParameter(pointer.PointedAtType),
-            INamedTypeSymbol named => named.TypeArguments.Any(NamesTypeParameter) || named.ContainingType is { } containing && NamesTypeParameter(containing),
-            _ => false
-        };
+            WorkCancellation.Check();
+            return type switch
+            {
+                ITypeParameterSymbol => true,
+                IArrayTypeSymbol array => NamesTypeParameter(array.ElementType),
+                IPointerTypeSymbol pointer => NamesTypeParameter(pointer.PointedAtType),
+                INamedTypeSymbol named => named.TypeArguments.Any(NamesTypeParameter) || named.ContainingType is { } containing && NamesTypeParameter(containing),
+                _ => false
+            };
+        }
 
         /// <summary>A field of <c>System.Nullable&lt;T&gt;</c> (<see cref="NullableFieldOf"/>).</summary>
         private enum NullableField
@@ -3852,7 +4024,10 @@ public static class IrLowering
         {
             _context.RecordMetadataSupertypes(creation.Type);
             foreach (var size in creation.DimensionSizes)
+            {
+                CheckCancellation();
                 LowerValue(size);
+            }
             var result = AddTemporary(creation.Type);
             _operations.Add(new IrAllocateOperation(NextOperation(), result, TypeName(creation.Type), Provenance(creation, "array-creation"))
             {
@@ -3873,8 +4048,10 @@ public static class IrLowering
         private void StoreElements(int array, IArrayInitializerOperation initializer, IReadOnlyList<int> outerIndices,
                                    ITypeSymbol? indexType, List<int> elements)
         {
+            CheckCancellation();
             for (var position = 0; position < initializer.ElementValues.Length; position++)
             {
+                CheckCancellation();
                 var element = initializer.ElementValues[position];
                 var index = AddValue(IrValueKind.Constant, indexType, position.ToString(CultureInfo.InvariantCulture), 0);
                 if (element is IArrayInitializerOperation nested)
@@ -4054,6 +4231,7 @@ public static class IrLowering
 
         private int LowerPattern(IPatternOperation pattern, int input)
         {
+            CheckCancellation();
             switch (pattern)
             {
                 case IDeclarationPatternOperation declaration:
@@ -4138,6 +4316,7 @@ public static class IrLowering
             var sliceIndex = Array.FindIndex(list.Patterns.ToArray(), pattern => pattern is ISlicePatternOperation);
             for (var index = 0; index < list.Patterns.Length; index++)
             {
+                CheckCancellation();
                 var pattern = list.Patterns[index];
                 tests.Add(pattern is ISlicePatternOperation slice
                     ? LowerSlicePattern(slice, input, index, PatternSubtract(list, length, list.Patterns.Length - 1))
@@ -4244,14 +4423,19 @@ public static class IrLowering
             var input = LowerValue(@switch.Value);
             foreach (var @case in @switch.Cases)
             {
+                CheckCancellation();
                 foreach (var clause in @case.Clauses.OfType<IPatternCaseClauseOperation>())
                 {
+                    CheckCancellation();
                     LowerPattern(clause.Pattern, input);
                     if (clause.Guard is not null)
                         LowerValue(clause.Guard);
                 }
                 foreach (var body in @case.Body)
+                {
+                    CheckCancellation();
                     LowerTop(body);
+                }
             }
             return Unknown(@switch, "pattern-test", [input]);
         }
@@ -4261,6 +4445,7 @@ public static class IrLowering
             var input = LowerValue(@switch.Value);
             foreach (var arm in @switch.Arms)
             {
+                CheckCancellation();
                 LowerPattern(arm.Pattern, input);
                 if (arm.Guard is not null)
                     LowerValue(arm.Guard);
@@ -4407,15 +4592,23 @@ public static class IrLowering
         /// <param name="graph">The function's control flow graph.</param>
         private IEnumerable<ISymbol> CapturedSymbols(IMethodSymbol function, ControlFlowGraph graph)
         {
+            CheckCancellation();
             foreach (var variable in SsaPlan.Create(function, graph, EffectiveFlowGraph.Create(graph)).CapturedVariables)
+            {
+                CheckCancellation();
                 yield return variable.Symbol!;
+            }
             var nested = graph.LocalFunctions.Select(local => (Function: local, Graph: graph.GetLocalFunctionControlFlowGraph(local, _cancellationToken)))
                               .Concat(AnonymousFunctions(graph).Select(anonymous => (Function: anonymous.Symbol,
                                                                                     Graph: graph.GetAnonymousFunctionControlFlowGraph(anonymous, _cancellationToken))));
             foreach (var (inner, body) in nested)
             {
+                CheckCancellation();
                 foreach (var symbol in CapturedSymbols(inner, body))
+                {
+                    CheckCancellation();
                     yield return symbol;
+                }
             }
         }
 
@@ -4426,6 +4619,7 @@ public static class IrLowering
         {
             for (var owner = symbol.ContainingSymbol; owner is not null; owner = owner.ContainingSymbol)
             {
+                WorkCancellation.Check();
                 if (SymbolEqualityComparer.Default.Equals(owner, function))
                     return true;
             }
@@ -4433,8 +4627,11 @@ public static class IrLowering
             return false;
         }
 
-        private int Constant(IOperation operation, string transformation) =>
-            Constant(operation, operation.ConstantValue.HasValue ? operation.ConstantValue.Value : null, transformation);
+        private int Constant(IOperation operation, string transformation)
+        {
+            CheckCancellation();
+            return Constant(operation, operation.ConstantValue.HasValue ? operation.ConstantValue.Value : null, transformation);
+        }
 
         private int Constant(IOperation operation, object? value, string transformation)
         {
@@ -4442,7 +4639,11 @@ public static class IrLowering
             return AddValue(IrValueKind.Constant, operation.Type, name, 0);
         }
 
-        private int Unknown(IOperation operation, string reason) => Unknown(operation, reason, []);
+        private int Unknown(IOperation operation, string reason)
+        {
+            CheckCancellation();
+            return Unknown(operation, reason, []);
+        }
 
         private int Unknown(IOperation operation, string reason, IReadOnlyList<int> operands, string? dynamicCallee = null)
         {
@@ -4553,6 +4754,7 @@ public static class IrLowering
         /// <param name="isReadOnlyMember">Whether a member called on it is <c>readonly</c>.</param>
         private int LowerStructOperand(IOperation operand, StructUse use, bool isReadOnlyMember = false)
         {
+            CheckCancellation();
             // A Nullable's value is the Nullable itself (NullableFieldOf).
             if (operand is IFieldReferenceOperation field && NullableFieldOf(field) == NullableField.Value)
                 return LowerStructOperand(field.Instance!, use, isReadOnlyMember);
@@ -4574,30 +4776,34 @@ public static class IrLowering
         /// <summary>What names a struct operand, and whether the storage it names is read-only where it stands; null for an operand that
         /// is a value the lowering computes.</summary>
         /// <param name="operand">The operand.</param>
-        private (StructOperand Operand, bool IsReadOnly)? StructOperandOf(IOperation operand) => operand switch
+        private (StructOperand Operand, bool IsReadOnly)? StructOperandOf(IOperation operand)
         {
-            IParenthesizedOperation parenthesized => StructOperandOf(parenthesized.Operand),
-            IFieldReferenceOperation field => (field.Field.IsStatic ? StructOperand.StaticField : StructOperand.Field,
-                                               field.Field.IsReadOnly && !IsUnderConstruction(field) ||
-                                               field.Instance is { } holder && StructTypeKey(holder.Type) is not null &&
-                                               StructOperandOf(holder) is { IsReadOnly: true }),
-            IArrayElementReferenceOperation => (StructOperand.Element, false),
-            IPropertyReferenceOperation property when IsElementIndexer(property) || HandsBackReference(property) || IsReferenceCurrent(property) =>
-                (StructOperand.ReferenceReturn, property.Property.RefKind == RefKind.RefReadOnly),
-            IInvocationOperation invocation when invocation.TargetMethod.ReturnsByRef || invocation.TargetMethod.ReturnsByRefReadonly =>
-                (StructOperand.ReferenceReturn, invocation.TargetMethod.ReturnsByRefReadonly),
-            ILocalReferenceOperation { Local.RefKind: RefKind.Ref } => (StructOperand.ReferenceLocal, false),
-            ILocalReferenceOperation { Local.RefKind: RefKind.RefReadOnly } => (StructOperand.ReadOnlyReference, true),
-            ILocalReferenceOperation local => (IsCapturedHere(local.Local) ? StructOperand.Capture : StructOperand.Local, false),
-            IParameterReferenceOperation { Parameter.RefKind: RefKind.Ref or RefKind.Out } => (StructOperand.ReferenceParameter, false),
-            IParameterReferenceOperation { Parameter.RefKind: not RefKind.None } => (StructOperand.ReadOnlyReference, true),
-            IParameterReferenceOperation parameter => (IsCapturedHere(parameter.Parameter) ? StructOperand.Capture : StructOperand.Parameter, false),
-            IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ContainingTypeInstance } =>
-                (StructOperand.Receiver, _method.IsReadOnly),
-            IFlowCaptureReferenceOperation capture when _referenceCaptures.TryGetValue(capture.Id, out var readOnly) =>
-                (readOnly ? StructOperand.ReadOnlyReference : StructOperand.ReferenceLocal, readOnly),
-            _ => null
-        };
+            CheckCancellation();
+            return operand switch
+            {
+                IParenthesizedOperation parenthesized => StructOperandOf(parenthesized.Operand),
+                IFieldReferenceOperation field => (field.Field.IsStatic ? StructOperand.StaticField : StructOperand.Field,
+                                                   field.Field.IsReadOnly && !IsUnderConstruction(field) ||
+                                                   field.Instance is { } holder && StructTypeKey(holder.Type) is not null &&
+                                                   StructOperandOf(holder) is { IsReadOnly: true }),
+                IArrayElementReferenceOperation => (StructOperand.Element, false),
+                IPropertyReferenceOperation property when IsElementIndexer(property) || HandsBackReference(property) || IsReferenceCurrent(property) =>
+                    (StructOperand.ReferenceReturn, property.Property.RefKind == RefKind.RefReadOnly),
+                IInvocationOperation invocation when invocation.TargetMethod.ReturnsByRef || invocation.TargetMethod.ReturnsByRefReadonly =>
+                    (StructOperand.ReferenceReturn, invocation.TargetMethod.ReturnsByRefReadonly),
+                ILocalReferenceOperation { Local.RefKind: RefKind.Ref } => (StructOperand.ReferenceLocal, false),
+                ILocalReferenceOperation { Local.RefKind: RefKind.RefReadOnly } => (StructOperand.ReadOnlyReference, true),
+                ILocalReferenceOperation local => (IsCapturedHere(local.Local) ? StructOperand.Capture : StructOperand.Local, false),
+                IParameterReferenceOperation { Parameter.RefKind: RefKind.Ref or RefKind.Out } => (StructOperand.ReferenceParameter, false),
+                IParameterReferenceOperation { Parameter.RefKind: not RefKind.None } => (StructOperand.ReadOnlyReference, true),
+                IParameterReferenceOperation parameter => (IsCapturedHere(parameter.Parameter) ? StructOperand.Capture : StructOperand.Parameter, false),
+                IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ContainingTypeInstance } =>
+                    (StructOperand.Receiver, _method.IsReadOnly),
+                IFlowCaptureReferenceOperation capture when _referenceCaptures.TryGetValue(capture.Id, out var readOnly) =>
+                    (readOnly ? StructOperand.ReadOnlyReference : StructOperand.ReferenceLocal, readOnly),
+                _ => null
+            };
+        }
 
         /// <summary>Whether a variable this body reads belongs to an enclosing member, which it captures.</summary>
         /// <param name="symbol">The local or parameter.</param>
@@ -4696,6 +4902,7 @@ public static class IrLowering
         {
             for (; _accountedOperations < _operations.Count; _accountedOperations++)
             {
+                CheckCancellation();
                 if (_operations[_accountedOperations] is IrCallOperation or IrAwaitOperation or IrYieldOperation or IrSpawnOperation or
                     IrJoinOperation or IrWhenAllOperation or IrThreadWorkOperation or IrTimerOperation or IrUnknownOperation)
                 {
@@ -4713,6 +4920,7 @@ public static class IrLowering
             var reassigned = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
             foreach (var edge in _flowGraph.Predecessors(blockOrdinal))
             {
+                CheckCancellation();
                 if (!_reassignedIn.TryGetValue(edge.Source, out var source))
                     return _nestedAssigned;
                 reassigned.UnionWith(edge.Kind == IrEdgeKind.Exceptional ? source.Anywhere : source.AtExit);
@@ -4878,7 +5086,11 @@ public static class IrLowering
 
         private int NextOperation() => _nextOperationId++;
 
-        private IrProvenance Provenance(IOperation operation, string transformation) => Provenance(operation.Syntax, transformation);
+        private IrProvenance Provenance(IOperation operation, string transformation)
+        {
+            CheckCancellation();
+            return Provenance(operation.Syntax, transformation);
+        }
 
         private IrProvenance Provenance(SyntaxNode syntax, string transformation)
         {
@@ -5007,6 +5219,7 @@ public static class IrLowering
             {
                 for (var position = 0; position < Values.Count; position++)
                 {
+                    WorkCancellation.Check();
                     if ((position < Ordinals.Count ? Ordinals[position] : position) == ordinal)
                         return Values[position];
                 }
@@ -5052,7 +5265,10 @@ public static class IrLowering
         if (type?.OriginalDefinition is not INamedTypeSymbol named || named.ContainingAssembly?.Name != CORELIB)
             return false;
         while (named.ContainingType is { } outer)
+        {
+            WorkCancellation.Check();
             named = outer.OriginalDefinition;
+        }
         var name = named.ContainingNamespace is { IsGlobalNamespace: false } ns ? $"{ns.ToDisplayString()}.{named.MetadataName}" : named.MetadataName;
         return RecognizerOf(name) is not null || Awaiters.ClaimsType(name);
     }
@@ -5080,6 +5296,7 @@ public static class IrLowering
             return true;
         for (var type = member.ContainingType; type is not null; type = type.ContainingType)
         {
+            WorkCancellation.Check();
             if (type.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected or Accessibility.ProtectedOrInternal))
                 return true;
         }
@@ -5158,7 +5375,10 @@ public static class IrLowering
         internal static bool IsAsyncDelegate(IOperation? value)
         {
             while (value is IConversionOperation or IParenthesizedOperation)
+            {
+                WorkCancellation.Check();
                 value = value is IConversionOperation conversion ? conversion.Operand : ((IParenthesizedOperation)value).Operand;
+            }
             return value is IDelegateCreationOperation creation && creation.Target switch
             {
                 IFlowAnonymousFunctionOperation function => function.Symbol.IsAsync,
@@ -5168,15 +5388,19 @@ public static class IrLowering
             };
         }
 
-        internal static IrTimerInterval Interval(IOperation? value) => value?.ConstantValue is { HasValue: true, Value: var constant }
-            ? constant switch
-            {
-                int number => Interval(number),
-                long number => Interval(number),
-                uint number => number == uint.MaxValue ? IrTimerInterval.Infinite : Interval(number),
-                _ => IrTimerInterval.Unknown
-            }
-            : IrTimerInterval.Unknown;
+        internal static IrTimerInterval Interval(IOperation? value)
+        {
+            WorkCancellation.Check();
+            return value?.ConstantValue is { HasValue: true, Value: var constant }
+                ? constant switch
+                {
+                    int number => Interval(number),
+                    long number => Interval(number),
+                    uint number => number == uint.MaxValue ? IrTimerInterval.Infinite : Interval(number),
+                    _ => IrTimerInterval.Unknown
+                }
+                : IrTimerInterval.Unknown;
+        }
 
         private static IrTimerInterval Interval(long value) => value switch
         {
@@ -5261,7 +5485,10 @@ public static class IrLowering
                 return null;
             var name = named.MetadataName;
             for (var outer = named.ContainingType; outer is not null; outer = outer.ContainingType)
+            {
+                WorkCancellation.Check();
                 name = $"{outer.MetadataName}+{name}";
+            }
             return named.ContainingNamespace is { IsGlobalNamespace: false } ns ? $"{ns.ToDisplayString()}.{name}" : name;
         }
     }
@@ -5666,6 +5893,7 @@ public static class IrLowering
             var implementations = new List<IrImplementation>();
             foreach (var (kind, metadataName) in Implementers)
             {
+                WorkCancellation.Check();
                 if (compilation.GetTypeByMetadataName(metadataName) is { } type && ImplementationOf(method, called, type) is { } implementation)
                     implementations.Add(implementation with { Kind = kind });
             }
@@ -5679,6 +5907,7 @@ public static class IrLowering
 
             foreach (var (kind, rank) in new[] { (CollectionObjects.ARRAY, 1), (CollectionObjects.MULTIDIMENSIONAL_ARRAY, 2) })
             {
+                WorkCancellation.Check();
                 var array = compilation.CreateArrayTypeSymbol(compilation.GetSpecialType(SpecialType.System_Object), rank);
                 if (array.AllInterfaces.Any(@interface => SymbolEqualityComparer.Default.Equals(@interface.OriginalDefinition, called.OriginalDefinition)) &&
                     ArrayMember(method, called, rank, compilation, libraryModels ?? LibraryModels.BuiltIn) is { } member)
@@ -5700,6 +5929,7 @@ public static class IrLowering
             foreach (var implemented in type.AllInterfaces.Where(@interface => SymbolEqualityComparer.Default.Equals(@interface.OriginalDefinition,
                                                                                                                    called.OriginalDefinition)))
             {
+                WorkCancellation.Check();
                 var member = implemented.GetMembers(method.Name).OfType<IMethodSymbol>()
                                         .FirstOrDefault(candidate => SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, method.OriginalDefinition));
                 if (member is null || type.FindImplementationForInterfaceMember(member) is not IMethodSymbol implementation)
@@ -5964,36 +6194,47 @@ public static class IrLowering
         private static ITypeSymbol Completion(ITypeSymbol type, int depth)
         {
             for (var level = 0; level < depth; level++)
+            {
+                WorkCancellation.Check();
                 type = TaskTypes.CompletionType(type) ?? throw new UnreachableException($"{type} completes with no value at depth {level}.");
+            }
             return type;
         }
 
-        private static IrLibraryResult Result(IMethodSymbol method, LibraryResult result) => result.Kind == LibraryResultKind.Task
-            ? new IrLibraryResult(IrResultKind.Task, [], Result(method, result.Inner!))
-            : new(result.Kind switch
-            {
-                LibraryResultKind.Sequence => IrResultKind.Sequence,
-                LibraryResultKind.Collection => IrResultKind.Collection,
-                LibraryResultKind.Dictionary => IrResultKind.Dictionary,
-                LibraryResultKind.OneOf => IrResultKind.OneOf,
-                LibraryResultKind.New => IrResultKind.New,
-                _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
-            }, result.Values.Select(value => Value(method, value)).ToArray());
-
-        private static IrModelValue Value(IMethodSymbol method, LibraryValue value, ITypeSymbol? newType = null) => value switch
+        private static IrLibraryResult Result(IMethodSymbol method, LibraryResult result)
         {
-            NewValue => new IrModelNew(SymbolNames.TypeKey(StaticType(method, value, newType)!)),
-            Providers.LibraryModels.ThisValue => new IrModelThis(),
-            KeptValue kept => new IrModelKept(KeeperOrdinal(method, kept.Keeper)),
-            ArgumentValue argument => new IrModelArgument(Parameter(method, argument.Parameter).Ordinal),
-            ReturnsValue returns => new IrModelReturns(Parameter(method, returns.Delegate).Ordinal),
-            HolderArgumentValue holder => new IrModelHolderArgument(holder.Index),
-            ElementsValue elements => new IrModelElements(Value(method, elements.Source), ElementTypeKey(StaticType(method, elements.Source))),
-            SequenceValue sequence => new IrModelSequence(sequence.Values.Select(item => Value(method, item)).ToArray()),
-            GroupingValue grouping => new IrModelGrouping(Value(method, grouping.Key), Value(method, grouping.Values)),
-            CompletionValue completion => new IrModelCompletion(Value(method, completion.Source)),
-            _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
-        };
+            WorkCancellation.Check();
+            return result.Kind == LibraryResultKind.Task
+                ? new IrLibraryResult(IrResultKind.Task, [], Result(method, result.Inner!))
+                : new(result.Kind switch
+                {
+                    LibraryResultKind.Sequence => IrResultKind.Sequence,
+                    LibraryResultKind.Collection => IrResultKind.Collection,
+                    LibraryResultKind.Dictionary => IrResultKind.Dictionary,
+                    LibraryResultKind.OneOf => IrResultKind.OneOf,
+                    LibraryResultKind.New => IrResultKind.New,
+                    _ => throw new UnreachableException($"Unknown result kind {result.Kind}.")
+                }, result.Values.Select(value => Value(method, value)).ToArray());
+        }
+
+        private static IrModelValue Value(IMethodSymbol method, LibraryValue value, ITypeSymbol? newType = null)
+        {
+            WorkCancellation.Check();
+            return value switch
+            {
+                NewValue => new IrModelNew(SymbolNames.TypeKey(StaticType(method, value, newType)!)),
+                Providers.LibraryModels.ThisValue => new IrModelThis(),
+                KeptValue kept => new IrModelKept(KeeperOrdinal(method, kept.Keeper)),
+                ArgumentValue argument => new IrModelArgument(Parameter(method, argument.Parameter).Ordinal),
+                ReturnsValue returns => new IrModelReturns(Parameter(method, returns.Delegate).Ordinal),
+                HolderArgumentValue holder => new IrModelHolderArgument(holder.Index),
+                ElementsValue elements => new IrModelElements(Value(method, elements.Source), ElementTypeKey(StaticType(method, elements.Source))),
+                SequenceValue sequence => new IrModelSequence(sequence.Values.Select(item => Value(method, item)).ToArray()),
+                GroupingValue grouping => new IrModelGrouping(Value(method, grouping.Key), Value(method, grouping.Values)),
+                CompletionValue completion => new IrModelCompletion(Value(method, completion.Source)),
+                _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
+            };
+        }
 
         private static int KeeperOrdinal(IMethodSymbol method, string keeper) => keeper switch
         {
@@ -6002,16 +6243,20 @@ public static class IrLowering
             _ => Parameter(method, keeper).Ordinal
         };
 
-        private static IEnumerable<string> Keepers(LibraryValue value) => value switch
+        private static IEnumerable<string> Keepers(LibraryValue value)
         {
-            KeptValue kept => [kept.Keeper],
-            ElementsValue elements => Keepers(elements.Source),
-            SequenceValue sequence => sequence.Values.SelectMany(Keepers),
-            GroupingValue grouping => Keepers(grouping.Key).Concat(Keepers(grouping.Values)),
-            CompletionValue completion => Keepers(completion.Source),
-            NewValue or ArgumentValue or ReturnsValue or HolderArgumentValue or Providers.LibraryModels.ThisValue => [],
-            _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
-        };
+            WorkCancellation.Check();
+            return value switch
+            {
+                KeptValue kept => [kept.Keeper],
+                ElementsValue elements => Keepers(elements.Source),
+                SequenceValue sequence => sequence.Values.SelectMany(Keepers),
+                GroupingValue grouping => Keepers(grouping.Key).Concat(Keepers(grouping.Values)),
+                CompletionValue completion => Keepers(completion.Source),
+                NewValue or ArgumentValue or ReturnsValue or HolderArgumentValue or Providers.LibraryModels.ThisValue => [],
+                _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
+            };
+        }
 
         private static IParameterSymbol Parameter(IMethodSymbol method, string name) => method.Parameters.Single(parameter => parameter.Name == name);
 
@@ -6019,17 +6264,21 @@ public static class IrLowering
         /// <param name="method">The member as the caller names it.</param>
         /// <param name="value">The model value whose static type is requested.</param>
         /// <param name="newType">The delegate parameter type of a <c>new</c> input.</param>
-        private static ITypeSymbol? StaticType(IMethodSymbol method, LibraryValue value, ITypeSymbol? newType = null) => value switch
+        private static ITypeSymbol? StaticType(IMethodSymbol method, LibraryValue value, ITypeSymbol? newType = null)
         {
-            NewValue => newType ?? throw new UnreachableException("A new input has no delegate parameter type."),
-            Providers.LibraryModels.ThisValue => method.ContainingType,
-            ArgumentValue argument => Parameter(method, argument.Parameter).Type,
-            ReturnsValue returns => (Parameter(method, returns.Delegate).Type as INamedTypeSymbol)?.DelegateInvokeMethod?.ReturnType,
-            ElementsValue elements => ElementType(StaticType(method, elements.Source)),
-            CompletionValue completion => TaskTypes.CompletionType(StaticType(method, completion.Source)),
-            SequenceValue or GroupingValue or HolderArgumentValue or KeptValue => null,
-            _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
-        };
+            WorkCancellation.Check();
+            return value switch
+            {
+                NewValue => newType ?? throw new UnreachableException("A new input has no delegate parameter type."),
+                Providers.LibraryModels.ThisValue => method.ContainingType,
+                ArgumentValue argument => Parameter(method, argument.Parameter).Type,
+                ReturnsValue returns => (Parameter(method, returns.Delegate).Type as INamedTypeSymbol)?.DelegateInvokeMethod?.ReturnType,
+                ElementsValue elements => ElementType(StaticType(method, elements.Source)),
+                CompletionValue completion => TaskTypes.CompletionType(StaticType(method, completion.Source)),
+                SequenceValue or GroupingValue or HolderArgumentValue or KeptValue => null,
+                _ => throw new UnreachableException($"Unknown value kind {value.GetType().Name}.")
+            };
+        }
 
         private static ITypeSymbol? ElementType(ITypeSymbol? type) =>
             type is IArrayTypeSymbol array ? array.ElementType
@@ -6223,6 +6472,7 @@ public static class IrLowering
         /// <param name="cancellationToken">Cancels the walk.</param>
         private static IrProviderKind? ProviderKind(IOperation value, SemanticModel model, CancellationToken cancellationToken)
         {
+            WorkCancellation.Check();
             switch (Unwrap(value))
             {
                 case IPropertyReferenceOperation { Property: var property }:
@@ -6250,6 +6500,7 @@ public static class IrLowering
         {
             for (IPropertySymbol? current = property; current is not null; current = current.OverriddenProperty)
             {
+                WorkCancellation.Check();
                 if (current.Name == name && ExactSymbols.IsType(current.ContainingType, range, type))
                     return true;
             }
@@ -6276,11 +6527,13 @@ public static class IrLowering
             var writes = 0;
             foreach (var declaration in field.ContainingType.DeclaringSyntaxReferences.Select(reference => reference.GetSyntax(cancellationToken)))
             {
+                WorkCancellation.Check();
                 if (!compilation.ContainsSyntaxTree(declaration.SyntaxTree))
                     return false;
                 var model = compilation.GetSemanticModel(declaration.SyntaxTree);
                 foreach (var node in declaration.DescendantNodes())
                 {
+                    WorkCancellation.Check();
                     switch (node)
                     {
                         case VariableDeclaratorSyntax { Initializer: { } initializer } declarator
@@ -6309,12 +6562,16 @@ public static class IrLowering
 
         /// <summary>A constructor parameter, possibly converted or guarded by <c>?? throw</c>.</summary>
         /// <param name="value">The value written.</param>
-        private static bool IsConstructorParameterValue(IOperation? value) => Unwrap(value) switch
+        private static bool IsConstructorParameterValue(IOperation? value)
         {
-            IParameterReferenceOperation { Parameter: var parameter } => IsConstructorParameter(parameter),
-            ICoalesceOperation { WhenNull: IThrowOperation } coalesce => IsConstructorParameterValue(coalesce.Value),
-            _ => false
-        };
+            WorkCancellation.Check();
+            return Unwrap(value) switch
+            {
+                IParameterReferenceOperation { Parameter: var parameter } => IsConstructorParameter(parameter),
+                ICoalesceOperation { WhenNull: IThrowOperation } coalesce => IsConstructorParameterValue(coalesce.Value),
+                _ => false
+            };
+        }
 
         /// <summary>The initializer of a local declared once with one, when nothing else in its member writes it.</summary>
         /// <param name="local">The local to look up.</param>
@@ -6348,7 +6605,10 @@ public static class IrLowering
         private static IOperation? Unwrap(IOperation? value)
         {
             while (value is IConversionOperation or IParenthesizedOperation)
+            {
+                WorkCancellation.Check();
                 value = value is IConversionOperation conversion ? conversion.Operand : ((IParenthesizedOperation)value).Operand;
+            }
             return value;
         }
 

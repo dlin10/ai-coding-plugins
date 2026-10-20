@@ -37,6 +37,8 @@ public static class SemanticGaps
     /// <summary>The scope's gaps. Which calls are gaps is known before the accesses are collected; what the unknown executions of
     /// their delegates touch, deep reads and unknown effects included, is known only after, so <paramref name="accesses"/>, once
     /// collected, count those regions (R4).</summary>
+    /// <param name="input">The scope whose gaps are collected.</param>
+    /// <param name="accesses">The collected accesses, or null before access collection.</param>
     public static IReadOnlyList<SemanticGap> Find(InterproceduralInput input, IReadOnlyList<Access>? accesses = null)
     {
         var heap = input.Heap;
@@ -51,6 +53,7 @@ public static class SemanticGaps
                                              StringComparer.Ordinal);
         foreach (var call in UnknownCalls.Of(input.Scope, heap).Where(call => call.Kind != SemanticGapKinds.RECOGNIZED))
         {
+            WorkCancellation.Check();
             // An object of one execution handed to the call is only read by it and is no gap; only what is shared counts (R2, R4). What
             // the unknown execution of a delegate it is handed touches is the call's reach too (R3).
             var (reached, takesDelegate) = reach.Of(call);
@@ -102,6 +105,7 @@ public static class SemanticGaps
 
     /// <summary>For every instance, the roots whose executions reach it: over the call edges, the constructions and type initializers
     /// they trigger, the work their spawns and timers start, and the delegates they hand to unresolved calls.</summary>
+    /// <param name="heap">The solved heap whose executions are walked.</param>
     private static Dictionary<string, HashSet<string>> RootsReaching(HeapSolution heap)
     {
         var next = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
@@ -113,55 +117,82 @@ public static class SemanticGaps
         }
 
         foreach (var edge in heap.ExecutionEdges)
+        {
+            WorkCancellation.Check();
             Edge(edge.CallerInstance, edge.CalleeInstance);
+        }
         var constructors = heap.Constructions.ToDictionary(construction => construction.RegionId, construction => construction.ConstructorInstances,
                                                            StringComparer.Ordinal);
         foreach (var trigger in heap.RegionTriggers)
         {
+            WorkCancellation.Check();
             foreach (var constructor in constructors.GetValueOrDefault(trigger.RegionId) ?? [])
+            {
+                WorkCancellation.Check();
                 Edge(trigger.InstanceId, constructor);
+            }
         }
 
         foreach (var initializer in heap.TypeInitializers)
         {
+            WorkCancellation.Check();
             foreach (var trigger in initializer.TriggeringInstances)
+            {
+                WorkCancellation.Check();
                 Edge(trigger, initializer.InstanceId);
+            }
         }
 
         foreach (var spawn in heap.Spawns)
         {
+            WorkCancellation.Check();
             foreach (var callee in spawn.Callees)
+            {
+                WorkCancellation.Check();
                 Edge(spawn.CallerInstance, callee.InstanceId);
+            }
         }
 
         foreach (var timer in heap.TimerCallbacks)
         {
+            WorkCancellation.Check();
             foreach (var callee in timer.Callees)
+            {
+                WorkCancellation.Check();
                 Edge(timer.CallerInstance, callee);
+            }
         }
 
         // The unknown call of a delegate runs where it was handed over as far as its roots go (R3, R4).
         foreach (var handoff in heap.DelegateHandoffs)
         {
+            WorkCancellation.Check();
             foreach (var site in handoff.Sites)
             {
+                WorkCancellation.Check();
                 foreach (var callee in handoff.Callees)
+                {
+                    WorkCancellation.Check();
                     Edge(site.CallerInstance, callee);
+                }
             }
         }
 
         var roots = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         foreach (var (rootId, entry) in heap.RootInstances)
         {
+            WorkCancellation.Check();
             var visited = new HashSet<string>(StringComparer.Ordinal) { entry };
             var pending = new Queue<string>([entry]);
             while (pending.TryDequeue(out var instance))
             {
+                WorkCancellation.Check();
                 if (!roots.TryGetValue(instance, out var reaching))
                     roots.Add(instance, reaching = new HashSet<string>(StringComparer.Ordinal));
                 reaching.Add(rootId);
                 foreach (var target in next.GetValueOrDefault(instance) ?? [])
                 {
+                    WorkCancellation.Check();
                     if (visited.Add(target))
                         pending.Enqueue(target);
                 }

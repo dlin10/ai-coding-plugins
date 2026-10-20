@@ -277,7 +277,10 @@ internal sealed class GenerationCauses
     public void Add(IEnumerable<GenerationCause> causes)
     {
         foreach (var cause in causes)
+        {
+            WorkCancellation.Check();
             _byCode.TryAdd(cause.Code, cause);
+        }
     }
 
     /// <summary>Whether a case of a model reason is recorded.</summary>
@@ -315,13 +318,16 @@ internal ref struct CauseDetail
 
     /// <summary>Appends a literal part.</summary>
     /// <param name="value">The literal.</param>
+    // bounded: delegates once to the wrapped value, without re-entering this method.
     public void AppendLiteral(string value) => _text.AppendLiteral(value);
 
     /// <summary>Appends a hole.</summary>
     /// <typeparam name="T">The hole's type.</typeparam>
     /// <param name="value">The hole's value.</param>
+    // bounded: delegates once to the wrapped value, without re-entering this method.
     public void AppendFormatted<T>(T value) => _text.AppendFormatted(value);
 
     /// <summary>The evidence, releasing the buffer.</summary>
+    // bounded: delegates once to the wrapped value, without re-entering this method.
     public string ToStringAndClear() => _text.ToStringAndClear();
 }

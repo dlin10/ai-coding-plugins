@@ -220,6 +220,7 @@ internal sealed class GeneratedModelAnswer
     /// <param name="json">The writer.</param>
     internal void WriteTo(Utf8JsonWriter json)
     {
+        WorkCancellation.Check();
         json.WriteStartObject();
         json.WriteString("member", Member);
         if (_model is not null)
@@ -234,7 +235,10 @@ internal sealed class GeneratedModelAnswer
             json.WriteString("detail", _refusal.Detail);
             json.WriteStartArray("causes");
             foreach (var cause in _refusal.Causes)
+            {
+                WorkCancellation.Check();
                 json.WriteStringValue(cause);
+            }
             json.WriteEndArray();
             json.WriteEndObject();
         }
@@ -258,13 +262,16 @@ internal sealed record GeneratedModelFile(GeneratedFileKey Key, string DisplayPa
 
     /// <summary>Whether the file is unreadable.</summary>
     internal bool IsUnreadable => UnreadableReason is not null;
+
+    /// <summary>Whether another generator version wrote the file, so its answers are not used.</summary>
+    internal bool IsOtherVersion { get; init; }
 }
 
 /// <summary>The one owner of the generated model layer's files (R2, R3): where a file lives, what it holds, which entries hold, whether
 /// one applies to a compilation, what a file keeps and how a run adds to it.</summary>
 internal static class GeneratedModelFiles
 {
-    private const int SCHEMA_VERSION = 1;
+    private const int SCHEMA_VERSION = 2;
     private const string MUTEX_PREFIX = "ConcurrencyHunter.GeneratedModels.";
 
     // A property named twice is a fault at any depth of the file, inside a model or a refusal as much as in the header.
@@ -341,14 +348,22 @@ internal static class GeneratedModelFiles
     internal static GeneratedModelFile Valid(GeneratedFileKey key, string displayPath, byte[] bytes)
     {
         IReadOnlyList<RawEntry> raw;
+        bool isOtherVersion;
         try
         {
-            raw = Structure(key, bytes);
+            raw = Structure(key, bytes, out isOtherVersion);
         }
         catch (Exception error) when (error is JsonException or DecoderFallbackException or FormatException)
         {
             return Unreadable(key, displayPath, error.Message);
         }
+
+        if (isOtherVersion)
+            return Empty(key, displayPath) with
+            {
+                IsOtherVersion = true,
+                Diagnostics = [Diagnostic(displayPath, "written by another generator version; its answers are not used.")]
+            };
 
         var counts = raw.GroupBy(entry => entry.Member, StringComparer.Ordinal)
                         .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
@@ -356,6 +371,7 @@ internal static class GeneratedModelFiles
         var diagnostics = new List<string>();
         foreach (var entry in raw)
         {
+            WorkCancellation.Check();
             GeneratedModelEntry? valid = null;
             var reason = counts[entry.Member] > 1 ? "the file names this member in more than one entry." : Check(displayPath, entry, out valid);
             if (reason is null)
@@ -400,6 +416,7 @@ internal static class GeneratedModelFiles
         var receivers = LibraryVocabulary.CallReceivers(model.Calls, definition, compilation);
         for (var index = 0; index < model.Calls.Count; index++)
         {
+            WorkCancellation.Check();
             var call = model.Calls[index];
             if (receivers[index] is { } receiver && !HasMember(receiver, call.Member, call.Inputs.Count))
                 return $"the call of {call.Member} on {call.On.Canonical} names a member that {receiver.ToDisplayString()} does not have.";
@@ -420,7 +437,10 @@ internal static class GeneratedModelFiles
             return true;
         var declaring = new List<ITypeSymbol>();
         for (var current = type; current is not null; current = current.BaseType)
+        {
+            WorkCancellation.Check();
             declaring.Add(current);
+        }
         declaring.AddRange(type.AllInterfaces);
         return declaring.Any(candidate => candidate.GetMembers(member).OfType<IMethodSymbol>()
                                                    .Any(method => !method.IsStatic && method.Parameters.Length == parameters));
@@ -452,20 +472,26 @@ internal static class GeneratedModelFiles
     /// <param name="cancellationToken">Stops the wait for the lock: the writer then writes nothing and throws.</param>
     /// <param name="afterRead">A hook called while the lock is held, between the re-read and the replacement; a test holds a writer
     /// there.</param>
+    /// <param name="beforeRead">A test hook called under the lock immediately before re-reading the file.</param>
+    /// <param name="replaceFile">A test hook replacing the atomic file replacement or move.</param>
     /// <returns>The diagnostics of the write; empty when nothing went wrong.</returns>
     /// <exception cref="OperationCanceledException">The token fired before the writer held the lock, or while it waited for it.</exception>
     internal static IReadOnlyList<string> Write(GeneratedModelFile file, IReadOnlyList<GeneratedModelAnswer> answers,
-                                                CancellationToken cancellationToken, Action? afterRead = null)
+                                                CancellationToken cancellationToken, Action? afterRead = null, Action? beforeRead = null,
+                                                Action<string, string>? replaceFile = null)
     {
         var path = file.FullPath ?? throw new ArgumentException("The file has no path to write.", nameof(file));
         if (file.IsUnreadable)
             return [];
         var kept = new Dictionary<string, GeneratedModelAnswer>(StringComparer.Ordinal);
         foreach (var answer in answers.Where(answer => Keeps(answer.Outcome)))
+        {
+            CheckCancellation();
             kept[answer.Member] = answer;
+        }
         if (kept.Count == 0)
             return [];
-        cancellationToken.ThrowIfCancellationRequested();
+        CheckCancellation();
 
         Mutex mutex;
         try
@@ -482,13 +508,19 @@ internal static class GeneratedModelFiles
             Acquire(mutex, cancellationToken);
             try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                return WriteLocked(file, path, kept, afterRead);
+                CheckCancellation();
+                return WriteLocked(file, path, kept, afterRead, beforeRead, replaceFile);
             }
             finally
             {
                 mutex.ReleaseMutex();
             }
+        }
+
+        void CheckCancellation()
+        {
+            WorkCancellation.Check();
+            cancellationToken.ThrowIfCancellationRequested();
         }
     }
 
@@ -509,8 +541,9 @@ internal static class GeneratedModelFiles
     }
 
     private static IReadOnlyList<string> WriteLocked(GeneratedModelFile file, string path, Dictionary<string, GeneratedModelAnswer> kept,
-                                                     Action? afterRead)
+                                                     Action? afterRead, Action? beforeRead, Action<string, string>? replaceFile)
     {
+        beforeRead?.Invoke();
         byte[]? original;
         try
         {
@@ -530,7 +563,7 @@ internal static class GeneratedModelFiles
         {
             try
             {
-                existing = Structure(file.Key, original);
+                existing = Structure(file.Key, original, out _);
             }
             catch (Exception error) when (error is JsonException or DecoderFallbackException or FormatException)
             {
@@ -553,10 +586,24 @@ internal static class GeneratedModelFiles
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllBytes(temporary, bytes);
-            if (File.Exists(path))
-                File.Replace(temporary, path, null);
-            else
-                File.Move(temporary, path);
+            // bounded: at most five attempts while holding the mutex, with waits of 50, 100, 200 and 400 milliseconds.
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    if (replaceFile is not null)
+                        replaceFile(temporary, path);
+                    else if (File.Exists(path))
+                        File.Replace(temporary, path, null);
+                    else
+                        File.Move(temporary, path);
+                    break;
+                }
+                catch (IOException) when (attempt < 4)
+                {
+                    Thread.Sleep(50 << attempt);
+                }
+            }
             return [];
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or SecurityException)
@@ -577,6 +624,7 @@ internal static class GeneratedModelFiles
         {
             json.WriteStartObject();
             json.WriteNumber("schemaVersion", SCHEMA_VERSION);
+            json.WriteString("generator", GeneratorVersion.Fingerprint);
             json.WriteStartObject("assembly");
             json.WriteString("name", key.AssemblyName);
             json.WriteString("version", key.AssemblyVersion.ToString(4));
@@ -598,7 +646,10 @@ internal static class GeneratedModelFiles
             json.WriteEndObject();
             json.WriteStartArray("members");
             foreach (var entry in entries)
+            {
+                WorkCancellation.Check();
                 entry(json);
+            }
             json.WriteEndArray();
             json.WriteEndObject();
         }
@@ -608,28 +659,42 @@ internal static class GeneratedModelFiles
     }
 
     /// <summary>The file's shape and header, which a file must have to be read at all: strict UTF-8 JSON without a repeated property at
-    /// any depth, the file, its header and its entries without unknown properties, a header that names the key in every part, and entries
-    /// that are objects with a member. What an entry holds is <see cref="Check"/>'s.</summary>
+    /// any depth and a header that names the key in every part. A file of another generator version has no entries; in the current version,
+    /// the file, its header and its entries have no unknown properties and entries are objects with a member. What an entry holds is
+    /// <see cref="Check"/>'s.</summary>
     /// <param name="key">The key the file answers for.</param>
     /// <param name="bytes">The file.</param>
+    /// <param name="isOtherVersion">Whether the file names another schema or generator version, or names none.</param>
     /// <exception cref="FormatException">The file's shape or header breaks the rule.</exception>
-    private static IReadOnlyList<RawEntry> Structure(GeneratedFileKey key, byte[] bytes)
+    private static IReadOnlyList<RawEntry> Structure(GeneratedFileKey key, byte[] bytes, out bool isOtherVersion)
     {
+        isOtherVersion = false;
         var text = new UTF8Encoding(false, true).GetString(bytes);
         if (text.StartsWith('﻿'))
             text = text[1..];
         using var document = JsonDocument.Parse(text, StrictDocument);
         var root = document.RootElement;
-        Properties(root, "the file", ["schemaVersion", "assembly", "members"], []);
-        if (root.GetProperty("schemaVersion") is not { ValueKind: JsonValueKind.Number } schema || !schema.TryGetInt32(out var version) ||
-            version != SCHEMA_VERSION)
-            throw new FormatException($"schemaVersion must be {SCHEMA_VERSION}.");
-        Header(key, root.GetProperty("assembly"));
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new FormatException("the file must be a JSON object.");
+        if (!root.TryGetProperty("assembly", out var assembly))
+            throw new FormatException("the file is missing the property 'assembly'.");
+        Header(key, assembly);
+        if (!root.TryGetProperty("schemaVersion", out var schema) || schema.ValueKind != JsonValueKind.Number ||
+            !schema.TryGetInt32(out var version) || version != SCHEMA_VERSION ||
+            !root.TryGetProperty("generator", out var generator) || generator.ValueKind != JsonValueKind.String ||
+            !string.Equals(generator.GetString(), GeneratorVersion.Fingerprint, StringComparison.Ordinal))
+        {
+            isOtherVersion = true;
+            return [];
+        }
+
+        Properties(root, "the file", ["schemaVersion", "generator", "assembly", "members"], []);
         if (root.GetProperty("members") is not { ValueKind: JsonValueKind.Array } members)
             throw new FormatException("members must be an array.");
         var entries = new List<RawEntry>();
         foreach (var entry in members.EnumerateArray())
         {
+            WorkCancellation.Check();
             Properties(entry, "an entry", ["member"], ["model", "refusal"]);
             if (entry.GetProperty("member") is not { ValueKind: JsonValueKind.String } member)
                 throw new FormatException("an entry's member must be a string.");
@@ -743,6 +808,7 @@ internal static class GeneratedModelFiles
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
         {
+            WorkCancellation.Check();
             if (!seen.Add(property.Name) || !required.Contains(property.Name, StringComparer.Ordinal) &&
                 !optional.Contains(property.Name, StringComparer.Ordinal))
                 throw new FormatException($"{what} has a repeated or unknown property '{property.Name}'.");

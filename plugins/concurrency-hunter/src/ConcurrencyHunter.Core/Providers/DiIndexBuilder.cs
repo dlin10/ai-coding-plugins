@@ -49,11 +49,18 @@ public static class DiIndexBuilder
     internal static bool IsRegistrationType(string metadataName) => Methods.Values.Any(method => method.ContainingType == metadataName);
 
     public static DiIndex Build(string scopeId, IEnumerable<Compilation> compilations, string rootDirectory,
-                                CancellationToken cancellationToken) =>
-        Build(scopeId, compilations.Select(compilation => (compilation, (string?)null)), rootDirectory, cancellationToken);
+                                CancellationToken cancellationToken)
+    {
+        WorkCancellation.Check();
+        return Build(scopeId, compilations.Select(compilation => (compilation, (string?)null)), rootDirectory, cancellationToken);
+    }
 
     /// <summary>Indexes the registrations of compilations paired with their project file paths, which order the registrations of
     /// two projects sharing an assembly name.</summary>
+    /// <param name="scopeId">The process scope the index belongs to.</param>
+    /// <param name="projects">The scope compilations and their project file paths.</param>
+    /// <param name="rootDirectory">The root directory source locations are made relative to.</param>
+    /// <param name="cancellationToken">Cancels index construction.</param>
     public static DiIndex Build(string scopeId, IEnumerable<(Compilation Compilation, string? ProjectFilePath)> projects,
                                 string rootDirectory, CancellationToken cancellationToken)
     {
@@ -62,14 +69,17 @@ public static class DiIndexBuilder
         var reportedVersions = new HashSet<(string, Version)>();
         foreach (var (compilation, projectFilePath) in projects)
         {
+            WorkCancellation.Check();
             var projectPath = projectFilePath is null ? "" : SourceSpans.PathOf(projectFilePath, rootDirectory);
             var lowered = new Dictionary<IMethodSymbol, IReadOnlyList<IrBody>>(SymbolEqualityComparer.Default);
             foreach (var tree in compilation.SyntaxTrees)
             {
+                WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 SemanticModel? model = null;
                 foreach (var invocation in tree.GetRoot(cancellationToken).DescendantNodes().OfType<InvocationExpressionSyntax>())
                 {
+                    WorkCancellation.Check();
                     if (!Methods.ContainsKey(InvokedName(invocation) ?? ""))
                         continue;
 
@@ -117,6 +127,14 @@ public static class DiIndexBuilder
     /// <summary>The lowered body holding a registration call and the call's operation in it: the member containing the invocation
     /// (a lambda or local function being one of its nested bodies) is lowered once, and the call is the operation with the
     /// registration method's id at the invocation's span.</summary>
+    /// <param name="invocation">The registration invocation syntax.</param>
+    /// <param name="method">The invoked registration method.</param>
+    /// <param name="source">The registration source location.</param>
+    /// <param name="model">The semantic model of the invocation.</param>
+    /// <param name="compilation">The compilation containing the registration.</param>
+    /// <param name="rootDirectory">The root directory source locations are made relative to.</param>
+    /// <param name="lowered">Caches the lowered registration factory bodies.</param>
+    /// <param name="cancellationToken">Cancels registration discovery and lowering.</param>
     private static (string? BodyId, int? OperationId) RegistrationCall(InvocationExpressionSyntax invocation, IMethodSymbol method,
                                                                        SourceSpan source, SemanticModel model, Compilation compilation,
                                                                        string rootDirectory,
@@ -125,7 +143,10 @@ public static class DiIndexBuilder
     {
         var member = model.GetEnclosingSymbol(invocation.SpanStart, cancellationToken);
         while (member is IMethodSymbol { MethodKind: MethodKind.AnonymousFunction or MethodKind.LocalFunction })
+        {
+            WorkCancellation.Check();
             member = member.ContainingSymbol;
+        }
         if (member is not IMethodSymbol containing)
             return (null, null);
 
@@ -147,6 +168,7 @@ public static class DiIndexBuilder
         var methodId = IrLowering.RootBodyId(method.OriginalDefinition);
         foreach (var body in bodies)
         {
+            WorkCancellation.Check();
             var call = body.Blocks.SelectMany(block => block.Operations)
                            .OfType<IrCallOperation>()
                            .FirstOrDefault(call => call.TargetMethodId == methodId && call.Provenance.Span == source);
@@ -224,7 +246,10 @@ public static class DiIndexBuilder
     internal static (ITypeSymbol? Type, string? Unsupported) TypeOf(IOperation value)
     {
         while (value is IConversionOperation conversion)
+        {
+            WorkCancellation.Check();
             value = conversion.Operand;
+        }
         if (value is not ITypeOfOperation typeOf)
             return (null, NON_TYPEOF);
         if (typeOf.TypeOperand is INamedTypeSymbol { IsUnboundGenericType: true })
@@ -242,13 +267,17 @@ public static class DiIndexBuilder
         named.OriginalDefinition.ContainingNamespace?.ToDisplayString() == "System" &&
         named.Name == "Func";
 
-    internal static bool ContainsTypeParameter(ITypeSymbol type) => type switch
+    internal static bool ContainsTypeParameter(ITypeSymbol type)
     {
-        ITypeParameterSymbol => true,
-        IArrayTypeSymbol array => ContainsTypeParameter(array.ElementType),
-        INamedTypeSymbol named => named.TypeArguments.Any(ContainsTypeParameter),
-        _ => false
-    };
+        WorkCancellation.Check();
+        return type switch
+        {
+            ITypeParameterSymbol => true,
+            IArrayTypeSymbol array => ContainsTypeParameter(array.ElementType),
+            INamedTypeSymbol named => named.TypeArguments.Any(ContainsTypeParameter),
+            _ => false
+        };
+    }
 
     private static string TypeName(ITypeSymbol type) => SymbolNames.Type(type);
 }

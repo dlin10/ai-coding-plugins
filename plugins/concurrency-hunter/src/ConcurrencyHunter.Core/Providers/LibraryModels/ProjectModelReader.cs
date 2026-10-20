@@ -26,6 +26,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
 {
     public static ProjectModelFiles Read(string repositoryRoot)
     {
+        WorkCancellation.Check();
         var entries = new List<ProjectModelEntry>();
         var rejections = new List<ModelRejection>();
         var namedPatterns = new HashSet<string>(StringComparer.Ordinal);
@@ -50,6 +51,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
         var modelsFolderAvailable = true;
         void Walk(string folder)
         {
+            WorkCancellation.Check();
             var relative = Path.GetRelativePath(repositoryRoot, folder).Replace('\\', '/');
             string[] children;
             try
@@ -66,6 +68,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
 
             foreach (var child in children.Order(StringComparer.Ordinal))
             {
+                WorkCancellation.Check();
                 var name = Path.GetFileName(child);
                 FileAttributes attributes;
                 try
@@ -131,9 +134,12 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
             if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("models", out var namedModels) &&
                 namedModels.ValueKind == JsonValueKind.Array)
                 foreach (var namedEntry in namedModels.EnumerateArray())
+                {
+                    WorkCancellation.Check();
                     if (namedEntry.ValueKind == JsonValueKind.Object && namedEntry.TryGetProperty("member", out var namedMember) &&
                         namedMember.ValueKind == JsonValueKind.String && namedMember.GetString() is { } id && IsPattern(id))
                         namedPatterns.Add(id);
+                }
             Properties(root, ["schemaVersion", "note", "assemblies", "versions", "models", "immutableTypes"]);
             if (!root.TryGetProperty("schemaVersion", out var schema) || schema.ValueKind != JsonValueKind.Number ||
                 !schema.TryGetInt32(out var version) || version != 1)
@@ -149,6 +155,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
 
             foreach (var (entry, position) in models.EnumerateArray().Select((entry, index) => (entry, index)))
             {
+                WorkCancellation.Check();
                 string? member = entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("member", out var id) &&
                                  id.ValueKind == JsonValueKind.String ? id.GetString() : null;
                 try
@@ -163,7 +170,10 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
             if (root.TryGetProperty("immutableTypes", out immutableTypes))
             {
                 foreach (var (_, position) in immutableTypes.EnumerateArray().Select((entry, index) => (entry, index)))
+                {
+                    WorkCancellation.Check();
                     rejections.Add(new ModelRejection(path, $"immutableTypes[{position}]", "project immutable types are not supported."));
+                }
             }
         }
         catch (Exception error) when (error is JsonException or DecoderFallbackException or FormatException)
@@ -199,6 +209,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
             Properties(effectsValue, null);
             foreach (var effect in effectsValue.EnumerateObject())
             {
+                WorkCancellation.Check();
                 if (string.IsNullOrWhiteSpace(effect.Name) || effect.Value.ValueKind != JsonValueKind.Array)
                     throw new FormatException("effects must map a parameter to a non-empty array of kinds.");
                 var kinds = effect.Value.EnumerateArray().ToArray();
@@ -207,6 +218,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
                 var seen = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var kind in kinds)
                 {
+                    WorkCancellation.Check();
                     if (kind.ValueKind != JsonValueKind.String || kind.GetString() is not { } name || !seen.Add(name))
                         throw new FormatException("effect kinds must be distinct strings.");
                     effects.Add(name switch
@@ -234,7 +246,10 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
         {
             Properties(fatesValue, null);
             foreach (var fate in fatesValue.EnumerateObject())
+            {
+                WorkCancellation.Check();
                 fates.Add(Fate(fate));
+            }
         }
         Dictionary<string, string[]>? rawStores = null;
         if (hasStores)
@@ -243,6 +258,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
             rawStores = new Dictionary<string, string[]>(StringComparer.Ordinal);
             foreach (var store in storesValue.EnumerateObject())
             {
+                WorkCancellation.Check();
                 if (store.Value.ValueKind != JsonValueKind.Array || store.Value.EnumerateArray().Any(value => value.ValueKind != JsonValueKind.String))
                     throw new FormatException("stores must map a target to a non-empty array of values.");
                 rawStores.Add(store.Name, store.Value.EnumerateArray().Select(value => value.GetString()!).ToArray());
@@ -255,6 +271,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
             rawOutputs = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var output in outputsValue.EnumerateObject())
             {
+                WorkCancellation.Check();
                 if (output.Value.ValueKind != JsonValueKind.String)
                     throw new FormatException("outputs must map a parameter to a result string.");
                 rawOutputs.Add(output.Name, output.Value.GetString()!);
@@ -267,6 +284,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
             rawKeeps = new Dictionary<string, string[]>(StringComparer.Ordinal);
             foreach (var keep in keepsValue.EnumerateObject())
             {
+                WorkCancellation.Check();
                 if (keep.Value.ValueKind != JsonValueKind.Array || keep.Value.EnumerateArray().Any(value => value.ValueKind != JsonValueKind.String))
                     throw new FormatException("keeps must map a keeper to a non-empty array of values.");
                 rawKeeps.Add(keep.Name, keep.Value.EnumerateArray().Select(value => value.GetString()!).ToArray());
@@ -339,6 +357,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
         {
+            WorkCancellation.Check();
             if (!seen.Add(property.Name))
                 throw new FormatException($"repeated property '{property.Name}'.");
             if (allowed is not null && !allowed.Contains(property.Name, StringComparer.Ordinal))

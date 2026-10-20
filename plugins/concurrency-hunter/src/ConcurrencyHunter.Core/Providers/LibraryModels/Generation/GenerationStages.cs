@@ -51,34 +51,41 @@ internal sealed class GenerationChecks(CancellationToken cancellationToken, Acti
     /// <summary>Reports a check of a stage to the callback, then makes it. A stage may be checked from several threads at once.</summary>
     /// <param name="stage">The stage that checks.</param>
     /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    // bounded: reports one stage check and forwards once to the work cancellation owner.
     public void Check(GenerationStage stage)
     {
         reported?.Invoke(stage, Interlocked.Increment(ref _ordinals[(int)stage]));
+        WorkCancellation.Check();
         cancellationToken.ThrowIfCancellationRequested();
     }
 }
 
 /// <summary>The checks of one stage, which a helper of the generation built for that stage calls at each iteration of a loop no constant
-/// bounds and at the entry of each recursion. The default value checks nothing: a helper built outside a generation, as the public
-/// constructors build it, runs as it always ran.</summary>
+/// bounds and at the entry of each recursion. Without generation checks it observes the current work.</summary>
 /// <param name="Checks">The generation's checks, or <see langword="null"/> for none.</param>
 /// <param name="Stage">The stage the helper's work belongs to.</param>
 internal readonly record struct StageChecks(GenerationChecks? Checks, GenerationStage Stage)
 {
-    /// <summary>Makes the stage's check; none when the value is the default.</summary>
+    /// <summary>Makes the generation stage's check, or checks the current work.</summary>
     /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
-    public void Check() => Checks?.Check(Stage);
+    // bounded: forwards once to the generation checks or the work cancellation owner.
+    public void Check()
+    {
+        if (Checks is GenerationChecks checks)
+            checks.Check(Stage);
+        else
+            WorkCancellation.Check();
+    }
 
-    /// <summary>The elements of a sequence, each one after a check of the stage; the sequence itself when there are no checks.</summary>
+    /// <summary>The elements of a sequence, each one after a check of the stage.</summary>
     /// <typeparam name="T">The type of the elements.</typeparam>
     /// <param name="source">The sequence.</param>
-    public IEnumerable<T> Each<T>(IEnumerable<T> source) => Checks is null ? source : Checking(source, Checks, Stage);
-
-    private static IEnumerable<T> Checking<T>(IEnumerable<T> source, GenerationChecks checks, GenerationStage stage)
+    public IEnumerable<T> Each<T>(IEnumerable<T> source)
     {
+        StageChecks checks = this;
         foreach (var item in source)
         {
-            checks.Check(stage);
+            checks.Check();
             yield return item;
         }
     }

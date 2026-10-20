@@ -101,8 +101,12 @@ public sealed class ProgramIndex
         _membersOfNestedBodies = new Dictionary<string, ProgramMethod>(StringComparer.Ordinal);
         foreach (var method in methods)
         {
+            WorkCancellation.Check();
             foreach (var nested in method.NestedBodyIds)
+            {
+                WorkCancellation.Check();
                 _membersOfNestedBodies.TryAdd(nested, method);
+            }
         }
     }
 
@@ -144,6 +148,7 @@ public sealed class ProgramIndex
         var visited = new HashSet<string>(StringComparer.Ordinal);
         for (string? current = typeKey; current is not null;)
         {
+            WorkCancellation.Check();
             var (definitionKey, arguments) = Decompose(current);
             if (!visited.Add(definitionKey) || !_types.TryGetValue(definitionKey, out var type) || !type.IsSource)
                 return fields.Count == 0 && visited.Count == 1 ? null : fields;
@@ -172,8 +177,12 @@ public sealed class ProgramIndex
 
     /// <summary>The method an instance of <paramref name="runtimeTypeKey"/> runs for a call of <paramref name="methodId"/>: the most
     /// derived override or interface implementation along its base chain, the method itself when it has a body, or null.</summary>
+    /// <param name="runtimeTypeKey">The closed runtime type key.</param>
+    /// <param name="methodId">The dispatched method id.</param>
+    /// <param name="interfaceTypeKey">The closed interface type key, when dispatching through an interface.</param>
     public ProgramMethod? Implementation(string runtimeTypeKey, string methodId, string? interfaceTypeKey = null)
     {
+        WorkCancellation.Check();
         if (!_methods.TryGetValue(methodId, out var target))
             return null;
 
@@ -183,6 +192,7 @@ public sealed class ProgramIndex
             var visitedTypes = new HashSet<string>(StringComparer.Ordinal);
             for (string? current = runtimeTypeKey; current is not null && visitedTypes.Add(current);)
             {
+                WorkCancellation.Check();
                 var (definitionKey, arguments) = Decompose(current);
                 if (!_types.TryGetValue(definitionKey, out var type))
                     break;
@@ -206,8 +216,10 @@ public sealed class ProgramIndex
              visited.Add(current) && _types.TryGetValue(current, out var type);
              current = type.BaseTypeKey is null ? "" : Decompose(type.BaseTypeKey).DefinitionKey)
         {
+            WorkCancellation.Check();
             foreach (var method in _methodsByType.GetValueOrDefault(current) ?? [])
             {
+                WorkCancellation.Check();
                 if (method.MethodId == methodId && !method.IsAbstract || Overrides(method, methodId) ||
                     method.ImplementedInterfaceMethodIds.Contains(methodId, StringComparer.Ordinal))
                 {
@@ -266,12 +278,14 @@ public sealed class ProgramIndex
     /// <summary><paramref name="typeKey"/> and every base type and interface it has, breadth-first through the whole base and
     /// interface graph, each in the form the type gives it (for <c>Derived : Base&lt;Order&gt;</c>, <c>Base&lt;Order&gt;</c>). The
     /// walk goes through every type the index holds, a definition from metadata among them.</summary>
+    /// <param name="typeKey">The type whose base types and interfaces are enumerated.</param>
     public IEnumerable<string> Supertypes(string typeKey)
     {
         var visited = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Queue<string>([typeKey]);
         while (pending.TryDequeue(out var key))
         {
+            WorkCancellation.Check();
             if (!visited.Add(key))
                 continue;
 
@@ -282,7 +296,10 @@ public sealed class ProgramIndex
 
             var substitution = type.TypeParameterKeys.Zip(arguments).ToDictionary(pair => pair.First, pair => pair.Second, StringComparer.Ordinal);
             foreach (var baseKey in type.InterfaceKeys.Prepend(type.BaseTypeKey).OfType<string>())
+            {
+                WorkCancellation.Check();
                 pending.Enqueue(Substitute(baseKey, substitution));
+            }
         }
     }
 
@@ -309,6 +326,7 @@ public sealed class ProgramIndex
         for (var overridden = method.OverriddenMethodId; overridden is not null && visited.Add(overridden);
              overridden = _methods.GetValueOrDefault(overridden)?.OverriddenMethodId)
         {
+            WorkCancellation.Check();
             if (overridden == methodId)
                 return true;
         }
@@ -334,6 +352,7 @@ public sealed class ProgramIndex
         var count = 0;
         for (var index = 0; index < typeKey.Length; index++)
         {
+            WorkCancellation.Check();
             var character = typeKey[index];
             if (character == '[') arrayDepth++;
             else if (character == ']') arrayDepth--;

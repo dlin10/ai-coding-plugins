@@ -35,8 +35,10 @@ internal sealed class TimerSteps
     {
         foreach (var instance in heap.Instances.Values.OrderBy(instance => instance.Id, StringComparer.Ordinal))
         {
+            WorkCancellation.Check();
             foreach (var timer in instance.Summary.Timers)
             {
+                WorkCancellation.Check();
                 var step = new TimerStep(instance.Id, instance.BodyId, timer.OperationId);
                 var regions = timer.Timer.Values.SelectMany(value => heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
                 // A step reaches the timers points-to gives it, over-approximated: a null or a field read before its first write reaches no
@@ -46,6 +48,7 @@ internal sealed class TimerSteps
 
                 foreach (var region in regions)
                 {
+                    WorkCancellation.Check();
                     switch (timer.Action)
                     {
                         case IrTimerAction.Create:
@@ -109,6 +112,7 @@ internal sealed class TimerSteps
 
     private static void Add<TValue>(Dictionary<string, List<TValue>> map, string key, TValue value)
     {
+        WorkCancellation.Check();
         if (!map.TryGetValue(key, out var list))
             map.Add(key, list = []);
         list.Add(value);

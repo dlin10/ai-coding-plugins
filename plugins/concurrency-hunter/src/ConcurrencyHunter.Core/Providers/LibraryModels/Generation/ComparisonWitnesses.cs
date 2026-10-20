@@ -40,13 +40,17 @@ public sealed class ComparisonWitnesses
         var before = Count;
         foreach (var (site, _) in run.Reachable.DefaultComparerBindings)
         {
+            WorkCancellation.Check();
             var ordering = Members.Any(member => site.BodyId.EndsWith(ORDERING + member, StringComparison.Ordinal));
             if (!ordering && !Members.Any(member => site.BodyId.EndsWith(EQUALITY + member, StringComparison.Ordinal)))
                 continue;
             var call = run.Reachable.Bodies[site.BodyId].Blocks.SelectMany(block => block.Operations)
                           .OfType<IrCallOperation>().Single(operation => operation.Id == site.Operation);
             foreach (var argument in DefaultComparers.Bindings(run.Program, run.Reachable, site.BodyId, site.Operation, call.DefaultComparer!.TypeKey))
+            {
+                WorkCancellation.Check();
                 Need(driver, argument, ordering);
+            }
         }
         return Count != before;
     }
@@ -59,6 +63,7 @@ public sealed class ComparisonWitnesses
     {
         foreach (var (parameter, _) in driver.ProbeTypes.Where(pair => argument == $"{DriverSynthesizer.ASSEMBLY}:{pair.Value}"))
         {
+            WorkCancellation.Check();
             var need = _needs.GetValueOrDefault(parameter);
             _needs[parameter] = ordering ? need with { Ordering = true } : need with { Equality = true };
         }

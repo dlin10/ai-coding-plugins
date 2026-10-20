@@ -60,6 +60,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
             var parts = new List<(string Name, int Arity, bool OfMethod)>();
             do
             {
+                WorkCancellation.Check();
                 var name = Name();
                 var ofMethod = false;
                 var arity = 0;
@@ -78,8 +79,11 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
             if (typeCount < 1)
                 return null;
             foreach (var part in parts.Take(typeCount))
+            {
+                WorkCancellation.Check();
                 if (!IsDeclaredName(part.Name, ref generated) || part.OfMethod)
                     return null;
+            }
             var type = parts.Take(typeCount).Select(part => new IdName(part.Name, part.Arity > 0 ? part.Arity : null, [])).ToArray();
             if (text[0] == 'T')
                 return _at == text.Length ? new DeclarationId(type, null) : null;
@@ -99,6 +103,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
                     var list = new List<IdParameter>();
                     do
                     {
+                        WorkCancellation.Check();
                         if (Type(Position.Parameter) is not { } parameter)
                             return null;
                         list.Add(new IdParameter(parameter, Take('@')));
@@ -118,6 +123,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
 
         private IdType? Type(Position position = Position.Argument)
         {
+            WorkCancellation.Check();
             IdType type;
             if (Take('`'))
             {
@@ -136,6 +142,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
                 {
                     do
                     {
+                        WorkCancellation.Check();
                         var name = Name();
                         if (!IsDeclaredName(name, ref generated))
                             return null;
@@ -147,6 +154,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
                         {
                             do
                             {
+                                WorkCancellation.Check();
                                 if (Type() is not { } argument)
                                     return null;
                                 arguments.Add(argument);
@@ -161,6 +169,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
             }
             while (true)
             {
+                WorkCancellation.Check();
                 if (Take('*'))
                     type = new IdPointerType(type);
                 else if (Take('['))
@@ -168,6 +177,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
                     var dimensions = new List<string>();
                     do
                     {
+                        WorkCancellation.Check();
                         var start = _at;
                         if (Peek(char.IsAsciiDigit) && Number() is null ||
                             Take(':') && Peek(char.IsAsciiDigit) && Number() is null)
@@ -201,6 +211,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
             var depth = 0;
             for (; _at < text.Length && !char.IsWhiteSpace(text[_at]); _at++)
             {
+                WorkCancellation.Check();
                 var character = text[_at];
                 if (depth > 0 ? character is '(' or ')' or '.' : STRUCTURAL.Contains(character))
                     break;
@@ -220,7 +231,10 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
         {
             var start = _at;
             while (_at < text.Length && accepts(text[_at]))
+            {
+                WorkCancellation.Check();
                 _at++;
+            }
             return text[start.._at];
         }
 
@@ -249,6 +263,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
 
         /// <summary>An explicit implementation's name: the interface's name and the member's, each part an identifier with an
         /// optional <c>global::</c> before it and optional type arguments in angle brackets after it, joined by <c>#</c>.</summary>
+        /// <param name="name">The explicit implementation name to check.</param>
         private static bool IsImplementationName(string name)
         {
             var parts = new List<string>();
@@ -256,6 +271,7 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
             var start = 0;
             for (var index = 0; index < name.Length; index++)
             {
+                WorkCancellation.Check();
                 depth += name[index] switch { '<' => 1, '>' => -1, _ => 0 };
                 if (depth == 0 && name[index] == '#')
                 {
@@ -279,19 +295,24 @@ internal sealed record DeclarationId(IReadOnlyList<IdName> Type, IdMember? Membe
         {
             var depth = 0;
             foreach (var character in name)
+            {
+                WorkCancellation.Check();
                 if (character == '<')
                     depth++;
                 else if (character == '>' && --depth < 0)
                     return false;
+            }
             return depth == 0;
         }
 
         /// <summary>The first angle bracket of <paramref name="text"/> closes at its last character.</summary>
+        /// <param name="text">The text beginning with the opening angle bracket.</param>
         private static bool Closes(string text)
         {
             var depth = 0;
             for (var index = 0; index < text.Length; index++)
             {
+                WorkCancellation.Check();
                 depth += text[index] switch { '<' => 1, '>' => -1, _ => 0 };
                 if (depth <= 0)
                     return depth == 0 && index == text.Length - 1;

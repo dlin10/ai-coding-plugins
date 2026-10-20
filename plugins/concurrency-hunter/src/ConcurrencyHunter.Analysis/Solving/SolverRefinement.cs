@@ -19,11 +19,17 @@ public static class SolverRefinement
     public static string UnknownUncertainty(string reason) =>
         $"The solver did not decide whether the two paths can hold at once: {reason}";
 
-    public static SolverRefinementResult Refine(PairAnalysis pairs, IConstraintSolver solver) =>
-        Refine(pairs, solver, SolverPolicy.Budget, SolverPolicy.QueryLimit);
+    public static SolverRefinementResult Refine(PairAnalysis pairs, IConstraintSolver solver)
+    {
+        WorkCancellation.Check();
+        return Refine(pairs, solver, SolverPolicy.Budget, SolverPolicy.QueryLimit);
+    }
 
-    public static SolverRefinementResult Refine(PairAnalysis pairs, IConstraintSolver solver, ulong budget, SolverLimit queryLimit) =>
-        Refine(pairs, solver, new SolverBudget(budget), queryLimit);
+    public static SolverRefinementResult Refine(PairAnalysis pairs, IConstraintSolver solver, ulong budget, SolverLimit queryLimit)
+    {
+        WorkCancellation.Check();
+        return Refine(pairs, solver, new SolverBudget(budget), queryLimit);
+    }
 
     /// <summary>The same, spending a budget the caller holds: a run is many scopes and the budget is the run's, so the one
     /// budget is carried from scope to scope (TD-094). Every query asked is given and charged its whole limit (ADR 0021).</summary>
@@ -41,6 +47,7 @@ public static class SolverRefinement
         var kept = new AccessPair?[pairs.Pairs.Count];
         foreach (var index in Ordered(pairs.Pairs))
         {
+            WorkCancellation.Check();
             var pair = pairs.Pairs[index];
             var query = Query(pair);
             if (query.IsEmpty)
@@ -111,20 +118,27 @@ public static class SolverRefinement
         new([.. OfSide(pair.First.Conditions, "first"), .. OfSide(pair.Second.Conditions, "second")],
             OfSide(pair.First.SelectorTerm, "first"), OfSide(pair.Second.SelectorTerm, "second"));
 
-    private static IEnumerable<PathPredicate> OfSide(IReadOnlyList<PathPredicate> conditions, string side) =>
-        conditions.Select(condition => condition with
-        {
-            Subject = condition.IsCanonical || condition.Subject.Length == 0 ? condition.Subject : $"{side}|{condition.Subject}",
-            SubjectTerm = OfSide(condition.SubjectTerm, side)
-        });
-
-    private static ValueTerm? OfSide(ValueTerm? term, string side) => term switch
+    private static IEnumerable<PathPredicate> OfSide(IReadOnlyList<PathPredicate> conditions, string side)
     {
-        VariableTerm variable when !IsShared(variable.Identity) => variable with { Identity = $"{side}|{variable.Identity}" },
-        SumTerm sum => new SumTerm(OfSide(sum.Left, side)!, OfSide(sum.Right, side)!),
-        ConvertTerm convert => convert with { Operand = OfSide(convert.Operand, side)! },
-        _ => term
-    };
+        WorkCancellation.Check();
+        return conditions.Select(condition => condition with
+            {
+                Subject = condition.IsCanonical || condition.Subject.Length == 0 ? condition.Subject : $"{side}|{condition.Subject}",
+                SubjectTerm = OfSide(condition.SubjectTerm, side)
+            });
+    }
+
+    private static ValueTerm? OfSide(ValueTerm? term, string side)
+    {
+        WorkCancellation.Check();
+        return term switch
+        {
+            VariableTerm variable when !IsShared(variable.Identity) => variable with { Identity = $"{side}|{variable.Identity}" },
+            SumTerm sum => new SumTerm(OfSide(sum.Left, side)!, OfSide(sum.Right, side)!),
+            ConvertTerm convert => convert with { Operand = OfSide(convert.Operand, side)! },
+            _ => term
+        };
+    }
 
     /// <summary>Whether a name means the same value on both sides: a proven canonical one, and the empty subject of a predicate
     /// that constrains nothing at all.</summary>
@@ -143,7 +157,12 @@ public static class SolverRefinement
 
     /// <summary>What a candidate is expected to score (TD-103): the components a pair carries before the solver runs, which are
     /// the finding's own, so that the budget is spent in the order the findings are ranked in.</summary>
-    private static int ExpectedScore(AccessPair pair) => ConflictFindings.ExpectedScore(pair);
+    /// <param name="pair">The pair whose expected finding score is computed.</param>
+    private static int ExpectedScore(AccessPair pair)
+    {
+        WorkCancellation.Check();
+        return ConflictFindings.ExpectedScore(pair);
+    }
 
     private static string Site(AccessPair pair) =>
         $"{pair.First.BodyId}#{pair.First.OperationId} against {pair.Second.BodyId}#{pair.Second.OperationId}";

@@ -172,6 +172,7 @@ public static class DriverSynthesizer
     /// <param name="member">The member, from <see cref="FindMember"/>.</param>
     /// <param name="externMembers">The documentation ids of the library's members made <c>extern</c>.</param>
     /// <param name="cancellationToken">Cancels the driver's compilation.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
                                              CancellationToken cancellationToken)
         => Synthesize(library, member, externMembers, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
@@ -184,6 +185,7 @@ public static class DriverSynthesizer
     /// <param name="cancellationToken">Cancels the driver's compilation.</param>
     /// <param name="replacedMembers">The documentation ids among <paramref name="externMembers"/> whose body is not the code the runtime
     /// runs (<see cref="LibraryCompilationResult.ReplacedMembers"/>).</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
                                              IReadOnlySet<string> openedFields, CancellationToken cancellationToken,
                                              IReadOnlySet<string>? replacedMembers = null)
@@ -198,6 +200,7 @@ public static class DriverSynthesizer
     /// <param name="cancellationToken">Cancels the driver's compilation.</param>
     /// <param name="replacedMembers">The documentation ids among <paramref name="externMembers"/> whose body is not the code the runtime
     /// runs (<see cref="LibraryCompilationResult.ReplacedMembers"/>).</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
                                              IReadOnlySet<string> openedFields, IReadOnlySet<(string Type, string Name)> loadedStatics,
                                              CancellationToken cancellationToken, IReadOnlySet<string>? replacedMembers = null)
@@ -214,6 +217,7 @@ public static class DriverSynthesizer
     /// <param name="cancellationToken">Cancels the driver's compilation.</param>
     /// <param name="replacedMembers">The documentation ids among <paramref name="externMembers"/> whose body is not the code the runtime
     /// runs (<see cref="LibraryCompilationResult.ReplacedMembers"/>).</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
                                              IReadOnlySet<string> openedFields, IReadOnlySet<(string Type, string Name)> loadedStatics,
                                              ComparisonWitnesses witnesses, CancellationToken cancellationToken,
@@ -346,6 +350,7 @@ public static class DriverSynthesizer
             return false;
         for (var current = original; current is not null; current = current.ContainingType)
         {
+            WorkCancellation.Check();
             if (current.DeclaredAccessibility != Accessibility.Public)
                 return false;
         }
@@ -377,6 +382,7 @@ public static class DriverSynthesizer
         var result = new List<DriverSeedStatement>();
         foreach (var (path, statement) in statements)
         {
+            WorkCancellation.Check();
             var text = statement.TrimEnd(';');
             var index = assignments.FindIndex(operation => operation.Syntax.ToString() == text);
             if (index < 0)
@@ -399,6 +405,7 @@ public static class DriverSynthesizer
         var variants = new HashSet<string>(StringComparer.Ordinal);
         foreach (var error in errors)
         {
+            WorkCancellation.Check();
             if (error.Location.SourceTree != tree)
                 return null;
             var node = root.FindNode(error.Location.SourceSpan, getInnermostNodeForTie: true);
@@ -610,6 +617,7 @@ public static class DriverSynthesizer
             var number = 0;
             foreach (var (kind, type) in holders)
             {
+                checks.Check(GenerationStage.Synthesize);
                 var uncovered = new List<string>();
                 Uncovered[kind] = uncovered;
                 if (type is not INamedTypeSymbol holder)
@@ -620,6 +628,7 @@ public static class DriverSynthesizer
 
                 foreach (var trigger in HolderMembers(holder))
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     if (number == MAX_TRIGGERS)
                     {
                         uncovered.Add($"{Id(trigger)}: past the driver's {MAX_TRIGGERS} triggers");
@@ -655,7 +664,10 @@ public static class DriverSynthesizer
             }
 
             foreach (var (variant, _, statement) in triggers)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 _actions.Add(Action(variant, variant, statement));
+            }
 
             SeedStatics();
 
@@ -673,6 +685,7 @@ public static class DriverSynthesizer
         {
             foreach (var trigger in Triggers.Where(trigger => variants.Contains(trigger.Action)).ToArray())
             {
+                checks.Check(GenerationStage.Synthesize);
                 ((List<string>)Uncovered[trigger.Holder]).Add($"{trigger.Member}: the driver's call does not compile: {why}");
                 Triggers.Remove(trigger);
             }
@@ -682,6 +695,7 @@ public static class DriverSynthesizer
             _setup.RemoveAll(statement => variants.Any(variant => statement.StartsWith($"TArg_{variant}_", StringComparison.Ordinal)));
             for (var index = 0; index < Parameters.Count; index++)
             {
+                checks.Check(GenerationStage.Synthesize);
                 var parameter = Parameters[index];
                 Parameters[index] = parameter with
                 {
@@ -699,24 +713,45 @@ public static class DriverSynthesizer
             text.Append("#pragma warning disable\n");
             text.Append("public static class ").Append(DRIVER_TYPE).Append("\n{\n");
             foreach (var field in _fields)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 text.Append("    ").Append(field).Append('\n');
+            }
             text.Append('\n').Append("    public static void ").Append(SETUP).Append("()\n    {\n");
             foreach (var statement in _setup)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 text.Append("        ").Append(statement).Append('\n');
+            }
             text.Append("    }\n");
             foreach (var action in _actions)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 text.Append('\n').Append(action);
+            }
             foreach (var factory in _methods)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 text.Append('\n').Append("    ").Append(factory).Append('\n');
+            }
             text.Append("}\n\npublic static class ").Append(KEEP_TYPE).Append("\n{\n");
             foreach (var field in _keep)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 text.Append("    ").Append(field).Append('\n');
+            }
             text.Append("}\n\npublic static class ").Append(WITNESSED_TYPE).Append("\n{\n");
             foreach (var field in _witnessFields)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 text.Append("    public static object ").Append(field).Append(";\n");
+            }
             text.Append("}\n\npublic static class ").Append(WITNESSED_REF_TYPE).Append("<T>\n{\n    public static T Value;\n}\n");
             foreach (var type in _types)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 text.Append('\n').Append(type);
+            }
             return text.ToString();
         }
 
@@ -725,9 +760,13 @@ public static class DriverSynthesizer
         /// <summary>The type arguments of the member and of its containing types.</summary>
         private void ChooseTypeArguments()
         {
+            checks.Check(GenerationStage.Synthesize);
             var parameters = new List<ITypeParameterSymbol>();
             for (var type = member.ContainingType; type is not null; type = type.ContainingType)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 parameters.InsertRange(0, type.TypeParameters);
+            }
             parameters.AddRange(member.TypeParameters);
             ChooseTypeArguments(parameters);
         }
@@ -739,9 +778,15 @@ public static class DriverSynthesizer
         {
             var probed = new List<ITypeParameterSymbol>();
             foreach (var parameter in parameters)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 Choose(parameter, probed);
+            }
             foreach (var parameter in probed)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 _types.AddRange(ProbeDeclarations(parameter));
+            }
         }
 
         /// <summary>Gives a type parameter a probe type of its own: a probe struct when it is constrained to <c>struct</c>, else a probe
@@ -779,6 +824,7 @@ public static class DriverSynthesizer
         /// <param name="probed">Receives the type parameters given a probe type of their own.</param>
         private void Choose(ITypeParameterSymbol parameter, List<ITypeParameterSymbol> probed)
         {
+            checks.Check(GenerationStage.Synthesize);
             if (_probeTypes.ContainsKey(parameter) || _choices.ContainsKey(parameter))
                 return;
             _chosen.Add(parameter);
@@ -866,12 +912,16 @@ public static class DriverSynthesizer
             return null;
         }
 
-        private static ITypeSymbol Replace(ITypeSymbol type, ITypeParameterSymbol parameter, ITypeSymbol with) => type switch
+        private static ITypeSymbol Replace(ITypeSymbol type, ITypeParameterSymbol parameter, ITypeSymbol with)
         {
-            ITypeParameterSymbol other when SymbolEqualityComparer.Default.Equals(other, parameter) => with,
-            INamedTypeSymbol { IsGenericType: true } named => named.ConstructedFrom.Construct(named.TypeArguments.Select(argument => Replace(argument, parameter, with)).ToArray()),
-            _ => type
-        };
+            WorkCancellation.Check();
+            return type switch
+            {
+                ITypeParameterSymbol other when SymbolEqualityComparer.Default.Equals(other, parameter) => with,
+                INamedTypeSymbol { IsGenericType: true } named => named.ConstructedFrom.Construct(named.TypeArguments.Select(argument => Replace(argument, parameter, with)).ToArray()),
+                _ => type
+            };
+        }
 
         /// <summary>Records why the recipe cannot call the member. Whether it is public, and whether it is an init accessor, is read
         /// on the unopened compilation: the opening strips a seed auto-property accessor's modifier and turns its <c>init</c> into
@@ -911,6 +961,7 @@ public static class DriverSynthesizer
 
             foreach (var parameter in member.Parameters)
             {
+                checks.Check(GenerationStage.Synthesize);
                 var type = Substitute(parameter.Type);
                 var isDelegate = Kind(type) == ParameterKind.Delegate;
                 var id = parameter.Name;
@@ -977,6 +1028,7 @@ public static class DriverSynthesizer
                 return;
             foreach (var field in SeedMembers(named, isStatic: false))
             {
+                checks.Check(GenerationStage.Synthesize);
                 var fieldPath = path + "/" + Id(field);
                 var access = $"(({R(field.ContainingType)}){value}).{Escape(field.Name)}";
                 SeedMember(field, access, fieldPath, depth, statements);
@@ -1001,6 +1053,7 @@ public static class DriverSynthesizer
             {
                 foreach (var member in type.GetMembers().OfType<IFieldSymbol>().Where(member => !member.IsStatic && !member.IsConst))
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     var storage = member.AssociatedSymbol ?? member;
                     var storageType = Substitute(member.Type);
                     var fieldPath = path + "/" + Id(storage);
@@ -1017,7 +1070,10 @@ public static class DriverSynthesizer
 
                 // No backing field of a field-like event is listed among the struct's members: the event names its storage.
                 foreach (var @event in type.GetMembers().OfType<IEventSymbol>().Where(@event => !@event.IsStatic && FieldLikeEvents.Is(@event)))
+                {
+                    checks.Check(GenerationStage.Synthesize);
                     SeedMember(@event, $"{value}.{Escape(@event.Name)}", path + "/" + Id(@event), depth, statements);
+                }
             }
             finally
             {
@@ -1197,7 +1253,10 @@ public static class DriverSynthesizer
                 return null;
             var initializer = "{ " + value + " }";
             for (var rank = 1; rank < array.Rank; rank++)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 initializer = "{ " + initializer + " }";
+            }
             return $"new {R(array)} {initializer}";
         }
 
@@ -1296,6 +1355,7 @@ public static class DriverSynthesizer
             _staticsSeeded = true;
             foreach (var definition in AllLibraryTypes())
             {
+                checks.Check(GenerationStage.Synthesize);
                 var staticFields = SeedMembers(definition, isStatic: true)
                                       .Where(field => loadedStatics.Contains(SeedableFields.StaticStorage(field))).ToArray();
                 if (staticFields.Length == 0)
@@ -1303,12 +1363,16 @@ public static class DriverSynthesizer
                 if (!TryConstructStaticType(definition, out var type, out var typeName))
                 {
                     foreach (var field in staticFields)
+                    {
+                        checks.Check(GenerationStage.Synthesize);
                         RecordUnseeded("static/" + Id(field), field, MemberType(field));
+                    }
                     continue;
                 }
 
                 foreach (var field in SeedMembers(type, isStatic: true))
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     if (!loadedStatics.Contains(SeedableFields.StaticStorage(field)))
                         continue;
                     var path = "static/" + Id(field.OriginalDefinition);
@@ -1330,6 +1394,7 @@ public static class DriverSynthesizer
             var arguments = new List<ITypeSymbol>();
             foreach (var parameter in definition.TypeParameters)
             {
+                checks.Check(GenerationStage.Synthesize);
                 if (CanProbe(parameter) || CanProbeStruct(parameter))
                 {
                     if (!_probeTypes.ContainsKey(parameter))
@@ -1360,8 +1425,10 @@ public static class DriverSynthesizer
         {
             for (var current = type; current is not null; current = isStatic ? null : current.BaseType)
             {
+                checks.Check(GenerationStage.Synthesize);
                 foreach (var candidate in current.GetMembers())
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     if (candidate.IsStatic != isStatic || candidate.IsImplicitlyDeclared)
                         continue;
                     if (candidate is IFieldSymbol { IsConst: false } || candidate is IPropertySymbol { IsIndexer: false } property && IsAutoProperty(property) ||
@@ -1400,6 +1467,7 @@ public static class DriverSynthesizer
         {
             for (var current = symbol; current is not null; current = current.ContainingType)
             {
+                checks.Check(GenerationStage.Synthesize);
                 if (current.DeclaredAccessibility is Accessibility.Private or Accessibility.Protected or Accessibility.ProtectedAndInternal)
                     return false;
                 if (current.DeclaredAccessibility is Accessibility.Internal or Accessibility.ProtectedOrInternal &&
@@ -1420,6 +1488,7 @@ public static class DriverSynthesizer
         /// <param name="field">The field that leads to the struct, or <c>null</c> for an element.</param>
         private void RecordStruct(ITypeSymbol type, string path, ISymbol? field)
         {
+            checks.Check(GenerationStage.Synthesize);
             if (type is not INamedTypeSymbol named || Bounded(type, path, field))
                 return;
             _below.Add(type);
@@ -1427,6 +1496,7 @@ public static class DriverSynthesizer
             {
                 foreach (var member in named.GetMembers().OfType<IFieldSymbol>().Where(member => !member.IsStatic))
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     var storage = member.AssociatedSymbol ?? member;
                     var fieldPath = path + "/" + Id(storage);
                     if (SeedableFields.Struct(member.Type))
@@ -1440,7 +1510,10 @@ public static class DriverSynthesizer
 
                 // No backing field of a field-like event is listed among the struct's members: the event names its storage.
                 foreach (var @event in named.GetMembers().OfType<IEventSymbol>().Where(@event => !@event.IsStatic && FieldLikeEvents.Is(@event)))
+                {
+                    checks.Check(GenerationStage.Synthesize);
                     RecordUnseeded(path + "/" + Id(@event), @event, @event.Type);
+                }
             }
             finally
             {
@@ -1465,6 +1538,7 @@ public static class DriverSynthesizer
         /// <param name="seen">The types this walk stops at: the types it started below, and those its branches entered.</param>
         private void RecordBelow(ITypeSymbol type, string path, ISymbol field, HashSet<ITypeSymbol> seen)
         {
+            checks.Check(GenerationStage.Synthesize);
             type = Substitute(type);
             if (Bounded(type, path, field) || !seen.Add(type))
                 return;
@@ -1479,13 +1553,17 @@ public static class DriverSynthesizer
                 if (type is INamedTypeSymbol collectionType && SeedableFields.Collection(collectionType) is { } collection)
                 {
                     foreach (var axis in collection.Axes.Where(SeedableFields.Path))
+                    {
+                        checks.Check(GenerationStage.Synthesize);
                         RecordBelow(axis, path, field, seen);
+                    }
                     return;
                 }
                 if (type is not INamedTypeSymbol named)
                     return;
                 foreach (var member in SeedMembers(named, isStatic: false))
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     var nested = path + "/" + Id(member);
                     if (SeedableFields.Seed(MemberType(member)) || MemberType(member) is INamedTypeSymbol unknown && SeedableFields.UnknownCollection(unknown))
                         AddUnseeded(nested, member);
@@ -1516,13 +1594,17 @@ public static class DriverSynthesizer
                 AddUnseeded(path, field);
             return true;
 
-            static bool NestsDeeper(ITypeSymbol type, int levels) => levels < 0 || type switch
+            static bool NestsDeeper(ITypeSymbol type, int levels)
             {
-                IArrayTypeSymbol array => NestsDeeper(array.ElementType, levels - 1),
-                INamedTypeSymbol named => named.TypeArguments.Any(argument => NestsDeeper(argument, levels - 1)) ||
-                                          named.ContainingType is { } outer && NestsDeeper(outer, levels),
-                _ => false
-            };
+                WorkCancellation.Check();
+                return levels < 0 || type switch
+                {
+                    IArrayTypeSymbol array => NestsDeeper(array.ElementType, levels - 1),
+                    INamedTypeSymbol named => named.TypeArguments.Any(argument => NestsDeeper(argument, levels - 1)) ||
+                                              named.ContainingType is { } outer && NestsDeeper(outer, levels),
+                    _ => false
+                };
+            }
         }
 
         private void AddUnseeded(string path, ISymbol member) => _unseeded.TryAdd(path, member);
@@ -1560,10 +1642,14 @@ public static class DriverSynthesizer
             {
                 var excluded = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
                 for (var overridden = member; overridden is not null; overridden = overridden.OverriddenMethod)
+                {
+                    checks.Check(GenerationStage.Synthesize);
                     excluded.Add(overridden.OriginalDefinition);
+                }
                 for (var associated = member.AssociatedSymbol; associated is not null;
                      associated = associated switch { IPropertySymbol property => property.OverriddenProperty, IEventSymbol @event => @event.OverriddenEvent, _ => null })
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     excluded.Add(associated.OriginalDefinition);
                 }
                 if (receiver.IsAbstract || Derivation.Overridable(receiver, out _).Any(candidate => !excluded.Contains(candidate.OriginalDefinition)))
@@ -1604,7 +1690,10 @@ public static class DriverSynthesizer
                                 : $"    public static {(HasPointer(member) ? "unsafe " : "")}void {name}()\n");
             text.Append("    {\n");
             foreach (var line in lines)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 text.Append("        ").Append(line).Append('\n');
+            }
             text.Append("    }\n");
             return text.ToString();
         }
@@ -1618,6 +1707,7 @@ public static class DriverSynthesizer
             var arguments = new List<string>();
             foreach (var parameter in member.Parameters)
             {
+                checks.Check(GenerationStage.Synthesize);
                 var type = Substitute(parameter.Type);
                 var isDelegate = Kind(type) == ParameterKind.Delegate;
                 var id = parameter.Name;
@@ -1672,7 +1762,10 @@ public static class DriverSynthesizer
         {
             var types = new List<INamedTypeSymbol>();
             for (var type = holder; type is not null && type.SpecialType != SpecialType.System_Object; type = type.BaseType)
+            {
+                checks.Check(GenerationStage.Synthesize);
                 types.Add(type);
+            }
             if (holder.TypeKind == TypeKind.Interface)
                 types.Insert(0, holder);
             types.AddRange(holder.AllInterfaces);
@@ -1680,8 +1773,10 @@ public static class DriverSynthesizer
             var seen = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
             foreach (var type in types)
             {
+                checks.Check(GenerationStage.Synthesize);
                 foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(IsCallable))
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     if (type.TypeKind == TypeKind.Interface && holder.TypeKind != TypeKind.Interface &&
                         holder.FindImplementationForInterfaceMember(method) is IMethodSymbol { DeclaredAccessibility: Accessibility.Public } implementation &&
                         implementation.MethodKind != MethodKind.ExplicitInterfaceImplementation && seen.Contains(Root(implementation)))
@@ -1696,6 +1791,7 @@ public static class DriverSynthesizer
 
             foreach (var method in library.GetSpecialType(SpecialType.System_Object).GetMembers().OfType<IMethodSymbol>().Where(method => method.IsVirtual && IsCallable(method)))
             {
+                checks.Check(GenerationStage.Synthesize);
                 if (seen.Add(Root(method)))
                     yield return method;
             }
@@ -1712,7 +1808,10 @@ public static class DriverSynthesizer
             static ISymbol Root(IMethodSymbol method)
             {
                 while (method.OverriddenMethod is { } overridden)
+                {
+                    WorkCancellation.Check();
                     method = overridden;
+                }
                 return method.OriginalDefinition;
             }
         }
@@ -1743,6 +1842,7 @@ public static class DriverSynthesizer
             var arguments = new List<string>();
             foreach (var parameter in trigger.Parameters)
             {
+                checks.Check(GenerationStage.Synthesize);
                 if (parameter.RefKind == RefKind.Out)
                 {
                     arguments.Add("out _");
@@ -1812,6 +1912,7 @@ public static class DriverSynthesizer
                                   .Concat(Triggers.Select(trigger => trigger.Action)).ToArray();
             foreach (var parameter in member.Parameters.Where(parameter => parameter.RefKind != RefKind.Out))
             {
+                checks.Check(GenerationStage.Synthesize);
                 var kind = Kind(Substitute(parameter.Type));
                 var probes = variants.SelectMany(variant => _owners.GetValueOrDefault((parameter.Name, variant))?.Probes ?? []).ToArray();
                 var carries = ParameterKinds.IsHolding(kind) && probes.Any(probe => probe.Variant == CALL_VARIANT);
@@ -1821,6 +1922,7 @@ public static class DriverSynthesizer
                 var fields = new SortedDictionary<string, string>(StringComparer.Ordinal);
                 foreach (var variant in variants)
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     if (parameter.RefKind == RefKind.Ref)
                         fields[variant] = $"Out_{id}_{variant}";
                     else if (kind != ParameterKind.Delegate)
@@ -1866,9 +1968,13 @@ public static class DriverSynthesizer
         /// <summary>A probe instance holding a probe object: a probe class's holds another of its class, a probe struct's an object of
         /// its held probe class, which holds another (R9).</summary>
         /// <param name="name">The probe type's name.</param>
-        private string ProbeInstance(string name) => _probeStructs.TryGetValue(name, out var held)
-            ? $"new {name}() {{ Ref0 = {ProbeInstance(held)} }}"
-            : $"new {name}() {{ Ref0 = new {name}() }}";
+        private string ProbeInstance(string name)
+        {
+            checks.Check(GenerationStage.Synthesize);
+            return _probeStructs.TryGetValue(name, out var held)
+                ? $"new {name}() {{ Ref0 = {ProbeInstance(held)} }}"
+                : $"new {name}() {{ Ref0 = new {name}() }}";
+        }
 
         /// <summary>Whether a type is a type parameter the driver gave a probe struct.</summary>
         /// <param name="type">The type, substituted.</param>
@@ -1881,6 +1987,7 @@ public static class DriverSynthesizer
         /// <param name="owner">What the value belongs to.</param>
         private string Canned(ITypeSymbol type, Owner owner)
         {
+            checks.Check(GenerationStage.Synthesize);
             if (type.SpecialType == SpecialType.System_String)
                 return "\"s\"";
             if (type.IsValueType)
@@ -1922,7 +2029,10 @@ public static class DriverSynthesizer
             {
                 var initializer = $"{{ {Value(array.ElementType, owner, depth, hoist)}, {Value(array.ElementType, owner, depth, hoist)} }}";
                 for (var rank = 1; rank < array.Rank; rank++)
+                {
+                    checks.Check(GenerationStage.Synthesize);
                     initializer = $"{{ {initializer} }}";
+                }
                 return $"new {R(array)} {initializer}";
             }
 
@@ -1970,6 +2080,7 @@ public static class DriverSynthesizer
                 {
                     foreach (var implementation in Implementations(named))
                     {
+                        checks.Check(GenerationStage.Synthesize);
                         if (Constructor(implementation, owner, depth, hoist) is { } implemented)
                             return implemented;
                     }
@@ -2014,6 +2125,7 @@ public static class DriverSynthesizer
                                          .ToList();
             foreach (var producer in _producers)
             {
+                checks.Check(GenerationStage.Synthesize);
                 var method = producer;
                 if (method.IsGenericMethod)
                 {
@@ -2102,6 +2214,7 @@ public static class DriverSynthesizer
             var inline = owner.Inline();
             foreach (var parameter in invoke.Parameters)
             {
+                checks.Check(GenerationStage.Synthesize);
                 var name = $"a{_lambdaParameters++}";
                 var parameterType = Substitute(parameter.Type);
                 parameters.Add($"{RefPrefix(parameter.RefKind)}{R(parameterType)} {name}");
@@ -2132,6 +2245,7 @@ public static class DriverSynthesizer
         /// <param name="depth">How many more delegates or constructors a returned value may nest.</param>
         private string ReturnValue(ITypeSymbol type, Owner owner, int depth)
         {
+            checks.Check(GenerationStage.Synthesize);
             type = Substitute(type);
             switch (TypeShape.Of(type))
             {
@@ -2248,16 +2362,21 @@ public static class DriverSynthesizer
             if (baseClass is not null && !Derivation.CanDerive(baseClass))
                 Fail($"no class can derive from {baseClass.ToDisplayString()}");
             foreach (var overridable in Derivation.Overridable(root, out _).Where(candidate => excluded?.Contains(candidate.OriginalDefinition) != true))
+            {
+                checks.Check(GenerationStage.Synthesize);
                 text.Append("    ").Append(Override(overridable, probeStruct)).Append('\n');
+            }
             foreach (var @interface in interfaces.SelectMany(@interface => @interface.AllInterfaces.Prepend(@interface))
                                                  .Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default))
             {
+                checks.Check(GenerationStage.Synthesize);
                 if (!Implementable(@interface))
                     Fail($"no class can implement {@interface.ToDisplayString()}");
                 foreach (var implemented in @interface.GetMembers().Where(candidate => !candidate.IsStatic && (candidate.IsAbstract || candidate.IsVirtual) &&
                                                                                        !candidate.IsSealed &&
                                                                                        candidate is IMethodSymbol { MethodKind: MethodKind.Ordinary } or IPropertySymbol or IEventSymbol))
                 {
+                    checks.Check(GenerationStage.Synthesize);
                     text.Append("    ").Append(Explicit(@interface, implemented, probeStruct)).Append('\n');
                 }
             }
@@ -2337,6 +2456,7 @@ public static class DriverSynthesizer
             var explicitly = explicitOwner.Length > 0;
             foreach (var accessor in new[] { property.GetMethod, property.SetMethod })
             {
+                checks.Check(GenerationStage.Synthesize);
                 if (accessor is null || !explicitly && !Derivation.IsVisibleToSubclass(accessor.DeclaredAccessibility))
                     continue;
                 var accessorModifier = explicitly || accessor.DeclaredAccessibility == property.DeclaredAccessibility ? ""
@@ -2382,6 +2502,7 @@ public static class DriverSynthesizer
             var statements = new List<string>(WitnessStores("this", self, field));
             foreach (var (parameter, index) in method.Parameters.Select((parameter, index) => (parameter, index)))
             {
+                checks.Check(GenerationStage.Synthesize);
                 var name = parameterName(index);
                 if (parameter.RefKind != RefKind.Out)
                     statements.AddRange(WitnessStores(name, Substitute(parameter.Type), field));
@@ -2531,6 +2652,7 @@ public static class DriverSynthesizer
         /// <param name="type">The type.</param>
         private ITypeSymbol Substitute(ITypeSymbol type)
         {
+            checks.Check(GenerationStage.Synthesize);
             if (_choices.Count == 0)
                 return type;
             switch (type)
@@ -2555,18 +2677,23 @@ public static class DriverSynthesizer
             }
         }
 
-        private bool ContainsProbe(ITypeSymbol type) => type switch
+        private bool ContainsProbe(ITypeSymbol type)
         {
-            ITypeParameterSymbol parameter => _probeTypes.ContainsKey(parameter),
-            IArrayTypeSymbol array => ContainsProbe(array.ElementType),
-            INamedTypeSymbol named => named.TypeArguments.Any(ContainsProbe) || named.ContainingType is { } outer && ContainsProbe(outer),
-            _ => false
-        };
+            checks.Check(GenerationStage.Synthesize);
+            return type switch
+            {
+                ITypeParameterSymbol parameter => _probeTypes.ContainsKey(parameter),
+                IArrayTypeSymbol array => ContainsProbe(array.ElementType),
+                INamedTypeSymbol named => named.TypeArguments.Any(ContainsProbe) || named.ContainingType is { } outer && ContainsProbe(outer),
+                _ => false
+            };
+        }
 
         /// <summary>The type as source text, fully qualified, type parameters replaced by their probe class or choice.</summary>
         /// <param name="type">The type.</param>
         private string R(ITypeSymbol type)
         {
+            WorkCancellation.Check();
             switch (type)
             {
                 case ITypeParameterSymbol parameter:
@@ -2578,7 +2705,10 @@ public static class DriverSynthesizer
                     var ranks = new List<int>();
                     ITypeSymbol element = array;
                     for (; element is IArrayTypeSymbol nested; element = nested.ElementType)
+                    {
+                        WorkCancellation.Check();
                         ranks.Add(nested.Rank);
+                    }
                     return R(element) + string.Concat(ranks.Select(rank => "[" + new string(',', rank - 1) + "]"));
                 }
 
@@ -2615,6 +2745,7 @@ public static class DriverSynthesizer
         {
             for (INamedTypeSymbol? current = type; current is not null; current = current.ContainingType)
             {
+                WorkCancellation.Check();
                 if (current.DeclaredAccessibility != Accessibility.Public)
                     return false;
             }
@@ -2647,7 +2778,10 @@ public static class DriverSynthesizer
         {
             var unique = name;
             for (var suffix = 2; !_names.Add(unique); suffix++)
+            {
+                WorkCancellation.Check();
                 unique = $"{name}_{suffix}";
+            }
             return unique;
         }
 
@@ -2665,6 +2799,7 @@ public static class DriverSynthesizer
         {
             foreach (var parameter in _chosen.Skip(snapshot.Chosen))
             {
+                WorkCancellation.Check();
                 _probeTypes.Remove(parameter);
                 _choices.Remove(parameter);
             }
@@ -2678,13 +2813,22 @@ public static class DriverSynthesizer
             _types.RemoveRange(snapshot.Types, _types.Count - snapshot.Types);
             _methods.RemoveRange(snapshot.Methods, _methods.Count - snapshot.Methods);
             foreach (var key in _seedTypeKeys.Skip(snapshot.SeedTypes))
+            {
+                WorkCancellation.Check();
                 _seedTypes.Remove(key);
+            }
             _seedTypeKeys.RemoveRange(snapshot.SeedTypes, _seedTypeKeys.Count - snapshot.SeedTypes);
             foreach (var key in _classKeys.Skip(snapshot.ClassKeys))
+            {
+                WorkCancellation.Check();
                 _classes.Remove(key);
+            }
             _classKeys.RemoveRange(snapshot.ClassKeys, _classKeys.Count - snapshot.ClassKeys);
             foreach (var key in _owners.Keys.Where(key => key.Variant == variant).ToArray())
+            {
+                WorkCancellation.Check();
                 _owners.Remove(key);
+            }
         }
     }
 }

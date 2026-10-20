@@ -145,10 +145,12 @@ public sealed class LibraryModels
     {
         foreach (var member in members)
         {
+            WorkCancellation.Check();
             Check(member.Id, member.Assemblies);
             var effects = new HashSet<LibraryEffect>();
             foreach (var effect in member.Effects)
             {
+                WorkCancellation.Check();
                 if (string.IsNullOrWhiteSpace(effect.Parameter))
                     throw new LibraryModelException($"{member.Id} declares a {effect.Kind} effect with no parameter name.");
                 if (!effects.Add(effect))
@@ -161,6 +163,7 @@ public sealed class LibraryModels
 
         foreach (var type in immutableTypes)
         {
+            WorkCancellation.Check();
             Check(type.Id, type.Assemblies);
             if (!_types.TryAdd(type.Id, type))
                 throw new LibraryModelException($"{type.Id} is described twice.");
@@ -174,7 +177,10 @@ public sealed class LibraryModels
     {
         var projectMembers = project.ToArray();
         foreach (var group in projectMembers.GroupBy(member => member.Id, StringComparer.Ordinal))
+        {
+            WorkCancellation.Check();
             _projectMembers.Add(group.Key, group.ToArray());
+        }
         Members = builtIn.Members.Concat(projectMembers).ToArray();
     }
 
@@ -199,14 +205,16 @@ public sealed class LibraryModels
     /// <summary>The built-in library models, read from the seven embedded files once per process.</summary>
     public static LibraryModels BuiltIn { get; } = LoadBuiltIn();
 
-    private static LibraryModels LoadBuiltIn()
+    internal static LibraryModels LoadBuiltIn()
     {
+        using var outside = WorkCancellation.Outside();
         var assembly = typeof(LibraryModels).Assembly;
         var members = new List<LibraryModel>();
         var types = new List<ImmutableLibraryType>();
         foreach (var file in new[] { "system.json", "system-text-json.json", "newtonsoft-json.json", "logging.json",
                                      "http-client.json", "entity-framework.json", "linq.json" })
         {
+            WorkCancellation.Check();
             using var stream = assembly.GetManifestResourceStream("LibraryModels.BuiltIn." + file) ??
                                throw new LibraryModelException($"Missing built-in library model {file}.");
             using var bytes = new MemoryStream();
@@ -312,14 +320,18 @@ public sealed class LibraryModels
     /// <paramref name="baseId"/>.</summary>
     /// <param name="namespace">The namespace searched, with its nested namespaces.</param>
     /// <param name="baseId">The base type's documentation id.</param>
-    private static bool Declares(INamespaceSymbol @namespace, string baseId) =>
-        @namespace.GetTypeMembers().Any(type => DerivesFrom(type, baseId)) ||
-        @namespace.GetNamespaceMembers().Any(nested => Declares(nested, baseId));
+    private static bool Declares(INamespaceSymbol @namespace, string baseId)
+    {
+        WorkCancellation.Check();
+        return @namespace.GetTypeMembers().Any(type => DerivesFrom(type, baseId)) ||
+            @namespace.GetNamespaceMembers().Any(nested => Declares(nested, baseId));
+    }
 
     private static bool DerivesFrom(INamedTypeSymbol type, string baseId)
     {
         for (var current = type.BaseType; current is not null; current = current.BaseType)
         {
+            WorkCancellation.Check();
             if (DocumentationCommentId.CreateDeclarationId(current.OriginalDefinition) == baseId)
                 return true;
         }
@@ -332,7 +344,11 @@ public sealed class LibraryModels
     /// <paramref name="owner"/>, one of its own type parameters.</summary>
     /// <param name="type">The type checked.</param>
     /// <param name="owner">The type whose own type parameters count as immutable, or null for none.</param>
-    public bool IsImmutable(ITypeSymbol type, INamedTypeSymbol? owner = null) => IsImmutable(type, owner, inRange: true);
+    public bool IsImmutable(ITypeSymbol type, INamedTypeSymbol? owner = null)
+    {
+        WorkCancellation.Check();
+        return IsImmutable(type, owner, inRange: true);
+    }
 
     /// <summary><see cref="IsImmutable(ITypeSymbol, INamedTypeSymbol?)"/>, with the version of the type's assembly checked only
     /// when <paramref name="inRange"/>: a member's shape is the same at every version, and whether its own assembly is in range is
@@ -340,17 +356,21 @@ public sealed class LibraryModels
     /// <param name="type">The type checked.</param>
     /// <param name="owner">The type whose own type parameters count as immutable, or null for none.</param>
     /// <param name="inRange">Whether the version of the type's assembly must be inside the rule's range.</param>
-    private bool IsImmutable(ITypeSymbol type, INamedTypeSymbol? owner, bool inRange) => type switch
+    private bool IsImmutable(ITypeSymbol type, INamedTypeSymbol? owner, bool inRange)
     {
-        { TypeKind: TypeKind.Enum } => true,
-        ITypeParameterSymbol parameter => owner is not null && parameter.TypeParameterKind == TypeParameterKind.Type &&
-                                          SymbolEqualityComparer.Default.Equals(parameter.DeclaringType, owner.OriginalDefinition),
-        INamedTypeSymbol named => ImmutableTypeOf(named) is { } entry &&
-                                  RangeOf(entry, named.ContainingAssembly) is { } range &&
-                                  (!inRange || range.Contains(named.ContainingAssembly.Identity.Version)) &&
-                                  named.TypeArguments.All(argument => IsImmutable(argument, owner, inRange)),
-        _ => false
-    };
+        WorkCancellation.Check();
+        return type switch
+        {
+            { TypeKind: TypeKind.Enum } => true,
+            ITypeParameterSymbol parameter => owner is not null && parameter.TypeParameterKind == TypeParameterKind.Type &&
+                                              SymbolEqualityComparer.Default.Equals(parameter.DeclaringType, owner.OriginalDefinition),
+            INamedTypeSymbol named => ImmutableTypeOf(named) is { } entry &&
+                                      RangeOf(entry, named.ContainingAssembly) is { } range &&
+                                      (!inRange || range.Contains(named.ContainingAssembly.Identity.Version)) &&
+                                      named.TypeArguments.All(argument => IsImmutable(argument, owner, inRange)),
+            _ => false
+        };
+    }
 
     private ImmutableLibraryType? ImmutableTypeOf(INamedTypeSymbol? type)
     {
@@ -360,6 +380,7 @@ public sealed class LibraryModels
             return entry;
         for (var current = definition.BaseType; current is not null; current = current.BaseType)
         {
+            WorkCancellation.Check();
             if (DocumentationCommentId.CreateDeclarationId(current.OriginalDefinition) is { } baseId &&
                 _types.TryGetValue(baseId, out var baseEntry) && baseEntry.IncludesDerived &&
                 RangeOf(baseEntry, definition.ContainingAssembly) is not null)
@@ -377,10 +398,13 @@ public sealed class LibraryModels
         method.Parameters.All(parameter => parameter.RefKind is RefKind.None or RefKind.Out &&
                                            IsImmutable(parameter.Type, method.ContainingType, inRange: false));
 
-    private static LibraryMatch? Match(LibraryModel model, IAssemblySymbol? assembly, string id) =>
-        Match(RangeOf(model.Assemblies, assembly), assembly, id, model.Effects, model.Layer, model.DeclaredOpaque) is { } match
-            ? match with { Result = model.Result, Fates = model.Fates, Stores = model.Stores, Outputs = model.Outputs, Keeps = model.Keeps, Calls = model.Calls }
-            : null;
+    private static LibraryMatch? Match(LibraryModel model, IAssemblySymbol? assembly, string id)
+    {
+        WorkCancellation.Check();
+        return Match(RangeOf(model.Assemblies, assembly), assembly, id, model.Effects, model.Layer, model.DeclaredOpaque) is { } match
+                ? match with { Result = model.Result, Fates = model.Fates, Stores = model.Stores, Outputs = model.Outputs, Keeps = model.Keeps, Calls = model.Calls }
+                : null;
+    }
 
     private static LibraryMatch? Match(SupportedAssemblyVersion? range, IAssemblySymbol? assembly, string id,
                                        IReadOnlyList<LibraryEffect> effects, ModelLayer layer = ModelLayer.BuiltIn,
@@ -402,18 +426,23 @@ public sealed class LibraryModels
     /// rule that covers derived types, any other <c>System</c> assembly of the framework at the framework's range.</summary>
     /// <param name="type">The immutable type's rule.</param>
     /// <param name="assembly">The assembly declaring the type, or null.</param>
-    private static SupportedAssemblyVersion? RangeOf(ImmutableLibraryType type, IAssemblySymbol? assembly) =>
-        RangeOf(type.Assemblies, assembly) ??
-        (type.IncludesDerived && assembly?.Identity.Name is { } name && (name == "System" || name.StartsWith("System.", StringComparison.Ordinal))
-            ? SupportedAssemblyVersion.Framework(name)
-            : null);
+    private static SupportedAssemblyVersion? RangeOf(ImmutableLibraryType type, IAssemblySymbol? assembly)
+    {
+        WorkCancellation.Check();
+        return RangeOf(type.Assemblies, assembly) ??
+            (type.IncludesDerived && assembly?.Identity.Name is { } name && (name == "System" || name.StartsWith("System.", StringComparison.Ordinal))
+                ? SupportedAssemblyVersion.Framework(name)
+                : null);
+    }
 
     private static void Check(string id, IReadOnlyList<SupportedAssemblyVersion> assemblies)
     {
+        WorkCancellation.Check();
         if (assemblies.Count == 0)
             throw new LibraryModelException($"{id} names no assembly.");
         foreach (var range in assemblies)
         {
+            WorkCancellation.Check();
             if (string.IsNullOrWhiteSpace(range.AssemblyName))
                 throw new LibraryModelException($"{id} names an assembly with an empty name.");
             if (range.Minimum >= range.MaximumExclusive)

@@ -62,10 +62,12 @@ public static class ProcessScopes
         var pending = new Stack<Project>([executable]);
         while (pending.TryPop(out var project))
         {
+            WorkCancellation.Check();
             if (project.Language != LanguageNames.CSharp || !closure.TryAdd(project.Id, project))
                 continue;
             foreach (var reference in project.ProjectReferences)
             {
+                WorkCancellation.Check();
                 if (solution.GetProject(reference.ProjectId) is { } referenced)
                     pending.Push(referenced);
             }

@@ -77,6 +77,9 @@ internal sealed record DelegateCombination(bool Removes, IReadOnlyList<IOperatio
 
     private static bool IsDelegate(ITypeSymbol? type) => type?.TypeKind == TypeKind.Delegate;
 
-    private static IOperation WithoutConversions(IOperation value) =>
-        value is IConversionOperation conversion ? WithoutConversions(conversion.Operand) : value;
+    private static IOperation WithoutConversions(IOperation value)
+    {
+        WorkCancellation.Check();
+        return value is IConversionOperation conversion ? WithoutConversions(conversion.Operand) : value;
+    }
 }

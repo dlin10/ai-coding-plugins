@@ -26,7 +26,10 @@ public static class EngineClaims
             return member;
         var type = method.ContainingType?.OriginalDefinition;
         while (type?.ContainingType is { } outer)
+        {
+            WorkCancellation.Check();
             type = outer.OriginalDefinition;
+        }
         if (type is null)
             return null;
         var name = type.ContainingNamespace is { IsGlobalNamespace: false } ns ? $"{ns.ToDisplayString()}.{type.MetadataName}" : type.MetadataName;
@@ -37,6 +40,7 @@ public static class EngineClaims
     /// engine claims none of them.</summary>
     /// <param name="assembly">The assembly.</param>
     /// <param name="cancellationToken">Cancels the scan at the next type.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public static EngineClaim? FirstIn(IAssemblySymbol assembly, CancellationToken cancellationToken = default) =>
         FirstIn(assembly, new GenerationChecks(cancellationToken));
 
@@ -51,6 +55,7 @@ public static class EngineClaims
             checks.Check(GenerationStage.EngineClaims);
             foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
             {
+                WorkCancellation.Check();
                 if (Of(method) is { } recognizer)
                     return new EngineClaim(method.GetDocumentationCommentId() ?? method.ToDisplayString(), recognizer);
             }

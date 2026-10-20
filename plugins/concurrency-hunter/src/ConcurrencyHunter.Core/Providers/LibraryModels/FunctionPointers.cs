@@ -13,11 +13,15 @@ internal static class FunctionPointers
     internal static bool In(IMethodSymbol member) =>
         member.Parameters.Select(parameter => parameter.Type).Append(member.ReturnType).Any(Holds);
 
-    private static bool Holds(ITypeSymbol type) => type switch
+    private static bool Holds(ITypeSymbol type)
     {
-        IFunctionPointerTypeSymbol => true,
-        IArrayTypeSymbol array => Holds(array.ElementType),
-        IPointerTypeSymbol pointer => Holds(pointer.PointedAtType),
-        _ => false
-    };
+        WorkCancellation.Check();
+        return type switch
+        {
+            IFunctionPointerTypeSymbol => true,
+            IArrayTypeSymbol array => Holds(array.ElementType),
+            IPointerTypeSymbol pointer => Holds(pointer.PointedAtType),
+            _ => false
+        };
+    }
 }

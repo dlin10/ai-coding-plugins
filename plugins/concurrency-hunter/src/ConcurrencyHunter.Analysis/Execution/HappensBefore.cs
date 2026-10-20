@@ -157,7 +157,11 @@ internal sealed class HappensBefore
     /// <summary>The distinct spawn and async call sites, each with the API it calls.</summary>
     internal IReadOnlyList<SpawnSiteCoverage> SpawnSites { get; }
 
-    private void CheckCancellation() => _constructionToken.ThrowIfCancellationRequested();
+    private void CheckCancellation()
+    {
+        WorkCancellation.Check();
+        _constructionToken.ThrowIfCancellationRequested();
+    }
 
     /// <summary>The joins whose handle identity is not proven, counted for the whole scope whatever context a query read.</summary>
     internal IReadOnlyList<OperationSite> UnprovenJoins => In(null, () =>
@@ -183,6 +187,7 @@ internal sealed class HappensBefore
     /// <param name="query">The query.</param>
     private T In<T>(string? creator, Func<T> query)
     {
+        WorkCancellation.Check();
         var outer = _context;
         _context = ContextOf(creator);
         try
@@ -212,7 +217,15 @@ internal sealed class HappensBefore
         try
         {
             foreach (var child in _executions.Values.Where(execution => execution.ParentId is not null).Select(execution => execution.Id))
+            {
+                CheckCancellation();
                 IsComposite(child);
+            }
+        }
+        catch
+        {
+            _contexts.Remove(creator);
+            throw;
         }
         finally
         {
@@ -228,8 +241,11 @@ internal sealed class HappensBefore
     /// <param name="joinInstance">The instance making the join.</param>
     /// <param name="joinOperation">The join operation.</param>
     /// <param name="access">The access the paths lead to.</param>
-    internal bool JoinDominates(string execution, string joinInstance, int joinOperation, Access access) =>
-        FlowOf(execution).Dominates(new PointKey(joinInstance, joinOperation, false), new PointKey(access.InstanceId, access.OperationId, false));
+    internal bool JoinDominates(string execution, string joinInstance, int joinOperation, Access access)
+    {
+        WorkCancellation.Check();
+        return FlowOf(execution).Dominates(new PointKey(joinInstance, joinOperation, false), new PointKey(access.InstanceId, access.OperationId, false));
+    }
 
     /// <summary>Whether every work callee of a spawn anchor's site has an async body.</summary>
     /// <param name="anchor">The anchor whose spawn site is checked.</param>
@@ -248,9 +264,12 @@ internal sealed class HappensBefore
     /// <summary>Whether an execution runs at most once: in the whole scope by its policy, and in one run of a creator also when it runs
     /// once per run of that creator.</summary>
     /// <param name="execution">The execution.</param>
-    private bool Once(string execution) =>
-        _executions.TryGetValue(execution, out var instance) && instance.Policy is { Multiplicity: Multiplicity.AtMostOnce, SelfOverlap: SelfOverlap.Serialized } ||
-        _context.Creator is { } creator && CreatorRuns.Once(_executions, execution, creator);
+    private bool Once(string execution)
+    {
+        CheckCancellation();
+        return _executions.TryGetValue(execution, out var instance) && instance.Policy is { Multiplicity: Multiplicity.AtMostOnce, SelfOverlap: SelfOverlap.Serialized } ||
+            _context.Creator is { } creator && CreatorRuns.Once(_executions, execution, creator);
+    }
 
     /// <summary>Whether an execution is started once, so its handle names one run: in the whole scope by
     /// <see cref="ExecutionInstance.SpawnedOnce"/>, and in one run of a creator per run of that creator.</summary>
@@ -537,75 +556,86 @@ internal sealed class HappensBefore
             return;
         _context.JoinsReady = true;
 
-        var candidates = new List<Candidate>();
-        foreach (var execution in _executions.Keys.Order(StringComparer.Ordinal))
+        try
         {
-            CheckCancellation();
-            var resumed = new Dictionary<(string Instance, int Operation), IReadOnlyList<string>>();
-            foreach (var visit in _visits.GetValueOrDefault(execution) ?? [])
+            var candidates = new List<Candidate>();
+            foreach (var execution in _executions.Keys.Order(StringComparer.Ordinal))
             {
                 CheckCancellation();
-                if (!_heap.Instances.TryGetValue(visit.InstanceId, out var instance))
-                    continue;
-                // A timer wait is the await or WaitOne the pattern ends with: its own join says nothing, since what it waits for is a
-                // ValueTask or an event, so the timer's identity decides it and the operation is counted once, here.
-                var timerWaits = TimerWaits(execution, visit, instance).ToArray();
-                foreach (var (operationId, target, throwsAfter) in timerWaits)
+                var resumed = new Dictionary<(string Instance, int Operation), IReadOnlyList<string>>();
+                foreach (var visit in _visits.GetValueOrDefault(execution) ?? [])
                 {
                     CheckCancellation();
-                    if (target is null)
-                        _context.UnprovenJoins.Add((instance.BodyId, operationId));
-                    else
-                        Wait(candidates, resumed, execution, visit, instance, operationId, [target], throwsAfter);
-                }
-
-                foreach (var join in instance.Summary.Joins)
-                {
-                    CheckCancellation();
-                    if (!_segments.Runs(instance.BodyId, visit.Segment, join.OperationId) ||
-                        timerWaits.Any(wait => wait.OperationId == join.OperationId))
-                    {
+                    if (!_heap.Instances.TryGetValue(visit.InstanceId, out var instance))
                         continue;
+                    // A timer wait is the await or WaitOne the pattern ends with: its own join says nothing, since what it waits for is a
+                    // ValueTask or an event, so the timer's identity decides it and the operation is counted once, here.
+                    var timerWaits = TimerWaits(execution, visit, instance).ToArray();
+                    foreach (var (operationId, target, throwsAfter) in timerWaits)
+                    {
+                        CheckCancellation();
+                        if (target is null)
+                            _context.UnprovenJoins.Add((instance.BodyId, operationId));
+                        else
+                            Wait(candidates, resumed, execution, visit, instance, operationId, [target], throwsAfter);
                     }
 
-                    var (targets, proven) = Prove(execution, instance, join);
-                    if (!proven)
-                        _context.UnprovenJoins.Add((instance.BodyId, join.OperationId));
-                    if (targets.Count != 0)
-                        Wait(candidates, resumed, execution, visit, instance, join.OperationId, targets, join.ThrowsOnlyAfterCompletion);
+                    foreach (var join in instance.Summary.Joins)
+                    {
+                        CheckCancellation();
+                        if (!_segments.Runs(instance.BodyId, visit.Segment, join.OperationId) ||
+                            timerWaits.Any(wait => wait.OperationId == join.OperationId))
+                        {
+                            continue;
+                        }
+
+                        var (targets, proven) = Prove(execution, instance, join);
+                        if (!proven)
+                            _context.UnprovenJoins.Add((instance.BodyId, join.OperationId));
+                        if (targets.Count != 0)
+                            Wait(candidates, resumed, execution, visit, instance, join.OperationId, targets, join.ThrowsOnlyAfterCompletion);
+                    }
+                }
+
+                AtResumptions(candidates, execution, resumed);
+                if (Once(execution))
+                {
+                    foreach (var anchor in _anchors.GetValueOrDefault(execution) ?? [])
+                    {
+                        CheckCancellation();
+                        if (anchor.Kind == SpawnAnchorKind.Spawn &&
+                            _spawnSites.TryGetValue((anchor.CallerInstance, anchor.OperationId), out var site) &&
+                            site.Kind is IrSpawnKind.ParallelFor or IrSpawnKind.ParallelForEach)
+                        {
+                            candidates.Add(new Candidate(execution, new PointKey(anchor.CallerInstance, site.CallOperationId, false), [anchor.ChildId], true));
+                        }
+                    }
                 }
             }
 
-            AtResumptions(candidates, execution, resumed);
-            if (Once(execution))
+            AtCallSites(candidates);
+            foreach (var group in candidates.GroupBy(candidate => (candidate.Execution, candidate.Point)))
             {
-                foreach (var anchor in _anchors.GetValueOrDefault(execution) ?? [])
+                CheckCancellation();
+                var joins = _context.Joins.TryGetValue(group.Key.Execution, out var existing) ? (List<JoinAnchor>)existing : [];
+                var targets = group.SelectMany(candidate => candidate.Targets).Distinct(StringComparer.Ordinal).ToArray();
+                var join = new JoinAnchor(joins.Count, group.Key.Point, targets, group.Any(candidate => candidate.ThrowsAfter));
+                joins.Add(join);
+                _context.Joins[group.Key.Execution] = joins;
+                foreach (var target in targets.Where(target => target != group.Key.Execution))
                 {
                     CheckCancellation();
-                    if (anchor.Kind == SpawnAnchorKind.Spawn &&
-                        _spawnSites.TryGetValue((anchor.CallerInstance, anchor.OperationId), out var site) &&
-                        site.Kind is IrSpawnKind.ParallelFor or IrSpawnKind.ParallelForEach)
-                    {
-                        candidates.Add(new Candidate(execution, new PointKey(anchor.CallerInstance, site.CallOperationId, false), [anchor.ChildId], true));
-                    }
+                    Get(_context.JoinedBy, target).Add((group.Key.Execution, join.Index));
                 }
             }
         }
-
-        AtCallSites(candidates);
-        foreach (var group in candidates.GroupBy(candidate => (candidate.Execution, candidate.Point)))
+        catch
         {
-            CheckCancellation();
-            var joins = _context.Joins.TryGetValue(group.Key.Execution, out var existing) ? (List<JoinAnchor>)existing : [];
-            var targets = group.SelectMany(candidate => candidate.Targets).Distinct(StringComparer.Ordinal).ToArray();
-            var join = new JoinAnchor(joins.Count, group.Key.Point, targets, group.Any(candidate => candidate.ThrowsAfter));
-            joins.Add(join);
-            _context.Joins[group.Key.Execution] = joins;
-            foreach (var target in targets.Where(target => target != group.Key.Execution))
-            {
-                CheckCancellation();
-                Get(_context.JoinedBy, target).Add((group.Key.Execution, join.Index));
-            }
+            _context.JoinsReady = false;
+            _context.Joins.Clear();
+            _context.JoinedBy.Clear();
+            _context.UnprovenJoins.Clear();
+            throw;
         }
     }
 
@@ -1297,18 +1327,25 @@ internal sealed class HappensBefore
         new(_scope, _heap, _segments, _entries.GetValueOrDefault(execution) ?? [], _visits.GetValueOrDefault(execution) ?? [],
             _steps.GetValueOrDefault(execution) ?? [], throwsAfter, CheckCancellation);
 
-    private bool Precedes(string execution, PointKey first, PointKey second) => FlowOf(execution).Precedes(first, second);
+    private bool Precedes(string execution, PointKey first, PointKey second)
+    {
+        CheckCancellation();
+        return FlowOf(execution).Precedes(first, second);
+    }
 
     /// <summary>Whether the execution has waited for a target at a point: every path to it passes one of the joins that wait for that
     /// target, which need not be the same one on every path.</summary>
     /// <param name="execution">The waiting execution.</param>
     /// <param name="joined">The target execution waited for.</param>
     /// <param name="point">The point the paths lead to.</param>
-    private bool Dominates(string execution, string joined, PointKey point) =>
-        FlowOf(execution).Dominates(Joins(execution).Where(join => join.Targets.Contains(joined, StringComparer.Ordinal))
-                                                   .Select(join => join.Point)
-                                                   .ToArray(),
-                                    point);
+    private bool Dominates(string execution, string joined, PointKey point)
+    {
+        CheckCancellation();
+        return FlowOf(execution).Dominates(Joins(execution).Where(join => join.Targets.Contains(joined, StringComparer.Ordinal))
+                                                       .Select(join => join.Point)
+                                                       .ToArray(),
+                                        point);
+    }
 
     private static List<TValue> Get<TValue>(Dictionary<string, List<TValue>> map, string key)
     {
@@ -1350,7 +1387,13 @@ internal sealed class HappensBefore
         private readonly Dictionary<string, HashSet<int>> _completing = new(StringComparer.Ordinal);
         private readonly Action? _checkCancellation;
 
-        private void CheckCancellation() => _checkCancellation?.Invoke();
+        private void CheckCancellation()
+        {
+            if (_checkCancellation is not null)
+                _checkCancellation();
+            else
+                WorkCancellation.Check();
+        }
 
         private readonly Dictionary<string, bool[]> _reach = new(StringComparer.Ordinal);
 
@@ -1583,7 +1626,11 @@ internal sealed class HappensBefore
             return !firstNodes.Any(node => reach[node]);
         }
 
-        internal bool Dominates(PointKey join, PointKey point) => Dominates([join], point);
+        internal bool Dominates(PointKey join, PointKey point)
+        {
+            CheckCancellation();
+            return Dominates([join], point);
+        }
 
         /// <summary>Whether no path from the execution's start reaches the point around every one of the cut points.</summary>
         /// <param name="cuts">The cut points.</param>

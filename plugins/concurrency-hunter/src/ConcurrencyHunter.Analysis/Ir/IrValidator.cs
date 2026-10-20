@@ -11,6 +11,7 @@ public static class IrValidator
         var values = new HashSet<int>();
         foreach (var value in body.Values)
         {
+            WorkCancellation.Check();
             if (!values.Add(value.Id))
                 problems.Add($"Value %{value.Id} is declared twice.");
         }
@@ -25,6 +26,7 @@ public static class IrValidator
         var blockOrdinals = body.Blocks.Select(block => block.Ordinal).ToHashSet();
         for (var index = 0; index < body.Blocks.Count; index++)
         {
+            WorkCancellation.Check();
             if (body.Blocks[index].Ordinal != index)
             {
                 problems.Add("Block ordinals are not contiguous from zero.");
@@ -40,6 +42,7 @@ public static class IrValidator
         var definedValues = new HashSet<int>();
         for (var blockIndex = 0; blockIndex < body.Blocks.Count; blockIndex++)
         {
+            WorkCancellation.Check();
             var block = body.Blocks[blockIndex];
             if (blockIndex > 0 && block.Kind == IrBlockKind.Entry)
                 problems.Add($"Entry block b{block.Ordinal} is misplaced.");
@@ -57,6 +60,7 @@ public static class IrValidator
     {
         for (var index = 1; index < block.FlowPredecessors.Count; index++)
         {
+            WorkCancellation.Check();
             var previous = block.FlowPredecessors[index - 1];
             var current = block.FlowPredecessors[index];
             if (previous.BlockOrdinal > current.BlockOrdinal ||
@@ -76,6 +80,7 @@ public static class IrValidator
         var fieldAccesses = new HashSet<int>();
         foreach (var operation in block.Operations)
         {
+            WorkCancellation.Check();
             if (operation is IrCallOperation call)
                 calls.Add(call.Id);
             // An atomic mark names the load or store it makes atomic, of a field or of a cell of a collection alike (R1).
@@ -96,12 +101,14 @@ public static class IrValidator
 
             foreach (var definedValue in operation.DefinedValues)
             {
+                WorkCancellation.Check();
                 if (!definedValues.Add(definedValue))
                     problems.Add($"Value %{definedValue} is defined twice.");
             }
 
             foreach (var operand in operation.Operands)
             {
+                WorkCancellation.Check();
                 if (!values.Contains(operand))
                     problems.Add($"Operation {operation.Id} names unknown operand %{operand}.");
             }
@@ -197,6 +204,7 @@ public static class IrValidator
 
         for (var index = 0; index < phi.Inputs.Count; index++)
         {
+            WorkCancellation.Check();
             if (phi.Inputs[index].Predecessor != block.FlowPredecessors[index])
             {
                 problems.Add($"Phi operation {phi.Id} inputs do not match flow predecessor order.");
@@ -222,6 +230,7 @@ public static class IrValidator
         var regions = body.Regions.ToDictionary(region => region.Id);
         foreach (var region in body.Regions)
         {
+            WorkCancellation.Check();
             if (region.Parent is not int parentId)
                 continue;
 

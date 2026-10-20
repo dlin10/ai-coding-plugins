@@ -86,7 +86,10 @@ public sealed class HeapReachability
     {
         var held = StaticField(slot) is { } start ? Targets(start).ToHashSet(StringComparer.Ordinal) : new HashSet<string>(StringComparer.Ordinal);
         foreach (var below in Checks.Each(StaticFields()).Where(start => start.Slot.StartsWith(slot + FieldSlot.PATH_SEPARATOR, StringComparison.Ordinal)))
+        {
+            Checks.Check();
             held.UnionWith(Targets(below));
+        }
         return held;
     }
 
@@ -108,7 +111,9 @@ public sealed class HeapReachability
             return cached;
         var edges = new List<(string Field, string Target)>();
         foreach (var field in Checks.Each(_heap.FieldsOf(region)))
+        {
             edges.AddRange(Checks.Each(_heap.PointsTo(region, field)).SelectMany(target => Through(field, target, [])));
+        }
         edges.AddRange(Checks.Each(_heap.DelegateCaptures(region)).Select(target => (CAPTURE, target)));
         if (_heap.LibrarySequences.TryGetValue(region, out var sequence))
         {
@@ -174,6 +179,7 @@ public sealed class HeapReachability
             : new HashSet<string>(StringComparer.Ordinal);
         foreach (var segment in access.Resource.AccessPath.SkipLast(1))
         {
+            Checks.Check();
             var field = segment.StartsWith('[') ? ELEMENT : segment;
             objects = objects.SelectMany(region => _heap.PointsTo(region, field)).ToHashSet(StringComparer.Ordinal);
         }

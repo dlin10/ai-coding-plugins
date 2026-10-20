@@ -1,4 +1,4 @@
-using ConcurrencyHunter.Accesses;
+﻿using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Di;
 using ConcurrencyHunter.Heap;
@@ -227,8 +227,10 @@ public sealed class ExecutionAnalysis
     {
         foreach (var execution in Accesses.SelectMany(access => access.Executions).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
         {
+            WorkCancellation.Check();
             foreach (var access in Accesses)
             {
+                WorkCancellation.Check();
                 if (access.Executions.Contains(execution))
                     yield return new ExecutionAccess(execution, access.InstanceId, access.Access, access.RegionId, access.IsConstructionLocal) { Slot = access.Slot };
             }
@@ -274,7 +276,11 @@ public sealed class ExecutionAnalysis
     /// <summary>Whether a happens-before path trusted for every instance it connects orders two accesses of different executions.</summary>
     /// <param name="first">The first access.</param>
     /// <param name="second">The second access.</param>
-    public bool Ordered(Access first, Access second) => first.ExecutionId != second.ExecutionId && _order?.Ordered(first, second) == true;
+    public bool Ordered(Access first, Access second)
+    {
+        WorkCancellation.Check();
+        return first.ExecutionId != second.ExecutionId && _order?.Ordered(first, second) == true;
+    }
 
     /// <summary>Whether an execution runs once per run of a creator (ADR 0020): it is the creator, or every start on its chain from the
     /// creator runs its work once and stands where one run of its parent passes once. A periodic timer, a <c>Parallel</c> body, a
@@ -322,8 +328,11 @@ public sealed class ExecutionAnalysis
     /// <param name="joinInstance">The instance making the join.</param>
     /// <param name="joinOperation">The join operation.</param>
     /// <param name="access">The access.</param>
-    public bool JoinDominates(string joinInstance, int joinOperation, Access access) =>
-        _order?.JoinDominates(access.ExecutionId, joinInstance, joinOperation, access) ?? true;
+    public bool JoinDominates(string joinInstance, int joinOperation, Access access)
+    {
+        WorkCancellation.Check();
+        return _order?.JoinDominates(access.ExecutionId, joinInstance, joinOperation, access) ?? true;
+    }
 
     /// <summary>The distinct spawn and async call sites the executions reach, by source; timers are counted apart.</summary>
     public IReadOnlyList<SpawnSiteCoverage> SpawnSites => _order?.SpawnSites ?? [];
@@ -368,15 +377,22 @@ public sealed class ExecutionAnalysis
     /// <param name="bodyId">The body.</param>
     /// <param name="segment">The segment of the body.</param>
     /// <param name="operationId">The operation.</param>
-    public bool Runs(string bodyId, BodySegment segment, int operationId) => _segments?.Runs(bodyId, segment, operationId) ?? true;
+    public bool Runs(string bodyId, BodySegment segment, int operationId)
+    {
+        WorkCancellation.Check();
+        return _segments?.Runs(bodyId, segment, operationId) ?? true;
+    }
 
     /// <summary>The segment of its callee a call edge runs in the caller's execution, or null when that segment of the caller does
     /// not run the call.</summary>
     /// <param name="caller">The calling instance.</param>
     /// <param name="segment">The segment of the caller the execution runs.</param>
     /// <param name="edge">The call edge.</param>
-    public BodySegment? Follow(MethodInstance caller, BodySegment segment, CallEdge edge) =>
-        _segments is null ? BodySegment.Whole : _segments.Follow(caller, segment, edge);
+    public BodySegment? Follow(MethodInstance caller, BodySegment segment, CallEdge edge)
+    {
+        WorkCancellation.Check();
+        return _segments is null ? BodySegment.Whole : _segments.Follow(caller, segment, edge);
+    }
 }
 
 /// <summary>How the executions of one creator's tree run in one run of that creator (ADR 0020). Each fact mirrors the global policy of
@@ -393,6 +409,7 @@ internal static class CreatorRuns
     {
         for (var current = execution; current != creator;)
         {
+            WorkCancellation.Check();
             if (!executions.TryGetValue(current, out var instance) || instance.ParentId is not { } parent ||
                 instance.IsRecursive || instance.StartRepeats || !instance.SitePassedOnce)
             {
@@ -414,6 +431,7 @@ internal static class CreatorRuns
     /// <param name="creator">The creator.</param>
     internal static bool StartedOnce(IReadOnlyDictionary<string, ExecutionInstance> executions, string execution, string creator)
     {
+        WorkCancellation.Check();
         if (!executions.TryGetValue(execution, out var instance))
             return false;
         if (instance.SpawnedOnce)
@@ -434,6 +452,7 @@ internal static class CreatorRuns
         for (var current = executions.GetValueOrDefault(execution)?.ParentId; current is not null;
              current = current == ExecutionModel.STARTUP ? null : executions.GetValueOrDefault(current)?.ParentId)
         {
+            WorkCancellation.Check();
             if (current == creator)
                 return true;
         }
@@ -485,15 +504,18 @@ public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
 
     /// <summary>A body's prefix and tail operations: a block entered before any await runs its operations up to and including its
     /// first await in the prefix and the rest in the tail; an exceptional edge may leave the block before or after that await.</summary>
+    /// <param name="bodyId">The body whose asynchronous segments are requested.</param>
     private (HashSet<int> Prefix, HashSet<int> Tail) Of(string bodyId)
     {
         if (_bodies.TryGetValue(bodyId, out var cached))
             return cached;
 
         var (prefix, tail) = (new HashSet<int>(), new HashSet<int>());
-        _bodies.Add(bodyId, (prefix, tail));
         if (!scope.Reachable.Bodies.TryGetValue(bodyId, out var body) || body.Blocks.Count == 0)
+        {
+            _bodies.Add(bodyId, (prefix, tail));
             return (prefix, tail);
+        }
 
         var successors = body.Blocks.SelectMany(block => block.FlowPredecessors.Select(predecessor => (predecessor.BlockOrdinal, Successor: block.Ordinal,
                                                                                                          Exceptional: predecessor.EdgeKind == IrEdgeKind.Exceptional)))
@@ -503,12 +525,14 @@ public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
         var pending = new Stack<(int Block, bool AfterAwait)>([(0, false)]);
         while (pending.TryPop(out var item))
         {
+            WorkCancellation.Check();
             if (!seen.Add(item))
                 continue;
 
             var afterAwait = item.AfterAwait;
             foreach (var operation in body.Blocks[item.Block].Operations)
             {
+                WorkCancellation.Check();
                 (afterAwait ? tail : prefix).Add(operation.Id);
                 if (operation is IrAwaitOperation)
                     afterAwait = true;
@@ -516,12 +540,14 @@ public sealed class AsyncSegments(ScopeProgram scope, HeapSolution heap)
 
             foreach (var edge in successors.GetValueOrDefault(item.Block) ?? [])
             {
+                WorkCancellation.Check();
                 pending.Push((edge.Successor, afterAwait));
                 if (edge.Exceptional)
                     pending.Push((edge.Successor, item.AfterAwait));
             }
         }
 
+        _bodies.Add(bodyId, (prefix, tail));
         return (prefix, tail);
     }
 }
@@ -539,11 +565,15 @@ public static class ExecutionModel
 {
     public const string STARTUP = "startup";
 
-    public static ExecutionAnalysis Build(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken) =>
-        Build(scope, heap, cancellationToken, null);
+    public static ExecutionAnalysis Build(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken)
+    {
+        WorkCancellation.Check();
+        return Build(scope, heap, cancellationToken, null);
+    }
 
     internal static ExecutionAnalysis Build(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken, ExecutionWalkOrder? walkOrder)
     {
+        WorkCancellation.Check();
         var builder = new Builder(scope, heap, cancellationToken, walkOrder);
         try
         {
@@ -566,7 +596,11 @@ public static class ExecutionModel
     {
         internal int WalkVisits { get; private set; }
 
-        private void CheckCancellation() => cancellationToken.ThrowIfCancellationRequested();
+        private void CheckCancellation()
+        {
+            WorkCancellation.Check();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
 
         private readonly Dictionary<string, ExecutionInstance> _executions = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _regionExecutions = new(StringComparer.Ordinal);
@@ -652,7 +686,10 @@ public static class ExecutionModel
             }
             // A handed delegate whose target has no body is named by its member (question 145).
             foreach (var work in BodylessHandoffs.OrderBy(work => work.Site.Callee, StringComparer.Ordinal))
+            {
+                CheckCancellation();
                 _delegateDisplays.TryAdd(work.Site.DelegateRegion!, work.Site.Callee);
+            }
             AssignRegionExecutions();
             var startupTypeInitializers = StartupTypeInitializers();
 
@@ -737,10 +774,14 @@ public static class ExecutionModel
                 // there in one visit; the entries the walk makes are taken in the next round.
                 while (_pendingEntries.Count != 0)
                 {
+                    CheckCancellation();
                     var taken = Permute(_pendingEntries).ToArray();
                     _pendingEntries.Clear();
                     foreach (var (execution, entry, tail) in taken)
+                    {
+                        CheckCancellation();
                         Seed(execution, entry, tail);
+                    }
                     while (_walkQueue.TryDequeue(out var node, out _))
                     {
                         CheckCancellation();
@@ -845,19 +886,31 @@ public static class ExecutionModel
         private void CanonicalizeWalk()
         {
             foreach (var entries in _entries.Values)
+            {
+                CheckCancellation();
                 OrderList(entries, entries.OrderBy(entry => entry.Kind).ThenBy(entry => entry.IntervalObject, StringComparer.Ordinal)
                                           .ThenBy(entry => entry.InstanceId, StringComparer.Ordinal).ThenBy(entry => entry.Segment));
+            }
             foreach (var set in _regionExecutions.Values)
+            {
+                CheckCancellation();
                 OrderSet(set, set.Order(StringComparer.Ordinal));
+            }
             OrderDictionary(_regionExecutions);
             foreach (var handings in _fateHandings.Values)
+            {
+                CheckCancellation();
                 OrderSet(handings, handings.OrderBy(handing => handing.Execution, StringComparer.Ordinal)
                                           .ThenBy(handing => handing.BodyId, StringComparer.Ordinal).ThenBy(handing => handing.OperationId));
+            }
             OrderSet(_anchors, _anchors.OrderBy(anchor => anchor.ExecutionId, StringComparer.Ordinal)
                                       .ThenBy(anchor => anchor.CallerInstance, StringComparer.Ordinal).ThenBy(anchor => anchor.OperationId)
                                       .ThenBy(anchor => anchor.ChildId, StringComparer.Ordinal).ThenBy(anchor => anchor.Kind));
             foreach (var sites in _timerSites.Values)
+            {
+                CheckCancellation();
                 OrderList(sites, sites.OrderBy(site => site.CallerInstance, StringComparer.Ordinal).ThenBy(site => site.OperationId));
+            }
             OrderDictionary(_entries);
             OrderDictionary(_fateHandings);
             OrderDictionary(_timerSites);
@@ -865,6 +918,7 @@ public static class ExecutionModel
             var depths = new Dictionary<string, int>(StringComparer.Ordinal);
             int Depth(string id)
             {
+                CheckCancellation();
                 if (depths.TryGetValue(id, out var depth))
                     return depth;
                 return depths[id] = _executions[id].ParentId is { } parent && parent != STARTUP ? Depth(parent) + 1 : 0;
@@ -891,7 +945,10 @@ public static class ExecutionModel
             var items = dictionary.OrderBy(pair => pair.Key, StringComparer.Ordinal).ToArray();
             dictionary.Clear();
             foreach (var (key, value) in items)
+            {
+                WorkCancellation.Check();
                 dictionary.Add(key, value);
+            }
         }
 
         private static readonly InvocationPolicy AT_MOST_ONCE = new(Multiplicity.AtMostOnce, SelfOverlap.Serialized, "");
@@ -1769,6 +1826,7 @@ public static class ExecutionModel
 
         private void Enqueue(WalkNode node)
         {
+            CheckCancellation();
             if (node.Queued)
                 return;
             node.Queued = true;
@@ -1854,7 +1912,10 @@ public static class ExecutionModel
 
                 discovery.Push((item, true));
                 foreach (var successor in item.Successors)
+                {
+                    CheckCancellation();
                     discovery.Push((successor.Node, false));
+                }
             }
         }
 
@@ -1877,13 +1938,23 @@ public static class ExecutionModel
                 CheckCancellation();
                 var execution = _ids.Id(number);
                 foreach (var site in node.Spawns)
+                {
+                    CheckCancellation();
                     Spawn(execution, instance, site);
+                }
                 foreach (var site in node.Timers)
+                {
+                    CheckCancellation();
                     Timer(execution, instance, site, site.OperationId);
+                }
                 foreach (var fated in node.StartupDelegates)
+                {
+                    CheckCancellation();
                     StartupDelegate(execution, instance, fated);
+                }
                 foreach (var (callee, asyncOperation) in node.TailEntries)
                 {
+                    CheckCancellation();
                     var tail = asyncOperation is { } operation ? AsyncChild(execution, instance, operation) : _tailOf[(execution, node.Tail!)];
                     Entry(tail, new ExecutionEntry(callee, ExecutionEntryKind.Spawn, null) { Segment = BodySegment.Tail });
                 }
@@ -1916,9 +1987,11 @@ public static class ExecutionModel
                 CheckCancellation();
                 foreach (var (successor, added) in node.Successors)
                 {
+                    CheckCancellation();
                     successor.Predecessors.Add(new WalkEdge(node, added));
                     foreach (var number in Bits.Numbers(added))
                     {
+                        CheckCancellation();
                         if (!_objectEdges.TryGetValue(number, out var edges))
                             _objectEdges.Add(number, edges = []);
                         edges.Add(new ConstructionEdge(node, successor));
@@ -1949,7 +2022,10 @@ public static class ExecutionModel
                 var arrived = node.ObjectsArrived;
                 node.ObjectsArrived = Bits.EMPTY;
                 foreach (var (successor, _) in node.Successors)
+                {
+                    CheckCancellation();
                     Arrive(successor, arrived);
+                }
             }
 
             // A chain matters only to publication, which never publishes static storage or an object the heap does not hold.
@@ -1970,19 +2046,28 @@ public static class ExecutionModel
                 CheckCancellation();
                 foreach (var (predecessor, added) in node.Predecessors)
                 {
+                    CheckCancellation();
                     for (var index = 0; index < node.Objects.Length; index++)
                     {
+                        CheckCancellation();
                         var entering = node.Objects[index] & ~(index < predecessor.Objects.Length ? predecessor.Objects[index] : 0) &
                                        ~(index < added.Length ? added[index] : 0);
                         for (; entering != 0; entering &= entering - 1)
+                        {
+                            CheckCancellation();
                             EnterOutside((index << 6) + System.Numerics.BitOperations.TrailingZeroCount(entering), predecessor.Executions);
+                        }
                     }
                 }
 
                 foreach (var (execution, _, interval) in _seedsAt.GetValueOrDefault(node) ?? [])
                 {
+                    CheckCancellation();
                     foreach (var number in Bits.Numbers(node.Objects).Where(number => number != interval))
+                    {
+                        CheckCancellation();
                         EnterOutside(number, Bits.Of([execution]));
+                    }
                 }
             }
 
@@ -1999,7 +2084,10 @@ public static class ExecutionModel
             }
 
             foreach (var (execution, node, _) in _seeds)
+            {
+                CheckCancellation();
                 ArriveClean(node, Bits.Of([execution]));
+            }
             while (clean.TryPop(out var node))
             {
                 CheckCancellation();
@@ -2008,6 +2096,7 @@ public static class ExecutionModel
                 node.CleanArrived = Bits.EMPTY;
                 foreach (var (successor, added) in node.Successors)
                 {
+                    CheckCancellation();
                     if (Bits.IsEmpty(added))
                         ArriveClean(successor, arrived);
                 }
@@ -2079,6 +2168,7 @@ public static class ExecutionModel
                 {
                     foreach (var node in instanceNodes)
                     {
+                        WorkCancellation.Check();
                         if (!Bits.Contains(node.Executions, number) || !segments.Runs(bodyId, node.Segment, operation))
                             continue;
                         reached = true;
@@ -2121,6 +2211,7 @@ public static class ExecutionModel
                 var wanted = new ulong[node.Executions.Length];
                 for (var index = 0; index < clear.Length; index++)
                 {
+                    WorkCancellation.Check();
                     clear[index] = (index < node.Clean.Length ? node.Clean[index] : 0) &
                                    ~(index < search.EnteredInside.Length ? search.EnteredInside[index] : 0);
                     wanted[index] = (index < may.Length ? may[index] : 0) & (index < search.Entering.Length ? search.Entering[index] : 0) & ~clear[index];
@@ -2129,7 +2220,10 @@ public static class ExecutionModel
                 var outside = Back(node, wanted, inside: false, @object, search, cancellationToken);
                 var notMust = (ulong[])node.Executions.Clone();
                 for (var index = 0; index < notMust.Length; index++)
+                {
+                    WorkCancellation.Check();
                     notMust[index] = notMust[index] & ~((index < may.Length ? may[index] : 0) & ~clear[index]) | (index < outside.Length ? outside[index] : 0);
+                }
                 var answer = new ConstructionAt(node, may, notMust);
                 _answers.Add((node.Id, @object), answer);
                 return answer;
@@ -2155,6 +2249,7 @@ public static class ExecutionModel
                 var complete = false;
                 while (pending.TryDequeue(out var current))
                 {
+                    WorkCancellation.Check();
                     cancellationToken.ThrowIfCancellationRequested();
                     if (!inside && search.Known.TryGetValue(current, out var earlier))
                     {
@@ -2168,7 +2263,10 @@ public static class ExecutionModel
                         // No path outside the construction reaches the node for what is still wanted: none goes on from it either.
                         var missing = (ulong[])wanted.Clone();
                         for (var index = 0; index < missing.Length; index++)
+                        {
+                            WorkCancellation.Check();
                             missing[index] &= ~(index < found.Length ? found[index] : 0);
+                        }
                         if (Bits.Covers(earlier.Never, missing))
                             continue;
                     }
@@ -2176,12 +2274,14 @@ public static class ExecutionModel
                     passed.Add(current);
                     foreach (var (execution, _, interval) in seedsAt.GetValueOrDefault(current) ?? [])
                     {
+                        WorkCancellation.Check();
                         if ((interval == @object) == inside && Bits.Contains(wanted, execution))
                             Bits.Add(ref found, execution);
                     }
 
                     foreach (var (predecessor, added) in current.Predecessors)
                     {
+                        WorkCancellation.Check();
                         var starting = Bits.Contains(added, @object);
                         var reached = Bits.Contains(predecessor.Objects, @object);
                         if (inside ? starting : !starting && !reached)
@@ -2210,9 +2310,13 @@ public static class ExecutionModel
                         // The search ran out: what it did not find reaches none of the nodes it passed outside the construction.
                         var never = (ulong[])wanted.Clone();
                         for (var index = 0; index < never.Length; index++)
+                        {
+                            WorkCancellation.Check();
                             never[index] &= ~(index < found.Length ? found[index] : 0);
+                        }
                         foreach (var passedNode in passed)
                         {
+                            WorkCancellation.Check();
                             var (outsideOf, neverOf) = search.Known.GetValueOrDefault(passedNode) ?? new SearchFacts(Bits.EMPTY, Bits.EMPTY);
                             Bits.UnionWith(ref neverOf, never);
                             search.Known[passedNode] = new SearchFacts(outsideOf, neverOf);
@@ -2268,6 +2372,7 @@ public static class ExecutionModel
                     var exposed = stored.Concat(stored.Where(value => heap.Regions[value].Kind == HeapRegionKind.Delegate).SelectMany(heap.DelegateCaptures));
                     foreach (var @object in exposed.Where(Candidate).Distinct(StringComparer.Ordinal).ToArray())
                     {
+                        CheckCancellation();
                         IReadOnlySet<string> Inside() => inside.TryGetValue(@object, out var within) ? within : inside[@object] = Closure([@object]);
                         if (targets.Any(target => target != @object && !IsInternal(@object, Inside, target)))
                             published.Add(@object);
@@ -2278,6 +2383,7 @@ public static class ExecutionModel
                 foreach (var @object in instance.Summary.Returns.SelectMany(returned => Resolve(instance, returned.Values)).Where(Candidate)
                                                 .Distinct(StringComparer.Ordinal).ToArray())
                 {
+                    CheckCancellation();
                     if (callers.Any(caller => !InChain(caller, @object)))
                         published.Add(@object);
                 }
@@ -2294,7 +2400,10 @@ public static class ExecutionModel
                     CheckCancellation();
                     var reached = ReachOf(call);
                     foreach (var @object in objects.Where(reached.Contains))
+                    {
+                        CheckCancellation();
                         published.Add(@object);
+                    }
                 }
             }
 
@@ -2328,6 +2437,7 @@ public static class ExecutionModel
                     continue;
                 foreach (var region in ReachOf(call))
                 {
+                    CheckCancellation();
                     if (!reach.TryGetValue(region, out var reached))
                         reach.Add(region, reached = new HashSet<string>(StringComparer.Ordinal));
                     reached.UnionWith(executions);
@@ -2404,8 +2514,11 @@ public static class ExecutionModel
             heap.Regions.Values.Where(region => !region.IsMerged && (region.Kind == HeapRegionKind.Static || IsContainerWide(region)))
                 .Select(region => region.Identity);
 
-        private HashSet<string> Resolve(MethodInstance instance, IEnumerable<AbstractValue> values) =>
-            values.SelectMany(value => heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
+        private HashSet<string> Resolve(MethodInstance instance, IEnumerable<AbstractValue> values)
+        {
+            CheckCancellation();
+            return values.SelectMany(value => heap.Resolve(instance.Id, value)).ToHashSet(StringComparer.Ordinal);
+        }
 
         /// <summary>Every region reachable from the starts through fields, array elements and delegate captures.</summary>
         /// <param name="starts">The starts.</param>
@@ -2473,6 +2586,7 @@ public static class ExecutionModel
                         var slot = StructStorage.IsWholeStorage(access.Field) ? "" : FieldSlot.Key(access.Field);
                         foreach (var region in regions)
                         {
+                            CheckCancellation();
                             // A collection a field of a copy holds is an object of its own, and an access on it is made there.
                             if (heap.Located(region, slot, copies: access.IsOnCollection) is { } located)
                                 _nodeAccesses.Add(new NodeAccess(node, access, located.Region, located.Slot));
@@ -2498,6 +2612,7 @@ public static class ExecutionModel
                 var asked = new Dictionary<int, HashSet<WalkNode>>();
                 foreach (var (node, _, region, _) in NodeAccesses)
                 {
+                    CheckCancellation();
                     if (!_objectIds.TryGetValue(region, out var number) || !Bits.Contains(node.Objects, number))
                         continue;
                     if (!asked.TryGetValue(number, out var nodes))
@@ -2509,7 +2624,10 @@ public static class ExecutionModel
                 {
                     CheckCancellation();
                     foreach (var node in nodes)
+                    {
+                        CheckCancellation();
                         _constructionStatus[(node, number)] = _constructionIndex!.At(node, number, cancellationToken);
+                    }
                 }
 
                 return _constructionStatus;
@@ -2529,6 +2647,7 @@ public static class ExecutionModel
             var collected = new Dictionary<AccessKey, AccessRun>();
             void Add(string instance, SummaryAccess access, string region, string slot, bool local, ulong[] executions)
             {
+                CheckCancellation();
                 if (Bits.IsEmpty(executions))
                     return;
                 var key = new AccessKey(instance, access.OperationId, region, slot, local);
@@ -2731,6 +2850,7 @@ public static class ExecutionModel
                     CheckCancellation();
                     foreach (var store in instance.Summary.Stores)
                     {
+                        CheckCancellation();
                         var values = Resolve(instance, store.Values);
                         stores.AddRange(Targets(instance, store).Select(region => heap.Located(region, FieldSlot.Key(store.Field)))
                                                                 .OfType<(string Region, string Slot)>()
@@ -2739,18 +2859,29 @@ public static class ExecutionModel
 
                     foreach (var element in instance.Summary.Elements.Where(element => element.Kind == ElementOperationKind.Store))
                     {
+                        CheckCancellation();
                         var values = Resolve(instance, element.Values);
                         stores.AddRange(Resolve(instance, element.Arrays).Select(region => new SlotStore(element.Slot, region, instance, element.OperationId, values)));
                     }
 
                     foreach (var copy in instance.Summary.StructCopies)
                     {
+                        CheckCancellation();
                         var sources = Resolve(instance, copy.Sources);
                         foreach (var place in Resolve(instance, copy.Targets).Select(region => heap.Located(region, "")).OfType<(string Region, string Slot)>())
-                        foreach (var source in sources)
-                        foreach (var slot in heap.FieldsOf(source))
-                            stores.Add(new SlotStore(FieldSlot.Join(place.Slot, slot), place.Region, instance, copy.OperationId,
-                                                     heap.PointsTo(source, slot).ToHashSet(StringComparer.Ordinal)));
+                        {
+                            CheckCancellation();
+                            foreach (var source in sources)
+                            {
+                                CheckCancellation();
+                                foreach (var slot in heap.FieldsOf(source))
+                                {
+                                    CheckCancellation();
+                                    stores.Add(new SlotStore(FieldSlot.Join(place.Slot, slot), place.Region, instance, copy.OperationId,
+                                                             heap.PointsTo(source, slot).ToHashSet(StringComparer.Ordinal)));
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -2769,7 +2900,10 @@ public static class ExecutionModel
         {
             var bits = Bits.EMPTY;
             foreach (var set in sets)
+            {
+                CheckCancellation();
                 Bits.UnionWith(ref bits, set.Words);
+            }
             return _ids.Set(bits);
         }
 

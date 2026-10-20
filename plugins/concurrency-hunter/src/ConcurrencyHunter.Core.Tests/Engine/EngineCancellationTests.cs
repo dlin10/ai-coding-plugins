@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections;
 using System.Reflection;
 using ConcurrencyHunter.Accesses;
@@ -97,6 +98,46 @@ public sealed class EngineCancellationTests
         Assert.Equal(0, error.Counters["executions"]);
         Assert.Equal(0, error.Counters["accesses"]);
         Assert.NotEmpty(InterproceduralAccesses.Collect(input, CancellationToken.None).Accesses);
+    }
+
+    [Theory]
+    [InlineData("entry", false)]
+    [InlineData("entry", true)]
+    [InlineData("preparation", false)]
+    [InlineData("preparation", true)]
+    [InlineData("coverage", false)]
+    [InlineData("coverage", true)]
+    public void Every_part_of_access_collection_attributes_cancellation(string part, bool enclosing)
+    {
+        var solved = EngineFixture.Solve("public class SampleController : ControllerBase { public int Count; public void Post() { Count++; } }" +
+                                         EngineFixture.Startup());
+        var scope = Scope(solved.Program, solved.Summaries);
+        var executions = ExecutionModel.Build(scope, solved.Heap, CancellationToken.None);
+        var input = new InterproceduralInput(scope, solved.Heap, executions);
+        var complete = InterproceduralAccesses.Collect(input, CancellationToken.None);
+        Assert.NotEmpty(complete.Accesses);
+        using var cancellation = new CancellationTokenSource();
+        var cancelled = false;
+        using var outer = WorkCancellation.Enter(enclosing ? cancellation.Token : CancellationToken.None);
+        using var work = WorkCancellation.Enter(enclosing ? CancellationToken.None : cancellation.Token, () =>
+        {
+            var method = part == "preparation" ? "Discoveries" : "Coverage";
+            if (!cancelled && (part == "entry" || new StackTrace().GetFrames().Any(frame =>
+                    frame.GetMethod() is { } called && called.DeclaringType == typeof(InterproceduralAccesses) && called.Name == method)))
+            {
+                cancelled = true;
+                cancellation.Cancel();
+            }
+        });
+
+        var error = Assert.Throws<EngineStageCancelledException>(() =>
+            InterproceduralAccesses.Collect(input, enclosing ? CancellationToken.None : cancellation.Token));
+
+        Assert.True(cancelled);
+        Assert.Equal("accesses", error.Stage);
+        Assert.IsAssignableFrom<OperationCanceledException>(error.InnerException);
+        Assert.Equal(part == "coverage" ? executions.Executions.Count : 0, error.Counters["executions"]);
+        Assert.Equal(part == "coverage" ? complete.Accesses.Count : 0, error.Counters["accesses"]);
     }
 
     private const string STANDING = """

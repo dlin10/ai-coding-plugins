@@ -36,6 +36,7 @@ public static class FateClassifier
     /// <summary>The fates of a driver run that was not stopped.</summary>
     /// <param name="driver">The driver.</param>
     /// <param name="run">The run.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public static FateClassification Classify(Driver driver, ScopeRun run) => Classify(driver, run, new GenerationChecks(CancellationToken.None));
 
     /// <summary>The fates of a driver run that was not stopped, as a stage of a generation: it checks at its start and at each access
@@ -45,6 +46,7 @@ public static class FateClassifier
     /// <param name="checks">The generation's checks, which cancel the classification.</param>
     internal static FateClassification Classify(Driver driver, ScopeRun run, GenerationChecks checks)
     {
+        WorkCancellation.Check();
         if (run.Stopped)
             throw new ArgumentException("A stopped run has no heap to classify on.", nameof(run));
         checks.Check(GenerationStage.Classify);
@@ -107,6 +109,7 @@ public static class FateClassifier
     /// <param name="driver">The driver.</param>
     /// <param name="classified">The fates of the fate run.</param>
     /// <param name="confirmation">The confirmation run, or <c>null</c> when it threw or did not run.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public static IReadOnlyDictionary<string, ClassifiedFate> Confirmed(Driver driver, IReadOnlyDictionary<string, ClassifiedFate> classified,
                                                                         ScopeRun? confirmation) =>
         Confirmed(driver, classified, confirmation, new GenerationChecks(CancellationToken.None));
@@ -149,6 +152,7 @@ public static class FateClassifier
     /// <param name="driver">The driver.</param>
     /// <param name="parameter">The parameter.</param>
     /// <param name="confirmation">The confirmation run, not stopped.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     public static IReadOnlySet<string> TriggersThatRan(Driver driver, DriverParameter parameter, ScopeRun confirmation) =>
         TriggersThatRan(driver, parameter, confirmation, new GenerationChecks(CancellationToken.None));
 
@@ -159,6 +163,7 @@ public static class FateClassifier
     /// <param name="parameter">The parameter.</param>
     /// <param name="confirmation">The confirmation run, not stopped.</param>
     /// <param name="checks">The generation's checks, which cancel the scan.</param>
+    // bounded: overload forwarding terminates at the implementation overload.
     internal static IReadOnlySet<string> TriggersThatRan(Driver driver, DriverParameter parameter, ScopeRun confirmation, GenerationChecks checks) =>
         TriggersThatRan(driver, parameter, FiredByField(confirmation, checks, GenerationStage.ReadEffects),
                         new StageChecks(checks, GenerationStage.ReadEffects));
@@ -184,6 +189,7 @@ public static class FateClassifier
                                                                                 access.Access.Field.Assembly == DriverSynthesizer.ASSEMBLY &&
                                                                                 access.Access.Field.ContainingTypeId == DriverSynthesizer.DRIVER_TYPE)))
         {
+            WorkCancellation.Check();
             if (!fired.TryGetValue(access.Access.Field.Name, out var executions))
                 fired[access.Access.Field.Name] = executions = new HashSet<string>(StringComparer.Ordinal);
             executions.UnionWith(each.Each(access.Executions));
@@ -460,6 +466,7 @@ public static class FateClassifier
                     checks.Check(GenerationStage.Classify);
                     foreach (var cell in stage.Each(argument.References.OfType<ReferenceCell>()).Where(cell => cell.Field.IsStatic))
                     {
+                        WorkCancellation.Check();
                         At(SlotOf(cell.Field)).UnionWith(stage.Each(callee.Summary.RefParameters).Where(parameter => parameter.Ordinal == argument.ParameterOrdinal)
                                                               .SelectMany(parameter => parameter.Values)
                                                               .SelectMany(value => heap.Resolve(callee.Id, value)));

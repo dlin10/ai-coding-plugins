@@ -228,12 +228,14 @@ public static class ReachableSet
 
     /// <summary>The work values each recognized call takes: a spawn names its call, and the lowering puts a thread's or a timer's
     /// work event right after its call.</summary>
+    /// <param name="operations">The body operations whose calls may start work.</param>
     internal static Dictionary<int, HashSet<int>> WorkOfCalls(IReadOnlyList<IrOperation> operations)
     {
         var work = new Dictionary<int, HashSet<int>>();
         IrCallOperation? previousCall = null;
         foreach (var operation in operations)
         {
+            WorkCancellation.Check();
             var owner = operation is IrSpawnOperation spawn ? spawn.CallOperationId : previousCall?.Id;
             var values = Walker.WorkValues(operation).Select(item => item.Value).ToArray();
             if (owner is int call && values.Length != 0)
@@ -321,17 +323,23 @@ public static class ReachableSet
                                               .ToDictionary(group => group.Key, group => group.Single().TypeKey, StringComparer.Ordinal);
             foreach (var method in _program.Methods)
             {
+                WorkCancellation.Check();
                 foreach (var nested in method.NestedBodyIds)
+                {
+                    WorkCancellation.Check();
                     _memberOfNestedBody.TryAdd(nested, method.MethodId);
+                }
             }
 
             foreach (var method in _program.Methods)
             {
+                WorkCancellation.Check();
                 var ancestors = new List<string>();
                 var visited = new HashSet<string>(StringComparer.Ordinal);
                 for (var overridden = method.OverriddenMethodId; overridden is not null && visited.Add(overridden);
                      overridden = _program.Method(overridden)?.OverriddenMethodId)
                 {
+                    WorkCancellation.Check();
                     ancestors.Add(overridden);
                 }
 
@@ -339,6 +347,7 @@ public static class ReachableSet
                                              .Concat(ancestors.SelectMany(ancestor => _program.Method(ancestor)?.ImplementedInterfaceMethodIds ?? []));
                 foreach (var dispatched in ancestors.Concat(interfaceMethods).Distinct(StringComparer.Ordinal))
                 {
+                    WorkCancellation.Check();
                     if (!_dispatchTargets.TryGetValue(dispatched, out var targets))
                         _dispatchTargets.Add(dispatched, targets = []);
                     targets.Add(method);
@@ -350,6 +359,7 @@ public static class ReachableSet
         {
             foreach (var member in StartupMembers(_program, _input.DiIndex))
             {
+                WorkCancellation.Check();
                 var construction = new ConstructionState($"startup:{member}", ConstructionKind.Startup, CONTAINER_TYPE, null);
                 construction.ConstructorBodyIds.Add(member);
                 _constructions.Add(construction.Id, construction);
@@ -359,6 +369,7 @@ public static class ReachableSet
             var roots = _input.Roots.OrderBy(root => root.StableRootId, StringComparer.Ordinal).ToArray();
             foreach (var root in roots.Where(root => root.InstanceBindings is { Receiver: ReceiverKind.HostedService, ReceiverTypeKey: not null }))
             {
+                WorkCancellation.Check();
                 var trigger = new ConstructionTrigger(ConstructionTriggerKind.Root, root.StableRootId);
                 Construct(ConstructionKind.Startup, root.InstanceBindings.ReceiverTypeKey!, DiLifetime.Singleton, null, trigger,
                           ResolutionContext.Startup);
@@ -366,6 +377,7 @@ public static class ReachableSet
 
             foreach (var root in roots)
             {
+                WorkCancellation.Check();
                 var trigger = new ConstructionTrigger(ConstructionTriggerKind.Root, root.StableRootId);
                 ReachBody(root.Entry.BodyKey, $"root:{root.StableRootId}");
                 if (root.InstanceBindings is { Receiver: ReceiverKind.PerInvocation, ReceiverTypeKey: { } controller })
@@ -373,20 +385,30 @@ public static class ReachableSet
                 else if (root.InstanceBindings is { Receiver: ReceiverKind.DiService, ReceiverTypeKey: { } service })
                     Resolve(_input.DiIndex.Resolve(service), trigger, ResolutionContext.Execution);
                 foreach (var parameter in root.InstanceBindings.Parameters.Where(parameter => parameter is { Kind: ParameterBindingKind.DiService, TypeKey: not null }))
+                {
+                    WorkCancellation.Check();
                     Resolve(_input.DiIndex.Resolve(parameter.TypeKey!), trigger, ResolutionContext.Execution);
+                }
             }
 
             while (true)
             {
+                WorkCancellation.Check();
                 while (_pending.TryDequeue(out var bodyId))
+                {
+                    WorkCancellation.Check();
                     Process(bodyId);
+                }
                 // With the reached closure exhausted, a watched parameter no context bound stays open as well.
                 var unbound = _bindingWatchers.Keys.Where(parameter => !_openParameters.Contains(parameter) &&
                                                                       (_closedBindings.GetValueOrDefault(parameter)?.Count ?? 0) == 0).ToArray();
                 if (unbound.Length == 0)
                     break;
                 foreach (var parameter in unbound)
+                {
+                    WorkCancellation.Check();
                     MarkOpen(parameter);
+                }
             }
 
             return Result();
@@ -493,6 +515,7 @@ public static class ReachableSet
                 : null;
             foreach (var constructor in SelectedConstructors(_program, typeKey, bindings))
             {
+                WorkCancellation.Check();
                 construction.ConstructorBodyIds.Add(constructor.MethodId);
                 ReachBody(constructor.MethodId, $"construction:{id}");
             }
@@ -502,7 +525,10 @@ public static class ReachableSet
 
             var self = new ConstructionTrigger(ConstructionTriggerKind.Construction, id);
             foreach (var parameter in bindings?.ConstructorParameters ?? [])
+            {
+                WorkCancellation.Check();
                 Resolve(ResolveConstructorParameter(_program, _input.DiIndex, typeKey, parameter), self, childContext);
+            }
         }
 
         private static string RegionKey(string implementationTypeKey, DiLifetime lifetime) => $"{implementationTypeKey}@{lifetime}";
@@ -518,7 +544,10 @@ public static class ReachableSet
                 var bodies = _input.Members(memberId);
                 _members.Add(memberId, (reason, bodies));
                 foreach (var body in bodies)
+                {
+                    WorkCancellation.Check();
                     _bodies.TryAdd(body.BodyId, body);
+                }
             }
 
             _reachedBodies.Add(bodyId, reason);
@@ -535,8 +564,12 @@ public static class ReachableSet
             var definitions = new Dictionary<int, IrOperation>();
             foreach (var operation in operations)
             {
+                WorkCancellation.Check();
                 foreach (var defined in operation.DefinedValues)
+                {
+                    WorkCancellation.Check();
                     definitions[defined] = operation;
+                }
             }
 
             var work = WorkOfCalls(operations);
@@ -545,11 +578,15 @@ public static class ReachableSet
             {
                 foreach (var created in body.Values.Where(value => value is { Kind: IrValueKind.Constant, Name: "default", StructTypeKey: { } key } &&
                                                                    StandsForUserValue(key)))
+                {
+                    WorkCancellation.Check();
                     Instantiate(created.StructTypeKey!);
+                }
             }
 
             foreach (var operation in operations)
             {
+                WorkCancellation.Check();
                 var reason = $"call:{bodyId}:{operation.Id}";
                 Instantiate(operation, values, bodyId);
                 switch (operation)
@@ -592,6 +629,7 @@ public static class ReachableSet
                             {
                                 foreach (var ordinal in call.Collection!.Factories)
                                 {
+                                    WorkCancellation.Check();
                                     if (call.ArgumentAt(ordinal) is not int factory)
                                         continue;
                                     if (DelegateCreation(factory, definitions) is { } creation)
@@ -607,6 +645,7 @@ public static class ReachableSet
                                 // A not-run delegate is neither run nor kept by the call (ADR 0015): it reaches nothing.
                                 foreach (var fate in library.Fates.Where(fate => fate.Kind != IrFateKind.NotRun))
                                 {
+                                    WorkCancellation.Check();
                                     if (call.ArgumentAt(fate.ParameterOrdinal) is not int handed)
                                         continue;
                                     if (DelegateCreation(handed, definitions) is { } creation)
@@ -617,7 +656,10 @@ public static class ReachableSet
 
                                 // The members a known call runs on the user's objects are reached as a call of each would reach them.
                                 foreach (var methodId in library.Calls.SelectMany(model => model.MethodIds).Distinct(StringComparer.Ordinal))
+                                {
+                                    WorkCancellation.Check();
                                     ReachTargets(Targets(methodId, true), true, target => ReachBody(target, reason));
+                                }
                             }
                         }
 
@@ -632,7 +674,10 @@ public static class ReachableSet
                         {
                             foreach (var untyped in call.ArgumentValues.Where(value => values.TryGetValue(value, out var argument) && IsUntyped(argument.Type))
                                                         .Select(value => DelegateCreation(value, definitions)).OfType<IrCreateDelegateOperation>())
+                            {
+                                WorkCancellation.Check();
                                 ReachDelegateTargets(untyped, reason);
+                            }
                         }
                         // A mark whose type stays closed is the comparer it makes, and the call it replaced runs only where the type can
                         // stay open, now or once the walk learns it can.
@@ -656,7 +701,10 @@ public static class ReachableSet
                         break;
                     default:
                         foreach (var (value, method) in WorkValues(operation))
+                        {
+                            WorkCancellation.Check();
                             ReachWork(value, method, values, definitions, $"spawn:{bodyId}:{operation.Id}");
+                        }
                         break;
                 }
             }
@@ -711,7 +759,10 @@ public static class ReachableSet
             if (_program.Type(comparer) is not { } type)
                 return;
             foreach (var constructor in _program.Constructors(type.TypeKey).Where(constructor => constructor is { HasSourceBody: true, Parameters.Count: 0 }))
+            {
+                WorkCancellation.Check();
                 ReachBody(constructor.MethodId, reason);
+            }
             Reference(type.TypeKey, bodyId);
             SeeType(comparer, null, forBoxing: true);
             Instantiate(type.TypeKey);
@@ -796,7 +847,10 @@ public static class ReachableSet
                 _delegateInvocations.Add(shape, invocations = []);
             invocations.Add((type, reason));
             foreach (var target in (_delegateTargets.GetValueOrDefault(shape) ?? []).Where(target => Invokes(type, target.Type)))
+            {
+                WorkCancellation.Check();
                 ReachBody(target.Target, reason);
+            }
         }
 
         /// <summary>Whether an invocation of one delegate type may run a delegate created as another. Two closed types run each
@@ -839,6 +893,7 @@ public static class ReachableSet
         {
             foreach (var target in targets)
             {
+                WorkCancellation.Check();
                 var declaringType = _program.Type(target.ContainingTypeKey)?.TypeKey ?? target.ContainingTypeKey;
                 if (!virtualDispatch || _input.Rules.Dispatch == DispatchRule.ClassHierarchy || _constructedTypes.Contains(declaringType))
                 {
@@ -862,6 +917,7 @@ public static class ReachableSet
         /// <param name="bodyId">The reached body whose method and containing types own its type parameters.</param>
         private void Instantiate(IrOperation operation, IReadOnlyDictionary<int, IrValue> values, string bodyId)
         {
+            WorkCancellation.Check();
             var owner = Owner(bodyId);
             var (methodId, containingType, arguments) = operation switch
             {
@@ -876,8 +932,14 @@ public static class ReachableSet
                                (method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true);
                 // Bind even targets still waiting for construction: their parameter edges must also receive later bindings.
                 foreach (var target in Targets(methodId, dispatch).Prepend(method).DistinctBy(target => target.MethodId))
+                {
+                    WorkCancellation.Check();
                     for (var ordinal = 0; ordinal < Math.Min(arguments.Count, target.TypeParameterKeys.Count); ordinal++)
+                    {
+                        WorkCancellation.Check();
                         Bind((target.MethodId, ordinal), arguments[ordinal], owner, forBoxing: true);
+                    }
+                }
             }
             if (containingType is not null)
                 SeeType(containingType, owner, forBoxing: true);
@@ -914,12 +976,18 @@ public static class ReachableSet
                 {
                     _boxedParameters.Add(parameter);
                     foreach (var argument in _parameterBindings.GetValueOrDefault(parameter) ?? [])
+                    {
+                        WorkCancellation.Check();
                         Instantiate(argument);
+                    }
                 }
                 else
                 {
                     foreach (var key in _valueTypeKeys.GetValueOrDefault(Shape(type)) ?? [])
+                    {
+                        WorkCancellation.Check();
                         Instantiate(key);
+                    }
                 }
             }
         }
@@ -930,13 +998,23 @@ public static class ReachableSet
         /// <param name="forBoxing">Whether the value types bound serve the boxing rule as well as the closed bindings (<see cref="Bind"/>).</param>
         private void SeeType(string key, ProgramMethod? owner, bool forBoxing)
         {
+            WorkCancellation.Check();
             var typeArguments = ProgramIndex.Shape(key).Arguments;
             var types = _program.Type(key) is { } type ? [type] : _typesByDisplayShape.GetValueOrDefault(Shape(key)) ?? [];
             foreach (var definition in types)
+            {
+                WorkCancellation.Check();
                 for (var ordinal = 0; ordinal < Math.Min(typeArguments.Count, definition.TypeParameterKeys.Count); ordinal++)
+                {
+                    WorkCancellation.Check();
                     Bind(TypeParameter(definition, ordinal), typeArguments[ordinal], owner, forBoxing);
+                }
+            }
             foreach (var argument in typeArguments)
+            {
+                WorkCancellation.Check();
                 SeeType(argument, owner, forBoxing);
+            }
         }
 
         /// <summary>Binds a type parameter to a type argument, twice over: the closed type it is, or the template it is of the owner's type
@@ -960,14 +1038,20 @@ public static class ReachableSet
                     _parameterEdges[source] = edges = [];
                 if (edges.Add(parameter))
                     foreach (var binding in (_parameterBindings.GetValueOrDefault(source) ?? []).ToArray())
+                    {
+                        WorkCancellation.Check();
                         BindValue(parameter, binding);
+                    }
             }
             else
             {
                 var candidates = _program.Type(key) is { IsValueType: true } type
                     ? [type.TypeKey] : _valueTypeKeys.GetValueOrDefault(Shape(key)) ?? [];
                 foreach (var candidate in candidates)
+                {
+                    WorkCancellation.Check();
                     BindValue(parameter, candidate);
+                }
             }
         }
 
@@ -992,6 +1076,7 @@ public static class ReachableSet
             var edge = new ClosedEdge(parameter, key, sources);
             foreach (var (_, source) in sources)
             {
+                WorkCancellation.Check();
                 if (!_closedEdges.TryGetValue(source, out var edges))
                     _closedEdges[source] = edges = [];
                 edges.Add(edge);
@@ -1013,6 +1098,7 @@ public static class ReachableSet
             IEnumerable<Dictionary<string, string>> substitutions = [new(StringComparer.Ordinal)];
             foreach (var (written, parameter) in edge.Sources)
             {
+                WorkCancellation.Check();
                 var bindings = source is { } changed && changed == parameter ? [binding!] : _closedBindings.GetValueOrDefault(parameter)?.ToArray() ?? [];
                 substitutions = substitutions.SelectMany(substitution => bindings.Select(bound =>
                     new Dictionary<string, string>(substitution, StringComparer.Ordinal) { [written] = bound })).ToArray();
@@ -1020,6 +1106,7 @@ public static class ReachableSet
 
             foreach (var substitution in substitutions)
             {
+                WorkCancellation.Check();
                 var bound = ProgramIndex.Substitute(edge.Template, substitution);
                 if (!_program.IsOpen(bound))
                     AddClosedBinding(edge.Target, bound);
@@ -1046,9 +1133,15 @@ public static class ReachableSet
             if (bindings.Count > _input.Limits.MaxContextsPerMethod)
                 MarkOpen(parameter);
             foreach (var watcher in _bindingWatchers.GetValueOrDefault(parameter)?.ToArray() ?? [])
+            {
+                WorkCancellation.Check();
                 watcher(typeKey);
+            }
             foreach (var edge in _closedEdges.GetValueOrDefault(parameter)?.ToArray() ?? [])
+            {
+                WorkCancellation.Check();
                 Forward(edge, parameter, typeKey);
+            }
         }
 
         /// <summary>Records that a type parameter can stay open in an instance of the heap, runs what waits for that, and passes it on to every
@@ -1056,12 +1149,19 @@ public static class ReachableSet
         /// <param name="parameter">The type parameter.</param>
         private void MarkOpen((string Owner, int Ordinal) parameter)
         {
+            WorkCancellation.Check();
             if (!_openParameters.Add(parameter))
                 return;
             foreach (var watcher in _openWatchers.GetValueOrDefault(parameter)?.ToArray() ?? [])
+            {
+                WorkCancellation.Check();
                 watcher();
+            }
             foreach (var edge in _closedEdges.GetValueOrDefault(parameter)?.ToArray() ?? [])
+            {
+                WorkCancellation.Check();
                 MarkOpen(edge.Target);
+            }
         }
 
         /// <summary>Runs an action once a type parameter can stay open (<see cref="MarkOpen"/>): now where it already can, else when it does.</summary>
@@ -1088,7 +1188,10 @@ public static class ReachableSet
                 _bindingWatchers[parameter] = watchers = [];
             watchers.Add(onBinding);
             foreach (var binding in _closedBindings.GetValueOrDefault(parameter)?.ToArray() ?? [])
+            {
+                WorkCancellation.Check();
                 onBinding(binding);
+            }
         }
 
         /// <summary>The owner's type parameters a binding template names at any position, including array elements of any rank and
@@ -1104,6 +1207,7 @@ public static class ReachableSet
 
             void Collect(string current)
             {
+                WorkCancellation.Check();
                 if (Parameter(current, owner) is { } parameter)
                 {
                     if (found.All(known => known.Written != current))
@@ -1115,7 +1219,10 @@ public static class ReachableSet
                     Collect(element);
                 else
                     foreach (var argument in ProgramIndex.Shape(current).Arguments)
+                    {
+                        WorkCancellation.Check();
                         Collect(argument);
+                    }
             }
         }
 
@@ -1150,12 +1257,18 @@ public static class ReachableSet
                 return null;
             var name = key[(key.IndexOf(':') + 1)..];
             for (var ordinal = 0; ordinal < method.TypeParameterKeys.Count; ordinal++)
+            {
+                WorkCancellation.Check();
                 if (Name(method.TypeParameterKeys[ordinal]) == name)
                     return (method.MethodId, ordinal);
+            }
             if (_program.Type(method.ContainingTypeKey) is { } type)
                 for (var ordinal = type.TypeParameterKeys.Count - 1; ordinal >= 0; ordinal--)
+                {
+                    WorkCancellation.Check();
                     if (Name(type.TypeParameterKeys[ordinal]) == name)
                         return TypeParameter(type, ordinal);
+                }
             return null;
 
             static string Name(string parameter) => parameter[(parameter.IndexOf(':') + 1)..];
@@ -1163,9 +1276,11 @@ public static class ReachableSet
 
         private (string Owner, int Ordinal) TypeParameter(ProgramType type, int ordinal)
         {
+            WorkCancellation.Check();
             var depth = 0;
             for (var index = type.TypeKey.Length - 1; index >= 0; index--)
             {
+                WorkCancellation.Check();
                 var character = type.TypeKey[index];
                 if (character == '>') depth++;
                 else if (character == '<') depth--;
@@ -1182,6 +1297,7 @@ public static class ReachableSet
             pending.Enqueue(parameter);
             while (pending.TryDequeue(out var current))
             {
+                WorkCancellation.Check();
                 if (!_parameterBindings.TryGetValue(current, out var bindings))
                     _parameterBindings[current] = bindings = new(StringComparer.Ordinal);
                 if (!bindings.Add(typeKey))
@@ -1189,7 +1305,10 @@ public static class ReachableSet
                 if (_boxedParameters.Contains(current))
                     Instantiate(typeKey);
                 foreach (var target in _parameterEdges.GetValueOrDefault(current) ?? [])
+                {
+                    WorkCancellation.Check();
                     pending.Enqueue(target);
+                }
             }
         }
 
@@ -1203,11 +1322,15 @@ public static class ReachableSet
 
             foreach (var supertype in _program.Supertypes(typeKey))
             {
+                WorkCancellation.Check();
                 var definition = _program.Type(supertype)?.TypeKey ?? supertype;
                 if (!_constructedTypes.Add(definition) || !_waiting.Remove(definition, out var waiting))
                     continue;
                 foreach (var (target, reach) in waiting)
+                {
+                    WorkCancellation.Check();
                     reach(target);
+                }
             }
         }
 
@@ -1244,13 +1367,21 @@ public static class ReachableSet
         /// <summary>Reaches the delegates handed to a call as its arguments or operands, as a spawn's work is reached: the targets of a
         /// delegate created in the body, every delegate of the value's type when it comes from a parameter or a field, and the elements
         /// of an array the call is handed in their place (R3).</summary>
+        /// <param name="handed">The delegate values handed to the call.</param>
+        /// <param name="values">The body values by id.</param>
+        /// <param name="definitions">The operations defining the values.</param>
+        /// <param name="operations">The body operations.</param>
+        /// <param name="reason">The reason the delegate bodies are reached.</param>
+        /// <param name="arrays">The arrays already traversed, or null for a new walk.</param>
         private void ReachHandedDelegates(IEnumerable<int> handed, IReadOnlyDictionary<int, IrValue> values,
                                           IReadOnlyDictionary<int, IrOperation> definitions, IReadOnlyList<IrOperation> operations, string reason,
                                           HashSet<int>? arrays = null)
         {
+            WorkCancellation.Check();
             arrays ??= [];
             foreach (var value in handed)
             {
+                WorkCancellation.Check();
                 if (DelegateCreation(value, definitions) is { } creation)
                 {
                     ReachDelegateTargets(creation, reason);
@@ -1279,11 +1410,14 @@ public static class ReachableSet
             type is "object" or "dynamic" or "System.Object" or "System.Delegate" or "Delegate" or "System.MulticastDelegate" or "MulticastDelegate";
 
         /// <summary>The value another is assigned or converted from.</summary>
+        /// <param name="value">The value whose origin is sought.</param>
+        /// <param name="definitions">The operations defining the values.</param>
         private static int Origin(int value, IReadOnlyDictionary<int, IrOperation> definitions)
         {
             var visited = new HashSet<int>();
             while (visited.Add(value) && definitions.TryGetValue(value, out var definition))
             {
+                WorkCancellation.Check();
                 if (definition is IrAssignOperation assign)
                     value = assign.SourceValue;
                 else if (definition is IrConvertOperation convert)
@@ -1313,6 +1447,8 @@ public static class ReachableSet
 
         /// <summary>A locator call with a constant type constructs what it resolves: the bound registration, or every supported
         /// registration for <c>GetServices</c>.</summary>
+        /// <param name="bodyId">The body containing the call.</param>
+        /// <param name="call">The call to locate.</param>
         private void Locate(string bodyId, IrCallOperation call)
         {
             if (call.ServiceCall is not { Kind: IrServiceCallKind.Locator or IrServiceCallKind.LocatorAll, ServiceTypeKey: { } key } service)
@@ -1329,6 +1465,7 @@ public static class ReachableSet
             foreach (var registration in resolution.Registrations.Where(registration => registration is
                          { IsSupported: true, IsHostedService: false, Form: DiRegistrationForm.Type, ImplementationTypeKey: not null }))
             {
+                WorkCancellation.Check();
                 var kind = registration.Lifetime == DiLifetime.Singleton ? ConstructionKind.LazySingleton : ConstructionKind.ResolvedInExecution;
                 Construct(kind, registration.ImplementationTypeKey!, registration.Lifetime,
                           DiIndex.RegionId(key, registration.ImplementationTypeKey!, registration.Lifetime, registration.Number), trigger,
@@ -1341,6 +1478,7 @@ public static class ReachableSet
             var visited = new HashSet<int>();
             while (visited.Add(value) && definitions.TryGetValue(value, out var definition))
             {
+                WorkCancellation.Check();
                 switch (definition)
                 {
                     case IrCreateDelegateOperation create:
@@ -1404,6 +1542,10 @@ public static class ReachableSet
         /// <summary>A type's name with each type-argument list reduced to its arity, using the shared type-key parser so array-rank
         /// commas are never counted as type arguments. Delegate matching, type binding and boxed-type lookup all use this shape.</summary>
         /// <param name="type">The type key or display name.</param>
-        private static string Shape(string type) => ProgramIndex.Shape(type).Shape;
+        private static string Shape(string type)
+        {
+            WorkCancellation.Check();
+            return ProgramIndex.Shape(type).Shape;
+        }
     }
 }

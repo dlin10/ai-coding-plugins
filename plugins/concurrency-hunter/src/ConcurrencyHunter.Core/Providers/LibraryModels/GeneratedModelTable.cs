@@ -38,11 +38,13 @@ internal sealed class GeneratedModelTable
         var diagnostics = new List<string>();
         foreach (var (compilation, view) in _views)
         {
+            WorkCancellation.Check();
             if (!view.Files.Values.Contains(file.Key))
                 continue;
             var members = view.MembersOf(file.Key);
             foreach (var entry in file.Entries.Values)
             {
+                WorkCancellation.Check();
                 if (members.TryGetValue(entry.Member, out var definition))
                     Place(compilation, view, file.Key, entry, definition, diagnostics);
             }
@@ -137,8 +139,10 @@ internal sealed class GeneratedModelTable
             var members = new Dictionary<string, IMethodSymbol>(StringComparer.Ordinal);
             foreach (var (type, _) in Files.Where(mapped => mapped.Value == key && mapped.Key.ContainingAssembly.Name == key.AssemblyName))
             {
+                WorkCancellation.Check();
                 foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
                 {
+                    WorkCancellation.Check();
                     if (!FunctionPointers.In(method) && method.GetDocumentationCommentId() is { } id)
                         members.TryAdd(id, method);
                 }

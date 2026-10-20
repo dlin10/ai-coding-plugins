@@ -285,7 +285,7 @@ public sealed class GeneratedEntryAcceptanceMatrixTests
         if (cell.Multiplicity == Multiplicity.Twice)
             entries.Add(new JsonObject { ["member"] = outer, ["model"] = Sound(outer, "other") });
         entries.Add(new JsonObject { ["member"] = BYSTANDER, ["model"] = Sound(BYSTANDER, "value") });
-        return new JsonObject { ["schemaVersion"] = 1, ["assembly"] = Header(cell.Header), ["members"] = entries }.ToJsonString();
+        return new JsonObject { ["schemaVersion"] = 2, ["generator"] = GeneratorVersion.Fingerprint, ["assembly"] = Header(cell.Header), ["members"] = entries }.ToJsonString();
     }
 
     private static JsonObject Entry(Cell cell, string outer)
