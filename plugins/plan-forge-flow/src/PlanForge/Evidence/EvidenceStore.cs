@@ -26,15 +26,26 @@ internal sealed record StoredEvidenceJudgment([property: JsonRequired] string Ki
 internal sealed record EvidenceItemMark([property: JsonRequired] string Status,
                                        [property: JsonRequired] bool SourceChanged);
 
+/// <summary>The plan the most recent complete map judged, and when in the Run it judged it.</summary>
+/// <param name="PlanHash">The plan's outline hash, as <c>forge.plan.outline</c> reports it.</param>
+/// <param name="ReviewRounds">The plan-review rounds the Run had run when the map completed.</param>
+internal sealed record EvidencePlanMark([property: JsonRequired] string PlanHash,
+                                        [property: JsonRequired] int ReviewRounds);
+
 /// <summary>The whole, atomically replaced Evidence map file.</summary>
 /// <param name="Schema">The file schema, currently 1.</param>
 /// <param name="Judgments">Reusable outcomes by content-addressed key.</param>
 /// <param name="LastComplete">Comparison marks from the most recent complete map.</param>
 /// <param name="Latest">The latest result without documents; never used for cache decisions.</param>
+/// <param name="LastCompletePlan">
+/// The plan the most recent complete map judged; null before one completed, and in a file written
+/// before the mark existed.
+/// </param>
 internal sealed record EvidenceStoreFile([property: JsonRequired] int Schema,
                                          [property: JsonRequired] Dictionary<string, StoredEvidenceJudgment> Judgments,
                                          [property: JsonRequired] Dictionary<string, EvidenceItemMark> LastComplete,
-                                         [property: JsonRequired] JsonObject? Latest);
+                                         [property: JsonRequired] JsonObject? Latest,
+                                         EvidencePlanMark? LastCompletePlan = null);
 
 /// <summary>The implication comparison identity, independent of its positional H id.</summary>
 /// <param name="Text">The implication's exact text.</param>
@@ -70,6 +81,9 @@ internal sealed class EvidenceStore
 
     /// <summary>The last persisted result, retained only for reporting.</summary>
     public JsonObject? Latest => file.Latest;
+
+    /// <summary>The plan the most recent complete map judged, or null when none has completed.</summary>
+    public EvidencePlanMark? LastCompletePlan => file.LastCompletePlan;
 
     /// <summary>Loads structural state and validates all used answers against their current questions.</summary>
     /// <param name="path">The Run's evidence-map.json path.</param>
@@ -135,14 +149,17 @@ internal sealed class EvidenceStore
     /// <param name="latest">The current result without documents, including transient reasons.</param>
     /// <param name="currentItems">Current item comparison keys and their marks.</param>
     /// <param name="complete">Whether every judgment has a reusable outcome.</param>
+    /// <param name="plan">The plan this call judged, recorded only when the map is complete.</param>
     public void Write(IEnumerable<string> required, JsonObject latest,
-                      IReadOnlyDictionary<string, EvidenceItemMark> currentItems, bool complete)
+                      IReadOnlyDictionary<string, EvidenceItemMark> currentItems, bool complete,
+                      EvidencePlanMark? plan = null)
     {
         var keys = new HashSet<string>(required, StringComparer.Ordinal);
         var next = new EvidenceStoreFile(SCHEMA,
             file.Judgments.Where(entry => keys.Contains(entry.Key)).ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal),
             complete ? new(currentItems, StringComparer.Ordinal) : file.LastComplete,
-            latest.DeepClone().AsObject());
+            latest.DeepClone().AsObject(),
+            complete ? plan : file.LastCompletePlan);
         Validate(next);
         AtomicFile.Write(path, JsonSerializer.Serialize(next, EvidenceStoreJson.Default.EvidenceStoreFile));
         file = next;
@@ -203,6 +220,9 @@ internal sealed class EvidenceStore
         foreach (var mark in file.LastComplete.Values)
             if (mark is null || mark.Status is not ("contradiction" or "unchecked" or "context_only" or "covered"
                 or "excluded" or "uncertain" or "no_candidates" or "no_coverage_established")) throw Malformed();
+        if (file.LastCompletePlan is { } plan
+            && (plan.PlanHash is not { Length: 16 } || plan.PlanHash.Any(character => !char.IsAsciiHexDigitLower(character))
+                || plan.ReviewRounds < 0)) throw Malformed();
     }
 
     /// <summary>Checks structure, answered model identity and distributions using the rubric's per-question answer rules.</summary>

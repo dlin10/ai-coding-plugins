@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.50.0
+# Plan Forge Flow 0.51.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -205,6 +205,12 @@ candidate plan units, validates every answer and settles each item's status. A `
 nothing. The Orchestrator handles flags the manual check had not handled, calls again until
 `complete` or until `checkedThisCall` is 0, and checks new unchecked items by hand if incomplete.
 The map is never shown to the Critic, Builder or Scout and has no place in code review.
+
+Once a Run has used the map, `forge.plan.write`, `forge.plan.patch` and `forge.plan.review` answer
+with `evidenceMapWarning` when the plan has changed after a plan-review round that no complete map
+call has followed; a round that runs so also gets a `## Evidence map not current` Flow-log entry.
+A complete map records the plan hash it judged and the rounds run by then, so patches made in
+answer to a map before its round draw no warning. Nothing is refused.
 
 Configure Jev in the environment inherited by the server process:
 

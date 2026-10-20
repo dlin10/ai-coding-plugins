@@ -1,5 +1,22 @@
 # Plan Forge Flow releases
 
+## 0.51.0
+
+The Evidence map says when it has fallen behind the plan, and the skill says how a contradiction is
+settled.
+
+- Once a Run has used the map, `forge.plan.write`, `forge.plan.patch` and `forge.plan.review`
+  answer with `evidenceMapWarning` when the plan has changed after a plan-review round that no
+  complete map call has followed. A round that runs so also writes a `## Evidence map not current`
+  Flow-log entry. Patches made in answer to a map before its round draw no warning, and nothing
+  is refused.
+- A complete map records the plan hash it judged and the review rounds run by then in
+  `evidence-map.json` (`lastCompletePlan`). A file written before 0.51.0 has none, so its Run is
+  warned until its next complete map.
+- The forge skill settles a `contradiction` flag with evidence: the task that changes what the
+  fact describes, the code it names, or a probe — never a plan sentence that the code works as
+  before.
+
 ## 0.50.0
 
 An optional, shadow-mode Evidence map advises the Orchestrator after its manual Evidence check.

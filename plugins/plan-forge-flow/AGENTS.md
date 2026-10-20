@@ -152,7 +152,12 @@ is consent to send excerpts from every repository forge runs in on that machine.
 external request is made and the Evidence check stays manual. `forge.evidence.map` runs only after
 the Orchestrator's manual Evidence check; `Evidence/` owns candidate selection, answer validation,
 status, content-addressed storage and resumable progress. The Evidence map and Scout report never
-become Critic, Builder or Scout input. A `covered` is advice and removes nothing.
+become Critic, Builder or Scout input. A `covered` is advice and removes nothing. A complete map
+also stores the plan hash it judged and the review rounds run by then;
+`Evidence/EvidenceMapCurrency.cs` turns that into `evidenceMapWarning` on plan writes and
+plan-review rounds when a round has passed and the plan changed since. It warns only: the round,
+not the change alone, makes a map due, because patching in answer to a map before its round is
+the protocol.
 
 Advisor credentials are read only from the environment when needed and never become tool arguments
 or results, exception messages, logs (`forge.log` or `flow_log.md`), telemetry or persisted Run

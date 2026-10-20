@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using PlanForge.Acts;
 using PlanForge.Advisors;
 using PlanForge.Run;
 
@@ -165,7 +166,9 @@ internal sealed class EvidenceMapper
     /// <param name="changePoints">The Run's ordered Change points.</param>
     /// <param name="advisor">The selected, configured service.</param>
     /// <param name="path">The Run's Evidence map path.</param>
-    public void Prepare(string plan, EvidenceIndex index, IReadOnlyList<string> changePoints, IAdvisor advisor, string path)
+    /// <param name="reviewRounds">The plan-review rounds the Run has run, recorded with the plan a complete map judged.</param>
+    public void Prepare(string plan, EvidenceIndex index, IReadOnlyList<string> changePoints, IAdvisor advisor, string path,
+                        int reviewRounds = 0)
     {
         var units = PlanUnits.Of(plan);
         var shared = EvidenceRubric.SharedState(units, changePoints);
@@ -184,7 +187,8 @@ internal sealed class EvidenceMapper
             items.Add(new(item, candidates, logical));
         }
         var store = EvidenceStore.Load(path, work.ToDictionary(pair => pair.Key, pair => pair.Value.Judgment));
-        prepared = new Call(advisor, path, shared, index, items, work, store, Progress);
+        prepared = new Call(advisor, path, shared, index, items, work, store, Progress,
+                            new EvidencePlanMark(PlanOutline.Hash(plan), reviewRounds));
     }
 
     /// <summary>Runs the validated call with budgets and accounting measured from its opening.</summary>
@@ -254,7 +258,7 @@ internal sealed class EvidenceMapper
     {
         var result = Progress.Result!;
         var latest = JsonSerializer.SerializeToNode(result, EvidenceMapperJson.Default.EvidenceMapResult)!.AsObject();
-        call.Store.Write(call.Work.Keys, latest, call.Marks, final && result.Complete);
+        call.Store.Write(call.Work.Keys, latest, call.Marks, final && result.Complete, call.Plan);
         storeWritten?.Invoke();
     }
 
@@ -348,12 +352,15 @@ internal sealed class EvidenceMapper
     /// <param name="work">The distinct required keys.</param>
     /// <param name="store">The validated persistence state.</param>
     /// <param name="progress">The externally readable call progress.</param>
+    /// <param name="plan">The plan this call judges, stored if the map completes.</param>
     private sealed class Call(IAdvisor advisor, string path, EvidenceSharedState shared, EvidenceIndex index,
                               IReadOnlyList<ItemWork> items, Dictionary<string, Work> work, EvidenceStore store,
-                              EvidenceMapProgress progress)
+                              EvidenceMapProgress progress, EvidencePlanMark plan)
     {
         /// <summary>The configured service used by the prepared call.</summary>
         public IAdvisor Advisor => advisor;
+        /// <summary>The plan this call judges.</summary>
+        public EvidencePlanMark Plan => plan;
         /// <summary>The current distinct keys.</summary>
         public Dictionary<string, Work> Work { get; } = work;
         /// <summary>The call's validated store.</summary>

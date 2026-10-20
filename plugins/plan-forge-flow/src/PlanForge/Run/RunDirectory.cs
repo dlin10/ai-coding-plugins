@@ -567,6 +567,17 @@ internal sealed class RunDirectory
                                .AppendLine()
                                .ToString());
 
+    /// <summary>A plan-review round that judged a plan the Evidence map had not seen since an earlier round.</summary>
+    /// <param name="round">The round that ran.</param>
+    /// <param name="warning">The warning returned beside the round's critique.</param>
+    public void AppendFlowEvidenceMapWarning(int round, string warning) =>
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().Append("## Evidence map not current — plan review round ").Append(round).AppendLine()
+                               .AppendLine()
+                               .AppendLine(warning)
+                               .AppendLine()
+                               .ToString());
+
     /// <summary>
     /// A critic that ended its turn with work still running in the background judged without that
     /// work's result. Its critique stands — the orchestrator filters every critique anyway — but the
