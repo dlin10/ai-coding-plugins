@@ -86,8 +86,8 @@ public sealed class FullGateReviewTests : IDisposable
             Dictionary<string, string>? env = environment == "omitted" ? null
                 : environment == "empty" ? [] : new() { ["TEST"] = "new" };
             string[]? paths = roots == "omitted" ? null : roots == "empty" ? [] : [newRoot];
-            await ForgeTools.ConfirmPlan(SessionRoots.None, _workspace, run.RunId, Plan, approved,
-                CancellationToken.None, env, paths);
+            await ForgeTools.ConfirmPlan(SessionRoots.None, _workspace, run.RunId, approved,
+                CancellationToken.None, env, paths, plan: Plan);
             var state = run.ReadState();
             Assert.Equal(timing, state.FullGate);
             Assert.Equal(before.Ledger, File.ReadAllBytes(run.DecisionLedgerPath));
@@ -303,7 +303,7 @@ public sealed class FullGateReviewTests : IDisposable
         Assert.Equal("final", run.ReadState().FullGate);
         var before = Snapshot(run);
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.ConfirmPlan(SessionRoots.None, _workspace,
-            run.RunId, "different", false, CancellationToken.None, builderRoots: ["relative"]));
+            run.RunId, false, CancellationToken.None, builderRoots: ["relative"], plan: "different"));
         AssertSnapshot(before, run);
         await Confirm(run, true, "beforeNextRound");
         Assert.Equal(before.Plan, File.ReadAllBytes(run.PlanPath));
@@ -387,8 +387,8 @@ public sealed class FullGateReviewTests : IDisposable
     }
 
     private Task<string> Confirm(RunDirectory run, bool approved, string? timing, OrchestratorDecisionBatch? decisions = null) =>
-        ForgeTools.ConfirmPlan(SessionRoots.None, _workspace, run.RunId, Plan, approved, CancellationToken.None,
-            decisions: decisions, fullGate: timing);
+        ForgeTools.ConfirmPlan(SessionRoots.None, _workspace, run.RunId, approved, CancellationToken.None,
+            decisions: decisions, fullGate: timing, plan: Plan);
 
     private Task<string> StartReview(JobRegistry registry, RunDirectory run, IVendor vendor, bool grant) =>
         ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "review.code", "critic", null, "codex",

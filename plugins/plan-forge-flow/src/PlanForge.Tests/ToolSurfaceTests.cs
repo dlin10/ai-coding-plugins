@@ -1,9 +1,14 @@
 using System.ComponentModel;
+using System.IO.Pipelines;
 using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
+using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PlanForge.Acts;
+using PlanForge.Diagnostics;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Prompts;
@@ -122,6 +127,105 @@ public sealed class ToolSurfaceTests
     }
 
     /// <summary>
+    /// The SDK binds a call's arguments before any code of ours runs, refuses one that lacks a
+    /// required argument with an exception of its own, and then blanks it: a run's
+    /// <c>forge.plan.confirm</c> without <c>plan</c> came back "An error occurred", and only the
+    /// server log said why. This goes through the server's real dispatch because the failure lives
+    /// in the SDK's binding, which no direct call to a tool method reaches.
+    /// </summary>
+    [Theory]
+    [InlineData("forge.plan.confirm", """{"workspaceRoot": "C:\\work"}""", "forge.plan.confirm requires runId, approved")]
+    [InlineData("forge.plan.write", """{"workspaceRoot": "C:\\work", "runId": "run"}""", "forge.plan.write requires planDraft")]
+    [InlineData("forge.plan.confirm", """{"workspaceRoot": "C:\\work", "runId": "run", "approved": null}""", "forge.plan.confirm requires approved")]
+    [InlineData("forge.status", """{"workspaceRoot": "C:\\work"}""", "forge.status requires runId")]
+    public async Task A_call_without_a_required_argument_is_refused_naming_it(string tool, string arguments, string reason)
+    {
+        var result = await OnTheWireAsync(tool, arguments);
+
+        Assert.True(result.IsError);
+        Assert.Equal(reason, Text(result));
+    }
+
+    /// <summary>
+    /// The SDK's own exception for these names the .NET type and not the argument, so the answer
+    /// comes from the published schema, at whatever depth the value sits.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"approved": "yes"}""", "approved to be boolean, not string")]
+    [InlineData("""{"approved": true, "decisions": {"decisionBatchId": 3, "decisions": []}}""", "decisions.decisionBatchId to be string or null, not number")]
+    [InlineData("""{"approved": true, "gateEnvironment": {"CONN": 1}}""", "gateEnvironment.CONN to be string or null, not number")]
+    [InlineData("""{"approved": true, "builderRoots": [1]}""", "builderRoots[0] to be string or null, not number")]
+    public async Task An_argument_of_the_wrong_type_is_refused_naming_where_it_sits(string arguments, string reason)
+    {
+        var call = JsonNode.Parse(arguments)!.AsObject();
+        call["workspaceRoot"] = @"C:\work";
+        call["runId"] = "run";
+
+        var result = await OnTheWireAsync("forge.plan.confirm", call.ToJsonString());
+
+        Assert.True(result.IsError);
+        Assert.Equal($"forge.plan.confirm requires {reason}", Text(result));
+    }
+
+    /// <summary>
+    /// The schema publishes the edits as objects, but the binder takes a null among them and the
+    /// tool refuses it itself, with the edit's index and the sizes it measures. Explaining only what
+    /// the binder has already refused is what leaves that path alone: here the call reaches the tool,
+    /// which is what fails on a run that does not exist.
+    /// </summary>
+    [Fact]
+    public async Task A_call_the_binder_accepts_reaches_the_tool_whatever_the_schema_says()
+    {
+        var result = await OnTheWireAsync("forge.plan.patch",
+                                          """{"workspaceRoot": "C:\\work", "runId": "run", "baseHash": "h", "edits": [null]}""");
+
+        Assert.True(result.IsError);
+        Assert.Equal("run run was not found", Text(result));
+    }
+
+    /// <summary>
+    /// The calls run 5d B3c made after a compaction, with no plan: since docs/adr/0038 they are
+    /// well-formed, and what answers them is the tool, about the run.
+    /// </summary>
+    [Theory]
+    [InlineData("forge.plan.show", """{"workspaceRoot": "C:\\work", "runId": "run"}""")]
+    [InlineData("forge.plan.confirm", """{"workspaceRoot": "C:\\work", "runId": "run", "approved": true}""")]
+    public async Task A_confirmation_or_a_canvas_without_a_plan_reaches_the_tool(string tool, string arguments)
+    {
+        var result = await OnTheWireAsync(tool, arguments);
+
+        Assert.True(result.IsError);
+        Assert.Equal("run run was not found", Text(result));
+    }
+
+    /// <summary>
+    /// The SDK's exception, logged as it escaped, was the only record of such a call, and the answer
+    /// now stops it escaping. The run log keeps both: the reason given and the exception behind it.
+    /// </summary>
+    [Fact]
+    public async Task An_unbindable_call_is_recorded_in_the_run_log()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "planforge-unbindable-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "forge.log");
+        try
+        {
+            using (RunLog.Use(new RunLog(path)))
+                await OnTheWireAsync("forge.plan.write", """{"workspaceRoot": "C:\\work", "runId": "run"}""");
+
+            var entry = File.ReadLines(path).Select(line => JsonDocument.Parse(line).RootElement)
+                            .Single(line => line.GetProperty("event").GetString() == "tool.unbindable");
+            var fields = entry.GetProperty("fields");
+            Assert.Equal("forge.plan.write requires planDraft", fields.GetProperty("error").GetString());
+            Assert.Contains("'planDraft'", fields.GetProperty("exception").GetString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// The two structured arguments of <c>forge.plan.confirm</c> are the first non-scalar tool
     /// inputs this server takes, and reflection-based serialization is off repo-wide: this proves
     /// the SDK can still describe them in the published schema, and that neither is required. The
@@ -137,9 +241,9 @@ public sealed class ToolSurfaceTests
 
         var schema = tool.ProtocolTool.InputSchema;
         var properties = schema.GetProperty("properties");
-        Assert.Equal(["workspaceRoot", "runId", "plan", "approved", "gateEnvironment", "builderRoots", "decisions", "fullGate"],
+        Assert.Equal(["workspaceRoot", "runId", "approved", "gateEnvironment", "builderRoots", "decisions", "fullGate", "plan", "planHash"],
                      properties.EnumerateObject().Select(property => property.Name));
-        Assert.Equal(["workspaceRoot", "runId", "plan", "approved"],
+        Assert.Equal(["workspaceRoot", "runId", "approved"],
                      schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
         Assert.Contains("object", properties.GetProperty("gateEnvironment").GetRawText(), StringComparison.Ordinal);
         Assert.Contains("array", properties.GetProperty("builderRoots").GetRawText(), StringComparison.Ordinal);
@@ -365,6 +469,41 @@ public sealed class ToolSurfaceTests
                                             SerializerOptions = ToolArgumentJson.ArgumentOptions
                                         });
         return tool.ProtocolTool.InputSchema.Clone();
+    }
+
+    /// <summary>
+    /// Calls one tool through an in-process server wired the way <c>Program.cs</c> wires the real
+    /// one, and returns what reached the client.
+    /// </summary>
+    /// <param name="tool">The published tool name.</param>
+    /// <param name="arguments">The call's arguments as a JSON object.</param>
+    private static async Task<CallToolResult> OnTheWireAsync(string tool, string arguments)
+    {
+        var toServer = new Pipe();
+        var toClient = new Pipe();
+        var services = new ServiceCollection()
+            .AddLogging()
+            .AddSingleton(SessionRoots.None)
+            .AddSingleton(new JobRegistry())
+            .AddSingleton(new CatalogCache());
+        services.AddMcpServer(o => o.Filters.Request.CallToolFilters.Add(ToolErrors.Surfaced))
+                .WithStreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream())
+                .WithTools<ForgeTools>(ToolArgumentJson.ArgumentOptions);
+        await using var provider = services.BuildServiceProvider();
+        using var stop = new CancellationTokenSource();
+        var serving = provider.GetRequiredService<McpServer>().RunAsync(stop.Token);
+
+        CallToolResult result;
+        await using (var client = await McpClient.CreateAsync(new StreamClientTransport(toServer.Writer.AsStream(), toClient.Reader.AsStream())))
+        {
+            using var document = JsonDocument.Parse(arguments);
+            result = await client.CallToolAsync(tool, document.RootElement.EnumerateObject()
+                                                              .ToDictionary(property => property.Name, property => (object?)property.Value.Clone()));
+        }
+
+        await stop.CancelAsync();
+        try { await serving; } catch (OperationCanceledException) { }
+        return result;
     }
 
     private static ValueTask<CallToolResult> Surfaced(Exception error) =>
