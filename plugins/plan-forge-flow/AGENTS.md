@@ -152,7 +152,12 @@ is consent to send excerpts from every repository forge runs in on that machine.
 external request is made and the Evidence check stays manual. `forge.evidence.map` runs only after
 the Orchestrator's manual Evidence check; `Evidence/` owns candidate selection, answer validation,
 status, content-addressed storage and resumable progress. The Evidence map and Scout report never
-become Critic, Builder or Scout input. A `covered` is advice and removes nothing.
+become Critic, Builder or Scout input. A `covered` is advice and removes nothing. A complete map
+also stores the plan hash it judged and the review rounds run by then;
+`Evidence/EvidenceMapCurrency.cs` turns that into `evidenceMapWarning` on plan writes and
+plan-review rounds when a round has passed and the plan changed since. It warns only: the round,
+not the change alone, makes a map due, because patching in answer to a map before its round is
+the protocol.
 
 Advisor credentials are read only from the environment when needed and never become tool arguments
 or results, exception messages, logs (`forge.log` or `flow_log.md`), telemetry or persisted Run
@@ -224,8 +229,10 @@ one: `forge.plan.write` or `forge.plan.patch`
 puts the draft there ahead of the round that judges it — a separate call because a draft streamed
 into the review call is not on disk until that call arrives, which made the link late by the whole
 of the upload plus the critique — and `forge.plan.review` reads it from there when it is handed no
-draft of its own. Approval is `state.json`'s `approved`, and either writer or a round run after it
-takes that flag back. A patch checks the current plan hash without a lock; that check and the
+draft of its own, as `forge.plan.show` and `forge.plan.confirm` do when handed no plan; the latter
+checks a `planHash` it is given against the plan it approves —
+[docs/adr/0038](docs/adr/0038-approve-the-plan-on-disk-by-its-hash.md). Approval is `state.json`'s
+`approved`, and either writer or a round run after it takes that flag back. A patch checks the current plan hash without a lock; that check and the
 replacement are not atomic together — see
 [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md) and
 [docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md). There are no locks and no Git refs —

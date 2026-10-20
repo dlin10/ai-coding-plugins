@@ -311,7 +311,7 @@ internal sealed class ForgeTools
                     try { items = EvidenceIndex.Of(entries, state.ScoutAnswers, implications, state.WorkspaceRoot); }
                     catch (JsonException) { throw new ArgumentRejectedException("scout-answers.json is malformed"); }
                     var selected = advisorFactory(environment, advisor);
-                    try { mapper.Prepare(plan, items, changePoints, selected, run.EvidenceMapPath); }
+                    try { mapper.Prepare(plan, items, changePoints, selected, run.EvidenceMapPath, state.ReviewRounds); }
                     catch (JsonException) { throw new ArgumentRejectedException("evidence-map.json is malformed"); }
 
                     EvidenceMapResult mapped;
@@ -395,8 +395,9 @@ internal sealed class ForgeTools
                 PlanReview.Write(run, planDraft);
                 var plan = run.ReadPlan();
                 var outline = PlanOutline.IsBlank(plan) ? null : PlanOutline.Of(plan);
-                return Task.FromResult(JsonSerializer.Serialize(new PlanWriteResult(run.RunId, outline, Documents(run)),
-                                                                ForgeToolJson.Default.PlanWriteResult));
+                return Task.FromResult(EvidenceMapCurrency.Attach(
+                    JsonSerializer.Serialize(new PlanWriteResult(run.RunId, outline, Documents(run)), ForgeToolJson.Default.PlanWriteResult),
+                    EvidenceMapCurrency.Warning(run, run.ReadState().ReviewRounds)));
             });
     }
 
@@ -453,9 +454,9 @@ internal sealed class ForgeTools
                 var patch = PlanReview.Patch(run, baseHash, edits);
                 sizes = patch.Sizes;
                 outcome = "applied";
-                return Task.FromResult(JsonSerializer.Serialize(
+                return Task.FromResult(EvidenceMapCurrency.Attach(JsonSerializer.Serialize(
                     new PlanPatchResult(run.RunId, patch.BaseHash, patch.Outline, patch.Changed, sizes, Documents(run)),
-                    ForgeToolJson.Default.PlanPatchResult));
+                    ForgeToolJson.Default.PlanPatchResult), EvidenceMapCurrency.Warning(run, run.ReadState().ReviewRounds)));
             }
             catch (PlanPatchRejectedException error)
             {
@@ -529,8 +530,9 @@ internal sealed class ForgeTools
                                                      revision, deferred, userGrantedRound, ct,
                                                      orchestratorDecisions: decisions);
 
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
-                                                                          ForgeToolJson.Default.CritiqueResult),
+                return SpeedWarnings.Attach(run, EvidenceMapCurrency.Attach(JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
+                                                                                                     ForgeToolJson.Default.CritiqueResult),
+                                                                            act.EvidenceMapWarning),
                                             act.SpeedWarning);
             });
     }
@@ -550,25 +552,26 @@ internal sealed class ForgeTools
     /// <param name="roots">The session roots advertised by the MCP host.</param>
     /// <param name="workspaceRoot">The run's workspace root.</param>
     /// <param name="runId">The run whose plan is shown.</param>
-    /// <param name="plan">The complete plan to render.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
-    [McpServerTool(Name = "forge.plan.show"), McpAppUi(ResourceUri = PlanCanvas.ResourceUri), Description("Renders the plan as a document in the host's own UI, with the working-tree drift beside it. Call it only when forge.begin reported profile `Canvas`, immediately before you ask the user to approve — and still ask, because this records nothing. On a `Text` profile nothing renders, so show the plan in the chat instead.")]
+    /// <param name="plan">The complete plan to render, or null for <c>PLAN.md</c> as it stands.</param>
+    [McpServerTool(Name = "forge.plan.show"), McpAppUi(ResourceUri = PlanCanvas.ResourceUri), Description("Renders the plan as a document in the host's own UI, with the working-tree drift beside it. Call it only when forge.begin reported profile `Canvas`, immediately before you ask the user to approve — and still ask, because this records nothing. On a `Text` profile nothing renders, so show the plan in the chat instead. Omit plan to show PLAN.md as forge.plan.write and forge.plan.patch left it; the result's planHash names what was shown, for forge.plan.confirm.")]
     public static async Task<string> ShowPlan(SessionRoots roots,
                                               [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                               [Description("Run id from forge.begin.")] string runId,
-                                              [Description("The plan to show, as markdown. The whole plan, not a summary of it.")] string plan,
-                                              CancellationToken ct)
+                                              CancellationToken ct,
+                                              [Description("Optional plan to show instead of PLAN.md, as markdown: the whole plan, not a summary of it. Omit it to show PLAN.md.")] string? plan = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.plan.show", [("plan", plan)],
             async () =>
             {
                 var state = run.ReadState();
+                var shown = plan ?? CurrentPlan(run, "forge.plan.show");
                 var drifted = await run.ReadBaseline(state.BaselineHead)
                                        .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
 
                 return JsonSerializer.Serialize(
-                    new PlanViewResult(state.RunId, plan, drifted, state.ReviewRounds, state.Approved),
+                    new PlanViewResult(state.RunId, shown, PlanOutline.Hash(shown), drifted, state.ReviewRounds, state.Approved),
                     ForgeToolJson.Default.PlanViewResult);
             });
     }
@@ -582,30 +585,32 @@ internal sealed class ForgeTools
     /// <param name="roots">The session roots advertised by the MCP host.</param>
     /// <param name="workspaceRoot">The run's workspace root.</param>
     /// <param name="runId">The run whose decision is recorded.</param>
-    /// <param name="plan">The complete plan presented for approval.</param>
     /// <param name="approved">The user's approval decision.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     /// <param name="gateEnvironment">Optional environment variables required by gate commands.</param>
     /// <param name="builderRoots">Compatibility-only absolute paths retained in the Run; vendors ignore them.</param>
     /// <param name="decisions">Optional final plan decisions, applied only with an approval.</param>
     /// <param name="fullGate">Optional timing for full host verification of targeted fixes; omission preserves the saved choice.</param>
+    /// <param name="plan">The complete plan presented for approval, or null for <c>PLAN.md</c> as it stands.</param>
+    /// <param name="planHash">The hash of the plan the user was shown, or null to approve without checking it.</param>
     /// <returns>The recorded decision, the task count and the filtered drift, as JSON.</returns>
-    [McpServerTool(Name = "forge.plan.confirm"), Description("With approved true, applies the same typed plan decisions as forge.plan.review, then refuses approval while any active plan finding is unresolved. With approved false, decisions are forbidden and the ledger is unchanged. Approval records tasks and optional fullGate=beforeNextRound|final (case-sensitive). Omitted timing and settings are preserved; explicit settings replace, empty settings clear. Approval clears the global gate failure, preserving attempts. Approved false leaves PLAN/state/ledger/approval unchanged; invalid fullGate is still refused. Saved timing is read first and a corrupt value stops the call unchanged. Confirm does not select gate mode or validate Fix gate. Code-review entries do not block confirmation.")]
+    [McpServerTool(Name = "forge.plan.confirm"), Description("With approved true, applies the same typed plan decisions as forge.plan.review, then refuses approval while any active plan finding is unresolved. With approved false, decisions are forbidden and the ledger is unchanged. Approval records tasks and optional fullGate=beforeNextRound|final (case-sensitive). Omitted timing and settings are preserved; explicit settings replace, empty settings clear. Approval clears the global gate failure, preserving attempts. Approved false leaves PLAN/state/ledger/approval unchanged; invalid fullGate is still refused. Saved timing is read first and a corrupt value stops the call unchanged. Confirm does not select gate mode or validate Fix gate. Code-review entries do not block confirmation. Omit plan to approve PLAN.md as forge.plan.write and forge.plan.patch left it; a plan passed instead replaces PLAN.md. Pass planHash, the planHash of the plan the user was shown, and a plan with any other hash is refused before anything changes.")]
     public static async Task<string> ConfirmPlan(SessionRoots roots,
                                                  [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                  [Description("Run id from forge.begin.")] string runId,
-                                                 [Description("The plan to approve, as markdown.")] string plan,
                                                  [Description("What the user answered. Show them the plan and the filtered drift excluding `CONTEXT.md` and `docs/adr/**`, ask, and pass what they say; never decide this yourself.")] bool approved,
                                                  CancellationToken ct,
                                                  [Description("Environment variables for server-owned task gates and selected full or targeted fix gates, e.g. {\"CD_TEST_SQL_CONN\": \"Server=…\"}. Ask the user for what the plan's gates need before you confirm; the values are kept in the run state and only their names are logged.")] Dictionary<string, string>? gateEnvironment = null,
                                                  [Description("Compatibility-only absolute paths retained in the run state. Vendors ignore this field; it does not control Builder permissions.")] string[]? builderRoots = null,
                                                  [Description("Optional complete typed plan decision batch. Approved confirmation applies it before checking for unresolved active plan entries; refused confirmation rejects it without mutation.")] OrchestratorDecisionBatch? decisions = null,
-                                                 [Description("Full host verification timing for targeted fixes: beforeNextRound or final, case-sensitive. Omission preserves the saved timing; old runs default to beforeNextRound. Changing timing does not verify pending fixes.")] string? fullGate = null)
+                                                 [Description("Full host verification timing for targeted fixes: beforeNextRound or final, case-sensitive. Omission preserves the saved timing; old runs default to beforeNextRound. Changing timing does not verify pending fixes.")] string? fullGate = null,
+                                                 [Description("Optional plan to approve instead of PLAN.md, as markdown; it replaces PLAN.md. Omit it to approve PLAN.md as it stands.")] string? plan = null,
+                                                 [Description("The planHash of the plan the user was shown: from forge.plan.show, or from the outline forge.plan.write, forge.plan.patch or forge.plan.outline answered with. A plan with another hash is refused.")] string? planHash = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         // The gate environment is logged by name only: a connection string is exactly what it holds.
         return await LoggedAsync(run, workspaceRoot, "forge.plan.confirm",
-            [("approved", approved.ToString()), ("plan", plan),
+            [("approved", approved.ToString()), ("plan", plan), ("planHash", planHash),
              ("gateEnvironment", gateEnvironment is { Count: > 0 } ? string.Join(", ", gateEnvironment.Keys) : null),
              ("builderRoots", builderRoots is { Length: > 0 } ? string.Join(", ", builderRoots) : null),
              ("decisionBatchId", decisions?.DecisionBatchId), ("fullGate", fullGate)],
@@ -616,7 +621,12 @@ internal sealed class ForgeTools
                 var gates = GateSettings.Validate(gateEnvironment, builderRoots);
                 if (!approved && decisions is not null)
                     throw new ArgumentRejectedException("forge.plan.confirm(approved:false) does not accept decisions");
-                var tasks = PlanTasks.Parse(plan);
+                var confirmed = plan ?? CurrentPlan(run, "forge.plan.confirm");
+                if (planHash is not null && PlanOutline.Hash(confirmed) is var hash && hash != planHash)
+                    throw new ArgumentRejectedException(
+                        $"planHash {planHash} is not the plan's hash: {(plan is null ? "PLAN.md" : "the plan passed")} hashes to {hash}. " +
+                        "Show the user the plan as it stands and confirm with its hash.");
+                var tasks = PlanTasks.Parse(confirmed);
 
                 var drifted = await run.ReadBaseline(state.BaselineHead)
                                        .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
@@ -647,10 +657,11 @@ internal sealed class ForgeTools
                     throw new ArgumentRejectedException($"plan confirmation is blocked by unresolved plan findings: {string.Join(", ", blocking)}");
 
                 var briefChanged = state.Approved
-                                   && !string.Equals(PlanTasks.Brief(run.ReadPlan()), PlanTasks.Brief(plan),
+                                   && !string.Equals(PlanTasks.Brief(run.ReadPlan()), PlanTasks.Brief(confirmed),
                                                      StringComparison.Ordinal);
 
-                run.WritePlan(plan);
+                // Rewriting PLAN.md with what was just read from it would only drop a leading BOM.
+                if (plan is not null) run.WritePlan(plan);
                 run.WriteState((briefChanged ? BuilderSession.Forget(state) : state) with
                 {
                     Approved = true,
@@ -1140,6 +1151,21 @@ internal sealed class ForgeTools
                                   "show the Scout report to the user now, and show it again after each later successful Scout call appends its answer.")
                 : null);
 
+    /// <summary>
+    /// The plan in <c>PLAN.md</c> as it stands, for a tool handed none: what <c>forge.plan.write</c>
+    /// and <c>forge.plan.patch</c> left there is the plan the user was shown. See docs/adr/0038.
+    /// </summary>
+    /// <param name="run">The run whose plan is read.</param>
+    /// <param name="tool">The tool that needs it, named in the refusal.</param>
+    /// <returns>The non-blank plan text.</returns>
+    private static string CurrentPlan(RunDirectory run, string tool)
+    {
+        var plan = File.Exists(run.PlanPath) ? run.ReadPlan() : null;
+        return PlanOutline.IsBlank(plan)
+            ? throw new ArgumentRejectedException($"{tool} found no plan in PLAN.md: write it with forge.plan.write, or pass plan")
+            : plan!;
+    }
+
     private static string StateName(JobState state) => state switch
                                                        {
                                                            JobState.Running => "running",
@@ -1311,13 +1337,18 @@ internal sealed record InstructionsResult(string? CriticInstructions,
                                           RunDocuments Documents);
 
 /// <summary>
-/// What the canvas renders. It carries the plan back out again rather than reading `PLAN.md`,
-/// because the file holds the draft of the last review round while the orchestrator may be holding
-/// a newer one — a plan amended after the last verdict is shown for approval before any round has
-/// seen it.
+/// What the canvas renders: <c>PLAN.md</c> as it stands, or the plan the call was handed, and the
+/// hash that lets <c>forge.plan.confirm</c> approve exactly that text — see docs/adr/0038.
 /// </summary>
+/// <param name="RunId">The run whose plan is shown.</param>
+/// <param name="Plan">The plan text shown.</param>
+/// <param name="PlanHash">The hash of <paramref name="Plan"/>, as <c>forge.plan.outline</c> reports it.</param>
+/// <param name="DriftedFiles">The working-tree files changed since the baseline.</param>
+/// <param name="ReviewRounds">The plan-review rounds run so far.</param>
+/// <param name="Approved">Whether the run is approved.</param>
 internal sealed record PlanViewResult(string RunId,
                                       string Plan,
+                                      string PlanHash,
                                       IReadOnlyList<string> DriftedFiles,
                                       int ReviewRounds,
                                       bool Approved);

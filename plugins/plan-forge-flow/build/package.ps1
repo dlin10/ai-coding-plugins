@@ -257,7 +257,7 @@ function Test-PublishedServer([string]$Executable) {
         # the resolver chain lost it and the server refused to start describing them.
         $confirm = $tools | Where-Object { $_.name -eq 'forge.plan.confirm' } | Select-Object -First 1
         $confirmProperties = @($confirm.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('plan', 'approved', 'decisions', 'gateEnvironment', 'builderRoots', 'fullGate')) {
+        foreach ($parameter in @('plan', 'planHash', 'approved', 'decisions', 'gateEnvironment', 'builderRoots', 'fullGate')) {
             if ($confirmProperties -notcontains $parameter) { throw "forge.plan.confirm schema is missing $parameter" }
         }
         if (@($confirm.inputSchema.required) -contains 'gateEnvironment' -or @($confirm.inputSchema.required) -contains 'builderRoots' -or @($confirm.inputSchema.required) -contains 'fullGate') {
@@ -350,7 +350,9 @@ function Test-PublishedServer([string]$Executable) {
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
             'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')
-            'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate')
+            # The plan is PLAN.md unless one is passed, and the hash only checks it: docs/adr/0038.
+            'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate', 'plan', 'planHash')
+            'forge.plan.show'   = @('plan')
             'forge.log.append'  = @('level', 'detail', 'phase')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
             # had to send them together could not correct one without restating the other.

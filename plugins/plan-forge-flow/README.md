@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.50.0
+# Plan Forge Flow 0.52.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -34,8 +34,8 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 | `forge.plan.outline` | Returns the current plan hash and snapshot targets with IDs, kinds, labels, hashes and character sizes, without plan text beyond labels |
 | `forge.plan.patch` | Revises selected targets against the exact outline hash; answers with the new outline, change summary, character and UTF-8 byte sizes, and document paths, running no worker |
 | `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
-| `forge.plan.show` | Renders the plan as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it |
-| `forge.plan.confirm` | Applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and optional case-sensitive `fullGate=beforeNextRound\|final`; omission preserves timing/settings, explicit settings replace, empty settings clear. Approval resets the global gate failure, preserving attempts; approved false changes no PLAN/state/ledger or approval and accepts no decisions |
+| `forge.plan.show` | Renders `PLAN.md` as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it, and answers with its `planHash` |
+| `forge.plan.confirm` | Approves `PLAN.md` as it stands, refusing it when `planHash` names another plan; applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and optional case-sensitive `fullGate=beforeNextRound\|final`; omission preserves timing/settings, explicit settings replace, empty settings clear. Approval resets the global gate failure, preserving attempts; approved false changes no PLAN/state/ledger or approval and accepts no decisions |
 | `forge.build.next` | Builds one task; only the server runs its executable gate, withholds the task on failure and briefs the retry. The Builder checks conditions and may run separate checks |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan. Saved beforeNextRound refuses pending fixes; final permits them and returns current pending IDs (including []); assessments do not verify them. A prompt longer than the critic's vendor accepts gives the critic its files by path, untracked files first; one too long even then is refused before it starts, with its sizes, and `excludePaths` narrows that one round |
 | `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs executable G entries by default (`gate=full`) or only the approved Fix gate (`gate=targeted`), leaving findings pending full host verification. Retry preserves gate, attempt and exact IDs |
@@ -149,7 +149,9 @@ user anything. The orchestrator reads the drift out of `forge.status`, shows the
 that drift however its own host shows things best, and passes back what they answered.
 `forge.plan.confirm` records it. See
 [docs/adr/0003](docs/adr/0003-approval-through-the-orchestrator.md) for why elicitation was removed
-rather than repaired.
+rather than repaired. The plan it approves is `PLAN.md` as it stands, named by the hash the user's
+copy was shown at, rather than the whole text sent back; see
+[docs/adr/0038](docs/adr/0038-approve-the-plan-on-disk-by-its-hash.md).
 
 On a host that negotiates the MCP Apps UI extension — Cursor does, Claude Code does not — "however
 its own host shows things best" has a concrete answer: `forge.plan.show` renders the plan as a
@@ -205,6 +207,12 @@ candidate plan units, validates every answer and settles each item's status. A `
 nothing. The Orchestrator handles flags the manual check had not handled, calls again until
 `complete` or until `checkedThisCall` is 0, and checks new unchecked items by hand if incomplete.
 The map is never shown to the Critic, Builder or Scout and has no place in code review.
+
+Once a Run has used the map, `forge.plan.write`, `forge.plan.patch` and `forge.plan.review` answer
+with `evidenceMapWarning` when the plan has changed after a plan-review round that no complete map
+call has followed; a round that runs so also gets a `## Evidence map not current` Flow-log entry.
+A complete map records the plan hash it judged and the rounds run by then, so patches made in
+answer to a map before its round draw no warning. Nothing is refused.
 
 Configure Jev in the environment inherited by the server process:
 

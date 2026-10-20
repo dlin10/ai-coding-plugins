@@ -49,7 +49,7 @@ public sealed class DiagnosticLogTests : IDisposable
         var ct = CancellationToken.None;
         var run = await StartRunAsync(ct);
 
-        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, Plan, approved: true, ct);
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, approved: true, ct, plan: Plan);
 
         var entries = Read(run);
         var call = Single(entries, "tool.call");
@@ -71,7 +71,7 @@ public sealed class DiagnosticLogTests : IDisposable
         var run = RunDirectory.Create(_repo, "20260101-000000-nostate");
 
         await Assert.ThrowsAnyAsync<IOException>(
-            () => ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, Plan, approved: true, ct));
+            () => ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, approved: true, ct, plan: Plan));
 
         var failure = Single(Read(run), "tool.failed");
         Assert.Equal("forge.plan.confirm", Field(failure, "tool"));
@@ -267,7 +267,7 @@ public sealed class DiagnosticLogTests : IDisposable
         var run = await StartRunAsync(ct);
         var huge = Plan + new string('x', 20_000);
 
-        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, huge, approved: false, ct);
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, approved: false, ct, plan: huge);
 
         var logged = Field(Single(Read(run), "tool.call"), "plan");
         Assert.StartsWith("# Title", logged, StringComparison.Ordinal);

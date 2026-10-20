@@ -153,6 +153,30 @@ describe('limits', () => {
     }
   })
 
+  test('a narrowing band shortens the bars before it drops them', async ($, on) => {
+    const { state } = world(on)
+    await start($)
+    state.usage = usage(79_000, 2_000)
+    await step($)
+    state.rateLimits = [
+      { kind: 'five_hour', percentUsed: 4, resetsAt: new Date(START + 287 * MINUTE).toISOString() },
+      { kind: 'seven_day', percentUsed: 34, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() },
+    ]
+    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
+
+    // The text alone takes 60 cells; each of the three bars takes its width and a space.
+    const rows: Array<[number, RegExp, RegExp, RegExp]> = [
+      [87, /^████████ 60 min$/, /^5h ░░░░░░░░ 4% resets in 4h 47m$/, /^week ███░░░░░ 34%$/],
+      [76, /^████ 60 min$/, /^5h ░░░░ 4% resets in 4h 47m$/, /^week █░░░ 34%$/],
+      [71, /^60 min$/, /^5h 4% resets in 4h 47m$/, /^week 34%$/],
+    ]
+    for (const [bodyColumns, ...texts] of rows) {
+      const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+      for (const text of texts) expect(await ui.find({ text })).toBeDefined()
+      await ui.unmount()
+    }
+  })
+
   test('Auto Warm sits at the right end of the main row', async ($, on) => {
     world(on)
     await start($)
