@@ -145,8 +145,12 @@ what was measured for each.
 
 ## The Advisor seam
 
-`Advisors/IAdvisor.cs` is the judgment seam for external typed Choice services; Jev is the first
-implementation, not a Vendor or Worker. `forge.begin` and `forge.status` discover configured and
+`Advisors/IAdvisor.cs` is the judgment seam for external typed Choice services; Jev and
+Microsoft-Decision-1 implement it, and neither is a Vendor or Worker. Both speak systemone and share
+`Advisors/SystemOne/SystemOneAdvisor.cs` below the seam — a helper, never a contract: nothing outside
+`Advisors/` names it, and an Advisor with another protocol implements `IAdvisor` directly. Adding an
+Advisor means a folder under `Advisors/` and a descriptor in `AdvisorCatalog.Default` that marks its
+credential `Secret: true`. `forge.begin` and `forge.status` discover configured and
 partly configured Advisors from the server process environment on each call. A configured Advisor
 is consent to send excerpts from every repository forge runs in on that machine. With none, no
 external request is made and the Evidence check stays manual. `forge.evidence.map` runs only after
@@ -163,7 +167,10 @@ Advisor credentials are read only from the environment when needed and never bec
 or results, exception messages, logs (`forge.log` or `flow_log.md`), telemetry or persisted Run
 content (`evidence-map.json`, `scout-answers.json`, `state.json`). Jev requires secret
 `PLANFORGE_JEV_API_KEY`; optional `PLANFORGE_JEV_MODEL` defaults to pinned `jev-1.13.0` and accepts
-only `jev-<major>.<minor>.<patch>`. `GateSettings.Validate` refuses any secret variable named by
+only `jev-<major>.<minor>.<patch>`. Microsoft-Decision-1 requires `PLANFORGE_MSDECISION_ENDPOINT`
+(https, without credentials, query, fragment or a Foundry project path), secret
+`PLANFORGE_MSDECISION_API_KEY`, and `PLANFORGE_MSDECISION_DEPLOYMENT`, the requested model, which has
+no default. `GateSettings.Validate` refuses any secret variable named by
 `AdvisorCatalog.Default`, ignoring case, so `forge.plan.confirm` never persists it; report its name,
 never its value. `StreamingProcess.Build` strips every such variable from child environments after
 `ProcessSpec.Environment` overlays, also ignoring case. This covers Vendor CLIs, catalogue probes,

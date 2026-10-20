@@ -45,6 +45,29 @@ public sealed class AdvisorToolsTests : IDisposable
         }
     }
 
+    /// <summary>R4: begin and status carry Microsoft-Decision-1 with its deployment as the model, and never its credential.</summary>
+    [Fact]
+    public async Task Begin_and_status_carry_a_configured_Microsoft_Decision_with_its_deployment()
+    {
+        const string secret = "distinctive-msdecision-credential-27ad0e";
+        var (begin, status, run) = await Results(new()
+        {
+            ["PLANFORGE_MSDECISION_ENDPOINT"] = "https://resource.services.ai.azure.invalid",
+            ["PLANFORGE_MSDECISION_API_KEY"] = secret,
+            ["PLANFORGE_MSDECISION_DEPLOYMENT"] = "Decision-1"
+        });
+        foreach (var json in new[] { begin, status })
+        {
+            using var result = JsonDocument.Parse(json);
+            var configured = Assert.Single(result.RootElement.GetProperty("advisors").GetProperty("configured").EnumerateArray());
+            Assert.Equal("microsoft-decision", configured.GetProperty("id").GetString());
+            Assert.Equal("Decision-1", configured.GetProperty("model").GetString());
+            Assert.DoesNotContain(secret, json);
+        }
+        Assert.DoesNotContain(secret, AtomicFile.Read(run.DiagnosticLogPath));
+        Assert.DoesNotContain(secret, AtomicFile.Read(Path.Combine(run.Path, "state.json")));
+    }
+
     /// <summary>R4: a model without a credential is partly configured, reporting only the missing name.</summary>
     [Fact]
     public async Task Begin_and_status_carry_a_partly_configured_Jev_with_its_problem()

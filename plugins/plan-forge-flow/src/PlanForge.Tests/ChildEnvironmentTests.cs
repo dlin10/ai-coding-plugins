@@ -20,6 +20,12 @@ public sealed class ChildEnvironmentTests : IDisposable
     /// <summary>The non-secret pinned-model name.</summary>
     private const string MODEL = "PLANFORGE_JEV_MODEL";
 
+    /// <summary>Microsoft-Decision-1's server-only credential name.</summary>
+    private const string MSDECISION_KEY = "PLANFORGE_MSDECISION_API_KEY";
+
+    /// <summary>Microsoft-Decision-1's non-secret endpoint and deployment names.</summary>
+    private static readonly string[] MSDECISION_PUBLIC = ["PLANFORGE_MSDECISION_ENDPOINT", "PLANFORGE_MSDECISION_DEPLOYMENT"];
+
     /// <summary>A distinctive test value whose presence would reveal a credential leak.</summary>
     private const string SECRET = "child-environment-secret-f63e8b";
 
@@ -104,6 +110,21 @@ public sealed class ChildEnvironmentTests : IDisposable
         return Task.CompletedTask;
     });
 
+    /// <summary>Microsoft-Decision-1's credential is removed, inherited or overlaid in any case, while its endpoint and deployment pass.</summary>
+    [Fact]
+    public Task The_Microsoft_Decision_credential_is_absent_and_its_other_variables_are_kept() => WithEnvironment(MSDECISION_KEY, SECRET, () =>
+    {
+        var visible = MSDECISION_PUBLIC.ToDictionary(name => name, name => "value-of-" + name);
+        Assert.DoesNotContain(StreamingProcess.Build(Spec()).Environment.Keys,
+            name => string.Equals(name, MSDECISION_KEY, StringComparison.OrdinalIgnoreCase));
+        var info = StreamingProcess.Build(Spec(new Dictionary<string, string>(visible) { [MSDECISION_KEY.ToLowerInvariant()] = SECRET }));
+        Assert.DoesNotContain(info.Environment.Keys, name => string.Equals(name, MSDECISION_KEY, StringComparison.OrdinalIgnoreCase));
+        Assert.All(MSDECISION_PUBLIC, name => Assert.Equal("value-of-" + name, info.Environment[name]));
+        var gate = GateSettings.Validate(visible, null).Environment!;
+        Assert.All(MSDECISION_PUBLIC, name => Assert.Equal("value-of-" + name, gate[name]));
+        return Task.CompletedTask;
+    });
+
     /// <summary>A real PowerShell child printing the variable receives no credential.</summary>
     [Fact]
     public Task A_real_child_does_not_see_the_credential() => WithEnvironment(KEY, SECRET, async () =>
@@ -138,6 +159,8 @@ public sealed class ChildEnvironmentTests : IDisposable
     [InlineData(KEY)]
     [InlineData("planforge_jev_api_key")]
     [InlineData("PlanForge_Jev_Api_Key")]
+    [InlineData(MSDECISION_KEY)]
+    [InlineData("planforge_msdecision_api_key")]
     public async Task Confirmation_refuses_secret_gate_names_without_leaking_the_value(string name)
     {
         var run = RunDirectory.Create(_workspace, "credential-refusal");

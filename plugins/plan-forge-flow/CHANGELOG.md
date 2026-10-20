@@ -1,5 +1,29 @@
 # Plan Forge Flow releases
 
+## 0.53.0
+
+Microsoft-Decision-1 in Azure AI Foundry is the second Advisor.
+
+- `microsoft-decision` is configured by `PLANFORGE_MSDECISION_ENDPOINT`,
+  `PLANFORGE_MSDECISION_API_KEY` and `PLANFORGE_MSDECISION_DEPLOYMENT`, all required. Requests go
+  to the configured https resource endpoint with an `api-key` header; Microsoft Entra ID is not
+  supported. A project endpoint (`/api/projects/…`), a query, a fragment or user info makes the
+  endpoint invalid, so the Advisor is reported as partly configured and never called.
+- Both Advisors speak TypeSafe's systemone protocol, so its request, response, retry and size
+  rules moved from Jev into one shared helper under `Advisors/`. Jev's requests and status mapping
+  are unchanged; the helper now also reads a 422's body, so a Jev 422 whose body never arrives is
+  a transient failure instead of `rejected`.
+- Microsoft requests are paced to the deployment's quota, learned from the
+  `x-ratelimit-*-requests` headers of each response, and shared by every Microsoft Advisor in the
+  server process. A 429 empties the estimate, and only elapsed time refills it.
+- A Microsoft response is a persistent failure only when its body blames the request:
+  `unsupported_request_argument` is `rejected` and a token-limit 422 is `too_large`. A 404, a bare
+  413 or 422 and any other refusal is `unavailable`, so a wrong deployment, endpoint or gateway is
+  never cached against an item.
+- `PLANFORGE_MSDECISION_API_KEY` is a secret: refused in gate environments and stripped from
+  child processes like Jev's key.
+- The opt-in live evaluation is one test per Advisor, each run with its own filter.
+
 ## 0.51.0
 
 The Evidence map says when it has fallen behind the plan, the skill says how a contradiction is

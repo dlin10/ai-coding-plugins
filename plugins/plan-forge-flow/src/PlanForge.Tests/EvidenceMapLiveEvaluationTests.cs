@@ -14,12 +14,24 @@ public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
     /// <summary>Uses the configured Jev, resuming bounded calls until complete or no further judgment is checked.</summary>
     [Fact]
     [Trait("Category", "Integration")]
-    public async Task Evaluate_sanitized_fixture_with_configured_Jev()
+    public Task Evaluate_sanitized_fixture_with_configured_Jev() => Evaluate("jev", "PLANFORGE_JEV_API_KEY");
+
+    /// <summary>Uses the configured Microsoft-Decision-1 deployment the same way, paced by its request quota.</summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public Task Evaluate_sanitized_fixture_with_configured_Microsoft_Decision() =>
+        Evaluate("microsoft-decision", "PLANFORGE_MSDECISION_API_KEY");
+
+    /// <summary>Evaluates every fixture plan with one configured Advisor and writes the pooled report.</summary>
+    /// <param name="id">The Advisor to select.</param>
+    /// <param name="keyVariable">Its credential variable, named in the failure when unset.</param>
+    private async Task Evaluate(string id, string keyVariable)
     {
-        Assert.True(!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("PLANFORGE_JEV_API_KEY")),
-            "Set PLANFORGE_JEV_API_KEY to run the opt-in Jev evaluation.");
-        var advisor = AdvisorCatalog.Default.Select(Environment.GetEnvironmentVariable, "jev");
+        Assert.True(!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(keyVariable)),
+            $"Set {keyVariable} to run the opt-in {id} evaluation.");
+        var advisor = AdvisorCatalog.Default.Select(Environment.GetEnvironmentVariable, id);
         using var lifetime = advisor as IDisposable;
+        output.WriteLine($"{advisor.Id}: requested model {advisor.RequestedModel}");
         using var fixture = new EvidenceMapFixture();
         var evaluations = new List<EvidenceEvaluation>();
         foreach (var plan in fixture.Labels.Keys)
@@ -27,14 +39,20 @@ public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
             // Each plan starts with an independent store while progress remains pooled over every call.
             File.Delete(fixture.Run.EvidenceMapPath);
             EvidenceMap last;
-            do { last = await fixture.Map(plan, advisor); }
+            do
+            {
+                last = await fixture.Map(plan, advisor);
+                var call = fixture.Progress[^1];
+                output.WriteLine($"{plan} call: requests={call.Requests}, failed={call.FailedRequests}, "
+                                 + $"checked={last.Result.CheckedThisCall}, duration={call.Duration.TotalSeconds:F1} s");
+            }
             while (!last.Result.Complete && last.Result.CheckedThisCall != 0);
             evaluations.Add(new(last, fixture.Labels[plan]));
             output.WriteLine($"{plan}: complete={last.Result.Complete}, remaining={last.Result.Remaining}");
         }
         var report = EvidenceMetrics.Of(evaluations, fixture.Progress);
         var json = JsonSerializer.Serialize(report, EvidenceFixtureJson.Default.EvidenceMetricsReport);
-        var path = Path.Combine(Path.GetTempPath(), $"planforge-evidence-evaluation-{Guid.NewGuid():N}.json");
+        var path = Path.Combine(Path.GetTempPath(), $"planforge-evidence-evaluation-{id}-{Guid.NewGuid():N}.json");
         AtomicFile.Write(path, json);
         output.WriteLine(json);
         output.WriteLine($"Evidence evaluation report: {path}");
