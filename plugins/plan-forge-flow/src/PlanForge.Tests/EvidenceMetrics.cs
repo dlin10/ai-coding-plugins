@@ -18,7 +18,7 @@ internal sealed record EvidenceEvaluation(EvidenceMap Map, IReadOnlyList<Evidenc
 /// <param name="LatencyP90">Nearest-rank ninetieth percentile over those same requests.</param>
 /// <param name="InputTokens">All reported input tokens, null when none were reported.</param>
 /// <param name="OutputTokens">All reported output tokens, null when none were reported.</param>
-/// <param name="CostUsd">Input-only cost at the published 2026-10-19 jev-1.13.0 rate.</param>
+/// <param name="CostUsd">Input-only cost at the rate jev-1.13.0 and Microsoft-Decision-1 both publish.</param>
 /// <param name="Complete">Whether the last call for every evaluated plan completed.</param>
 internal sealed record EvidenceMetricsReport(double? CandidateRecall, double? ObligationRecall,
                                              double? FalseCoverage, double? Abstentions, double? UncheckedShare, double? LocatorValidity,
@@ -28,7 +28,10 @@ internal sealed record EvidenceMetricsReport(double? CandidateRecall, double? Ob
 /// <summary>Computes R18 metrics without consulting a model or counting earlier observations again.</summary>
 internal static class EvidenceMetrics
 {
-    /// <summary>TypeSafe's published jev-1.13.0 input price in USD per million tokens on 2026-10-19; output is free.</summary>
+    /// <summary>
+    /// The input price in USD per million tokens published for jev-1.13.0 on 2026-10-19 and for Microsoft-Decision-1 on
+    /// 2026-10-09; output is free for Jev and unpriced for Microsoft. A price that diverges needs a rate per Advisor.
+    /// </summary>
     private const decimal InputUsdPerMillion = 0.042m;
 
     /// <summary>Pools counts over each plan's last observation and usage and raw durations over every call.</summary>

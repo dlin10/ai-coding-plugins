@@ -314,16 +314,18 @@ public sealed class TelemetryUsageSourceTests : IAsyncLifetime
     public async Task A_phase_opening_whose_registration_meets_a_silent_collector_is_delayed_at_most_two_seconds()
     {
         StartCollector();
-        var phases = Phases(Choice());
+        // Timed where the opening registers, not around the whole call: forge.begin's own git work shares
+        // that call, and on a loaded runner it outlasted the bound's slack.
+        var source = new TimedArrival(Choice());
+        var phases = Phases(source);
         await BeginAsync(phases);
         await StopAsync(_collectors[0]);
         using var silent = Silent();
 
-        var watch = Stopwatch.StartNew();
         var second = await BeginAsync(phases);
-        watch.Stop();
 
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(4.5), $"the opening took {watch.Elapsed}");
+        Assert.True(source.LastOpening is { } took && took >= TimeSpan.FromSeconds(1.5) && took < TimeSpan.FromSeconds(4.5),
+                    $"the opening took {source.LastOpening}");
         Assert.Equal("interview", PhaseFile(second).GetProperty("phase").GetString());
         Assert.Equal(["registration_failed"], Failures(second));
         Assert.Equal(0, _starts);
@@ -980,7 +982,10 @@ public sealed class TelemetryUsageSourceTests : IAsyncLifetime
         public Task CallEndedAsync(OrchestratorCall call) => inner.CallEndedAsync(call);
     }
 
-    /// <summary>A source that times the first call's arrival, where the choice is made and awaited.</summary>
+    /// <summary>
+    /// A source that times the first call's arrival, where the choice is made and awaited, and each phase
+    /// opening, where the session registers.
+    /// </summary>
     /// <param name="inner">The real source.</param>
     private sealed class TimedArrival(IUsageSource inner) : IUsageSource
     {
@@ -988,6 +993,9 @@ public sealed class TelemetryUsageSourceTests : IAsyncLifetime
 
         /// <summary>How long the first call waited at its arrival; null before one arrived.</summary>
         public TimeSpan? First => _first;
+
+        /// <summary>How long the latest phase opening took, failed or not; null before one.</summary>
+        public TimeSpan? LastOpening { get; private set; }
 
         public string? Name => inner.Name;
 
@@ -999,7 +1007,12 @@ public sealed class TelemetryUsageSourceTests : IAsyncLifetime
 
         public Task<UsageReading> ReadAsync(UsageWindow window, CancellationToken ct) => inner.ReadAsync(window, ct);
 
-        public Task<DateTimeOffset?> PhaseOpenedAsync(HostSession? session, CancellationToken ct) => inner.PhaseOpenedAsync(session, ct);
+        public async Task<DateTimeOffset?> PhaseOpenedAsync(HostSession? session, CancellationToken ct)
+        {
+            var watch = Stopwatch.StartNew();
+            try { return await inner.PhaseOpenedAsync(session, ct); }
+            finally { LastOpening = watch.Elapsed; }
+        }
 
         public async Task CallArrivedAsync(HostSession? session, OrchestratorCall call)
         {
