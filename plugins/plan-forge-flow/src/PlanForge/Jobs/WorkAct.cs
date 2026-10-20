@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PlanForge.Acts;
+using PlanForge.Evidence;
 using PlanForge.Mcp;
 using PlanForge.Prompts;
 using PlanForge.Repo;
@@ -56,7 +57,8 @@ internal sealed class WorkAct
                 var critique = await planReview.ReviewAsync(run, planDraft, selection!, revision, deferred, userGrantedRound, ct,
                                                             orchestratorDecisions: decisions)
                                                .ConfigureAwait(false);
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(critique, ContractJson.Default.Critique),
+                return SpeedWarnings.Attach(run, EvidenceMapCurrency.Attach(JsonSerializer.Serialize(critique, ContractJson.Default.Critique),
+                                                                            planReview.EvidenceMapWarning),
                                             planReview.SpeedWarning);
 
             case "build.next":

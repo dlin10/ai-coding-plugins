@@ -380,13 +380,16 @@ public sealed class TelemetryUsageSourceTests : IAsyncLifetime
     public async Task A_collector_that_does_not_answer_within_the_choice_s_ten_seconds_leaves_the_transcript()
     {
         using var silent = Silent();
-        var phases = Phases(Choice());
+        // Timed where the choice is made and awaited, not around the whole call: the helper's git setup
+        // and forge.begin's own git work share that call, and on a loaded runner they outlasted the
+        // bound's slack.
+        var source = new TimedArrival(Choice());
+        var phases = Phases(source);
 
-        var watch = Stopwatch.StartNew();
         var runId = await BeginAsync(phases);
-        watch.Stop();
 
-        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(13.5), $"the choice took {watch.Elapsed}");
+        Assert.True(source.First is { } took && took >= TimeSpan.FromSeconds(9.5) && took < TimeSpan.FromSeconds(13.5),
+                    $"the choice took {source.First}");
         var chosen = Assert.Single(Chosen(runId));
         Assert.Equal("transcript", chosen.GetProperty("usageSource").GetString());
         Assert.Contains("within 10 seconds", chosen.GetProperty("reason").GetString(), StringComparison.Ordinal);
@@ -956,6 +959,37 @@ public sealed class TelemetryUsageSourceTests : IAsyncLifetime
         }
 
         public Task CallArrivedAsync(HostSession? session, OrchestratorCall call) => inner.CallArrivedAsync(session, call);
+
+        public Task CallEndedAsync(OrchestratorCall call) => inner.CallEndedAsync(call);
+    }
+
+    /// <summary>A source that times the first call's arrival, where the choice is made and awaited.</summary>
+    /// <param name="inner">The real source.</param>
+    private sealed class TimedArrival(IUsageSource inner) : IUsageSource
+    {
+        private TimeSpan? _first;
+
+        /// <summary>How long the first call waited at its arrival; null before one arrived.</summary>
+        public TimeSpan? First => _first;
+
+        public string? Name => inner.Name;
+
+        public TimeSpan SettleDelay => inner.SettleDelay;
+
+        public TimeSpan ReadDeadline => inner.ReadDeadline;
+
+        public bool RegistersAtOpening => inner.RegistersAtOpening;
+
+        public Task<UsageReading> ReadAsync(UsageWindow window, CancellationToken ct) => inner.ReadAsync(window, ct);
+
+        public Task<DateTimeOffset?> PhaseOpenedAsync(HostSession? session, CancellationToken ct) => inner.PhaseOpenedAsync(session, ct);
+
+        public async Task CallArrivedAsync(HostSession? session, OrchestratorCall call)
+        {
+            var watch = Stopwatch.StartNew();
+            await inner.CallArrivedAsync(session, call);
+            _first ??= watch.Elapsed;
+        }
 
         public Task CallEndedAsync(OrchestratorCall call) => inner.CallEndedAsync(call);
     }

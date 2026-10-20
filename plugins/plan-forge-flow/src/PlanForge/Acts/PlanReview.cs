@@ -1,4 +1,5 @@
 using System.Text;
+using PlanForge.Evidence;
 using PlanForge.Prompts;
 using PlanForge.Review;
 using PlanForge.Run;
@@ -31,6 +32,9 @@ internal sealed class PlanReview
 
     /// <summary>Set when the round's Fast turn was served at standard speed for part of it.</summary>
     internal string? SpeedWarning { get; private set; }
+
+    /// <summary>Set when the round judged a plan the Run's Evidence map had not seen since an earlier round.</summary>
+    internal string? EvidenceMapWarning { get; private set; }
 
     /// <summary>Reviews the current plan and applies independent plan-phase decisions.</summary>
     /// <param name="run">The run whose plan, ledger and timeline the review reads and writes.</param>
@@ -87,6 +91,7 @@ internal sealed class PlanReview
         // written by the tool-call record, so this adds no surface a secret could reach.
         state = Reopen(run, state, "a review round ran", out _);
         var draft = TakeDraft(run, planDraft);
+        var evidenceMapWarning = EvidenceMapCurrency.Warning(run, state.ReviewRounds);
 
         var round = state.ReviewRounds + 1;
         var systemPrompt = _prompts.LoadPlanReviewCritic(_vendor.Id);
@@ -151,9 +156,11 @@ internal sealed class PlanReview
         if (revision is { Length: > 0 })
             run.AppendFlowRevision(state.ReviewRounds, revision, deferred);
         if (granted) run.AppendFlowGrantedRound("Plan review", round);
+        if (evidenceMapWarning is not null) run.AppendFlowEvidenceMapWarning(round, evidenceMapWarning);
         run.AppendFlowCritique("Plan review", round, critique);
         run.AppendFlowKilledTasks("Plan review", round, session.KilledBackgroundTasks);
         SpeedWarning = session.SpeedWarning;
+        EvidenceMapWarning = evidenceMapWarning;
         run.WriteState(granted
             ? state with { ReviewRounds = round, ReviewRoundCap = state.ReviewRoundCap + 1,
                            GrantedReviewRounds = state.GrantedReviewRounds + 1 }

@@ -256,7 +256,12 @@ internal sealed class RunDirectory
     public IReadOnlyList<ScoutAnswerEntry> ReadScoutAnswers() =>
         ScoutAnswers.Read(File.Exists(ScoutAnswersPath) ? AtomicFile.Read(ScoutAnswersPath) : null);
 
-    /// <summary>Appends one content-free Evidence map accounting entry, even for an interrupted call.</summary>
+    /// <summary>
+    /// Appends one content-free Evidence map accounting entry, even for an interrupted call. Each
+    /// status's total comes from the result's counts; only a flagged status splits it into new and
+    /// carried, because the flags hold every item of a flagged status but of any other status only
+    /// the items whose source changed.
+    /// </summary>
     /// <param name="progress">The mapper's final running accounting.</param>
     public void AppendFlowEvidenceMap(EvidenceMapProgress progress)
     {
@@ -271,10 +276,14 @@ internal sealed class RunDirectory
                                        .Append("cacheHits: ").AppendLine(result.CacheHits.ToString());
         foreach (var status in new[] { "contradiction", "unchecked", "context_only", "covered", "excluded", "uncertain", "no_candidates", "no_coverage_established" })
         {
-            var flags = result.Flags.Where(flag => flag.Status == status).ToArray();
-            entry.Append(status).Append(": ").Append(flags.Length)
-                 .Append(" (new ").Append(flags.Count(flag => flag.Change == "new"))
-                 .Append(", carried ").Append(flags.Count(flag => flag.Change == "carried")).AppendLine(")");
+            entry.Append(status).Append(": ").Append(result.Counts[status]);
+            if (EvidenceVerdicts.IsFlag(status, sourceChanged: false))
+            {
+                var flags = result.Flags.Where(flag => flag.Status == status).ToArray();
+                entry.Append(" (new ").Append(flags.Count(flag => flag.Change == "new"))
+                     .Append(", carried ").Append(flags.Count(flag => flag.Change == "carried")).Append(')');
+            }
+            entry.AppendLine();
         }
         entry.Append("notIndexedAnswers: ").AppendLine(string.Join(", ", result.NotIndexedAnswers))
              .Append("complete: ").AppendLine(result.Complete ? "true" : "false").AppendLine();
@@ -564,6 +573,17 @@ internal sealed class RunDirectory
                                .AppendLine()
                                .Append("Round ").Append(round)
                                .AppendLine(" runs because the user granted it past the cap.")
+                               .AppendLine()
+                               .ToString());
+
+    /// <summary>A plan-review round that judged a plan the Evidence map had not seen since an earlier round.</summary>
+    /// <param name="round">The round that ran.</param>
+    /// <param name="warning">The warning returned beside the round's critique.</param>
+    public void AppendFlowEvidenceMapWarning(int round, string warning) =>
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().Append("## Evidence map not current — plan review round ").Append(round).AppendLine()
+                               .AppendLine()
+                               .AppendLine(warning)
                                .AppendLine()
                                .ToString());
 

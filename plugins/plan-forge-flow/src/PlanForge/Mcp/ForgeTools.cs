@@ -311,7 +311,7 @@ internal sealed class ForgeTools
                     try { items = EvidenceIndex.Of(entries, state.ScoutAnswers, implications, state.WorkspaceRoot); }
                     catch (JsonException) { throw new ArgumentRejectedException("scout-answers.json is malformed"); }
                     var selected = advisorFactory(environment, advisor);
-                    try { mapper.Prepare(plan, items, changePoints, selected, run.EvidenceMapPath); }
+                    try { mapper.Prepare(plan, items, changePoints, selected, run.EvidenceMapPath, state.ReviewRounds); }
                     catch (JsonException) { throw new ArgumentRejectedException("evidence-map.json is malformed"); }
 
                     EvidenceMapResult mapped;
@@ -395,8 +395,9 @@ internal sealed class ForgeTools
                 PlanReview.Write(run, planDraft);
                 var plan = run.ReadPlan();
                 var outline = PlanOutline.IsBlank(plan) ? null : PlanOutline.Of(plan);
-                return Task.FromResult(JsonSerializer.Serialize(new PlanWriteResult(run.RunId, outline, Documents(run)),
-                                                                ForgeToolJson.Default.PlanWriteResult));
+                return Task.FromResult(EvidenceMapCurrency.Attach(
+                    JsonSerializer.Serialize(new PlanWriteResult(run.RunId, outline, Documents(run)), ForgeToolJson.Default.PlanWriteResult),
+                    EvidenceMapCurrency.Warning(run, run.ReadState().ReviewRounds)));
             });
     }
 
@@ -453,9 +454,9 @@ internal sealed class ForgeTools
                 var patch = PlanReview.Patch(run, baseHash, edits);
                 sizes = patch.Sizes;
                 outcome = "applied";
-                return Task.FromResult(JsonSerializer.Serialize(
+                return Task.FromResult(EvidenceMapCurrency.Attach(JsonSerializer.Serialize(
                     new PlanPatchResult(run.RunId, patch.BaseHash, patch.Outline, patch.Changed, sizes, Documents(run)),
-                    ForgeToolJson.Default.PlanPatchResult));
+                    ForgeToolJson.Default.PlanPatchResult), EvidenceMapCurrency.Warning(run, run.ReadState().ReviewRounds)));
             }
             catch (PlanPatchRejectedException error)
             {
@@ -529,8 +530,9 @@ internal sealed class ForgeTools
                                                      revision, deferred, userGrantedRound, ct,
                                                      orchestratorDecisions: decisions);
 
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
-                                                                          ForgeToolJson.Default.CritiqueResult),
+                return SpeedWarnings.Attach(run, EvidenceMapCurrency.Attach(JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
+                                                                                                     ForgeToolJson.Default.CritiqueResult),
+                                                                            act.EvidenceMapWarning),
                                             act.SpeedWarning);
             });
     }

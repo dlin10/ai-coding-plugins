@@ -289,6 +289,19 @@ public sealed class EvidenceMapToolTests
         Assert.Contains("uncertain: 1 (new 0, carried 1)", AtomicFile.Read(run.Run.FlowLogPath));
     }
 
+    /// <summary>A status that is never flagged still reports the result's count, without a change split.</summary>
+    [Fact]
+    public async Task The_flow_entry_counts_unflagged_statuses_from_the_result()
+    {
+        using var run = new EvidenceToolRun();
+        var counts = JsonNode.Parse(await run.Call())!["counts"]!;
+        Assert.Equal(1, counts["covered"]!.GetValue<int>());
+        var lines = AtomicFile.Read(run.Run.FlowLogPath).Split(Environment.NewLine);
+        Assert.Contains("covered: 1", lines);
+        Assert.Contains("context_only: 0", lines);
+        Assert.Contains("uncertain: 0 (new 0, carried 0)", lines);
+    }
+
     /// <summary>The Advisor record uses the opening time and preserves both other record kinds.</summary>
     [Fact]
     public async Task Advisor_usage_has_all_fields_and_survives_beside_both_existing_kinds()

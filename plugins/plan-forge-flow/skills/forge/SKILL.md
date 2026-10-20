@@ -316,15 +316,26 @@ shadow-mode advice: a `covered` excuses nothing and removes no manual check.
    `forge.log.append`, tell the user, and rely on the manual Evidence check alone from then on,
    as with no configured Advisor.
 3. Take up only the flags the manual check had not handled, decide each as you always do, and
-   patch the plan where needed. Log one line `Evidence map: raised N, already handled M, new K`
-   with `forge.log.append`, adding "incomplete" when the map did not complete and the not-indexed
-   answer numbers when there are any. Not-indexed answers are evidence the map could not read:
+   patch the plan where needed. Settle a `contradiction` with evidence, never with a sentence:
+   either name the task that changes the very thing the fact describes, or read the code the fact
+   names or run a probe, and patch the plan with what that showed. Never answer one by writing
+   into the plan that the code is unaffected or works as before without such a check — a Critic
+   tests that claim, and an untested one comes back as a finding. Log one line
+   `Evidence map: raised N, already handled M, new K` with `forge.log.append`, adding
+   "incomplete" when the map did not complete and the not-indexed answer numbers when there are
+   any. Not-indexed answers are evidence the map could not read:
    tell the user their numbers and make sure the manual Evidence check covered them, from the
    complete answers received in Scout results or from an earlier version's `SCOUT.md`, which you
    read yourself — the server never does.
 4. Before every later plan-review round, call the map again the same way and take up only `new`
    flags. When the map did not complete, check every `new` unchecked item by hand. A revision
    with a new Change point gets its Impact pass and manual Evidence check before its review.
+   Once the Run has used the map, `forge.plan.write`, `forge.plan.patch` and `forge.plan.review`
+   answer with `evidenceMapWarning` when the plan has changed after a review round that no
+   complete map call has followed, and a round that runs so also records it in the Flow log.
+   Patches you make in answer to a map before its round draw no warning. A warning means this
+   step is due: call the map before the next round. If you stopped the map under step 2, the
+   warning repeats; tell the user once and go on.
 
 The Evidence map is never shown to the Critic, Builder or Scout and has no place in code review.
 Each accepted map call attempts to write an `## Evidence map` Flow-log entry and an `advisor.usage`
