@@ -1,5 +1,12 @@
 # Plan Forge Flow releases
 
+## 0.50.1
+
+- The `## Evidence map` Flow-log entry takes each status's total from the map result's `counts`.
+  It used to count the flags, which hold only flagged items, so `covered`, `context_only` and
+  `excluded` printed 0 whatever the map found. Only the flagged statuses keep their
+  `(new N, carried M)` split.
+
 ## 0.50.0
 
 An optional, shadow-mode Evidence map advises the Orchestrator after its manual Evidence check.
