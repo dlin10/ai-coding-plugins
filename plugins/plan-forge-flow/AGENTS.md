@@ -236,8 +236,10 @@ one: `forge.plan.write` or `forge.plan.patch`
 puts the draft there ahead of the round that judges it — a separate call because a draft streamed
 into the review call is not on disk until that call arrives, which made the link late by the whole
 of the upload plus the critique — and `forge.plan.review` reads it from there when it is handed no
-draft of its own. Approval is `state.json`'s `approved`, and either writer or a round run after it
-takes that flag back. A patch checks the current plan hash without a lock; that check and the
+draft of its own, as `forge.plan.show` and `forge.plan.confirm` do when handed no plan; the latter
+checks a `planHash` it is given against the plan it approves —
+[docs/adr/0038](docs/adr/0038-approve-the-plan-on-disk-by-its-hash.md). Approval is `state.json`'s
+`approved`, and either writer or a round run after it takes that flag back. A patch checks the current plan hash without a lock; that check and the
 replacement are not atomic together — see
 [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md) and
 [docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md). There are no locks and no Git refs —

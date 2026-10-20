@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PlanForge.Acts;
 using PlanForge.Mcp;
 using PlanForge.Repo;
 using PlanForge.Run;
@@ -110,15 +111,15 @@ public sealed class ConfirmPlanTests : IDisposable
         var run = await StartRunAsync(ct);
         var root = Path.GetFullPath(Path.Combine(_repo, "..", "eShop"));
 
-        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, Plan, true, ct,
-                                     new Dictionary<string, string> { ["CD_TEST_SQL_CONN"] = "Server=." }, [root]);
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct,
+                                     new Dictionary<string, string> { ["CD_TEST_SQL_CONN"] = "Server=." }, [root], plan: Plan);
 
         var state = run.ReadState();
         Assert.True(state.Approved);
         Assert.Equal("Server=.", state.GateEnvironment!["CD_TEST_SQL_CONN"]);
         Assert.Equal([root], state.BuilderRoots);
 
-        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, Plan, true, ct);
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, plan: Plan);
 
         state = run.ReadState();
         Assert.Equal("Server=.", state.GateEnvironment!["CD_TEST_SQL_CONN"]);
@@ -132,7 +133,7 @@ public sealed class ConfirmPlanTests : IDisposable
         var run = await StartRunAsync(ct);
 
         await Assert.ThrowsAsync<ArgumentRejectedException>(() =>
-            ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, Plan, true, ct, null, ["../eShop"]));
+            ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, null, ["../eShop"], plan: Plan));
 
         Assert.False(run.ReadState().Approved);
         Assert.False(File.Exists(run.PlanPath));
@@ -147,7 +148,7 @@ public sealed class ConfirmPlanTests : IDisposable
         run.WriteState(run.ReadState() with { BuilderSessionId = "builder-session", TasksCompleted = 1 });
 
         var changedBrief = Plan.Replace("# Title", "# Changed title", StringComparison.Ordinal);
-        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, changedBrief, true, ct);
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, plan: changedBrief);
 
         var state = run.ReadState();
         Assert.Equal(string.Empty, state.BuilderSessionId);
@@ -163,11 +164,91 @@ public sealed class ConfirmPlanTests : IDisposable
         run.WriteState(run.ReadState() with { BuilderSessionId = "builder-session", TasksCompleted = 1 });
 
         var changedTask = Plan.Replace("First task.", "Updated first task.", StringComparison.Ordinal);
-        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, changedTask, true, ct);
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, plan: changedTask);
 
         var state = run.ReadState();
         Assert.Equal("builder-session", state.BuilderSessionId);
         Assert.Equal(1, state.TasksCompleted);
+    }
+
+    /// <summary>
+    /// Since forge.plan.patch the orchestrator holds the plan by reference: a run of 5d B3c wrote
+    /// it once and patched it thirteen times, and after a compaction it no longer had the text to
+    /// send back. Omitted, the plan is the one on disk — see docs/adr/0038 — and it is approved as
+    /// it stands, byte for byte.
+    /// </summary>
+    [Fact]
+    public async Task Without_a_plan_the_approval_is_of_PLAN_md_as_it_stands()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        run.WritePlan(Plan);
+        var before = File.ReadAllBytes(run.PlanPath);
+
+        var json = await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct);
+        var result = JsonSerializer.Deserialize(json, ForgeToolJson.Default.ApproveResult)!;
+
+        Assert.True(result.Approved);
+        Assert.Equal(2, result.TaskCount);
+        Assert.True(run.ReadState().Approved);
+        Assert.Equal(before, File.ReadAllBytes(run.PlanPath));
+    }
+
+    /// <summary>
+    /// The Text-profile route: the hash forge.plan.write answered with is the plan the user was
+    /// shown, and confirming with it approves that plan.
+    /// </summary>
+    [Fact]
+    public async Task The_hash_a_write_answers_with_confirms_the_plan_it_wrote()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        var written = JsonSerializer.Deserialize(await ForgeTools.WritePlan(SessionRoots.None, _repo, run.RunId, Plan, ct),
+                                                 ForgeToolJson.Default.PlanWriteResult)!;
+
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, planHash: written.Outline!.PlanHash);
+
+        Assert.True(run.ReadState().Approved);
+    }
+
+    /// <summary>
+    /// What the user saw is named by its hash, so a plan that moved after they saw it is refused
+    /// rather than approved in their name — whether it is the file or the text passed.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "PLAN.md hashes to")]
+    [InlineData(true, "the plan passed hashes to")]
+    public async Task A_plan_hash_other_than_the_plans_is_refused_and_writes_nothing(bool passed, string reason)
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        run.WritePlan(Plan);
+        var shown = PlanOutline.Hash(Plan);
+        var moved = Plan.Replace("First task.", "Moved first task.", StringComparison.Ordinal);
+        if (!passed) run.WritePlan(moved);
+        var plan = File.ReadAllBytes(run.PlanPath);
+        var state = File.ReadAllBytes(Path.Combine(run.Path, "state.json"));
+
+        var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() =>
+            ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, plan: passed ? moved : null, planHash: shown));
+
+        Assert.Contains($"planHash {shown}", error.Message, StringComparison.Ordinal);
+        Assert.Contains($"{reason} {PlanOutline.Hash(moved)}", error.Message, StringComparison.Ordinal);
+        Assert.Equal(plan, File.ReadAllBytes(run.PlanPath));
+        Assert.Equal(state, File.ReadAllBytes(Path.Combine(run.Path, "state.json")));
+    }
+
+    [Fact]
+    public async Task Without_a_plan_or_a_PLAN_md_the_call_is_refused()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+
+        var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() =>
+            ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct));
+
+        Assert.Contains("forge.plan.write", error.Message, StringComparison.Ordinal);
+        Assert.False(run.ReadState().Approved);
     }
 
     private async Task<RunDirectory> StartRunAsync(CancellationToken ct)
@@ -190,7 +271,7 @@ public sealed class ConfirmPlanTests : IDisposable
 
     private async Task<ApproveResult> ConfirmAsync(string runId, bool approved, CancellationToken ct)
     {
-        var json = await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, runId, Plan, approved, ct);
+        var json = await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, runId, approved, ct, plan: Plan);
         return JsonSerializer.Deserialize(json, ForgeToolJson.Default.ApproveResult)!;
     }
 }

@@ -1029,7 +1029,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var run = await NewToolRunAsync("confirm-blocked");
         var entry = run.ReadDecisionLedger().AddFinding(Finding("blocking"), LedgerPhase.PlanReview);
         var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.ConfirmPlan(
-            SessionRoots.None, _workspace, run.RunId, run.ReadPlan(), true, CancellationToken.None));
+            SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None, plan: run.ReadPlan()));
         Assert.Contains(entry.FindingId, error.Message, StringComparison.Ordinal);
         Assert.False(run.ReadState().Approved);
     }
@@ -1040,7 +1040,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var run = await NewToolRunAsync("confirm-close");
         var entry = run.ReadDecisionLedger().AddFinding(Finding("fixed"), LedgerPhase.PlanReview);
         var result = JsonNode.Parse(await ForgeTools.ConfirmPlan(
-            SessionRoots.None, _workspace, run.RunId, run.ReadPlan(), true, CancellationToken.None,
+            SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None, plan: run.ReadPlan(),
             decisions: new OrchestratorDecisionBatch("final-close", [
                 Decision("addressedByRevision", entry.FindingId)
             ])))!;
@@ -1056,7 +1056,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var plan = "# Plan\n\napi_key: Abcdefghijklmnop1234+\n\n## Approach\n\n1. Work.\n";
 
         var result = JsonNode.Parse(await ForgeTools.ConfirmPlan(
-            SessionRoots.None, _workspace, run.RunId, plan, true, CancellationToken.None))!;
+            SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None, plan: plan))!;
 
         Assert.True(result["approved"]!.GetValue<bool>());
         Assert.True(run.ReadState().Approved);
@@ -1070,9 +1070,28 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var entry = run.ReadDecisionLedger().AddFinding(Finding("open"), LedgerPhase.PlanReview);
         var before = File.ReadAllBytes(run.DecisionLedgerPath);
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.ConfirmPlan(
-            SessionRoots.None, _workspace, run.RunId, run.ReadPlan(), false, CancellationToken.None,
+            SessionRoots.None, _workspace, run.RunId, false, CancellationToken.None, plan: run.ReadPlan(),
             decisions: Batch(Decision("defer", entry.FindingId))));
         Assert.Equal(before, File.ReadAllBytes(run.DecisionLedgerPath));
+    }
+
+    /// <summary>
+    /// A stale planHash means the user approved a plan other than this one, so the closures that
+    /// came with that approval are not applied either.
+    /// </summary>
+    [Fact]
+    public async Task Plan_confirm_with_a_stale_plan_hash_applies_no_closure()
+    {
+        var run = await NewToolRunAsync("confirm-stale-hash");
+        var entry = run.ReadDecisionLedger().AddFinding(Finding("fixed"), LedgerPhase.PlanReview);
+        var before = File.ReadAllBytes(run.DecisionLedgerPath);
+
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.ConfirmPlan(
+            SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
+            decisions: Batch(Decision("addressedByRevision", entry.FindingId)), planHash: "0000000000000000"));
+
+        Assert.Equal(before, File.ReadAllBytes(run.DecisionLedgerPath));
+        Assert.False(run.ReadState().Approved);
     }
 
     [Fact]
@@ -1085,7 +1104,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         ]), LedgerPhase.PlanReview);
 
         var error = await Assert.ThrowsAsync<DecisionLedgerRequestException>(() => ForgeTools.ConfirmPlan(
-            SessionRoots.None, _workspace, run.RunId, run.ReadPlan(), true, CancellationToken.None,
+            SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None, plan: run.ReadPlan(),
             decisions: new OrchestratorDecisionBatch("same-key", [
                 Decision("reject", entry.FindingId, reason: "different reason")
             ])));

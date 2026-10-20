@@ -10,6 +10,7 @@ import {
   autoLabel,
   autoLead,
   bar,
+  barCells,
   cachedPrefix,
   isRunningLow,
   kindLabel,
@@ -313,10 +314,32 @@ export const register: Register = (on, options) => {
     const reading = await read($, cache)
     const ttl = await read($, ttlMs)
     const plan = await read($, auto)
-    const isNarrow = e.props.bodyColumns < 80
 
     const left = reading === null ? 0 : reading.at + ttl - t
     const isWarm = reading !== null && left > 0
+    const cacheText = reading === null ? 'no requests yet' : isWarm ? minutesLeft(left) : 'cold'
+    const shown = windows.map(limit => ({
+      limit,
+      label: kindLabel(limit.kind),
+      percent: `${Math.round(limit.percentUsed)}%`,
+      reset: limit.kind === 'five_hour' ? resetsIn(limit, t) : undefined,
+    }))
+    const autoText = plan === null ? 'Auto Warm' : `Auto Warm ${plan.done}/${plan.total}`
+
+    // The row's text in cells: the label's column and its gap, each part after a
+    // gap, and the button's `[ label ]` after one.
+    const textCells =
+      8 +
+      cacheText.length +
+      shown.reduce(
+        (sum, { label, percent, reset }) =>
+          sum + 1 + label.length + 1 + percent.length + (reset === undefined ? 0 : ` resets in ${reset}`.length),
+        0,
+      ) +
+      1 +
+      autoText.length +
+      4
+    const cells = barCells(e.props.bodyColumns, textCells, (reading === null ? 0 : 1) + windows.length)
 
     const row = (label: string, ...children: RenderChildren[]) => (
       <Box flexDirection="row" gap={1}>
@@ -331,27 +354,26 @@ export const register: Register = (on, options) => {
 
     let cacheParts
     if (reading === null) {
-      cacheParts = <Text dimColor>no requests yet</Text>
+      cacheParts = <Text dimColor>{cacheText}</Text>
     } else if (isWarm) {
       const color = isRunningLow(left, ttl) ? 'warning' : 'suggestion'
       cacheParts = (
         <Text color={color}>
-          {isNarrow ? '' : `${bar(left / ttl)} `}
-          {minutesLeft(left)}
+          {cells === 0 ? '' : `${bar(left / ttl, cells)} `}
+          {cacheText}
         </Text>
       )
     } else {
-      cacheParts = <Text color="error">{isNarrow ? '' : `${bar(0)} `}cold</Text>
+      cacheParts = <Text color="error">{cells === 0 ? '' : `${bar(0, cells)} `}{cacheText}</Text>
     }
 
-    const limitParts = windows.map(limit => {
-      const reset = limit.kind === 'five_hour' ? resetsIn(limit, t) : undefined
+    const limitParts = shown.map(({ limit, label, percent, reset }) => {
       const color = limit.percentUsed >= 95 ? 'error' : limit.percentUsed >= 80 ? 'warning' : 'suggestion'
       return (
         <Text>
-          <Text dimColor>{kindLabel(limit.kind)} </Text>
-          {!isNarrow && <Text color={color}>{bar(limit.percentUsed / 100)} </Text>}
-          <Text weight="bold">{Math.round(limit.percentUsed)}%</Text>
+          <Text dimColor>{label} </Text>
+          {cells > 0 && <Text color={color}>{bar(limit.percentUsed / 100, cells)} </Text>}
+          <Text weight="bold">{percent}</Text>
           {reset !== undefined && <Text dimColor> resets in {reset}</Text>}
         </Text>
       )
@@ -362,7 +384,7 @@ export const register: Register = (on, options) => {
         {row('cache', cacheParts, ...limitParts)}
         <Button
           key="auto"
-          label={plan === null ? 'Auto Warm' : `Auto Warm ${plan.done}/${plan.total}`}
+          label={autoText}
           variant={plan === null ? 'secondary' : 'primary'}
           onPress={() => chooseAuto($)}
         />

@@ -793,6 +793,20 @@ in-process tests pinned the wording and passed, because nothing covered the trip
 now runs the validator through the filter. The null and whitespace guards stay as they were: they
 answer a programmer, not a caller, and a blank message there costs nobody a retry.
 
+A call the SDK cannot bind fails before any code of ours runs, and its exceptions are the
+framework's. Measured against SDK 2.2.0 (Microsoft.Extensions.AI 10.8.3) on 2026-10-20, through an
+in-process server: a missing required argument is an `ArgumentException` with `ParamName`
+`arguments` that names only the first one missing; a value of the wrong JSON type, at the top or
+nested, is a `JsonException` naming the .NET type and a path relative to the argument (`$`,
+`$.decisionBatchId`), never the argument; and both arrived as `An error occurred invoking
+'forge.plan.confirm'.` A run's orchestrator sent `forge.plan.confirm` and `forge.plan.show` without
+`plan` and had to read the reason out of `forge.log`. `RequestContext.MatchedPrimitive` is already
+set inside the filter, so the filter answers those two exceptions from the matched tool's published
+schema. It explains after the binder has failed rather than checking before it, because the schema
+is stricter than the binder about nulls: the binder passes a JSON null to any reference-type
+parameter, and `forge.plan.patch`, whose edits are published as `object`, takes a null edit and
+refuses it itself with the edit's index and the sizes it measures.
+
 ## Required and nullable is a contract with no encoding that works
 
 A nullable parameter with no default is published as `required` with `"type": ["string", "null"]`,

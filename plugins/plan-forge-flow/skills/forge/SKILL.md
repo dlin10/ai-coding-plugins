@@ -71,8 +71,8 @@ sentences of explanation and no code.
 | `forge.plan.outline` | Reads the current plan hash and snapshot Edit targets: ID, kind, label, hash and size, without plan text beyond labels. Refuses a missing or blank plan; write the first draft with `forge.plan.write`. |
 | `forge.plan.patch` | For a revision that changes some targets. Pass the outline's `planHash` as `baseHash` and nonempty `edits`, each with `op`, `target`, `targetHash` and, for replace/insert, nonblank `content`; delete has no content. Operations are `replace`, `delete`, `insertBefore` and `insertAfter`. Applies against one snapshot, runs no worker, and answers with the new outline, change summary, sizes and `documents`. On a stale base, read `forge.plan.outline` and redo the edits against its hash. |
 | `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` or `forge.plan.patch` and with `planDraft` omitted. Apply the plan decisions from the previous critique in `decisions` before the new Critic runs. **You** revise the plan and say in `revision` what changed — required from the second round on. |
-| `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders the plan as a document with the drift beside it, and records nothing. |
-| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`; PLAN/state/ledger and existing approval stay unchanged. Optional case-sensitive `fullGate=beforeNextRound\|final` records full host-check timing; omission preserves it. Omitted settings persist, explicit settings replace, empty settings clear; approval clears the global gate failure, preserving attempt history. |
+| `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders `PLAN.md` as a document with the drift beside it, answers with its `planHash`, and records nothing. Send no `plan`. |
+| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Send no `plan`: it approves `PLAN.md` as it stands. Pass `planHash`, the hash of the plan they saw — from `forge.plan.show`, from your last `forge.plan.write`/`forge.plan.patch` outline, or from `forge.plan.outline` — and a plan that moved since is refused before anything changes. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`; PLAN/state/ledger and existing approval stay unchanged. Optional case-sensitive `fullGate=beforeNextRound\|final` records full host-check timing; omission preserves it. Omitted settings persist, explicit settings replace, empty settings clear; approval clears the global gate failure, preserving attempt history. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | Saved `fullGate=beforeNextRound` refuses review with pending fixes; `final` permits it and returns current `pendingFullGateFindingIds`, including []. Critic assessments do not verify them. On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
 | `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note`. Optional case-sensitive `gate=full\|targeted` defaults to full and requires fix IDs when explicit. Targeted runs only the Fix gate and leaves findings pending full host verification. Retry with the same gate, attempt and exact IDs. |
@@ -769,11 +769,13 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
 1. Call `forge.status` and read `driftedFiles` — the files that changed since `forge.begin`.
 2. Show the user the **whole** plan, not a summary of it, and the drifted files beside it.
    - On the `Canvas` profile — the one `forge.begin` reported, which today means Cursor — call
-     `forge.plan.show` with the plan. It renders as a document, with the drift above it, in the
-     host's own UI. Do not paste the plan into the chat as well; the canvas is where they read it.
-   - On the `Text` profile, use whatever your host displays best: an artifact, a widget, or plain
-     markdown in the chat. Do not call `forge.plan.show` — nothing renders, and the result is the
-     plan you are already holding.
+     `forge.plan.show` without `plan`. It renders `PLAN.md` as a document, with the drift above it,
+     in the host's own UI, and answers with its `planHash`. Do not paste the plan into the chat as
+     well; the canvas is where they read it.
+   - On the `Text` profile, show them `PLAN.md` the way your host displays best: an artifact, a
+     widget, or plain markdown in the chat. Do not call `forge.plan.show` — nothing renders. The
+     `planHash` is the one your last `forge.plan.write` or `forge.plan.patch` answered with; read
+     `forge.plan.outline` when you no longer have it.
 
    Either way, if anything drifted, say so out loud rather than leaving it in a list they may not
    read.
@@ -787,8 +789,8 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
 4. With a yes, ask for what the gates need on this host: the value of every `$env:NAME` the plan's
    gates reference, one variable per question, each saying which gate reads it and what for.
    Collect them in the chat — never write a value into the plan, and never guess one.
-5. Pass what they answered to `forge.plan.confirm`, with the variables as `gateEnvironment` and
-   any final plan decisions under one `decisionBatchId`. `builderRoots` is accepted for
+5. Pass what they answered to `forge.plan.confirm`, with the `planHash` of the plan they saw, the
+   variables as `gateEnvironment` and any final plan decisions under one `decisionBatchId`. `builderRoots` is accepted for
    compatibility and does not control access. Use `addressedByRevision` for IDs the final revision
    fixed and `duplicateOf` for redundant IDs. The
    call refuses approval and lists every still-unresolved active plan ID. With a no answer, pass
@@ -796,7 +798,7 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
    Send the interview's `fullGate` on first approval. On subsequent confirmations omit it unless
    the user explicitly changes timing, including approval after a future plan revision. Read the
    saved `run.fullGate` from status as authoritative; the Brief preserves the initial choice.
-   A timing-only change uses explicit reconfirm with the same plan text, never `plan.write` or a
+   A timing-only change uses explicit reconfirm of the same plan, never `plan.write` or a
    rewritten Brief. It is allowed with pending fixes and does not verify them. With approved true,
    omitted `gateEnvironment`/`builderRoots` preserve saved settings, explicit values replace them,
    and empty values clear them. Successful confirm resets the global gate-failure brief for the
@@ -806,10 +808,12 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
    declare `phase: "build"`.
 
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole
-of what approval means here: it writes the approved plan over `PLAN.md`, flips `approved` in the run
-state, and unlocks the builder. No code anywhere checks whether anyone was actually asked. Pass the
-plan you showed them, not the last draft a round reviewed — those differ whenever step 3 sent you
-back to revise, and it is the confirmed text the builder walks.
+of what approval means here: it approves `PLAN.md`, flips `approved` in the run state, and unlocks
+the builder. No code anywhere checks whether anyone was actually asked. Approve the plan you showed
+them: every revision goes through `forge.plan.patch` or `forge.plan.write`, so `PLAN.md` is that
+plan, and its `planHash` refuses one that moved after they saw it. The confirmed text is what the
+builder walks. Passing `plan` approves that text instead and writes it over `PLAN.md`; do not, unless
+the user approved text that is not in `PLAN.md`.
 
 ## The gate decides the task; the builder's verification is its own word
 

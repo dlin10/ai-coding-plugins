@@ -21,6 +21,16 @@ export function bar(fraction: number, width = 8): string {
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
 
+/**
+ * The widest bar, up to eight cells, with which `bars` of them, each with its
+ * space, fit beside `textCells` of text in `columns`: a narrowing band shortens
+ * the bars before it drops them. 0, no bars, when not even three-cell ones fit.
+ */
+export function barCells(columns: number, textCells: number, bars: number): number {
+  const cells = Math.min(8, Math.floor((columns - textCells) / bars) - 1)
+  return cells >= 3 ? cells : 0
+}
+
 /** "2h 59m", "18m", "<1m": a span rounded down to the minute. */
 export function humanSpan(ms: number): string {
   if (ms < MINUTE) return '<1m'

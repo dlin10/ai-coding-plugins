@@ -365,7 +365,7 @@ public sealed class UsageAttributionMatrixTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
         Assert.Equal(usages.Count, _collector.Collector.Kept().Count);
 
-        return await PhasesAsync(t0, codex, source);
+        return await PhasesAsync(t0, codex, new SlowDeadline(source));
     }
 
     private JsonObject ClaudeEvent(DateTimeOffset at, long multiplier, long durationMs) =>
@@ -550,5 +550,30 @@ public sealed class UsageAttributionMatrixTests : IAsyncLifetime
 
             public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         }
+    }
+
+    /// <summary>
+    /// The source with its read deadline stretched as <see cref="TelemetryCollectorTests.SlowTimers"/>
+    /// stretches the source's own: the close bounds the read on system time, which the test clock does
+    /// not reach, and on a loaded CI runner one loopback read can outlast its 5 seconds.
+    /// </summary>
+    /// <param name="inner">The source, which answers everything else.</param>
+    private sealed class SlowDeadline(IUsageSource inner) : IUsageSource
+    {
+        public string? Name => inner.Name;
+
+        public TimeSpan SettleDelay => inner.SettleDelay;
+
+        public TimeSpan ReadDeadline => TelemetryCollectorTests.SlowTimers.Stretch(inner.ReadDeadline);
+
+        public bool RegistersAtOpening => inner.RegistersAtOpening;
+
+        public Task<UsageReading> ReadAsync(UsageWindow window, CancellationToken ct) => inner.ReadAsync(window, ct);
+
+        public Task<DateTimeOffset?> PhaseOpenedAsync(HostSession? session, CancellationToken ct) => inner.PhaseOpenedAsync(session, ct);
+
+        public Task CallArrivedAsync(HostSession? session, OrchestratorCall call) => inner.CallArrivedAsync(session, call);
+
+        public Task CallEndedAsync(OrchestratorCall call) => inner.CallEndedAsync(call);
     }
 }

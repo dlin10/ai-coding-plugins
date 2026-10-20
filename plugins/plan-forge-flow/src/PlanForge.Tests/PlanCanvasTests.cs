@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using PlanForge.Acts;
 using PlanForge.Mcp;
 using PlanForge.Repo;
 using PlanForge.Run;
@@ -48,9 +49,41 @@ public sealed class PlanCanvasTests : IDisposable
         var view = await ShowAsync(run.RunId, ct);
 
         Assert.Equal(Plan, view.Plan);
+        Assert.Equal(PlanOutline.Hash(Plan), view.PlanHash);
         Assert.Equal(["tracked.txt"], view.DriftedFiles);
         Assert.Equal(run.RunId, view.RunId);
         Assert.False(view.Approved);
+    }
+
+    /// <summary>
+    /// Omitted, the plan shown is PLAN.md as forge.plan.write and forge.plan.patch left it, and its
+    /// hash is the one forge.plan.confirm takes to approve exactly what the canvas displayed.
+    /// </summary>
+    [Fact]
+    public async Task Without_a_plan_PLAN_md_is_shown_with_the_hash_confirm_takes()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        run.WritePlan(Plan);
+
+        var view = JsonSerializer.Deserialize(await ForgeTools.ShowPlan(SessionRoots.None, _repo, run.RunId, ct),
+                                              ForgeToolJson.Default.PlanViewResult)!;
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, planHash: view.PlanHash);
+
+        Assert.Equal(Plan, view.Plan);
+        Assert.True(run.ReadState().Approved);
+    }
+
+    [Fact]
+    public async Task Without_a_plan_or_a_PLAN_md_nothing_is_shown()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+
+        var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() =>
+            ForgeTools.ShowPlan(SessionRoots.None, _repo, run.RunId, ct));
+
+        Assert.Contains("forge.plan.write", error.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -124,7 +157,7 @@ public sealed class PlanCanvasTests : IDisposable
 
     private async Task<PlanViewResult> ShowAsync(string runId, CancellationToken ct)
     {
-        var json = await ForgeTools.ShowPlan(SessionRoots.None, _repo, runId, Plan, ct);
+        var json = await ForgeTools.ShowPlan(SessionRoots.None, _repo, runId, ct, Plan);
         return JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanViewResult)!;
     }
 }

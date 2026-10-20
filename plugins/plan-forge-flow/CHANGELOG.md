@@ -24,6 +24,28 @@ Microsoft-Decision-1 in Azure AI Foundry is the second Advisor.
   child processes like Jev's key.
 - The opt-in live evaluation is one test per Advisor, each run with its own filter.
 
+## 0.52.0
+
+Approval takes the plan already on disk, named by its hash, and a call the SDK cannot bind says why.
+See `docs/adr/0038`.
+
+- `forge.plan.show` and `forge.plan.confirm` no longer require `plan`. Omitted, they show and
+  approve `PLAN.md` as `forge.plan.write` and `forge.plan.patch` left it, and confirm does not
+  rewrite the file; a missing or blank `PLAN.md` is refused. A plan passed works as before.
+  Run 5d B3c lost the argument when a context compaction dropped the skill and the tool schemas, and
+  then had to read its 76 KB plan back and send it whole.
+- `forge.plan.confirm` takes an optional `planHash`, the hash of the plan the user was shown, and
+  refuses a plan with any other hash before it applies a decision or writes anything.
+  `forge.plan.show` answers with `planHash`; `forge.plan.write`, `forge.plan.patch` and
+  `forge.plan.outline` already did. The forge skill sends no `plan` and passes the hash.
+- A call the MCP SDK cannot bind now says why. A required argument missing, or a value of the
+  wrong JSON type at any depth, came back as `An error occurred invoking '<tool>'.` on every tool,
+  and only `forge.log` held the reason. The answer now names every missing argument
+  (`forge.plan.write requires planDraft`) or where a value sits and what the published schema
+  expects there (`forge.plan.confirm requires decisions.decisionBatchId to be string or null, not
+  number`), and `forge.log` records it as `tool.unbindable` with the SDK's exception. Only a call
+  the SDK has already refused is explained; a call it accepts still reaches the tool.
+
 ## 0.51.0
 
 The Evidence map says when it has fallen behind the plan, the skill says how a contradiction is

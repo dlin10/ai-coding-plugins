@@ -169,8 +169,8 @@ public sealed class ChildEnvironmentTests : IDisposable
         var before = AtomicFile.Read(statePath);
 
         var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() =>
-            ForgeTools.ConfirmPlan(SessionRoots.None, _workspace, run.RunId, PLAN, true, CancellationToken.None,
-                                     new Dictionary<string, string> { [name] = SECRET }));
+            ForgeTools.ConfirmPlan(SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
+                                     new Dictionary<string, string> { [name] = SECRET }, plan: PLAN));
 
         Assert.Contains(name, error.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(SECRET, error.Message, StringComparison.Ordinal);
