@@ -279,10 +279,21 @@ switch ($Task)
     }
     11
     {
+        # The evals switch is put back however the run ends: a later command in the same shell would run the evals too.
+        $evals = $env:CH_MODEL_EVALS
+        $record = $env:CH_MODEL_EVALS_RECORD
         $env:CH_MODEL_EVALS = '1'
         Remove-Item Env:CH_MODEL_EVALS_RECORD -ErrorAction SilentlyContinue
-        Invoke-Tests 'model-evals' ('FullyQualifiedName~ModelEvalTests|FullyQualifiedName~EffectsEvalTests|' +
-                                    'FullyQualifiedName~AccessorEvalTests|FullyQualifiedName~LinqOracleTests')
+        try
+        {
+            Invoke-Tests 'model-evals' ('FullyQualifiedName~ModelEvalTests|FullyQualifiedName~EffectsEvalTests|' +
+                                        'FullyQualifiedName~AccessorEvalTests|FullyQualifiedName~LinqOracleTests')
+        }
+        finally
+        {
+            $env:CH_MODEL_EVALS = $evals
+            $env:CH_MODEL_EVALS_RECORD = $record
+        }
 
         $path = 'skills/hunt/evals/models/generator-snapshot.json'
         $before = Committed-Text $path | ConvertFrom-Json

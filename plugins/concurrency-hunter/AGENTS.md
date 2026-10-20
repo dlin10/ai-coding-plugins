@@ -145,6 +145,12 @@ reads exactly like an engine regression. Before re-recording anything measured o
 every `.csproj` has its `obj/project.assets.json`, and restore it if not:
 `dotnet restore $env:CH_ESHOP_ROOT/src/eShopOnContainers-ServicesAndWebApps.sln --disable-build-servers -nodeReuse:false`.
 
+A variable set with `$env:` stays set for every later command in the same PowerShell process. A run's
+evals gate sets `CH_MODEL_EVALS=1`, so a `check-test-baseline.ps1` started after it in that process also
+runs the model evals and takes twice as long, which reads like an engine slowdown. Run each gate and each
+timing measurement in its own `pwsh -NoProfile -File` process, and compare two suite times only when
+their skipped counts agree, back to back on one machine.
+
 ## Demo and expectations
 
 `demo/expected-findings.json` is written by hand, before the implementation it checks, and never
