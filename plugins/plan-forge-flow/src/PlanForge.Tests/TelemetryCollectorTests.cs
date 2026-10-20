@@ -1365,7 +1365,7 @@ public sealed partial class TelemetryCollectorTests
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
             new Stretched(TimeProvider.System.CreateTimer(callback, state, Stretch(dueTime), Stretch(period)));
 
-        private static TimeSpan Stretch(TimeSpan span) =>
+        internal static TimeSpan Stretch(TimeSpan span) =>
             span == Timeout.InfiniteTimeSpan || span <= TimeSpan.Zero ? span : span * STRETCH;
 
         private sealed class Stretched(ITimer inner) : ITimer
