@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.53.0
+# Plan Forge Flow 0.54.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -40,8 +40,8 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan. Saved beforeNextRound refuses pending fixes; final permits them and returns current pending IDs (including []); assessments do not verify them. A prompt longer than the critic's vendor accepts gives the critic its files by path, untracked files first; one too long even then is refused before it starts, with its sizes, and `excludePaths` narrows that one round |
 | `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs executable G entries by default (`gate=full`) or only the approved Fix gate (`gate=targeted`), leaving findings pending full host verification. Retry preserves gate, attempt and exact IDs |
 | `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempts, plus a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, active-job liveness, and current configured and partly configured `advisors` |
-| `forge.work.start` | On Cursor hosts, starts one worker act, including Scout, as a background job; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding |
-| `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call, and reports its latest stdout activity and recognised event |
+| `forge.work.start` | On Cursor hosts, and elsewhere for a Builder act expected to outlast the hour, starts one worker act, including Scout, as a background job; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding |
+| `forge.work.poll` | Waits for a background worker act, 45 seconds per call or `waitSeconds` (at most 45 on Cursor, 3000 elsewhere, clamped and reported beyond that), returning as soon as it ends, and reports its latest stdout activity and recognised event |
 | `forge.work.cancel` | Requests cancellation of a background worker act; terminal jobs are unchanged and running jobs finish as failed |
 | `forge.work.fetch` | Fetches the historical terminal snapshot of a background worker act; status and new fix replay show current pending |
 | `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log; its optional `phase` declares the Orchestrator phase that begins, closing the open one and recording it in `telemetry.json` |

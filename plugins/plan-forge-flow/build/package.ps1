@@ -252,6 +252,12 @@ function Test-PublishedServer([string]$Executable) {
             if ($workCancelProperties -notcontains $parameter) { throw "forge.work.cancel schema is missing $parameter" }
             if (@($workCancel.inputSchema.required) -notcontains $parameter) { throw "forge.work.cancel schema must require $parameter" }
         }
+        $workPoll = $tools | Where-Object { $_.name -eq 'forge.work.poll' } | Select-Object -First 1
+        $workPollProperties = @($workPoll.inputSchema.properties.PSObject.Properties.Name | Sort-Object)
+        if (($workPollProperties -join ',') -ne 'jobId,runId,waitSeconds,workspaceRoot') {
+            throw "forge.work.poll schema properties are not exactly workspaceRoot, runId, jobId and waitSeconds: $($workPollProperties -join ', ')"
+        }
+        if (@($workPoll.inputSchema.required) -contains 'waitSeconds') { throw 'forge.work.poll schema incorrectly requires waitSeconds' }
         # The gate settings travel with the approval, as structured arguments: an object and an array
         # the SDK cannot describe without this assembly's own contract, so their absence here means
         # the resolver chain lost it and the server refused to start describing them.
