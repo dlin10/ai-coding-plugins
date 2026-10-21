@@ -57,8 +57,9 @@ internal sealed class WorkAct
                 var critique = await planReview.ReviewAsync(run, planDraft, selection!, revision, deferred, userGrantedRound, ct,
                                                             orchestratorDecisions: decisions)
                                                .ConfigureAwait(false);
-                return SpeedWarnings.Attach(run, EvidenceMapCurrency.Attach(JsonSerializer.Serialize(critique, ContractJson.Default.Critique),
-                                                                            planReview.EvidenceMapWarning),
+                var json = ReviewCap.Attach(JsonSerializer.Serialize(critique, ContractJson.Default.Critique),
+                                            planReview.ContinuedAutomatically);
+                return SpeedWarnings.Attach(run, EvidenceMapCurrency.Attach(json, planReview.EvidenceMapWarning),
                                             planReview.SpeedWarning);
 
             case "build.next":
@@ -71,7 +72,8 @@ internal sealed class WorkAct
                 var git = _git ?? new GitClient(run.ReadState().WorkspaceRoot);
                 var codeReviewAct = new CodeReview(_vendor, _prompts, git);
                 var codeReview = await codeReviewAct.ReviewAsync(run, selection!, userGrantedRound, ct, scope).ConfigureAwait(false);
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique),
+                return SpeedWarnings.Attach(run, ReviewCap.Attach(JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique),
+                                                                  codeReviewAct.ContinuedAutomatically),
                                             codeReviewAct.SpeedWarning);
 
             case "review.fix":

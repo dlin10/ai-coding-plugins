@@ -596,6 +596,20 @@ internal sealed class RunDirectory
                                .AppendLine()
                                .ToString());
 
+    /// <summary>A review round that ran past the cap without asking, because the findings fell and no blocker was left.</summary>
+    /// <param name="act">The review phase.</param>
+    /// <param name="round">The round that ran.</param>
+    /// <param name="continuation">The last two rounds' finding counts, as <c>4 → 2</c>.</param>
+    public void AppendFlowAutoContinuedRound(string act, int round, string continuation) =>
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().Append("## ").Append(act).AppendLine(" — round continued automatically")
+                               .AppendLine()
+                               .Append("Round ").Append(round)
+                               .Append(" runs past the cap without asking, because the findings fell and the last round left no blocker: continued automatically: ")
+                               .Append(continuation).AppendLine(".")
+                               .AppendLine()
+                               .ToString());
+
     public void AppendFlowGrantedRound(string act, int round) =>
         AtomicFile.Append(FlowLogPath,
             new StringBuilder().Append("## ").Append(act).AppendLine(" — extra round granted")
@@ -863,7 +877,8 @@ internal sealed class RunDirectory
 // The code-review defaults keep state files written before the counters existed readable; the cap
 // default matches what forge.begin writes today. The granted-round defaults do the same for state
 // files written before the user could buy a round past either cap, and the null gate settings for
-// runs begun before the server ran gates at all.
+// runs begun before the server ran gates at all. A run with no tallies yet asks at the cap, as every
+// run did before rounds could continue automatically.
 /// <summary>Everything a run keeps between tool calls, stored as the run folder's <c>state.json</c>.</summary>
 /// <param name="RunId">The run's id, which names its folder under <c>.forge/</c>.</param>
 /// <param name="WorkspaceRoot">The git window the run reviews and the workers' working directory.</param>
@@ -905,6 +920,10 @@ internal sealed class RunDirectory
 /// Trimmed with the progress to the tasks that stay built when a change to the plan sends the build back.
 /// </param>
 /// <param name="FullGate">When the orchestrator verifies targeted fixes: beforeNextRound or final.</param>
+/// <param name="AutoContinuedReviewRounds">Plan-review rounds that ran past the cap without asking, because the findings fell.</param>
+/// <param name="AutoContinuedCodeReviewRounds">Code-review rounds that ran past the cap without asking, because the findings fell.</param>
+/// <param name="ReviewTallies">What each plan-review round left for the cap, oldest first; null before the first tallied round.</param>
+/// <param name="CodeReviewTallies">What each code-review round left for the cap, oldest first; null before the first tallied round.</param>
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -930,9 +949,18 @@ internal sealed record RunState(string RunId,
                                 int ScoutAnswers = 0,
                                 string? BuilderSessionScope = null,
                                 IReadOnlyList<TaskChange>? TaskChanges = null,
-                                string FullGate = FixGatePolicy.BeforeNextRound);
+                                string FullGate = FixGatePolicy.BeforeNextRound,
+                                int AutoContinuedReviewRounds = 0,
+                                int AutoContinuedCodeReviewRounds = 0,
+                                IReadOnlyList<ReviewTally>? ReviewTallies = null,
+                                IReadOnlyList<ReviewTally>? CodeReviewTallies = null);
 
 internal sealed record TaskChange(int TaskNumber, IReadOnlyList<string> FilesChanged);
+
+/// <summary>What one review round left for the cap: how many findings were open after it, and whether one was a blocker.</summary>
+/// <param name="Findings">The round's new findings plus the unresolved findings it assessed as still present.</param>
+/// <param name="Blocker">Whether any of those is a <c>blocker</c>.</param>
+internal sealed record ReviewTally(int Findings, bool Blocker);
 
 internal sealed record ScoutState(bool Enabled,
                                   string? Vendor = null,

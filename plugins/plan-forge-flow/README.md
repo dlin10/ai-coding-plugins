@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.56.0
+# Plan Forge Flow 0.57.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -79,7 +79,7 @@ refused; work.start accepts it only for review.fix.
 
 Full verification is required before success at either timing. A user stop or declined extra round
 ends an unfinished run with explicit pending IDs and attempts. Code repairs after final approval
-return to fix → new Critic → full verification; at the cap first ask for an extra round.
+return to fix → new Critic → full verification; when the cap refuses that round, first ask for an extra round.
 Environment-only repairs repeat full checks without another Critic. Blocked beforeNextRound may
 repair the environment, explicitly reconfirm final, or consciously defer/reject with an honest
 unverified outcome. An unsuitable or broken short check can be bypassed with a new full-mode

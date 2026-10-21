@@ -20,13 +20,17 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     /// <summary>Set when the round's Fast turn was served at standard speed for part of it.</summary>
     internal string? SpeedWarning { get; private set; }
 
+    /// <summary>The finding counts the round ran on when it ran past the cap without asking; see <see cref="ReviewCap"/>.</summary>
+    internal string? ContinuedAutomatically { get; private set; }
+
     /// <summary>Runs one critic round over the review window and records it.</summary>
     /// <param name="run">The run whose approved plan the round judges.</param>
     /// <param name="selection">The critic's model, effort and speed.</param>
     /// <param name="userGrantedRound">
     /// The orchestrator's assertion that it showed the user where the run stands, asked, and was
     /// told yes — the same kind of assertion <c>approved</c> carries on <c>forge.plan.confirm</c>,
-    /// and, per docs/adr/0003, one no code here can check.
+    /// and, per docs/adr/0003, one no code here can check. Without it a round at the cap still runs
+    /// when <see cref="ReviewCap.Continuation"/> allows it.
     /// </param>
     /// <param name="ct">Cancels the round.</param>
     /// <param name="scope">The round's exclusions; null for the whole window.</param>
@@ -39,9 +43,12 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         scope ??= ReviewScope.Whole;
         var state = run.ReadState();
         RequireReady(run, state);
-        if (state.CodeReviewRounds >= state.CodeReviewRoundCap && !userGrantedRound)
-            throw new CodeReviewCapReachedException(state.CodeReviewRounds, state.CodeReviewRoundCap);
-        var granted = state.CodeReviewRounds >= state.CodeReviewRoundCap;
+        var atCap = state.CodeReviewRounds >= state.CodeReviewRoundCap;
+        var continuation = atCap && !userGrantedRound
+            ? ReviewCap.Continuation(state.CodeReviewTallies)
+              ?? throw new CodeReviewCapReachedException(state.CodeReviewRounds, state.CodeReviewRoundCap)
+            : null;
+        var granted = atCap && userGrantedRound;
         var ledger = run.ReadDecisionLedger();
 
         var window = await git.ReadReviewWindowAsync(state.BaselineHead, scope.ExcludedPaths, ct);
@@ -139,12 +146,21 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         }
 
         if (granted) run.AppendFlowGrantedRound("Code review", round);
+        if (continuation is not null) run.AppendFlowAutoContinuedRound("Code review", round, continuation);
         run.AppendFlowCritique("Code review", round, critique);
         run.AppendFlowKilledTasks("Code review", round, killed);
+        ContinuedAutomatically = continuation;
+        var reviewed = state with
+        {
+            CodeReviewRounds = round,
+            CodeReviewTallies = [.. state.CodeReviewTallies ?? [], ReviewCap.Tally(critique, ledger, LedgerPhase.CodeReview)]
+        };
         run.WriteState(granted
-            ? state with { CodeReviewRounds = round, CodeReviewRoundCap = state.CodeReviewRoundCap + 1,
-                           GrantedCodeReviewRounds = state.GrantedCodeReviewRounds + 1 }
-            : state with { CodeReviewRounds = round });
+            ? reviewed with { CodeReviewRoundCap = state.CodeReviewRoundCap + 1,
+                              GrantedCodeReviewRounds = state.GrantedCodeReviewRounds + 1 }
+            : continuation is not null
+                ? reviewed with { AutoContinuedCodeReviewRounds = state.AutoContinuedCodeReviewRounds + 1 }
+                : reviewed);
         return critique;
     }
 

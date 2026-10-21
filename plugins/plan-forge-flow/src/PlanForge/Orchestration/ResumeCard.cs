@@ -138,8 +138,10 @@ internal static class ResumeCard
             .AppendLine(state.Approved
                             ? $"- Approved: yes. Tasks built: {state.TasksCompleted} of {tasks?.ToString(CultureInfo.InvariantCulture) ?? "?"}."
                             : "- Approved: no.")
-            .Append("- Plan review: ").Append(Rounds(state.ReviewRounds, state.ReviewRoundCap, state.GrantedReviewRounds))
-            .Append("; code review: ").Append(Rounds(state.CodeReviewRounds, state.CodeReviewRoundCap, state.GrantedCodeReviewRounds))
+            .Append("- Plan review: ").Append(Rounds(state.ReviewRounds, state.ReviewRoundCap, state.GrantedReviewRounds,
+                                                     state.AutoContinuedReviewRounds))
+            .Append("; code review: ").Append(Rounds(state.CodeReviewRounds, state.CodeReviewRoundCap, state.GrantedCodeReviewRounds,
+                                                     state.AutoContinuedCodeReviewRounds))
             .Append("; saved fullGate: ").Append(state.FullGate).AppendLine(".");
         if (state.PendingGateFailure is not null)
             card.AppendLine("- A gate failure is pending: the next builder turn retries with its output.");
@@ -316,8 +318,9 @@ internal static class ResumeCard
         }
     }
 
-    private static string Rounds(int rounds, int cap, int granted) =>
-        granted > 0 ? $"{rounds} rounds, cap {cap} + {granted} granted" : $"{rounds} rounds, cap {cap}";
+    private static string Rounds(int rounds, int cap, int granted, int automatic) =>
+        $"{rounds} rounds, cap {cap}" + (granted > 0 ? $" + {granted} granted" : "")
+                                       + (automatic > 0 ? $" + {automatic} automatic" : "");
 
     private static void AppendIds(StringBuilder card, string label, IReadOnlyList<string> ids)
     {

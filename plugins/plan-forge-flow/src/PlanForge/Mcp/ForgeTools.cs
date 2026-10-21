@@ -509,7 +509,7 @@ internal sealed class ForgeTools
                                                 [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
                                                 [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
                                                 [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log; typed ledger decisions are what the next round's critic treats as settled.")] string? deferred = null,
-                                                [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false,
+                                                [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before and no blocker; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
                                                 [Description("Optional typed authoritative decisions applied before the critic runs. Reuse the same decisionBatchId and identical decisions when retrying this call.")] OrchestratorDecisionBatch? decisions = null,
                                                 [Description(FAST_DESCRIPTION)] bool fast = false)
     {
@@ -530,10 +530,10 @@ internal sealed class ForgeTools
                                                      revision, deferred, userGrantedRound, ct,
                                                      orchestratorDecisions: decisions);
 
-                return SpeedWarnings.Attach(run, EvidenceMapCurrency.Attach(JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
-                                                                                                     ForgeToolJson.Default.CritiqueResult),
-                                                                            act.EvidenceMapWarning),
-                                            act.SpeedWarning);
+                var json = ReviewCap.Attach(JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
+                                                                     ForgeToolJson.Default.CritiqueResult),
+                                            act.ContinuedAutomatically);
+                return SpeedWarnings.Attach(run, EvidenceMapCurrency.Attach(json, act.EvidenceMapWarning), act.SpeedWarning);
             });
     }
 
@@ -739,7 +739,7 @@ internal sealed class ForgeTools
                                                 CancellationToken ct,
                                                 [Description("Optional effort level.")] string? effort = null,
                                                 [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
-                                                [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false,
+                                                [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before and no blocker; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
                                                 [Description(FAST_DESCRIPTION)] bool fast = false,
                                                 [Description(EXCLUDE_PATHS_DESCRIPTION)] string[]? excludePaths = null)
     {
@@ -757,8 +757,9 @@ internal sealed class ForgeTools
                 var act = new CodeReview(critic, new PromptLibrary(), new GitClient(workspaceRoot));
                 var critique = await act.ReviewAsync(run, selection, userGrantedRound, ct, scope);
 
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
-                                                                          ForgeToolJson.Default.CritiqueResult),
+                return SpeedWarnings.Attach(run, ReviewCap.Attach(JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
+                                                                                           ForgeToolJson.Default.CritiqueResult),
+                                                                  act.ContinuedAutomatically),
                                             act.SpeedWarning);
             });
     }
@@ -822,7 +823,7 @@ internal sealed class ForgeTools
                                          [Description("Plan draft, used only by plan.review — and omitted there too once forge.plan.write or forge.plan.patch has left this round's plan file, which is the flow to use.")] string? planDraft = null,
                                          [Description("Flow-only compatibility narrative for plan.review; it does not change ledger state.")] string? deferred = null,
                                          [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null,
-                                         [Description("For plan.review and review.code only: at the cap, raises this run's round cap by exactly one and runs the round; below the cap it does nothing, and it is spent by this call. Never pass true without having shown the user where the run stands and asked.")] bool userGrantedRound = false,
+                                         [Description("For plan.review and review.code only: at the cap, raises this run's round cap by exactly one and runs the round; below the cap it does nothing, and it is spent by this call. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before and no blocker; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
                                          [Description("For scout only: the one bounded reconnaissance question.")] string? question = null,
                                          [Description("For scout only: exactly `continue` or `fresh`.")] string? sessionMode = null,
                                          [Description("Optional typed decision batch accepted only by plan.review and review.fix.")] OrchestratorDecisionBatch? decisions = null,
