@@ -135,7 +135,7 @@ public sealed class AskingTheUserSkillTests
     private static void DoesNotContain(string value, string text) =>
         Assert.DoesNotContain(Collapse(value), Collapse(text), StringComparison.Ordinal);
 
-    private static string Skill() => File.ReadAllText(Path.Combine(RepositoryRoot(), "skills", "forge", "SKILL.md"));
+    private static string Skill() => ForgeSkill.Text(RepositoryRoot());
 
     private static string Collapse(string text) =>
         string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));

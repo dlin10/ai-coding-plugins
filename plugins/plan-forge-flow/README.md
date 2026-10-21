@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.55.0
+# Plan Forge Flow 0.56.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -344,10 +344,22 @@ plugins/plan-forge-flow/
   .cursor-plugin/plugin.json
   .mcp.json
   bin/planforge-launcher.cmd
+  hooks/claude.pff.hooks.json
+  hooks/codex.pff.hooks.json
   prompts/
   skills/forge/SKILL.md
   skills/forge/references/
 ```
+
+`skills/forge/SKILL.md` is the skill's core — the participants, the phases, every tool's arguments —
+and each phase is written down in its own file under `references/`, read when the phase begins, so
+the core stays within what Claude Code re-injects after a context compaction. After a compaction,
+a hook runs `planforge.exe --resume-card`, which prints where the session's run stands and the exact
+shapes of the calls ahead into the compacted context: `hooks/claude.pff.hooks.json` on Claude Code,
+`hooks/codex.pff.hooks.json` on Codex. Codex runs a plugin's hook only once you have trusted it — open `/hooks`
+in Codex after installing or updating the plugin and trust the plan-forge-flow `SessionStart` hook.
+Cursor runs no hook. See
+[`docs/adr/0040`](docs/adr/0040-resume-the-orchestrator-after-a-compaction.md).
 
 The executable is not in the repository. On launch, `bin/planforge-launcher.cmd` runs a locally
 built `bin/win-x64/planforge.exe` when one exists, and otherwise the copy cached under
@@ -539,8 +551,8 @@ Two checks survive, both against irreversible harm:
   builder's own `verification` decides only where the gate is a condition rather than a command.
   See [`docs/adr/0015`](docs/adr/0015-the-host-runs-the-gate.md).
 
-Everything else is observable rather than prevented. There are no hooks, so an orchestrator can
-abandon a run midway or start editing during the interview. Filtered drift since
+Everything else is observable rather than prevented. No hook gates anything — the resume card's
+hooks only read the run — so an orchestrator can abandon a run midway or start editing during the interview. Filtered drift since
 `forge.begin` is reported by `forge.status`, excluding `CONTEXT.md` and `docs/adr/**`, so it is
 visible to whoever looks — and approval itself is an assertion by the orchestrator that it asked.
 These are deliberate trades, recorded in

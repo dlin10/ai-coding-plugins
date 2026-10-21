@@ -388,7 +388,7 @@ public sealed class ToolSurfaceTests
                  })
             Assert.True(File.Exists(path), $"missing Scout prompt asset: {path}");
 
-        var skill = File.ReadAllText(Path.Combine(RepositoryRoot(), "skills", "forge", "SKILL.md"));
+        var skill = ForgeSkill.Text(RepositoryRoot());
         Assert.Contains("multi-module", skill, StringComparison.Ordinal);
         Assert.Contains("forge.scout.run", skill, StringComparison.Ordinal);
         Assert.Contains("documents.scout", skill, StringComparison.Ordinal);

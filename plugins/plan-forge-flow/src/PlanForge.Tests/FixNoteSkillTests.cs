@@ -82,7 +82,7 @@ public sealed class FixNoteSkillTests
             Assert.Contains(Collapse(value), text, StringComparison.Ordinal);
     }
 
-    private static string Skill() => Read("skills", "forge", "SKILL.md");
+    private static string Skill() => ForgeSkill.Text(RepositoryRoot());
 
     private static string Read(params string[] path) => File.ReadAllText(Path.Combine([RepositoryRoot(), .. path]));
 

@@ -11,6 +11,14 @@ if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Syst
     throw 'Plan Forge packaging supports only Windows x64.'
 }
 $rid = 'win-x64'
+# The forge skill's core and the references its phases read, so the core stays under the host's
+# re-injection budget after a compaction (docs/adr/0040). Every one of them ships.
+$skillFiles = @('SKILL.md', 'references/asking.md', 'references/interview.md', 'references/scout.md',
+    'references/planning.md', 'references/plan-review.md', 'references/ledger.md', 'references/approval.md',
+    'references/build.md', 'references/code-review.md', 'references/tools.md',
+    'references/CONTEXT-FORMAT.md', 'references/ADR-FORMAT.md') | ForEach-Object { "skills/forge/$_" }
+# Claude Code's hook file and Codex's, each named by its host's manifest.
+$hookFiles = @('hooks/claude.pff.hooks.json', 'hooks/codex.pff.hooks.json')
 $pluginRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $solution = Join-Path $pluginRoot 'src/PlanForgeFlow.sln'
 $project = Join-Path $pluginRoot 'src/PlanForge/PlanForge.csproj'
@@ -408,6 +416,40 @@ function Test-PublishedServer([string]$Executable) {
     }
 }
 
+function Test-PublishedResumeCard([string]$Executable) {
+    # The resume card is the binary's third entry point (docs/adr/0040), which the Claude Code and
+    # Codex hooks run after a compaction: Claude Code names the directory, Codex hands the session and
+    # the directory on stdin. With no Run of this session it must print nothing and exit 0: a binary
+    # that missed the flag would start an MCP server instead and wait on the hook's stdin until the
+    # host's timeout. With neither a directory nor hook input it refuses with 2.
+    $empty = Join-Path $staging 'resume-card'
+    New-Item -ItemType Directory -Force -Path $empty | Out-Null
+    $hookInput = @{ session_id = 'package-verify'; cwd = $empty } | ConvertTo-Json -Compress
+    foreach ($case in @(@{ Arguments = "--resume-card `"$empty`""; Input = ''; Exit = 0 },
+            @{ Arguments = '--resume-card'; Input = $hookInput; Exit = 0 },
+            @{ Arguments = '--resume-card'; Input = ''; Exit = 2 })) {
+        $startInfo = [Diagnostics.ProcessStartInfo]::new($Executable, $case.Arguments)
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardInput = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.EnvironmentVariables['CLAUDE_CODE_SESSION_ID'] = 'package-verify'
+        $process = [Diagnostics.Process]::Start($startInfo)
+        try {
+            $process.StandardInput.Write($case.Input)
+            $process.StandardInput.Close()
+            $output = $process.StandardOutput.ReadToEndAsync()
+            if (-not $process.WaitForExit(30000)) { throw "published executable did not finish $($case.Arguments) within 30s" }
+            if ($process.ExitCode -ne $case.Exit) { throw "published executable exited $($process.ExitCode) for $($case.Arguments), not $($case.Exit)" }
+            if ($output.Result.Length -gt 0) { throw "published executable printed a resume card with no run: $($output.Result)" }
+        }
+        finally {
+            if (-not $process.HasExited) { $process.Kill() }
+            $process.Dispose()
+        }
+    }
+}
+
 function Test-PluginArchive([string]$Archive) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zipArchive = [IO.Compression.ZipFile]::OpenRead($Archive)
@@ -421,9 +463,6 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/.cursor-plugin/plugin.json',
                 'plugins/plan-forge-flow/.mcp.json',
                 'plugins/plan-forge-flow/bin/planforge-launcher.cmd',
-                'plugins/plan-forge-flow/skills/forge/SKILL.md',
-                'plugins/plan-forge-flow/skills/forge/references/CONTEXT-FORMAT.md',
-                'plugins/plan-forge-flow/skills/forge/references/ADR-FORMAT.md',
                 'plugins/plan-forge-flow/prompts/builder-contract.md',
                 'plugins/plan-forge-flow/prompts/critic-contract.md',
                 'plugins/plan-forge-flow/prompts/scout-contract.md',
@@ -431,7 +470,7 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/prompts/scope-contract.md',
                 'plugins/plan-forge-flow/prompts/requirements-contract.md',
                 'plugins/plan-forge-flow/prompts/orchestration-contract.md'
-            )) {
+            ) + @($skillFiles + $hookFiles | ForEach-Object { "plugins/plan-forge-flow/$_" })) {
             if ($null -eq $zipArchive.GetEntry($required)) { throw "archive is missing $required" }
         }
         $shippedExecutables = @($zipArchive.Entries | Where-Object {
@@ -455,9 +494,27 @@ function Test-PluginArchive([string]$Archive) {
         }
         $skillEntry = $zipArchive.GetEntry('plugins/plan-forge-flow/skills/forge/SKILL.md')
         $reader = [IO.StreamReader]::new($skillEntry.Open())
-        try { $skillScript = $reader.ReadToEnd() } finally { $reader.Dispose() }
-        if ($skillScript -notmatch '(?m)^disable-model-invocation:\s*true\s*$') {
+        try { $skillCore = $reader.ReadToEnd() } finally { $reader.Dispose() }
+        if ($skillCore -notmatch '(?m)^disable-model-invocation:\s*true\s*$') {
             throw 'the bundled forge skill is advertised to worker models instead of staying user-invoked'
+        }
+        # Claude Code re-injects at most 5,000 tokens of an invoked skill after a compaction; at about
+        # four characters a token the core has to stay under 18 KB to come back whole.
+        if ($skillEntry.Length -gt 18KB) { throw "the bundled forge skill core is $($skillEntry.Length) bytes, over 18 KB" }
+        # The markers below live wherever their section moved, so they are read across the whole skill.
+        $skillScript = ($skillFiles | ForEach-Object {
+                $reader = [IO.StreamReader]::new($zipArchive.GetEntry("plugins/plan-forge-flow/$_").Open())
+                try { $reader.ReadToEnd() } finally { $reader.Dispose() }
+            }) -join "`n"
+        foreach ($reference in @($skillFiles | Where-Object { $_ -like 'skills/forge/references/*' } | ForEach-Object { $_.Substring('skills/forge/'.Length) })) {
+            if ($skillCore -notmatch [regex]::Escape($reference)) { throw "the bundled forge skill core does not name $reference" }
+        }
+        foreach ($hookFile in $hookFiles) {
+            $reader = [IO.StreamReader]::new($zipArchive.GetEntry("plugins/plan-forge-flow/$hookFile").Open())
+            try { $hookScript = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            if ($hookScript -notmatch '"compact"' -or $hookScript -notmatch '--resume-card') {
+                throw "the bundled $hookFile does not print the resume card after a compaction"
+            }
         }
         foreach ($marker in @(
                 'multi-module',
@@ -494,11 +551,18 @@ function Test-PluginArchive([string]$Archive) {
             }
         }
         # The 1.x bundle shipped hooks, twelve agent descriptors and a parallel cursor tree; none of
-        # that survives the move to an MCP server, and a stray copy would be silently loaded.
-        foreach ($prefix in @('plugins/plan-forge-flow/hooks/', 'plugins/plan-forge-flow/scripts/',
-                'plugins/plan-forge-flow/agents/', 'plugins/plan-forge-flow/cursor/')) {
+        # that survives the move to an MCP server, and a stray copy would be silently loaded. The
+        # resume card's two hook files, one per host, are all hooks/ may hold (docs/adr/0040).
+        foreach ($prefix in @('plugins/plan-forge-flow/scripts/', 'plugins/plan-forge-flow/agents/',
+                'plugins/plan-forge-flow/cursor/')) {
             $stale = @($zipArchive.Entries | Where-Object { $_.FullName.StartsWith($prefix, [StringComparison]::Ordinal) })
             if ($stale.Count -gt 0) { throw "archive still carries $prefix from the pre-MCP layout" }
+        }
+        $hooks = @($zipArchive.Entries | Where-Object { $_.FullName.StartsWith('plugins/plan-forge-flow/hooks/', [StringComparison]::Ordinal) })
+        $expectedHooks = @($hookFiles | ForEach-Object { "plugins/plan-forge-flow/$_" } | Sort-Object)
+        $shippedHooks = @($hooks | ForEach-Object FullName | Sort-Object)
+        if (($shippedHooks -join '|') -ne ($expectedHooks -join '|')) {
+            throw "archive hooks/ must hold only $($hookFiles -join ' and '); found $($shippedHooks -join ', ')"
         }
     }
     finally { $zipArchive.Dispose() }
@@ -529,6 +593,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $publish "$promptsFolder/claude/crit
 }
 
 Test-PublishedServer -Executable (Join-Path $publish $expectedExecutable)
+Test-PublishedResumeCard -Executable (Join-Path $publish $expectedExecutable)
 
 if ($InstallBinaries) {
     $installed = Join-Path $pluginRoot "bin/$rid"
@@ -544,11 +609,7 @@ Copy-Item -LiteralPath (Join-Path $pluginRoot '.cursor-plugin') -Destination $bu
 foreach ($directory in @('assets', 'prompts')) {
     Copy-Item -LiteralPath (Join-Path $pluginRoot $directory) -Destination $bundlePlugin -Recurse
 }
-foreach ($file in @(
-        'skills/forge/SKILL.md',
-        'skills/forge/references/CONTEXT-FORMAT.md',
-        'skills/forge/references/ADR-FORMAT.md'
-    )) {
+foreach ($file in @($skillFiles) + $hookFiles) {
     $destination = Join-Path $bundlePlugin $file
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
     Copy-Item -LiteralPath (Join-Path $pluginRoot $file) -Destination $destination
@@ -598,9 +659,6 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin '.claude-plugin/plugin.json'),
         (Join-Path $bundlePlugin '.cursor-plugin/plugin.json'),
         (Join-Path $bundlePlugin '.mcp.json'),
-        (Join-Path $bundlePlugin 'skills/forge/SKILL.md'),
-        (Join-Path $bundlePlugin 'skills/forge/references/CONTEXT-FORMAT.md'),
-        (Join-Path $bundlePlugin 'skills/forge/references/ADR-FORMAT.md'),
         (Join-Path $bundlePlugin 'prompts/builder-contract.md'),
         (Join-Path $bundlePlugin 'prompts/critic-contract.md'),
         (Join-Path $bundlePlugin 'prompts/scout-contract.md'),
@@ -619,7 +677,7 @@ foreach ($requiredPath in @(
         (Join-Path $bundle '.agents/plugins/marketplace.json'),
         (Join-Path $bundle '.claude-plugin/marketplace.json'),
         (Join-Path $bundle '.cursor-plugin/marketplace.json')
-    )) {
+    ) + @($skillFiles + $hookFiles | ForEach-Object { Join-Path $bundlePlugin $_ })) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) { throw "bundle for $rid is missing $requiredPath" }
 }
 New-PluginArchive -Bundle $bundle -Archive $archive

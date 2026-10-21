@@ -1,0 +1,18 @@
+{
+  "description": "After Codex compacts the context, prints the Plan Forge Flow resume card into it: this session's forge run, where it stands, the next calls with their exact arguments, and the skill reference to read again.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "exit 0",
+            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\\bin\\planforge-launcher.cmd\" --resume-card",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
