@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.52.0
+# Plan Forge Flow 0.53.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -201,7 +201,8 @@ code review, where the Critic judges against the approved plan.
 ## Advisor and Evidence map
 
 An Advisor is an external service answering typed Choice questions, with a probability for each
-option. TypeSafe's Jev is the configured implementation. The optional Evidence map is shadow-mode
+option. TypeSafe's Jev and Microsoft-Decision-1 in Azure AI Foundry are the implementations; both
+speak the same systemone protocol. The optional Evidence map is shadow-mode
 advice after the Orchestrator's mandatory manual Evidence check: code chooses the items and
 candidate plan units, validates every answer and settles each item's status. A `covered` removes
 nothing. The Orchestrator handles flags the manual check had not handled, calls again until
@@ -214,12 +215,20 @@ call has followed; a round that runs so also gets a `## Evidence map not current
 A complete map records the plan hash it judged and the rounds run by then, so patches made in
 answer to a map before its round draw no warning. Nothing is refused.
 
-Configure Jev in the environment inherited by the server process:
+Configure an Advisor in the environment inherited by the server process. Jev, id `jev`:
 
 | Variable | Meaning |
 |---|---|
 | `PLANFORGE_JEV_API_KEY` | Required secret; configuring it is consent to send excerpts from every repository forge runs in on that machine |
 | `PLANFORGE_JEV_MODEL` | Optional pinned model, default `jev-1.13.0`; must match `^jev-\d+\.\d+\.\d+$`; `jev-latest` and `jev-preview` are invalid |
+
+Microsoft-Decision-1, id `microsoft-decision`, authenticated by key; Entra ID is not supported:
+
+| Variable | Meaning |
+|---|---|
+| `PLANFORGE_MSDECISION_ENDPOINT` | Required resource endpoint from the deployment's page, such as `https://<resource>.services.ai.azure.com`, or a gateway base; https, with no credentials, query or fragment. A Foundry project endpoint (`…/api/projects/…`) is invalid: its route demands an api-version the adapter does not send |
+| `PLANFORGE_MSDECISION_API_KEY` | Required secret, sent in the `api-key` header; configuring it is the same consent as Jev's key |
+| `PLANFORGE_MSDECISION_DEPLOYMENT` | Required deployment name, sent as the requested model, with no default: 1–64 letters, digits, `.`, `_` or `-`, starting with a letter or digit |
 
 Unset, empty or whitespace values are unset. An Advisor is configured only when all required
 variables are set and all set variables are valid. `forge.begin` and `forge.status` read the server
@@ -232,18 +241,37 @@ asks once which to use and passes that id on each map call.
 
 Requests send the text of Scout items and Orchestrator-derived implications, plan units, and
 Change points, which may themselves quote code, to TypeSafe at
-`https://api.typesafe.ai/v1/systemone`. No repository file and no code around a locator is read for
-sending: repository locators are resolved locally and only their window hashes enter cache keys.
-External URLs are never fetched. The sensitive-content check guards the strings before sending.
-Configuring an Advisor applies to every repository forge runs in on that machine, rather than one
-Run. **TypeSafe's standard service is not zero-retention.**
+`https://api.typesafe.ai/v1/systemone` for Jev, and to `/providers/microsoft/v1/systemone` under the
+configured endpoint for Microsoft-Decision-1. No repository file and no code around a locator is
+read for sending: repository locators are resolved locally and only their window hashes enter cache
+keys. External URLs are never fetched. The sensitive-content check guards the strings before
+sending. Configuring an Advisor applies to every repository forge runs in on that machine, rather
+than one Run. **TypeSafe's standard service is not zero-retention.** Microsoft-Decision-1 requests
+are handled under the terms of your own Azure resource; Plan Forge asserts no retention policy for
+them.
+
+Microsoft-Decision-1 is paced by its deployment's request quota, which the service reports in its
+`x-ratelimit-*` response headers. A server process starts at one request a second until the first
+report, then spends the reported bucket at 90% of its refill rate, so a raised quota needs no
+configuration. At 60 requests a minute a map of a few hundred requests takes several
+`forge.evidence.map` calls. Measured on 2026-10-20 with calls 3 s apart: 100 requests in the first,
+43 in each of the next two, and no 429; the few still waiting for quota when a call ends are
+cancelled and asked again by the next call. Only a refusal whose body blames the request is
+remembered: an unsupported question as `rejected`, a token-limit refusal as `too_large`. An unknown
+deployment or a wrong endpoint (404), a bare 413 or 422 a gateway could send, and any other refusal
+stay `unavailable` and are asked again once the configuration is fixed; the endpoint is not part of
+a cache key, while the deployment name is. The service reports the unversioned `microsoft-decision-1`
+as its model, so a model change behind a deployment does not by itself invalidate stored
+judgments: pin the model version in the deployment, and to re-ask, use another deployment name or
+delete `evidence-map.json`.
 
 The credential is read only from the environment when needed, stays in the server process, and
 is never a tool argument or result, exception message, log, telemetry record or persisted Run
-content. `forge.plan.confirm` refuses the gate-environment name `PLANFORGE_JEV_API_KEY`, ignoring
-case, naming only the variable. Child processes — Vendor CLIs, catalogue probes, gates and git —
-have all Advisor secret variables removed after environment overlays, even when an overlay names
-them. Other variables, including `PLANFORGE_JEV_MODEL`, still reach children. The loopback-only
+content. `forge.plan.confirm` refuses the gate-environment names `PLANFORGE_JEV_API_KEY` and
+`PLANFORGE_MSDECISION_API_KEY`, ignoring case, naming only the variable. Child processes — Vendor
+CLIs, catalogue probes, gates and git — have all Advisor secret variables removed after environment
+overlays, even when an overlay names them. Other variables, including `PLANFORGE_JEV_MODEL`,
+`PLANFORGE_MSDECISION_ENDPOINT` and `PLANFORGE_MSDECISION_DEPLOYMENT`, still reach children. The loopback-only
 Telemetry collector is Plan Forge itself, starts no process and retains its environment. State
 written before 0.50.0 is not inspected or rewritten for this rule.
 
@@ -252,11 +280,12 @@ Each label keeps the fake's script (its answers, including refusals and abstenti
 reach the unchecked and uncertain paths, and the status they settle to) apart from the semantic
 truth (the status and obligations a correct Advisor should reach). The default tests check the
 script; the live evaluation measures against the truth.
-To opt into the live evaluation, set `PLANFORGE_JEV_API_KEY` in the test process environment (and
-optionally `PLANFORGE_JEV_MODEL`), then run from the monorepo root under pwsh 7:
+To opt into the live evaluation, configure the Advisor in the test process environment as above,
+then run its test from the monorepo root under pwsh 7 — `Evaluate_sanitized_fixture_with_configured_Jev`
+for Jev, as here, or `Evaluate_sanitized_fixture_with_configured_Microsoft_Decision`:
 
 ```powershell
-dotnet test plugins/plan-forge-flow/src/PlanForgeFlow.sln --nologo --disable-build-servers -nodeReuse:false --filter "FullyQualifiedName~EvidenceMapLiveEvaluationTests&Category=Integration" --logger "console;verbosity=detailed" *> $env:TEMP/planforge-evidence-evaluation.log
+dotnet test plugins/plan-forge-flow/src/PlanForgeFlow.sln --nologo --disable-build-servers -nodeReuse:false --filter "FullyQualifiedName~EvidenceMapLiveEvaluationTests.Evaluate_sanitized_fixture_with_configured_Jev&Category=Integration" --logger "console;verbosity=detailed" *> $env:TEMP/planforge-evidence-evaluation.log
 Get-Content $env:TEMP/planforge-evidence-evaluation.log -Tail 50
 ```
 
@@ -264,9 +293,12 @@ This deliberately calls the real service and costs money; without the key it fai
 variable. It resumes each of two fixture plans until complete or no progress and reports pooled
 candidate recall, obligation recall, false coverage, abstentions, unchecked share, locator validity,
 latency p50/p90, input/output tokens, completion and estimated cost, with no quality threshold.
-Cost uses USD 0.042 per million input tokens for `jev-1.13.0` (2026-10-19 price; output free);
-missing usage or a ratio with no denominator is reported as null. Test output includes the JSON
-report and its temporary-file path. See [ADR 0036](docs/adr/0036-advise-the-evidence-check-through-a-configured-advisor.md)
+For Microsoft-Decision-1 the latencies include the time a request waited for its quota.
+Cost uses USD 0.042 per million input tokens, the price published for `jev-1.13.0` (2026-10-19)
+and for Microsoft-Decision-1 (2026-10-09); output is free for Jev and unpriced for Microsoft;
+missing usage or a ratio with no denominator is reported as null. Test output includes one line per
+map call (requests, failed requests, judgments checked, duration), the JSON report and its
+temporary-file path. See [ADR 0036](docs/adr/0036-advise-the-evidence-check-through-a-configured-advisor.md)
 and [ADR 0037](docs/adr/0037-keep-the-scout-report-as-json-only.md).
 
 ## Requirements

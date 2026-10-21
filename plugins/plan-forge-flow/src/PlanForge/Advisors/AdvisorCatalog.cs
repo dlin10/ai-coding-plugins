@@ -1,4 +1,5 @@
 using PlanForge.Advisors.Jev;
+using PlanForge.Advisors.MicrosoftDecision;
 using PlanForge.Run;
 
 namespace PlanForge.Advisors;
@@ -88,7 +89,7 @@ internal sealed class AdvisorCatalog
     public AdvisorCatalog(IReadOnlyList<AdvisorDescriptor> descriptors) => _descriptors = descriptors;
 
     /// <summary>The production catalogue; other vendors' credentials never configure it.</summary>
-    public static AdvisorCatalog Default { get; } = new([new JevAdvisorDescriptor()]);
+    public static AdvisorCatalog Default { get; } = new([new JevAdvisorDescriptor(), new MicrosoftDecisionAdvisorDescriptor()]);
 
     /// <summary>All secret variable names, for gate validation and child-environment filtering.</summary>
     public IReadOnlyList<string> SecretVariables =>

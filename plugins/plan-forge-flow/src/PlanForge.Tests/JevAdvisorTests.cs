@@ -52,6 +52,18 @@ public sealed class JevAdvisorTests
         Assert.DoesNotContain(KEY, sent.Body);
     }
 
+    /// <summary>The exact sent bytes, JSON escaping included, so that a change of transport cannot alter them.</summary>
+    [Fact]
+    public async Task The_request_body_is_byte_for_byte_stable()
+    {
+        var handler = new StubHandler();
+        using var advisor = new JevAdvisor(KEY, MODEL, handler);
+        await advisor.AskAsync(Request("<T> & \"q\" 世界\n"), CancellationToken.None);
+        Assert.Equal("{\"state\":{\"text\":\"\\u003CT\\u003E \\u0026 \\u0022q\\u0022 \\u4E16\\u754C\\n\"},\"model\":\"jev-1.13.0\","
+                     + "\"questions\":{\"relevance\":{\"type\":\"choice\",\"instructions\":\"Does it apply?\","
+                     + "\"criteria\":{\"yes\":\"It applies\",\"no\":\"It does not\"}}}}", Assert.Single(handler.Requests).Body);
+    }
+
     /// <summary>The service's answers, distribution, confidence, model and usage are preserved.</summary>
     [Fact]
     public async Task A_200_maps_the_choice_and_response_metadata()
