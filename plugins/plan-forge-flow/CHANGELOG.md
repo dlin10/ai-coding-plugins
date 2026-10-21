@@ -1,5 +1,26 @@
 # Plan Forge Flow releases
 
+## 0.55.0
+
+A plan patch after approval keeps the built tasks it does not change. Issue #168, ADR 0039.
+
+- `forge.plan.patch` compares the plan's tasks, as the build parses them, before and after the
+  patch. The build goes back only to the first task whose text changed: a patch that rewrites,
+  inserts or removes task k, or adds prose after task k, keeps tasks 1 to k − 1 with the files they
+  changed for the next task's hand-over and drops a pending gate failure. A patch to the title,
+  Requirements, Gates or a task not yet built keeps every built task and the pending gate failure.
+  Approval is withdrawn and the Builder session forgotten either way. Concurrency-hunter run B3c
+  re-ran 42 built tasks, 2.4 h of Builder time, across 8 such reopenings.
+- The patch answers with `tasksKept` and `firstTaskOwed`, and the `## Plan reopened` Flow entry names
+  the tasks kept and the task the builder will start from.
+- `forge.plan.write` and a review round handed a `planDraft` still reset the progress to zero, now
+  also on a run an earlier patch left unapproved with built tasks. A round over the plan on disk
+  keeps what the last write or patch kept.
+- `forge.plan.confirm` takes an optional `rebuildFrom`, a built task, with `approved: true` only,
+  for when the user says a change outside the tasks invalidates a built one.
+- The forge skill tells the user how many built tasks a revision and a re-approval keep.
+  `build/package.ps1` asserts `rebuildFrom` in the `forge.plan.confirm` schema.
+
 ## 0.54.0
 
 `forge.work.poll` waits as long as the host lets a call run. Issue #169.

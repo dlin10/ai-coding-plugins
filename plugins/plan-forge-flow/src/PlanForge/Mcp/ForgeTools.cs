@@ -431,7 +431,7 @@ internal sealed class ForgeTools
     /// <param name="baseHash">The plan hash from its current outline.</param>
     /// <param name="edits">The operations and exact target selectors against that outline.</param>
     /// <param name="ct">Cancels the call.</param>
-    [McpServerTool(Name = "forge.plan.patch"), Description("Revises local targets against baseHash from forge.plan.outline, with a required nonempty edits array. Each edit requires op, target ID and targetHash: replace, delete, insertBefore or insertAfter. Replace/insert require nonblank content; delete permits no content, even an empty string. Refuses the whole patch for no_plan, stale plan/target hash, missing edit/fields, unknown target/operation, invalid content, two replacements/deletions on one target, two insertions at the same position (including after X/before its successor), or insertion anchored on a deleted target. Refusals identify the edit index where applicable and change no protected file. All edits use one snapshot and apply independently of list order; untouched text is exact. Written line breaks become CRLF only when every existing break is CRLF and there is at least one, otherwise LF; append a final break if missing and keep supplied trailing blank lines. Insert a separator in that style between pieces only when the preceding piece lacks a final break. Remove leading byte-order marks from the complete result before checking, writing, hashing or measuring it. Refuses blank or identical results, and any result the build task parser rejects when the base parses, including unreadable/overflowing task numbers; no renumbering. A successful patch uses the whole-write lifecycle: withdraw approval, reset build progress and Builder session, persist the complete plan; no Worker, gate, review round or cap change. Returns baseHash, new outline, changed op/target/label, character and UTF-8 byte sizes (payload JSON, supplied text, plan before, removed, written excluding separators, plan after), and documents, with no plan text beyond labels. Missing/blank plans require forge.plan.write. Before replacement failures leave the plan unchanged and say whether approval was withdrawn; a failure of the patch's Flow entry says the plan was patched and gives its new hash. There is no lock or multi-file transaction; the hash check and replacement are not atomic. A replay conflicts as stale: read forge.plan.outline and redo edits against its new hash; never resend the refused patch or infer success from equal text.")]
+    [McpServerTool(Name = "forge.plan.patch"), Description("Revises local targets against baseHash from forge.plan.outline, with a required nonempty edits array. Each edit requires op, target ID and targetHash: replace, delete, insertBefore or insertAfter. Replace/insert require nonblank content; delete permits no content, even an empty string. Refuses the whole patch for no_plan, stale plan/target hash, missing edit/fields, unknown target/operation, invalid content, two replacements/deletions on one target, two insertions at the same position (including after X/before its successor), or insertion anchored on a deleted target. Refusals identify the edit index where applicable and change no protected file. All edits use one snapshot and apply independently of list order; untouched text is exact. Written line breaks become CRLF only when every existing break is CRLF and there is at least one, otherwise LF; append a final break if missing and keep supplied trailing blank lines. Insert a separator in that style between pieces only when the preceding piece lacks a final break. Remove leading byte-order marks from the complete result before checking, writing, hashing or measuring it. Refuses blank or identical results, and any result the build task parser rejects when the base parses, including unreadable/overflowing task numbers; no renumbering. A successful patch withdraws approval and forgets the Builder session before persisting the complete plan, but keeps the build progress before the first task whose text it changed. Task texts as the build parses them are compared by position, so changing, inserting or removing task k at or below the built count — prose inserted after task k joins it — sends the build back to k − 1 tasks, trimming their changed-file hand-over and dropping a pending gate failure; a patch changing no built task's text, such as one to the title, Requirements, Gates or unbuilt tasks, keeps it all. No Worker, gate, review round or cap change. Returns baseHash, new outline, changed op/target/label, character and UTF-8 byte sizes (payload JSON, supplied text, plan before, removed, written excluding separators, plan after), tasksKept and firstTaskOwed (null when every task is built), and documents, with no plan text beyond labels. Missing/blank plans require forge.plan.write. Before replacement failures leave the plan unchanged and say whether approval was withdrawn; a failure of the patch's Flow entry says the plan was patched and gives its new hash. There is no lock or multi-file transaction; the hash check and replacement are not atomic. A replay conflicts as stale: read forge.plan.outline and redo edits against its new hash; never resend the refused patch or infer success from equal text.")]
     public static async Task<string> PatchPlan(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
@@ -454,7 +454,8 @@ internal sealed class ForgeTools
                 sizes = patch.Sizes;
                 outcome = "applied";
                 return Task.FromResult(EvidenceMapCurrency.Attach(JsonSerializer.Serialize(
-                    new PlanPatchResult(run.RunId, patch.BaseHash, patch.Outline, patch.Changed, sizes, Documents(run)),
+                    new PlanPatchResult(run.RunId, patch.BaseHash, patch.Outline, patch.Changed, sizes,
+                                        patch.TasksKept, patch.FirstTaskOwed, Documents(run)),
                     ForgeToolJson.Default.PlanPatchResult), EvidenceMapCurrency.Warning(run, run.ReadState().ReviewRounds)));
             }
             catch (PlanPatchRejectedException error)
@@ -592,8 +593,9 @@ internal sealed class ForgeTools
     /// <param name="fullGate">Optional timing for full host verification of targeted fixes; omission preserves the saved choice.</param>
     /// <param name="plan">The complete plan presented for approval, or null for <c>PLAN.md</c> as it stands.</param>
     /// <param name="planHash">The hash of the plan the user was shown, or null to approve without checking it.</param>
+    /// <param name="rebuildFrom">A built task the user asked to rebuild from, or null to keep the build progress.</param>
     /// <returns>The recorded decision, the task count and the filtered drift, as JSON.</returns>
-    [McpServerTool(Name = "forge.plan.confirm"), Description("With approved true, applies the same typed plan decisions as forge.plan.review, then refuses approval while any active plan finding is unresolved. With approved false, decisions are forbidden and the ledger is unchanged. Approval records tasks and optional fullGate=beforeNextRound|final (case-sensitive). Omitted timing and settings are preserved; explicit settings replace, empty settings clear. Approval clears the global gate failure, preserving attempts. Approved false leaves PLAN/state/ledger/approval unchanged; invalid fullGate is still refused. Saved timing is read first and a corrupt value stops the call unchanged. Confirm does not select gate mode or validate Fix gate. Code-review entries do not block confirmation. Omit plan to approve PLAN.md as forge.plan.write and forge.plan.patch left it; a plan passed instead replaces PLAN.md. Pass planHash, the planHash of the plan the user was shown, and a plan with any other hash is refused before anything changes.")]
+    [McpServerTool(Name = "forge.plan.confirm"), Description("With approved true, applies the same typed plan decisions as forge.plan.review, then refuses approval while any active plan finding is unresolved. With approved false, decisions are forbidden and the ledger is unchanged. Approval records tasks and optional fullGate=beforeNextRound|final (case-sensitive). Omitted timing and settings are preserved; explicit settings replace, empty settings clear. Approval clears the global gate failure, preserving attempts. Approved false leaves PLAN/state/ledger/approval unchanged; invalid fullGate is still refused. Saved timing is read first and a corrupt value stops the call unchanged. Confirm does not select gate mode or validate Fix gate. Code-review entries do not block confirmation. Omit plan to approve PLAN.md as forge.plan.write and forge.plan.patch left it; a plan passed instead replaces PLAN.md. Pass planHash, the planHash of the plan the user was shown, and a plan with any other hash is refused before anything changes. Approval keeps the build progress a patch left; rebuildFrom k, only with approved true and only for a built task 1..tasksCompleted, sends the build back to task k as a patch into task k would, when the user says a change outside the tasks invalidates built ones.")]
     public static async Task<string> ConfirmPlan(SessionRoots roots,
                                                  [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                  [Description("Run id from forge.begin.")] string runId,
@@ -604,7 +606,8 @@ internal sealed class ForgeTools
                                                  [Description("Optional complete typed plan decision batch. Approved confirmation applies it before checking for unresolved active plan entries; refused confirmation rejects it without mutation.")] OrchestratorDecisionBatch? decisions = null,
                                                  [Description("Full host verification timing for targeted fixes: beforeNextRound or final, case-sensitive. Omission preserves the saved timing; old runs default to beforeNextRound. Changing timing does not verify pending fixes.")] string? fullGate = null,
                                                  [Description("Optional plan to approve instead of PLAN.md, as markdown; it replaces PLAN.md. Omit it to approve PLAN.md as it stands.")] string? plan = null,
-                                                 [Description("The planHash of the plan the user was shown: from forge.plan.show, or from the outline forge.plan.write, forge.plan.patch or forge.plan.outline answered with. A plan with another hash is refused.")] string? planHash = null)
+                                                 [Description("The planHash of the plan the user was shown: from forge.plan.show, or from the outline forge.plan.write, forge.plan.patch or forge.plan.outline answered with. A plan with another hash is refused.")] string? planHash = null,
+                                                 [Description("Optional built task to rebuild from, 1 to the run's tasksCompleted, with approved true only. Pass it only when the user, shown how many tasks the approval keeps, says a change invalidates built tasks; omit it to keep them.")] int? rebuildFrom = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         // The gate environment is logged by name only: a connection string is exactly what it holds.
@@ -612,7 +615,8 @@ internal sealed class ForgeTools
             [("approved", approved.ToString()), ("plan", plan), ("planHash", planHash),
              ("gateEnvironment", gateEnvironment is { Count: > 0 } ? string.Join(", ", gateEnvironment.Keys) : null),
              ("builderRoots", builderRoots is { Length: > 0 } ? string.Join(", ", builderRoots) : null),
-             ("decisionBatchId", decisions?.DecisionBatchId), ("fullGate", fullGate)],
+             ("decisionBatchId", decisions?.DecisionBatchId), ("fullGate", fullGate),
+             ("rebuildFrom", rebuildFrom?.ToString(CultureInfo.InvariantCulture))],
             async () =>
             {
                 var state = run.ReadState();
@@ -620,6 +624,11 @@ internal sealed class ForgeTools
                 var gates = GateSettings.Validate(gateEnvironment, builderRoots);
                 if (!approved && decisions is not null)
                     throw new ArgumentRejectedException("forge.plan.confirm(approved:false) does not accept decisions");
+                if (rebuildFrom is { } task && (!approved || task < 1 || task > state.TasksCompleted))
+                    throw new ArgumentRejectedException(
+                        !approved ? "forge.plan.confirm(approved:false) does not accept rebuildFrom"
+                        : state.TasksCompleted == 0 ? $"rebuildFrom {task} names no built task: no task is built yet"
+                        : $"rebuildFrom {task} names no built task: pass a task from 1 to {state.TasksCompleted}");
                 var confirmed = plan ?? CurrentPlan(run, "forge.plan.confirm");
                 if (planHash is not null && PlanOutline.Hash(confirmed) is var hash && hash != planHash)
                     throw new ArgumentRejectedException(
@@ -661,7 +670,9 @@ internal sealed class ForgeTools
 
                 // Rewriting PLAN.md with what was just read from it would only drop a leading BOM.
                 if (plan is not null) run.WritePlan(plan);
-                run.WriteState((briefChanged ? BuilderSession.Forget(state) : state) with
+                var progress = briefChanged ? BuilderSession.Forget(state) : state;
+                if (rebuildFrom is { } first) progress = PlanReview.Rewind(progress, first - 1);
+                run.WriteState(progress with
                 {
                     Approved = true,
                     FullGate = timing,
@@ -669,6 +680,7 @@ internal sealed class ForgeTools
                     BuilderRoots = builderRoots is null ? state.BuilderRoots : gates.BuilderRoots,
                     PendingGateFailure = null
                 });
+                if (rebuildFrom is { } rebuilt) run.AppendFlowRebuildFrom(rebuilt, state.TasksCompleted);
 
                 return Serialized(new ApproveResult(true, tasks.Count, drifted));
             });
@@ -1363,8 +1375,18 @@ internal sealed record PlanWriteResult(string RunId, PlanOutline? Outline, RunDo
 
 internal sealed record PlanOutlineResult(string RunId, PlanOutline Outline, RunDocuments Documents);
 
+/// <summary>What <c>forge.plan.patch</c> changed, and the build progress the run keeps after it.</summary>
+/// <param name="RunId">The run whose plan was patched.</param>
+/// <param name="BaseHash">The hash of the plan the edits were written against.</param>
+/// <param name="Outline">The outline of the patched plan.</param>
+/// <param name="Changed">Each applied edit's operation, target and label.</param>
+/// <param name="Sizes">The sizes of what was supplied, removed and written.</param>
+/// <param name="TasksKept">How many built tasks stay built: tasks 1 to this number.</param>
+/// <param name="FirstTaskOwed">The task the next build runs, or null when every task of the patched plan is built.</param>
+/// <param name="Documents">The run's documents and display instructions.</param>
 internal sealed record PlanPatchResult(string RunId, string BaseHash, PlanOutline Outline,
-                                       IReadOnlyList<PlanPatchChange> Changed, PlanPatchSizes Sizes, RunDocuments Documents);
+                                       IReadOnlyList<PlanPatchChange> Changed, PlanPatchSizes Sizes,
+                                       int TasksKept, int? FirstTaskOwed, RunDocuments Documents);
 
 /// <param name="Note">
 /// What the call could not do: a builder session already running was started before this text and

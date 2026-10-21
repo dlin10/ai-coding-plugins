@@ -69,10 +69,10 @@ sentences of explanation and no code.
 | `forge.instructions.set` | Once, at the end of Act 1, when the user answered either instruction question with something. Records what they want the critic told and what they want the builder told, verbatim. Omit a role to leave it as it stands, pass `""` to clear it; skip the call entirely when both answers were "no instructions". |
 | `forge.plan.write` | For the first draft and genuine rewrites. Writes the complete draft to `PLAN.md`, runs no worker, and answers with the outline read back from the file (null for blank plan text) and its path under `documents`. Surface that path, then run the round. |
 | `forge.plan.outline` | Reads the current plan hash and snapshot Edit targets: ID, kind, label, hash and size, without plan text beyond labels. Refuses a missing or blank plan; write the first draft with `forge.plan.write`. |
-| `forge.plan.patch` | For a revision that changes some targets. Pass the outline's `planHash` as `baseHash` and nonempty `edits`, each with `op`, `target`, `targetHash` and, for replace/insert, nonblank `content`; delete has no content. Operations are `replace`, `delete`, `insertBefore` and `insertAfter`. Applies against one snapshot, runs no worker, and answers with the new outline, change summary, sizes and `documents`. On a stale base, read `forge.plan.outline` and redo the edits against its hash. |
+| `forge.plan.patch` | For a revision that changes some targets. Pass the outline's `planHash` as `baseHash` and nonempty `edits`, each with `op`, `target`, `targetHash` and, for replace/insert, nonblank `content`; delete has no content. Operations are `replace`, `delete`, `insertBefore` and `insertAfter`. Applies against one snapshot, runs no worker, and answers with the new outline, change summary, sizes, `tasksKept`, `firstTaskOwed` and `documents`. On a stale base, read `forge.plan.outline` and redo the edits against its hash. |
 | `forge.plan.review` | On non-Cursor hosts, once per round, after `forge.plan.write` or `forge.plan.patch` and with `planDraft` omitted. Apply the plan decisions from the previous critique in `decisions` before the new Critic runs. **You** revise the plan and say in `revision` what changed — required from the second round on. |
 | `forge.plan.show` | On a `Canvas` profile only, once the critique settles. Renders `PLAN.md` as a document with the drift beside it, answers with its `planHash`, and records nothing. Send no `plan`. |
-| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Send no `plan`: it approves `PLAN.md` as it stands. Pass `planHash`, the hash of the plan they saw — from `forge.plan.show`, from your last `forge.plan.write`/`forge.plan.patch` outline, or from `forge.plan.outline` — and a plan that moved since is refused before anything changes. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`; PLAN/state/ledger and existing approval stay unchanged. Optional case-sensitive `fullGate=beforeNextRound\|final` records full host-check timing; omission preserves it. Omitted settings persist, explicit settings replace, empty settings clear; approval clears the global gate failure, preserving attempt history. |
+| `forge.plan.confirm` | When the critique settles and you have shown the user the plan and asked them. Send no `plan`: it approves `PLAN.md` as it stands. Pass `planHash`, the hash of the plan they saw — from `forge.plan.show`, from your last `forge.plan.write`/`forge.plan.patch` outline, or from `forge.plan.outline` — and a plan that moved since is refused before anything changes. With `approved: true`, it accepts the same complete plan-decision shape as `forge.plan.review`, applies final closures, and refuses while any active plan finding is unresolved. With `approved: false`, send no `decisions`; PLAN/state/ledger and existing approval stay unchanged. Optional case-sensitive `fullGate=beforeNextRound\|final` records full host-check timing; omission preserves it. Omitted settings persist, explicit settings replace, empty settings clear; approval clears the global gate failure, preserving attempt history. Approval keeps the built tasks the revision left; pass `rebuildFrom` with a built task only when the user asks to rebuild from it. |
 | `forge.build.next` | On non-Cursor hosts, once per task, repeatedly, until `tasksCompleted` equals `taskCount`. After the builder's turn the server runs the task's gate command itself; a `gate_failed` result is the same task again on the next call. |
 | `forge.review.code` | Saved `fullGate=beforeNextRound` refuses review with pending fixes; `final` permits it and returns current `pendingFullGateFindingIds`, including []. Critic assessments do not verify them. On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
 | `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note`. Optional case-sensitive `gate=full\|targeted` defaults to full and requires fix IDs when explicit. Targeted runs only the Fix gate and leaves findings pending full host verification. Retry with the same gate, attempt and exact IDs. |
@@ -676,13 +676,25 @@ the user reads the plan during the minutes the critic takes rather than after th
 round. What stays out of the chat is the plan's *text*: five revisions pasted into the conversation
 bury the one version that matters, which is why the file exists.
 
-Rewriting an already-approved plan takes the approval back: whichever call changes the file —
-`forge.plan.write`, `forge.plan.patch`, or a round you handed a draft to — clears `approved`, resets
-the build progress to zero, and records it in the flow log. That is not a silent housekeeping detail — say it in the
-chat, because the next `forge.build.next` will refuse until the user approves again, and the builder
-will then start from the first task. If tasks were already built, tell the user how many are about
-to be rebuilt before you write the new draft. Declare `phase: "plan_revision"` when you begin
-rewriting an approved plan, before its new review round, whatever phase the run was in.
+Revising an already-approved plan takes the approval back: whichever call changes the file —
+`forge.plan.write`, `forge.plan.patch`, or a round you handed a draft to — clears `approved`, forgets
+the Builder session, and records it in the flow log. What happens to the built tasks depends on the
+call:
+
+- `forge.plan.patch` keeps every built task before the first task whose text it changes. A patch to
+  the title, Requirements, Gates or a task not yet built keeps them all; a patch that changes,
+  inserts or removes task k — or adds prose after task k, which the build reads as part of it —
+  keeps tasks 1 to k − 1 and rebuilds from k. Its answer says how many it kept in `tasksKept` and
+  which task the builder will run next in `firstTaskOwed`.
+- `forge.plan.write`, and a round you handed a draft to, reset the build progress to zero: a whole
+  draft says nothing about which tasks it left alone. Use them only for genuine rewrites.
+- A round over the plan on disk changes no text and keeps what the last write or patch kept.
+
+That is not a silent housekeeping detail — say it in the chat, because the next `forge.build.next`
+will refuse until the user approves again. If tasks were already built, tell the user how many the
+revision keeps and how many are about to be rebuilt before you make it. Declare
+`phase: "plan_revision"` when you begin revising an approved plan, before its new review round,
+whatever phase the run was in.
 
 ### Writing a revision
 
@@ -782,7 +794,10 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
      `forge.plan.outline` when you no longer have it.
 
    Either way, if anything drifted, say so out loud rather than leaving it in a list they may not
-   read.
+   read. On a re-approval after tasks were built, read `run.tasksCompleted` from the same
+   `forge.status` and tell them how many built tasks the approval keeps and which task the builder
+   runs next. The server does not judge whether a change to the Requirements or Gates invalidates a
+   built task; that is theirs to say.
 3. Ask them to approve it or say what to change. Ask in the chat even when the canvas is up: it
    displays and nothing more, and it says so to the user. On a change, declare
    `phase: "plan_revision"`, revise with `forge.plan.patch` for some targets or `forge.plan.write`
@@ -808,8 +823,9 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
    and empty values clear them. Successful confirm resets the global gate-failure brief for the
    next Builder while preserving attempt history. Approved false leaves PLAN/state/ledger and any
    existing approval unchanged. Both timing values are case-sensitive; empty, whitespace and
-   unknown values are refused even with approved false. After `forge.plan.confirm` with a yes,
-   declare `phase: "build"`.
+   unknown values are refused even with approved false. When the user says a built task has to be
+   built again, pass it as `rebuildFrom` with the approval: the build goes back to that task, and
+   the tasks before it stay built. After `forge.plan.confirm` with a yes, declare `phase: "build"`.
 
 Never call `forge.plan.confirm` with an answer you did not get from the user. That call is the whole
 of what approval means here: it approves `PLAN.md`, flips `approved` in the run state, and unlocks
@@ -1015,7 +1031,8 @@ Targeted is unsuitable without a meaningful short check or when one rule spans m
 need joint regression coverage. For a separate batch, explicitly choose `gate=full` with a new
 attempt and explain why. Use the same simple exit when the Fix gate is wrong or repeatedly fails;
 never change a bound attempt's mode or silently edit the approved plan. A necessary plan change
-uses ordinary revision/review/approval, with its existing build-progress reset. Preserve `gate`,
+uses ordinary revision/review/approval, which keeps or rebuilds built tasks as *Rounds, revision,
+and caps* describes. Preserve `gate`,
 attempt and exact IDs on every retry; only a new legal attempt can choose another mode.
 
 The first call of every fix attempt carries a `note` that frames its batch by the rules its findings

@@ -22,6 +22,9 @@ public sealed class PlanPatchToolTests : IDisposable
                                 "1. Snapshot orders.\n" + FirstBody + "\n\n" +
                                 "2. Publish orders.\n" + SecondBody + "\n";
     private const string Replacement = "1. Snapshot updated orders.\n" + NewBody + "\n";
+    private const string Staged = "# Export plan\nBrief for the exporter.\n\n## Requirements\n\n- Orders export nightly.\n\n" +
+                                  "## Approach\n\n1. Snapshot orders.\n\n2. Publish orders.\n\n3. Notify subscribers.\n\n" +
+                                  "4. Archive snapshots.\n\n## Gates\n\n- G1 the suite passes.\n";
 
     private readonly string _workspace = Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
 
@@ -144,8 +147,9 @@ public sealed class PlanPatchToolTests : IDisposable
             OutlineJson(JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanPatchResult)!.Outline));
     }
 
+    /// <summary>A patch into the first task reaches every built task, so it keeps what a whole write keeps: nothing.</summary>
     [Fact]
-    public async Task A_patch_over_an_approved_plan_leaves_the_state_a_whole_write_would()
+    public async Task A_patch_into_the_first_task_leaves_the_state_a_whole_write_would()
     {
         var patched = NewRun("patched");
         var written = NewRun("written");
@@ -164,6 +168,142 @@ public sealed class PlanPatchToolTests : IDisposable
         Assert.Equal(0, patchedState.TasksCompleted);
         Assert.Equal(string.Empty, patchedState.BuilderSessionId);
         Assert.Contains("the plan was patched with forge.plan.patch", File.ReadAllText(patched.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Issue #168: run B3c rebuilt 42 built tasks across 8 reopenings, every one of them a patch to
+    /// an unbuilt task, the title, Requirements or Gates. Such a patch keeps the progress, the
+    /// hand-over and the owed gate failure, and still takes the approval and the session back.
+    /// </summary>
+    [Theory]
+    [InlineData("title")]
+    [InlineData("requirements")]
+    [InlineData("gates")]
+    [InlineData("unbuilt task")]
+    [InlineData("last task deleted")]
+    [InlineData("task appended")]
+    public async Task A_patch_that_changes_no_built_task_keeps_the_progress(string change)
+    {
+        var run = NewStagedRun();
+        var outline = PlanOutline.Of(Staged);
+
+        var json = await Patch(run, outline.PlanHash, StagedEdits(outline, change));
+
+        var result = JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanPatchResult)!;
+        var state = run.ReadState();
+        Assert.False(state.Approved);
+        Assert.Equal(string.Empty, state.BuilderSessionId);
+        Assert.Null(state.BuilderSessionScope);
+        Assert.Equal(2, state.TasksCompleted);
+        Assert.Equal(new[] { 1, 2 }, state.TaskChanges!.Select(task => task.TaskNumber));
+        Assert.Equal("previous failure", state.PendingGateFailure);
+        Assert.Equal(2, result.TasksKept);
+        Assert.Equal(3, result.FirstTaskOwed);
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("The approval no longer holds because the plan was patched with forge.plan.patch.", flow, StringComparison.Ordinal);
+        Assert.Contains("Tasks 1–2 stay built.", flow, StringComparison.Ordinal);
+        Assert.Contains("it will start from task 3.", flow, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A patch that changes task k's text sends the build back to k − 1 tasks, whether it rewrites
+    /// the task, inserts or removes one before it, or inserts prose after the task before — which
+    /// the build reads as part of that task.
+    /// </summary>
+    [Theory]
+    [InlineData("task 2 rewritten", 1)]
+    [InlineData("task 1 rewritten", 0)]
+    [InlineData("prose after task 1", 0)]
+    [InlineData("task inserted at 2", 1)]
+    [InlineData("task 2 removed", 1)]
+    public async Task A_patch_into_a_built_task_rebuilds_from_that_task(string change, int kept)
+    {
+        var run = NewStagedRun();
+        var outline = PlanOutline.Of(Staged);
+
+        var json = await Patch(run, outline.PlanHash, StagedEdits(outline, change));
+
+        var result = JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanPatchResult)!;
+        var state = run.ReadState();
+        Assert.False(state.Approved);
+        Assert.Equal(string.Empty, state.BuilderSessionId);
+        Assert.Equal(kept, state.TasksCompleted);
+        Assert.Equal(Enumerable.Range(1, kept), (state.TaskChanges ?? []).Select(task => task.TaskNumber));
+        if (kept == 0) Assert.Null(state.TaskChanges);
+        Assert.Null(state.PendingGateFailure);
+        Assert.Equal(kept, result.TasksKept);
+        Assert.Equal(kept + 1, result.FirstTaskOwed);
+        Assert.Contains($"Build progress was reset from 2 completed tasks to {kept}.", File.ReadAllText(run.FlowLogPath),
+                        StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The second patch finds the approval already gone, and still takes back the built tasks it
+    /// reaches: an earlier patch that kept the progress is no licence for a later one.
+    /// </summary>
+    [Fact]
+    public async Task A_later_patch_into_a_built_task_rebuilds_although_the_approval_is_gone()
+    {
+        var run = NewStagedRun();
+        await Patch(run, PlanOutline.Hash(Staged), StagedEdits(PlanOutline.Of(Staged), "gates"));
+        var outline = PlanOutline.Of(run.ReadPlan());
+
+        var json = await Patch(run, outline.PlanHash, StagedEdits(outline, "task 2 rewritten"));
+
+        Assert.Equal(1, run.ReadState().TasksCompleted);
+        Assert.Equal(1, JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanPatchResult)!.TasksKept);
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("No approval was standing when the plan was patched with forge.plan.patch. " +
+                        "Build progress was reset from 2 completed tasks to 1.", flow, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The kept progress survives the rest of the revision: a round over the plan on disk changes no
+    /// text, while a whole write — and a round handed a draft — still keeps nothing.
+    /// </summary>
+    [Theory]
+    [InlineData("round over the plan on disk", 2)]
+    [InlineData("round handed a draft", 0)]
+    [InlineData("whole write", 0)]
+    public async Task After_a_patch_that_kept_the_progress_only_a_whole_draft_takes_it_back(string next, int kept)
+    {
+        var run = NewStagedRun();
+        await Patch(run, PlanOutline.Hash(Staged), StagedEdits(PlanOutline.Of(Staged), "gates"));
+        var patched = run.ReadPlan();
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "reviewed"));
+
+        if (next == "whole write")
+            await ForgeTools.WritePlan(SessionRoots.None, _workspace, run.RunId, patched, CancellationToken.None);
+        else
+            await new PlanReview(critic, new PromptLibrary()).ReviewAsync(run, next == "round handed a draft" ? patched : null,
+                new Selection("critic", null), "Revised the gates.", null, false, CancellationToken.None);
+
+        Assert.Equal(kept, run.ReadState().TasksCompleted);
+    }
+
+    /// <summary>
+    /// What the re-approval keeps is what the next build stands on: it runs the first task owed, and
+    /// its fresh session is told what the kept tasks changed.
+    /// </summary>
+    [Fact]
+    public async Task The_build_after_reapproval_runs_the_first_owed_task_with_the_kept_hand_over()
+    {
+        var run = NewStagedRun();
+        var outline = PlanOutline.Of(Staged);
+        await Patch(run, outline.PlanHash, StagedEdits(outline, "unbuilt task"));
+        run.WriteState(run.ReadState() with { Approved = true });
+        var builder = new RecordingVendor("codex");
+        builder.Enqueue(new BuildResult("done", ["third.cs"], new Verification("passed", "read the condition"), "built"));
+
+        var result = await new Build(builder, new PromptLibrary()).NextAsync(run, new Selection("builder", null), CancellationToken.None);
+
+        Assert.Equal(3, result.TasksCompleted);
+        var prompt = Assert.Single(builder.Sessions).PromptText;
+        Assert.Contains("# Task 3 of 4", prompt, StringComparison.Ordinal);
+        Assert.Contains("Notify every subscriber.", prompt, StringComparison.Ordinal);
+        Assert.Contains("- Task 1: first.cs", prompt, StringComparison.Ordinal);
+        Assert.Contains("- Task 2: second.cs", prompt, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -529,6 +669,54 @@ public sealed class PlanPatchToolTests : IDisposable
         TaskChanges = [new TaskChange(1, ["first.cs"]), new TaskChange(2, ["second.cs"])],
         BuilderInstructions = "Keep the exporter synchronous.", FullGate = "final"
     });
+
+    private RunDirectory NewStagedRun()
+    {
+        var run = NewRun("staged", written: false);
+        run.WritePlan(Staged);
+        Approve(run);
+        return run;
+    }
+
+    /// <summary>The edits that make one named change to <see cref="Staged"/>.</summary>
+    /// <param name="outline">The outline of the plan the edits are written against.</param>
+    /// <param name="change">The change, as the tests name it.</param>
+    /// <returns>The edits.</returns>
+    private static PlanEdit[] StagedEdits(PlanOutline outline, string change)
+    {
+        PlanEdit At(string label, string op, string? content)
+        {
+            var target = outline.Targets.Single(target => target.Label == label);
+            return new PlanEdit(op, target.Id, target.Hash, content);
+        }
+
+        return change switch
+        {
+            "title" => [At("# Export plan", "replace", "# Updated exporter\nUpdated exporter brief.\n\n")],
+            "requirements" => [At("## Requirements", "replace", "## Requirements\n\n- Orders export hourly.\n\n")],
+            "gates" => [At("## Gates", "replace", "## Gates\n\n- G1 the suite and the linter pass.\n")],
+            "unbuilt task" => [At("3. Notify subscribers.", "replace", "3. Notify every subscriber.\n\n")],
+            "last task deleted" => [At("4. Archive snapshots.", "delete", null)],
+            "task appended" => [At("## Gates", "insertBefore", "5. Compress archives.\n\n")],
+            "task 2 rewritten" => [At("2. Publish orders.", "replace", "2. Publish signed orders.\n\n")],
+            "task 1 rewritten" => [At("1. Snapshot orders.", "replace", "1. Snapshot paid orders.\n\n")],
+            "prose after task 1" => [At("1. Snapshot orders.", "insertAfter", "Keep the snapshot read-only.\n\n")],
+            "task inserted at 2" =>
+            [
+                At("2. Publish orders.", "insertBefore", "2. Validate orders.\n\n"),
+                At("2. Publish orders.", "replace", "3. Publish orders.\n\n"),
+                At("3. Notify subscribers.", "replace", "4. Notify subscribers.\n\n"),
+                At("4. Archive snapshots.", "replace", "5. Archive snapshots.\n\n")
+            ],
+            "task 2 removed" =>
+            [
+                At("2. Publish orders.", "delete", null),
+                At("3. Notify subscribers.", "replace", "2. Notify subscribers.\n\n"),
+                At("4. Archive snapshots.", "replace", "3. Archive snapshots.\n\n")
+            ],
+            _ => throw new ArgumentOutOfRangeException(nameof(change), change, null)
+        };
+    }
 
     private static PlanEdit Edit(PlanOutline outline)
     {

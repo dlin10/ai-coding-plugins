@@ -357,7 +357,7 @@ function Test-PublishedServer([string]$Executable) {
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
             'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')
             # The plan is PLAN.md unless one is passed, and the hash only checks it: docs/adr/0038.
-            'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate', 'plan', 'planHash')
+            'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate', 'plan', 'planHash', 'rebuildFrom')
             'forge.plan.show'   = @('plan')
             'forge.log.append'  = @('level', 'detail', 'phase')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
