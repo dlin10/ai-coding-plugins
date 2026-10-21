@@ -163,7 +163,7 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Contains("\"outline\"", JsonSerializer.Serialize(new PlanOutlineResult("run", outline, documents),
             ForgeToolJson.Default.PlanOutlineResult), StringComparison.Ordinal);
         Assert.Contains("\"sizes\"", JsonSerializer.Serialize(new PlanForge.Mcp.PlanPatchResult("run", outline.PlanHash,
-            outline, [new PlanPatchChange("replace", "s0", "# Plan")], PlanPatchSizes.Payload([]), documents),
+            outline, [new PlanPatchChange("replace", "s0", "# Plan")], PlanPatchSizes.Payload([]), 0, 1, documents),
             ForgeToolJson.Default.PlanPatchResult), StringComparison.Ordinal);
         Assert.Contains("\"documents\"", JsonSerializer.Serialize(new PlanWriteResult("run", PlanOutline.Of("# Plan\n"), documents),
             ForgeToolJson.Default.PlanWriteResult), StringComparison.Ordinal);
@@ -226,6 +226,67 @@ public sealed class WorkToolsTests : IDisposable
 
         Assert.Equal("succeeded", settled["state"]!.GetValue<string>());
         Assert.Contains("forge.work.fetch", settled["next"]!.GetValue<string>(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Cursor cancels a call at a minute, so 45 seconds stays its ceiling; any other client may wait
+    /// up to 3000 of the hour its host grants. Outside the range the wait is clamped and says so.
+    /// </summary>
+    [Theory]
+    [InlineData("claude-code", null, 45, false)]
+    [InlineData("claude-code", 3000, 3000, false)]
+    [InlineData("codex-mcp-client", 5000, 3000, true)]
+    [InlineData("claude-code", 0, 1, true)]
+    [InlineData("cursor-vscode", 30, 30, false)]
+    [InlineData("cursor-vscode", 3000, 45, true)]
+    [InlineData("cursor-vscode", null, 45, false)]
+    public void A_poll_waits_as_asked_within_the_client_range(string client, int? waitSeconds, int expected, bool clamped)
+    {
+        var wait = PollWait.For(client, waitSeconds);
+
+        Assert.Equal(TimeSpan.FromSeconds(expected), wait.Timeout);
+        Assert.Equal(clamped, wait.Clamped is not null);
+    }
+
+    [Fact]
+    public async Task A_long_poll_returns_the_moment_the_job_ends()
+    {
+        var run = NewRun("long-poll");
+        var vendor = new BlockingVendor();
+        var registry = new JobRegistry();
+        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
+            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
+        var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
+        await vendor.Recorded.WaitAsync(TimeSpan.FromSeconds(30));
+
+        var poll = ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None,
+                                       "claude-code", 3000);
+        vendor.Release();
+        var settled = JsonNode.Parse(await poll.WaitAsync(TimeSpan.FromSeconds(30)))!;
+
+        Assert.Equal("succeeded", settled["state"]!.GetValue<string>());
+        Assert.Null(settled["waitClamped"]);
+    }
+
+    [Fact]
+    public async Task A_clamped_wait_is_reported_in_the_result_and_an_omitted_one_adds_nothing()
+    {
+        var run = NewRun("clamped-poll");
+        var vendor = new RecordingVendor("claude");
+        vendor.Enqueue(new Critique("approve", [], "looks good"));
+        var registry = new JobRegistry();
+        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
+            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
+        var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
+
+        var plain = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
+            CancellationToken.None))!;
+        var clamped = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
+            CancellationToken.None, "cursor-vscode", 3000))!;
+
+        Assert.Null(plain["waitClamped"]);
+        Assert.Equal("succeeded", clamped["state"]!.GetValue<string>());
+        Assert.Contains("up to 45 seconds", clamped["waitClamped"]!.GetValue<string>(), StringComparison.Ordinal);
     }
 
     [Fact]

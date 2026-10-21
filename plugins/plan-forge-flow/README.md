@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.53.0
+# Plan Forge Flow 0.56.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -40,8 +40,8 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan. Saved beforeNextRound refuses pending fixes; final permits them and returns current pending IDs (including []); assessments do not verify them. A prompt longer than the critic's vendor accepts gives the critic its files by path, untracked files first; one too long even then is refused before it starts, with its sizes, and `excludePaths` narrows that one round |
 | `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs executable G entries by default (`gate=full`) or only the approved Fix gate (`gate=targeted`), leaving findings pending full host verification. Retry preserves gate, attempt and exact IDs |
 | `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempts, plus a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, active-job liveness, and current configured and partly configured `advisors` |
-| `forge.work.start` | On Cursor hosts, starts one worker act, including Scout, as a background job; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding |
-| `forge.work.poll` | Waits for a background worker act, up to 45 seconds per call, and reports its latest stdout activity and recognised event |
+| `forge.work.start` | On Cursor hosts, and elsewhere for a Builder act expected to outlast the hour, starts one worker act, including Scout, as a background job; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding |
+| `forge.work.poll` | Waits for a background worker act, 45 seconds per call or `waitSeconds` (at most 45 on Cursor, 3000 elsewhere, clamped and reported beyond that), returning as soon as it ends, and reports its latest stdout activity and recognised event |
 | `forge.work.cancel` | Requests cancellation of a background worker act; terminal jobs are unchanged and running jobs finish as failed |
 | `forge.work.fetch` | Fetches the historical terminal snapshot of a background worker act; status and new fix replay show current pending |
 | `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log; its optional `phase` declares the Orchestrator phase that begins, closing the open one and recording it in `telemetry.json` |
@@ -137,12 +137,18 @@ ID and hash from `forge.plan.outline`. On a stale-base refusal, read the outline
 edits against its current hash; never resend the refused patch unchanged. A replay after a lost
 answer conflicts, and equal text is never proof of success.
 
-A round, a whole-draft write or a patch after approval withdraws it and resets build progress and
-the Builder session. The Flow log names the cause. The patch hash check and replacement take no
-lock and are not atomic together. See
+A round, a whole-draft write or a patch after approval withdraws it and forgets the Builder session.
+A whole-draft write, or a round handed a draft, also resets the build progress to zero. A patch
+keeps every built task before the first task whose text it changes, with the files those tasks
+changed for the next task's hand-over, and answers with `tasksKept` and `firstTaskOwed`; a patch to
+the title, Requirements, Gates or an unbuilt task keeps them all. A re-approval keeps what the
+revision kept, unless `forge.plan.confirm` is given `rebuildFrom`, a built task the user asks to
+rebuild from. The Flow log names the cause and the tasks kept. The patch hash check and replacement
+take no lock and are not atomic together. See
 [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md),
-[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md) and
-[docs/adr/0035](docs/adr/0035-patch-the-plan-against-a-snapshot-outline.md).
+[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md),
+[docs/adr/0035](docs/adr/0035-patch-the-plan-against-a-snapshot-outline.md) and
+[docs/adr/0039](docs/adr/0039-a-patch-keeps-the-built-tasks-it-does-not-change.md).
 
 Approval does not go through MCP elicitation, and since 0.8.0 there is no code here that can ask the
 user anything. The orchestrator reads the drift out of `forge.status`, shows the user the plan and
@@ -338,10 +344,22 @@ plugins/plan-forge-flow/
   .cursor-plugin/plugin.json
   .mcp.json
   bin/planforge-launcher.cmd
+  hooks/claude.pff.hooks.json
+  hooks/codex.pff.hooks.json
   prompts/
   skills/forge/SKILL.md
   skills/forge/references/
 ```
+
+`skills/forge/SKILL.md` is the skill's core — the participants, the phases, every tool's arguments —
+and each phase is written down in its own file under `references/`, read when the phase begins, so
+the core stays within what Claude Code re-injects after a context compaction. After a compaction,
+a hook runs `planforge.exe --resume-card`, which prints where the session's run stands and the exact
+shapes of the calls ahead into the compacted context: `hooks/claude.pff.hooks.json` on Claude Code,
+`hooks/codex.pff.hooks.json` on Codex. Codex runs a plugin's hook only once you have trusted it — open `/hooks`
+in Codex after installing or updating the plugin and trust the plan-forge-flow `SessionStart` hook.
+Cursor runs no hook. See
+[`docs/adr/0040`](docs/adr/0040-resume-the-orchestrator-after-a-compaction.md).
 
 The executable is not in the repository. On launch, `bin/planforge-launcher.cmd` runs a locally
 built `bin/win-x64/planforge.exe` when one exists, and otherwise the copy cached under
@@ -533,8 +551,8 @@ Two checks survive, both against irreversible harm:
   builder's own `verification` decides only where the gate is a condition rather than a command.
   See [`docs/adr/0015`](docs/adr/0015-the-host-runs-the-gate.md).
 
-Everything else is observable rather than prevented. There are no hooks, so an orchestrator can
-abandon a run midway or start editing during the interview. Filtered drift since
+Everything else is observable rather than prevented. No hook gates anything — the resume card's
+hooks only read the run — so an orchestrator can abandon a run midway or start editing during the interview. Filtered drift since
 `forge.begin` is reported by `forge.status`, excluding `CONTEXT.md` and `docs/adr/**`, so it is
 visible to whoever looks — and approval itself is an assertion by the orchestrator that it asked.
 These are deliberate trades, recorded in

@@ -1,0 +1,18 @@
+{
+  "description": "After Claude Code compacts the context, prints the Plan Forge Flow resume card into it: this session's forge run, where it stands, the next calls with their exact arguments, and the skill reference to read again.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "& \"${CLAUDE_PLUGIN_ROOT}/bin/planforge-launcher.cmd\" --resume-card \"$env:CLAUDE_PROJECT_DIR\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

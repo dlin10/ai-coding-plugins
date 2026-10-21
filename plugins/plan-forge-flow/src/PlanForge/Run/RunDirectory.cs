@@ -14,7 +14,7 @@ namespace PlanForge.Run;
 /// <summary>One run's state, isolated under <c>.forge/&lt;runId&gt;/</c>.</summary>
 internal sealed class RunDirectory
 {
-    private const string FORGE_FOLDER = ".forge";
+    internal const string FORGE_FOLDER = ".forge";
     private const string STATE_FILE_NAME = "state.json";
     private const string FLOW_LOG_FILE_NAME = "flow_log.md";
     private const string DIAGNOSTIC_LOG_FILE_NAME = "forge.log";
@@ -519,16 +519,45 @@ internal sealed class RunDirectory
     /// </summary>
     /// <param name="tasksCompleted">The completed tasks whose progress was reset.</param>
     /// <param name="cause">The action that invalidated the approval.</param>
-    public void AppendFlowReopened(int tasksCompleted, string cause) =>
+    /// <summary>Records that a change to the plan took its approval or part of its build progress back.</summary>
+    /// <param name="wasApproved">Whether the plan was approved when the change came.</param>
+    /// <param name="tasksCompleted">The tasks built before the change.</param>
+    /// <param name="tasksKept">The tasks that stay built after it.</param>
+    /// <param name="firstTaskOwed">The task the next build runs, or null when the plan has none after the kept ones.</param>
+    /// <param name="cause">The change.</param>
+    public void AppendFlowReopened(bool wasApproved, int tasksCompleted, int tasksKept, int? firstTaskOwed, string cause)
+    {
+        var entry = new StringBuilder().AppendLine("## Plan reopened")
+                                       .AppendLine()
+                                       .Append(wasApproved ? "The approval no longer holds because " : "No approval was standing when ")
+                                       .Append(cause).Append(". ");
+        if (tasksKept < tasksCompleted)
+            entry.Append("Build progress was reset from ").Append(tasksCompleted)
+                 .Append(tasksCompleted == 1 ? " completed task to " : " completed tasks to ").Append(tasksKept).AppendLine(".");
+        else if (tasksKept == 0) entry.AppendLine("No task had been built.");
+        else if (tasksKept == 1) entry.AppendLine("Task 1 stays built.");
+        else entry.Append("Tasks 1–").Append(tasksKept).AppendLine(" stay built.");
+
+        entry.AppendLine()
+             .Append("The plan has to be approved again before the builder will run, and ");
+        if (firstTaskOwed is > 1) entry.Append("it will start from task ").Append(firstTaskOwed.Value).AppendLine(".");
+        else if (firstTaskOwed is 1 || tasksKept == 0) entry.AppendLine("it will start from the first task.");
+        else entry.AppendLine("every task of the plan is built.");
+        AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
+    }
+
+    /// <summary>Records that an approval sent the build back to a built task the user asked to rebuild.</summary>
+    /// <param name="task">The task the build starts from again.</param>
+    /// <param name="tasksCompleted">The tasks built before the approval.</param>
+    public void AppendFlowRebuildFrom(int task, int tasksCompleted) =>
         AtomicFile.Append(FlowLogPath,
-            new StringBuilder().AppendLine("## Plan reopened")
+            new StringBuilder().AppendLine("## Rebuild requested")
                                .AppendLine()
-                               .Append("The approval no longer holds because ").Append(cause).Append(". ")
+                               .Append("The approval asks to rebuild from task ").Append(task).Append(". ")
                                .Append("Build progress was reset from ").Append(tasksCompleted)
-                               .AppendLine(tasksCompleted == 1 ? " completed task." : " completed tasks.")
-                               .AppendLine()
-                               .Append("The plan has to be approved again before the builder will run, ")
-                               .AppendLine("and it will start from the first task.")
+                               .Append(tasksCompleted == 1 ? " completed task to " : " completed tasks to ").Append(task - 1)
+                               .Append(", and the builder will start from ")
+                               .AppendLine(task == 1 ? "the first task." : $"task {task}.")
                                .AppendLine()
                                .ToString());
 
@@ -873,7 +902,7 @@ internal sealed class RunDirectory
 /// </param>
 /// <param name="TaskChanges">
 /// The files each completed task reported changing, which a task's fresh session is told about.
-/// Emptied with the progress when a reopened plan restarts the tasks.
+/// Trimmed with the progress to the tasks that stay built when a change to the plan sends the build back.
 /// </param>
 /// <param name="FullGate">When the orchestrator verifies targeted fixes: beforeNextRound or final.</param>
 internal sealed record RunState(string RunId,

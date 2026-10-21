@@ -7,8 +7,13 @@ which no human runs either: `planforge.exe --telemetry-collector --port <n>`, th
 collector (`Orchestration/TelemetryCollector.cs`). A server starts it detached when the host's
 profile exports OpenTelemetry to a loopback port; it serves no MCP, takes OTLP/JSON logs at
 `/v1/logs` from loopback only, keeps the usage of the Host sessions servers registered with it, and
-exits five minutes after the last registered server process does. `Program.cs` dispatches on the
-flag before the MCP host is built. The plugin lives inside
+exits five minutes after the last registered server process does. The third,
+`planforge.exe --resume-card [<directory>]` (`Orchestration/ResumeCard.cs`), is run after a context
+compaction by the Claude Code hook in `hooks/claude.pff.hooks.json` and the Codex hook in
+`hooks/codex.pff.hooks.json`, which hands it the session on stdin: it reads the session's Run files and
+prints where the Run stands and the exact argument shapes of the calls ahead, IDs and shapes only —
+see [docs/adr/0040](docs/adr/0040-resume-the-orchestrator-after-a-compaction.md). `Program.cs`
+dispatches on both flags before the MCP host is built. The plugin lives inside
 the `CodexPlugins` monorepo at `plugins/plan-forge-flow`; all commands below are run from this
 directory unless stated otherwise.
 
@@ -65,8 +70,16 @@ src/PlanForge/            the MCP server
 src/PlanForge.Tests/      integration tests are traited "Category=Integration"
 prompts/                  role contracts and shared contracts, editable without a rebuild
   <vendor>/               only what differs about that vendor; codex needs nothing and has none
-skills/forge/SKILL.md     how the orchestrator drives the tools
+skills/forge/SKILL.md     the skill's core: participants, phases, every tool's arguments
+skills/forge/references/  one file per phase, read when it begins; the core names each
+hooks/claude.pff.hooks.json  Claude Code's SessionStart(compact) hook: the resume card
+hooks/codex.pff.hooks.json   Codex's; each manifest names its file, and none is hooks/hooks.json
 ```
+
+The skill's core has to stay under what Claude Code re-injects after a compaction, 5,000 tokens;
+`build/package.ps1` refuses one over 18 KB. Put a new section in the reference of the phase that
+reads it and name it in the core's map, not in `SKILL.md` itself. The package script's phrase
+markers and the `*SkillTests` classes read the core and every reference together.
 
 ## The four participants
 
@@ -355,9 +368,9 @@ Unknown, empty or whitespace input is refused; damaged saved timing, including n
 stops state reads without mutation. Log through available log.append and start a new run; do not
 hand-edit .forge. See [docs/adr/0030](docs/adr/0030-leave-targeted-fixes-pending-until-full-host-verification.md).
 
-Everything else is observable rather than gated. There are no hooks: an orchestrator can abandon a
-run midway or edit during the interview, and working-tree drift is shown beside the plan at approval
-time rather than blocked. This is deliberate — see
+Everything else is observable rather than gated. No hook gates anything — the resume card's
+hooks only read the Run — so an orchestrator can abandon a run midway or edit during the interview,
+and working-tree drift is shown beside the plan at approval time rather than blocked. This is deliberate — see
 [docs/adr/0002](docs/adr/0002-mcp-server-surface-without-enforcement.md).
 
 Approval is not asked for by this server. `forge.plan.confirm` records a decision the orchestrator

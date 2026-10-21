@@ -40,7 +40,7 @@ these terms replace it.
 | **Fix attempt** | One logical Builder execution named by `fixAttemptId` and bound to one exact sorted non-empty `fixFindingIds` set outside the decision payload. The binding includes an immutable gate mode (full or targeted). Retained or cut-short work retries the same attempt, set and mode; another set or mode under the key is invalid. A terminal successful attempt returns its saved result without another Builder or gate. |
 | **Raise** | A finding the Orchestrator puts into the Canonical decision ledger itself during code review, typically a place a Builder reported as `left:`. It travels in a decisions-only `forge.review.fix` batch as `severity`, `where`, `what`, Decision-maker and reason, takes the next Finding identity, and becomes an unresolved `code_review` entry marked `raised`, which the next Critic assesses like any other. The call returns the new IDs as `raisedFindingIds` for a later Fix attempt. Plan review refuses Raises, and a batch with Raises carries no Fix attempt. See `docs/adr/0025`. |
 | **Fix note** | The Orchestrator's `note` on a Fix attempt, framing its batch by the rules its findings break: for each rule, the rule itself with the requirement it comes from, its owner and its axes; for the batch, what must not change and when to stop. An attempt's first call carries the whole note, a retry only what changed since the last call. The Builder reads it after the verbatim findings under "From the orchestrator" and before the user's Run instructions; the Flow log records it verbatim. Narrative, not ledger state, so a retried attempt carries whatever note the retry sends; the server requires none and checks none of it. |
-| **Plan file** | The run's plan as it currently stands, `PLAN.md`: written whole by `forge.plan.write` or revised by targets through `forge.plan.patch`, which persists the complete result before the round. Also rewritten by a round handed a draft of its own, and by `forge.plan.confirm` with the text the user approved. The plan text is UTF-8 read with a leading byte-order mark dropped; a patch removes any byte-order marks at the result's start before checking, writing, hashing or measuring it, while a whole-draft write stores its draft as given. Blank means whitespace after setting aside leading byte-order marks. Approval is `approved` in run state; either writer or a later round withdraws it and resets build progress and the Builder session. |
+| **Plan file** | The run's plan as it currently stands, `PLAN.md`: written whole by `forge.plan.write` or revised by targets through `forge.plan.patch`, which persists the complete result before the round. Also rewritten by a round handed a draft of its own, and by `forge.plan.confirm` with the text the user approved. The plan text is UTF-8 read with a leading byte-order mark dropped; a patch removes any byte-order marks at the result's start before checking, writing, hashing or measuring it, while a whole-draft write stores its draft as given. Blank means whitespace after setting aside leading byte-order marks. Approval is `approved` in run state; either writer or a later round withdraws it and forgets the Builder session. A whole-draft write or a round handed a draft resets build progress to zero; a patch keeps the built tasks before the first task whose text it changes. |
 | **Edit target** | One piece of plan text a Plan patch may replace, delete or insert beside. Outside Approach, heading lines begin at column 0 with one to six `#` followed by space or tab; each starts a target. With exactly one build-recognized `## Approach`, the build's patterns run on CRLF-normalized text with positions mapped back: its heading ends at the first task or section end, each task starts at the line holding the match's first digit and runs to the next task or section end, and the section-end line starts a heading target even if it is not an ordinary heading. Other heading lines inside the section are not targets; without exactly one Approach, only heading lines divide the plan. A nonempty preamble precedes the first target. Fences are ignored: a heading cuts a code block outside Approach; a build-recognized task or section end cuts it inside. Targets never overlap, include each line's ending break, and concatenate to the exact plan text. IDs `s0`, `s1`, … and target hashes name only that snapshot. |
 | **Plan outline** | A plan snapshot's Edit targets in document order — ID, kind (`preamble`, `heading`, `task`), one-line label, hash and size — with the whole plan's hash and size. Hashes are the first 16 lowercase hexadecimal characters of SHA-256 over UTF-8 plan or target text; sizes are UTF-16 code units, called characters. Labels are the heading/task first line or preamble's first nonblank line, trimmed and cut to 80 characters, or `(blank)` for a whitespace-only preamble. Carries no plan text beyond labels. `forge.plan.outline` refuses a missing or blank plan; `forge.plan.write` returns a null outline for blank plan text. |
 | **Plan patch** | A partial revision against one exact Plan outline hash and target IDs/hashes: `replace`, `delete`, `insertBefore` or `insertAfter`, applied independently of edit order. Refuses conflicting mutations on one target, insertions at one position (after X and before its successor coincide), and an insertion anchored on a deleted target. Written text uses CRLF only when the base has breaks and all are CRLF, otherwise LF; it ends with a break, keeps supplied trailing blank lines, and a separator is added between pieces when needed. Untouched targets keep their exact text. The whole result must be nonblank, changed, and still accepted by the build's task parser if the base was accepted, including task-number parsing. Refusals change no protected file. Approval is withdrawn before replacing the complete plan; failures before replacement leave it unchanged, while a failure of the patch Flow entry reports that it was patched and gives the new hash. There is no lock or multi-file transaction, and the hash check is not atomic with replacement. A replay conflicts as stale: read the outline and redo the edits, never infer success from equal text. The next Critic receives the complete plan through the usual review route. |
@@ -93,6 +93,8 @@ these terms replace it.
 | **Killed background task** | A command a Worker started in the background that was still running when its turn ended, so the Vendor killed it with the process. The Worker never saw its result. Detected on claude only, where the stream reports it; named in the build result for a Builder, logged for a Critic. Not a "background job": a **Job** is a delegated act. |
 | **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported. `unavailable` also covers a Builder that ran no checks because the executable gate belongs to the server, with that reason in the evidence. The verdict where the gate is a condition; context where the gate is a command, because the gate run answers that. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
+| **Resume card** | What `planforge.exe --resume-card` prints for the Claude Code and Codex `SessionStart` hooks after a compaction: the Run of this Host session, where it stands, the next calls with their exact argument shapes, and the skill reference to read again. IDs, counts and shapes only. Cursor runs no such hook; see below and `docs/adr/0040`. |
+| **Skill core** | `skills/forge/SKILL.md`: the participants, the phases, the tools with their argument shapes, the rules that hold throughout. Everything else is a phase's **reference** under `skills/forge/references/`, read when the phase begins. The core stays under what the host re-injects after a compaction. |
 
 ## Tier asymmetry is a design-wide constraint
 
@@ -886,9 +888,11 @@ revisions bury the sixth, and wrong that a file the user can ignore does the sam
 What it costs is that `PLAN.md` no longer means "the approved plan". Nothing ever read the file's
 existence as approval — `Build` and `CodeReview` both gate on `approved` in the run state — but a
 round run *after* an approval would have left that flag raised over text nobody approved. So a round
-now withdraws it, zeroing `tasksCompleted` and the builder session with it, and says so in the flow
-log. See [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md), including the
-two orderings inside the act that the safety of this rests on.
+now withdraws it, dropping the builder session and the built tasks the new text reaches with it, and
+says so in the flow log. See [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md),
+including the two orderings inside the act that the safety of this rests on, and
+[docs/adr/0039](docs/adr/0039-a-patch-keeps-the-built-tasks-it-does-not-change.md) for which built
+tasks a change reaches.
 
 ## The link to the plan waited for the critique it was meant to precede
 
@@ -1107,3 +1111,64 @@ back under `workspaceRoot`. The cost of the removal is the clickable link, not t
 
 The decision that follows from all of this — and why the surface was not changed instead — is
 [docs/adr/0011](docs/adr/0011-the-run-follows-the-session-not-the-workspace.md).
+
+## A compaction leaves the Orchestrator its own summary; Claude Code and Codex run a hook after it
+
+The Orchestrator's host compacts its context several times a run. Counted from the `compact_boundary`
+entries of the orchestrator transcripts of the concurrency-hunter runs of 14–20 October 2026: A10
+(`5c1f5a`) 3 at about 960k tokens, B3 (`675224`) 1 at about 960k, B3b (`7586e3`) 5 at about 470k,
+B3c (`0d2a47`) 6 at about 470k — in plan review, the build and code review alike.
+
+After one, Claude Code re-injects an invoked skill's body capped at 5,000 tokens per skill and
+25,000 in all, keeping the start of the file, and re-reads at most five recently touched files. The
+forge skill was 97 KB, about 25k tokens, so four fifths of it went, and the ToolSearch-loaded tool
+schemas with it. Right after B3c's third compaction the Orchestrator called `forge.plan.show` and
+`forge.plan.confirm` with argument shapes copied from its summary and got a bare error twice (see
+`docs/adr/0038`), and from then on it declared no phase: B3c's `telemetry.json` holds one
+`orchestrator.usage` record, `interview`, for an eleven-hour run.
+
+Claude Code runs a plugin's `SessionStart` hooks with matcher `compact` after an automatic or
+manual compaction and adds what they print to stdout to the compacted context, capped at 10,000
+characters, by its documentation. A hook's `command` runs in Git Bash, or in PowerShell where the
+hook says `"shell": "powershell"`; an exec-form command cannot start a `.cmd`. Measured on
+2026-10-21 with `claude` 2.1.302 headless and a `SessionStart` hook of matcher `startup` asking for
+PowerShell: the hook process had `CLAUDE_CODE_SESSION_ID` equal to the session's `session_id` — the
+same variable the server reads for the Host session — and `CLAUDE_PROJECT_DIR`, and the card
+`planforge.exe --resume-card` printed for a fixture Run reached the model, which quoted its
+`planHash` line back exactly. The card's own text is ASCII, because PowerShell may decode a native
+program's output in the console's code page.
+
+Codex 0.162.1, read from its source at tag `rust-v0.162.1` and its embedded hook schemas: after any
+compaction of a root session, manual or automatic, `SessionStart` hooks matching `source` `compact`
+run before the next model request, and their stdout or `hookSpecificOutput.additionalContext`
+becomes a developer message, spilled to a file past about 2,500 tokens. `PreCompact` and
+`PostCompact` cannot add context. The hook gets no session variable: its stdin JSON carries
+`session_id` — the root thread's id, which is the `_meta.threadId` the server records for the Host
+session — and `cwd`. An invoked skill's body is dropped by compaction there too, while `AGENTS.md` is
+put back. A plugin's hooks come from the file its manifest's `hooks` names, or from
+`hooks/hooks.json` when it names none; on Windows the handler's
+`commandWindows` runs, in the user's detected shell or `cmd.exe` without one, after `${PLUGIN_ROOT}`
+is replaced. Installing a plugin does not trust its hooks: each runs only once the user has trusted
+it through `/hooks`, and again after its command changes. Measured on 2026-10-21 with `codex exec`,
+`--dangerously-bypass-hook-trust` and `model_auto_compact_token_limit=2000`: the hook's `session_id`
+equalled the `thread_id` of `thread.started`, the production command ran under `pwsh` and got its
+stdin through `cmd.exe` and the launcher, and after the mid-turn compaction the model quoted the
+card's `planHash` line exactly. The same command fed the same stdin under `cmd.exe /C` printed the
+card too.
+
+So there are two hook files, each named by its host's manifest: `hooks/claude.pff.hooks.json` by
+`.claude-plugin/plugin.json`, `hooks/codex.pff.hooks.json` by `.codex-plugin/plugin.json`. Neither is
+`hooks/hooks.json`: measured the same day with a probe plugin under `claude -p --plugin-dir`, Claude
+Code loads `hooks/hooks.json` as well as the file its manifest names, tolerates `commandWindows`,
+and runs the `command` field. The Codex file's `command`, which only a non-Windows Codex would run,
+is `exit 0`. Both installs copy the whole plugin folder, so each host holds the other's file and
+ignores it. Measured with the files under these names: the probe plugin's Claude Code session ran
+only `claude.pff.hooks.json`; and `codex plugin add` from a local marketplace in a throwaway
+`CODEX_HOME` installed 0.56.0 with both files, after which a `codex exec` with only a `startup` hook
+of its own printed the card after a forced compaction, once — the compact hook came from
+`codex.pff.hooks.json` through `.codex-plugin/plugin.json`.
+
+**Cursor gets nothing from the resume card.** It runs neither file. An Orchestrator there, or one
+in a Codex that has not trusted the hook, recovers the way the skill core says for any host without
+a card — `forge.status` first, then the reference for the phase the run is in. The skill core's size
+helps every host alike.

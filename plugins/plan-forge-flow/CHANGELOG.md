@@ -1,5 +1,69 @@
 # Plan Forge Flow releases
 
+## 0.56.0
+
+The Orchestrator comes back from a context compaction knowing where its run stands. Issue #170,
+parts 1 and 2; ADR 0040. Part 3, smaller tool results, is issue #176.
+
+- A resume card on Claude Code and Codex. A `SessionStart` hook with matcher `compact` runs
+  `planforge.exe --resume-card`, a third entry point that serves no MCP. It prints, for the Run whose
+  open phase names this session, the run and its folder, approval, tasks built, rounds and caps, the
+  saved `fullGate`, the gate environment's names, the critic's, builder's and Scout's selections,
+  the finding IDs by disposition and those pending full verification, where the run stands, the
+  next calls with their exact argument shapes, and the skill reference to read before the next
+  call; it says when the declared phase lags the run. IDs, counts and shapes only, in ASCII, about
+  2.7 KB for run B3c. Nothing for a session with no open Run.
+- Claude Code's hook is `hooks/claude.pff.hooks.json` and hands the card the project directory and
+  `CLAUDE_CODE_SESSION_ID`. Codex's is `hooks/codex.pff.hooks.json`, and the card reads Codex's hook
+  input from stdin: `session_id`, the root thread id, and `cwd`. Each host's manifest names its file.
+  Codex runs it only once you trust it through `/hooks`. Cursor runs no hook.
+- The forge skill's core is 13.8 KB, under the 5,000 tokens Claude Code re-injects after a
+  compaction, down from 97 KB: the participants, the phases and the file each reads, every tool's
+  arguments, the `decisions` shape, and the rules that hold throughout. Every other section moved
+  verbatim into `skills/forge/references/` — `asking.md`, `interview.md`, `scout.md`, `planning.md`,
+  `plan-review.md`, `ledger.md`, `approval.md`, `build.md`, `code-review.md`, `tools.md`.
+- `build/package.ps1` ships the references and both hook files, reads its skill markers across all
+  of the skill's files, checks that the core names every reference and stays under 18 KB, allows
+  `hooks/` to hold exactly the two hook files, and runs the published binary's `--resume-card` in
+  both forms.
+
+## 0.55.0
+
+A plan patch after approval keeps the built tasks it does not change. Issue #168, ADR 0039.
+
+- `forge.plan.patch` compares the plan's tasks, as the build parses them, before and after the
+  patch. The build goes back only to the first task whose text changed: a patch that rewrites,
+  inserts or removes task k, or adds prose after task k, keeps tasks 1 to k − 1 with the files they
+  changed for the next task's hand-over and drops a pending gate failure. A patch to the title,
+  Requirements, Gates or a task not yet built keeps every built task and the pending gate failure.
+  Approval is withdrawn and the Builder session forgotten either way. Concurrency-hunter run B3c
+  re-ran 42 built tasks, 2.4 h of Builder time, across 8 such reopenings.
+- The patch answers with `tasksKept` and `firstTaskOwed`, and the `## Plan reopened` Flow entry names
+  the tasks kept and the task the builder will start from.
+- `forge.plan.write` and a review round handed a `planDraft` still reset the progress to zero, now
+  also on a run an earlier patch left unapproved with built tasks. A round over the plan on disk
+  keeps what the last write or patch kept.
+- `forge.plan.confirm` takes an optional `rebuildFrom`, a built task, with `approved: true` only,
+  for when the user says a change outside the tasks invalidates a built one.
+- The forge skill tells the user how many built tasks a revision and a re-approval keep.
+  `build/package.ps1` asserts `rebuildFrom` in the `forge.plan.confirm` schema.
+
+## 0.54.0
+
+`forge.work.poll` waits as long as the host lets a call run. Issue #169.
+
+- `forge.work.poll` takes an optional `waitSeconds`. Omitted, a poll waits 45 seconds as before and
+  its result is unchanged. On a Cursor client — any client name containing `cursor` — it is held to
+  1–45; on any other client to 1–3000, ten minutes inside the hour Claude Code and Codex give a call.
+  A value outside the range is clamped, and the result's `waitClamped` says what was asked and what
+  was waited. A long poll still returns the moment the job ends.
+- The forge skill: on non-Cursor hosts a Builder act expected to run long — a task whose gate runs
+  the suite, a fix batch — may go through `forge.work.start` with `waitSeconds: 3000` polls, instead
+  of a one-call tool the host cuts at the hour with nothing recorded. Cursor keeps the 45-second
+  loop. Concurrency-hunter run A10 spent 1,437 polls and about 2.4 h of Orchestrator model time on
+  that loop.
+- `build/package.ps1` asserts the `forge.work.poll` schema.
+
 ## 0.53.0
 
 Microsoft-Decision-1 in Azure AI Foundry is the second Advisor.

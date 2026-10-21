@@ -74,6 +74,37 @@ internal static partial class PlanTasks
         return tasks;
     }
 
+    /// <summary>
+    /// The first task whose text differs between two versions of a plan, which is where a build of the
+    /// later version has to start again. A task inserted or removed there shifts every task after it,
+    /// so they differ too; text inserted between two tasks belongs to the one before it, as it does
+    /// for the build. Task numbers and line breaks are not compared, since the Builder reads neither.
+    /// </summary>
+    /// <param name="before">The plan as it was.</param>
+    /// <param name="after">The plan as it is now.</param>
+    /// <returns>
+    /// The first differing task position, numbered from 1, or null when both have the same tasks; 1
+    /// when either has no task shape, since nothing built can be matched to it.
+    /// </returns>
+    internal static int? FirstChanged(string before, string after)
+    {
+        IReadOnlyList<PlanTask> was, now;
+        try
+        {
+            was = Parse(before);
+            now = Parse(after);
+        }
+        catch (Exception error) when (error is PlanShapeException or FormatException or OverflowException)
+        {
+            return 1;
+        }
+
+        var shared = Math.Min(was.Count, now.Count);
+        for (var index = 0; index < shared; index++)
+            if (!string.Equals(was[index].Text, now[index].Text, StringComparison.Ordinal)) return index + 1;
+        return was.Count == now.Count ? null : shared + 1;
+    }
+
     public static string Brief(string plan)
     {
         var heading = ApproachHeading().Match(plan);

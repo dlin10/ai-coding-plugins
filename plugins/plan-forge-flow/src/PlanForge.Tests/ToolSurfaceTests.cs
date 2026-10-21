@@ -241,7 +241,7 @@ public sealed class ToolSurfaceTests
 
         var schema = tool.ProtocolTool.InputSchema;
         var properties = schema.GetProperty("properties");
-        Assert.Equal(["workspaceRoot", "runId", "approved", "gateEnvironment", "builderRoots", "decisions", "fullGate", "plan", "planHash"],
+        Assert.Equal(["workspaceRoot", "runId", "approved", "gateEnvironment", "builderRoots", "decisions", "fullGate", "plan", "planHash", "rebuildFrom"],
                      properties.EnumerateObject().Select(property => property.Name));
         Assert.Equal(["workspaceRoot", "runId", "approved"],
                      schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
@@ -323,6 +323,17 @@ public sealed class ToolSurfaceTests
         Assert.DoesNotContain("sessionMode", required);
     }
 
+    [Fact]
+    public void Poll_publishes_an_optional_wait_and_hides_the_server()
+    {
+        var schema = SchemaFor(nameof(ForgeTools.PollWork));
+        var properties = schema.GetProperty("properties").EnumerateObject().Select(property => property.Name).ToList();
+
+        Assert.Equal(["workspaceRoot", "runId", "jobId", "waitSeconds"], properties);
+        Assert.Equal(["workspaceRoot", "runId", "jobId"],
+                     schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
+    }
+
     /// <summary>
     /// Speed is a third axis beside model and effort (docs/adr/0023), so every tool that takes an
     /// effort takes an optional `fast` beside it, and none is left without one.
@@ -377,7 +388,7 @@ public sealed class ToolSurfaceTests
                  })
             Assert.True(File.Exists(path), $"missing Scout prompt asset: {path}");
 
-        var skill = File.ReadAllText(Path.Combine(RepositoryRoot(), "skills", "forge", "SKILL.md"));
+        var skill = ForgeSkill.Text(RepositoryRoot());
         Assert.Contains("multi-module", skill, StringComparison.Ordinal);
         Assert.Contains("forge.scout.run", skill, StringComparison.Ordinal);
         Assert.Contains("documents.scout", skill, StringComparison.Ordinal);

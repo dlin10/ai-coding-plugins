@@ -88,8 +88,12 @@ internal sealed class PlanReview
         // The draft is on disk before the critic starts rather than after it finishes: a round runs
         // for minutes, and those minutes are exactly when having the plan to read is worth
         // something. No guard precedes the write — the same draft is already on disk in `forge.log`,
-        // written by the tool-call record, so this adds no surface a secret could reach.
-        state = Reopen(run, state, "a review round ran", out _);
+        // written by the tool-call record, so this adds no surface a secret could reach. A round handed
+        // a draft rewrites the plan whole and keeps no built task; a round over the plan on disk changes
+        // no text, so it keeps whatever the write or patch that put the plan there kept.
+        var handed = !string.IsNullOrWhiteSpace(planDraft);
+        state = Reopen(run, state, "a review round ran", handed ? planDraft! : WrittenDraft(run) ?? string.Empty,
+                       handed ? 0 : state.TasksCompleted, out _);
         var draft = TakeDraft(run, planDraft);
         var evidenceMapWarning = EvidenceMapCurrency.Warning(run, state.ReviewRounds);
 
@@ -172,7 +176,8 @@ internal sealed class PlanReview
     /// Writes the draft without reviewing it, so the plan is on disk — and its path in front of the
     /// user — before the round that judges it rather than after. Everything a round does to the
     /// file it does here too: the same whole-file replacement, and the same withdrawal of an
-    /// approval the new text has invalidated.
+    /// approval the new text has invalidated. A whole draft says nothing about which tasks it left
+    /// alone, so it keeps no built task.
     /// </summary>
     /// <param name="run">The run whose plan is replaced.</param>
     /// <param name="planDraft">The complete draft, stored as supplied.</param>
@@ -186,16 +191,31 @@ internal sealed class PlanReview
         if (string.IsNullOrWhiteSpace(planDraft))
             throw new ArgumentRejectedException("forge.plan.write requires planDraft");
 
-        Reopen(run, run.ReadState(), "the plan was rewritten with forge.plan.write", out _);
+        Reopen(run, run.ReadState(), "the plan was rewritten with forge.plan.write", planDraft, 0, out _);
         run.WritePlan(planDraft);
     }
 
+    /// <summary>
+    /// Applies a Plan patch and writes the result. The approval goes as it does for a write, but the
+    /// build progress goes back only to the first task whose text the patch changed: built tasks
+    /// before it keep their count and their hand-over, and a patch that changes no built task keeps
+    /// them all.
+    /// </summary>
+    /// <remarks>
+    /// The tasks are compared as the build parses them, not by which Edit targets the patch named:
+    /// prose inserted after a task joins that task's text, which no target position shows.
+    /// </remarks>
+    /// <param name="run">The run whose plan is patched.</param>
+    /// <param name="baseHash">The hash of the plan the edits were written against.</param>
+    /// <param name="edits">The edits, against that plan's outline.</param>
+    /// <returns>The new outline, the changes, their sizes and the build progress the run keeps.</returns>
     public static PlanPatchOutcome Patch(RunDirectory run, string? baseHash, IReadOnlyList<PlanEdit?>? edits)
     {
         var sizes = PlanPatchSizes.Payload(edits);
         var approvalWithdrawn = false;
         PlanPatchResult patch;
         string plan;
+        int tasksKept;
         try
         {
             if (!File.Exists(run.PlanPath)) throw NoPlan();
@@ -204,7 +224,12 @@ internal sealed class PlanReview
             if (PlanOutline.IsBlank(plan)) throw NoPlan();
             patch = PlanPatch.Apply(plan, baseHash, edits);
             sizes = patch.Sizes;
-            Reopen(run, run.ReadState(), "the plan was patched with forge.plan.patch", out approvalWithdrawn);
+            var state = run.ReadState();
+            var kept = PlanTasks.FirstChanged(plan, patch.Plan) is { } changed
+                ? Math.Min(state.TasksCompleted, changed - 1)
+                : state.TasksCompleted;
+            tasksKept = Reopen(run, state, "the plan was patched with forge.plan.patch", patch.Plan, kept,
+                               out approvalWithdrawn).TasksCompleted;
             run.WritePlan(patch.Plan);
         }
         catch (PlanPatchRejectedException) { throw; }
@@ -225,7 +250,7 @@ internal sealed class PlanReview
             throw new PlanPatchFailedException("failed_after_patch", sizes,
                 $"The plan was patched, but its Flow entry could not be written. The new plan hash is {outline.PlanHash}; read forge.plan.outline.");
         }
-        return new PlanPatchOutcome(beforeHash, outline, patch.Changes, sizes);
+        return new PlanPatchOutcome(beforeHash, outline, patch.Changes, sizes, tasksKept, FirstTaskOwed(patch.Plan, tasksKept));
 
         PlanPatchRejectedException NoPlan() => new("no_plan", sizes,
             "Write the plan first with forge.plan.write before reading an outline or patching it.");
@@ -270,35 +295,68 @@ internal sealed class PlanReview
     /// <c>WriteState</c> keep the approval off rather than restoring it from a stale capture.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// This runs before <see cref="RunDirectory.WritePlan"/>, and the order is the whole point. A
     /// crash between the two leaves the approval flag off over the previously approved text, which
     /// only refuses a build; the other order would leave the flag on over text nobody approved,
     /// which is the hole that writing the plan early would otherwise open.
+    /// </para>
+    /// <para>
+    /// The build progress goes back only as far as the change reaches. Built tasks before the first
+    /// one the new text changes stay built, and a run that was not approved — because an earlier
+    /// patch already reopened it — still loses the tasks this change reaches. The Builder session is
+    /// forgotten either way; the next task starts a fresh one anyway (docs/adr/0026).
+    /// </para>
     /// </remarks>
     /// <param name="run">The run whose state and timeline record the reopening.</param>
     /// <param name="state">The state the round started from.</param>
     /// <param name="cause">The action that invalidated the approval.</param>
-    /// <param name="approvalWithdrawn">Whether the reopening state was persisted, even if its Flow entry fails.</param>
-    /// <returns>The state the round builds on: unchanged when nothing was approved, reopened otherwise.</returns>
-    private static RunState Reopen(RunDirectory run, RunState state, string cause, out bool approvalWithdrawn)
+    /// <param name="plan">The plan the run holds once the change lands, to name the first task owed.</param>
+    /// <param name="kept">How many built tasks the change leaves untouched; more than are built keeps them all.</param>
+    /// <param name="approvalWithdrawn">Whether an approval was taken back and persisted, even if its Flow entry fails.</param>
+    /// <returns>The state the round builds on: unchanged when nothing was approved or rewound, reopened otherwise.</returns>
+    private static RunState Reopen(RunDirectory run, RunState state, string cause, string plan, int kept,
+                                   out bool approvalWithdrawn)
     {
         approvalWithdrawn = false;
-        if (!state.Approved) return state;
+        if (!state.Approved && kept >= state.TasksCompleted) return state;
 
-        // A gate failure owed to a task of the old plan is owed to nobody once the tasks restart, and
-        // what the old tasks changed is no hand-over for the new ones.
-        var reopened = BuilderSession.Forget(state) with
-        {
-            Approved = false,
-            TasksCompleted = 0,
-            PendingGateFailure = null,
-            TaskChanges = null
-        };
+        var reopened = kept < state.TasksCompleted
+            ? Rewind(state, kept) with { Approved = false }
+            : BuilderSession.Forget(state) with { Approved = false };
         run.WriteState(reopened);
-        approvalWithdrawn = true;
-        run.AppendFlowReopened(state.TasksCompleted, cause);
+        approvalWithdrawn = state.Approved;
+        run.AppendFlowReopened(state.Approved, state.TasksCompleted, reopened.TasksCompleted,
+                               FirstTaskOwed(plan, reopened.TasksCompleted), cause);
         return reopened;
     }
+
+    /// <summary>
+    /// Takes the build progress back to <paramref name="kept"/> tasks. What the dropped tasks changed
+    /// is no hand-over for their rebuild, and the gate failure the next task owed is owed to nobody
+    /// once tasks before it restart; the tasks that stay keep their hand-over, so the first one rebuilt
+    /// is told what they changed.
+    /// </summary>
+    /// <param name="state">The run state holding the progress.</param>
+    /// <param name="kept">How many built tasks stay built; fewer than are built.</param>
+    /// <returns>The run state with the progress, hand-over, owed gate failure and Builder session taken back.</returns>
+    internal static RunState Rewind(RunState state, int kept)
+    {
+        var changes = state.TaskChanges?.Where(change => change.TaskNumber <= kept).ToArray();
+        return BuilderSession.Forget(state) with
+        {
+            TasksCompleted = kept,
+            PendingGateFailure = null,
+            TaskChanges = changes is { Length: > 0 } ? changes : null
+        };
+    }
+
+    /// <summary>The task the next build runs after <paramref name="kept"/> tasks, or null when the plan has none after them.</summary>
+    /// <param name="plan">The plan the build reads.</param>
+    /// <param name="kept">How many tasks are built.</param>
+    /// <returns>The first task owed, numbered from 1.</returns>
+    internal static int? FirstTaskOwed(string plan, int kept) =>
+        PlanTasks.Locate(plan)?.TaskStarts.Count > kept ? kept + 1 : null;
 
     /// <summary>
     /// A round after the first is an answer to the one before it, and the answer is the orchestrator's
@@ -336,7 +394,8 @@ internal sealed class PlanReview
 }
 
 internal sealed record PlanPatchOutcome(string BaseHash, PlanOutline Outline,
-                                        IReadOnlyList<PlanPatchChange> Changed, PlanPatchSizes Sizes);
+                                        IReadOnlyList<PlanPatchChange> Changed, PlanPatchSizes Sizes,
+                                        int TasksKept, int? FirstTaskOwed);
 
 internal sealed class PlanPatchFailedException(string outcome, PlanPatchSizes sizes, string message) : Exception(message)
 {

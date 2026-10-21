@@ -42,6 +42,15 @@ is advisory per [0002](0002-mcp-server-surface-without-enforcement.md) — the j
 registered for every host, the skill routes on the `client` that `forge.begin` already returns, and
 no code refuses a host that picks the other surface.
 
+> **Amended 2026-10-21 (issue #169).** "Deliberately not configurable" was Cursor's number applied to
+> every host. Concurrency-hunter run `20261014-181155-5c1f5a`, orchestrated from Claude Code, took
+> the job route for Builder acts that outlast the hour and spent 1,437 polls on it, each one a full
+> Orchestrator turn. `forge.work.poll` now takes `waitSeconds`: omitted it is the 45 seconds above;
+> the server holds it to 45 on a client whose name contains `cursor` and to 3000 — ten minutes short
+> of the hour — on any other, clamping and saying so in `waitClamped`. The poll still returns the
+> moment the job ends. On non-Cursor hosts the skill routes only a Builder act expected to run long
+> through the job tools; everything else stays on the one-call surface.
+
 Three details are load-bearing rather than incidental. A completed job's result is persisted under
 `.forge/<runId>/jobs/`, and `fetch` is idempotent: the round runs once, but reading it does not
 consume it, so a result that reached a window which then died is not a round burned for nothing.

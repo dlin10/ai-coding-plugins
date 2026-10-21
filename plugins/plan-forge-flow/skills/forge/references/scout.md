@@ -1,0 +1,152 @@
+# Forge reference: Scout, the Impact pass and the Evidence check
+
+Read it at the first broad reconnaissance need, before the Impact pass that precedes the first `forge.plan.write`, and before every Evidence check.
+
+## Scout reconnaissance
+
+Use Scout for broad repository reconnaissance before the Orchestrator can settle requirements or
+write a plan: multi-module exploration, caller/writer discovery, dependency tracing, or greenfield
+orientation. These are the broad triggers. Keep one or two targeted semantic lookups in the
+Orchestrator: they remain cheaper and clearer there. Use the local Roslyn or repository tools when
+the question has a narrow file, symbol, or caller boundary. Do not turn every local lookup into a
+Scout call. Scout has a second use point, the Impact pass below, which every plan gets.
+
+Scout is lazy and independent of the separate Critic and Builder selections. On the first broad need,
+make one just-in-time Scout selection round: call `forge.models`, offer up to three valid live/resolved
+Vendor/model/effort combinations, clearly mark exactly one **recommended** combination, and include
+the choice **continue without Scout**. Recommend the strongest combination the catalogue offers at high effort — judged by its position in the newest-first list, not by a remembered name — because the same selection serves the Impact pass, an exhaustive enumeration at which a weaker model invents test names. Do not silently select a Vendor or silently continue a session.
+Before the question, say in a sentence or two what Scout is for and what continuing without it
+costs: the Impact pass then falls to you.
+A persisted decline suppresses later automatic Scout questions for this Run; enabling it later requires
+an explicit `forge.scout.select` call. Scout selection is independent of and may happen before or
+after final Critic/Builder selection; if the first need occurs before it, this Scout catalogue call
+is still just-in-time and separate from the final refresh in `interview.md`.
+When exactly one valid Vendor is available, omit the Scout Vendor question and use that Vendor for
+the offered combination. On a Cursor host, when `cursor` is available, omit the Scout Vendor
+question as well and offer the resolved Cursor choices directly. Offer the Fast tier for Scout by
+the same rule as for the other roles in `interview.md`, as its own yes/no after the combination is chosen, and
+pass the answer as `fast` to `forge.scout.select`; it stays with the selection.
+
+For every direct or background Scout call, pass `sessionMode` explicitly. Use `continue` only for a
+direct follow-up in the same investigation. Use `fresh` for an independent question, a new
+subsystem, stale evidence, or a deliberate reset. After a failure, retry with the saved selection;
+reselect explicitly to clear the old session and failure; or explicitly choose continue without
+Scout. Never silently choose session continuity and never fall back to another Vendor. A
+`no_shell` failure is the exception to retrying at once: the Scout's commands never started, so it
+read nothing, and the same selection fails the same way until its vendor is repaired. Tell the user
+what the failure says, and ask whether to repair the vendor and retry, reselect, or continue without
+Scout. Scout may use already available internet without per-call authorization or a widened grant. Require typed
+repository citations (path plus positive line or non-empty symbol) and external citations (an
+absolute HTTP(S) URL). Surface `scout-answers.json` only after each successful Scout call.
+Do not copy Scout's report into Critic or Builder prompts automatically; only derived conclusions
+the Orchestrator deliberately puts into a plan or task may reach those Workers.
+
+### The Scout question
+
+Write every Scout question — orientation or impact — with these parts:
+
+- **Goal** — what is going to change and why, in one or two sentences.
+- **Workspace and tooling** — which Roslyn MCP server and port serves this code, the absolute path
+  to use with it, and that its reference and caller queries answer "who uses". A Scout left to
+  guess falls back to text search.
+- **Numbered, narrow sub-questions.**
+- **Search scope** — named beyond `src/`: the test projects, `build/`, `skills/`, `docs/`,
+  `prompts/`, and whatever else in the repository pins behaviour.
+
+A question may run to 8,000 characters. When an Impact pass's Change points do not fit, split it
+by area into several questions.
+
+### The Impact pass
+
+After you have drafted the plan's approach and made its matrix check, and before the first
+`forge.plan.write`, ask the Scout one Impact pass. Every plan gets one. It is a Scout need, so it
+starts the Scout selection round when none has been made. Name every Change point the approach
+introduces — symbols, contracts, wire and persisted formats, counters, prompts and skill text — and
+ask, for each one:
+
+- every consumer, and what its behaviour becomes;
+- every test that asserts today's behaviour, with file:line and test method name;
+- every artefact outside the code that pins current values or wording: snapshots, metrics and
+  baselines, gate scripts, docs, specs, skills and prompts;
+- for a rule — a predicate, a classification, an identity, a mapping — every other place that
+  decides the same question, and whether it agrees today.
+
+```text
+Impact check for a drafted approach. Do not redesign or judge it; find everything it breaks or must also touch.
+
+Planned change:
+1) <change point, named by symbol or contract>
+2) ...
+
+For each of 1–N, list:
+a. Every consumer of what changes and what its behaviour becomes.
+b. Every test that asserts today's behaviour and would fail or need updating (file:line and test method name).
+c. Every artefact outside the code that pins current values or definitions: recorded snapshots, metrics or baseline files, gate scripts, docs, spec or skill text.
+d. For a change point that is a rule (a predicate, classification, identity or mapping): every other place that decides the same question, and whether it agrees today.
+
+Search <the scope, beyond src/>.
+```
+
+Run the first Impact pass with `sessionMode: fresh`, so the orientation framing cannot anchor the
+enumeration. Its result carries the complete answer: fold it into the plan — tasks for affected
+consumers, tests to update, artefacts to re-record — before the plan is written. When a revision
+introduces a Change point no Impact pass has checked, ask again with `sessionMode: continue` about
+the new Change points only, before its review. When the Run continues without Scout,
+make the same check yourself with reference and caller queries and text search, and record what
+you searched with `forge.log.append`.
+
+### The Evidence check
+
+After the matrix check and the Impact pass, write the first draft with `forge.plan.write`. Then,
+after each Impact pass and before the review that follows it, make the manual Evidence check over
+every entry of `scout-answers.json` — every answer of the Run, not only the last — comparing every
+fact that bears on a Change point with the plan. Each such fact is either used by the plan or
+departed from on purpose. Record a deliberate departure with `forge.log.append`, and patch it into
+the plan as well — in the exclusions or the task text — wherever a Critic would otherwise raise
+it: the Critic never reads the Run log.
+
+With no configured Advisor, that completes the Evidence check. With one, use it after the manual
+check; with several, ask the user once which Advisor to use, as for a Vendor, and pass its id as
+`advisor` on every call. `forge.begin` and `forge.status` report `advisors`; a partly configured
+Advisor is not configured. An Advisor answers typed Choice questions, and its Evidence map is
+shadow-mode advice: a `covered` excuses nothing and removes no manual check.
+
+1. Call `forge.evidence.map` with every Change point of the Run's Impact passes and your
+   implications. Each implication has `text` and `derivedFrom`, the existing Scout item IDs it
+   rests on (`A{number}.{category}.{position}`, with positions starting at 1). The server keeps
+   judgments and the latest result in `evidence-map.json`.
+2. Call again until `complete` is true or a call's `checkedThisCall` is 0. Keep the Change-point
+   list the same from call to call until an Impact pass adds Change points, then append those.
+   Only while the list would otherwise pass 200, merge related Change points into one entry each.
+   A changed list re-asks the whole map. If merging related ones cannot bring it to 200, make no
+   further map call in this Run: log `Evidence map: stopped, N Change points` with
+   `forge.log.append`, tell the user, and rely on the manual Evidence check alone from then on,
+   as with no configured Advisor.
+3. Take up only the flags the manual check had not handled, decide each as you always do, and
+   patch the plan where needed. Settle a `contradiction` with evidence, never with a sentence:
+   either name the task that changes the very thing the fact describes, or read the code the fact
+   names or run a probe, and patch the plan with what that showed. Never answer one by writing
+   into the plan that the code is unaffected or works as before without such a check — a Critic
+   tests that claim, and an untested one comes back as a finding. Log one line
+   `Evidence map: raised N, already handled M, new K` with `forge.log.append`, adding
+   "incomplete" when the map did not complete and the not-indexed answer numbers when there are
+   any. Not-indexed answers are evidence the map could not read:
+   tell the user their numbers and make sure the manual Evidence check covered them, from the
+   complete answers received in Scout results or from an earlier version's `SCOUT.md`, which you
+   read yourself — the server never does.
+4. Before every later plan-review round, call the map again the same way and take up only `new`
+   flags. When the map did not complete, check every `new` unchecked item by hand. A revision
+   with a new Change point gets its Impact pass and manual Evidence check before its review.
+   Once the Run has used the map, `forge.plan.write`, `forge.plan.patch` and `forge.plan.review`
+   answer with `evidenceMapWarning` when the plan has changed after a review round that no
+   complete map call has followed, and a round that runs so also records it in the Flow log.
+   Patches you make in answer to a map before its round draw no warning. A warning means this
+   step is due: call the map before the next round. If you stopped the map under step 2, the
+   warning repeats; tell the user once and go on.
+
+The Evidence map is never shown to the Critic, Builder or Scout and has no place in code review.
+Each accepted map call attempts to write an `## Evidence map` Flow-log entry and an `advisor.usage`
+record to
+`telemetry.json`, with counts, models and usage, never item or plan text. The Telemetry file has
+three kinds: `vendor.usage` for Worker attempts, `orchestrator.usage` for Orchestrator phases, and
+`advisor.usage` for Evidence map calls.
