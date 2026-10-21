@@ -77,10 +77,10 @@ sentences of explanation and no code.
 | `forge.review.code` | Saved `fullGate=beforeNextRound` refuses review with pending fixes; `final` permits it and returns current `pendingFullGateFindingIds`, including []. Critic assessments do not verify them. On non-Cursor hosts, once per round after the last task. Returns one critique. **You** then filter the findings and call `forge.review.fix`. |
 | `forge.review.fix` | On non-Cursor hosts, applies code decisions and optionally runs the Builder for exactly `fixFindingIds` under one `fixAttemptId`. A decisions-only call starts no Builder or gate; it is also where `raises` go, and it answers with their `raisedFindingIds`. The Builder receives the ledger's verbatim findings for those IDs only, followed by your `note`. Optional case-sensitive `gate=full\|targeted` defaults to full and requires fix IDs when explicit. Targeted runs only the Fix gate and leaves findings pending full host verification. Retry with the same gate, attempt and exact IDs. |
 | `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempt IDs; malformed saved timing stops state reads without mutation. Before asking for approval, after a resumed run, and any time the user asks where things stand. Carries a compact ledger summary with current IDs, dispositions and active phases, the drift, job liveness, and `run.scout` with enabled/selection, current session, and last failure, plus the configured and partly configured `advisors` read from the server process environment at this call, with ids, configured models and variable names/problems, never credential values. |
-| `forge.work.start` | On Cursor, starts one worker act, including `scout`. `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools, and `review.fix` the same `note` and optional `gate=full\|targeted` (only with fix IDs); retries preserve gate, attempt and exact IDs. Pending-review and Fix gate checks match direct calls; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
-| `forge.work.poll` | On Cursor, waits up to 45 seconds for the started job and reports its latest stdout activity and recognised event. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
-| `forge.work.cancel` | On Cursor, requests cancellation of one job without waiting for it to stop. Use only when the user explicitly asks, or after showing its liveness and obtaining confirmation; then poll and fetch it normally. A terminal job is a successful no-op. |
-| `forge.work.fetch` | The result is a historical completion snapshot; status and a new fix replay show current pending IDs. On Cursor, fetches the terminal worker result after polling. |
+| `forge.work.start` | On Cursor, starts one worker act, including `scout`; on other hosts, only a Builder act expected to run long (below). `plan.review` and `review.fix` take the same decisions and retry IDs as their direct tools, and `review.fix` the same `note` and optional `gate=full\|targeted` (only with fix IDs); retries preserve gate, attempt and exact IDs. Pending-review and Fix gate checks match direct calls; invalid ledger IDs, phases, states, batch conflicts or fix-attempt sets are rejected before a job is created. If `started` is false, rejoin the returned active `jobId`. For Scout, pass only `question` and explicit `sessionMode`. |
+| `forge.work.poll` | Waits for the started job — 45 seconds, or `waitSeconds` — returns the moment it ends, and reports its latest stdout activity and recognised event. On Cursor omit `waitSeconds`; on other hosts pass `waitSeconds: 3000`. A value beyond the client's maximum is clamped and `waitClamped` says so. A `running` result means call it again immediately; it is not narration-worthy and never ends your turn. |
+| `forge.work.cancel` | Requests cancellation of one job without waiting for it to stop. Use only when the user explicitly asks, or after showing its liveness and obtaining confirmation; then poll and fetch it normally. A terminal job is a successful no-op. |
+| `forge.work.fetch` | The result is a historical completion snapshot; status and a new fix replay show current pending IDs. Fetches the terminal worker result after polling. |
 
 Every tool takes `workspaceRoot` and, after `forge.begin`, `runId`. On a Cursor client, every worker
 act — including Scout — goes through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`;
@@ -109,8 +109,12 @@ exists. What to do with the documents is below.
 
 Worker calls run for minutes, and the host's clock on a tool call is not yours to extend. On Cursor,
 use start → poll → fetch for every act, including Scout, so the surviving server can rejoin a detached
-worker; on every other host, call Scout directly and use the one-call tools for the other acts. One
-`forge.work.poll` waits 45 seconds, so an act that takes minutes needs many of them in a row: keep
+worker; on every other host, call Scout directly and use the one-call tools for the other acts. The
+exception on other hosts: their clock cuts any one call at the hour and records nothing, so a Builder
+act expected to run long — a task whose gate runs the suite, a fix batch — may go through
+`forge.work.start` (`build.next` or `review.fix`) with `forge.work.poll` called with
+`waitSeconds: 3000`, which costs one turn per fifty minutes. On Cursor one `forge.work.poll` waits 45
+seconds, so an act that takes minutes needs many of them in a row. Either way, keep
 calling it, in the same turn, until the state is no longer `running`, and only then fetch. Each poll
 result says which call it wants next. A `running` poll is not a result, not narration-worthy, and never
 a reason to end your turn — never stop on one to ask the user to continue, because there is nothing
@@ -833,8 +837,8 @@ is `unavailable` with that explicit reason, not `failed`. Fully implemented work
 the server runs its gate as usual. Optional Builder checks report only their own actual results,
 never a claim that the gate passed. A genuine inability to check still reports its exact reason.
 
-Declare `phase: "build"` before each build act — `forge.build.next`, or on Cursor
-`forge.work.start` with act `build` — a retry of the same task included, so each record holds one
+Declare `phase: "build"` before each build act — `forge.build.next`, or
+`forge.work.start` with act `build.next` — a retry of the same task included, so each record holds one
 attempt at one task.
 
 Read `gate.outcome` first:

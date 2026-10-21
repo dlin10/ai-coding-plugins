@@ -1,5 +1,21 @@
 # Plan Forge Flow releases
 
+## 0.54.0
+
+`forge.work.poll` waits as long as the host lets a call run. Issue #169.
+
+- `forge.work.poll` takes an optional `waitSeconds`. Omitted, a poll waits 45 seconds as before and
+  its result is unchanged. On a Cursor client — any client name containing `cursor` — it is held to
+  1–45; on any other client to 1–3000, ten minutes inside the hour Claude Code and Codex give a call.
+  A value outside the range is clamped, and the result's `waitClamped` says what was asked and what
+  was waited. A long poll still returns the moment the job ends.
+- The forge skill: on non-Cursor hosts a Builder act expected to run long — a task whose gate runs
+  the suite, a fix batch — may go through `forge.work.start` with `waitSeconds: 3000` polls, instead
+  of a one-call tool the host cuts at the hour with nothing recorded. Cursor keeps the 45-second
+  loop. Concurrency-hunter run A10 spent 1,437 polls and about 2.4 h of Orchestrator model time on
+  that loop.
+- `build/package.ps1` asserts the `forge.work.poll` schema.
+
 ## 0.53.0
 
 Microsoft-Decision-1 in Azure AI Foundry is the second Advisor.

@@ -28,7 +28,6 @@ internal sealed class ForgeTools
 {
     private const int DEFAULT_REVIEW_ROUND_CAP = 5;
     private const int DEFAULT_CODE_REVIEW_CAP = 3;
-    private const int WORK_POLL_TIMEOUT_SECONDS = 45;
     private const string SOURCE = "server";
 
     /// <summary>Only one Evidence map may mutate a Run in this server process at a time.</summary>
@@ -942,25 +941,65 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for up to 45 seconds, and reports its last stdout activity and recognised event. A `running` result is not the end of the wait: call this again with the same job id.")]
-    public static Task<string> PollWork(JobRegistry registry,
+    [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for 45 seconds or `waitSeconds`, returning the moment it ends, and reports its last stdout activity and recognised event. A `running` result is not the end of the wait: call this again with the same job id.")]
+    public static Task<string> PollWork(McpServer server,
+                                        JobRegistry registry,
                                         SessionRoots roots,
                                         [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                         [Description("Run id from forge.begin.")] string runId,
                                         [Description("Job id returned by forge.work.start.")] string jobId,
-                                        CancellationToken ct) =>
-        PollWork(registry, roots, workspaceRoot, runId, jobId, TimeSpan.FromSeconds(WORK_POLL_TIMEOUT_SECONDS), ct);
+                                        CancellationToken ct,
+                                        [Description("Seconds to wait before answering `running`. Omit for 45. At most 45 on a Cursor client and 3000 on any other; a value outside 1 to that maximum is clamped, and `waitClamped` in the result says so.")] int? waitSeconds = null) =>
+        PollWork(registry, roots, workspaceRoot, runId, jobId, ct, ClientName(server), waitSeconds);
 
+    /// <summary>
+    /// <c>forge.work.poll</c> without an <see cref="McpServer"/>: the client name the handshake
+    /// would give is passed in, and decides how long the wait may be.
+    /// </summary>
+    /// <param name="registry">The server's active jobs.</param>
+    /// <param name="roots">The session roots advertised by the host.</param>
+    /// <param name="workspaceRoot">The Run's workspace root.</param>
+    /// <param name="runId">The Run the job belongs to.</param>
+    /// <param name="jobId">The job to wait for.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="client">The MCP client's name from the handshake.</param>
+    /// <param name="waitSeconds">The requested wait, or null for the 45-second default.</param>
+    internal static Task<string> PollWork(JobRegistry registry,
+                                          SessionRoots roots,
+                                          string workspaceRoot,
+                                          string runId,
+                                          string jobId,
+                                          CancellationToken ct,
+                                          string client = "unknown",
+                                          int? waitSeconds = null)
+    {
+        var wait = PollWait.For(client, waitSeconds);
+        return PollWork(registry, roots, workspaceRoot, runId, jobId, wait.Timeout, ct, waitSeconds, wait.Clamped);
+    }
+
+    /// <summary>Waits up to <paramref name="timeout"/> for the job and reports where it stands.</summary>
+    /// <param name="registry">The server's active jobs.</param>
+    /// <param name="roots">The session roots advertised by the host.</param>
+    /// <param name="workspaceRoot">The Run's workspace root.</param>
+    /// <param name="runId">The Run the job belongs to.</param>
+    /// <param name="jobId">The job to wait for.</param>
+    /// <param name="timeout">How long to wait before answering <c>running</c>.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="waitSeconds">The wait the caller asked for, logged as asked; null when it asked for none.</param>
+    /// <param name="waitClamped">Why the wait differs from the one asked for, or null when it does not.</param>
     internal static async Task<string> PollWork(JobRegistry registry,
                                                 SessionRoots roots,
                                                 string workspaceRoot,
                                                 string runId,
                                                 string jobId,
                                                 TimeSpan timeout,
-                                                CancellationToken ct)
+                                                CancellationToken ct,
+                                                int? waitSeconds = null,
+                                                string? waitClamped = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, workspaceRoot, "forge.work.poll", [("jobId", jobId)],
+        return await LoggedAsync(run, workspaceRoot, "forge.work.poll",
+            [("jobId", jobId), ("waitSeconds", waitSeconds?.ToString(CultureInfo.InvariantCulture))],
             async () =>
             {
                 ValidateJobId(jobId);
@@ -968,7 +1007,7 @@ internal sealed class ForgeTools
                     .ConfigureAwait(false);
                 RequireJob(record, jobId);
 
-                return JsonSerializer.Serialize(PollResult(record!, run),
+                return JsonSerializer.Serialize(PollResult(record!, run, waitClamped),
                     ForgeToolJson.Default.WorkPollResult);
             });
     }
@@ -1185,10 +1224,10 @@ internal sealed class ForgeTools
                                                           ? "the job is still running: call forge.work.poll again now with this job id. Do not end your turn, and do not ask the user to continue."
                                                           : "call forge.work.fetch with this job id.";
 
-    private static WorkPollResult PollResult(JobRecord record, RunDirectory run) =>
+    private static WorkPollResult PollResult(JobRecord record, RunDirectory run, string? waitClamped = null) =>
         new(record.Id, record.Act, StateName(record.State), ElapsedSeconds(record), record.LastActivityAt,
             record.LastEvent, record.State == JobState.Failed ? record.Error : null, NextCall(record.State),
-            Documents(run));
+            Documents(run), waitClamped);
 
     private static double ElapsedSeconds(JobRecord record) => Math.Max(0, ((record.CompletedAt ?? DateTimeOffset.UtcNow) - record.StartedAt).TotalSeconds);
 
@@ -1405,6 +1444,7 @@ internal sealed record BuildNextResult(BuildOutcome Build, RunDocuments Document
 internal sealed record ReviewFixResult(BuildResult Fix, RunDocuments Documents);
 
 /// <param name="Next">The call this result asks for: another poll while the job runs, a fetch once it stops.</param>
+/// <param name="WaitClamped">Why this poll waited other than the <c>waitSeconds</c> it was given; absent when it waited as asked.</param>
 internal sealed record WorkPollResult(string JobId,
                                       string Act,
                                       string State,
@@ -1413,7 +1453,41 @@ internal sealed record WorkPollResult(string JobId,
                                       string? LastEvent,
                                       string? Error,
                                       string Next,
-                                      RunDocuments Documents);
+                                      RunDocuments Documents,
+                                      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                      string? WaitClamped = null);
+
+/// <summary>
+/// How long one <c>forge.work.poll</c> waits. Cursor cancels a call at a minute and nothing extends
+/// that, so 45 seconds is its ceiling; every other host gives a call an hour, and a poll that waits
+/// most of it costs the Orchestrator one turn where 45-second polls cost dozens — issue #169.
+/// </summary>
+/// <param name="Timeout">How long the poll waits before answering <c>running</c>.</param>
+/// <param name="Clamped">Why <see cref="Timeout"/> differs from the requested wait, or null when it does not.</param>
+internal sealed record PollWait(TimeSpan Timeout, string? Clamped)
+{
+    private const int DEFAULT_SECONDS = 45;
+    private const int CURSOR_MAX_SECONDS = 45;
+
+    // Claude Code's manifest "timeout" and Codex's tool_timeout_sec both end a call at the hour;
+    // ten minutes short of it leaves the result room to land before that clock does.
+    private const int LONG_MAX_SECONDS = 3000;
+
+    /// <summary>The wait for a client that asked for <paramref name="waitSeconds"/>, held to that client's range.</summary>
+    /// <param name="client">The MCP client's name from the handshake; any name containing "cursor" is Cursor.</param>
+    /// <param name="waitSeconds">The requested wait, or null for the 45-second default.</param>
+    public static PollWait For(string client, int? waitSeconds)
+    {
+        if (waitSeconds is not { } requested) return new PollWait(TimeSpan.FromSeconds(DEFAULT_SECONDS), null);
+
+        var maximum = client.Contains("cursor", StringComparison.OrdinalIgnoreCase) ? CURSOR_MAX_SECONDS : LONG_MAX_SECONDS;
+        var granted = Math.Clamp(requested, 1, maximum);
+        var clamped = granted == requested
+            ? null
+            : $"waitSeconds {requested} is outside 1 to {maximum}, the range for client '{client}'; this poll waited up to {granted} seconds";
+        return new PollWait(TimeSpan.FromSeconds(granted), clamped);
+    }
+}
 
 internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error, RunDocuments Documents);
 
