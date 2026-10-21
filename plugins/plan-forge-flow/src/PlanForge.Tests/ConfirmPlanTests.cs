@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PlanForge.Acts;
+using PlanForge.Infrastructure;
 using PlanForge.Mcp;
 using PlanForge.Repo;
 using PlanForge.Run;
@@ -84,7 +85,8 @@ public sealed class ConfirmPlanTests : IDisposable
 
         Assert.Equal(["CD_TEST_SQL_CONN"], saved.GetProperty("gateEnvironment").EnumerateArray().Select(name => name.GetString()));
         Assert.DoesNotContain("hunter2", json, StringComparison.Ordinal);
-        Assert.DoesNotContain("hunter2", File.ReadAllText(run.DiagnosticLogPath), StringComparison.Ordinal);
+        // Shared read: forge.begin's catalogue probes may still be appending to the log.
+        Assert.DoesNotContain("hunter2", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
         foreach (var hidden in new[] { "taskChanges", "builderSessionId", "builderVendor", "builderSessionScope", "workerTools",
                                        "builderRoots", "startedAt", "baselineHead" })
             Assert.False(saved.TryGetProperty(hidden, out _), hidden);
