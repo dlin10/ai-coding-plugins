@@ -24,8 +24,13 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
     private const string TRANSCRIPT = "transcript";
     private const string RUN_ID = "20261014-090000-matrix";
 
-    /// <summary>How much faster the choice's own timers run, so a ten-second wait for a collector is two.</summary>
-    private const int HURRY = 5;
+    /// <summary>
+    /// How much faster the choice's own timers run in a cell that waits out the choice's ten seconds, so
+    /// the wait is five. Every other cell runs on the system clock: its deadlines are not what it tests,
+    /// and shortened they were what a loaded CI runner overran — a profile read that had not started
+    /// when two seconds were up made an <c>ExportOff</c> cell count no profile read.
+    /// </summary>
+    private const int HURRY = 2;
 
     private readonly string _root = Path.Combine(Path.GetTempPath(), "planforge-choice-matrix", Guid.NewGuid().ToString("n"));
 
@@ -60,7 +65,7 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
     [Fact]
     public async Task Every_cell_chooses_what_R5_and_R6_expect()
     {
-        Assert.Empty(await WalkAsync(Cells(), DecideAsync));
+        await WalkAsync(Cells(), DecideAsync);
     }
 
     [Fact]
@@ -80,7 +85,7 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
     [Fact]
     public async Task A_cell_with_a_Host_session_keeps_its_first_choice_after_the_profile_the_collector_and_the_session_change()
     {
-        Assert.Empty(await WalkAsync(Cells().Where(cell => cell.Host != HostKind.None), async (cell, world, problems) =>
+        await WalkAsync(Cells().Where(cell => cell.Host != HostKind.None), async (cell, world, problems) =>
         {
             await DecideAsync(cell, world, problems);
             var first = Expected(cell.Host, cell.Profile, cell.Collector);
@@ -103,17 +108,18 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
             Expect(problems, 1, world.Chosen().Count, "choice entries after the second call");
             Expect(problems, 1, world.ProfileReads, "profile reads after the second call");
 
-            var fresh = world.NewOwner();
+            // The changed world never waits out a choice: no profile, or a collector that answers.
+            var fresh = world.NewOwner(TimeProvider.System);
             await world.CallAsync(fresh.Phases, cell.Host == HostKind.ClaudeCode ? HostSessions.CLAUDE_CODE : HostSessions.CODEX,
                                   "thread-" + Guid.NewGuid().ToString("n"));
             Expect(problems, first == TELEMETRY ? TRANSCRIPT : TELEMETRY, fresh.Choice.Name, "a fresh owner's source in the changed world");
-        }));
+        });
     }
 
     [Fact]
     public async Task A_cell_without_a_Host_session_makes_its_first_choice_at_a_later_call_carrying_a_threadId()
     {
-        Assert.Empty(await WalkAsync(Cells().Where(cell => cell.Host == HostKind.None), async (cell, world, problems) =>
+        await WalkAsync(Cells().Where(cell => cell.Host == HostKind.None), async (cell, world, problems) =>
         {
             await DecideAsync(cell, world, problems);
 
@@ -122,7 +128,7 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
             var expected = Expected(HostKind.CodexThread, cell.Profile, cell.Collector);
             Expect(problems, expected, world.Choice.Name, "the source once a thread is known");
             CheckEntry(problems, cell with { Host = HostKind.CodexThread }, expected, world);
-        }));
+        });
     }
 
     // ---- The expectation ----
@@ -139,6 +145,15 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
                                    or Collector.StartableInsideKillsOnClose;
         return configured && answers ? TELEMETRY : TRANSCRIPT;
     }
+
+    /// <summary>
+    /// Whether the cell's choice waits out its deadline: an export configured toward a port whose occupant
+    /// never answers as a collector, which the look polls until the choice's ten seconds are up.
+    /// </summary>
+    /// <param name="cell">The cell.</param>
+    private static bool WaitsOutTheChoice(Cell cell) =>
+        cell.Profile is Profile.Loopback4 or Profile.Localhost or Profile.Loopback6
+        && cell.Collector is Collector.OtherProtocol or Collector.Foreign;
 
     private static IEnumerable<Cell> Cells() =>
         from host in Enum.GetValues<HostKind>()
@@ -223,10 +238,14 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
         if (!EqualityComparer<T>.Default.Equals(expected, actual)) problems.Add($"{what}: expected {expected?.ToString() ?? "none"}, got {actual?.ToString() ?? "none"}");
     }
 
-    /// <summary>Runs <paramref name="check"/> on every cell in a world of its own, eight at a time; answers every difference found.</summary>
+    /// <summary>
+    /// Runs <paramref name="check"/> on every cell in a world of its own, eight at a time, and fails with
+    /// every difference found, each in full: a collection assertion would print only the first fifty
+    /// characters of the first, which names a cell and not what it got.
+    /// </summary>
     /// <param name="cells">The cells.</param>
     /// <param name="check">The cell's calls and checks.</param>
-    private async Task<IReadOnlyList<string>> WalkAsync(IEnumerable<Cell> cells, Func<Cell, World, List<string>, Task> check)
+    private async Task WalkAsync(IEnumerable<Cell> cells, Func<Cell, World, List<string>, Task> check)
     {
         var problems = new ConcurrentBag<string>();
         await Parallel.ForEachAsync(cells, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (cell, _) =>
@@ -246,7 +265,8 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
 
             foreach (var problem in found) problems.Add($"{cell}: {problem}");
         });
-        return [.. problems.Order(StringComparer.Ordinal)];
+        Assert.True(problems.IsEmpty, $"{problems.Count} differences:{Environment.NewLine}"
+                                      + string.Join(Environment.NewLine, problems.Order(StringComparer.Ordinal)));
     }
 
     // ---- Profiles ----
@@ -309,7 +329,7 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
             _createInside = cell.Collector != Collector.Unstartable;
             RunDirectory.Create(Root, RUN_ID);
             Arrange(cell.Collector);
-            (Choice, Phases) = NewOwner();
+            (Choice, Phases) = NewOwner(WaitsOutTheChoice(cell) ? new Hurried(HURRY) : TimeProvider.System);
         }
 
         public string Root { get; }
@@ -327,9 +347,10 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
         public OrchestratorPhases Phases { get; }
 
         /// <summary>A fresh choice owner over this world, and the phase owner that tells it of calls.</summary>
-        public (UsageSourceChoice Choice, OrchestratorPhases Phases) NewOwner()
+        /// <param name="time">The clock the choice's own deadlines run on.</param>
+        public (UsageSourceChoice Choice, OrchestratorPhases Phases) NewOwner(TimeProvider time)
         {
-            var choice = new UsageSourceChoice(new Hurried(HURRY), Variable, ReadProfile, Start);
+            var choice = new UsageSourceChoice(time, Variable, ReadProfile, Start);
             return (choice, new OrchestratorPhases(TimeProvider.System, choice, Variable));
         }
 
