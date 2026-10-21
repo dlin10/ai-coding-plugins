@@ -16,6 +16,9 @@ using PlanForge.Vendors;
 // branches off before the host is built.
 if (TelemetryCollector.IsCommand(args)) return await TelemetryCollector.RunAsync(args);
 
+// The third, the resume card (docs/adr/0040), only reads a Run's files for the host's SessionStart hook.
+if (ResumeCard.IsCommand(args)) return ResumeCard.Run(args, Console.In, Console.Out, Environment.GetEnvironmentVariable);
+
 var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.ClearProviders();   // stdout carries the protocol
 

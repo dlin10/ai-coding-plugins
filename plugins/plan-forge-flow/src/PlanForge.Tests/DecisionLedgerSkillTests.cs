@@ -352,7 +352,7 @@ public sealed class DecisionLedgerSkillTests
 
     private static PromptLibrary Prompts() => new(Path.Combine(RepositoryRoot(), "prompts"));
 
-    private static string Skill() => Read("skills", "forge", "SKILL.md");
+    private static string Skill() => ForgeSkill.Text(RepositoryRoot());
 
     private static string Read(params string[] path) => File.ReadAllText(Path.Combine([RepositoryRoot(), .. path]));
 

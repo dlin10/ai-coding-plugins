@@ -1,5 +1,32 @@
 # Plan Forge Flow releases
 
+## 0.56.0
+
+The Orchestrator comes back from a context compaction knowing where its run stands. Issue #170,
+parts 1 and 2; ADR 0040. Part 3, smaller tool results, is issue #176.
+
+- A resume card on Claude Code and Codex. A `SessionStart` hook with matcher `compact` runs
+  `planforge.exe --resume-card`, a third entry point that serves no MCP. It prints, for the Run whose
+  open phase names this session, the run and its folder, approval, tasks built, rounds and caps, the
+  saved `fullGate`, the gate environment's names, the critic's, builder's and Scout's selections,
+  the finding IDs by disposition and those pending full verification, where the run stands, the
+  next calls with their exact argument shapes, and the skill reference to read before the next
+  call; it says when the declared phase lags the run. IDs, counts and shapes only, in ASCII, about
+  2.7 KB for run B3c. Nothing for a session with no open Run.
+- Claude Code's hook is `hooks/claude.pff.hooks.json` and hands the card the project directory and
+  `CLAUDE_CODE_SESSION_ID`. Codex's is `hooks/codex.pff.hooks.json`, and the card reads Codex's hook
+  input from stdin: `session_id`, the root thread id, and `cwd`. Each host's manifest names its file.
+  Codex runs it only once you trust it through `/hooks`. Cursor runs no hook.
+- The forge skill's core is 13.8 KB, under the 5,000 tokens Claude Code re-injects after a
+  compaction, down from 97 KB: the participants, the phases and the file each reads, every tool's
+  arguments, the `decisions` shape, and the rules that hold throughout. Every other section moved
+  verbatim into `skills/forge/references/` — `asking.md`, `interview.md`, `scout.md`, `planning.md`,
+  `plan-review.md`, `ledger.md`, `approval.md`, `build.md`, `code-review.md`, `tools.md`.
+- `build/package.ps1` ships the references and both hook files, reads its skill markers across all
+  of the skill's files, checks that the core names every reference and stays under 18 KB, allows
+  `hooks/` to hold exactly the two hook files, and runs the published binary's `--resume-card` in
+  both forms.
+
 ## 0.55.0
 
 A plan patch after approval keeps the built tasks it does not change. Issue #168, ADR 0039.

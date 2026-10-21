@@ -14,7 +14,7 @@ internal sealed class HostSessions
     internal const string CLAUDE_CODE = "claude-code";
     internal const string CODEX = "codex";
 
-    private const string CLAUDE_SESSION_VARIABLE = "CLAUDE_CODE_SESSION_ID";
+    internal const string CLAUDE_SESSION_VARIABLE = "CLAUDE_CODE_SESSION_ID";
 
     private readonly Func<string, string?> _environment;
     private readonly object _gate = new();

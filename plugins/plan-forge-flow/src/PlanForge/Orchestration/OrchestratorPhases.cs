@@ -30,7 +30,7 @@ internal sealed class OrchestratorPhases
 
     private const string INTERVIEW = "interview";
     private const string DONE = "done";
-    private const string OPEN = "open";
+    internal const string OPEN = "open";
     private const string NONE = "none";
     internal const string LOG_SOURCE = "telemetry";
     internal const string FAILED = "orchestrator.telemetry.failed";

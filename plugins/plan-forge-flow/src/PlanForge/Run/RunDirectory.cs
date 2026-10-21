@@ -14,7 +14,7 @@ namespace PlanForge.Run;
 /// <summary>One run's state, isolated under <c>.forge/&lt;runId&gt;/</c>.</summary>
 internal sealed class RunDirectory
 {
-    private const string FORGE_FOLDER = ".forge";
+    internal const string FORGE_FOLDER = ".forge";
     private const string STATE_FILE_NAME = "state.json";
     private const string FLOW_LOG_FILE_NAME = "flow_log.md";
     private const string DIAGNOSTIC_LOG_FILE_NAME = "forge.log";

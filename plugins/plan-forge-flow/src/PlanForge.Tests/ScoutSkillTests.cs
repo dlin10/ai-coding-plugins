@@ -296,14 +296,13 @@ public sealed class ScoutSkillTests
 
     private static string ScoutSection()
     {
-        var skill = Skill();
-        var start = skill.IndexOf("## Scout reconnaissance", StringComparison.Ordinal);
-        var end = skill.IndexOf("## Act 1: the interview", start, StringComparison.Ordinal);
-        Assert.True(start >= 0 && end > start);
-        return skill[start..end];
+        var scout = Collapse(File.ReadAllText(Path.Combine(RepositoryRoot(), "skills", "forge", "references", "scout.md")));
+        var start = scout.IndexOf("## Scout reconnaissance", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+        return scout[start..];
     }
 
-    private static string Skill() => Collapse(File.ReadAllText(Path.Combine(RepositoryRoot(), "skills", "forge", "SKILL.md")));
+    private static string Skill() => Collapse(ForgeSkill.Text(RepositoryRoot()));
 
     private static string Collapse(string text) =>
         string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
