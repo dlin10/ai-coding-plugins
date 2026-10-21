@@ -1,4 +1,6 @@
+using System.Text.Json.Nodes;
 using PlanForge.Acts;
+using PlanForge.Jobs;
 using PlanForge.Prompts;
 using PlanForge.Run;
 using PlanForge.Vendors;
@@ -138,6 +140,186 @@ public sealed class PlanReviewTests : IDisposable
         Assert.Equal(5, state.ReviewRounds);
         Assert.Equal(5, state.ReviewRoundCap);
         Assert.Equal(0, state.GrantedReviewRounds);
+    }
+
+    /// <summary>
+    /// The round the cap would have stopped runs anyway when the last round found fewer findings than
+    /// the one before it and left no blocker. The cap stays where it was, so the round after is
+    /// decided again, and the flow log says which counts the round ran on. See docs/adr/0041.
+    /// </summary>
+    [Fact]
+    public async Task At_the_cap_a_round_runs_without_a_grant_while_the_findings_fall()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [new Finding("minor", "step 2", "name the temp suffix")], "one nit"));
+        var run = NewRun(rounds: 5, cap: 5, tallies: [new(6, false), new(4, false)]);
+        var act = new PlanReview(critic, new PromptLibrary(RepositoryPrompts()));
+
+        await act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                              "reworked step 3", null, false, CancellationToken.None);
+
+        var state = run.ReadState();
+        Assert.Equal(6, state.ReviewRounds);
+        Assert.Equal(5, state.ReviewRoundCap);
+        Assert.Equal(0, state.GrantedReviewRounds);
+        Assert.Equal(1, state.AutoContinuedReviewRounds);
+        Assert.Equal(new ReviewTally[] { new(6, false), new(4, false), new(1, false) }, state.ReviewTallies!);
+        Assert.Equal("6 → 4", act.ContinuedAutomatically);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains("continued automatically: 6 → 4", flow, StringComparison.Ordinal);
+        Assert.True(flow.IndexOf("## Plan review — round continued automatically", StringComparison.Ordinal)
+                    < flow.IndexOf("## Plan review — round 6", StringComparison.Ordinal),
+                    "the continuation must read before the critique it ran");
+    }
+
+    /// <summary>
+    /// Each of these is a round the user has to be asked about: the findings stayed flat, rose, or
+    /// the last round left a blocker.
+    /// </summary>
+    /// <param name="before">The finding count of the round before the last.</param>
+    /// <param name="last">The finding count of the last round.</param>
+    /// <param name="blocker">Whether the last round left a blocker.</param>
+    [Theory]
+    [InlineData(4, 4, false)]
+    [InlineData(4, 5, false)]
+    [InlineData(6, 4, true)]
+    public async Task At_the_cap_a_round_is_refused_unless_the_findings_fell_and_no_blocker_is_left(int before,
+                                                                                                   int last,
+                                                                                                   bool blocker)
+    {
+        var critic = new RecordingVendor("claude");
+        var run = NewRun(rounds: 5, cap: 5, tallies: [new(before, false), new(last, blocker)]);
+
+        var rejection = await Assert.ThrowsAsync<ReviewCapReachedException>(
+            () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+                .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                             "reworked step 3", null, false, CancellationToken.None));
+
+        Assert.Contains("cap is 5", rejection.Message, StringComparison.Ordinal);
+        Assert.Empty(critic.Sessions);
+        Assert.Equal(5, run.ReadState().ReviewRounds);
+    }
+
+    /// <summary>
+    /// Rounds continue for as long as the findings fall, however many that takes, and the first round
+    /// that cannot fall asks. Findings the critic assesses as no longer present do not count.
+    /// </summary>
+    [Fact]
+    public async Task Rounds_continue_while_the_findings_fall_and_the_first_that_does_not_is_refused()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [new Finding("major", "step 1", "page size unstated"),
+                                               new Finding("major", "step 2", "rename target unstated"),
+                                               new Finding("major", "step 3", "batch log unstated")], "three holes"));
+        critic.Enqueue(new Critique("revise", [new Finding("major", "step 3", "batch range unstated")], "one hole",
+                                    [Gone("F-0001"), Gone("F-0002"), Gone("F-0003")]));
+        critic.Enqueue(new Critique("approve", [], "nothing left",
+                                    [Gone("F-0001"), Gone("F-0002"), Gone("F-0003"), Gone("F-0004")]));
+        critic.Enqueue(new Critique("approve", [], "still nothing",
+                                    [Gone("F-0001"), Gone("F-0002"), Gone("F-0003"), Gone("F-0004")]));
+        var run = NewRun(rounds: 5, cap: 5, tallies: [new(5, false), new(4, false)]);
+        var act = new PlanReview(critic, new PromptLibrary(RepositoryPrompts()));
+
+        foreach (var revision in new[] { "revision 6", "revision 7", "revision 8", "revision 9" })
+            await act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                                  revision, null, false, CancellationToken.None);
+
+        await Assert.ThrowsAsync<ReviewCapReachedException>(
+            () => act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                                  "revision 10", null, false, CancellationToken.None));
+
+        var state = run.ReadState();
+        Assert.Equal(9, state.ReviewRounds);
+        Assert.Equal(5, state.ReviewRoundCap);
+        Assert.Equal(4, state.AutoContinuedReviewRounds);
+        Assert.Equal(new[] { 5, 4, 3, 1, 0, 0 }, state.ReviewTallies!.Select(tally => tally.Findings));
+        var flow = File.ReadAllText(run.FlowLogPath);
+        foreach (var counts in new[] { "5 → 4", "4 → 3", "3 → 1", "1 → 0" })
+            Assert.Contains($"continued automatically: {counts}.", flow, StringComparison.Ordinal);
+
+        static UnresolvedAssessment Gone(string id) => new(id, false, "the revised plan states it");
+    }
+
+    /// <summary>
+    /// An unresolved blocker the critic still finds is a blocker of the round that assessed it, even
+    /// though the round raised nothing new: the count fell, and the next round still asks.
+    /// </summary>
+    [Fact]
+    public async Task A_blocker_the_critic_still_finds_stops_the_round_after_the_cap()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [], "the blocker stands"));
+        var run = NewRun(rounds: 4, cap: 5, tallies: [new(3, false), new(6, false)]);
+        run.ReadDecisionLedger().AddFinding(new Finding("blocker", "step 3", "deletes before verifying"), LedgerPhase.PlanReview);
+        var act = new PlanReview(critic, new PromptLibrary(RepositoryPrompts()));
+
+        await act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                              "reworked step 3", null, false, CancellationToken.None);
+
+        Assert.Equal(new ReviewTally(1, true), run.ReadState().ReviewTallies![^1]);
+        await Assert.ThrowsAsync<ReviewCapReachedException>(
+            () => act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                                  "reworked step 3 again", null, false, CancellationToken.None));
+    }
+
+    /// <summary>A grant is the user's word, and it is spent as one even when the findings would have bought the round.</summary>
+    [Fact]
+    public async Task A_grant_at_the_cap_is_spent_as_a_grant_while_the_findings_fall()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 5, cap: 5, tallies: [new(6, false), new(4, false)]);
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                         "reworked step 3", null, true, CancellationToken.None);
+
+        var state = run.ReadState();
+        Assert.Equal(6, state.ReviewRoundCap);
+        Assert.Equal(1, state.GrantedReviewRounds);
+        Assert.Equal(0, state.AutoContinuedReviewRounds);
+        Assert.DoesNotContain("continued automatically", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    /// <summary>An automatic round is counted after its critique, as a grant is, so a round that died spends nothing.</summary>
+    [Fact]
+    public async Task An_automatic_rounds_dying_critique_spends_nothing()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new InvalidOperationException("vendor died mid-turn"));
+        var run = NewRun(rounds: 5, cap: 5, tallies: [new(6, false), new(4, false)]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+                .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
+                             "reworked step 3", null, false, CancellationToken.None));
+
+        var state = run.ReadState();
+        Assert.Equal(5, state.ReviewRounds);
+        Assert.Equal(0, state.AutoContinuedReviewRounds);
+        Assert.Equal(2, state.ReviewTallies!.Count);
+        Assert.DoesNotContain("continued automatically", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    /// <summary>The orchestrator learns of an automatic round from the result itself, which is how it can say so in one line.</summary>
+    [Fact]
+    public async Task The_result_of_an_automatic_round_carries_its_counts()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 5, cap: 5, tallies: [new(6, false), new(4, false)]);
+        var work = new WorkAct(critic, new PromptLibrary(RepositoryPrompts()));
+
+        var automatic = JsonNode.Parse(await work.RunAsync("plan.review", run, HardenedPlan, new Selection("critic-model", null), null, null,
+                                                           "reworked step 3", false, CancellationToken.None))!;
+        run.WriteState(run.ReadState() with { ReviewRoundCap = 10 });
+        var budgeted = JsonNode.Parse(await work.RunAsync("plan.review", run, HardenedPlan, new Selection("critic-model", null), null, null,
+                                                          "reworked step 3 again", false, CancellationToken.None))!;
+
+        Assert.Equal("6 → 4", automatic["continuedAutomatically"]?.GetValue<string>());
+        Assert.Null(budgeted["continuedAutomatically"]);
     }
 
     /// <summary>
@@ -528,11 +710,13 @@ public sealed class PlanReviewTests : IDisposable
         Assert.Contains("`dotnet build`", flow, StringComparison.Ordinal);
     }
 
-    private RunDirectory NewRun(int rounds, int cap, IReadOnlyList<string>? workerTools = null)
+    private RunDirectory NewRun(int rounds, int cap, IReadOnlyList<string>? workerTools = null,
+                                IReadOnlyList<ReviewTally>? tallies = null)
     {
         const string runId = "test-run";
         var run = RunDirectory.Create(_workspace, runId);
-        run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.Now, rounds, cap, WorkerTools: workerTools));
+        run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.Now, rounds, cap, WorkerTools: workerTools,
+                                    ReviewTallies: tallies));
         return run;
     }
 

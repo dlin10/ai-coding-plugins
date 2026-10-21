@@ -74,6 +74,19 @@ public sealed class ResumeCardTests : IDisposable
     }
 
     [Fact]
+    public void Rounds_run_past_the_cap_without_asking_are_counted_beside_the_granted_ones()
+    {
+        var run = NewRun("20261021-100000-rounds", approved: false, tasksCompleted: 0);
+        run.WriteState(run.ReadState() with { ReviewRounds = 8, ReviewRoundCap = 6, GrantedReviewRounds = 1,
+                                              AutoContinuedReviewRounds = 2 });
+
+        var card = ResumeCard.Of(_root, SESSION, null);
+
+        Assert.Contains("- Plan review: 8 rounds, cap 6 + 1 granted + 2 automatic; code review: ", card, StringComparison.Ordinal);
+        Clean(card);
+    }
+
+    [Fact]
     public void A_build_in_progress_names_the_next_task_and_the_builder_call_as_last_passed()
     {
         var run = NewRun("20261021-100000-build", approved: true, tasksCompleted: 1);

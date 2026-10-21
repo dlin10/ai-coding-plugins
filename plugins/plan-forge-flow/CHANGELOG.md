@@ -1,5 +1,31 @@
 # Plan Forge Flow releases
 
+## 0.57.0
+
+Plan review gets an end the Critic can reach, and a converging review no longer waits for the user
+at the cap. Issue #172, ADR 0041.
+
+- `prompts/critic-contract.md` defines severity by the implementer the plan names: `major` when,
+  following the material as written, that implementer would produce a wrong result or leave a
+  stated goal unmet; `minor` when it says too little but the implementer would still do the right
+  thing, and for wording, counts and gaps a gate already catches. The verdict is `approve` when no
+  `blocker` or `major` remains among the new findings and the unresolved ones still present; minors
+  still reach the ledger and the Builder. Six rated examples from the 2026-10-06 study mark the
+  major/minor line.
+- At the cap, `forge.plan.review` and `forge.review.code` (and `forge.work.start` for either) run
+  the round without `userGrantedRound` when the last round's finding count — its new findings plus
+  the unresolved ones its Critic still found — is below the round before it and none is a
+  `blocker`, for as long as the count keeps falling. The cap is not raised; a flat or rising count
+  or a blocker is refused with the existing cap error.
+- The Flow log records `## Plan review — round continued automatically` (or `Code review`) with
+  `continued automatically: 4 → 2`, and the round's result carries `continuedAutomatically`.
+- The run state gains `autoContinuedReviewRounds`, `autoContinuedCodeReviewRounds`,
+  `reviewTallies` and `codeReviewTallies`, which `forge.status` reports beside the granted rounds;
+  the resume card prints `+ N automatic`. A run begun before 0.57.0 has no tallies and asks at the
+  cap as before.
+- The skill's *Rounds, revision, and caps* asks the cap question only when the tool refuses, and
+  announces an automatic round in one line with its counts.
+
 ## 0.56.0
 
 The Orchestrator comes back from a context compaction knowing where its run stands. Issue #170,

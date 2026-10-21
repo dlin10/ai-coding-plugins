@@ -36,6 +36,9 @@ internal sealed class PlanReview
     /// <summary>Set when the round judged a plan the Run's Evidence map had not seen since an earlier round.</summary>
     internal string? EvidenceMapWarning { get; private set; }
 
+    /// <summary>The finding counts the round ran on when it ran past the cap without asking; see <see cref="ReviewCap"/>.</summary>
+    internal string? ContinuedAutomatically { get; private set; }
+
     /// <summary>Reviews the current plan and applies independent plan-phase decisions.</summary>
     /// <param name="run">The run whose plan, ledger and timeline the review reads and writes.</param>
     /// <param name="selection">The critic's model, effort and speed.</param>
@@ -53,7 +56,8 @@ internal sealed class PlanReview
     /// <param name="userGrantedRound">
     /// The orchestrator's assertion that it showed the user where the run stands, asked, and was
     /// told yes — the same kind of assertion <c>approved</c> carries on <c>forge.plan.confirm</c>,
-    /// and, per docs/adr/0003, one no code here can check.
+    /// and, per docs/adr/0003, one no code here can check. Without it a round at the cap still runs
+    /// when <see cref="ReviewCap.Continuation"/> allows it.
     /// </param>
     public async Task<Critique> ReviewAsync(RunDirectory run,
                                             string? planDraft,
@@ -67,9 +71,12 @@ internal sealed class PlanReview
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
         var state = run.ReadState();
-        if (state.ReviewRounds >= state.ReviewRoundCap && !userGrantedRound)
-            throw new ReviewCapReachedException(state.ReviewRounds, state.ReviewRoundCap);
-        var granted = state.ReviewRounds >= state.ReviewRoundCap;
+        var atCap = state.ReviewRounds >= state.ReviewRoundCap;
+        var continuation = atCap && !userGrantedRound
+            ? ReviewCap.Continuation(state.ReviewTallies)
+              ?? throw new ReviewCapReachedException(state.ReviewRounds, state.ReviewRoundCap)
+            : null;
+        var granted = atCap && userGrantedRound;
         RequireRevision(state.ReviewRounds, revision);
         var ledger = run.ReadDecisionLedger();
         if (orchestratorDecisions is not null)
@@ -156,19 +163,27 @@ internal sealed class PlanReview
         // Written after the critique rather than before it, so an act that died — a vendor timeout,
         // a restarted server — and was retried with the same arguments records the revision once.
         // The grant is spent the same way: recording it here rather than at the cap check means a
-        // retried call with the same arguments spends no grant.
+        // retried call with the same arguments spends no grant, and no automatic round either.
         if (revision is { Length: > 0 })
             run.AppendFlowRevision(state.ReviewRounds, revision, deferred);
         if (granted) run.AppendFlowGrantedRound("Plan review", round);
+        if (continuation is not null) run.AppendFlowAutoContinuedRound("Plan review", round, continuation);
         if (evidenceMapWarning is not null) run.AppendFlowEvidenceMapWarning(round, evidenceMapWarning);
         run.AppendFlowCritique("Plan review", round, critique);
         run.AppendFlowKilledTasks("Plan review", round, session.KilledBackgroundTasks);
         SpeedWarning = session.SpeedWarning;
         EvidenceMapWarning = evidenceMapWarning;
+        ContinuedAutomatically = continuation;
+        var reviewed = state with
+        {
+            ReviewRounds = round,
+            ReviewTallies = [.. state.ReviewTallies ?? [], ReviewCap.Tally(critique, ledger, LedgerPhase.PlanReview)]
+        };
         run.WriteState(granted
-            ? state with { ReviewRounds = round, ReviewRoundCap = state.ReviewRoundCap + 1,
-                           GrantedReviewRounds = state.GrantedReviewRounds + 1 }
-            : state with { ReviewRounds = round });
+            ? reviewed with { ReviewRoundCap = state.ReviewRoundCap + 1, GrantedReviewRounds = state.GrantedReviewRounds + 1 }
+            : continuation is not null
+                ? reviewed with { AutoContinuedReviewRounds = state.AutoContinuedReviewRounds + 1 }
+                : reviewed);
         return critique;
     }
 

@@ -74,7 +74,8 @@ finding, or repair the environment; do not automatically attribute the regressio
 Pass the failing command and output tail to the Builder in the new fix attempt's `note`, or the
 new raise's `what`/`reason`: the server's gate-failure summary does not contain Orchestrator checks.
 A final regression requiring code changes returns to the ordinary cycle: fix, new Critic, full
-verification. At the cap, first ask the existing question about one additional round. An
+verification. When that round is refused at the cap, first ask the existing question about one
+additional round. An
 environment-only repair repeats full verification without another Critic. If beforeNextRound is
 blocked, repair the environment, explicitly reconfirm `fullGate=final`, or consciously defer/reject
 with reasons and an honest account of unverified fixes; changing timing alone verifies nothing.

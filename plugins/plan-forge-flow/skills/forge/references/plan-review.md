@@ -44,7 +44,11 @@ rather than saving it for approval: a scope question answered late invalidates e
 after it. When one critique brings several, ask them one at a time, the one the others depend on
 first.
 
-Review rounds are capped, and so is the code-review loop. When a cap is reached the tool refuses.
+Review rounds are capped, and so is the code-review loop. At the cap a round still runs without
+asking when the last round found fewer findings than the one before it — new ones plus unresolved
+ones the critic still finds — and left no blocker, for as long as the count keeps falling. Its result then
+carries `continuedAutomatically`, for example `"4 → 2"`: say so in one line with those counts and
+carry on. Otherwise the tool refuses, and only then is the cap question asked.
 Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, and
 what the last verdict said, so the question carries its numbers. Say in plain words what the open
 findings are, and what one more round would cost against stopping here. On a yes, pass
