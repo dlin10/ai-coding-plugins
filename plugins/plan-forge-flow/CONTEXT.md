@@ -1180,3 +1180,16 @@ of its own printed the card after a forced compaction, once — the compact hook
 in a Codex that has not trusted the hook, recovers the way the skill core says for any host without
 a card — `forge.status` first, then the reference for the phase the run is in. The skill core's size
 helps every host alike.
+
+## An escaped letter cost the Orchestrator eight times the letter
+
+Every tool result used to leave the server indented and with all non-ASCII as `\uXXXX`. Measured on
+2026-10-21 from the Orchestrator transcripts of the concurrency-hunter runs A9–B3c: the context
+growth from one turn to the next, on 452 turns whose only addition was a single tool result of
+4 KB or more, regressed on the result's character classes (median error 4.3%, p90 16%), prices an
+escape at 4.10 tokens, a raw Cyrillic letter at 0.50, any other character at 0.45 and whitespace at
+0.18. On B3b and B3c, held in Russian, two thirds of the forge result tokens were escapes and
+indentation; on the English runs about a tenth. Forge results were 10–24% of a run's context
+growth, so the encoding was the one change to results worth most of a compaction window, and why
+results now leave through one compacting filter — see
+[docs/adr/0042](docs/adr/0042-tool-results-carry-what-the-orchestrator-acts-on.md).

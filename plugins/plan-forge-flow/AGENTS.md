@@ -379,8 +379,14 @@ from a host that answered for them and rendered nothing — see
 [docs/adr/0003](docs/adr/0003-approval-through-the-orchestrator.md). The consequence to hold on to:
 `Approved` in the run state is an assertion by the orchestrator, and no code here can check it.
 
-Drift is reported by `forge.status`, not only by the decision call, because the orchestrator has to
-show it to the user before asking rather than after.
+Drift is reported by `forge.status` rather than by the decision call, because the orchestrator has
+to show it to the user before asking rather than after.
+
+A tool result carries what the Orchestrator acts on; what only the server reads, or what the Flow
+log already holds, stays out. Every JSON result leaves through one call-tool filter,
+`Mcp/ToolResultText.cs`, which writes it compact and with non-ASCII as written rather than
+`\uXXXX`, so a serialiser's own indentation or escaping never reaches the Orchestrator — see
+[docs/adr/0042](docs/adr/0042-tool-results-carry-what-the-orchestrator-acts-on.md).
 
 ## Build constraints that bite
 

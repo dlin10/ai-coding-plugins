@@ -1484,7 +1484,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
                                   TimeSpan.FromSeconds(10), CancellationToken.None);
         var fetched = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace,
                                                                 backgroundRun.RunId, jobId, CancellationToken.None))!;
-        var background = JsonNode.Parse(fetched["result"]!.GetValue<string>())!;
+        var background = fetched["result"]!;
 
         Assert.Equal("F-0001", direct["raisedFindingIds"]![0]!.GetValue<string>());
         Assert.Equal("F-0001", background["raisedFindingIds"]![0]!.GetValue<string>());

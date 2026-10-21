@@ -126,7 +126,7 @@ public sealed class FastTierTests : IDisposable
         var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
                                                               CancellationToken.None))!;
 
-        var result = JsonNode.Parse(fetch["result"]!.GetValue<string>())!;
+        var result = fetch["result"]!;
         Assert.Equal("approve", result["verdict"]!.GetValue<string>());
         Assert.Contains("cooldown", result["speedWarning"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.Contains("fast_mode_state cooldown", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);

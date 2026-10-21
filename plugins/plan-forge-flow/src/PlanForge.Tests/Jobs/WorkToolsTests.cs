@@ -50,7 +50,7 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Equal("succeeded", fetch["state"]!.GetValue<string>());
         var identified = critique with { UnresolvedAssessments = [], Reopenings = [] };
         Assert.Equal(JsonSerializer.Serialize(identified, ContractJson.Default.Critique),
-            fetch["result"]!.GetValue<string>());
+            Assert.IsType<JsonObject>(fetch["result"]).ToJsonString());
     }
 
     /// <summary>
@@ -105,10 +105,46 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Equal(run.PlanPath, start["documents"]!["plan"]!["path"]!.GetValue<string>());
         Assert.Null(start["documents"]!["flowLog"]);
         Assert.Equal("running", poll["state"]!.GetValue<string>());
-        Assert.Equal(run.PlanPath, poll["documents"]!["plan"]!["path"]!.GetValue<string>());
+        Assert.Null(poll["documents"]);
 
         vendor.Release();
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// A long act is polled again and again, and the same documents on every poll were the larger
+    /// half of what polling cost the Orchestrator. A poll repeats them only when they changed since
+    /// the job last answered with them, so a file that first appears mid-job still reaches it once.
+    /// </summary>
+    [Fact]
+    public async Task A_poll_carries_the_documents_only_when_they_changed_since_the_job_last_answered()
+    {
+        var run = NewRun("poll-documents");
+        var vendor = new BlockingVendor();
+        var registry = new JobRegistry();
+        await ForgeTools.WritePlan(SessionRoots.None, _workspace, run.RunId, "## draft", CancellationToken.None);
+        var start = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
+            "plan.review", "critic", null, "claude", null, null, null, null, false, CancellationToken.None,
+            () => vendor))!;
+        var jobId = start["jobId"]!.GetValue<string>();
+        async Task<JsonNode> Poll() => JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace,
+            run.RunId, jobId, TimeSpan.FromMilliseconds(50), CancellationToken.None))!;
+
+        var unchanged = await Poll();
+        AtomicFile.Append(run.FlowLogPath, "## Timeline\n");
+        var appeared = await Poll();
+        var again = await Poll();
+
+        Assert.Null(unchanged["documents"]);
+        Assert.Equal(run.FlowLogPath, appeared["documents"]!["flowLog"]!["path"]!.GetValue<string>());
+        Assert.Equal(run.PlanPath, appeared["documents"]!["plan"]!["path"]!.GetValue<string>());
+        Assert.Null(again["documents"]);
+
+        vendor.Release();
+        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
+        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
+            CancellationToken.None))!;
+        Assert.Equal(run.FlowLogPath, fetch["documents"]!["flowLog"]!["path"]!.GetValue<string>());
     }
 
     /// <summary>
@@ -151,8 +187,8 @@ public sealed class WorkToolsTests : IDisposable
 
         Assert.Contains("\"critique\"", JsonSerializer.Serialize(new CritiqueResult(critique, documents),
             ForgeToolJson.Default.CritiqueResult), StringComparison.Ordinal);
-        Assert.Contains("\"build\"", JsonSerializer.Serialize(new BuildNextResult(new BuildOutcome(build, 1, 1), documents),
-            ForgeToolJson.Default.BuildNextResult), StringComparison.Ordinal);
+        Assert.Contains("\"tasksCompleted\"", BuildOutcomeView.Of(new BuildOutcome(build, 1, 1)).ToJsonString(),
+                        StringComparison.Ordinal);
         Assert.Contains("\"fix\"", JsonSerializer.Serialize(new ReviewFixResult(build, documents),
             ForgeToolJson.Default.ReviewFixResult), StringComparison.Ordinal);
         var evidence = new EvidenceMapResult("fixture", "requested", null, false, 1, 0, 0, 1, null,
@@ -162,8 +198,7 @@ public sealed class WorkToolsTests : IDisposable
         var outline = PlanOutline.Of("# Plan\n");
         Assert.Contains("\"outline\"", JsonSerializer.Serialize(new PlanOutlineResult("run", outline, documents),
             ForgeToolJson.Default.PlanOutlineResult), StringComparison.Ordinal);
-        Assert.Contains("\"sizes\"", JsonSerializer.Serialize(new PlanForge.Mcp.PlanPatchResult("run", outline.PlanHash,
-            outline, [new PlanPatchChange("replace", "s0", "# Plan")], PlanPatchSizes.Payload([]), 0, 1, documents),
+        Assert.Contains("\"tasksKept\"", JsonSerializer.Serialize(new PlanForge.Mcp.PlanPatchResult("run", outline, 0, 1, documents),
             ForgeToolJson.Default.PlanPatchResult), StringComparison.Ordinal);
         Assert.Contains("\"documents\"", JsonSerializer.Serialize(new PlanWriteResult("run", PlanOutline.Of("# Plan\n"), documents),
             ForgeToolJson.Default.PlanWriteResult), StringComparison.Ordinal);

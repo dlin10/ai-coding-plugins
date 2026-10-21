@@ -65,8 +65,7 @@ internal sealed class WorkAct
             case "build.next":
                 var buildAct = new Build(_vendor, _prompts);
                 var build = await buildAct.NextAsync(run, selection!, ct).ConfigureAwait(false);
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(build, ForgeToolJson.Default.BuildOutcome),
-                                            buildAct.SpeedWarning);
+                return SpeedWarnings.Attach(run, BuildOutcomeView.Of(build).ToJsonString(), buildAct.SpeedWarning);
 
             case "review.code":
                 var git = _git ?? new GitClient(run.ReadState().WorkspaceRoot);
