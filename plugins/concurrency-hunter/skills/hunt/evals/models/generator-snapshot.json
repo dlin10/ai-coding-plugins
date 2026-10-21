@@ -16,6 +16,12 @@
       "reason": null,
       "model": null,
       "modelReason": "incomplete",
+      "detail": "",
+      "causes": [
+        "result-unnamed",
+        "unseeded-read",
+        "value-unnamed"
+      ],
       "reachedBodies": 49
     },
     {
@@ -49,6 +55,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 22
     },
     {
@@ -67,6 +75,11 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "receiver-member-unseen",
+        "unseeded-read"
+      ],
       "reachedBodies": 219
     },
     {
@@ -89,6 +102,13 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "kept-user-object",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 35
     },
     {
@@ -111,6 +131,13 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "kept-user-object",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 36
     },
     {
@@ -129,6 +156,11 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "receiver-member-unseen",
+        "unseeded-read"
+      ],
       "reachedBodies": 216
     },
     {
@@ -151,6 +183,13 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "kept-user-object",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 34
     },
     {
@@ -189,6 +228,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 341
     },
     {
@@ -228,6 +269,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 342
     },
     {
@@ -254,6 +297,16 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "callback-value-read",
+        "callback-value-written",
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 357
     },
     {
@@ -272,6 +325,17 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "probe-accessed-elsewhere",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 352
     },
     {
@@ -290,6 +354,16 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "callback-value-in-library-call",
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 358
     },
     {
@@ -308,6 +382,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "result-several-objects",
+        "value-unobserved"
+      ],
       "reachedBodies": 371
     },
     {
@@ -326,6 +408,13 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "result-unresolved",
+        "value-unobserved"
+      ],
       "reachedBodies": 350
     },
     {
@@ -364,6 +453,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 342
     },
     {
@@ -386,6 +477,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "result-several-objects"
+      ],
       "reachedBodies": 355
     },
     {
@@ -404,6 +500,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "result-several-objects",
+        "value-unobserved"
+      ],
       "reachedBodies": 354
     },
     {
@@ -417,6 +521,8 @@
       "reason": "overridable",
       "model": null,
       "modelReason": null,
+      "detail": "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.Predicate{System.Security.Claims.Claim}) is virtual in System.Security.Claims.ClaimsPrincipal, which is not sealed: a call may run another type's override, which the driver does not analyse",
+      "causes": [],
       "reachedBodies": 0
     }
   ],
@@ -432,6 +538,8 @@
       "reason": "library-does-not-compile",
       "model": null,
       "modelReason": null,
+      "detail": "CS0051, CS0104",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -445,6 +553,8 @@
       "reason": "library-does-not-compile",
       "model": null,
       "modelReason": null,
+      "detail": "CS0051, CS0104",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -458,7 +568,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
-      "reachedBodies": 458
+      "detail": "",
+      "causes": [
+        "callback-value-written",
+        "receiver-member-unseen",
+        "result-unnamed",
+        "value-unnamed"
+      ],
+      "reachedBodies": 468
     },
     {
       "member": "M:FluentValidation.AbstractValidator`1.ValidateAsync(`0,System.Threading.CancellationToken)",
@@ -471,7 +588,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
-      "reachedBodies": 458
+      "detail": "",
+      "causes": [
+        "callback-value-written",
+        "receiver-member-unseen",
+        "result-unnamed",
+        "value-unnamed"
+      ],
+      "reachedBodies": 468
     },
     {
       "member": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.IValidator{`1},System.String[])",
@@ -484,6 +608,8 @@
       "reason": "driver-not-synthesized",
       "model": null,
       "modelReason": null,
+      "detail": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.IValidator{`1},System.String[]) is abstract; M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.IValidator{`1},System.String[]) is an interface member; only a default could fill the FluentValidation.IRuleBuilder<T, TProperty> of Recv",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -497,6 +623,8 @@
       "reason": "driver-not-synthesized",
       "model": null,
       "modelReason": null,
+      "detail": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.Validators.IPropertyValidator{`0,`1}) is abstract; M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.Validators.IPropertyValidator{`0,`1}) is an interface member; only a default could fill the FluentValidation.IRuleBuilder<T, TProperty> of Recv",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -509,8 +637,14 @@
       "classified": {},
       "reason": null,
       "model": null,
-      "modelReason": "vocabulary",
-      "reachedBodies": 21
+      "modelReason": "incomplete",
+      "detail": "",
+      "causes": [
+        "kept-user-object",
+        "unseeded-read",
+        "value-unnamed"
+      ],
+      "reachedBodies": 40
     },
     {
       "member": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Collections.Generic.IEnumerable{System.TimeSpan})",
@@ -523,6 +657,13 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "kept-user-object",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 33
     },
     {
@@ -532,6 +673,8 @@
       "reason": "corelib",
       "model": null,
       "modelReason": null,
+      "detail": "a member of System.Private.CoreLib is out of the generator",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -545,6 +688,10 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "library-state-store"
+      ],
       "reachedBodies": 38
     },
     {
@@ -558,6 +705,10 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "library-state-store"
+      ],
       "reachedBodies": 38
     },
     {
@@ -567,6 +718,8 @@
       "reason": "corelib",
       "model": null,
       "modelReason": null,
+      "detail": "a member of System.Private.CoreLib is out of the generator",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -576,6 +729,8 @@
       "reason": "corelib",
       "model": null,
       "modelReason": null,
+      "detail": "a member of System.Private.CoreLib is out of the generator",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -585,6 +740,8 @@
       "reason": "corelib",
       "model": null,
       "modelReason": null,
+      "detail": "a member of System.Private.CoreLib is out of the generator",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -594,6 +751,8 @@
       "reason": "corelib",
       "model": null,
       "modelReason": null,
+      "detail": "a member of System.Private.CoreLib is out of the generator",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -603,6 +762,8 @@
       "reason": "corelib",
       "model": null,
       "modelReason": null,
+      "detail": "a member of System.Private.CoreLib is out of the generator",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -616,6 +777,8 @@
       "reason": "closure-bound",
       "model": null,
       "modelReason": null,
+      "detail": "the reachable set reached 1693 bodies, over 1500",
+      "causes": [],
       "reachedBodies": 1693
     },
     {
@@ -629,6 +792,8 @@
       "reason": "driver-not-synthesized",
       "model": null,
       "modelReason": null,
+      "detail": "M:System.Threading.Channels.ChannelWriter`1.TryWrite(`0) is abstract",
+      "causes": [],
       "reachedBodies": 0
     }
   ],
@@ -649,6 +814,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 400
     },
     {
@@ -667,6 +838,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -689,6 +865,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 395
     },
     {
@@ -707,6 +888,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 391
     },
     {
@@ -734,6 +920,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 518
     },
     {
@@ -752,6 +940,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 391
     },
     {
@@ -765,6 +958,11 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen"
+      ],
       "reachedBodies": 391
     },
     {
@@ -783,6 +981,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -801,6 +1005,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -819,6 +1029,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -837,6 +1053,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -855,6 +1077,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -873,6 +1100,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -891,6 +1123,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -909,6 +1146,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -927,6 +1169,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -945,6 +1192,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -958,6 +1211,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-member-unseen",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "witness-value-handed"
+      ],
       "reachedBodies": 397
     },
     {
@@ -971,6 +1232,10 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen"
+      ],
       "reachedBodies": 424
     },
     {
@@ -998,6 +1263,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 388
     },
     {
@@ -1016,6 +1283,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 391
     },
     {
@@ -1034,6 +1306,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 398
     },
     {
@@ -1043,11 +1324,16 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "efc91998-afa1-4379-b91a-df57a4e858c5"
       },
-      "classified": null,
-      "reason": "not-a-candidate",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "result-unresolved",
+        "value-unobserved"
+      ],
+      "reachedBodies": 389
     },
     {
       "member": "M:System.Linq.Enumerable.ExceptBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
@@ -1090,6 +1376,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 398
     },
     {
@@ -1103,6 +1391,10 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "value-unobserved"
+      ],
       "reachedBodies": 518
     },
     {
@@ -1121,6 +1413,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1139,6 +1436,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1152,6 +1454,11 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 518
     },
     {
@@ -1170,6 +1477,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1188,6 +1501,18 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-graph-cells",
+        "callback-value-read",
+        "callback-value-written",
+        "enumeration-without-sequence",
+        "kept-user-object",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 397
     },
     {
@@ -1210,6 +1535,17 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "callback-value-read",
+        "callback-value-written",
+        "enumeration-without-sequence",
+        "kept-user-object",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 402
     },
     {
@@ -1232,6 +1568,18 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-graph-cells",
+        "callback-value-read",
+        "callback-value-written",
+        "enumeration-without-sequence",
+        "kept-user-object",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 402
     },
     {
@@ -1258,6 +1606,17 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "callback-value-read",
+        "callback-value-written",
+        "enumeration-without-sequence",
+        "kept-user-object",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 407
     },
     {
@@ -1284,6 +1643,16 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-graph-cells",
+        "callback-value-read",
+        "callback-value-written",
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 410
     },
     {
@@ -1327,6 +1696,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 398
     },
     {
@@ -1353,6 +1724,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-graph-cells",
+        "callback-value-read",
+        "callback-value-written",
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "value-unobserved"
+      ],
       "reachedBodies": 409
     },
     {
@@ -1366,6 +1746,10 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "value-unobserved"
+      ],
       "reachedBodies": 518
     },
     {
@@ -1384,6 +1768,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 402
     },
     {
@@ -1402,6 +1791,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 402
     },
     {
@@ -1415,6 +1809,11 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 518
     },
     {
@@ -1433,6 +1832,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 411
     },
     {
@@ -1459,6 +1864,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-graph-cells",
+        "callback-value-read",
+        "callback-value-written",
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "value-unobserved"
+      ],
       "reachedBodies": 409
     },
     {
@@ -1486,6 +1900,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 389
     },
     {
@@ -1524,6 +1940,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 391
     },
     {
@@ -1542,6 +1960,13 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved"
+      ],
       "reachedBodies": 402
     },
     {
@@ -1560,6 +1985,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 400
     },
     {
@@ -1578,6 +2009,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1596,6 +2033,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1614,6 +2057,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1632,6 +2081,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 391
     },
     {
@@ -1650,6 +2104,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1668,6 +2127,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1686,6 +2150,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1704,6 +2173,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1722,6 +2196,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1740,6 +2220,12 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1758,6 +2244,13 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved"
+      ],
       "reachedBodies": 402
     },
     {
@@ -1776,6 +2269,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 400
     },
     {
@@ -1794,6 +2293,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1812,6 +2317,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1830,6 +2341,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1848,6 +2365,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 391
     },
     {
@@ -1866,6 +2388,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1884,6 +2411,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1902,6 +2434,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1920,6 +2457,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 392
     },
     {
@@ -1938,6 +2480,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1956,6 +2504,12 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -1969,6 +2523,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-member-unseen",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "witness-value-handed"
+      ],
       "reachedBodies": 396
     },
     {
@@ -1987,6 +2549,19 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "probe-accessed-elsewhere",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "unproven-reference-store",
+        "unsupported-store",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 400
     },
     {
@@ -2005,6 +2580,19 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "probe-accessed-elsewhere",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "unproven-reference-store",
+        "unsupported-store",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 400
     },
     {
@@ -2031,6 +2619,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-graph-cells",
+        "callback-value-read",
+        "callback-value-written",
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "value-unobserved"
+      ],
       "reachedBodies": 409
     },
     {
@@ -2049,6 +2646,16 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "callback-value-in-library-call",
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 408
     },
     {
@@ -2067,6 +2674,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "callback-value-in-library-call",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "value-unnamed",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
       "reachedBodies": 409
     },
     {
@@ -2089,6 +2705,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "callback-value-in-library-call",
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "value-unnamed",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
       "reachedBodies": 414
     },
     {
@@ -2111,6 +2736,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "callback-value-in-library-call",
+        "delegate-input-unobserved",
+        "probe-handed-to-unseen",
+        "value-unnamed",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
       "reachedBodies": 414
     },
     {
@@ -2129,6 +2763,11 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "value-unobserved"
+      ],
       "reachedBodies": 397
     },
     {
@@ -2147,6 +2786,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "value-unobserved"
+      ],
       "reachedBodies": 416
     },
     {
@@ -2160,6 +2808,10 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen"
+      ],
       "reachedBodies": 390
     },
     {
@@ -2173,6 +2825,11 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 399
     },
     {
@@ -2191,6 +2848,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -2209,6 +2872,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -2222,6 +2891,11 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -2240,6 +2914,12 @@
       "reason": null,
       "model": null,
       "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "library-state-store",
+        "value-unobserved"
+      ],
       "reachedBodies": 403
     },
     {
@@ -2258,6 +2938,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 396
     },
     {
@@ -2276,6 +2965,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 396
     },
     {
@@ -2289,6 +2987,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "value-unobserved"
+      ],
       "reachedBodies": 406
     },
     {
@@ -2327,6 +3033,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2365,6 +3073,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2403,6 +3113,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2441,6 +3153,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2479,6 +3193,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2517,6 +3233,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2555,6 +3273,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2593,6 +3313,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2631,6 +3353,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2669,6 +3393,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 392
     },
     {
@@ -2687,6 +3413,11 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "value-unobserved"
+      ],
       "reachedBodies": 396
     },
     {
@@ -2705,6 +3436,11 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "value-unobserved"
+      ],
       "reachedBodies": 396
     },
     {
@@ -2718,6 +3454,13 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "enumeration-without-sequence",
+        "result-several-objects",
+        "value-unobserved"
+      ],
       "reachedBodies": 390
     },
     {
@@ -2731,6 +3474,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "value-unobserved"
+      ],
       "reachedBodies": 407
     },
     {
@@ -2749,6 +3500,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-member-unseen",
+        "enumeration-without-sequence",
+        "result-unnamed",
+        "value-unnamed",
+        "witness-value-handed"
+      ],
       "reachedBodies": 418
     },
     {
@@ -2767,6 +3526,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-member-unseen",
+        "enumeration-without-sequence",
+        "result-unnamed",
+        "value-unnamed",
+        "witness-value-handed"
+      ],
       "reachedBodies": 418
     },
     {
@@ -2780,6 +3547,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unnamed",
+        "unsupported-store",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 389
     },
     {
@@ -2798,6 +3574,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "value-unobserved"
+      ],
       "reachedBodies": 399
     },
     {
@@ -2820,6 +3604,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "value-unobserved"
+      ],
       "reachedBodies": 404
     },
     {
@@ -2833,6 +3625,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "value-unobserved"
+      ],
       "reachedBodies": 439
     },
     {
@@ -2851,6 +3648,18 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-graph-cells",
+        "callback-value-read",
+        "callback-value-written",
+        "enumeration-without-sequence",
+        "kept-user-object",
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 399
     },
     {
@@ -2873,6 +3682,18 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "callback-value-read",
+        "callback-value-written",
+        "enumeration-without-sequence",
+        "kept-user-object",
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "unseeded-read",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 404
     },
     {
@@ -2913,6 +3734,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 398
     },
     {
@@ -2926,6 +3749,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "enumeration-without-sequence",
+        "result-unnamed",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 401
     },
     {
@@ -2944,6 +3775,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "call-receiver-unfollowed",
+        "delegate-input-unobserved",
+        "enumeration-without-sequence",
+        "result-several-objects",
+        "value-unobserved"
+      ],
       "reachedBodies": 402
     },
     {
@@ -2962,6 +3801,11 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "value-unobserved"
+      ],
       "reachedBodies": 396
     },
     {
@@ -2980,6 +3824,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "delegate-input-unobserved",
+        "value-unobserved"
+      ],
       "reachedBodies": 398
     },
     {
@@ -2989,11 +3838,16 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 29
     },
     {
       "member": "M:System.Linq.Queryable.Any``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~System.Boolean",
@@ -3002,11 +3856,16 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 30
     },
     {
       "member": "M:System.Linq.Queryable.OrderBy``2(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,``1}})~System.Linq.IOrderedQueryable{``0}",
@@ -3015,11 +3874,19 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 52
     },
     {
       "member": "M:System.Linq.Queryable.OrderBy``2(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,``1}},System.Collections.Generic.IComparer{``1})~System.Linq.IOrderedQueryable{``0}",
@@ -3028,11 +3895,19 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 53
     },
     {
       "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0})~``0",
@@ -3041,11 +3916,18 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 29
     },
     {
       "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~``0",
@@ -3054,11 +3936,18 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 30
     },
     {
       "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},``0)~``0",
@@ -3067,11 +3956,18 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 31
     },
     {
       "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},``0)~``0",
@@ -3080,11 +3976,18 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 30
     },
     {
       "member": "M:System.Linq.Queryable.Single``1(System.Linq.IQueryable{``0})~``0",
@@ -3093,11 +3996,18 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 29
     },
     {
       "member": "M:System.Linq.Queryable.Single``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~``0",
@@ -3106,11 +4016,18 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 30
     },
     {
       "member": "M:System.Linq.Queryable.Skip``1(System.Linq.IQueryable{``0},System.Int32)~System.Linq.IQueryable{``0}",
@@ -3119,11 +4036,19 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 42
     },
     {
       "member": "M:System.Linq.Queryable.Take``1(System.Linq.IQueryable{``0},System.Int32)~System.Linq.IQueryable{``0}",
@@ -3132,11 +4057,19 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 42
     },
     {
       "member": "M:System.Linq.Queryable.Take``1(System.Linq.IQueryable{``0},System.Range)~System.Linq.IQueryable{``0}",
@@ -3145,11 +4078,19 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 42
     },
     {
       "member": "M:System.Linq.Queryable.Where``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~System.Linq.IQueryable{``0}",
@@ -3158,11 +4099,19 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 52
     },
     {
       "member": "M:System.Linq.Queryable.Where``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Int32,System.Boolean}})~System.Linq.IQueryable{``0}",
@@ -3171,11 +4120,19 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "1b693160-8b4b-4dca-8552-3e79731dfc4f"
       },
-      "classified": null,
-      "reason": "driver-not-synthesized",
+      "classified": {},
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 0
+      "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "enumeration-without-sequence",
+        "probe-handed-to-unseen",
+        "result-unresolved",
+        "value-unobserved",
+        "witness-value-handed"
+      ],
+      "reachedBodies": 52
     }
   ],
   "accessors": [
@@ -3190,6 +4147,8 @@
       "reason": "overridable",
       "model": null,
       "modelReason": null,
+      "detail": "M:System.Collections.ObjectModel.ObservableCollection`1.add_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler) is virtual in System.Collections.ObjectModel.ObservableCollection<T>, which is not sealed: a call may run another type's override, which the driver does not analyse",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -3203,6 +4162,8 @@
       "reason": "overridable",
       "model": null,
       "modelReason": null,
+      "detail": "M:System.Collections.ObjectModel.ObservableCollection`1.remove_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler) is virtual in System.Collections.ObjectModel.ObservableCollection<T>, which is not sealed: a call may run another type's override, which the driver does not analyse",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -3216,6 +4177,14 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-handed-to-unseen",
+        "result-several-objects",
+        "unseeded-read",
+        "value-unnamed",
+        "value-unobserved"
+      ],
       "reachedBodies": 38
     },
     {
@@ -3229,6 +4198,15 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "argument-graph-write",
+        "kept-user-object",
+        "probe-handed-to-unseen",
+        "receiver-object-write",
+        "unseeded-read",
+        "value-unnamed"
+      ],
       "reachedBodies": 38
     },
     {
@@ -3247,6 +4225,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "kept-user-object",
+        "value-unnamed"
+      ],
       "reachedBodies": 22
     },
     {
@@ -3265,6 +4248,11 @@
       "reason": null,
       "model": null,
       "modelReason": "vocabulary",
+      "detail": "",
+      "causes": [
+        "kept-user-object",
+        "value-unnamed"
+      ],
       "reachedBodies": 22
     },
     {
@@ -3278,6 +4266,8 @@
       "reason": "overridable",
       "model": null,
       "modelReason": null,
+      "detail": "M:System.ComponentModel.Component.set_Site(System.ComponentModel.ISite) is virtual in System.ComponentModel.Component, which is not sealed: a call may run another type's override, which the driver does not analyse",
+      "causes": [],
       "reachedBodies": 0
     },
     {
@@ -3296,6 +4286,11 @@
       "reason": null,
       "model": null,
       "modelReason": "unknown-touch",
+      "detail": "",
+      "causes": [
+        "probe-accessed-elsewhere",
+        "value-unnamed"
+      ],
       "reachedBodies": 14
     },
     {
@@ -3329,6 +4324,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 29
     },
     {
@@ -3362,6 +4359,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 17
     },
     {
@@ -3395,6 +4394,8 @@
         }
       },
       "modelReason": null,
+      "detail": "",
+      "causes": [],
       "reachedBodies": 17
     },
     {
@@ -3404,11 +4405,20 @@
         "fileVersion": "10.0.1326.50504",
         "mvid": "b8bc9e03-64c5-4c68-bb03-2612a465aed6"
       },
-      "classified": null,
-      "reason": "analysis-failed",
+      "classified": {
+        "value": {
+          "fate": "unknown-execution",
+          "holder": null
+        }
+      },
+      "reason": null,
       "model": null,
-      "modelReason": null,
-      "reachedBodies": 87
+      "modelReason": "library-state",
+      "detail": "",
+      "causes": [
+        "library-state-store"
+      ],
+      "reachedBodies": 88
     }
   ],
   "packages": [
@@ -3509,7 +4519,7 @@
       "bodies": 989,
       "externBodies": 6,
       "members": 114,
-      "driversSynthesized": 113
+      "driversSynthesized": 114
     },
     {
       "assembly": "System.Linq",
@@ -3527,7 +4537,7 @@
       "bodies": 230,
       "externBodies": 0,
       "members": 15,
-      "driversSynthesized": 0
+      "driversSynthesized": 15
     },
     {
       "assembly": "System.Net.Security",

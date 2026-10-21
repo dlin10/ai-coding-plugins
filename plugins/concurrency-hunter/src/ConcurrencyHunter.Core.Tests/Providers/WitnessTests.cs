@@ -2,6 +2,7 @@ using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Xunit;
 using static ConcurrencyHunter.Core.Tests.Fixtures.GenerationRuns;
@@ -67,6 +68,61 @@ public sealed class WitnessTests
     private static readonly Lazy<Driver> InterfaceDriver = new(() => Drive("M:Lib.Api.UseInterface(Lib.IUser,System.Action)"));
 
     [Fact]
+    public void A_witness_returning_an_expression_tree_compiles()
+    {
+        const string SOURCE = """
+            using System;
+            using System.Linq.Expressions;
+            namespace Lib
+            {
+                public interface IUser
+                {
+                    Expression<Func<object, bool>> Rule();
+                    void Copy(out Expression<Func<object, bool>> result);
+                }
+                public static class Api
+                {
+                    public static void Use(IUser value) { _ = value.Rule(); }
+                    public static void UseLambda(Func<Expression<Func<object, bool>>> make) { _ = make(); }
+                }
+            }
+            """;
+        var library = LibraryCompilation.CompileTrees("Fixture.Library",
+                                                     [CSharpSyntaxTree.ParseText(SOURCE, new CSharpParseOptions(LanguageVersion.Preview), "Fixture.Library/Library.cs")],
+                                                     EmittedAssemblies.RuntimeReferences.Append(MetadataReference.CreateFromFile(typeof(System.Linq.Expressions.Expression<>).Assembly.Location)).ToArray(),
+                                                     CancellationToken.None);
+        Assert.True(library.Compilation is not null, $"{library.Reason}: {string.Join(", ", library.Errors)}");
+        var synthesis = DriverSynthesizer.Synthesize(library.Compilation, DriverSynthesizer.FindMember(library.Compilation, "M:Lib.Api.Use(Lib.IUser)")!,
+                                                     library.ExternMembers, CancellationToken.None);
+
+        Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+        var driver = synthesis.Driver;
+        Assert.Empty(driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        var witness = Method(Type(driver, "Probe_value"), "Rule");
+        Assert.False(witness.IsExtern);
+        var syntax = (MethodDeclarationSyntax)witness.DeclaringSyntaxReferences.Single().GetSyntax();
+        var call = Assert.Single(syntax.Body!.DescendantNodes().OfType<InvocationExpressionSyntax>());
+        var access = Assert.IsType<MemberAccessExpressionSyntax>(call.Expression);
+        Assert.Equal(DriverSynthesizer.DRIVER_TYPE, access.Expression.ToString());
+        Assert.StartsWith("E_Witness", access.Name.Identifier.ValueText);
+        var factory = Assert.IsAssignableFrom<IMethodSymbol>(driver.Compilation.GetSemanticModel(syntax.SyntaxTree).GetSymbolInfo(call).Symbol);
+        Assert.Equal(DriverSynthesizer.DRIVER_TYPE, factory.ContainingType.Name);
+        Assert.True(SymbolEqualityComparer.Default.Equals(witness.ReturnType, factory.ReturnType));
+        Assert.Contains("=> probe_", factory.DeclaringSyntaxReferences.Single().GetSyntax().ToString());
+        Assert.Empty(driver.Parameters);
+        var copy = Method(Type(driver, "Probe_value"), "Copy");
+        Assert.False(copy.IsExtern);
+        Assert.Contains($"p0 = {DriverSynthesizer.DRIVER_TYPE}.E_Witness", Body(copy));
+
+        var lambdaMember = library.Compilation.GetTypeByMetadataName("Lib.Api")!.GetMembers("UseLambda").OfType<IMethodSymbol>().Single();
+        var lambda = DriverSynthesizer.Synthesize(library.Compilation, lambdaMember, library.ExternMembers, CancellationToken.None);
+        Assert.True(lambda.Driver is not null, $"{lambda.Reason}: {lambda.Detail}");
+        Assert.Empty(lambda.Driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains($"return {DriverSynthesizer.DRIVER_TYPE}.E_make", lambda.Driver.Source);
+        Assert.Equal(ParameterKind.Delegate, Assert.Single(lambda.Driver.Parameters).Kind);
+    }
+
+    [Fact]
     public void A_probe_class_override_stores_this_and_its_parameter_as_objects()
     {
         var source = Body(Type(BaseDriver.Value, "Probe_value"), "Put");
@@ -125,6 +181,31 @@ public sealed class WitnessTests
         Assert.True(method.IsGenericMethod);
         Assert.False(method.IsExtern);
         Assert.Contains("= p0;", Body(method));
+    }
+
+    [Fact]
+    public void A_witness_of_a_generic_method_returning_a_generic_interface_compiles()
+    {
+        var library = Compile("namespace Lib { public interface IQ<T> { } " +
+                              "public interface IProvider { IQ<TElement> Create<TElement>(object e); } " +
+                              "public interface IQuery { IProvider Provider { get; } } " +
+                              "public static class Api { public static void Run(IQuery query) { } } }");
+        Assert.NotNull(library.Compilation);
+        const string MEMBER = "M:Lib.Api.Run(Lib.IQuery)";
+        var synthesis = DriverSynthesizer.Synthesize(library.Compilation, DriverSynthesizer.FindMember(library.Compilation, MEMBER)!,
+                                                     library.ExternMembers, CancellationToken.None);
+
+        Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+        Assert.Empty(synthesis.Driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Equal(MEMBER, synthesis.Driver.Member.GetDocumentationCommentId());
+        var tree = synthesis.Driver.Compilation.SyntaxTrees.Single();
+        var model = synthesis.Driver.Compilation.GetSemanticModel(tree);
+        var call = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>()
+                       .Single(invocation => invocation.Expression.ToString() == "global::Lib.Api.Run");
+        Assert.Equal(MEMBER, model.GetSymbolInfo(call).Symbol?.GetDocumentationCommentId());
+        var witness = synthesis.Driver.Compilation.GlobalNamespace.GetTypeMembers().SelectMany(type => type.GetMembers().OfType<IMethodSymbol>())
+                               .Single(method => method.Name.EndsWith("Create", StringComparison.Ordinal));
+        Assert.True(witness.IsExtern);
     }
 
     [Fact]

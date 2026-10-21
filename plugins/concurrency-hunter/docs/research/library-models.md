@@ -88,22 +88,42 @@ line is written per member.
 1. **Resolve the member.** Roslyn's `DocumentationCommentId.CreateDeclarationId` appends `~ReturnType`; XML
    documentation and ILSpy's `IdStringProvider` do not (they add it only for `op_Implicit` and `op_Explicit`). Strip it
    before asking the decompiler. Every accessor — getter, setter, indexer accessor, event add or remove — is reached
-   through its own `M:` id (run B2b); a `P:` or `E:` id answers `accessor` and names its accessors' `M:` ids, and an
-   init-only setter answers `driver-not-synthesized`.
+   through its own `M:` id; a `P:` or `E:` id answers `accessor` and names its accessors' `M:` ids. An
+   init-only setter assigns the property on the prepared receiver; compilation tolerates only CS8852 at that target
+   assignment. Other errors in the call or setup refuse the driver; errors in a trigger drop that trigger and rebuild.
+   Binding and lowering unwrap an invalid assignment target only when its sole child is an init property or indexer
+   reference, and lower it as a setter call. Init accessors are not holder triggers. A target auto-property accessor in
+   the library copy executes its body and backing-field access; other auto-properties still lower as fields. A member
+   without a candidate receiver or non-`out` parameter is a candidate when its result (the constructed object for a
+   constructor) has a candidate type, including `Task<T>` and `ValueTask<T>` of candidate `T`.
 2. **Choose type arguments.** No constraint: `int`, or `object` under `class`. A class constraint that is concrete and
    not generic: the constraint itself (`Handle<TException>` gets `Exception`). Interface constraints, self-referential
    ones included (`MessageParser<T> where T : IMessage<T>`): a stub class that implements every abstract member of the
    interface and its bases explicitly, with empty bodies, `out` parameters assigned and `default!` returned. Constructing
    the interface over the stub needs the stub's symbol, so compile once with empty placeholders `Gen0`…`Gen3`, construct
    against them, then write the full stub.
-3. **Produce every value.** In order: a probe lambda for a delegate; a canned BCL value (`List<T>` for the collection
-   interfaces, `Dictionary`, `MemoryStream`, `Task.CompletedTask`, `typeof(object)`, `new Exception()`, `default` for
-   value types); a public constructor — the one taking a delegate first when a probe is to be placed, then the fewest
-   parameters; a public static or extension factory of the library whose result converts to the type, fewest parameters
-   first, skipping generic factories with interface constraints and factories that take the very type they produce;
-   non-abstract library classes that convert to an abstract target; otherwise `default!`, counted. Receivers get depth 3,
-   arguments depth 2. Polly shows why factories matter: `Policy` came from `Policy.NoOp()`, `PolicyBuilder` from
-   `Policy.Handle<Exception>()`.
+3. **Produce every value.** Probes, driver subclasses, canned values, containers, witness seeds and lambda return
+   markers are selected before the recipe step. Canned BCL values include `List<T>` for the collection interfaces,
+   `Dictionary`, `MemoryStream`, `Task.CompletedTask`, `typeof(object)`, `new Exception()` and `default` for value types. The recipe tries sources in this order: public constructor, public static factory, public static field of the exact type, public static property of the exact type, internal constructor of the library copy.
+   An interface or abstract target then tries public concrete library classes convertible to it. Constructors taking a
+   delegate come first when placing a probe, then those with fewer parameters; factories take fewer parameters first,
+   skipping generic factories with interface constraints and factories taking the type they produce. The static field
+   and property selector is shared with canned values: both must be public and static, the property must have a public
+   getter, and accessibility comes from the unopened compilation. Opening a private field or getter for seeds does not
+   make it a source; instance members and properties without a public getter do not hide a valid source. A candidate
+   succeeds only when its whole expression, including nested arguments, builds without a refusal or exceeding driver
+   class nesting. Failure restores all driver state changed by that candidate, preserving earlier state, and tries the
+   next candidate and then source. Exhausted recipes refuse required values, drop the seed or trigger variant, or leave
+   an unbuildable witness return or `out` extern. The rule covers receivers, arguments, nested constructor and factory
+   arguments, pair and task values, seeds, trigger and base-constructor arguments, concrete lambda returns and witness
+   returns/`out` without a seed. Recipe structs containing references, including the value of `Nullable<T>`, remain
+   `default`; canned immutable values still prefer a public constructor to a static member. Seeds supply state (ADR 0013).
+   Receivers get depth 3, arguments depth 2. Polly shows why factories matter: `Policy` comes from `Policy.NoOp()`,
+   `PolicyBuilder` from `Policy.Handle<Exception>()`.
+   `IQueryable<T>` parameters get probes with witnesses; `Expression<TDelegate>` gets a source lambda converted to an
+   expression tree, capturing a probe. The expression is data and has no delegate fate; its captures go to the operation
+   to which lowering leaves the lambda. A witness with a by-value return or `out` naming its own method type parameter
+   remains extern; a ref return written through `WitnessedRef<T>` inside the method retains its body.
 4. **Place probes.** Each probe lambda has explicit parameter types, is cast to its delegate type, writes one static field
    `P{ordinal}_{variant}`, returns `Task.CompletedTask` for `Task` and `default!` otherwise, and is made by a static factory
    method of its own, `L_P{ordinal}_{variant}_{n}()`, so that its delegate region's `SiteBodyId` names the probe. A value

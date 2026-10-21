@@ -316,15 +316,15 @@
         "delegate-to-opaque": 10,
         "element-operation": 37,
         "generated-in-run": 0,
-        "known-call": 331,
+        "known-call": 333,
         "known-call-built-in": 324,
-        "known-call-generated": 3,
+        "known-call-generated": 5,
         "known-call-project": 4,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 17,
         "opaque-by-project": 2,
-        "opaque-call": 1308,
+        "opaque-call": 1306,
         "out-of-range-call": 0,
         "pairs-removed-generated": 1,
         "reachable-bodies": 1558,
@@ -531,22 +531,22 @@
         {
           "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions.#ctor",
           "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
-          "cause": "not-a-candidate"
+          "cause": "vocabulary"
         },
         {
           "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions\u00601.set_FailureRatio(System.Double)",
           "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
-          "cause": "analysis-failed"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions\u00601.set_MinimumThroughput(System.Int32)",
           "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
-          "cause": "analysis-failed"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions\u00601.set_OnOpened(System.Func{Polly.CircuitBreaker.OnCircuitOpenedArguments{\u00600},System.Threading.Tasks.ValueTask})",
           "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
-          "cause": "analysis-failed"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Polly.CircuitBreakerResiliencePipelineBuilderExtensions.AddCircuitBreaker(Polly.ResiliencePipelineBuilder,Polly.CircuitBreaker.CircuitBreakerStrategyOptions)",
@@ -556,17 +556,12 @@
         {
           "member": "M:Polly.ResiliencePipeline.Execute(System.Action)",
           "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
-          "cause": "driver-not-synthesized"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Polly.ResiliencePipeline.Execute\u0060\u00601(System.Func{\u0060\u00600})",
           "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
-          "cause": "driver-not-synthesized"
-        },
-        {
-          "member": "M:Polly.ResiliencePipelineBuilder.#ctor",
-          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
-          "cause": "not-a-candidate"
+          "cause": "timeout"
         },
         {
           "member": "M:Polly.ResiliencePipelineBuilder.Build",
@@ -661,12 +656,12 @@
         {
           "member": "M:System.Net.Http.HttpClient.#ctor",
           "file": "Microsoft.NETCore.App/10.0/System.Net.Http.json",
-          "cause": "not-a-candidate"
+          "cause": "closure-bound"
         },
         {
           "member": "M:System.Threading.Channels.Channel.CreateUnbounded\u0060\u00601",
           "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
-          "cause": "not-a-candidate"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:System.Threading.Channels.ChannelReader\u00601.ReadAsync(System.Threading.CancellationToken)",
@@ -681,12 +676,12 @@
         {
           "member": "M:System.Threading.Channels.Channel\u00602.get_Reader",
           "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
-          "cause": "analysis-failed"
+          "cause": "vocabulary"
         },
         {
           "member": "M:System.Threading.Channels.Channel\u00602.get_Writer",
           "file": "Microsoft.NETCore.App/10.0/System.Threading.Channels.json",
-          "cause": "analysis-failed"
+          "cause": "vocabulary"
         },
         {
           "member": "M:System.Threading.Tasks.Parallel.For(System.Int32,System.Int32,System.Action{System.Int32})",

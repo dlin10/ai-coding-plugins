@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "763a0f038243e2c00a7fb89e2778479d64c0bce2edb2dfc093faf36e01c68950",
+  "generator": "f83e03cc2613e63814371fe0aae30b164cff79a9c32c38ed4208151217fec8c4",
   "assembly": {
     "name": "System.Threading.Channels",
     "version": "10.0.0.0",
@@ -12,9 +12,15 @@
     {
       "member": "M:System.Threading.Channels.Channel.CreateUnbounded``1",
       "refusal": {
-        "reason": "not-a-candidate",
-        "detail": "M:System.Threading.Channels.Channel.CreateUnbounded``1 has no receiver or parameter that can hold a user object",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "result-unnamed",
+          "value-unnamed",
+          "value-unobserved"
+        ]
       }
     },
     {
@@ -36,17 +42,23 @@
     {
       "member": "M:System.Threading.Channels.Channel`2.get_Reader",
       "refusal": {
-        "reason": "analysis-failed",
-        "detail": "the call never reached body:System.Threading.Channels:M:System.Threading.Channels.Channel`2.get_Reader",
-        "causes": []
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
       }
     },
     {
       "member": "M:System.Threading.Channels.Channel`2.get_Writer",
       "refusal": {
-        "reason": "analysis-failed",
-        "detail": "the call never reached body:System.Threading.Channels:M:System.Threading.Channels.Channel`2.get_Writer",
-        "causes": []
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
       }
     }
   ]

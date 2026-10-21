@@ -73,6 +73,8 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   content, `with`, a box); storage possibly filled by a write the analysis does not see; the default comparer a heap
   instance makes; a value type of the driver constructed where it is created; and a `Nullable` that is its value in
   CoreLib's own bodies. Each such answer is named in `docs/runs/5d-A10.md`.
+  An answer may also change because the driver constructs a call it previously refused, or because the snapshot
+  gains `detail` and `causes`; each changed answer is named by declaration id with its rule in the run record.
 - **Verdict report.** When `CH_MODEL_EVALS_REPORT` names a folder, `ModelEvalTests`, `EffectsEvalTests`,
   `LinqOracleTests` and `AccessorEvalTests` write `members.json`, `effects.json`, `linq.json` and `accessors.json`
   there: one line per unit the set's recorded count counts, each with its declaration id and its verdict — `exact`,
@@ -83,13 +85,14 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   `entry-matrix-wider.json`, the cells it lists as wider. Without the variable nothing is written.
 - **Snapshot.** `generator-snapshot.json` holds the `members`, `effects`, `linq` and `accessors` answer arrays, sorted by declaration id:
   the implementation identity (assembly version, file version, MVID), the classification or the reason, the whole
-  `model` entry or null, `modelReason`, and the bodies the driver reached; per
+  `model` entry or null, `modelReason`, `detail` (the answer's detail text, or `""` when absent), `causes` (the
+  `GenerationCause.Code` values, sorted in ascending ordinal order without duplicates, or `[]` when absent), and the bodies the driver reached; per
   implementation assembly the package, the version folder the resolver took, the method bodies of the decompiled
   compilation and those made `extern`, the gold members and the drivers synthesized. The counts are `exact` for
   fates, `fateGoldEntries`, `effectsExact`, `linqExact` with separate `System.Linq` and `System.Linq.Queryable`
   counts, and `accessorsExact`. Every eval run
-  compares a fresh snapshot with it and reports an implementation identity change (a runtime or package update) before
-  any answer difference. It is rewritten only on purpose, by running the evals with `CH_MODEL_EVALS_RECORD=1`.
+  compares every answer field, including `detail` and `causes`, with the fresh snapshot and reports an implementation
+  identity change (a runtime or package update) before any answer difference. It is rewritten only on purpose, by running the evals with `CH_MODEL_EVALS_RECORD=1`.
 - **Flag.** The evals (`ModelEvalTests`, `EffectsEvalTests`, `LinqOracleTests`, `AccessorEvalTests`) share the serial `Model evals` collection
   and read the installed .NET 8 and .NET 10 shared frameworks and the NuGet global packages
   folder, so they run only with `CH_MODEL_EVALS=1` and skip otherwise; under the flag a missing package, shared

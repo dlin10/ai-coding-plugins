@@ -1,5 +1,6 @@
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Core.Tests.Generation;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers;
@@ -33,12 +34,12 @@ public sealed class DriverSynthesisTests
             public sealed class FixedRunner : Runner { public FixedRunner() { } }
             public class Bag { public object Item; public virtual void Add(object item) { Item = item; } }
             public sealed class Box { public Box() { } public Box(Func<int> make) { Make = make; } public Func<int> Make; }
-            public sealed class Hidden { internal Hidden() { } }
+            public sealed class Hidden { private Hidden() { } }
             public sealed class Opaque { private Opaque() { } public static Opaque Create() => new Opaque(); }
             public abstract class Shape { internal Shape() { } }
             public sealed class Circle : Shape { public Circle() { } }
             public sealed class Wrapper { public Wrapper(Inner inner) { } }
-            public sealed class Inner { internal Inner() { } }
+            public sealed class Inner { private Inner() { } }
             public sealed class Outer { public Outer(Middle middle, Action done) { Middle = middle; } public Middle Middle; }
             public sealed class Middle { public Middle() { } public object Seed; }
             public sealed class Holder { public Holder(Func<int> f) { F = f; } public Func<int> F; public int Run() => F(); public Task RunAsync() => Task.CompletedTask; }
@@ -486,6 +487,143 @@ public sealed class DriverSynthesisTests
     }
 
     [Fact]
+    public void A_canned_value_takes_a_static_field_declared_after_an_instance_property()
+    {
+        const string source = """
+            [assembly: System.Reflection.AssemblyVersion("10.0.0.0")]
+            namespace System
+            {
+                public sealed class Uri
+                {
+                    private Uri() { }
+                    public Uri Instance => this;
+                    public static Uri Shared;
+                }
+            }
+            public static class Api { public static void Run(System.Uri value, System.Action done) { } }
+            """;
+        var library = LibraryCompilation.CompileTrees("System.Private.Uri",
+                                                      [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))],
+                                                      StubAssemblies.PlatformWithout(["System.Private.Uri"]).ToArray(), CancellationToken.None);
+        Assert.True(library.Compilation is not null, $"{library.Reason}: {string.Join(", ", library.Errors)}");
+        Assert.Empty(library.ExternMembers);
+        Assert.Equal(ParameterKind.Canned, ParameterKinds.Of(library.Compilation.GetTypeByMetadataName("System.Uri")!));
+        var synthesis = DriverSynthesizer.Synthesize(library.Compilation, DriverSynthesizer.FindMember(library.Compilation, "M:Api.Run(System.Uri,System.Action)")!,
+                                                     library.ExternMembers, library.OpenedFields, CancellationToken.None);
+
+        Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+        Assert.Empty(synthesis.Driver.DefaultedValues);
+        Assert.Contains("Arg_value_Call = global::System.Uri.Shared;", Body(synthesis.Driver, DriverSynthesizer.SETUP));
+    }
+
+    [Fact]
+    public void A_rejected_candidate_keeps_the_values_built_before_it()
+    {
+        const string source = """
+            using System;
+            namespace Lib
+            {
+                public sealed class Unbuildable { private Unbuildable() { } }
+                public sealed class F { public F(Action<object> a) { a(this); } }
+                public sealed class P { public P(Action<object> b, T2 t) { b(t); } }
+                public sealed class T2
+                {
+                    public T2(Action<object> c, Unbuildable u) { c(u); }
+                    public static T2 Shared;
+                }
+                public static class Api { public static void M(F first, P second) { } }
+            }
+            """;
+        var trace = GenerationRuns.TraceOf(source, "M:Lib.Api.M(Lib.F,Lib.P)");
+        Assert.True(trace.Driver is not null, $"{trace.Answer.Reason}: {trace.Answer.Detail}");
+        var driver = trace.Driver;
+        Assert.Empty(driver.DefaultedValues);
+        Assert.Equal("L_first_0_Call", Assert.Single(Assert.Single(driver.Parameters, parameter => parameter.Name == "first").Probes).Factory);
+        Assert.Equal("L_second_0_Call", Assert.Single(Assert.Single(driver.Parameters, parameter => parameter.Name == "second").Probes).Factory);
+        Assert.Equal(["In_first_0_Call"], Assert.Single(Assert.Single(driver.Parameters, parameter => parameter.Name == "first").Probes).InputFields);
+        Assert.Equal(["In_second_0_Call"], Assert.Single(Assert.Single(driver.Parameters, parameter => parameter.Name == "second").Probes).InputFields);
+        Assert.DoesNotContain("L_second_1_", driver.Source);
+        Assert.Contains("global::Lib.T2.Shared", driver.Source);
+        Assert.NotNull(GenerationRuns.FateOf(trace, "first"));
+        Assert.NotNull(GenerationRuns.FateOf(trace, "second"));
+        Assert.Empty(driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+    }
+
+    [Fact]
+    public void A_rejected_candidate_leaves_the_driver_as_if_it_were_absent()
+    {
+        const string source = """
+            using System;
+            namespace Lib
+            {
+                public interface User { void Read(object value); object Make(); }
+                public sealed class Unbuildable { ACCESS Unbuildable() { } }
+                public sealed class V
+                {
+                    private V() { }
+                    CONSTRUCTOR
+                    public static V Shared;
+                }
+                public static class Api { public static void Run(V value) { } }
+            }
+            """;
+        const string constructor = "public V(User user, Action<object> action, Unbuildable missing) { }";
+        const string member = "M:Lib.Api.Run(Lib.V)";
+        var rejected = SynthesizeIn(source.Replace("ACCESS", "private").Replace("CONSTRUCTOR", constructor), member);
+        var absent = SynthesizeIn(source.Replace("ACCESS", "private").Replace("CONSTRUCTOR", ""), member);
+        var built = SynthesizeIn(source.Replace("ACCESS", "public").Replace("CONSTRUCTOR", constructor), member);
+        foreach (var synthesis in new[] { rejected, absent, built })
+        {
+            Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+            // A driver is returned only when Failures is empty and TooDeep is null.
+            Assert.Null(synthesis.Reason);
+            Assert.Empty(synthesis.Detail);
+            Assert.Empty(synthesis.Driver.DefaultedValues);
+            Assert.Empty(synthesis.Driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        }
+        var a = rejected.Driver!;
+        var b = absent.Driver!;
+        var c = built.Driver!;
+        Assert.Equal(b.Source, a.Source);
+        Assert.Equal(b.DefaultedValues, a.DefaultedValues);
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(b.Parameters), System.Text.Json.JsonSerializer.Serialize(a.Parameters));
+        Assert.Equal(b.Triggers, a.Triggers);
+        Assert.Empty(Type(a, DriverSynthesizer.WITNESSED_TYPE).GetMembers().OfType<IFieldSymbol>());
+        Assert.NotEmpty(Type(c, DriverSynthesizer.WITNESSED_TYPE).GetMembers().OfType<IFieldSymbol>());
+        Assert.Contains("Keep.K0", c.Source);
+        Assert.DoesNotContain("Keep.K0", a.Source);
+        Assert.Contains("L_value_0_Call", c.Source);
+        Assert.DoesNotContain("L_value_0_Call", a.Source);
+    }
+
+    [Fact]
+    public void A_candidate_past_the_class_nesting_bound_is_rolled_back_and_the_next_taken()
+    {
+        var chain = string.Join(" ", Enumerable.Range(0, 17).Select(index => index < 16
+            ? $"public interface Link{index} {{ Link{index + 1} Next(); }}"
+            : "public interface Link16 { void Done(); }"));
+        var source = "using System; namespace Lib { " + chain + """
+             public sealed class V
+             {
+                 public V(Link0 head) { }
+                 public static V Shared;
+             }
+             public static class Api { public static void Run(V value) { } }
+             }
+             """;
+        var synthesis = SynthesizeIn(source, "M:Lib.Api.Run(Lib.V)");
+
+        Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+        // Synthesis refuses a non-null TooDeep, so returning a driver also checks the flag was restored.
+        Assert.Null(synthesis.Reason);
+        Assert.Empty(synthesis.Detail);
+        Assert.Contains("Arg_value_Call = global::Lib.V.Shared;", synthesis.Driver.Source);
+        Assert.DoesNotContain("Probe_value", synthesis.Driver.Source);
+        Assert.DoesNotContain("Seed_", synthesis.Driver.Source);
+        Assert.Empty(synthesis.Driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+    }
+
+    [Fact]
     public void A_return_type_the_lambda_cannot_make_is_driver_not_synthesized()
     {
         var synthesis = Synthesize("M:Lib.Api.Hard(System.Func{Lib.Hidden})");
@@ -556,7 +694,7 @@ public sealed class DriverSynthesisTests
         var synthesis = Synthesize("M:Lib.Api.Nest(Lib.Wrapper,System.Action)");
 
         Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
-        Assert.Contains("only a default could fill the Lib.Inner of wrapper", synthesis.Detail);
+        Assert.Contains("only a default could fill the Lib.Wrapper of wrapper", synthesis.Detail);
     }
 
     [Fact]
@@ -757,6 +895,74 @@ public sealed class DriverSynthesisTests
         Assert.Contains(predicate.Probes, probe => probe.Variant == DriverSynthesizer.CALL_VARIANT);
         Assert.Contains(predicate.Probes, probe => probe.Variant == DriverSynthesizer.ENUMERATE_VARIANT);
     }
+
+    [Fact]
+    public void A_driver_for_the_installed_Queryable_Take_compiles()
+    {
+        var resolution = ImplementationAssemblies.ForThisProcess().Resolve("System.Linq.Queryable", Environment.Version.Major.ToString(), null, null);
+        Assert.True(resolution.Reason is null, resolution.Detail);
+        var library = LibraryCompilation.Compile(resolution.Assembly!, CancellationToken.None);
+        Assert.True(library.Reason is null, $"{library.Reason}: {string.Join(", ", library.Errors)}");
+        const string TAKE = "M:System.Linq.Queryable.Take``1(System.Linq.IQueryable{``0},System.Int32)";
+
+        var synthesis = DriverSynthesizer.Synthesize(library.Compilation!, DriverSynthesizer.FindMember(library.Compilation!, TAKE)!, library.ExternMembers,
+                                                     CancellationToken.None);
+
+        Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+        Assert.Empty(synthesis.Driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Equal(TAKE, synthesis.Driver.Member.GetDocumentationCommentId());
+        var tree = synthesis.Driver.Compilation.SyntaxTrees.Single();
+        var model = synthesis.Driver.Compilation.GetSemanticModel(tree);
+        var calls = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>()
+                        .Select(invocation => model.GetSymbolInfo(invocation).Symbol).OfType<IMethodSymbol>()
+                        .Where(method => method.Name == "Take" && method.ContainingType.ToDisplayString() == "System.Linq.Queryable").ToArray();
+        Assert.NotEmpty(calls);
+        Assert.All(calls, method => Assert.Equal(TAKE, method.OriginalDefinition.GetDocumentationCommentId()));
+    }
+
+    [Fact]
+    public void A_driver_for_the_installed_Queryable_Where_compiles()
+    {
+        var library = QueryableLibrary.Value;
+        const string WHERE = "M:System.Linq.Queryable.Where``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})";
+
+        var synthesis = DriverSynthesizer.Synthesize(library.Compilation!, DriverSynthesizer.FindMember(library.Compilation!, WHERE)!, library.ExternMembers,
+                                                     CancellationToken.None);
+
+        Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+        Assert.Empty(synthesis.Driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Contains("global::System.Linq.Queryable.Where<Probe_TSource>(Arg_source_Call, Arg_predicate_Call)", synthesis.Driver.Source);
+        Assert.Contains("global::System.Linq.IQueryable<Probe_TSource>", synthesis.Driver.Source);
+        Assert.Contains("global::System.Linq.IQueryProvider", synthesis.Driver.Source);
+        Assert.Contains("ElementType", synthesis.Driver.Source);
+        Assert.Contains("GetEnumerator", synthesis.Driver.Source);
+        Assert.Contains("Expression", synthesis.Driver.Source);
+        Assert.DoesNotContain(synthesis.Driver.Parameters, parameter => parameter.Name == "predicate");
+    }
+
+    public static IEnumerable<object[]> QueryableMembers() =>
+        LinqEvals.ReadGold().Where(member => member.Group == "System.Linq.Queryable").Select(member => new object[] { member.Member });
+
+    [Theory]
+    [MemberData(nameof(QueryableMembers))]
+    public void Every_installed_queryable_oracle_member_gets_a_driver(string member)
+    {
+        var library = QueryableLibrary.Value;
+        var synthesis = DriverSynthesizer.Synthesize(library.Compilation!, DriverSynthesizer.FindMember(library.Compilation!, member)!, library.ExternMembers,
+                                                     CancellationToken.None);
+
+        Assert.True(synthesis.Driver is not null, $"{member}: {synthesis.Reason}: {synthesis.Detail}");
+        Assert.Empty(synthesis.Driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+    }
+
+    private static readonly Lazy<LibraryCompilationResult> QueryableLibrary = new(() =>
+    {
+        var resolution = ImplementationAssemblies.ForThisProcess().Resolve("System.Linq.Queryable", Environment.Version.Major.ToString(), null, null);
+        Assert.True(resolution.Reason is null, resolution.Detail);
+        var library = LibraryCompilation.Compile(resolution.Assembly!, CancellationToken.None);
+        Assert.True(library.Reason is null, $"{library.Reason}: {string.Join(", ", library.Errors)}");
+        return library;
+    });
 
     // ---- the bound on nested class declarations ----
 

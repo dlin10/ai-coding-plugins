@@ -1,13 +1,82 @@
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Ir;
+using ConcurrencyHunter.Providers.LibraryModels;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests;
 
 public sealed class IrLoweringTests
 {
+    [Fact]
+    public void An_init_assignment_outside_an_initializer_lowers_as_the_accessor_call()
+    {
+        const string SOURCE = """
+            class R
+            {
+                object _value;
+                public object X { get => _value; ACCESSOR => _value = value; }
+                public object this[int i] { get => _value; ACCESSOR => _value = value; }
+            }
+            class C { void M(R r, int i, object v) { r.X = v; r[i] = v; } }
+            """;
+        IrBody? setterBody = null;
+        // bounded: the fixture compares exactly the set and init accessor variants.
+        foreach (var accessor in new[] { "set", "init" })
+        {
+            var tree = CSharpSyntaxTree.ParseText(SOURCE.Replace("ACCESSOR", accessor, StringComparison.Ordinal), path: @"C:\fixture\Case.cs");
+            var compilation = CSharpCompilation.Create("Fixture", [tree], EmittedAssemblies.RuntimeReferences,
+                                                       new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+            var errors = compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
+            Assert.Equal(accessor == "init" ? 2 : 0, errors.Length);
+            Assert.All(errors, error => Assert.Equal("CS8852", error.Id));
+            var model = compilation.GetSemanticModel(tree);
+            if (accessor == "init")
+            {
+                // bounded: the fixture contains two assignments through r.
+                foreach (var syntax in tree.GetRoot().DescendantNodes().OfType<AssignmentExpressionSyntax>().Where(syntax => syntax.Left.ToString().StartsWith("r", StringComparison.Ordinal)))
+                {
+                    var assignment = Assert.IsAssignableFrom<ISimpleAssignmentOperation>(model.GetOperation(syntax));
+                    var invalid = Assert.IsAssignableFrom<IInvalidOperation>(assignment.Target);
+                    var property = Assert.IsAssignableFrom<IPropertyReferenceOperation>(Assert.Single(invalid.ChildOperations));
+                    Assert.True(property.Property.SetMethod!.IsInitOnly);
+                }
+            }
+            var method = compilation.GetTypeByMetadataName("C")!.GetMembers("M").OfType<IMethodSymbol>().Single();
+            var body = IrLowering.Lower(method, compilation, @"C:\fixture", CancellationToken.None).Body;
+            var calls = Operations<IrCallOperation>(body);
+            Assert.Equal(2, calls.Length);
+            Assert.Contains(calls, call => call.Method.Contains(".set_X(", StringComparison.Ordinal));
+            Assert.Contains(calls, call => call.Method.Contains(".set_Item(", StringComparison.Ordinal));
+            var receiver = Assert.Single(body.Values, value => value.Name == "r").Id;
+            var value = Assert.Single(body.Values, value => value.Name == "v").Id;
+            Assert.All(calls, call =>
+            {
+                Assert.Equal(receiver, call.ReceiverValue);
+                Assert.Equal(value, call.ArgumentValues[^1]);
+            });
+            Assert.Equal(Assert.Single(body.Values, value => value.Name == "i").Id, calls.Single(call => call.Method.Contains(".set_Item(", StringComparison.Ordinal)).ArgumentValues[0]);
+            Assert.DoesNotContain(Operations<IrUnknownOperation>(body), operation => operation.Reason == "unsupported");
+            Assert.Empty(IrValidator.Validate(body));
+            if (setterBody is not null)
+                Assert.Equal(Operations<IrCallOperation>(setterBody).Select(call => (call.Method, call.ReceiverValue, string.Join(",", call.ArgumentValues))),
+                             calls.Select(call => (call.Method, call.ReceiverValue, string.Join(",", call.ArgumentValues))));
+            setterBody = body;
+        }
+
+        var invalidTree = CSharpSyntaxTree.ParseText("class C { void M(object v) { Missing.X = v; } }", path: @"C:\fixture\Case.cs");
+        var invalidCompilation = CSharpCompilation.Create("Fixture", [invalidTree], EmittedAssemblies.RuntimeReferences,
+                                                          new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        Assert.Contains(invalidCompilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error && diagnostic.Id != "CS8852");
+        var invalidMethod = invalidCompilation.GetTypeByMetadataName("C")!.GetMembers("M").OfType<IMethodSymbol>().Single();
+        var invalidBody = IrLowering.Lower(invalidMethod, invalidCompilation, @"C:\fixture", CancellationToken.None).Body;
+        Assert.Contains(Operations<IrUnknownOperation>(invalidBody), operation => operation.Reason == "unsupported");
+    }
+
     [Fact]
     public async Task Static_field_store_has_no_receiver()
     {
@@ -48,6 +117,130 @@ public sealed class IrLoweringTests
             operation.Field is { Kind: IrFieldKind.PropertyBackingField, Name: "Auto" });
         Assert.Contains(Operations<IrCallOperation>(body), operation => operation.Method.Contains(".set_Computed(", StringComparison.Ordinal));
         Assert.Contains(Operations<IrCallOperation>(body), operation => operation.Method.Contains(".get_Computed(", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_automatic_property_named_as_called_stays_accessor_calls()
+    {
+        var solution = FixtureSolution.Create(("Case.cs", """
+            class C
+            {
+                int Auto { get; set; }
+                void M(int v) { Auto = v; var a = Auto; Auto += v; Auto++; }
+            }
+            """));
+        var compilation = await solution.Projects.Single().GetCompilationAsync() ?? throw new InvalidOperationException();
+        var type = compilation.GetTypeByMetadataName("C")!;
+        var property = type.GetMembers("Auto").OfType<IPropertySymbol>().Single();
+        var method = type.GetMembers("M").OfType<IMethodSymbol>().Single();
+        var keys = new HashSet<string>(StringComparer.Ordinal) { $"{property.ContainingAssembly.Name}:{property.GetDocumentationCommentId()}" };
+        var called = IrLowering.Lower(method, compilation, @"C:\fixture", CancellationToken.None, LibraryModels.BuiltIn,
+                                      calledPropertyKeys: keys).Body;
+        var automatic = IrLowering.Lower(method, compilation, @"C:\fixture", CancellationToken.None).Body;
+
+        Assert.Equal(3, Operations<IrCallOperation>(called).Count(call => call.Method.Contains(".get_Auto(", StringComparison.Ordinal)));
+        Assert.Equal(3, Operations<IrCallOperation>(called).Count(call => call.Method.Contains(".set_Auto(", StringComparison.Ordinal)));
+        Assert.Empty(Operations<IrLoadFieldOperation>(called));
+        Assert.Empty(Operations<IrStoreFieldOperation>(called));
+        Assert.Empty(Operations<IrCallOperation>(automatic));
+        Assert.Equal(3, Operations<IrLoadFieldOperation>(automatic).Length);
+        Assert.Equal(3, Operations<IrStoreFieldOperation>(automatic).Length);
+        Assert.Empty(IrValidator.Validate(called));
+        Assert.Empty(IrValidator.Validate(automatic));
+    }
+
+    [Fact]
+    public async Task A_seed_statement_of_a_called_property_stays_a_field_store()
+    {
+        var solution = FixtureSolution.Create(("Case.cs", """
+            class C
+            {
+                public object P { get; set; }
+                void M(object seed) { P = seed; P = seed; }
+            }
+            """));
+        var compilation = await solution.Projects.Single().GetCompilationAsync() ?? throw new InvalidOperationException();
+        var tree = compilation.SyntaxTrees.Single();
+        var type = compilation.GetTypeByMetadataName("C")!;
+        var property = type.GetMembers("P").OfType<IPropertySymbol>().Single();
+        var method = type.GetMembers("M").OfType<IMethodSymbol>().Single();
+        var seed = tree.GetRoot().DescendantNodes().OfType<AssignmentExpressionSyntax>().First();
+        var keys = new HashSet<string>(StringComparer.Ordinal) { $"{property.ContainingAssembly.Name}:{property.GetDocumentationCommentId()}" };
+        var body = IrLowering.Lower(method, compilation, @"C:\fixture", CancellationToken.None, LibraryModels.BuiltIn,
+                                    calledPropertyKeys: keys, fieldPropertySites: [(tree, seed.Span)]).Body;
+
+        Assert.Equal("P", Assert.Single(Operations<IrStoreFieldOperation>(body)).Field.Name);
+        Assert.Contains(".set_P(", Assert.Single(Operations<IrCallOperation>(body)).Method, StringComparison.Ordinal);
+        Assert.Empty(IrValidator.Validate(body));
+
+        // The same span in another tree must not exempt this access.
+        var otherTree = CSharpSyntaxTree.ParseText(tree.GetText().ToString(), path: @"C:\fixture\Other.cs");
+        var other = IrLowering.Lower(method, compilation, @"C:\fixture", CancellationToken.None, LibraryModels.BuiltIn,
+                                     calledPropertyKeys: keys, fieldPropertySites: [(otherTree, seed.Span)]).Body;
+        Assert.Empty(Operations<IrStoreFieldOperation>(other));
+        Assert.Equal(2, Operations<IrCallOperation>(other).Length);
+        Assert.Empty(IrValidator.Validate(other));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task The_initializer_of_a_called_property_stays_a_field_store(bool isStatic)
+    {
+        var modifier = isStatic ? "static " : "";
+        var constructor = isStatic ? "static C()" : "public C()";
+        var solution = FixtureSolution.Create(("Case.cs", $$"""
+            class C
+            {
+                public {{modifier}}object P { get; set; } = new object();
+                {{constructor}} { P = new object(); }
+            }
+            """));
+        var compilation = await solution.Projects.Single().GetCompilationAsync() ?? throw new InvalidOperationException();
+        var type = compilation.GetTypeByMetadataName("C")!;
+        var property = type.GetMembers("P").OfType<IPropertySymbol>().Single();
+        var method = (isStatic ? type.StaticConstructors : type.InstanceConstructors).Single();
+        var keys = new HashSet<string>(StringComparer.Ordinal) { $"{property.ContainingAssembly.Name}:{property.GetDocumentationCommentId()}" };
+        var called = IrLowering.Lower(method, compilation, @"C:\fixture", CancellationToken.None, LibraryModels.BuiltIn,
+                                      calledPropertyKeys: keys).Body;
+        var automatic = IrLowering.Lower(method, compilation, @"C:\fixture", CancellationToken.None).Body;
+
+        Assert.Equal("P", Assert.Single(Operations<IrStoreFieldOperation>(called)).Field.Name);
+        Assert.Single(Operations<IrCallOperation>(called), call => call.Method.Contains(".set_P(", StringComparison.Ordinal));
+        Assert.Equal(2, Operations<IrStoreFieldOperation>(automatic).Length);
+        Assert.DoesNotContain(Operations<IrCallOperation>(automatic), call => call.Method.Contains(".set_P(", StringComparison.Ordinal));
+        Assert.Empty(IrValidator.Validate(called));
+        Assert.Empty(IrValidator.Validate(automatic));
+    }
+
+    [Fact]
+    public async Task Only_the_property_named_as_called_stays_accessor_calls()
+    {
+        var solution = FixtureSolution.Create(("Case.cs", """
+            class C<T>
+            {
+                public int Called { get; set; }
+                public int Other { get; set; }
+            }
+            class C
+            {
+                void M(C<object> c) { c.Called = c.Called + 1; c.Other = c.Other + 1; }
+            }
+            """));
+        var compilation = await solution.Projects.Single().GetCompilationAsync() ?? throw new InvalidOperationException();
+        var property = compilation.GetTypeByMetadataName("C`1")!.GetMembers("Called").OfType<IPropertySymbol>().Single();
+        var method = compilation.GetTypeByMetadataName("C")!.GetMembers("M").OfType<IMethodSymbol>().Single();
+        var keys = new HashSet<string>(StringComparer.Ordinal) { $"{property.ContainingAssembly.Name}:{property.GetDocumentationCommentId()}" };
+        var body = IrLowering.Lower(method, compilation, @"C:\fixture", CancellationToken.None, LibraryModels.BuiltIn,
+                                    calledPropertyKeys: keys).Body;
+
+        var calls = Operations<IrCallOperation>(body);
+        Assert.Equal(2, calls.Length);
+        Assert.Contains(calls, call => call.Method.Contains(".get_Called(", StringComparison.Ordinal));
+        Assert.Contains(calls, call => call.Method.Contains(".set_Called(", StringComparison.Ordinal));
+        Assert.Equal("Other", Assert.Single(Operations<IrLoadFieldOperation>(body)).Field.Name);
+        Assert.Equal("Other", Assert.Single(Operations<IrStoreFieldOperation>(body)).Field.Name);
+        Assert.Empty(IrValidator.Validate(body));
     }
 
     [Fact]

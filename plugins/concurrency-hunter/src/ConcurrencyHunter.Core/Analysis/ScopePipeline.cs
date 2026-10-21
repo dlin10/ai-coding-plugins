@@ -11,6 +11,7 @@ using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Roots;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Text;
 
 namespace ConcurrencyHunter.Analysis;
 
@@ -79,19 +80,21 @@ public static class ScopePipeline
     /// <param name="limits">The summary and heap limits.</param>
     /// <param name="loweringCache">The lowered methods of the whole analysis, keyed by compilation, body id and models. A cache lives for
     /// one analysis or one member's generation, every run of which passes the same <paramref name="reachability"/>, so the key carries
-    /// no left-out types.</param>
+    /// no left-out types, silent types or called properties. Seed-statement sites belong to their driver compilation.</param>
     /// <param name="reachableBodyLimit">The most bodies the reachable set may reach before the run stops after reachability;
     /// <c>null</c> for no limit.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
     /// <param name="stepStarted">Notified before a step starts, so a caller can set its deadline or cancel before it runs.</param>
     /// <param name="reachability">The rules the reachable set is built by; <c>null</c> for class-hierarchy dispatch with no type
     /// left out.</param>
+    /// <param name="fieldPropertySites">The syntax trees and spans of driver seed statements whose automatic properties stay field
+    /// accesses even when the run keeps other accesses as calls; <c>null</c> for none.</param>
     public static ScopeRun Run(string scopeId, IReadOnlyList<Compilation> compilations,
                                IReadOnlyList<(Compilation Compilation, string? ProjectFilePath)> projectFiles, string rootDirectory,
                                ProviderRegistry registry, LibraryModels models, AnalysisLimits limits,
                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> loweringCache,
                                int? reachableBodyLimit, CancellationToken cancellationToken, Action<ScopeStep>? stepStarted = null,
-                               ReachabilityRules? reachability = null)
+                               ReachabilityRules? reachability = null, IReadOnlyList<(SyntaxTree Tree, TextSpan Span)>? fieldPropertySites = null)
     {
         var step = new Stopwatch();
         var lowering = new Stopwatch();
@@ -175,7 +178,8 @@ public static class ScopePipeline
             var metadataSupertypes = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
             var loweringDiagnostics = new List<string>();
             var rules = reachability ?? ReachabilityRules.ClassHierarchy;
-            var lower = Members(compilations, rootDirectory, models, rules.LeftOutTypeKeys, rules.SilentTypeKeys, loweringCache, metadataSupertypes,
+            var lower = Members(compilations, rootDirectory, models, rules.LeftOutTypeKeys, rules.SilentTypeKeys, rules.CalledPropertyKeys, fieldPropertySites ?? [],
+                                loweringCache, metadataSupertypes,
                                 loweringDiagnostics, cancellationToken);
             IReadOnlyList<IrBody> TimedMembers(string bodyId)
             {
@@ -264,13 +268,16 @@ public static class ScopePipeline
     /// <param name="models">The library models lowering resolves known calls against.</param>
     /// <param name="leftOutTypeKeys">The types the reachable set leaves out, whose members lowering treats as members without a body.</param>
     /// <param name="silentTypeKeys">The types the run takes to do nothing, whose calls, creations and fields lowering drops.</param>
+    /// <param name="calledPropertyKeys">The property definitions whose accesses lowering keeps as accessor calls.</param>
+    /// <param name="fieldPropertySites">The driver seed statements within which automatic properties stay field accesses.</param>
     /// <param name="lowered">The lowered methods of the whole analysis.</param>
     /// <param name="metadataSupertypes">Receives the supertypes of the metadata types the lowered methods name.</param>
     /// <param name="diagnostics">Receives one diagnostic per member whose lowering failed.</param>
     /// <param name="cancellationToken">Cancels the lowering.</param>
     private static Func<string, IReadOnlyList<IrBody>> Members(IReadOnlyList<Compilation> compilations, string rootDirectory,
                                                                LibraryModels models, IReadOnlySet<string> leftOutTypeKeys,
-                                                               IReadOnlySet<string> silentTypeKeys,
+                                                               IReadOnlySet<string> silentTypeKeys, IReadOnlySet<string> calledPropertyKeys,
+                                                               IReadOnlyList<(SyntaxTree Tree, TextSpan Span)> fieldPropertySites,
                                                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
                                                                Dictionary<string, IReadOnlySet<string>> metadataSupertypes,
                                                                List<string> diagnostics, CancellationToken cancellationToken)
@@ -297,7 +304,7 @@ public static class ScopePipeline
                 try
                 {
                     loweredMethod = IrLowering.Lower(member.Method, member.Compilation, rootDirectory, cancellationToken,
-                                                     models, leftOutTypeKeys, silentTypeKeys);
+                                                     models, leftOutTypeKeys, silentTypeKeys, calledPropertyKeys, fieldPropertySites);
                 }
                 catch (Exception error) when (error is ArgumentException or InvalidOperationException)
                 {

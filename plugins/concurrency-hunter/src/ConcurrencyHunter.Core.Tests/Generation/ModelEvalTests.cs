@@ -162,12 +162,52 @@ public sealed class ModelEvalTests
             Assert.Equal(1, (int)snapshot["effectsExact"]!);
             Assert.Equal(1, (int)snapshot["accessorsExact"]!);
             Assert.Equal(4, snapshot["accessors"]!.AsArray().Count);
+            // bounded: the four fixed snapshot sections.
+            foreach (var section in new[] { "members", "effects", "linq", "accessors" })
+            {
+                Assert.All(snapshot[section]!.AsArray(), answer =>
+                {
+                    Assert.Equal("", (string?)answer!["detail"]);
+                    Assert.Empty(answer["causes"]!.AsArray());
+                });
+            }
         }
         finally
         {
             if (Directory.Exists(folder))
                 Directory.Delete(folder, true);
         }
+    }
+
+    [Fact]
+    public void A_snapshot_answer_keeps_its_detail_and_cause_codes()
+    {
+        var answer = Answer(null, null) with
+        {
+            Detail = "the probe reached an unseen member",
+            Causes = [new GenerationCause(ModelReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_HANDED_TO_UNSEEN, "probe"),
+                      new GenerationCause(ModelReasons.UNKNOWN_TOUCH, ModelCauses.ARGUMENT_MEMBER_UNSEEN, "argument"),
+                      new GenerationCause(ModelReasons.UNKNOWN_TOUCH, ModelCauses.PROBE_HANDED_TO_UNSEEN, "another probe")]
+        };
+        var gold = new GoldMember("M", answer.Member, "invoke-now", null, [], "Lib", "1.0");
+        var run = new EvalRun([new EvalAnswer(gold, answer, true),
+                               new EvalAnswer(gold, Answer(null, null) with { Member = "M:Lib.C.N(System.Action)" }, true)], []);
+
+        var snapshot = System.Text.Json.Nodes.JsonNode.Parse(Snapshot(run, new WholeEntryRun([], []), new WholeEntryRun([], []),
+                                                                     new WholeEntryRun([], [])))!;
+        var entries = snapshot["members"]!.AsArray();
+        Assert.Equal(answer.Detail, (string?)entries[0]!["detail"]);
+        Assert.Equal([ModelCauses.ARGUMENT_MEMBER_UNSEEN, ModelCauses.PROBE_HANDED_TO_UNSEEN],
+                     entries[0]!["causes"]!.AsArray().Select(code => (string)code!));
+        Assert.Equal("", (string?)entries[1]!["detail"]);
+        Assert.Empty(entries[1]!["causes"]!.AsArray());
+
+        var recorded = snapshot.ToJsonString();
+        entries[0]!["detail"] = "another detail";
+        Assert.Contains(answer.Member, Assert.Single(Differences(recorded, snapshot.ToJsonString())));
+        entries[0]!["detail"] = answer.Detail;
+        entries[0]!["causes"]!.AsArray().Clear();
+        Assert.Contains(answer.Member, Assert.Single(Differences(recorded, snapshot.ToJsonString())));
     }
 
     private static GeneratedAnswer Answer(IReadOnlyDictionary<string, ClassifiedFate>? classified, string? reason, LibraryModel? model = null) =>

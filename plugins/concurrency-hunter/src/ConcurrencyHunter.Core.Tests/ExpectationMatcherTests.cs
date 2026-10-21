@@ -122,7 +122,7 @@ public sealed class ExpectationMatcherTests
     {
         string[] phases = ["0", "1a", "1b", "2", "2b", "3", "4", "4b", "5a", "5b", "5c",
                            "5d", "5d-A1", "5d-A2", "5d-B1", "5d-A3", "5d-B2", "5d-B2b", "5d-A4", "5d-A5", "5d-A6", "5d-A7", "5d-A8", "5d-A9",
-                           "5d-A10", "5d-B3", "5d-B4", "5d-C",
+                           "5d-A10", "5d-B3", "5d-B3c", "5d-B4", "5d-C",
                            "5e", "5f", "5g", "6", "7", "8"];
 
         for (var first = 0; first < phases.Length; first++)
@@ -156,7 +156,7 @@ public sealed class ExpectationMatcherTests
     [Fact]
     public void Runs_of_5d_follow_the_plan_order()
     {
-        string[] runs = ["A1", "A2", "B1", "A3", "B2", "B2b", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "B3", "B4", "C"];
+        string[] runs = ["A1", "A2", "B1", "A3", "B2", "B2b", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "B3", "B3c", "B4", "C"];
 
         for (var first = 0; first < runs.Length; first++)
         {

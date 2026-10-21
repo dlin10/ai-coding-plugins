@@ -57,6 +57,10 @@ public sealed record ReachabilityRules(DispatchRule Dispatch, IReadOnlySet<strin
     /// objects and access of their fields, giving what a dropped operation gave back a constant of its type. Empty for every run but a
     /// generation of CoreLib.</summary>
     public IReadOnlySet<string> SilentTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>The assembly-qualified declaration ids of property definitions whose accesses stay accessor calls, including
+    /// automatic properties. Empty except for the property whose accessor a model generation analyses.</summary>
+    public IReadOnlySet<string> CalledPropertyKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
 public enum ConstructionKind

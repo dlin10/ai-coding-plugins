@@ -2,6 +2,8 @@ using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests.Providers;
@@ -23,6 +25,7 @@ public sealed class AccessorDriverTests
                 public object this[int i] { get => _items[i]; set => _items[i] = value; }
                 public static object Shared { get; set; }
                 public object Init { get => _value; init => _value = value; }
+                public object this[string i] { get => _value; init => _value = value; }
                 public object Guarded { get => _value; internal set => _value = value; }
                 public event Action Changed { add { _value = value; } remove { _value = null; } }
                 public static event Action StaticChanged { add { } remove { } }
@@ -63,6 +66,8 @@ public sealed class AccessorDriverTests
     [InlineData("M:Lib.Store.get_Item(System.Int32)", "var r = Recv_Call[Arg_i_Call];")]
     [InlineData("M:Lib.Store.set_Item(System.Int32,System.Object)", "Recv_Call[Arg_i_Call] = Arg_value_Call;")]
     [InlineData("M:Lib.Store.set_Shared(System.Object)", "global::Lib.Store.Shared = Arg_value_Call;")]
+    [InlineData("M:Lib.Store.set_Init(System.Object)", "Recv_Call.Init = Arg_value_Call;")]
+    [InlineData("M:Lib.Store.set_Item(System.String,System.Object)", "Recv_Call[Arg_i_Call] = Arg_value_Call;")]
     [InlineData("M:Lib.Store.add_Changed(System.Action)", "Recv_Call.Changed += L_value_0_Call();")]
     [InlineData("M:Lib.Store.remove_Changed(System.Action)", "Recv_Call.Changed -= L_value_0_Call();")]
     [InlineData("M:Lib.Store.add_StaticChanged(System.Action)", "global::Lib.Store.StaticChanged += L_value_0_Call();")]
@@ -84,12 +89,18 @@ public sealed class AccessorDriverTests
     }
 
     [Fact]
-    public void An_init_setter_is_driver_not_synthesized_as_an_init_accessor()
+    public void An_init_setter_is_called_on_the_prepared_receiver()
     {
         var synthesis = Synthesize("M:Lib.Store.set_Init(System.Object)");
 
-        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
-        Assert.Contains("is an init accessor", synthesis.Detail);
+        var driver = Assert.IsType<Driver>(synthesis.Driver);
+        Assert.Null(synthesis.Reason);
+        Assert.Contains("Recv_Call.Init = Arg_value_Call;", driver.Source);
+        Assert.All(driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error),
+                   diagnostic => Assert.Equal("CS8852", diagnostic.Id));
+        var answer = ModelGenerator.Trace(new GenerationRequest("Fixture.Library", "1.0", "M:Lib.Store.set_Init(System.Object)", null, null),
+                                          Library.Value, CancellationToken.None).Answer;
+        Assert.NotEqual(GenerationReasons.DRIVER_NOT_SYNTHESIZED, answer.Reason);
     }
 
     [Fact]
@@ -157,7 +168,7 @@ public sealed class AccessorDriverTests
     }
 
     [Fact]
-    public void A_seed_auto_property_init_accessor_the_opening_turned_into_set_is_still_an_init_accessor()
+    public void A_seed_auto_property_init_accessor_the_opening_turned_into_set_is_called_and_is_no_trigger()
     {
         const string SETTER = "M:Lib.Seeded.set_Frozen(System.Object)";
         Assert.False(((IMethodSymbol)Opened(SETTER)).IsInitOnly);
@@ -165,9 +176,76 @@ public sealed class AccessorDriverTests
         var synthesis = Synthesize(SETTER);
         var holder = Assert.IsType<Driver>(Synthesize("M:Lib.Api.MakeSeeded(System.Action)").Driver);
 
-        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
-        Assert.Contains("is an init accessor", synthesis.Detail);
+        Assert.IsType<Driver>(synthesis.Driver);
+        Assert.Null(synthesis.Reason);
         Assert.DoesNotContain(holder.Triggers, trigger => trigger.Member == SETTER);
+    }
+
+    [Theory]
+    [InlineData("property", "CS8852", true)]
+    [InlineData("indexer", "CS8852", true)]
+    [InlineData("indexer", "CS0619", false)]
+    [InlineData("setup", "CS8852", false)]
+    [InlineData("property", "CS0619", false)]
+    [InlineData("trigger", "CS8852", true)]
+    [InlineData("trigger", "CS0619", true)]
+    public void Only_CS8852_at_the_target_assignment_is_tolerated(string place, string diagnostic, bool accepted)
+    {
+        // Obsolete supplies a compiler error at a generated use without changing the driver's source. Its custom id
+        // lets the trigger row exercise CS8852 even though init accessors themselves are never holder triggers.
+        var obsolete = diagnostic == "CS8852" ? "[System.Obsolete(\"gone\", true, DiagnosticId = \"CS8852\")]"
+                                               : "[System.Obsolete(\"gone\", true)]";
+        var attribute = diagnostic == "CS0619" && place is "property" or "indexer" ? obsolete : "";
+        var property = place == "indexer" ? $"{attribute} public object this[int i] {{ get => _value; init => _value = value; }}"
+                                           : $"{attribute} public object X {{ get => _value; init => _value = value; }}";
+        var extra = place == "setup" ? "public Seed Other;" : "";
+        var trigger = place == "trigger" ? "void IOld.Fire() { }" : "";
+        var contract = place == "trigger" ? $"{obsolete} public interface IOld {{ void Fire(); }}" : "";
+        var implements = place == "trigger" ? ": IOld" : "";
+        var source = $$"""
+            namespace Lib
+            {
+                public sealed class Seed { public object Frozen { get; init; } }
+                {{contract}}
+                [System.Obsolete("old")] public sealed class Store {{implements}} { private object _value; {{property}} {{extra}} {{trigger}} }
+            }
+            """;
+        // Keep auto-property init in this copy: opening it for seeding would turn init into set and hide the setup error.
+        var library = CSharpCompilation.Create("Fixture.Library",
+            [CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview))], EmittedAssemblies.RuntimeReferences,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        Assert.Empty(library.GetDiagnostics().Where(error => error.Severity == DiagnosticSeverity.Error));
+        var id = place == "indexer" ? "M:Lib.Store.set_Item(System.Int32,System.Object)" : "M:Lib.Store.set_X(System.Object)";
+        var member = Assert.IsAssignableFrom<ISymbol>(DriverSynthesizer.FindMember(library, id));
+
+        var synthesis = DriverSynthesizer.Synthesize(library, member, new HashSet<string>(), CancellationToken.None);
+
+        if (!accepted)
+        {
+            Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
+            Assert.Contains(diagnostic, synthesis.Detail);
+            return;
+        }
+
+        var driver = Assert.IsType<Driver>(synthesis.Driver);
+        Assert.Null(synthesis.Reason);
+        var tree = driver.Compilation.SyntaxTrees.Single();
+        var model = driver.Compilation.GetSemanticModel(tree);
+        var call = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(method => method.Identifier.Text == DriverSynthesizer.CALL);
+        var assignment = Assert.Single(model.GetOperation(call)!.Descendants().OfType<ISimpleAssignmentOperation>());
+        var invalid = Assert.IsAssignableFrom<IInvalidOperation>(assignment.Target);
+        var reference = Assert.IsAssignableFrom<IPropertyReferenceOperation>(Assert.Single(invalid.ChildOperations));
+        Assert.True(reference.Property.SetMethod!.IsInitOnly);
+        Assert.Equal(id, reference.Property.SetMethod.GetDocumentationCommentId());
+        Assert.All(driver.Compilation.GetDiagnostics().Where(error => error.Severity == DiagnosticSeverity.Error),
+                   error => Assert.Equal("CS8852", error.Id));
+        if (place == "trigger")
+        {
+            Assert.DoesNotContain(driver.Triggers, candidate => candidate.Member == "M:Lib.IOld.Fire");
+            Assert.Contains(driver.Uncovered[FateClassifier.THIS], why => why.StartsWith("M:Lib.IOld.Fire: the driver's call does not compile: ", StringComparison.Ordinal) &&
+                                                                         why.Contains(diagnostic, StringComparison.Ordinal));
+            Assert.DoesNotContain(".Fire()", driver.Source);
+        }
     }
 
     [Fact]

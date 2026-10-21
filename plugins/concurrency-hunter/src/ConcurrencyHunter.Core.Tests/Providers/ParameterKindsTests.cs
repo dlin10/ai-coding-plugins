@@ -1,7 +1,13 @@
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.Heap;
+using ConcurrencyHunter.Providers;
+using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 using Xunit;
 
 namespace ConcurrencyHunter.Core.Tests.Providers;
@@ -37,6 +43,10 @@ public sealed class ParameterKindsTests
                 public static void Generic<T>(T value, IEnumerable<T> values) { }
                 public static void Passing(ref Action first, out Action second, in Action third, ref Bag fourth) { second = null; }
                 public static void Arrays(int[] single, int[,] square, int[][] jagged, Func<int>[] probes, Action done) { }
+                public static void Expressions(System.Linq.Expressions.Expression<Func<object, bool>> predicate,
+                                               System.Linq.Expressions.Expression<Action<object>> action,
+                                               System.Linq.Expressions.Expression<Func<int, object, string>> map,
+                                               System.Linq.Expressions.Expression<Func<int>> zero, Action done) { }
                 public static void Tasks(Task<Func<int>> probe, ValueTask<Holder> holder, Task<Box> box, Task<Pair> pair, Task<int> number, Task plain,
                                          ValueTask plainValue, Task<Task<Box>> nested) { }
             }
@@ -46,7 +56,8 @@ public sealed class ParameterKindsTests
     private static readonly Lazy<LibraryCompilationResult> Library = new(() =>
         LibraryCompilation.CompileTrees("Fixture.Library",
                                         [CSharpSyntaxTree.ParseText(SOURCE, new CSharpParseOptions(LanguageVersion.Preview), "Fixture.Library/Library.cs")],
-                                        EmittedAssemblies.RuntimeReferences, CancellationToken.None));
+                                        EmittedAssemblies.RuntimeReferences.Append(MetadataReference.CreateFromFile(typeof(System.Linq.Expressions.Expression<>).Assembly.Location)).ToArray(),
+                                        CancellationToken.None));
 
     [Fact]
     public void Axis_1_a_span_or_a_pointer_is_not_synthesized()
@@ -176,6 +187,53 @@ public sealed class ParameterKindsTests
     {
         Assert.Contains("Arg_jagged_Call = new global::System.Int32[][] { new global::System.Int32[] { default(global::System.Int32), default(global::System.Int32) }, " +
                         "new global::System.Int32[] { default(global::System.Int32), default(global::System.Int32) } };", Setup());
+    }
+
+    [Fact]
+    public void An_expression_tree_parameter_gets_a_lambda_that_captures_a_probe()
+    {
+        Assert.True(Library.Value.Reason is null, $"{Library.Value.Reason}: {string.Join(", ", Library.Value.Errors)}");
+        var library = Library.Value.Compilation!;
+        var member = library.GetTypeByMetadataName("Lib.Api")!.GetMembers("Expressions").OfType<IMethodSymbol>().Single();
+        var synthesis = DriverSynthesizer.Synthesize(library, member, Library.Value.ExternMembers, CancellationToken.None);
+
+        Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+        var driver = synthesis.Driver;
+        Assert.Empty(driver.Compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        var tree = driver.Compilation.SyntaxTrees.Single();
+        var model = driver.Compilation.GetSemanticModel(tree);
+        var setup = tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(method => method.Identifier.ValueText == DriverSynthesizer.SETUP);
+        var lambdas = setup.DescendantNodes().OfType<ParenthesizedLambdaExpressionSyntax>().ToArray();
+        Assert.Equal(4, lambdas.Length);
+        foreach (var lambda in lambdas)
+        {
+            var expression = Assert.IsAssignableFrom<INamedTypeSymbol>(model.GetTypeInfo(lambda).ConvertedType);
+            Assert.Equal("System.Linq.Expressions.Expression<TDelegate>", expression.OriginalDefinition.ToDisplayString());
+            var invoke = Assert.IsAssignableFrom<INamedTypeSymbol>(expression.TypeArguments[0]).DelegateInvokeMethod!;
+            var call = Assert.IsAssignableFrom<IInvocationOperation>(model.GetOperation(lambda.Body));
+            var receiver = Assert.IsAssignableFrom<ILocalReferenceOperation>(call.Instance);
+            Assert.Equal(TypeKind.Class, receiver.Local.Type.TypeKind);
+            Assert.StartsWith("Probe_", receiver.Local.Type.Name);
+            Assert.Equal("Fn", call.TargetMethod.Name);
+            Assert.Equal(invoke.Parameters.Length, lambda.ParameterList.Parameters.Count);
+            Assert.Equal(invoke.Parameters.Length, call.Arguments.Length);
+            Assert.True(SymbolEqualityComparer.Default.Equals(invoke.ReturnType, call.Type));
+            Assert.All(call.Arguments, argument => Assert.IsAssignableFrom<IParameterReferenceOperation>(argument.Value));
+        }
+
+        foreach (var parameter in member.Parameters.Where(parameter => parameter.Name != "done"))
+        {
+            Assert.NotEqual(ParameterKind.Delegate, ParameterKinds.Of(parameter.Type));
+            Assert.DoesNotContain(driver.Parameters, classified => classified.Name == parameter.Name);
+        }
+        Assert.Equal(ParameterKind.Delegate, Assert.Single(driver.Parameters).Kind);
+        Compilation[] compilations = [library, driver.Compilation];
+        var root = Path.Combine(Path.GetTempPath(), "parameter-kinds");
+        var run = ScopePipeline.Run("scope:Driver", compilations, compilations.Select(compilation => (compilation, (string?)null)).ToArray(), root,
+                                    new ProviderRegistry([new DriverRootProvider()]), LibraryModels.BuiltIn, AnalysisLimits.Default, new(), null,
+                                    CancellationToken.None);
+        Assert.False(run.Stopped);
+        Assert.Equal(["done"], FateClassifier.Classify(driver, run).Classified.Keys);
     }
 
     private static string Setup()

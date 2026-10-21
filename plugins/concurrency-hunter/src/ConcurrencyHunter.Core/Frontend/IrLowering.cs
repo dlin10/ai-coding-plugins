@@ -29,6 +29,12 @@ public static class IrLowering
     private static readonly System.Text.RegularExpressions.Regex NESTED_BODY_SUFFIX =
         new(@"(?:#lambda\d+|#local:[^#~]+(?:~\d+)?)+$");
 
+    /// <summary>The property target Roslyn wraps for an init assignment outside an initializer, or the unchanged operation.</summary>
+    /// <param name="operation">The assignment target to inspect.</param>
+    internal static IOperation UnwrapInitTarget(IOperation operation) =>
+        operation is IInvalidOperation && operation.ChildOperations.Count == 1 &&
+        operation.ChildOperations.First() is IPropertyReferenceOperation { Property.SetMethod.IsInitOnly: true } property ? property : operation;
+
     /// <summary>Lowers a member with a source body. A constructor's body runs its type's initializers (unless it chains to
     /// <c>this(...)</c>), then the base or <c>this</c> call, then its own body; a type initializer runs the static initializers,
     /// then the static constructor body; an auto-property accessor loads or stores its backing field.</summary>
@@ -54,9 +60,15 @@ public static class IrLowering
     /// is lowered as a call of a member without a body (ADR 0019); <c>null</c> for none.</param>
     /// <param name="silentTypeKeys">The definition keys of the types the run takes to do nothing: a call of one of their members, a
     /// creation of one of their objects and an access of one of their fields are dropped (question 142); <c>null</c> for none.</param>
+    /// <param name="calledPropertyKeys">The assembly-qualified declaration ids of property definitions whose accesses stay accessor
+    /// calls, including automatic properties; <c>null</c> for none.</param>
+    /// <param name="fieldPropertySites">The syntax trees and spans of driver seed statements whose automatic properties stay field
+    /// accesses even when named in <paramref name="calledPropertyKeys"/>; <c>null</c> for none.</param>
     public static IrLoweredMethod Lower(IMethodSymbol method, Compilation compilation, string rootDirectory,
                                         CancellationToken cancellationToken, LibraryModels libraryModels,
-                                        IReadOnlySet<string>? leftOutTypeKeys = null, IReadOnlySet<string>? silentTypeKeys = null)
+                                        IReadOnlySet<string>? leftOutTypeKeys = null, IReadOnlySet<string>? silentTypeKeys = null,
+                                        IReadOnlySet<string>? calledPropertyKeys = null,
+                                        IReadOnlyList<(SyntaxTree Tree, TextSpan Span)>? fieldPropertySites = null)
     {
         WorkCancellation.Check();
         var plan = Plan(method, compilation, cancellationToken);
@@ -76,6 +88,8 @@ public static class IrLowering
         {
             LeftOutTypeKeys = leftOutTypeKeys ?? new HashSet<string>(StringComparer.Ordinal),
             SilentTypeKeys = silentTypeKeys ?? new HashSet<string>(StringComparer.Ordinal),
+            CalledPropertyKeys = calledPropertyKeys ?? new HashSet<string>(StringComparer.Ordinal),
+            FieldPropertySites = fieldPropertySites ?? [],
             ClosureSlots = new ClosureSlots(method, plan.Roots, compilation, cancellationToken)
         };
         var ownerSymbol = SymbolNames.Method(method);
@@ -539,6 +553,12 @@ public static class IrLowering
         /// <summary>The definition keys of the types the run takes to do nothing (<see cref="ReachabilityRules.SilentTypeKeys"/>).</summary>
         internal IReadOnlySet<string> SilentTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>The assembly-qualified declaration ids of property definitions whose accesses stay accessor calls.</summary>
+        internal IReadOnlySet<string> CalledPropertyKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>The driver seed statements within which automatic properties stay field accesses.</summary>
+        internal IReadOnlyList<(SyntaxTree Tree, TextSpan Span)> FieldPropertySites { get; init; } = [];
+
         /// <summary>The slot of each variable the member declares in the member's closure (R4).</summary>
         internal required ClosureSlots ClosureSlots { get; init; }
 
@@ -785,6 +805,7 @@ public static class IrLowering
         /// in it.</summary>
         private readonly Dictionary<int, (HashSet<ISymbol> AtExit, HashSet<ISymbol> Anywhere)> _reassignedIn = [];
         private ControlFlowGraph _graph = null!;
+        private ISymbol? _initializerOwner;
         private EffectiveFlowGraph _flowGraph = null!;
         private SsaPlan _ssaPlan = null!;
         private int _offset;
@@ -1243,6 +1264,7 @@ public static class IrLowering
         private void EnterSegment(GraphSegment segment, int offset)
         {
             _graph = segment.Graph;
+            _initializerOwner = segment.InitializerOwner;
             _flowGraph = EffectiveFlowGraph.Create(_graph);
             _ssaPlan = SsaPlan.Create(_method, _graph, _flowGraph, segment.InitializerOwner);
             _referencedVariables.Clear();
@@ -2272,7 +2294,7 @@ public static class IrLowering
                         Provenance(source, coalesceLoad is null ? transformation : "coalesce-assignment")));
                     return value;
                 }
-                case IPropertyReferenceOperation property when IsAutomatic(property.Property):
+                case IPropertyReferenceOperation property when IsAutomatic(property):
                 {
                     var location = GetPropertyLocation(property);
                     var coalesceLoad = CoalesceLoad(target);
@@ -2365,6 +2387,7 @@ public static class IrLowering
             {
                 IDeclarationExpressionOperation declaration => UnwrapTarget(declaration.Expression),
                 IConversionOperation conversion => UnwrapTarget(conversion.Operand),
+                IInvalidOperation => UnwrapInitTarget(operation),
                 _ => operation
             };
         }
@@ -2494,7 +2517,7 @@ public static class IrLowering
                 return element;
             }
 
-            if (IsAutomatic(property.Property))
+            if (IsAutomatic(property))
             {
                 var location = GetPropertyLocation(property);
                 var result = AddTemporary(property.Type);
@@ -2852,7 +2875,7 @@ public static class IrLowering
         private bool IsCapturedLongFormTarget(IOperation captured) =>
             captured is IArrayElementReferenceOperation ||
             captured is IPropertyReferenceOperation { Property: { GetMethod: not null, SetMethod: not null } } property &&
-            !IsAutomatic(property.Property) && !IsElementIndexer(property);
+            !IsAutomatic(property) && !IsElementIndexer(property);
 
         /// <summary>Whether a captured operation is the target of a simple assignment of a value, which writes it without reading it: the
         /// target Roslyn takes before an object initializer runs or before a value that branches.</summary>
@@ -4707,7 +4730,7 @@ public static class IrLowering
                 case IEventReferenceOperation reference when FieldLikeEvents.Is(reference.Event):
                     location = GetEventLocation(reference);
                     return true;
-                case IPropertyReferenceOperation property when IsAutomatic(property.Property):
+                case IPropertyReferenceOperation property when IsAutomatic(property):
                     location = GetPropertyLocation(property);
                     return true;
                 case IParameterReferenceOperation parameter when IsPrimaryConstructorParameter(parameter.Parameter):
@@ -4846,8 +4869,17 @@ public static class IrLowering
         private static bool NamesOneCell(IPropertyReferenceOperation property) =>
             SpanTypes.Names(Bcl.TypeName(property.Property.ContainingType));
 
-        private bool IsAutomatic(IPropertySymbol property)
+        private bool IsAutomatic(IPropertyReferenceOperation reference)
         {
+            var property = reference.Property;
+            if (_context.CalledPropertyKeys.Count != 0 &&
+                _context.CalledPropertyKeys.Contains($"{property.ContainingAssembly.Name}:{property.OriginalDefinition.GetDocumentationCommentId()}") &&
+                !SymbolEqualityComparer.Default.Equals(_initializerOwner, property.OriginalDefinition) &&
+                !_context.FieldPropertySites.Any(site => site.Tree == reference.Syntax.SyntaxTree && site.Span.Contains(reference.Syntax.Span)))
+            {
+                return false;
+            }
+
             // A property of a type CoreLib's generation leaves without bodies is the call it is from metadata (question 144).
             if (property.IsVirtual || property.IsAbstract || property.IsOverride ||
                 property.ContainingType.TypeKind == TypeKind.Interface || IsFramework(property.ContainingType))

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "763a0f038243e2c00a7fb89e2778479d64c0bce2edb2dfc093faf36e01c68950",
+  "generator": "f83e03cc2613e63814371fe0aae30b164cff79a9c32c38ed4208151217fec8c4",
   "assembly": {
     "name": "Polly.Core",
     "version": "8.0.0.0",
@@ -12,33 +12,41 @@
     {
       "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions.#ctor",
       "refusal": {
-        "reason": "not-a-candidate",
-        "detail": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions.#ctor has no receiver or parameter that can hold a user object",
-        "causes": []
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "value-unobserved"
+        ]
       }
     },
     {
       "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_FailureRatio(System.Double)",
       "refusal": {
-        "reason": "analysis-failed",
-        "detail": "the call never reached body:Polly.Core:M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_FailureRatio(System.Double)",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-accessed-elsewhere"
+        ]
       }
     },
     {
       "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_MinimumThroughput(System.Int32)",
       "refusal": {
-        "reason": "analysis-failed",
-        "detail": "the call never reached body:Polly.Core:M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_MinimumThroughput(System.Int32)",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-accessed-elsewhere"
+        ]
       }
     },
     {
       "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_OnOpened(System.Func{Polly.CircuitBreaker.OnCircuitOpenedArguments{`0},System.Threading.Tasks.ValueTask})",
       "refusal": {
-        "reason": "analysis-failed",
-        "detail": "the call never reached body:Polly.Core:M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_OnOpened(System.Func{Polly.CircuitBreaker.OnCircuitOpenedArguments{`0},System.Threading.Tasks.ValueTask})",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-accessed-elsewhere"
+        ]
       }
     },
     {
@@ -60,25 +68,43 @@
     {
       "member": "M:Polly.ResiliencePipeline.Execute(System.Action)",
       "refusal": {
-        "reason": "driver-not-synthesized",
-        "detail": "only a default could fill the Polly.ResiliencePipeline of Recv",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "callback-value-in-library-call",
+          "callback-value-read",
+          "callback-value-written",
+          "enumeration-write",
+          "probe-handed-to-unseen",
+          "receiver-member-unseen",
+          "unseeded-read",
+          "unsupported-store",
+          "value-unobserved",
+          "witness-value-accessed-elsewhere",
+          "witness-value-handed"
+        ]
       }
     },
     {
       "member": "M:Polly.ResiliencePipeline.Execute``1(System.Func{``0})",
       "refusal": {
-        "reason": "driver-not-synthesized",
-        "detail": "only a default could fill the Polly.ResiliencePipeline of Recv",
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 60 s",
         "causes": []
       }
     },
     {
       "member": "M:Polly.ResiliencePipelineBuilder.#ctor",
-      "refusal": {
-        "reason": "not-a-candidate",
-        "detail": "M:Polly.ResiliencePipelineBuilder.#ctor has no receiver or parameter that can hold a user object",
-        "causes": []
+      "model": {
+        "member": "M:Polly.ResiliencePipelineBuilder.#ctor",
+        "assemblies": [
+          "Polly.Core"
+        ],
+        "versions": {
+          "minimum": "8.0.0.0",
+          "maximumExclusive": "8.0.0.1"
+        },
+        "effects": {}
       }
     },
     {

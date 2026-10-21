@@ -261,7 +261,7 @@ public static class DriverSynthesizer
         if (!writer.Candidate)
         {
             return new DriverSynthesis(null, GenerationReasons.NOT_A_CANDIDATE,
-                                       $"{Id(definition)} has no receiver or parameter that can hold a user object");
+                                       $"{Id(definition)} has no receiver, parameter or result that can hold a user object");
         }
 
         if (externMembers.Contains(Id(definition)))
@@ -294,7 +294,9 @@ public static class DriverSynthesizer
             compilation = CSharpCompilation.Create(ASSEMBLY, [tree], library.References.Append(library.ToMetadataReference()),
                                                    new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
                                                                                 nullableContextOptions: NullableContextOptions.Disable));
-            errors = compilation.GetDiagnostics(cancellationToken).Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
+            errors = compilation.GetDiagnostics(cancellationToken)
+                                .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error &&
+                                                     !IsTargetInitError(diagnostic, tree, writer.CallStatements, cancellationToken)).ToArray();
             if (errors.Length == 0 || attempt > 0 || TriggersIn(tree, errors, cancellationToken) is not { } failing)
                 break;
             writer.DropTriggers(failing, errors.Select(error => $"{error.Id} {error.GetMessage()}").First());
@@ -432,6 +434,22 @@ public static class DriverSynthesizer
 
     private static string Id(ISymbol symbol) => symbol.GetDocumentationCommentId() ?? symbol.ToDisplayString();
 
+    /// <summary>Whether CS8852 lies inside the target call expression written by <c>Writer.Call</c> in one variant.</summary>
+    /// <param name="diagnostic">The driver error.</param>
+    /// <param name="tree">The driver's tree.</param>
+    /// <param name="calls">The target call's statement index in each action.</param>
+    /// <param name="cancellationToken">Cancels the syntax walk.</param>
+    private static bool IsTargetInitError(Diagnostic diagnostic, SyntaxTree tree, IReadOnlyDictionary<string, int> calls,
+                                          CancellationToken cancellationToken)
+    {
+        if (diagnostic.Id != "CS8852" || diagnostic.Location.SourceTree != tree)
+            return false;
+        return tree.GetRoot(cancellationToken).DescendantNodes().OfType<MethodDeclarationSyntax>().Any(method =>
+            calls.TryGetValue(method.Identifier.Text, out var index) &&
+            method.Body?.Statements.ElementAtOrDefault(index) is ExpressionStatementSyntax statement &&
+            statement.Expression.Span.Contains(diagnostic.Location.SourceSpan));
+    }
+
     /// <summary>Whether <c>V_Call</c> calls the member itself, not an overload or an extension the arguments bound to.</summary>
     /// <param name="compilation">The driver compilation.</param>
     /// <param name="tree">The driver's tree.</param>
@@ -445,7 +463,8 @@ public static class DriverSynthesizer
         {
             IInvocationOperation invocation => Id(invocation.TargetMethod.OriginalDefinition) == memberId,
             IPropertyReferenceOperation reference =>
-                (reference.Parent is ISimpleAssignmentOperation assignment && assignment.Target == reference
+                ((reference.Parent is IInvalidOperation invalid && IrLowering.UnwrapInitTarget(invalid) == reference ? invalid : (IOperation)reference)
+                    is { Parent: ISimpleAssignmentOperation assignment } target && assignment.Target == target
                     ? reference.Property.SetMethod
                     : reference.Property.GetMethod) is { } accessor && Id(accessor.OriginalDefinition) == memberId,
             IEventAssignmentOperation { EventReference: IEventReferenceOperation { Event: var @event } } subscription =>
@@ -518,6 +537,9 @@ public static class DriverSynthesizer
         private readonly List<string> _keep = [];
         private readonly List<string> _methods = [];
         private readonly List<string> _actions = [];
+
+        /// <summary>The statement containing the target call in each variant's action.</summary>
+        public Dictionary<string, int> CallStatements { get; } = new(StringComparer.Ordinal);
         private readonly List<string> _setup = [];
         private readonly List<(string Path, string Statement)> _seedStatements = [];
         private readonly SortedDictionary<string, ISymbol> _unseeded = new(StringComparer.Ordinal);
@@ -549,7 +571,7 @@ public static class DriverSynthesizer
         public List<string> Failures { get; } = [];
 
         /// <summary>The type that started the first chain of class declarations to pass <see cref="CLASS_NESTING"/> levels, or
-        /// <c>null</c> when none did. Unlike <see cref="Failures"/>, a rollback does not take it back.</summary>
+        /// <c>null</c> when none did. A candidate rollback restores it; a variant rollback does not.</summary>
         public string? TooDeep { get; private set; }
 
         public List<string> Defaulted { get; } = [];
@@ -582,20 +604,22 @@ public static class DriverSynthesizer
             var constructs = member.MethodKind == MethodKind.Constructor;
             var containing = (INamedTypeSymbol)Substitute(member.ContainingType);
             _receiver = !member.IsStatic && !constructs ? containing : null;
-            Candidate = _receiver is not null && ParameterKinds.IsCandidate(_receiver) ||
-                        member.Parameters.Any(parameter => parameter.RefKind != RefKind.Out &&
-                                                           ParameterKinds.IsCandidate(Substitute(parameter.Type)));
+            var returned = constructs ? containing : Substitute(member.ReturnType);
             if (constructs)
                 _result = containing;
             else if (!member.ReturnsVoid)
             {
                 // A task is awaited once per level, down to what its innermost task completes with, or to nothing for Task and ValueTask.
-                var returned = Substitute(member.ReturnType);
                 var innermost = TaskTypes.Innermost(returned);
                 var valueless = TaskTypes.IsValueless(innermost);
                 _awaits = TaskTypes.Depth(returned) + (valueless ? 1 : 0);
                 _result = valueless ? null : innermost;
             }
+
+            Candidate = _receiver is not null && ParameterKinds.IsCandidate(_receiver) ||
+                        member.Parameters.Any(parameter => parameter.RefKind != RefKind.Out &&
+                                                           ParameterKinds.IsCandidate(Substitute(parameter.Type))) ||
+                        ParameterKinds.IsCandidate(returned);
 
             Enumerates = _result is { SpecialType: not SpecialType.System_String } result &&
                          (result.SpecialType == SpecialType.System_Collections_IEnumerable ||
@@ -923,15 +947,12 @@ public static class DriverSynthesizer
             };
         }
 
-        /// <summary>Records why the recipe cannot call the member. Whether it is public, and whether it is an init accessor, is read
-        /// on the unopened compilation: the opening strips a seed auto-property accessor's modifier and turns its <c>init</c> into
-        /// <c>set</c>.</summary>
+        /// <summary>Records why the recipe cannot call the member. Whether it is public is read on the unopened compilation:
+        /// the opening strips a seed auto-property accessor's modifier.</summary>
         private void CheckCallable()
         {
             if (!OriginalAccessibility(library, member))
                 Fail($"{Id(member)} is not public");
-            if (Original(library, member) is IMethodSymbol { IsInitOnly: true })
-                Fail($"{Id(member)} is an init accessor, which no driver form calls on a receiver whose state setup chose");
             if (member.IsAbstract)
                 Fail($"{Id(member)} is abstract");
             if (member.ContainingType.TypeKind == TypeKind.Interface && !member.IsStatic)
@@ -1672,6 +1693,7 @@ public static class DriverSynthesizer
         {
             var lines = new List<string>();
             var call = Call(variant, lines);
+            CallStatements[name] = lines.Count;
             if (_awaits != 0)
             {
                 var awaited = string.Concat(Enumerable.Repeat("await ", _awaits)) + call;
@@ -1936,7 +1958,7 @@ public static class DriverSynthesizer
         // ---- values ----
 
         /// <summary>A value of a type for its owner, by the type's kind (G-3's axes): a probe lambda, a canned value, a container, a
-        /// probe object, the driver's subclass, or the recipe's value.</summary>
+        /// probe object, the driver's subclass, an expression tree, or the recipe's value.</summary>
         /// <param name="type">The type.</param>
         /// <param name="owner">What the value belongs to.</param>
         /// <param name="depth">How many more constructors or factories the recipe may nest.</param>
@@ -1950,6 +1972,8 @@ public static class DriverSynthesizer
                     return Fail($"{owner.Name} needs a value of {type.ToDisplayString()}, a ref-like or pointer type");
                 case ParameterKind.Delegate:
                     return owner.Variant is not null ? ProbeFactory((INamedTypeSymbol)type, owner) : Lambda((INamedTypeSymbol)type, owner, INLINE_DEPTH, null);
+                case ParameterKind.ExpressionTree:
+                    return ExpressionTree((INamedTypeSymbol)type, owner, hoist);
                 case ParameterKind.Canned:
                     return Canned(type, owner);
                 case ParameterKind.Container:
@@ -1963,6 +1987,38 @@ public static class DriverSynthesizer
                 default:
                     return Recipe(type, owner, depth, hoist);
             }
+        }
+
+        /// <summary>An expression tree whose lambda captures a probe object and calls its witness method, without a delegate probe.</summary>
+        /// <param name="type">The expression tree type.</param>
+        /// <param name="owner">What the value belongs to.</param>
+        /// <param name="hoist">Setup's statements, or <c>null</c> for a value built by a factory.</param>
+        private string ExpressionTree(INamedTypeSymbol type, Owner owner, List<string>? hoist)
+        {
+            if (type.TypeArguments[0] is not INamedTypeSymbol { DelegateInvokeMethod: { ReturnsByRef: false, ReturnsByRefReadonly: false } invoke })
+                return Fail($"{owner.Name} needs an expression tree of a delegate returning by value");
+            var name = Unique($"Probe_{owner.Name}_Expression");
+            var body = WitnessBody(invoke, invoke.ReturnType, false, false, index => $"p{index}", null);
+            var fields = string.Concat(ProbeFields.Select(field => $"public object {field}; "));
+            _types.Add($"public sealed class {name} {{ {fields}public int Int0; public {(body is null ? "extern " : "")}" +
+                       $"{(invoke.ReturnsVoid ? "void" : R(invoke.ReturnType))} Fn({Signature(invoke.Parameters)}){(body is null ? ";" : " " + body)} }}");
+            var probe = Unique($"probe_{owner.Name}_{owner.Variant}");
+            var expression = Unique($"expression_{owner.Name}_{owner.Variant}");
+            var parameters = string.Join(", ", invoke.Parameters.Select((_, index) => $"p{index}"));
+            var statements = new[]
+            {
+                $"var {probe} = {ProbeInstance(name)};",
+                $"{R(type)} {expression} = ({parameters}) => {probe}.Fn({parameters});"
+            };
+            if (hoist is not null)
+            {
+                hoist.AddRange(statements);
+                return expression;
+            }
+
+            var factory = Unique($"E_{owner.Name}");
+            _methods.Add($"public static {R(type)} {factory}() {{ {string.Join(" ", statements)} return {expression}; }}");
+            return $"{DRIVER_TYPE}.{factory}()";
         }
 
         /// <summary>A probe instance holding a probe object: a probe class's holds another of its class, a probe struct's an object of
@@ -2005,12 +2061,8 @@ public static class DriverSynthesizer
                            .FirstOrDefault();
                 if (constructor is not null)
                     return $"new {R(named)}({string.Join(", ", constructor.Parameters.Select(parameter => Canned(Substitute(parameter.Type), owner)))})";
-                var shared = named.GetMembers().FirstOrDefault(candidate => candidate is { IsStatic: true, DeclaredAccessibility: Accessibility.Public } &&
-                                                                            candidate is IFieldSymbol { Type: var fieldType } && SymbolEqualityComparer.Default.Equals(fieldType, named) ||
-                                                                            candidate is IPropertySymbol { IsIndexer: false, GetMethod.DeclaredAccessibility: Accessibility.Public, Type: var propertyType } &&
-                                                                            SymbolEqualityComparer.Default.Equals(propertyType, named));
-                if (shared is { IsStatic: true, DeclaredAccessibility: Accessibility.Public })
-                    return $"{R(named)}.{Escape(shared.Name)}";
+                if (SharedValue(named) is { } shared)
+                    return shared;
             }
 
             Defaulted.Add(owner.Name);
@@ -2040,9 +2092,8 @@ public static class DriverSynthesizer
             return $"new global::System.Collections.Generic.List<{R(element)}> {{ {Value(element, owner, depth, hoist)}, {Value(element, owner, depth, hoist)} }}";
         }
 
-        /// <summary>The recipe's value (steps 3–4): a task's canned value; a public constructor, the one taking a delegate first when
-        /// probes are to be placed, then the fewest parameters; a public static factory of the library; a constructor of a library
-        /// class that converts to an abstract type. A value only a default could fill makes the member <c>driver-not-synthesized</c>.</summary>
+        /// <summary>The recipe's nullable, pair, struct or task value, then the first built library source from <see cref="LibraryValue"/>.
+        /// A value only a default could fill makes the member <c>driver-not-synthesized</c>.</summary>
         /// <param name="type">The type.</param>
         /// <param name="owner">What the value belongs to.</param>
         /// <param name="depth">How many more constructors or factories the recipe may nest.</param>
@@ -2070,40 +2121,79 @@ public static class DriverSynthesizer
                     : $"new {R(task)}({inner})";
             }
 
-            if (depth > 0 && type is INamedTypeSymbol named)
-            {
-                if (named is { IsAbstract: false, IsStatic: false, TypeKind: TypeKind.Class or TypeKind.Struct } && Constructor(named, owner, depth, hoist) is { } constructed)
-                    return constructed;
-                if (Factory(named, owner, depth, hoist) is { } produced)
-                    return produced;
-                if (named.TypeKind == TypeKind.Interface || named.IsAbstract)
-                {
-                    foreach (var implementation in Implementations(named))
-                    {
-                        checks.Check(GenerationStage.Synthesize);
-                        if (Constructor(implementation, owner, depth, hoist) is { } implemented)
-                            return implemented;
-                    }
-                }
-            }
-
-            return Fail($"only a default could fill the {type.ToDisplayString()} of {owner.Name}");
+            return (type is INamedTypeSymbol named ? LibraryValue(named, owner, depth, hoist) : null) ??
+                   Fail($"only a default could fill the {type.ToDisplayString()} of {owner.Name}");
         }
 
-        private string? Constructor(INamedTypeSymbol type, Owner owner, int depth, List<string>? hoist)
+        /// <summary>The first public static field, then readable property, of exactly the requested type, as declared before opening.</summary>
+        /// <param name="type">The type whose shared value is needed.</param>
+        private string? SharedValue(INamedTypeSymbol type)
+        {
+            var members = type.GetMembers().Where(candidate => candidate.IsStatic && OriginalAccessibility(library, candidate));
+            var shared = members.OfType<IFieldSymbol>().FirstOrDefault(field => SymbolEqualityComparer.Default.Equals(field.Type, type)) as ISymbol ??
+                         members.OfType<IPropertySymbol>().FirstOrDefault(property => !property.IsIndexer && property.GetMethod is { } getter &&
+                                                                                     OriginalAccessibility(library, getter) &&
+                                                                                     SymbolEqualityComparer.Default.Equals(property.Type, type));
+            return shared is null ? null : $"{R(type)}.{Escape(shared.Name)}";
+        }
+
+        /// <summary>The recipe's first completely built source: public constructor, factory, static field, static property, internal
+        /// constructor of the library copy, then a concrete implementation of an abstract type or interface.</summary>
+        /// <param name="type">The type to produce.</param>
+        /// <param name="owner">What the value belongs to.</param>
+        /// <param name="depth">How many more constructors or factories the recipe may nest.</param>
+        /// <param name="hoist">Setup's statements, or <c>null</c>.</param>
+        private string? LibraryValue(INamedTypeSymbol type, Owner owner, int depth, List<string>? hoist)
+        {
+            if (depth <= 0)
+                return null;
+            var concrete = type is { IsAbstract: false, IsStatic: false, TypeKind: TypeKind.Class or TypeKind.Struct };
+            if (concrete && Constructor(type, owner, depth, hoist) is { } constructed)
+                return constructed;
+            if (Factory(type, owner, depth, hoist) is { } produced)
+                return produced;
+            if (TryCandidate(() => SharedValue(type), owner, hoist) is { } shared)
+                return shared;
+            if (concrete && SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, library.Assembly) &&
+                Constructor(type, owner, depth, hoist, Accessibility.Internal) is { } internalValue)
+                return internalValue;
+            if (type.TypeKind == TypeKind.Interface || type.IsAbstract)
+            {
+                foreach (var implementation in Implementations(type))
+                {
+                    checks.Check(GenerationStage.Synthesize);
+                    if (Constructor(implementation, owner, depth, hoist) is { } implemented)
+                        return implemented;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Tries every constructor of one accessibility in recipe order, rolling back an unbuilt candidate.</summary>
+        /// <param name="type">The concrete type.</param>
+        /// <param name="owner">What the value belongs to.</param>
+        /// <param name="depth">How many more constructors or factories the recipe may nest.</param>
+        /// <param name="hoist">Setup's statements, or <c>null</c>.</param>
+        /// <param name="accessibility">The constructor accessibility in the unopened library.</param>
+        private string? Constructor(INamedTypeSymbol type, Owner owner, int depth, List<string>? hoist, Accessibility accessibility = Accessibility.Public)
         {
             var placing = owner.Variant is not null;
-            var constructor = type.InstanceConstructors
-                                  .Where(candidate => candidate.DeclaredAccessibility == Accessibility.Public &&
-                                                      !(type.IsValueType && candidate.IsImplicitlyDeclared) &&
-                                                      candidate.Parameters.All(parameter => parameter.RefKind is RefKind.None or RefKind.In &&
-                                                                                            TypeShape.Of(parameter.Type) != TypeShapeKind.RefLikeOrPointer))
-                                  .OrderBy(candidate => placing && candidate.Parameters.Any(parameter => Kind(Substitute(parameter.Type)) == ParameterKind.Delegate) ? 0 : 1)
-                                  .ThenBy(candidate => candidate.Parameters.Length)
-                                  .FirstOrDefault();
-            return constructor is null
-                ? null
-                : $"new {R(type)}({string.Join(", ", constructor.Parameters.Select(parameter => Argument(parameter.Type, owner, depth - 1, hoist)))})";
+            var constructors = type.InstanceConstructors
+                                   .Where(candidate => Original(library, candidate)?.DeclaredAccessibility == accessibility &&
+                                                       !(type.IsValueType && candidate.IsImplicitlyDeclared) &&
+                                                       candidate.Parameters.All(parameter => parameter.RefKind is RefKind.None or RefKind.In &&
+                                                                                             TypeShape.Of(parameter.Type) != TypeShapeKind.RefLikeOrPointer))
+                                   .OrderBy(candidate => placing && candidate.Parameters.Any(parameter => Kind(Substitute(parameter.Type)) == ParameterKind.Delegate) ? 0 : 1)
+                                   .ThenBy(candidate => candidate.Parameters.Length);
+            foreach (var constructor in constructors)
+            {
+                checks.Check(GenerationStage.Synthesize);
+                var value = TryCandidate(() => $"new {R(type)}({string.Join(", ", constructor.Parameters.Select(parameter => Argument(parameter.Type, owner, depth - 1, hoist)))})",
+                                         owner, hoist);
+                if (value is not null)
+                    return value;
+            }
+            return null;
         }
 
         /// <summary>A public static method of the library whose result converts to the type, fewest parameters first; generic
@@ -2126,22 +2216,27 @@ public static class DriverSynthesizer
             foreach (var producer in _producers)
             {
                 checks.Check(GenerationStage.Synthesize);
-                var method = producer;
-                if (method.IsGenericMethod)
+                var value = TryCandidate(() =>
                 {
-                    if (method.TypeParameters.Any(parameter => parameter.ConstraintTypes.Any(constraint => constraint.TypeKind == TypeKind.Interface)))
-                        continue;
-                    var arguments = method.TypeParameters.Select(RecipeChoice).ToArray();
-                    if (arguments.Any(argument => argument is null))
-                        continue;
-                    method = method.Construct(arguments!);
-                }
+                    var method = producer;
+                    if (method.IsGenericMethod)
+                    {
+                        if (method.TypeParameters.Any(parameter => parameter.ConstraintTypes.Any(constraint => constraint.TypeKind == TypeKind.Interface)))
+                            return null;
+                        var arguments = method.TypeParameters.Select(RecipeChoice).ToArray();
+                        if (arguments.Any(argument => argument is null))
+                            return null;
+                        method = method.Construct(arguments!);
+                    }
 
-                if (!Converts(method.ReturnType, type) || method.Parameters.Any(parameter => SymbolEqualityComparer.Default.Equals(parameter.Type, type)))
-                    continue;
-                var typeArguments = method.IsGenericMethod ? "<" + string.Join(", ", method.TypeArguments.Select(R)) + ">" : "";
-                return $"{R(method.ContainingType)}.{Escape(method.Name)}{typeArguments}" +
-                       $"({string.Join(", ", method.Parameters.Select(parameter => Argument(parameter.Type, owner, depth - 1, hoist)))})";
+                    if (!Converts(method.ReturnType, type) || method.Parameters.Any(parameter => SymbolEqualityComparer.Default.Equals(parameter.Type, type)))
+                        return null;
+                    var typeArguments = method.IsGenericMethod ? "<" + string.Join(", ", method.TypeArguments.Select(R)) + ">" : "";
+                    return $"{R(method.ContainingType)}.{Escape(method.Name)}{typeArguments}" +
+                           $"({string.Join(", ", method.Parameters.Select(parameter => Argument(parameter.Type, owner, depth - 1, hoist)))})";
+                }, owner, hoist);
+                if (value is not null)
+                    return value;
             }
 
             return null;
@@ -2152,7 +2247,7 @@ public static class DriverSynthesizer
         /// <param name="type">The abstract class or interface.</param>
         private IEnumerable<INamedTypeSymbol> Implementations(INamedTypeSymbol type) =>
             LibraryTypes().Where(candidate => candidate is { TypeKind: TypeKind.Class, IsAbstract: false, IsStatic: false, IsGenericType: false } &&
-                                              Converts(candidate, type))
+                                              OriginalAccessibility(library, candidate) && Converts(candidate, type))
                           .OrderBy(candidate => candidate.InstanceConstructors.Select(constructor => constructor.Parameters.Length).DefaultIfEmpty(int.MaxValue).Min());
 
         /// <summary>A value nested in a constructor's or factory's arguments. In setup, a holding object that carries no probe is
@@ -2237,8 +2332,9 @@ public static class DriverSynthesizer
         }
 
         /// <summary>What a lambda returns, made in its own body: a completed task of a value made by this rule, a canned value, a
-        /// probe class instance for a type parameter, an <c>R_</c> marker for <c>object</c>, an interface or an abstract class, the
-        /// recipe's constructor or factory for a concrete class or a struct with references; a holding value no rule makes is
+        /// probe class instance for a type parameter, an expression tree from its factory, an <c>R_</c> marker for <c>object</c>, an interface or an abstract class, the
+        /// first built library source for a concrete class, a struct with references or an abstract class no driver can derive from;
+        /// a holding value no rule makes is
         /// <c>driver-not-synthesized</c>, never a default.</summary>
         /// <param name="type">The returned type.</param>
         /// <param name="owner">What the lambda belongs to.</param>
@@ -2267,7 +2363,10 @@ public static class DriverSynthesizer
                     return $"default({R(type)})";
             }
 
-            // A struct with references holds as a class does: the recipe's constructor or factory below, never a default.
+            if (Kind(type) == ParameterKind.ExpressionTree)
+                return Value(type, owner, depth, null);
+
+            // A struct with references holds as a class does: the recipe's library sources below, never a default.
 
             switch (type)
             {
@@ -2284,8 +2383,7 @@ public static class DriverSynthesizer
                 case INamedTypeSymbol { IsAbstract: true } abstractClass when Derivation.CanDerive(abstractClass):
                     return $"new {DriverClass("R", owner.Name, abstractClass, null)}()";
                 case INamedTypeSymbol named:
-                    return (named.IsAbstract || named.IsStatic ? null : Constructor(named, owner, Math.Max(depth, INLINE_DEPTH), null)) ??
-                           Factory(named, owner, Math.Max(depth, INLINE_DEPTH), null) ??
+                    return LibraryValue(named, owner, Math.Max(depth, INLINE_DEPTH), null) ??
                            Fail($"only a default could fill the {type.ToDisplayString()} a lambda of {owner.Name} returns");
                 default:
                     return Fail($"a lambda of {owner.Name} returns {type.ToDisplayString()}");
@@ -2548,6 +2646,8 @@ public static class DriverSynthesizer
         private string? WitnessValue(ITypeSymbol type)
         {
             type = Substitute(type);
+            if (NamesMethodTypeParameter(type))
+                return null;
             if (type is ITypeParameterSymbol parameter)
                 return _probeTypes.TryGetValue(parameter, out var probe) ? ProbeInstance(probe) : null;
             if (TypeShape.Of(type) == TypeShapeKind.RefLikeOrPointer)
@@ -2555,18 +2655,34 @@ public static class DriverSynthesizer
             if (TypeShape.Of(type) is TypeShapeKind.Immutable or TypeShapeKind.PlainStruct)
                 return Canned(type, new Owner("Witness", null));
             var snapshot = Snapshot();
-            var value = SeedableFields.Seed(type) ||
+            var value = Kind(type) == ParameterKind.ExpressionTree
+                ? Value(type, new Owner("Witness", null), INLINE_DEPTH, null)
+                : SeedableFields.Seed(type) ||
                         SeedableFields.Path(type) && (type is IArrayTypeSymbol ||
                                                      type is INamedTypeSymbol collection && SeedableFields.Collection(collection) is not null)
                 ? SeedReturnValue(type)
                 : type is INamedTypeSymbol namedType
-                    ? Constructor(namedType, new Owner("Witness", null), INLINE_DEPTH, null) ??
-                      Factory(namedType, new Owner("Witness", null), INLINE_DEPTH, null)
+                    ? LibraryValue(namedType, new Owner("Witness", null), INLINE_DEPTH, null)
                     : null;
             if (value is not null && Failures.Count == snapshot.Failures)
                 return value;
             Rollback(snapshot, "Witness");
             return null;
+        }
+
+        /// <summary>Whether building the value outside its witness method would name a type parameter scoped to that method.</summary>
+        /// <param name="type">The value's type, including its containing types.</param>
+        private bool NamesMethodTypeParameter(ITypeSymbol type)
+        {
+            checks.Check(GenerationStage.Synthesize);
+            return type switch
+            {
+                ITypeParameterSymbol parameter => parameter.TypeParameterKind == TypeParameterKind.Method && !_probeTypes.ContainsKey(parameter),
+                IArrayTypeSymbol array => NamesMethodTypeParameter(array.ElementType),
+                INamedTypeSymbol named => named.TypeArguments.Any(NamesMethodTypeParameter) ||
+                                         named.ContainingType is { } outer && NamesMethodTypeParameter(outer),
+                _ => false
+            };
         }
 
         private string? SeedReturnValue(ITypeSymbol type)
@@ -2786,6 +2902,131 @@ public static class DriverSynthesizer
         }
 
         private static string Escape(string name) => SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None ? "@" + name : name;
+
+        /// <summary>A candidate's rollback and the failure and stack sizes used to judge its construction.</summary>
+        /// <param name="Restore">Restores the captured mutable state.</param>
+        /// <param name="Failures">The failure count before construction.</param>
+        /// <param name="Below">The unseeded-path stack size.</param>
+        /// <param name="Declaring">The class-declaration stack size.</param>
+        private sealed record CandidateState(Action Restore, int Failures, int Below, int Declaring);
+
+        /// <summary>Captures Failures, Defaulted, _setup, _seedStatements, _fields, _witnessFields, _keep, _types, _methods,
+        /// _actions, _chosen, _seedTypeKeys and _classKeys by size, removing their new keys from _probeTypes, _choices, _seedTypes
+        /// and _classes on rollback; copies _names, _probeStructs, _unseeded and _owners; captures every existing owner's probes
+        /// and inputs and the value owner's, plus the caller's hoisted statements. Captures _intermediates, _lambdaParameters,
+        /// _seedContainers, _staticsSeeded and TooDeep by value. The _below and _declaring stacks are checked, not restored;
+        /// the library producer cache _producers is not transactional.</summary>
+        /// <param name="owner">The owner of the candidate value, including an inline owner outside the owner dictionary.</param>
+        /// <param name="hoist">The caller's statements, or <c>null</c>.</param>
+        private CandidateState SnapshotCandidate(Owner owner, List<string>? hoist)
+        {
+            var restore = new List<Action>();
+            void List<T>(List<T> list)
+            {
+                var size = list.Count;
+                restore.Add(() => list.RemoveRange(size, list.Count - size));
+            }
+            void Keys<TKey, TValue>(Dictionary<TKey, TValue> dictionary, List<TKey> keys) where TKey : notnull
+            {
+                var size = keys.Count;
+                restore.Add(() =>
+                {
+                    foreach (var key in keys.Skip(size))
+                    {
+                        WorkCancellation.Check();
+                        dictionary.Remove(key);
+                    }
+                });
+                List(keys);
+            }
+            void Dictionary<TKey, TValue>(IDictionary<TKey, TValue> dictionary) where TKey : notnull
+            {
+                var entries = dictionary.ToArray();
+                restore.Add(() =>
+                {
+                    dictionary.Clear();
+                    foreach (var entry in entries)
+                    {
+                        WorkCancellation.Check();
+                        dictionary.Add(entry.Key, entry.Value);
+                    }
+                });
+            }
+            List(Failures);
+            List(Defaulted);
+            List(_setup);
+            List(_seedStatements);
+            List(_fields);
+            List(_witnessFields);
+            List(_keep);
+            List(_types);
+            List(_methods);
+            List(_actions);
+            var chosen = _chosen.Count;
+            restore.Add(() =>
+            {
+                foreach (var parameter in _chosen.Skip(chosen))
+                {
+                    WorkCancellation.Check();
+                    _probeTypes.Remove(parameter);
+                    _choices.Remove(parameter);
+                }
+            });
+            List(_chosen);
+            Keys(_seedTypes, _seedTypeKeys);
+            Keys(_classes, _classKeys);
+            var names = _names.ToArray();
+            restore.Add(() => { _names.Clear(); _names.UnionWith(names); });
+            Dictionary(_probeStructs);
+            Dictionary(_unseeded);
+            Dictionary(_owners);
+            foreach (var existing in _owners.Values.Append(owner).Distinct())
+            {
+                WorkCancellation.Check();
+                List(existing.Probes);
+                var inputs = existing.Inputs;
+                restore.Add(() => existing.Inputs = inputs);
+            }
+            if (hoist is not null && !ReferenceEquals(hoist, _setup))
+                List(hoist);
+            var intermediates = _intermediates;
+            var lambdaParameters = _lambdaParameters;
+            var seedContainers = _seedContainers;
+            var staticsSeeded = _staticsSeeded;
+            var tooDeep = TooDeep;
+            restore.Add(() =>
+            {
+                _intermediates = intermediates;
+                _lambdaParameters = lambdaParameters;
+                _seedContainers = seedContainers;
+                _staticsSeeded = staticsSeeded;
+                TooDeep = tooDeep;
+            });
+            return new CandidateState(() =>
+            {
+                foreach (var action in restore)
+                {
+                    WorkCancellation.Check();
+                    action();
+                }
+            }, Failures.Count, _below.Count, _declaring.Count);
+        }
+
+        /// <summary>Builds one expression atomically; a failed value leaves the writer as though the candidate were absent.</summary>
+        /// <param name="build">Builds the candidate expression, or returns <c>null</c> for an inapplicable candidate.</param>
+        /// <param name="owner">What the value belongs to.</param>
+        /// <param name="hoist">The caller's statements, or <c>null</c>.</param>
+        private string? TryCandidate(Func<string?> build, Owner owner, List<string>? hoist)
+        {
+            var snapshot = SnapshotCandidate(owner, hoist);
+            var value = build();
+            if (_below.Count != snapshot.Below || _declaring.Count != snapshot.Declaring)
+                throw new InvalidOperationException("A library value candidate left a writer stack unbalanced.");
+            if (value is not null && Failures.Count == snapshot.Failures && TooDeep is null)
+                return value;
+            snapshot.Restore();
+            return null;
+        }
 
         private (int Failures, int Defaulted, int Setup, int Fields, int Keep, int Types, int Methods, int SeedTypes, int ClassKeys, int Chosen) Snapshot() =>
             (Failures.Count, Defaulted.Count, _setup.Count, _fields.Count, _keep.Count, _types.Count, _methods.Count, _seedTypeKeys.Count,

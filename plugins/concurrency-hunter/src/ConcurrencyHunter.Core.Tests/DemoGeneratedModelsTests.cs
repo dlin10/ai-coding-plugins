@@ -15,7 +15,6 @@ public sealed class DemoGeneratedModelsTests
 {
     private const string CHECK_NOT_NULL = "M:Google.Protobuf.ProtoPreconditions.CheckNotNull``1(``0,System.String)";
     private const string OPTIONS_CREATE = "M:Microsoft.Extensions.Options.Options.Create``1(``0)";
-    private const string POLLY_EXECUTE = "M:Polly.ResiliencePipeline.Execute";
 
     /// <summary>Every committed generated file names the generator built from the current sources.</summary>
     [Fact]
@@ -91,16 +90,54 @@ public sealed class DemoGeneratedModelsTests
         Assert.True(entry.GetProperty("opaque").GetBoolean());
     }
 
-    /// <summary>The Polly pipeline's <c>Execute</c> is a target the generator cannot give a driver, so the demo's coverage names it with the
-    /// cause <c>driver-not-synthesized</c>; the two catalog cases that execute through a pipeline rest on that refusal.</summary>
+    /// <summary>Both Polly <c>Execute</c> overloads have a generated answer without a default-receiver refusal, in the file and coverage.</summary>
     [Fact]
-    public async Task Polly_execute_refusal_is_named_in_coverage()
+    public async Task Polly_execute_answers_are_no_default_receiver_refusal()
     {
+        const string detail = "only a default could fill the Polly.ResiliencePipeline of Recv";
+        string[] members = ["M:Polly.ResiliencePipeline.Execute(System.Action)",
+                            "M:Polly.ResiliencePipeline.Execute``1(System.Func{``0})"];
+        var path = Assert.Single(Directory.GetFiles(Path.Combine(DemoModels(), "generated", "Polly.Core"), "*.json", SearchOption.AllDirectories));
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
         var result = await DemoExpectationTests.SharedDemo.Value;
-
         var web = Assert.Single(result.Coverage, coverage => coverage.ScopeId == "Demo.Web");
-        Assert.Contains(web.GenerationRefusals, item => item.MemberId.StartsWith(POLLY_EXECUTE, StringComparison.Ordinal) &&
-                                                         item.Cause == GenerationReasons.DRIVER_NOT_SYNTHESIZED);
+
+        // bounded: the fixed list of target members above.
+        foreach (var member in members)
+        {
+            var entry = Assert.Single(document.RootElement.GetProperty("members").EnumerateArray(),
+                                      item => item.GetProperty("member").GetString() == member);
+            Assert.DoesNotContain(detail, entry.GetRawText(), StringComparison.Ordinal);
+            Assert.DoesNotContain(detail, JsonSerializer.Serialize(web.GenerationRefusals.Where(item => item.MemberId == member)),
+                                  StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>The demo's target auto-property accessors have answers that do not refuse a call for never reaching its body.</summary>
+    [Fact]
+    public void Demo_auto_property_accessors_reach_their_bodies()
+    {
+        string[] members = ["M:System.Threading.Channels.Channel`2.get_Reader",
+                            "M:System.Threading.Channels.Channel`2.get_Writer",
+                            "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_FailureRatio(System.Double)",
+                            "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_MinimumThroughput(System.Int32)",
+                            "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions`1.set_OnOpened(System.Func{Polly.CircuitBreaker.OnCircuitOpenedArguments{`0},System.Threading.Tasks.ValueTask})"];
+        var entries = Directory.EnumerateFiles(Path.Combine(DemoModels(), "generated"), "*.json", SearchOption.AllDirectories)
+                               .SelectMany(path =>
+                               {
+                                   using var document = JsonDocument.Parse(File.ReadAllText(path));
+                                   return document.RootElement.GetProperty("members").EnumerateArray().Select(item => item.Clone()).ToArray();
+                               }).ToArray();
+
+        // bounded: the fixed list of target members above.
+        foreach (var member in members)
+        {
+            var entry = Assert.Single(entries, item => item.GetProperty("member").GetString() == member);
+            Assert.False(entry.TryGetProperty("refusal", out var refusal) &&
+                         refusal.GetProperty("reason").GetString() == GenerationReasons.ANALYSIS_FAILED &&
+                         refusal.GetProperty("detail").GetString()!.Contains("the call never reached body", StringComparison.Ordinal),
+                         entry.GetRawText());
+        }
     }
 
     private static string DemoModels() =>

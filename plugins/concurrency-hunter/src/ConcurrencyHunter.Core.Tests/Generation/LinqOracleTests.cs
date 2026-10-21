@@ -29,6 +29,26 @@ public sealed class LinqOracleTests
     }
 
     [RequiresModelEvalsFact]
+    public void No_queryable_member_is_driver_not_synthesized()
+    {
+        var answers = LinqEvals.InstalledRun.Answers.Where(answer => answer.Gold.Group == "System.Linq.Queryable").ToArray();
+
+        Assert.Equal(LinqEvals.QUERYABLE_MEMBERS, answers.Length);
+        Assert.All(answers, answer => Assert.True(answer.Answer.Reason != GenerationReasons.DRIVER_NOT_SYNTHESIZED,
+                                                $"{answer.Gold.Member}: {answer.Answer.Detail}"));
+    }
+
+    [RequiresModelEvalsFact]
+    public void Enumerable_Empty_is_a_candidate()
+    {
+        var answer = Assert.Single(LinqEvals.InstalledRun.Answers,
+                                   answer => answer.Gold.Member == "M:System.Linq.Enumerable.Empty``1~System.Collections.Generic.IEnumerable{``0}");
+
+        Assert.True(answer.Answer.Reason != GenerationReasons.NOT_A_CANDIDATE,
+                    $"{answer.Gold.Member}: {answer.Answer.Detail}");
+    }
+
+    [RequiresModelEvalsFact]
     public void No_generated_linq_entry_is_narrower_than_the_built_in()
     {
         var compared = WholeEntryEvals.Compared(LinqEvals.InstalledRun);

@@ -236,14 +236,21 @@ public static class ModelGenerator
             {
                 SilentTypeKeys = CoreLibSilentTypeKeys(compilation, driver.Member)
             }
-            : ReachabilityRules.ClassHierarchy) with { OpenWorldAssemblies = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY } };
+            : ReachabilityRules.ClassHierarchy) with
+        {
+            OpenWorldAssemblies = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY },
+            CalledPropertyKeys = driver.Member.AssociatedSymbol is IPropertySymbol property
+                ? new HashSet<string>(StringComparer.Ordinal) { $"{property.ContainingAssembly.Name}:{property.OriginalDefinition.GetDocumentationCommentId()}" }
+                : new HashSet<string>(StringComparer.Ordinal)
+        };
         // A stage that runs the pipeline checks at its start and before each step the pipeline takes.
         ScopeRun Pipeline(bool triggers, GenerationStage stage)
         {
             checks.Check(stage);
             return ScopePipeline.Run(SCOPE_ID, [compilation, driver.Compilation], [], Path.GetTempPath(), new ProviderRegistry([new DriverRootProvider(triggers)]),
                                      models, AnalysisLimits.Default, lowered, CLOSURE_BOUND, checks.Token, _ => checks.Check(stage),
-                                     reachability: reachability);
+                                     reachability: reachability,
+                                     fieldPropertySites: driver.SeedStatements.Select(seed => (seed.Operation.Syntax.SyntaxTree, seed.Operation.Syntax.Span)).ToArray());
         }
 
         ScopeRun run;

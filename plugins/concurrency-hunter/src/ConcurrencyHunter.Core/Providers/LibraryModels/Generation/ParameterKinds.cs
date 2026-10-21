@@ -24,7 +24,10 @@ public enum ParameterKind
     Subclass,
 
     /// <summary>Axis 7: any other class, a task, or a struct with references, filled with the recipe's value.</summary>
-    RecipeValue
+    RecipeValue,
+
+    /// <summary>An expression tree, filled with a lambda that captures a probe object.</summary>
+    ExpressionTree
 }
 
 /// <summary>The one owner of a parameter's <see cref="ParameterKind"/>, which the candidate rule and the synthesizer both call.
@@ -55,6 +58,12 @@ public static class ParameterKinds
                 return ParameterKind.RecipeValue;
         }
 
+        if (type is INamedTypeSymbol { MetadataName: "Expression`1", ContainingNamespace: { } expressionNamespace } &&
+            expressionNamespace.ToDisplayString() == "System.Linq.Expressions")
+        {
+            return ParameterKind.ExpressionTree;
+        }
+
         if (type is IArrayTypeSymbol || IsSequence(type))
             return ParameterKind.Container;
         if (type.SpecialType == SpecialType.System_Object || type.TypeKind is TypeKind.Interface or TypeKind.TypeParameter or TypeKind.Dynamic ||
@@ -75,7 +84,7 @@ public static class ParameterKinds
     /// <summary>Whether a value of the kind can hold what the member stores into it.</summary>
     /// <param name="kind">The kind.</param>
     public static bool IsHolding(ParameterKind kind) =>
-        kind is ParameterKind.Container or ParameterKind.ProbeObject or ParameterKind.Subclass or ParameterKind.RecipeValue;
+        kind is ParameterKind.Container or ParameterKind.ProbeObject or ParameterKind.Subclass or ParameterKind.RecipeValue or ParameterKind.ExpressionTree;
 
     /// <summary>Whether a value of <paramref name="type"/> can carry a user object and makes its member a generation candidate: a
     /// <c>Task&lt;T&gt;</c> or <c>ValueTask&lt;T&gt;</c> exactly when its completion type T can, as the value handed directly would.</summary>

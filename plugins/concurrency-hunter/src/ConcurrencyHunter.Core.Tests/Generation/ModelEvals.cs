@@ -399,6 +399,12 @@ internal static class ModelEvals
         else
             ModelEntryWriter.Write(answer.Model).WriteTo(json);
         json.WriteString("modelReason", answer.ModelReason);
+        json.WriteString("detail", answer.Detail);
+        json.WriteStartArray("causes");
+        // bounded: emits each distinct cause code of the completed answer once.
+        foreach (var code in answer.Causes.Select(cause => cause.Code).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+            json.WriteStringValue(code);
+        json.WriteEndArray();
         json.WriteNumber("reachedBodies", answer.Generation.ReachedBodies);
         json.WriteEndObject();
     }

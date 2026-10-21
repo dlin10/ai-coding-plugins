@@ -22,6 +22,17 @@ public sealed class AccessorEvalTests
     }
 
     [RequiresModelEvalsFact]
+    public void No_accessor_answer_is_a_call_that_never_reached_its_body()
+    {
+        var answers = AccessorEvals.InstalledRun.Answers;
+
+        Assert.Equal(AccessorEvals.MEMBERS, answers.Count);
+        Assert.All(answers, answer => Assert.False(answer.Answer.Reason == GenerationReasons.ANALYSIS_FAILED &&
+                                                  answer.Answer.Detail.Contains("the call never reached body", StringComparison.Ordinal),
+                                                  $"{answer.Gold.Member}: {answer.Answer.Detail}"));
+    }
+
+    [RequiresModelEvalsFact]
     public void Accessor_answers_pass_the_project_reader()
     {
         foreach (var answer in AccessorEvals.InstalledRun.Answers.Where(answer => answer.Answer.Model is not null))

@@ -14,7 +14,7 @@ namespace ConcurrencyHunter.Core.Tests;
 
 public sealed class DemoExpectationTests
 {
-    private const string CURRENT_POINT = "5d-B3";
+    private const string CURRENT_POINT = "5d-B3c";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
