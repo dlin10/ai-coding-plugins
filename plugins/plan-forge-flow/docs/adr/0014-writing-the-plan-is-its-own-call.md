@@ -1,5 +1,10 @@
 # Write the plan in its own call, and let the round read it from disk
 
+The reset of `tasksCompleted` is amended by
+[0039](0039-a-patch-keeps-the-built-tasks-it-does-not-change.md): a whole-draft write still resets
+it, a patch keeps the built tasks it does not change, and a round over the plan on disk keeps what
+the plan's last writer kept.
+
 docs/adr/0009 put `PLAN.md` on disk before the critic starts so the user would have the plan to read
 during the minutes a round takes. Measured in run `20260904-173914-9254ec`, the user got the link
 seven minutes after the file existed, and the round it belonged to was already over:

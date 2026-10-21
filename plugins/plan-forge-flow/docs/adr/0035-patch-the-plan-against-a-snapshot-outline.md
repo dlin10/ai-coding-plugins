@@ -4,6 +4,10 @@ status: accepted
 
 # Patch the plan against a snapshot outline, and answer a replay with a conflict
 
+The reset of the build progress in the write's lifecycle is amended by
+[0039](0039-a-patch-keeps-the-built-tasks-it-does-not-change.md): a patch keeps the built tasks
+before the first task whose text it changes.
+
 Issue #150. Revising a plan between review rounds meant sending it whole: `forge.plan.write` takes
 the complete draft every time. Three Concurrency Hunter runs of 6–13 October 2026 made 23 writes
 between them, of plans that had grown to 37,129, 92,291 and 83,142 characters, and most revisions

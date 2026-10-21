@@ -238,6 +238,52 @@ public sealed class ConfirmPlanTests : IDisposable
         Assert.Equal(state, File.ReadAllBytes(Path.Combine(run.Path, "state.json")));
     }
 
+    /// <summary>
+    /// A change outside the tasks keeps them built, and the server does not guess which of them it
+    /// invalidates. When the user says one does, the approval sends the build back to that task.
+    /// </summary>
+    [Fact]
+    public async Task An_approval_with_rebuildFrom_sends_the_build_back_to_that_task()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        await ConfirmAsync(run.RunId, approved: true, ct);
+        run.WriteState(run.ReadState() with
+        {
+            TasksCompleted = 2, BuilderSessionId = "builder-session", BuilderSessionScope = "task 2",
+            TaskChanges = [new TaskChange(1, ["first.cs"]), new TaskChange(2, ["second.cs"])]
+        });
+
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, plan: Plan, rebuildFrom: 2);
+
+        var state = run.ReadState();
+        Assert.True(state.Approved);
+        Assert.Equal(1, state.TasksCompleted);
+        Assert.Equal(1, Assert.Single(state.TaskChanges!).TaskNumber);
+        Assert.Equal(string.Empty, state.BuilderSessionId);
+        Assert.Contains("The approval asks to rebuild from task 2. Build progress was reset from 2 completed tasks to 1, " +
+                        "and the builder will start from task 2.", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(true, 0, "names no built task: pass a task from 1 to 2")]
+    [InlineData(true, 3, "names no built task: pass a task from 1 to 2")]
+    [InlineData(false, 1, "does not accept rebuildFrom")]
+    public async Task A_rebuildFrom_that_names_no_built_task_is_refused_and_writes_nothing(bool approved, int task, string reason)
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        await ConfirmAsync(run.RunId, approved: true, ct);
+        run.WriteState(run.ReadState() with { Approved = false, TasksCompleted = 2 });
+        var state = File.ReadAllBytes(Path.Combine(run.Path, "state.json"));
+
+        var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() =>
+            ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, approved, ct, plan: Plan, rebuildFrom: task));
+
+        Assert.Contains(reason, error.Message, StringComparison.Ordinal);
+        Assert.Equal(state, File.ReadAllBytes(Path.Combine(run.Path, "state.json")));
+    }
+
     [Fact]
     public async Task Without_a_plan_or_a_PLAN_md_the_call_is_refused()
     {

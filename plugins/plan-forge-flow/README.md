@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.54.0
+# Plan Forge Flow 0.55.0
 
 Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -137,12 +137,18 @@ ID and hash from `forge.plan.outline`. On a stale-base refusal, read the outline
 edits against its current hash; never resend the refused patch unchanged. A replay after a lost
 answer conflicts, and equal text is never proof of success.
 
-A round, a whole-draft write or a patch after approval withdraws it and resets build progress and
-the Builder session. The Flow log names the cause. The patch hash check and replacement take no
-lock and are not atomic together. See
+A round, a whole-draft write or a patch after approval withdraws it and forgets the Builder session.
+A whole-draft write, or a round handed a draft, also resets the build progress to zero. A patch
+keeps every built task before the first task whose text it changes, with the files those tasks
+changed for the next task's hand-over, and answers with `tasksKept` and `firstTaskOwed`; a patch to
+the title, Requirements, Gates or an unbuilt task keeps them all. A re-approval keeps what the
+revision kept, unless `forge.plan.confirm` is given `rebuildFrom`, a built task the user asks to
+rebuild from. The Flow log names the cause and the tasks kept. The patch hash check and replacement
+take no lock and are not atomic together. See
 [docs/adr/0009](docs/adr/0009-the-plan-is-visible-from-the-first-round.md),
-[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md) and
-[docs/adr/0035](docs/adr/0035-patch-the-plan-against-a-snapshot-outline.md).
+[docs/adr/0014](docs/adr/0014-writing-the-plan-is-its-own-call.md),
+[docs/adr/0035](docs/adr/0035-patch-the-plan-against-a-snapshot-outline.md) and
+[docs/adr/0039](docs/adr/0039-a-patch-keeps-the-built-tasks-it-does-not-change.md).
 
 Approval does not go through MCP elicitation, and since 0.8.0 there is no code here that can ask the
 user anything. The orchestrator reads the drift out of `forge.status`, shows the user the plan and

@@ -163,7 +163,7 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Contains("\"outline\"", JsonSerializer.Serialize(new PlanOutlineResult("run", outline, documents),
             ForgeToolJson.Default.PlanOutlineResult), StringComparison.Ordinal);
         Assert.Contains("\"sizes\"", JsonSerializer.Serialize(new PlanForge.Mcp.PlanPatchResult("run", outline.PlanHash,
-            outline, [new PlanPatchChange("replace", "s0", "# Plan")], PlanPatchSizes.Payload([]), documents),
+            outline, [new PlanPatchChange("replace", "s0", "# Plan")], PlanPatchSizes.Payload([]), 0, 1, documents),
             ForgeToolJson.Default.PlanPatchResult), StringComparison.Ordinal);
         Assert.Contains("\"documents\"", JsonSerializer.Serialize(new PlanWriteResult("run", PlanOutline.Of("# Plan\n"), documents),
             ForgeToolJson.Default.PlanWriteResult), StringComparison.Ordinal);
