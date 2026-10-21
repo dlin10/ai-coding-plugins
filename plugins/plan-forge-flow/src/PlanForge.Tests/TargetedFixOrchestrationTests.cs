@@ -48,7 +48,7 @@ public sealed class TargetedFixOrchestrationTests : IDisposable
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, backgroundRun.RunId, id, CancellationToken.None);
         var fetched = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, backgroundRun.RunId,
             id, CancellationToken.None))!;
-        var payload = JsonSerializer.Deserialize(fetched["result"]!.GetValue<string>(), ContractJson.Default.BuildResult)!;
+        var payload = JsonSerializer.Deserialize(fetched["result"]!.ToJsonString(), ContractJson.Default.BuildResult)!;
         Assert.Equal(direct.Status, payload.Status);
         Assert.Equal(direct.GateMode, payload.GateMode);
         Assert.Equal(direct.Gate!.Outcome, payload.Gate!.Outcome);
@@ -81,7 +81,7 @@ public sealed class TargetedFixOrchestrationTests : IDisposable
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, replayJob, CancellationToken.None);
         var replayFetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId,
             replayJob, CancellationToken.None))!;
-        var replayPayload = JsonNode.Parse(replayFetch["result"]!.GetValue<string>())!;
+        var replayPayload = replayFetch["result"]!;
         Assert.Equal("[\"F-0002\"]", replayPayload["pendingFullGateFindingIds"]!.ToJsonString());
         await Fix(vendor).FixAsync(run, Builder, Close("rest", "F-0002"), null, [], CancellationToken.None);
         replay = await Fix(vendor).FixAsync(run, Builder, null, "A",

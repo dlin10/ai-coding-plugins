@@ -497,7 +497,11 @@ public sealed class ToolSurfaceTests
             .AddSingleton(SessionRoots.None)
             .AddSingleton(new JobRegistry())
             .AddSingleton(new CatalogCache());
-        services.AddMcpServer(o => o.Filters.Request.CallToolFilters.Add(ToolErrors.Surfaced))
+        services.AddMcpServer(o =>
+                {
+                    o.Filters.Request.CallToolFilters.Add(ToolErrors.Surfaced);
+                    o.Filters.Request.CallToolFilters.Add(ToolResultText.Compact);
+                })
                 .WithStreamServerTransport(toServer.Reader.AsStream(), toClient.Writer.AsStream())
                 .WithTools<ForgeTools>(ToolArgumentJson.ArgumentOptions);
         await using var provider = services.BuildServiceProvider();

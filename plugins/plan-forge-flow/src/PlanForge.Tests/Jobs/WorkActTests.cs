@@ -66,7 +66,7 @@ public sealed class WorkActTests : IDisposable
             "build.next", NewApprovedRun("build-dispatched"), null, new Selection("builder", null), null, null, null,
             false, CancellationToken.None);
 
-        Assert.Equal(JsonSerializer.Serialize(direct, ForgeToolJson.Default.BuildOutcome), payload);
+        Assert.Equal(BuildOutcomeView.Of(direct).ToJsonString(), payload);
     }
 
     [Fact]

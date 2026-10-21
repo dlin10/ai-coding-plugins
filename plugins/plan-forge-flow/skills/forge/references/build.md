@@ -15,6 +15,11 @@ attempt, including []. Short success leaves those findings unresolved and pendin
 Builder's report nor a Critic assessment verifies them. Full verification of targeted fixes follows
 the code-review schedule in `code-review.md` at either saved timing, with hostVerified evidence for closure.
 
+A clean pass — `status` `done`, `verification.outcome` `passed`, `gate.outcome` `passed` — comes
+back with those outcomes, the gate's `exitCode` and `seconds`, and the counters only. The builder's
+`summary`, its `evidence` and `filesChanged`, and the gate's `command` and `output` are in the Flow
+log for the user; every other result carries them all, because those are the results you decide from.
+
 If the Builder ran no checks because an executable gate belongs to the server, its verification
 is `unavailable` with that explicit reason, not `failed`. Fully implemented work is still `done`;
 the server runs its gate as usual. Optional Builder checks report only their own actual results,

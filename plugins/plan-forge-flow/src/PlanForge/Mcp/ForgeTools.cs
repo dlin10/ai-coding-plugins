@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using ModelContextProtocol;
 using ModelContextProtocol.Extensions.Apps;
@@ -32,6 +33,8 @@ internal sealed class ForgeTools
 
     /// <summary>Only one Evidence map may mutate a Run in this server process at a time.</summary>
     private static readonly ConcurrentDictionary<string, byte> EvidenceMaps = new(StringComparer.OrdinalIgnoreCase);
+    // The documents each job last answered with, by run path and job id, until its result is fetched.
+    private static readonly ConcurrentDictionary<string, RunDocuments> ShownDocuments = new(StringComparer.OrdinalIgnoreCase);
 
     private const string FAST_DESCRIPTION =
         "Run the worker at the vendor's Fast tier: quicker, at a higher usage price. Only for a model and effort forge.models " +
@@ -159,7 +162,7 @@ internal sealed class ForgeTools
             report.Detail,
             [
                 .. report.Catalog.Models.Select(model => new CatalogModel(model.Id, model.DisplayName,
-                    model.Description, model.Efforts, model.DefaultEffort, model.IsDefault,
+                    model.Efforts, model.DefaultEffort, model.IsDefault,
                     model.FastEfforts, model.FastHint, model.FastUnavailable))
             ]);
 
@@ -431,7 +434,7 @@ internal sealed class ForgeTools
     /// <param name="baseHash">The plan hash from its current outline.</param>
     /// <param name="edits">The operations and exact target selectors against that outline.</param>
     /// <param name="ct">Cancels the call.</param>
-    [McpServerTool(Name = "forge.plan.patch"), Description("Revises local targets against baseHash from forge.plan.outline, with a required nonempty edits array. Each edit requires op, target ID and targetHash: replace, delete, insertBefore or insertAfter. Replace/insert require nonblank content; delete permits no content, even an empty string. Refuses the whole patch for no_plan, stale plan/target hash, missing edit/fields, unknown target/operation, invalid content, two replacements/deletions on one target, two insertions at the same position (including after X/before its successor), or insertion anchored on a deleted target. Refusals identify the edit index where applicable and change no protected file. All edits use one snapshot and apply independently of list order; untouched text is exact. Written line breaks become CRLF only when every existing break is CRLF and there is at least one, otherwise LF; append a final break if missing and keep supplied trailing blank lines. Insert a separator in that style between pieces only when the preceding piece lacks a final break. Remove leading byte-order marks from the complete result before checking, writing, hashing or measuring it. Refuses blank or identical results, and any result the build task parser rejects when the base parses, including unreadable/overflowing task numbers; no renumbering. A successful patch withdraws approval and forgets the Builder session before persisting the complete plan, but keeps the build progress before the first task whose text it changed. Task texts as the build parses them are compared by position, so changing, inserting or removing task k at or below the built count — prose inserted after task k joins it — sends the build back to k − 1 tasks, trimming their changed-file hand-over and dropping a pending gate failure; a patch changing no built task's text, such as one to the title, Requirements, Gates or unbuilt tasks, keeps it all. No Worker, gate, review round or cap change. Returns baseHash, new outline, changed op/target/label, character and UTF-8 byte sizes (payload JSON, supplied text, plan before, removed, written excluding separators, plan after), tasksKept and firstTaskOwed (null when every task is built), and documents, with no plan text beyond labels. Missing/blank plans require forge.plan.write. Before replacement failures leave the plan unchanged and say whether approval was withdrawn; a failure of the patch's Flow entry says the plan was patched and gives its new hash. There is no lock or multi-file transaction; the hash check and replacement are not atomic. A replay conflicts as stale: read forge.plan.outline and redo edits against its new hash; never resend the refused patch or infer success from equal text.")]
+    [McpServerTool(Name = "forge.plan.patch"), Description("Revises local targets against baseHash from forge.plan.outline, with a required nonempty edits array. Each edit requires op, target ID and targetHash: replace, delete, insertBefore or insertAfter. Replace/insert require nonblank content; delete permits no content, even an empty string. Refuses the whole patch for no_plan, stale plan/target hash, missing edit/fields, unknown target/operation, invalid content, two replacements/deletions on one target, two insertions at the same position (including after X/before its successor), or insertion anchored on a deleted target. Refusals identify the edit index where applicable and change no protected file. All edits use one snapshot and apply independently of list order; untouched text is exact. Written line breaks become CRLF only when every existing break is CRLF and there is at least one, otherwise LF; append a final break if missing and keep supplied trailing blank lines. Insert a separator in that style between pieces only when the preceding piece lacks a final break. Remove leading byte-order marks from the complete result before checking, writing, hashing or measuring it. Refuses blank or identical results, and any result the build task parser rejects when the base parses, including unreadable/overflowing task numbers; no renumbering. A successful patch withdraws approval and forgets the Builder session before persisting the complete plan, but keeps the build progress before the first task whose text it changed. Task texts as the build parses them are compared by position, so changing, inserting or removing task k at or below the built count — prose inserted after task k joins it — sends the build back to k − 1 tasks, trimming their changed-file hand-over and dropping a pending gate failure; a patch changing no built task's text, such as one to the title, Requirements, Gates or unbuilt tasks, keeps it all. No Worker, gate, review round or cap change. Returns the new outline, tasksKept and firstTaskOwed (null when every task is built), and documents, with no plan text beyond labels; the Flow log records each change's op/target/label and the character and UTF-8 byte sizes (payload JSON, supplied text, plan before, removed, written excluding separators, plan after). Missing/blank plans require forge.plan.write. Before replacement failures leave the plan unchanged and say whether approval was withdrawn; a failure of the patch's Flow entry says the plan was patched and gives its new hash. There is no lock or multi-file transaction; the hash check and replacement are not atomic. A replay conflicts as stale: read forge.plan.outline and redo edits against its new hash; never resend the refused patch or infer success from equal text.")]
     public static async Task<string> PatchPlan(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
@@ -454,8 +457,7 @@ internal sealed class ForgeTools
                 sizes = patch.Sizes;
                 outcome = "applied";
                 return Task.FromResult(EvidenceMapCurrency.Attach(JsonSerializer.Serialize(
-                    new PlanPatchResult(run.RunId, patch.BaseHash, patch.Outline, patch.Changed, sizes,
-                                        patch.TasksKept, patch.FirstTaskOwed, Documents(run)),
+                    new PlanPatchResult(run.RunId, patch.Outline, patch.TasksKept, patch.FirstTaskOwed, Documents(run)),
                     ForgeToolJson.Default.PlanPatchResult), EvidenceMapCurrency.Warning(run, run.ReadState().ReviewRounds)));
             }
             catch (PlanPatchRejectedException error)
@@ -636,10 +638,7 @@ internal sealed class ForgeTools
                         "Show the user the plan as it stands and confirm with its hash.");
                 var tasks = PlanTasks.Parse(confirmed);
 
-                var drifted = await run.ReadBaseline(state.BaselineHead)
-                                       .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
-
-                if (!approved) return Serialized(new ApproveResult(false, 0, drifted));
+                if (!approved) return Serialized(new ApproveResult(false, 0));
 
                 if (decisions is not null)
                 {
@@ -682,7 +681,7 @@ internal sealed class ForgeTools
                 });
                 if (rebuildFrom is { } rebuilt) run.AppendFlowRebuildFrom(rebuilt, state.TasksCompleted);
 
-                return Serialized(new ApproveResult(true, tasks.Count, drifted));
+                return Serialized(new ApproveResult(true, tasks.Count));
             });
     }
 
@@ -707,9 +706,12 @@ internal sealed class ForgeTools
                 var act = new Build(builder, new PromptLibrary());
                 var outcome = await act.NextAsync(run, selection, ct);
 
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(new BuildNextResult(outcome, Documents(run)),
-                                                                          ForgeToolJson.Default.BuildNextResult),
-                                            act.SpeedWarning);
+                var result = new JsonObject
+                {
+                    ["build"] = BuildOutcomeView.Of(outcome),
+                    ["documents"] = JsonSerializer.SerializeToNode(Documents(run), ForgeToolJson.Default.RunDocuments)
+                };
+                return SpeedWarnings.Attach(run, result.ToJsonString(), act.SpeedWarning);
             });
     }
 
@@ -949,7 +951,9 @@ internal sealed class ForgeTools
                                                fixAttemptId, fixFindingIds, note, scope, gate));
 
                 var record = started.Record;
-                return JsonSerializer.Serialize(new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started, Documents(run)),
+                var documents = Documents(run);
+                ShownDocuments[JobKey(run, record.Id)] = documents;
+                return JsonSerializer.Serialize(new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started, documents),
                     ForgeToolJson.Default.WorkStartResult);
             });
     }
@@ -1046,7 +1050,7 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.fetch"), Description("Fetches the terminal result of a background worker act: the act's own payload as the `result` string, beside its state, any `error`, and `documents`. Call it only after a forge.work.poll came back in a state other than `running` — a job still running has no result to fetch. The payload remains a historical completion snapshot; status and a new fix replay show current pending IDs. A job id from a server process that has since exited cannot be fetched; start a new act instead, and read the persisted result under `.forge/<runId>/`.")]
+    [McpServerTool(Name = "forge.work.fetch"), Description("Fetches the terminal result of a background worker act: the act's own payload as the `result` object, beside its state, any `error`, and `documents`. Call it only after a forge.work.poll came back in a state other than `running` — a job still running has no result to fetch. The payload remains a historical completion snapshot; status and a new fix replay show current pending IDs. A job id from a server process that has since exited cannot be fetched; start a new act instead, and read the persisted result under `.forge/<runId>/`.")]
     public static async Task<string> FetchWork(JobRegistry registry,
                                                SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -1068,7 +1072,8 @@ internal sealed class ForgeTools
                     run.Log.Write("error", SOURCE, "forge.work.fetch.error",
                         ("jobId", record.Id), ("act", record.Act), ("error", record.Error));
 
-                var result = record.State == JobState.Completed ? record.ResultPayload : null;
+                ShownDocuments.TryRemove(JobKey(run, record.Id), out _);
+                var result = record is { State: JobState.Completed, ResultPayload: { } payload } ? Payload(payload) : (JsonElement?)null;
                 return Task.FromResult(JsonSerializer.Serialize(
                     new WorkFetchResult(record.Id, record.Act, StateName(record.State), result,
                                         record.State == JobState.Failed ? record.Error : null,
@@ -1113,7 +1118,7 @@ internal sealed class ForgeTools
                                     job.LastActivityAt, job.LastEvent)
                     : null;
 
-                return JsonSerializer.Serialize(new StatusResult(state, drifted, active,
+                return JsonSerializer.Serialize(new StatusResult(StatusRun.Of(state), drifted, active,
                                                                   run.ReadDecisionLedger().Summary,
                                                                   AdvisorCatalog.Default.Discover(environment ?? Environment.GetEnvironmentVariable)),
                                                 ForgeToolJson.Default.StatusResult);
@@ -1240,7 +1245,38 @@ internal sealed class ForgeTools
     private static WorkPollResult PollResult(JobRecord record, RunDirectory run, string? waitClamped = null) =>
         new(record.Id, record.Act, StateName(record.State), ElapsedSeconds(record), record.LastActivityAt,
             record.LastEvent, record.State == JobState.Failed ? record.Error : null, NextCall(record.State),
-            Documents(run), waitClamped);
+            Unshown(run, record.Id), waitClamped);
+
+    /// <summary>
+    /// The run's documents for a poll of <paramref name="jobId"/>, or null when they are the ones
+    /// this job last answered with. A long act is polled again and again, and the same two paths and
+    /// instructions on every poll were the larger half of what polling put in the Orchestrator's
+    /// context; a file that appears or changes mid-job still reaches it on the next poll.
+    /// </summary>
+    /// <param name="run">The run the job belongs to.</param>
+    /// <param name="jobId">The job being polled.</param>
+    private static RunDocuments? Unshown(RunDirectory run, string jobId)
+    {
+        var documents = Documents(run);
+        var key = JobKey(run, jobId);
+        if (ShownDocuments.TryGetValue(key, out var shown) && shown == documents) return null;
+
+        ShownDocuments[key] = documents;
+        return documents;
+    }
+
+    private static string JobKey(RunDirectory run, string jobId) => run.Path + "|" + jobId;
+
+    /// <summary>
+    /// A finished act's payload as the JSON it is, so <c>forge.work.fetch</c> carries the object
+    /// itself rather than a string the Orchestrator reads through a second layer of escaping.
+    /// </summary>
+    /// <param name="payload">The JSON the act returned.</param>
+    private static JsonElement Payload(string payload)
+    {
+        using var document = JsonDocument.Parse(payload);
+        return document.RootElement.Clone();
+    }
 
     private static double ElapsedSeconds(JobRecord record) => Math.Max(0, ((record.CompletedAt ?? DateTimeOffset.UtcNow) - record.StartedAt).TotalSeconds);
 
@@ -1366,7 +1402,13 @@ internal sealed class ForgeTools
 internal sealed record BeginResult(string RunId, string RunPath, string Profile, string BaselineHead, string Client,
                                    AdvisorDiscovery Advisors);
 
-internal sealed record ApproveResult(bool Approved, int TaskCount, IReadOnlyList<string> DriftedFiles);
+/// <summary>
+/// The decision as recorded. Drift is not repeated here: the Orchestrator read it from
+/// <c>forge.status</c> to show the user before asking, which is the only moment it could matter.
+/// </summary>
+/// <param name="Approved">Whether the user approved the plan.</param>
+/// <param name="TaskCount">How many tasks the approved plan holds; 0 when it was not approved.</param>
+internal sealed record ApproveResult(bool Approved, int TaskCount);
 
 /// <summary>The current plan file and its outline after forge.plan.write; forge.plan.patch updates the same document.</summary>
 /// <param name="RunId">The run whose plan was written.</param>
@@ -1376,18 +1418,18 @@ internal sealed record PlanWriteResult(string RunId, PlanOutline? Outline, RunDo
 
 internal sealed record PlanOutlineResult(string RunId, PlanOutline Outline, RunDocuments Documents);
 
-/// <summary>What <c>forge.plan.patch</c> changed, and the build progress the run keeps after it.</summary>
+/// <summary>
+/// The plan <c>forge.plan.patch</c> left, and the build progress the run keeps after it. The base
+/// hash, the applied edits and their sizes are the call's own arguments measured back, so they go to
+/// the Flow log and <c>forge.log</c> rather than into the Orchestrator's context — docs/adr/0042.
+/// </summary>
 /// <param name="RunId">The run whose plan was patched.</param>
-/// <param name="BaseHash">The hash of the plan the edits were written against.</param>
-/// <param name="Outline">The outline of the patched plan.</param>
-/// <param name="Changed">Each applied edit's operation, target and label.</param>
-/// <param name="Sizes">The sizes of what was supplied, removed and written.</param>
+/// <param name="Outline">The outline of the patched plan, whose hash the next patch or confirmation names.</param>
 /// <param name="TasksKept">How many built tasks stay built: tasks 1 to this number.</param>
 /// <param name="FirstTaskOwed">The task the next build runs, or null when every task of the patched plan is built.</param>
 /// <param name="Documents">The run's documents and display instructions.</param>
-internal sealed record PlanPatchResult(string RunId, string BaseHash, PlanOutline Outline,
-                                       IReadOnlyList<PlanPatchChange> Changed, PlanPatchSizes Sizes,
-                                       int TasksKept, int? FirstTaskOwed, RunDocuments Documents);
+internal sealed record PlanPatchResult(string RunId, PlanOutline Outline, int TasksKept, int? FirstTaskOwed,
+                                       RunDocuments Documents);
 
 /// <param name="Note">
 /// What the call could not do: a builder session already running was started before this text and
@@ -1420,13 +1462,77 @@ internal sealed record PlanViewResult(string RunId,
 /// to show it to the user <em>before</em> asking, and the decision call is where it would arrive
 /// too late to matter.
 /// </summary>
-/// <param name="Run">The Run's saved state.</param>
+/// <param name="Run">The part of the Run's saved state the Orchestrator acts on.</param>
 /// <param name="DriftedFiles">Paths changed since the baseline.</param>
 /// <param name="ActiveJob">The running job, if any.</param>
 /// <param name="Ledger">The current finding summary.</param>
 /// <param name="Advisors">Current Advisor discovery, without credentials.</param>
-internal sealed record StatusResult(RunState Run, IReadOnlyList<string> DriftedFiles, ActiveJob? ActiveJob,
+internal sealed record StatusResult(StatusRun Run, IReadOnlyList<string> DriftedFiles, ActiveJob? ActiveJob,
                                     LedgerSummary Ledger, AdvisorDiscovery Advisors);
+
+/// <summary>
+/// What <c>forge.status</c> shows of <see cref="RunState"/>: everything the Orchestrator decides
+/// from, and after a compaction resumes from, and none of the state only the server reads — the
+/// files each task changed, the builder session's resume token, vendor and scope, the Worker tool
+/// patterns, the builder roots, the start time and the baseline commit. The gate environment goes
+/// out by name: its values may be connection strings, and the result is logged in full to
+/// <c>forge.log</c>. See docs/adr/0042.
+/// </summary>
+/// <param name="RunId">The run's id.</param>
+/// <param name="WorkspaceRoot">The git window the run reviews.</param>
+/// <param name="Profile">The capability profile of the host that began the run.</param>
+/// <param name="ReviewRounds">Plan-review rounds run so far.</param>
+/// <param name="ReviewRoundCap">How many plan-review rounds run without the user granting another.</param>
+/// <param name="Approved">Whether the plan as it stands was approved.</param>
+/// <param name="TasksCompleted">Plan tasks counted done.</param>
+/// <param name="CodeReviewRounds">Code-review rounds run so far.</param>
+/// <param name="CodeReviewRoundCap">How many code-review rounds run without the user granting another.</param>
+/// <param name="GrantedReviewRounds">Plan-review rounds the user granted past the cap.</param>
+/// <param name="GrantedCodeReviewRounds">Code-review rounds the user granted past the cap.</param>
+/// <param name="GateEnvironment">The names of the variables gate commands run with, sorted; null when none were given.</param>
+/// <param name="PendingGateFailure">What the last failed gate said, owed to the next builder turn; null while nothing is owed.</param>
+/// <param name="CriticInstructions">The user's text for the run's critics.</param>
+/// <param name="BuilderInstructions">The user's text for the run's builder.</param>
+/// <param name="Scout">The Scout choice, its current session and last failure, or null before the choice.</param>
+/// <param name="ScoutAnswers">How many Scout answers have consumed a number.</param>
+/// <param name="FullGate">When targeted fixes are verified: beforeNextRound or final.</param>
+/// <param name="AutoContinuedReviewRounds">Plan-review rounds that ran past the cap without asking.</param>
+/// <param name="AutoContinuedCodeReviewRounds">Code-review rounds that ran past the cap without asking.</param>
+/// <param name="ReviewTallies">What each plan-review round left for the cap, oldest first.</param>
+/// <param name="CodeReviewTallies">What each code-review round left for the cap, oldest first.</param>
+internal sealed record StatusRun(string RunId,
+                                 string WorkspaceRoot,
+                                 string Profile,
+                                 int ReviewRounds,
+                                 int ReviewRoundCap,
+                                 bool Approved,
+                                 int TasksCompleted,
+                                 int CodeReviewRounds,
+                                 int CodeReviewRoundCap,
+                                 int GrantedReviewRounds,
+                                 int GrantedCodeReviewRounds,
+                                 IReadOnlyList<string>? GateEnvironment,
+                                 string? PendingGateFailure,
+                                 string? CriticInstructions,
+                                 string? BuilderInstructions,
+                                 ScoutState? Scout,
+                                 int ScoutAnswers,
+                                 string FullGate,
+                                 int AutoContinuedReviewRounds,
+                                 int AutoContinuedCodeReviewRounds,
+                                 IReadOnlyList<ReviewTally>? ReviewTallies,
+                                 IReadOnlyList<ReviewTally>? CodeReviewTallies)
+{
+    /// <summary>The status view of a saved state.</summary>
+    /// <param name="state">The Run's saved state.</param>
+    public static StatusRun Of(RunState state) =>
+        new(state.RunId, state.WorkspaceRoot, state.Profile, state.ReviewRounds, state.ReviewRoundCap, state.Approved,
+            state.TasksCompleted, state.CodeReviewRounds, state.CodeReviewRoundCap, state.GrantedReviewRounds,
+            state.GrantedCodeReviewRounds, state.GateEnvironment?.Keys.Order(StringComparer.Ordinal).ToArray(),
+            state.PendingGateFailure, state.CriticInstructions, state.BuilderInstructions, state.Scout, state.ScoutAnswers,
+            state.FullGate, state.AutoContinuedReviewRounds, state.AutoContinuedCodeReviewRounds, state.ReviewTallies,
+            state.CodeReviewTallies);
+}
 
 internal sealed record ScoutSelectionResult(ScoutState Scout, string SessionState);
 
@@ -1462,11 +1568,19 @@ internal sealed record RunDocuments(RunDocument? FlowLog,
 /// <summary>Both review tools answer with this: one critique, plus where the user can watch the run.</summary>
 internal sealed record CritiqueResult(Critique Critique, RunDocuments Documents);
 
-internal sealed record BuildNextResult(BuildOutcome Build, RunDocuments Documents);
 
 internal sealed record ReviewFixResult(BuildResult Fix, RunDocuments Documents);
 
+/// <summary>Where a background job stands, as <c>forge.work.poll</c> and <c>forge.work.cancel</c> report it.</summary>
+/// <param name="JobId">The job's id.</param>
+/// <param name="Act">The act the job runs.</param>
+/// <param name="State">running, succeeded or failed.</param>
+/// <param name="ElapsedSeconds">How long the job has run, or ran.</param>
+/// <param name="LastActivityAt">When the worker last wrote to stdout, if it has.</param>
+/// <param name="LastEvent">The last event recognised in the worker's output, if any.</param>
+/// <param name="Error">Why the job failed; null unless it did.</param>
 /// <param name="Next">The call this result asks for: another poll while the job runs, a fetch once it stops.</param>
+/// <param name="Documents">The run's documents; absent when they are the ones this job last answered with.</param>
 /// <param name="WaitClamped">Why this poll waited other than the <c>waitSeconds</c> it was given; absent when it waited as asked.</param>
 internal sealed record WorkPollResult(string JobId,
                                       string Act,
@@ -1476,7 +1590,8 @@ internal sealed record WorkPollResult(string JobId,
                                       string? LastEvent,
                                       string? Error,
                                       string Next,
-                                      RunDocuments Documents,
+                                      [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                      RunDocuments? Documents,
                                       [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                       string? WaitClamped = null);
 
@@ -1512,7 +1627,7 @@ internal sealed record PollWait(TimeSpan Timeout, string? Clamped)
     }
 }
 
-internal sealed record WorkFetchResult(string JobId, string Act, string State, string? Result, string? Error, RunDocuments Documents);
+internal sealed record WorkFetchResult(string JobId, string Act, string State, JsonElement? Result, string? Error, RunDocuments Documents);
 
 internal sealed record ModelsResult(IReadOnlyList<VendorCatalogResult> Vendors);
 
@@ -1528,12 +1643,21 @@ internal sealed record VendorCatalogResult(string Vendor,
                                            string Detail,
                                            IReadOnlyList<CatalogModel> Models);
 
+/// <summary>
+/// One model as the interview offers it. The vendor's own description of the model is left out: the
+/// model question is asked from the id, the display name, the efforts and the Fast fields, and
+/// nothing reads the description — docs/adr/0042.
+/// </summary>
+/// <param name="Id">The model id the vendor CLI is given.</param>
+/// <param name="DisplayName">The vendor's name for the model, where it gives one.</param>
+/// <param name="Efforts">The efforts the model is offered at.</param>
+/// <param name="DefaultEffort">The effort the vendor uses when none is named, where it says.</param>
+/// <param name="IsDefault">Whether this is the vendor's default model.</param>
 /// <param name="FastEfforts">The efforts this model is offered at with a Fast tier; empty when it has none.</param>
 /// <param name="FastHint">The vendor's own word on what Fast costs, where it gives one.</param>
 /// <param name="FastUnavailable">Why the account will not serve a Fast tier the model offers.</param>
 internal sealed record CatalogModel(string Id,
                                     string? DisplayName,
-                                    string? Description,
                                     IReadOnlyList<string> Efforts,
                                     string? DefaultEffort,
                                     bool IsDefault,
@@ -1590,8 +1714,6 @@ internal sealed partial class ToolArgumentJson : JsonSerializerContext
 [JsonSerializable(typeof(PlanPatchResult))]
 [JsonSerializable(typeof(PlanOutline))]
 [JsonSerializable(typeof(PlanTarget))]
-[JsonSerializable(typeof(PlanPatchChange))]
-[JsonSerializable(typeof(PlanPatchSizes))]
 [JsonSerializable(typeof(InstructionsResult))]
 [JsonSerializable(typeof(PlanViewResult))]
 [JsonSerializable(typeof(StatusResult))]
@@ -1609,7 +1731,6 @@ internal sealed partial class ToolArgumentJson : JsonSerializerContext
 [JsonSerializable(typeof(Finding))]
 [JsonSerializable(typeof(UnresolvedAssessment))]
 [JsonSerializable(typeof(ReopeningProposal))]
-[JsonSerializable(typeof(BuildNextResult))]
 [JsonSerializable(typeof(ReviewFixResult))]
 [JsonSerializable(typeof(WorkStartResult))]
 [JsonSerializable(typeof(WorkPollResult))]

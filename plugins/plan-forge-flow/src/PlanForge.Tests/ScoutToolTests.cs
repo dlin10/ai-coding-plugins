@@ -250,7 +250,7 @@ public sealed class ScoutToolTests : IDisposable
 
         Assert.Equal("succeeded", poll["state"]!.GetValue<string>());
         Assert.Equal("succeeded", fetch["state"]!.GetValue<string>());
-        using var report = JsonDocument.Parse(fetch["result"]!.GetValue<string>());
+        using var report = JsonDocument.Parse(fetch["result"]!.ToJsonString());
         var root = report.RootElement;
         var facts = root.GetProperty("confirmedFacts").EnumerateArray().ToArray();
         Assert.Equal(2000, root.GetProperty("summary").GetString()!.Length);
@@ -419,7 +419,7 @@ public sealed class ScoutToolTests : IDisposable
         Assert.Contains("dependentsAndPinnedBehaviour", job, StringComparison.Ordinal);
         Assert.Contains("dependentsAndPinnedBehaviour", log, StringComparison.Ordinal);
         Assert.DoesNotContain("scout-answers.json", job, StringComparison.Ordinal);
-        using var report = JsonDocument.Parse(fetch["result"]!.GetValue<string>());
+        using var report = JsonDocument.Parse(fetch["result"]!.ToJsonString());
         Assert.False(report.RootElement.TryGetProperty("truncated", out _));
     }
 

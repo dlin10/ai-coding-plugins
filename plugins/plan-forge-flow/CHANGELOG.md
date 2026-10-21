@@ -1,5 +1,27 @@
 # Plan Forge Flow releases
 
+## 0.58.0
+
+Tool results carry what the Orchestrator acts on, compact and unescaped. Issue #176, ADR 0042.
+
+- Every JSON tool result leaves through one call-tool filter that writes it without indentation and
+  with non-ASCII as written instead of `\uXXXX`. On the measured runs held in Russian this was two
+  thirds of the forge result tokens; nothing the Orchestrator reads changes but its spelling.
+- `forge.work.fetch` carries the act's payload as the `result` object instead of a JSON string.
+- `forge.status` reports the run state the Orchestrator decides from, without the server's own
+  bookkeeping: `taskChanges`, the builder session id, vendor and scope, `workerTools`,
+  `builderRoots`, `startedAt` and `baselineHead` are gone. `run.gateEnvironment` is the sorted
+  variable names: the values, often connection strings, no longer reach the result or `forge.log`.
+- `forge.plan.confirm` answers with `approved` and `taskCount`; drift is read from `forge.status`
+  before asking.
+- A `forge.build.next` whose task passed cleanly — `done`, verification `passed`, gate `passed`,
+  directly or through a Job — answers with those outcomes, the gate's exit code and seconds, and the
+  counters. The Builder's summary, evidence and files and the gate's command and output stay in the
+  Flow log; every other result goes out whole.
+- A `forge.work.poll` carries `documents` only when they changed since the job last answered with
+  them. `forge.plan.patch` no longer echoes `baseHash`, the applied edits or their sizes, which the
+  Flow log and `forge.log` record. `forge.models` drops each model's vendor description.
+
 ## 0.57.0
 
 Plan review gets an end the Critic can reach, and a converging review no longer waits for the user

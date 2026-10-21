@@ -247,7 +247,7 @@ public sealed class FullGateReviewTests : IDisposable
         var id = start["jobId"]!.GetValue<string>();
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, id, CancellationToken.None);
         var fetch = await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, id, CancellationToken.None);
-        var payload = JsonNode.Parse(fetch)!["result"]!.GetValue<string>();
+        var payload = JsonNode.Parse(fetch)!["result"]!.ToJsonString();
         var background = JsonSerializer.Deserialize(payload, ContractJson.Default.Critique)!;
         Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.Critique),
             JsonSerializer.Serialize(background, ContractJson.Default.Critique));
