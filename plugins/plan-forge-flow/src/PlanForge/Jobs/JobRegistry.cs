@@ -109,26 +109,6 @@ internal sealed class JobRegistry
         return new JobStartResult(started.Id, true, started);
     }
 
-    public JobRecord? Get(string runPath)
-    {
-        var canonicalRunPath = Canonicalize(runPath);
-
-        lock (_gate)
-        {
-            if (_active.TryGetValue(canonicalRunPath, out var active))
-            {
-                return active[0].Snapshot();
-            }
-
-            if (TryGetTerminal(canonicalRunPath, out var terminal))
-            {
-                return terminal;
-            }
-        }
-
-        return Read(canonicalRunPath);
-    }
-
     /// <summary>The Run's running jobs, oldest first.</summary>
     /// <param name="runPath">The Run's folder.</param>
     public IReadOnlyList<JobRecord> Running(string runPath)
@@ -420,14 +400,6 @@ internal sealed class JobRegistry
         }
     }
 
-    private static JobRecord? Read(string runPath)
-    {
-        return RunDirectory.FromPath(runPath).EnumerateJobFiles()
-            .Select(ReadFile)
-            .OfType<JobRecord>()
-            .FirstOrDefault(record => record.State != JobState.Running);
-    }
-
     private static JobRecord? Read(string runPath, string jobId)
     {
         var path = RunDirectory.FromPath(runPath).JobFilePath(jobId);
@@ -438,18 +410,6 @@ internal sealed class JobRegistry
 
         var record = ReadFile(path);
         return record is null || record.State == JobState.Running ? null : record;
-    }
-
-    private bool TryGetTerminal(string runPath, out JobRecord? terminal)
-    {
-        if (_terminal.TryGetValue(runPath, out var records) && records.Count > 0)
-        {
-            terminal = records.Values.OrderByDescending(record => record.CompletedAt).First();
-            return true;
-        }
-
-        terminal = null;
-        return false;
     }
 
     private void RememberTerminal(JobRecord record)

@@ -341,7 +341,7 @@ public sealed class ScoutToolTests : IDisposable
             sessionMode: sessionMode));
 
         Assert.Equal(0, starts);
-        Assert.Null(registry.Get(run.Path));
+        JobAssert.NoJob(registry, run.Path);
     }
 
     /// <summary>Scout runs on its persisted selection, so a job takes none of the Builder's arguments, and a Builder act takes none of Scout's.</summary>
@@ -374,7 +374,7 @@ public sealed class ScoutToolTests : IDisposable
             question: "question"));
 
         Assert.Equal(0, starts);
-        Assert.Null(registry.Get(run.Path));
+        JobAssert.NoJob(registry, run.Path);
     }
 
     /// <summary>

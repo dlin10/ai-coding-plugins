@@ -219,7 +219,7 @@ public sealed class TargetedFixOrchestrationTests : IDisposable
             Assert.Equal(state, File.ReadAllBytes(Path.Combine(run.Path, "state.json")));
             Assert.Equal(plan, run.ReadPlan());
             Assert.Empty(vendor.Sessions);
-            Assert.Null(registry.Get(run.Path));
+            JobAssert.NoJob(registry, run.Path);
         }
     }
 
@@ -231,7 +231,7 @@ public sealed class TargetedFixOrchestrationTests : IDisposable
         var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
             _workspace, run.RunId, "build.next", "builder", null, "codex", CancellationToken.None, () => Vendor(), gate: "full"));
         Assert.Contains("gate", error.Message, StringComparison.Ordinal);
-        Assert.Null(registry.Get(run.Path));
+        JobAssert.NoJob(registry, run.Path);
     }
 
     [Theory]
@@ -270,7 +270,7 @@ public sealed class TargetedFixOrchestrationTests : IDisposable
             Assert.Equal(ledger, File.ReadAllBytes(run.DecisionLedgerPath));
             Assert.Equal(state, File.ReadAllBytes(Path.Combine(run.Path, "state.json")));
             Assert.Empty(vendor.Sessions);
-            Assert.Null(registry.Get(run.Path));
+            JobAssert.NoJob(registry, run.Path);
         }
     }
 

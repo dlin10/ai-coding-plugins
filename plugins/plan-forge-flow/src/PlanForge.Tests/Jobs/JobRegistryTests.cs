@@ -139,7 +139,7 @@ public sealed class JobRegistryTests
         var start = registry.Start(workspace.RunPath, "plan", _ => Task.FromResult("payload"));
         var completed = await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(30));
 
-        var roundTripped = new JobRegistry().Get(workspace.RunPath);
+        var roundTripped = new JobRegistry().Get(workspace.RunPath, start.JobId);
 
         Assert.Equal(completed, roundTripped);
     }
@@ -154,8 +154,10 @@ public sealed class JobRegistryTests
         var second = registry.Start(secondWorkspace.RunPath, "plan", _ => Task.FromResult("second"));
 
         Assert.NotEqual(first.JobId, second.JobId);
-        Assert.Equal(first.JobId, registry.Get(firstWorkspace.RunPath)?.Id);
-        Assert.Equal(second.JobId, registry.Get(secondWorkspace.RunPath)?.Id);
+        Assert.NotNull(registry.Get(firstWorkspace.RunPath, first.JobId));
+        Assert.NotNull(registry.Get(secondWorkspace.RunPath, second.JobId));
+        Assert.Null(registry.Get(secondWorkspace.RunPath, first.JobId));
+        Assert.Null(registry.Get(firstWorkspace.RunPath, second.JobId));
         await registry.WaitAsync(firstWorkspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
         await registry.WaitAsync(secondWorkspace.RunPath, second.JobId, TimeSpan.FromSeconds(30));
     }
@@ -285,8 +287,7 @@ public sealed class JobRegistryTests
 
         Assert.Equal(JobState.Completed, firstResult?.State);
         Assert.True(replacement.Started);
-        Assert.Equal(replacement.JobId, registry.Get(workspace.RunPath)?.Id);
-        Assert.Equal(JobState.Running, registry.Get(workspace.RunPath)?.State);
+        Assert.Equal([replacement.JobId], registry.Running(workspace.RunPath).Select(job => job.Id));
         replacementRelease.SetResult("replacement");
         await registry.WaitAsync(workspace.RunPath, replacement.JobId, TimeSpan.FromSeconds(30));
     }
@@ -310,12 +311,12 @@ public sealed class JobRegistryTests
 
         if (start is { Started: true })
         {
-            Assert.True(registry.Get(workspace.RunPath)?.State != JobState.Running);
+            Assert.Empty(registry.Running(workspace.RunPath));
             Assert.True((await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.Zero))?.State != JobState.Running);
         }
         else
         {
-            Assert.Null(registry.Get(workspace.RunPath));
+            JobAssert.NoJob(registry, workspace.RunPath);
         }
     }
 
@@ -327,7 +328,7 @@ public sealed class JobRegistryTests
         var registry = new JobRegistry();
         var start = registry.Start(workspace.RunPath, "plan", _ => release.Task);
         await registry.CloseAsync();
-        var forced = registry.Get(workspace.RunPath);
+        var forced = registry.Get(workspace.RunPath, start.JobId);
         var filePath = Directory.EnumerateFiles(Path.Combine(workspace.RunPath, "jobs"), "*.json").Single();
         var afterClose = File.ReadAllText(filePath);
 
@@ -340,7 +341,7 @@ public sealed class JobRegistryTests
         release.SetResult("late");
         await Task.Delay(25);
 
-        Assert.Equal(forced, registry.Get(workspace.RunPath));
+        Assert.Equal(forced, registry.Get(workspace.RunPath, start.JobId));
         Assert.Equal(afterClose, File.ReadAllText(filePath));
         Assert.True((await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.Zero))?.State != JobState.Running);
     }

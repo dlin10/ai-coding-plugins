@@ -66,12 +66,6 @@ internal sealed class RunDirectory
         return jobPath;
     }
 
-    internal IEnumerable<string> EnumerateJobFiles()
-    {
-        var jobsPath = System.IO.Path.Combine(Path, JOBS_FOLDER);
-        return Directory.Exists(jobsPath) ? Directory.EnumerateFiles(jobsPath, "*.json") : [];
-    }
-
     public string FlowLogPath => System.IO.Path.Combine(Path, FLOW_LOG_FILE_NAME);
 
     /// <summary>

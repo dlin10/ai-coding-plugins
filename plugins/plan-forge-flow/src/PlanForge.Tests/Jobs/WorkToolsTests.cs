@@ -310,8 +310,7 @@ public sealed class WorkToolsTests : IDisposable
 
         Assert.Contains("build.next, review.fix or scout", rejection.Message, StringComparison.Ordinal);
         Assert.Equal(0, calls);
-        Assert.Null(registry.Get(run.Path));
-        Assert.False(Directory.Exists(Path.Combine(run.Path, "jobs")));
+        JobAssert.NoJob(registry, run.Path);
     }
 
     /// <summary>
@@ -339,7 +338,7 @@ public sealed class WorkToolsTests : IDisposable
             "build.next", "builder", null, "claude", CancellationToken.None, factory, fixFindingIds: ["F-0001"]));
 
         Assert.Equal(0, calls);
-        Assert.Equal(jobId, registry.Get(run.Path)?.Id);
+        Assert.Equal([jobId], registry.Running(run.Path).Select(job => job.Id));
         vendor.Release();
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
     }
