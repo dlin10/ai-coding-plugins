@@ -135,13 +135,13 @@ internal sealed class ForgeTools
     /// <param name="runId">The run to read.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     /// <param name="vendor">The vendor to return, or <see langword="null"/> for every vendor.</param>
-    [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — source `live` where the vendor publishes a list (codex, cursor), `resolved` for claude, whose remembered aliases the CLI turned into the model ids they stand for (displayName). A vendor with available:false is not usable; tell the user why and do not offer it. `fastEfforts` lists the efforts a model is offered at with the vendor's Fast tier, `fastHint` what the vendor says it costs, and `fastUnavailable` why the account will not serve it; offer Fast only where fastEfforts holds the effort and fastUnavailable is null.")]
+    [McpServerTool(Name = "forge.models"), Description("Returns each vendor's model catalogue with effort levels per model, newest first — source `live` for codex, which publishes a list, `resolved` for claude, whose remembered aliases the CLI turned into the model ids they stand for (displayName). A vendor with available:false is not usable; tell the user why and do not offer it. `fastEfforts` lists the efforts a model is offered at with the vendor's Fast tier, `fastHint` what the vendor says it costs, and `fastUnavailable` why the account will not serve it; offer Fast only where fastEfforts holds the effort and fastUnavailable is null.")]
     public static async Task<string> Models(CatalogCache catalogs,
                                             SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                             [Description("Run id from forge.begin.")] string runId,
                                             CancellationToken ct,
-                                            [Description("Vendor: claude, codex or cursor. Omit for all of them.")] string? vendor = null)
+                                            [Description("Vendor: claude or codex. Omit for both.")] string? vendor = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.models", [("vendor", vendor)],
@@ -508,7 +508,7 @@ internal sealed class ForgeTools
                                                 CancellationToken ct,
                                                 [Description("The plan draft to review. Omit it when forge.plan.write or forge.plan.patch left this round's plan file, which is the flow to use; passing it writes it here instead, and the round then starts only once the whole draft has reached the server.")] string? planDraft = null,
                                                 [Description("Optional effort level.")] string? effort = null,
-                                                [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+                                                [Description("Vendor: claude or codex. Defaults to claude.")] string? vendor = null,
                                                 [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
                                                 [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log; typed ledger decisions are what the next round's critic treats as settled.")] string? deferred = null,
                                                 [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before and no blocker; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
@@ -693,7 +693,7 @@ internal sealed class ForgeTools
                                                [Description("Model for the builder.")] string model,
                                                CancellationToken ct,
                                                [Description("Optional effort level.")] string? effort = null,
-                                               [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+                                               [Description("Vendor: claude or codex. Defaults to claude.")] string? vendor = null,
                                                [Description(FAST_DESCRIPTION)] bool fast = false)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
@@ -740,7 +740,7 @@ internal sealed class ForgeTools
                                                 [Description("Model for the critic.")] string model,
                                                 CancellationToken ct,
                                                 [Description("Optional effort level.")] string? effort = null,
-                                                [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+                                                [Description("Vendor: claude or codex. Defaults to claude.")] string? vendor = null,
                                                 [Description("At the cap, this raises this run's code-review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before and no blocker; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
                                                 [Description(FAST_DESCRIPTION)] bool fast = false,
                                                 [Description(EXCLUDE_PATHS_DESCRIPTION)] string[]? excludePaths = null)
@@ -774,7 +774,7 @@ internal sealed class ForgeTools
                                                [Description("Model for the builder.")] string model,
                                                CancellationToken ct,
                                                [Description("Optional effort level.")] string? effort = null,
-                                               [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
+                                               [Description("Vendor: claude or codex. Defaults to claude.")] string? vendor = null,
                                                [Description("Optional complete typed code-review decision batch.")] OrchestratorDecisionBatch? decisions = null,
                                                [Description("Required when fixFindingIds is non-empty; identifies the retryable fix attempt.")] string? fixAttemptId = null,
                                                [Description("Exact ledger finding IDs to fix. The Builder receives only their verbatim ledger findings.")] string[]? fixFindingIds = null,
@@ -811,36 +811,28 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.start"), Description("Starts one worker act in the background. plan.review and review.fix use the same typed decisions, decisionBatchId and fix-attempt rules as their direct tools; ledger IDs, phases, states, batch conflicts and fix sets are preflighted before a job is created. For review.fix only, optional case-sensitive gate=full|targeted requires fix IDs when explicit; preserve gate, attempt and exact IDs on retry. Targeted success leaves fixes pending full host verification. Empty, whitespace, unknown modes and new/nonterminal invalid Fix gates are refused before decisions or jobs; terminal replay uses its saved result. Saved fullGate timing governs review.code pending admission just as on the direct route. Poll until terminal, then fetch. If started is false, rejoin the returned active job. Scout uses only its persisted selection plus question and explicit sessionMode.")]
+    [McpServerTool(Name = "forge.work.start"), Description("Starts a Builder act in the background — build.next or review.fix — for one that may outlast the host's clock on a single call. review.fix uses the same typed decisions, decisionBatchId and fix-attempt rules as its direct tool; ledger IDs, phases, states, batch conflicts and fix sets are preflighted before a job is created. Optional case-sensitive gate=full|targeted requires fix IDs when explicit; preserve gate, attempt and exact IDs on retry. Targeted success leaves fixes pending full host verification. Empty, whitespace, unknown modes and new/nonterminal invalid Fix gates are refused before decisions or jobs; terminal replay uses its saved result. Poll until terminal, then fetch. If started is false, rejoin the returned active job.")]
     public static Task<string> StartWork(JobRegistry registry,
                                          CatalogCache catalogs,
                                          SessionRoots roots,
                                          [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                          [Description("Run id from forge.begin.")] string runId,
-                                         [Description("Worker act: plan.review, build.next, review.code, review.fix or scout.")] string act,
+                                         [Description("Worker act: build.next or review.fix.")] string act,
                                          CancellationToken ct,
-                                         [Description("Model for the worker. Omit for scout, which uses the persisted Scout selection.")] string? model = null,
+                                         [Description("Model for the builder.")] string? model = null,
                                          [Description("Optional effort level.")] string? effort = null,
-                                         [Description("Vendor: claude, codex or cursor. Defaults to claude.")] string? vendor = null,
-                                         [Description("Plan draft, used only by plan.review — and omitted there too once forge.plan.write or forge.plan.patch has left this round's plan file, which is the flow to use.")] string? planDraft = null,
-                                         [Description("Flow-only compatibility narrative for plan.review; it does not change ledger state.")] string? deferred = null,
-                                         [Description("For plan.review only: what you changed in the plan in answer to the previous round's findings. Required from the second round on.")] string? revision = null,
-                                         [Description("For plan.review and review.code only: at the cap, raises this run's round cap by exactly one and runs the round; below the cap it does nothing, and it is spent by this call. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before and no blocker; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
-                                         [Description("For scout only: the one bounded reconnaissance question.")] string? question = null,
-                                         [Description("For scout only: exactly `continue` or `fresh`.")] string? sessionMode = null,
-                                         [Description("Optional typed decision batch accepted only by plan.review and review.fix.")] OrchestratorDecisionBatch? decisions = null,
+                                         [Description("Vendor: claude or codex. Defaults to claude.")] string? vendor = null,
+                                         [Description("Optional typed decision batch, accepted only by review.fix.")] OrchestratorDecisionBatch? decisions = null,
                                          [Description("Required by review.fix when fixFindingIds is non-empty.")] string? fixAttemptId = null,
                                          [Description("Exact ledger finding IDs for review.fix. Empty means decisions-only.")] string[]? fixFindingIds = null,
                                          [Description("For review.fix only. " + NOTE_DESCRIPTION)] string? note = null,
-                                         [Description(FAST_DESCRIPTION + " Not for scout, which uses its persisted selection.")] bool fast = false,
-                                         [Description("For review.code only. " + EXCLUDE_PATHS_DESCRIPTION)] string[]? excludePaths = null,
+                                         [Description(FAST_DESCRIPTION)] bool fast = false,
                                          [Description("For review.fix only: exactly full (default) or targeted (case-sensitive). Requires non-empty fixFindingIds.")] string? gate = null)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
-        return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft, null,
-                         deferred, revision, userGrantedRound, question, sessionMode, ct,
+        return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, ct,
                          id => VendorFactory.Create(id, workspaceRoot), null, decisions, fixAttemptId,
-                         fixFindingIds, catalogs, fast, note, excludePaths, gate);
+                         fixFindingIds, catalogs, fast, note, gate);
     }
 
     internal static Task<string> StartWork(JobRegistry registry,
@@ -851,18 +843,12 @@ internal sealed class ForgeTools
                                            string model,
                                            string? effort,
                                            string? vendor,
-                                           string? planDraft,
-                                           string? findings,
-                                           string? deferred,
-                                           string? revision,
-                                           bool userGrantedRound,
                                            CancellationToken ct,
                                            Func<IVendor> vendorFactory,
                                            OrchestratorDecisionBatch? decisions = null,
                                            string? fixAttemptId = null,
                                            string[]? fixFindingIds = null, string? gate = null) =>
-        StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, planDraft,
-                  findings, deferred, revision, userGrantedRound, null, null, ct, _ => vendorFactory(),
+        StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, ct, _ => vendorFactory(),
                   null, decisions, fixAttemptId, fixFindingIds, gate: gate);
 
     internal static async Task<string> StartWork(JobRegistry registry,
@@ -873,13 +859,6 @@ internal sealed class ForgeTools
                                                  string? model,
                                                  string? effort,
                                                  string? vendor,
-                                                 string? planDraft,
-                                                 string? findings,
-                                                 string? deferred,
-                                                 string? revision,
-                                                 bool userGrantedRound,
-                                                 string? question,
-                                                 string? sessionMode,
                                                  CancellationToken ct,
                                                  Func<string, IVendor> vendorFactory,
                                                  PromptLibrary? prompts = null,
@@ -888,44 +867,20 @@ internal sealed class ForgeTools
                                                  string[]? fixFindingIds = null,
                                                  CatalogCache? catalogs = null,
                                                  bool fast = false,
-                                                 string? note = null,
-                                                 string[]? excludePaths = null, string? gate = null)
+                                                 string? note = null, string? gate = null)
     {
-        if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.work.start",
             [("act", act), ("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)),
-             ("planDraft", planDraft), ("findings", findings), ("deferred", deferred),
-             ("revision", revision), ("userGrantedRound", userGrantedRound ? "true" : "false"),
-             ("sessionMode", sessionMode), ("decisionBatchId", decisions?.DecisionBatchId),
+             ("decisionBatchId", decisions?.DecisionBatchId),
              ("fixAttemptId", fixAttemptId),
              ("fixFindingIds", fixFindingIds is { Length: > 0 } ? string.Join(", ", fixFindingIds) : null),
-             ("note", note), ("gate", gate),
-             ("excludePaths", excludePaths is { Length: > 0 } ? string.Join(", ", excludePaths) : null)],
+             ("note", note), ("gate", gate)],
             async () =>
             {
                 if (act == "review.fix") run.ReadState();
-                var selection = model is null ? null : new Selection(model, effort, fast);
-                var scope = excludePaths is null ? null : ReviewScope.From(excludePaths);
-                WorkAct.ValidateArguments(act, planDraft, selection, findings, deferred, revision,
-                                          userGrantedRound, question, sessionMode, decisions, fixAttemptId,
-                                          fixFindingIds, note, scope, gate);
-                if (act == "scout")
-                {
-                    if (vendor is not null || effort is not null || fast)
-                        throw new ArgumentRejectedException("scout takes Vendor, effort and fast only from the persisted selection");
-                    SensitiveInput.Guard(question!, "the Scout question");
-                }
-
-                // The act would refuse these itself a moment later, inside the job. Refusing here
-                // instead keeps a missing revision — or a round with no draft anywhere — an argument
-                // error, answered by this call rather than by a poll that reports a failure with
-                // nothing running behind it.
-                if (act == "plan.review")
-                {
-                    PlanReview.RequireRevision(run.ReadState().ReviewRounds, revision);
-                    PlanReview.RequireDraft(run, planDraft);
-                }
+                var requested = model is null ? null : new Selection(model, effort, fast);
+                WorkAct.ValidateArguments(act, requested, decisions, fixAttemptId, fixFindingIds, note, gate);
 
                 try
                 {
@@ -938,17 +893,13 @@ internal sealed class ForgeTools
                     throw;
                 }
 
-                var vendorForAct = vendorFactory(act == "scout"
-                    ? Scout.RequireSelection(run.ReadState()).Vendor!
-                    : vendor ?? VendorFactory.DefaultId);
-                if (selection is not null)
-                    selection = await FastTier.ConfirmAsync(catalogs ?? new CatalogCache((id, _) => vendorFactory(id!)),
-                                                            vendorForAct, selection, workspaceRoot, ct);
+                var vendorForAct = vendorFactory(vendor ?? VendorFactory.DefaultId);
+                var selection = await FastTier.ConfirmAsync(catalogs ?? new CatalogCache((id, _) => vendorFactory(id!)),
+                                                            vendorForAct, requested!, workspaceRoot, ct);
                 var workAct = new WorkAct(vendorForAct, prompts ?? new PromptLibrary());
                 var started = registry.Start(run.Path, act,
-                    jobCt => workAct.RunAsync(act, run, planDraft, selection, findings, deferred, revision,
-                                               userGrantedRound, jobCt, question, sessionMode, decisions,
-                                               fixAttemptId, fixFindingIds, note, scope, gate));
+                    jobCt => workAct.RunAsync(act, run, selection, jobCt, decisions,
+                                               fixAttemptId, fixFindingIds, note, gate));
 
                 var record = started.Record;
                 var documents = Documents(run);
@@ -958,39 +909,24 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for 45 seconds or `waitSeconds`, returning the moment it ends, and reports its last stdout activity and recognised event. A `running` result is not the end of the wait: call this again with the same job id.")]
-    public static Task<string> PollWork(McpServer server,
-                                        JobRegistry registry,
-                                        SessionRoots roots,
-                                        [Description("Absolute path to the workspace root.")] string workspaceRoot,
-                                        [Description("Run id from forge.begin.")] string runId,
-                                        [Description("Job id returned by forge.work.start.")] string jobId,
-                                        CancellationToken ct,
-                                        [Description("Seconds to wait before answering `running`. Omit for 45. At most 45 on a Cursor client and 3000 on any other; a value outside 1 to that maximum is clamped, and `waitClamped` in the result says so.")] int? waitSeconds = null) =>
-        PollWork(registry, roots, workspaceRoot, runId, jobId, ct, ClientName(server), waitSeconds);
-
-    /// <summary>
-    /// <c>forge.work.poll</c> without an <see cref="McpServer"/>: the client name the handshake
-    /// would give is passed in, and decides how long the wait may be.
-    /// </summary>
+    /// <summary><c>forge.work.poll</c>: waits as long as <paramref name="waitSeconds"/> asks, held to its range.</summary>
     /// <param name="registry">The server's active jobs.</param>
     /// <param name="roots">The session roots advertised by the host.</param>
     /// <param name="workspaceRoot">The Run's workspace root.</param>
     /// <param name="runId">The Run the job belongs to.</param>
     /// <param name="jobId">The job to wait for.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
-    /// <param name="client">The MCP client's name from the handshake.</param>
     /// <param name="waitSeconds">The requested wait, or null for the 45-second default.</param>
-    internal static Task<string> PollWork(JobRegistry registry,
-                                          SessionRoots roots,
-                                          string workspaceRoot,
-                                          string runId,
-                                          string jobId,
-                                          CancellationToken ct,
-                                          string client = "unknown",
-                                          int? waitSeconds = null)
+    [McpServerTool(Name = "forge.work.poll"), Description("Waits for a background worker act to finish, for 45 seconds or `waitSeconds`, returning the moment it ends, and reports its last stdout activity and recognised event. A `running` result is not the end of the wait: call this again with the same job id.")]
+    public static Task<string> PollWork(JobRegistry registry,
+                                        SessionRoots roots,
+                                        [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                        [Description("Run id from forge.begin.")] string runId,
+                                        [Description("Job id returned by forge.work.start.")] string jobId,
+                                        CancellationToken ct,
+                                        [Description("Seconds to wait before answering `running`. Omit for 45. At most 3000; a value outside 1 to 3000 is clamped, and `waitClamped` in the result says so.")] int? waitSeconds = null)
     {
-        var wait = PollWait.For(client, waitSeconds);
+        var wait = PollWait.For(waitSeconds);
         return PollWork(registry, roots, workspaceRoot, runId, jobId, wait.Timeout, ct, waitSeconds, wait.Clamped);
     }
 
@@ -1068,16 +1004,12 @@ internal sealed class ForgeTools
                 if (record!.State == JobState.Running)
                     throw new InvalidOperationException($"job {jobId} is still running");
 
-                if (record.State == JobState.Failed && record.Act == "scout")
-                    run.Log.Write("error", SOURCE, "forge.work.fetch.error",
-                        ("jobId", record.Id), ("act", record.Act), ("error", record.Error));
-
                 ShownDocuments.TryRemove(JobKey(run, record.Id), out _);
                 var result = record is { State: JobState.Completed, ResultPayload: { } payload } ? Payload(payload) : (JsonElement?)null;
                 return Task.FromResult(JsonSerializer.Serialize(
                     new WorkFetchResult(record.Id, record.Act, StateName(record.State), result,
                                         record.State == JobState.Failed ? record.Error : null,
-                                        Documents(run, record.Act == "scout" && record.State == JobState.Completed)),
+                                        Documents(run)),
                     ForgeToolJson.Default.WorkFetchResult));
             });
     }
@@ -1547,9 +1479,14 @@ internal sealed record ActiveJob(string JobId,
 
 /// <summary>
 /// A started job, and the run's files as they stand at that moment. The documents travel with the
-/// start and every poll rather than only with the fetch, because a Cursor act runs for minutes and
-/// the plan is on disk before the first of them — see docs/adr/0014.
+/// start and every poll rather than only with the fetch, because a background act runs for minutes
+/// and the plan is on disk before the first of them — see docs/adr/0014.
 /// </summary>
+/// <param name="JobId">The job's id.</param>
+/// <param name="Act">The act the job runs.</param>
+/// <param name="State">running, succeeded or failed.</param>
+/// <param name="Started">False when the call rejoined a job already running rather than starting one.</param>
+/// <param name="Documents">The run's documents as they stand at the start.</param>
 internal sealed record WorkStartResult(string JobId, string Act, string State, bool Started, RunDocuments Documents);
 
 /// <param name="Next">What to do with the file: the instruction travels with the path so neither depends on the skill still being in view.</param>
@@ -1596,8 +1533,7 @@ internal sealed record WorkPollResult(string JobId,
                                       string? WaitClamped = null);
 
 /// <summary>
-/// How long one <c>forge.work.poll</c> waits. Cursor cancels a call at a minute and nothing extends
-/// that, so 45 seconds is its ceiling; every other host gives a call an hour, and a poll that waits
+/// How long one <c>forge.work.poll</c> waits. A host gives a call an hour, and a poll that waits
 /// most of it costs the Orchestrator one turn where 45-second polls cost dozens — issue #169.
 /// </summary>
 /// <param name="Timeout">How long the poll waits before answering <c>running</c>.</param>
@@ -1605,24 +1541,21 @@ internal sealed record WorkPollResult(string JobId,
 internal sealed record PollWait(TimeSpan Timeout, string? Clamped)
 {
     private const int DEFAULT_SECONDS = 45;
-    private const int CURSOR_MAX_SECONDS = 45;
 
     // Claude Code's manifest "timeout" and Codex's tool_timeout_sec both end a call at the hour;
     // ten minutes short of it leaves the result room to land before that clock does.
-    private const int LONG_MAX_SECONDS = 3000;
+    private const int MAX_SECONDS = 3000;
 
-    /// <summary>The wait for a client that asked for <paramref name="waitSeconds"/>, held to that client's range.</summary>
-    /// <param name="client">The MCP client's name from the handshake; any name containing "cursor" is Cursor.</param>
+    /// <summary>The wait for a poll that asked for <paramref name="waitSeconds"/>, held to 1 to 3000 seconds.</summary>
     /// <param name="waitSeconds">The requested wait, or null for the 45-second default.</param>
-    public static PollWait For(string client, int? waitSeconds)
+    public static PollWait For(int? waitSeconds)
     {
         if (waitSeconds is not { } requested) return new PollWait(TimeSpan.FromSeconds(DEFAULT_SECONDS), null);
 
-        var maximum = client.Contains("cursor", StringComparison.OrdinalIgnoreCase) ? CURSOR_MAX_SECONDS : LONG_MAX_SECONDS;
-        var granted = Math.Clamp(requested, 1, maximum);
+        var granted = Math.Clamp(requested, 1, MAX_SECONDS);
         var clamped = granted == requested
             ? null
-            : $"waitSeconds {requested} is outside 1 to {maximum}, the range for client '{client}'; this poll waited up to {granted} seconds";
+            : $"waitSeconds {requested} is outside 1 to {MAX_SECONDS}; this poll waited up to {granted} seconds";
         return new PollWait(TimeSpan.FromSeconds(granted), clamped);
     }
 }

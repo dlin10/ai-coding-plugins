@@ -8,9 +8,9 @@ rem no interpreter of its own.
 rem stdout belongs to the MCP protocol, so every message here goes to stderr, and the manifests pass
 rem /d so that a user's AutoRun cannot write to it either.
 setlocal
-rem Cursor Agent has no per-process plugin-disable flag. A Plan Forge worker marks its descendants
-rem instead; return before resolving or downloading the executable so the self MCP is absent while
-rem every unrelated plugin and MCP server remains untouched.
+rem `claude mcp list`, which the server runs to see what a worker would load, has no flag to leave
+rem one plugin out, so the server marks it instead; return before resolving or downloading the
+rem executable so this server is absent while every unrelated plugin and MCP server is still listed.
 if /i "%PLANFORGE_SELF_EXCLUDED%"=="1" exit /b 0
 
 for %%i in ("%~dp0..") do set "PLUGIN_ROOT=%%~fi"

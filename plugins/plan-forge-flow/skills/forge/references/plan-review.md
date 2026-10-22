@@ -4,8 +4,7 @@ Read it before the first `forge.plan.review`, and again whenever plan review res
 
 ## Rounds, revision, and caps
 
-Each non-Cursor `forge.plan.review` call, or each Cursor start → poll → fetch round, runs exactly
-one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, declare
+Each `forge.plan.review` call runs exactly one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, declare
 `phase: "plan_revision"` as soon as the verdict arrives — after every `revise`, not only the first —
 then address the findings in the plan yourself — *Writing a revision* below says how — and run the
 next round. The
@@ -52,8 +51,8 @@ carry on. Otherwise the tool refuses, and only then is the cap question asked.
 Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, and
 what the last verdict said, so the question carries its numbers. Say in plain words what the open
 findings are, and what one more round would cost against stopping here. On a yes, pass
-`userGrantedRound: true` on the next round tool — `forge.plan.review` or `forge.review.code`, or the
-same argument on `forge.work.start` — which raises the cap by exactly one. The grant is spent by
+`userGrantedRound: true` on the next round tool — `forge.plan.review` or `forge.review.code` — which
+raises the cap by exactly one. The grant is spent by
 that round, so the round after it needs a fresh answer, and never pass the argument without having
 asked.
 

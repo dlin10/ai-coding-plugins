@@ -74,23 +74,6 @@ internal static class ProviderUsage
                             sessionTotal: previous is null ? null : total);
     }
 
-    /// <summary>
-    /// Taken as reported for a resumed chat too: whether cursor's counters are the turn's or the
-    /// chat's has not been measured.
-    /// </summary>
-    public static WorkerUsage Cursor(JsonElement? usage)
-    {
-        var reader = new UsageReader(usage);
-        var input = reader.Counter("inputTokens");
-        var cacheRead = reader.Counter("cacheReadTokens");
-        var cacheCreation = reader.Counter("cacheWriteTokens");
-        return reader.Build(TotalInput(reader, input, cacheRead, cacheCreation, "usage.inputTokens"),
-                            cacheRead,
-                            cacheCreation,
-                            reader.Counter("outputTokens"),
-                            reasoning: null);
-    }
-
     private static long? TotalInput(UsageReader reader, long? input, long? cacheRead, long? cacheCreation, string path)
     {
         if (input is null || cacheRead is null || cacheCreation is null) return null;

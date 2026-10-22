@@ -24,9 +24,8 @@ $solution = Join-Path $pluginRoot 'src/PlanForgeFlow.sln'
 $project = Join-Path $pluginRoot 'src/PlanForge/PlanForge.csproj'
 $metadata = Get-Content (Join-Path $pluginRoot '.codex-plugin/plugin.json') -Raw | ConvertFrom-Json
 $claudeMetadata = Get-Content (Join-Path $pluginRoot '.claude-plugin/plugin.json') -Raw | ConvertFrom-Json
-$cursorMetadata = Get-Content (Join-Path $pluginRoot '.cursor-plugin/plugin.json') -Raw | ConvertFrom-Json
 $version = $metadata.version
-if ($claudeMetadata.version -ne $version -or $cursorMetadata.version -ne $version) { throw "Codex, Claude, and Cursor manifest versions must match" }
+if ($claudeMetadata.version -ne $version) { throw "Codex and Claude manifest versions must match" }
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) { $OutputRoot = Join-Path $pluginRoot 'artifacts' }
 $outputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $workspaceRoot = [IO.Path]::GetFullPath((Join-Path $pluginRoot '..\..'))
@@ -241,14 +240,19 @@ function Test-PublishedServer([string]$Executable) {
         if (@($models.inputSchema.required) -contains 'vendor') { throw 'forge.models schema incorrectly requires vendor' }
         $workStart = $tools | Where-Object { $_.name -eq 'forge.work.start' } | Select-Object -First 1
         $workStartProperties = @($workStart.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('act', 'model', 'question', 'sessionMode', 'planDraft', 'userGrantedRound')) {
+        foreach ($parameter in @('act', 'model', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')) {
             if ($workStartProperties -notcontains $parameter) { throw "forge.work.start schema is missing $parameter" }
         }
-        foreach ($parameter in @('model', 'effort', 'vendor', 'planDraft', 'findings', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'userGrantedRound', 'question', 'sessionMode')) {
+        foreach ($parameter in @('model', 'effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')) {
             if (@($workStart.inputSchema.required) -contains $parameter) { throw "forge.work.start schema incorrectly requires $parameter" }
         }
-        if ($workStart.inputSchema.properties.act.description -notmatch '(?i)plan\.review.*build\.next.*review\.code.*review\.fix.*scout') {
-            throw 'forge.work.start act argument description does not list all five worker acts'
+        # A job runs a Builder act alone (docs/adr/0043): the critic's and Scout's arguments stay off it.
+        foreach ($parameter in @('planDraft', 'findings', 'deferred', 'revision', 'userGrantedRound', 'question', 'sessionMode', 'excludePaths')) {
+            if ($workStartProperties -contains $parameter) { throw "forge.work.start schema still publishes $parameter" }
+        }
+        $actDescription = $workStart.inputSchema.properties.act.description
+        if ($actDescription -notmatch '(?i)build\.next.*review\.fix' -or $actDescription -match '(?i)plan\.review|review\.code|scout') {
+            throw 'forge.work.start act argument description does not name exactly the two Builder acts'
         }
         $status = $tools | Where-Object { $_.name -eq 'forge.status' } | Select-Object -First 1
         if ($status.description -notmatch '(?i)run\.scout') {
@@ -296,16 +300,16 @@ function Test-PublishedServer([string]$Executable) {
         foreach ($parameter in @('criticVendor', 'criticModel', 'criticEffort', 'builderVendor', 'builderModel', 'builderEffort')) {
             if ($codeReviewProperties -contains $parameter) { throw "forge.review.code schema still exposes the pre-0.10 $parameter" }
         }
-        # The one way to narrow an oversized round (docs/adr/0029), optional on both routes a
+        # The one way to narrow an oversized round (docs/adr/0029), optional on the one route a
         # code-review round takes; how the window travels is the server's choice (docs/adr/0034).
+        if ($codeReviewProperties -notcontains 'excludePaths') { throw "forge.review.code schema is missing excludePaths" }
+        if (@($codeReview.inputSchema.required) -contains 'excludePaths') { throw "forge.review.code schema incorrectly requires excludePaths" }
         foreach ($route in @($codeReview, $workStart)) {
             $routeProperties = @($route.inputSchema.properties.PSObject.Properties.Name)
-            if ($routeProperties -notcontains 'excludePaths') { throw "$($route.name) schema is missing excludePaths" }
-            if (@($route.inputSchema.required) -contains 'excludePaths') { throw "$($route.name) schema incorrectly requires excludePaths" }
             if ($routeProperties -contains 'untrackedByReference') { throw "$($route.name) still exposes untrackedByReference" }
-            if (($route.inputSchema.properties.excludePaths | ConvertTo-Json -Compress) -notmatch 'array') {
-                throw "$($route.name) publishes excludePaths as something other than an array"
-            }
+        }
+        if (($codeReview.inputSchema.properties.excludePaths | ConvertTo-Json -Compress) -notmatch 'array') {
+            throw "forge.review.code publishes excludePaths as something other than an array"
         }
         $reviewFix = $tools | Where-Object { $_.name -eq 'forge.review.fix' } | Select-Object -First 1
         $reviewFixProperties = @($reviewFix.inputSchema.properties.PSObject.Properties.Name)
@@ -359,7 +363,7 @@ function Test-PublishedServer([string]$Executable) {
         $optional = @{
             'forge.begin'       = @('workerTools')
             'forge.scout.select' = @('vendor', 'model', 'effort')
-            'forge.work.start' = @('model', 'effort', 'vendor', 'planDraft', 'deferred', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate', 'revision', 'userGrantedRound', 'question', 'sessionMode')
+            'forge.work.start' = @('model', 'effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')
             'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'decisions', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
@@ -457,10 +461,8 @@ function Test-PluginArchive([string]$Archive) {
         foreach ($required in @(
                 '.agents/plugins/marketplace.json',
                 '.claude-plugin/marketplace.json',
-                '.cursor-plugin/marketplace.json',
                 'plugins/plan-forge-flow/.codex-plugin/plugin.json',
                 'plugins/plan-forge-flow/.claude-plugin/plugin.json',
-                'plugins/plan-forge-flow/.cursor-plugin/plugin.json',
                 'plugins/plan-forge-flow/.mcp.json',
                 'plugins/plan-forge-flow/bin/planforge-launcher.cmd',
                 'plugins/plan-forge-flow/prompts/builder-contract.md',
@@ -490,7 +492,7 @@ function Test-PluginArchive([string]$Archive) {
             throw 'the bundled launcher does not tell the executable where the prompts are'
         }
         if ($launcherScript -notmatch 'PLANFORGE_SELF_EXCLUDED') {
-            throw 'the bundled launcher does not exclude its MCP server from Cursor workers'
+            throw 'the bundled launcher does not exit for a process that excludes its MCP server'
         }
         $skillEntry = $zipArchive.GetEntry('plugins/plan-forge-flow/skills/forge/SKILL.md')
         $reader = [IO.StreamReader]::new($skillEntry.Open())
@@ -545,10 +547,8 @@ function Test-PluginArchive([string]$Archive) {
             $path = "plugins/plan-forge-flow/prompts/$role-contract.md"
             if ($null -eq $zipArchive.GetEntry($path)) { throw "archive is missing $path" }
 
-            foreach ($vendor in @('claude', 'cursor')) {
-                $path = "plugins/plan-forge-flow/prompts/$vendor/$role.md"
-                if ($null -eq $zipArchive.GetEntry($path)) { throw "archive is missing $path" }
-            }
+            $path = "plugins/plan-forge-flow/prompts/claude/$role.md"
+            if ($null -eq $zipArchive.GetEntry($path)) { throw "archive is missing $path" }
         }
         # The 1.x bundle shipped hooks, twelve agent descriptors and a parallel cursor tree; none of
         # that survives the move to an MCP server, and a stray copy would be silently loaded. The
@@ -557,6 +557,13 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/cursor/')) {
             $stale = @($zipArchive.Entries | Where-Object { $_.FullName.StartsWith($prefix, [StringComparison]::Ordinal) })
             if ($stale.Count -gt 0) { throw "archive still carries $prefix from the pre-MCP layout" }
+        }
+        # Cursor is no longer a host or a vendor (docs/adr/0043); a manifest or prompt left for it
+        # would advertise support nothing behind it gives.
+        foreach ($prefix in @('.cursor-plugin/', 'plugins/plan-forge-flow/.cursor-plugin/',
+                'plugins/plan-forge-flow/prompts/cursor/')) {
+            $stale = @($zipArchive.Entries | Where-Object { $_.FullName.StartsWith($prefix, [StringComparison]::Ordinal) })
+            if ($stale.Count -gt 0) { throw "archive still carries $prefix, which no supported host or vendor reads" }
         }
         $hooks = @($zipArchive.Entries | Where-Object { $_.FullName.StartsWith('plugins/plan-forge-flow/hooks/', [StringComparison]::Ordinal) })
         $expectedHooks = @($hookFiles | ForEach-Object { "plugins/plan-forge-flow/$_" } | Sort-Object)
@@ -602,10 +609,9 @@ if ($InstallBinaries) {
 }
 
 $bundlePlugin = Join-Path $bundle 'plugins/plan-forge-flow'
-New-Item -ItemType Directory -Force -Path (Join-Path $bundle '.agents/plugins'), (Join-Path $bundle '.claude-plugin'), (Join-Path $bundle '.cursor-plugin'), (Join-Path $bundlePlugin 'bin') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $bundle '.agents/plugins'), (Join-Path $bundle '.claude-plugin'), (Join-Path $bundlePlugin 'bin') | Out-Null
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.codex-plugin') -Destination $bundlePlugin -Recurse
 Copy-Item -LiteralPath (Join-Path $pluginRoot '.claude-plugin') -Destination $bundlePlugin -Recurse
-Copy-Item -LiteralPath (Join-Path $pluginRoot '.cursor-plugin') -Destination $bundlePlugin -Recurse
 foreach ($directory in @('assets', 'prompts')) {
     Copy-Item -LiteralPath (Join-Path $pluginRoot $directory) -Destination $bundlePlugin -Recurse
 }
@@ -635,29 +641,22 @@ $marketplace = [ordered]@{
 }
 $marketplace | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $bundle '.agents/plugins/marketplace.json') -Encoding utf8
 
-$cursorMarketplace = [ordered]@{
+$claudeMarketplace = [ordered]@{
     name    = 'plan-forge-flow-bundle'
     owner   = [ordered]@{ name = 'Dmitry Linetsky' }
     plugins = @(
         [ordered]@{
             name        = 'plan-forge-flow'
             source      = './plugins/plan-forge-flow'
-            description = 'Windows x64-only plan hardening, independent review, and stepwise implementation for Codex, Claude Code 2.1.232 and newer, and Cursor 3.15.6 and newer.'
+            description = 'Windows x64-only plan hardening, independent review, and stepwise implementation for Codex and Claude Code 2.1.232 and newer.'
         }
     )
-}
-$cursorMarketplace | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $bundle '.cursor-plugin/marketplace.json') -Encoding utf8
-$claudeMarketplace = [ordered]@{
-    name    = $cursorMarketplace.name
-    owner   = $cursorMarketplace.owner
-    plugins = $cursorMarketplace.plugins
 }
 $claudeMarketplace | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $bundle '.claude-plugin/marketplace.json') -Encoding utf8
 
 foreach ($requiredPath in @(
         (Join-Path $bundlePlugin '.codex-plugin/plugin.json'),
         (Join-Path $bundlePlugin '.claude-plugin/plugin.json'),
-        (Join-Path $bundlePlugin '.cursor-plugin/plugin.json'),
         (Join-Path $bundlePlugin '.mcp.json'),
         (Join-Path $bundlePlugin 'prompts/builder-contract.md'),
         (Join-Path $bundlePlugin 'prompts/critic-contract.md'),
@@ -671,12 +670,8 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
         (Join-Path $bundlePlugin 'prompts/claude/builder.md'),
         (Join-Path $bundlePlugin 'prompts/claude/scout.md'),
-        (Join-Path $bundlePlugin 'prompts/cursor/critic.md'),
-        (Join-Path $bundlePlugin 'prompts/cursor/builder.md'),
-        (Join-Path $bundlePlugin 'prompts/cursor/scout.md'),
         (Join-Path $bundle '.agents/plugins/marketplace.json'),
-        (Join-Path $bundle '.claude-plugin/marketplace.json'),
-        (Join-Path $bundle '.cursor-plugin/marketplace.json')
+        (Join-Path $bundle '.claude-plugin/marketplace.json')
     ) + @($skillFiles + $hookFiles | ForEach-Object { Join-Path $bundlePlugin $_ })) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) { throw "bundle for $rid is missing $requiredPath" }
 }

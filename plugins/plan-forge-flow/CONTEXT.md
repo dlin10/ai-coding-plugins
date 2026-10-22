@@ -5,12 +5,12 @@ these terms replace it.
 
 | Term | Meaning |
 |---|---|
-| **Vendor** | A model supplier that can do work in a separate process: Claude Code CLI, Codex CLI, Cursor Agent, later Grok. Not "provider" — that word was overloaded. All three are reached the same way, one process per act; see `docs/adr/0012`. |
+| **Vendor** | A model supplier that can do work in a separate process: Claude Code CLI, Codex CLI, later Grok. Not "provider" — that word was overloaded. Both are reached the same way, one process per act; see `docs/adr/0012`. |
 | **Orchestrator** | The host agent: runs the interview, **revises the plan in response to critique**, calls the tools. Always an LLM, never a C# class. Strong model. |
 | **Act** | A major stage of a run. The five delegated acts are classes: `PlanReview`, `Build`, `CodeReview`, `ReviewFix`, `Scout`. The interview is not an act class; it lives in the orchestrator. |
 | **Worker** | A separate Vendor process acting as a Critic, Builder, or Scout for one delegated act. Never the Orchestrator. |
-| **Self-plugin exclusion** | A Worker cannot reach Plan Forge Flow itself, so it cannot enter another Run. Every other capability inherited from the host remains available. Codex disables the plugin by config, Claude by one-process settings, and Cursor marks the child environment so the self MCP launcher exits before starting. The explicitly invoked `forge` skill is manual-only and absent from automatic model context. |
-| **Job** | One delegated act running in the background, keyed by `jobId` and started, watched, optionally cancelled and collected through `forge.work.start` / `poll` / `cancel` / `fetch`. The shape a worker act takes on a host whose clock cannot hold a worker call; the one-call tools stay the shape everywhere else. |
+| **Self-plugin exclusion** | A Worker cannot reach Plan Forge Flow itself, so it cannot enter another Run. Every other capability inherited from the host remains available. Codex disables the plugin by config and Claude by one-process settings. The explicitly invoked `forge` skill is manual-only and absent from automatic model context. |
+| **Job** | One delegated act running in the background, keyed by `jobId` and started, watched, optionally cancelled and collected through `forge.work.start` / `poll` / `cancel` / `fetch`. The shape a worker act takes when it may outlast the host's clock on one call — a long Builder act; the one-call tools stay the shape everywhere else. |
 | **Worker liveness** | The most recent sign that a Job's Worker is still progressing: the time of its last output line and a bounded description of its last recognised Vendor event; silence is absence of output, not elapsed runtime. |
 | **Critic** | The vendor role that **judges**: reviews the plan, reviews diffs. A fresh process each round, fed the Canonical decision ledger's bounded Worker-input projection. |
 | **Builder** | The vendor role that **implements**: writes code against plan tasks and fixes code-review findings — a finding as the rule it breaks, at every place that decides the same question. Never revises the plan. One Builder session per plan task or code-review round. Cheap model. |
@@ -50,16 +50,16 @@ these terms replace it.
 | **Run log** | The operational record of a run, `forge.log`: JSONL, append-only, written by the server for every tool call, vendor process and vendor event, and by the orchestrator through `forge.log.append`. Distinct from the flow log, which is the user-facing timeline of results; this one exists for the runs that produced none. |
 | **Worker usage** | Per-attempt Worker telemetry where normalized `inputTokens` is the complete input processed, cache read and cache creation are optional subsets of that total, and output includes its optional reasoning subset; provider prices, durations, context windows and per-model breakdowns remain outside it. |
 | **Plan Forge-owned attempt data** | The Act, Vendor, role, requested model, effort and Fast choice, session mode, turn identity, attempt number and outcome that Plan Forge knows directly, plus the prompt size, local process start time, process wall duration and union of observed tool-call intervals it measures itself. `duration` is wall time minus tool time, after both are truncated to seconds; it equals wall time when tool boundaries are absent or incomplete. Background work after a tool result is not subtracted. |
-| **Requested selection** | The `model`, optional `effort` and Fast choice Plan Forge was asked to use, recorded without joining Cursor's effort or fast suffix into its CLI model id and without guessing which model the provider ultimately served. |
+| **Requested selection** | The `model`, optional `effort` and Fast choice Plan Forge was asked to use, recorded as asked and without guessing which model the provider ultimately served. |
 | **Fast tier** | A Vendor's faster speed for a model, sold at a higher usage price, and chosen for a Worker as a third axis beside model and effort. Off unless asked for, and off is then asked for explicitly rather than left to the Vendor's own configuration. A Fast request is honoured only where it is confirmed — by the Catalogue for every Vendor, and for claude again by the session's own start — and refused otherwise. |
 | **Served speed** | The speed a Vendor reports it actually ran a Worker at, as distinct from the Requested selection. Only claude reports it, at session start and at the end: a Fast request it will not serve at the start fails the attempt before any API call, while a fall back to standard speed during the turn (`cooldown`) is a warning on a result that still counts. |
 | **Telemetry file** | The Run's indented `telemetry.json`, created by its first record and never left empty, containing a JSON array with one human-readable Usage record per Vendor attempt, one Orchestrator usage record per Orchestrator phase and one Advisor usage record per accepted Evidence map call, including cancellation or failure, told apart by their `event` (`vendor.usage`, `orchestrator.usage`, `advisor.usage`), and no prompt or output content, separate from the operational Run log and the user-facing Flow log. Adding a record is a process-local, per-file serialized read–insert–rewrite that atomically replaces the file and places the record after the last element whose `at`, its opening, is no later — an Advisor usage record opens at its call start; an Orchestrator usage record closes after the Worker records of the attempts that began inside its phase and stands before them; an existing file that is not the expected JSON array is preserved unchanged and the telemetry write fails harmlessly. Like the rest of mutable Run state, it does not promise safe concurrent mutation of the same Run by separate Plan Forge processes. |
 | **Usage record** | The terminal `vendor.usage` Telemetry-file entry for one Worker attempt, with JSON numbers for counts and token counters, strings for identity, classification and duration, an array for malformed field names, absent optional values omitted except for the explicitly nullable `toolDuration`, and no failure or output detail. Its display order is stable—time and event, Act position, requested Worker, session and turn identity, outcome and owned measurements, then token counters, the Session running total where one was kept, and malformed paths—but consumers treat it as an unordered JSON object. |
 | **Usage timestamp** | The `at` time when Plan Forge starts the attempt's vendor process and sends its prompt, written in the machine's local time as `yyyy-MM-dd HH:mm:ss`, without offset or fraction. Records are appended on completion, so file order is completion order. Duration measurements use a monotonic clock and exclude post-exit output processing. |
 | **Reported Worker usage** | The provider counters carried by a Vendor's terminal event for one attempt; intermediate message counters are not accumulated, and an attempt without terminal usage has no inferred counters. Where the Vendor reports a Session running total instead, a resumed attempt's counters are what that total grew by since the session's latest recorded report. |
-| **Session running total** | What a Vendor reports for its whole persistent session rather than for one attempt: every codex token counter, which `exec resume` restores from the thread's rollout, and claude's `modelUsage`, summed over its models, and `total_cost_usd`, which `--resume` restores from the transcript's `cost-state`. Claude's totals count its subagents and context compaction, which the result line's `usage` leaves out, so its tokens are read from there. A resumed attempt keeps the reported total as `sessionTotal` beside its own growth, so the attempt after it counts from that report even when a growth was omitted. What a codex attempt spent before ending without a terminal event stays in the thread's total and lands in the next reported growth. Cursor's counters on a resumed chat are unmeasured and taken as reported. |
+| **Session running total** | What a Vendor reports for its whole persistent session rather than for one attempt: every codex token counter, which `exec resume` restores from the thread's rollout, and claude's `modelUsage`, summed over its models, and `total_cost_usd`, which `--resume` restores from the transcript's `cost-state`. Claude's totals count its subagents and context compaction, which the result line's `usage` leaves out, so its tokens are read from there. A resumed attempt keeps the reported total as `sessionTotal` beside its own growth, so the attempt after it counts from that report even when a growth was omitted. What a codex attempt spent before ending without a terminal event stays in the thread's total and lands in the next reported growth. |
 | **Worker usage boundary** | Worker usage covers Critic, Builder, and Scout attempts only. The host Orchestrator's work is recorded separately as Orchestrator usage, and catalogue Probes are outside both. |
-| **Host session** | The host's own conversation the Orchestrator runs in, as the host identifies it: a Claude Code session, a Codex thread. Cursor gives Plan Forge no identity for it. Distinct from a Vendor session, which belongs to a Worker. |
+| **Host session** | The host's own conversation the Orchestrator runs in, as the host identifies it: a Claude Code session, a Codex thread. A host that names neither gives Plan Forge none. Distinct from a Vendor session, which belongs to a Worker. |
 | **Orchestrator phase** | A named stretch of the Orchestrator's work in a Run: `interview`, `planning`, `plan_revision`, `approval`, `build`, `code_review` or `wrap_up`. Starting the Run opens `interview`; the Orchestrator declares each later phase when it begins it, a phase lasts until the next declaration, and the declaration `done` closes the last one without opening another. A name may recur, and each occurrence is a phase of its own; Plan Forge adds the round or task the Run is at. A phase never closed — a Run abandoned before `done` — has no record. |
 | **Orchestrator time** | The wall time of an Orchestrator phase less the time spent inside Plan Forge's own tool calls, counted once where calls overlap: while a call runs, the server is working and the Orchestrator is waiting for it. It includes the Orchestrator's own model time, its other tools and every wait for the user, which Plan Forge cannot tell apart. |
 | **Orchestrator usage** | The record of one Orchestrator phase: its Orchestrator time, and the tokens the Host session spent during it as the Usage source reports them. A host with no identifiable Host session has time only. |
@@ -75,9 +75,8 @@ these terms replace it.
 | **Telemetry act** | The delegated Act attributed to a Usage record: `plan_review`, `build`, `code_review`, `review_fix`, or `scout`, distinguishing work that shares a role. |
 | **Telemetry position** | The human-readable place of a Worker turn inside its Act: `round` for `plan_review` and `code_review`, the code-review `round` being fixed for `review_fix`, and `taskNumber` plus `taskCount` for `build`; a retried build keeps the same task number, while the task text remains only in `PLAN.md`. |
 | **Interview mode** | The orchestrator's choice between an interview without documentation and one that maintains the domain model as it goes. |
-| **Catalogue** | The models and effort levels a vendor advertises, and which of them it offers with a Fast tier and at what price hint, served to the interview by `forge.models`. **Live** when the vendor reported the list itself (codex, cursor); **resolved** when the list of aliases is one this repo remembers but the vendor turned each alias into the concrete model it stands for at probe time (claude). An alias the vendor did not resolve is not offered. Advisory for validation either way: the vendor CLI decides. |
+| **Catalogue** | The models and effort levels a vendor advertises, and which of them it offers with a Fast tier and at what price hint, served to the interview by `forge.models`. **Live** when the vendor reported the list itself (codex); **resolved** when the list of aliases is one this repo remembers but the vendor turned each alias into the concrete model it stands for at probe time (claude). An alias the vendor did not resolve is not offered. Advisory for validation either way: the vendor CLI decides. |
 | **Scout selection** | The Run's initially unset choice for the Scout Vendor, model, effort, and Fast tier, the last confirmed when chosen. On the first need the Orchestrator either stores an exact selection or records that the Run continues without Scout; the latter suppresses later automatic questions, while an explicit later choice may enable Scout. Calls reuse the stored selection exactly, and an explicit reselection after failure starts a fresh Scout session rather than silently falling back. |
-| **Model family** | A cursor catalogue entry: the base id its raw list spells out once per effort and speed variant (`gpt-5.3-codex` behind `gpt-5.3-codex-high-fast`), offered with exactly the efforts observed and, separately, the efforts observed with a `-fast` variant. The chosen effort and Fast join back onto the family id; `default` names the bare id and joins to nothing. A `-fast` already written into a model or effort is read as a Fast request. |
 | **Probe** | A vendor's readiness check, which for a live-catalogue vendor also fetches the catalogue. Readiness means **able to do the work**, not merely installed and signed in: a vendor that could not execute a command is unavailable, however healthy its sign-in. Started for every vendor in the background by `forge.begin`; a vendor whose probe failed is unavailable and the interview does not offer it. |
 | **Shell-less answer** | A Worker's answer from a turn in which it tried commands and the vendor started none. Not used: the act fails like any vendor failure, the Scout report and the ledger stay as they were, a review round is not spent, and the error and the Flow log quote the vendor. A turn that started one command, or tried none, is not shell-less. |
 | **Requirement** | A numbered statement under the plan's `## Requirements` heading of what must be true when the run is done — `R1`…`Rn`, with the run's exclusions beside them. The interview's output, so it names no file and no symbol; every task cites the requirements it serves. |
@@ -88,13 +87,13 @@ these terms replace it.
 | **Gate run** | The server's own execution of a gate command: `passed`, `failed` or `timeout` when it ran, `not_executable` when the gate is a condition, `not_run` when the builder was `blocked` after a verification that `failed`, when its turn ended with a Killed background task, or when no PowerShell was found. A `blocked` turn whose verification was `unavailable` **is** run: the builder is saying it did the work and could not prove it, and the host holds the environment that can. Travels as `build.result.gate` / `fix.gate`, as a `Gate:` line in the flow log, and as `gate.start` / `gate.finished` in the run log. |
 | **Gate environment** | The variables a run's gate commands need — a connection string, a path to a sibling checkout — given to `forge.plan.confirm` as `gateEnvironment` and kept in the run state. Logged by name only. |
 | **Builder roots** | Absolute paths outside the workspace, accepted by `forge.plan.confirm` as `builderRoots` and retained in the Run for compatibility. They do not control Builder access: Codex Builders run without a sandbox, and the other Vendors ignore them. |
-| **Worker tools** | The MCP servers a Worker may call without being asked, named by server-name patterns in `workerTools` on `forge.begin` — `roslyn-*` when omitted, nothing when empty — and kept in the run state for every Worker role. Each launch looks the servers up in the vendor's own list and grants the ones that match: a claude worker by exact `--allowedTools mcp__<server>`, a codex worker by `default_tools_approval_mode` per server; cursor's `--approve-mcps` already grants every server. The run log records each launch's patterns and the servers they matched as `worker.tools`. Not Claude's rule syntax: `mcp__roslyn-*` is refused there, see below. |
-| **Run instructions** | The user's own free text for a Run's Workers, one for the Critic and one for the Builder, recorded by `forge.instructions.set` and kept in the run state. They travel in the **act prompt** — the user turn — never in the **role instructions**, which are the role contract loaded from `prompts/<vendor>/<role>.md` and reach a vendor by its own channel (`developer_instructions` for codex, the head of the prompt for cursor). A Critic is fresh every round and is handed its text every round; a Builder is handed its text only by a call that starts a session, so a change made mid-session reaches the next session and not the running one. Every new plan task and code-review round starts such a session, and so do vendor switches, reopened plans, and re-approval after the Builder Brief changes. A code-review Critic is additionally shown the Builder's text as data, framed as context for judging the diff. Nothing but the secret guard checks them, and nothing checks that the text is the user's own rather than the orchestrator's — see `docs/adr/0019`. |
+| **Worker tools** | The MCP servers a Worker may call without being asked, named by server-name patterns in `workerTools` on `forge.begin` — `roslyn-*` when omitted, nothing when empty — and kept in the run state for every Worker role. Each launch looks the servers up in the vendor's own list and grants the ones that match: a claude worker by exact `--allowedTools mcp__<server>`, a codex worker by `default_tools_approval_mode` per server. The run log records each launch's patterns and the servers they matched as `worker.tools`. Not Claude's rule syntax: `mcp__roslyn-*` is refused there, see below. |
+| **Run instructions** | The user's own free text for a Run's Workers, one for the Critic and one for the Builder, recorded by `forge.instructions.set` and kept in the run state. They travel in the **act prompt** — the user turn — never in the **role instructions**, which are the role contract loaded from `prompts/<vendor>/<role>.md` and reach a vendor by its own channel (`developer_instructions` for codex, `--append-system-prompt` for claude). A Critic is fresh every round and is handed its text every round; a Builder is handed its text only by a call that starts a session, so a change made mid-session reaches the next session and not the running one. Every new plan task and code-review round starts such a session, and so do vendor switches, reopened plans, and re-approval after the Builder Brief changes. A code-review Critic is additionally shown the Builder's text as data, framed as context for judging the diff. Nothing but the secret guard checks them, and nothing checks that the text is the user's own rather than the orchestrator's — see `docs/adr/0019`. |
 | **Build status** | What the builder says it **did** with a task: `done` or `blocked`, and where a gate ran the server writes the exit code over it in either direction — `gate_failed` when the command did not exit 0, `done` when it did, which is how a `blocked` turn the host proved still counts. The server also writes `background_killed` when the turn ended with a Killed background task, and then runs no gate. Only `done` is progress. A `blocked`, `gate_failed` or `background_killed` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
 | **Killed background task** | A command a Worker started in the background that was still running when its turn ended, so the Vendor killed it with the process. The Worker never saw its result. Detected on claude only, where the stream reports it; named in the build result for a Builder, logged for a Critic. Not a "background job": a **Job** is a delegated act. |
 | **Verification** | The builder's own account of whether it **proved** the work, separate from whether it did the work: `passed`, `failed`, or `unavailable`, always with evidence. Self-reported. `unavailable` also covers a Builder that ran no checks because the executable gate belongs to the server, with that reason in the evidence. The verdict where the gate is a condition; context where the gate is a command, because the gate run answers that. |
 | **Capability profile** | What a given host can actually do. Two profiles were designed, `canvas` and `text`; only `text` is built — see below. |
-| **Resume card** | What `planforge.exe --resume-card` prints for the Claude Code and Codex `SessionStart` hooks after a compaction: the Run of this Host session, where it stands, the next calls with their exact argument shapes, and the skill reference to read again. IDs, counts and shapes only. Cursor runs no such hook; see below and `docs/adr/0040`. |
+| **Resume card** | What `planforge.exe --resume-card` prints for the Claude Code and Codex `SessionStart` hooks after a compaction: the Run of this Host session, where it stands, the next calls with their exact argument shapes, and the skill reference to read again. IDs, counts and shapes only. See below and `docs/adr/0040`. |
 | **Skill core** | `skills/forge/SKILL.md`: the participants, the phases, the tools with their argument shapes, the rules that hold throughout. Everything else is a phase's **reference** under `skills/forge/references/`, read when the phase begins. The core stays under what the host re-injects after a compaction. |
 
 ## Tier asymmetry is a design-wide constraint
@@ -217,8 +216,8 @@ would have called the total failure of issue #58 a clean run.
 
 **`--output-schema` is enforced by the API, not by the prompt.** The CLI refuses a schema without
 `additionalProperties: false` before a token is spent, and a prompt written to break the format came
-back as a valid object anyway. That is what lets the codex vendor drop the `SchemaInPrompt` retry
-loop that Cursor still needs.
+back as a valid object anyway. That is what let the codex vendor drop the schema-in-the-prompt
+retry loop.
 
 **`developer_instructions` adds; `instructions` replaces.** Both are accepted configuration keys and
 they look interchangeable. `-c developer_instructions=` prepends a block to the developer message
@@ -317,12 +316,11 @@ is still accepted and stored in the Run, but produces no writable-roots override
 restrict access. The Builder implements the approved plan's edits directly, while the server
 continues to own executable gates.
 
-## Claude and Cursor keep the Critic and Scout read-only by different mechanisms; codex does not
+## Claude keeps the Critic and Scout read-only; codex does not
 
 The Critic judges and the Scout gathers evidence; neither may edit — including through any subagent
 it spawns.
-Nothing in this codebase enforces that; the guarantees are the vendors', they are not the same
-guarantee, and codex gives none:
+Nothing in this codebase enforces that; the guarantee is the vendor's, and codex gives none:
 
 - **Codex** — nothing at launch. Critic and Scout run without the sandbox, as the Builder does, so
   their role contracts are all that keeps them from editing. See `docs/adr/0033`.
@@ -332,10 +330,6 @@ guarantee, and codex gives none:
   `docs/adr/0017`. The builder's shell grant has no sandbox behind it: it is the price of a
   builder that can run the task's checks on a machine whose
   own settings approve nothing (issue #90).
-- **Cursor** — `--mode plan`, and nothing else. Measured on 2026-08-15 rather than taken from the
-  help text: the same prompt asking for a file writes it without the flag and writes nothing with
-  it, at the same latency. Before that flag was added, `--force` went to every role and a Cursor
-  critic could edit freely.
 
 ## A headless claude asks nobody, so what its permission rules do not cover is refused
 
@@ -396,8 +390,7 @@ End to end through this server's own launch, `WorkerToolsIntegrationTests` on th
 critic and builder (`haiku`) and a codex critic and builder (`gpt-5.6-luna`, `low`) each called
 `roslyn_search_symbols` successfully with nothing but the default `roslyn-*` grant — claude through
 the six `roslyn-*` servers of this repository's local scope, none of them in the user's settings,
-codex through a scratch project config that declared the server with no approval key. The cursor
-pair was not measured: both were refused with "You've hit your usage limit" before a turn ran. The
+codex through a scratch project config that declared the server with no approval key. The
 codex critic also called `cua_repl` unasked on the way — a server the user's own configuration
 approves — which is the reach every worker already had, not one this grant added.
 
@@ -429,42 +422,10 @@ builder started it with `run_in_background`, answered, and exited — there is n
 Documented, not measured: a background *subagent* keeps `-p` open until it finishes or has idled
 for ten minutes (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`), because its result is part of the output.
 
-## cursor-agent rejects an unknown model fast, and its ids carry the effort
-
-Measured against cursor-agent 2026.08.11-e8db854 on 2026-08-18:
-
-- A model id the CLI does not recognise fails in about ten seconds: exit 1, stderr
-  `Cannot use this model: <id>. Available models: <the full line-up>`. The existing
-  `StreamingProcess` nonzero-exit path surfaces that stderr, so a rejected model already fails the
-  act fast — it never crawls toward a timeout. The CLI drains stdin before validating the model
-  (measured with a 204 KB prompt), so the prompt-size pipe race one might suspect does not exist.
-- The live line-up is full ids with the effort baked in as a suffix — `gpt-5.6-sol-xhigh`,
-  `claude-opus-5-thinking-max`, `gpt-5.3-codex-high-fast` — so a string that looks like an
-  orchestrator-invented model-plus-effort join can be a real id. The payload issue #19 suspected,
-  `model: "gpt-5.6-sol-xhigh", effort: null`, is valid and runs: the id resolves to "GPT-5.6 Sol
-  272K Extra High".
-- The immediate MCP-layer timeout in run `20260818-123941-05cfa8` was therefore the **host's**
-  tool-call timeout on a long-running review, not a vendor rejection: the identical critic
-  invocation (`--mode plan`, same model) completes standalone, with ~35–40 s of CLI spin-up before
-  the API call even starts. Codex is configured around exactly this — `.mcp.json` sets
-  `tool_timeout_sec: 3600` — while Cursor's manifest has no such knob, and none exists to add: see
-  "No progress notification can rescue a Cursor-hosted call".
-
-Two more measurements from 2026-08-19, taken while wiring the catalogue into the interview:
-
-- The bracket-override syntax the foot of `--list-models` itself advertises — "Parameterized models
-  also accept quoted overrides, e.g. `--model 'claude-opus-4-8[context=1m,effort=high,fast=false]'`"
-  — is rejected: both a live family with a bracket (`gpt-5.6-sol[effort=high]`) and the tip's own
-  example fail with the same ten-second `Cannot use this model`. The suffix join stays; the
-  catalogue's families only ever advertise variants whose joined ids appeared in the list.
-- A bare family id absent from the list (`gpt-5.6-sol`, listed only as `-high`/`-xhigh`) is
-  nevertheless accepted and runs, resolving to some default variant. Measured but not relied on:
-  the catalogue offers a `default` variant only where the bare id itself is listed.
-
 ## Each vendor spells its Fast tier differently, and says differently what it served
 
-Measured on 2026-09-25 with one trivial prompt per probe, against codex-cli 0.157.0, Claude Code
-2.1.282 and the installed cursor-agent:
+Measured on 2026-09-25 with one trivial prompt per probe, against codex-cli 0.157.0 and Claude Code
+2.1.282:
 
 - **Codex** lists exactly one tier for every listed model in `codex debug models`:
   `service_tiers: [{"id": "priority", "name": "Fast", "description": …}]`, beside
@@ -489,12 +450,6 @@ Measured on 2026-09-25 with one trivial prompt per probe, against codex-cli 0.15
   as extra usage, and this account's organisation has overage disabled (`rate_limit_event`:
   `overageStatus: rejected`, `overageDisabledReason: org_level_disabled`). Both answers arrive at
   `init`, so a session killed there costs no API call.
-- **Cursor** spells a fast variant as its own id, `-fast` after the effort
-  (`gpt-5.3-codex-high-fast`) or after the bare id (`gpt-5.3-codex-fast`); 79 of 241 listed ids
-  carry it. The CLI resolved `gpt-5.3-codex-high-fast` to "Codex 5.3 High Fast" in its `init`;
-  the turn then failed at the API because this box's plan allows only `auto`. The list also spells
-  efforts the family parser does not know — `none`, `minimal`, `extra-high` — which surface as
-  families of their own (`gpt-5.6-sol-none`).
 
 ## A resumed session reports its running total, and each vendor totals something different
 
@@ -537,8 +492,6 @@ files, written by codex-cli up to 0.157.1 and Claude Code up to 2.1.284:
 - **A claude result from before any model call carries an empty `modelUsage`**, as the catalogue
   probe's expired sign-in did in run 20260927-101749-f2aa9c. That is no report rather than a total
   of zero, which on a resumed session would reset the count.
-- **Cursor** was not measured: the probe on 2026-09-29 was refused by the account's weekly usage
-  limit before a turn ran.
 
 A resumed attempt therefore records what the running total grew by since the session's latest
 recorded report, and keeps the total as `sessionTotal`. The record keeps the total rather than
@@ -546,74 +499,22 @@ leaving it to be summed from the growths because after one inconsistent report a
 for the rest of the session, while with the total kept the attempt after it counts from the latest
 report. See docs/adr/0024.
 
-## cursor-agent has no system-prompt channel
+## A host hands a worker what the user installed there, this plugin included
 
-The `--help` of 2026.08.11-e8db854 lists no flag resembling `--system-prompt` — nothing like
-Claude's `--append-system-prompt` or the App Server's `developerInstructions`. Role instructions
-can reach a Cursor worker only inside the prompt itself, so `CursorAgentSession` puts them at its
-head, ahead of the task and the schema contract. Before 0.12.1 the loaded role prompt was silently
-dropped and Cursor critics and builders ran without their instructions.
-
-## cursor-agent reports every tool in one message, and the exit code in it is a shell's
-
-Measured on 2026-08-29 against 2026.08.25-3e8eec8 in print mode with `--output-format stream-json`,
-after a builder run whose every shell call failed without leaving a trace in `forge.log`:
-
-- A tool produces two `"type": "tool_call"` messages — `"subtype"` `started`, then `completed`. The
-  `tool_call` object holds exactly one `<name>ToolCall` member (`shellToolCall`, `readToolCall`)
-  beside `toolCallId` and the timestamps, so that member's name is the tool.
-- `result` is a one-of. A call that worked carries `success`; a failure carries a member named
-  after itself — `error` with `errorMessage` for a path the read tool could not find, `spawnError`
-  for a shell backend answering "the shell command returned no exit status". Everything that is not
-  `success` is therefore read as the failure, whatever it is called, so an unseen failure shape
-  cannot pass for a clean call.
-- `success.exitCode` is not the command's own. `cmd /c exit 3` came back as `exitCode: 0` with
-  cmd's banner in `stdout`, so the tool hands the command to a shell it keeps rather than running
-  it. The code is logged as reported and nothing is decided on it — see "Verification is
-  self-reported" below.
-- A host that runs cursor-agent for us also hands the worker whatever the user installed there, and
-  this plugin was among it: the builder's prompt listed the `forge` skill, and cursor-agent started
-  a plan-forge-flow MCP server of its own per task — four `planforge.exe` processes that outlived
-  the runs that spawned them, each holding a console window, because a server launched from one
-  that has no console gets a fresh one. What the host offers a worker is a property of the host,
-  not of the role, so `prompts/orchestration-contract.md` is appended to both — it answers the half
-  of this we control, and the rest is the host's.
-
-## No progress notification can rescue a Cursor-hosted call
-
-Measured on 2026-08-18 with a probe MCP stdio server that logs every request's `_meta`, driven by
-cursor-agent 2026.08.11-e8db854 in print mode:
-
-- cursor-agent's own MCP client sends **no `progressToken`** with `tools/call` — `_meta` is absent
-  outright — so on this path a server has no token to attach progress to, and the SDK-injected
-  `IProgress<>` would be its documented no-op.
-- The call is cancelled at a hard **60 seconds**: `notifications/cancelled` arrived 60.0 s after
-  `tools/call` while the tool was still working, and the agent reported `MCP error -32001: Request
-  timed out`. That is the error signature of run `20260818-123941-05cfa8`, whose review died from
-  the Agents window while the identical critic invocation completes standalone.
-- Documented rather than measured (Cursor staff on the forum, May–July 2026): no Cursor schema —
-  `mcp.json`, plugin `mcp.json` blocks, or the published plugin MCP schema — has any timeout
-  field; the IDE path does send a token but `resetTimeoutOnProgress` is not passed to the SDK, so
-  progress never extends any Cursor clock; the IDE ceiling is around 60 minutes against the
-  CLI/ACP path's 60 seconds, none of it configurable; and progress rendering in the chat and
-  Agents UI is a regression open since 3.8. The staff-endorsed pattern for long tools is a job id
-  returned fast plus polling.
-
-The consequence: neither lever the Codex host gets — `tool_timeout_sec` or progress keep-alive —
-exists for Cursor, so a worker call orchestrated from Cursor dies at the host layer whenever it
-outlives the host's clock. Wiring `IVendorSession.Events` to MCP progress was considered on these
-measurements and rejected; the channel stays deliberately unread. The only shape a Cursor host
-would honor is splitting each worker tool into start/poll/fetch calls that return in seconds. That
-redesign was taken — see [docs/adr/0006](docs/adr/0006-worker-acts-as-jobs-on-the-cursor-host.md).
-One round per call becomes one round per job on this path; the orchestrator's mandatory turn between
-rounds, which is what docs/adr/0005 is about, is untouched.
+Measured on 2026-08-29, after a builder run whose every shell call failed without leaving a trace
+in `forge.log`: the builder's prompt listed the `forge` skill, and the worker started a
+plan-forge-flow MCP server of its own per task — four `planforge.exe` processes that outlived the
+runs that spawned them, each holding a console window, because a server launched from one that has
+no console gets a fresh one. What the host offers a worker is a property of the host, not of the
+role, so `prompts/orchestration-contract.md` is appended to every role — it answers the half of
+this we control, and the rest is the host's.
 
 ## A backgrounded vendor process has three reapers while the server lives
 
 Read out of `StreamingProcess` rather than measured: the kill-tree lives in the enumerator's
-`finally`, so it fires only while the server process is alive. Under the old one-call Cursor path the
-host's timeout reached that block by cancelling at 60 seconds, which is why a run that died there
-left no orphan.
+`finally`, so it fires only while the server process is alive. On the one-call path the host's own
+timeout reaches that block when it cancels the call, which is why a call cut short there leaves no
+orphan.
 
 A job is deliberately detached from its `tools/call` token; that detachment is the whole point, and
 it removes the host as reaper. Three things remain while the server lives: `StreamingProcess` stops
@@ -707,15 +608,15 @@ unavailable` with evidence.
 
 The report is the builder's word, and until 0.27.0 the server re-checked nothing: the only signal
 it could have checked against — command exit codes in the vendor's event stream — exists reliably
-for Codex alone, and a guarantee that varies by vendor is worse than none. Cursor reports an exit
-code too, but it is its own shell's rather than the command's, which is the shape of the problem: a
-check built on it would pass a build that never ran. That reasoning still holds, and the event
+for Codex alone, and a guarantee that varies by vendor is worse than none: a vendor that reports
+its own shell's exit code rather than the command's would pass a build that never ran. That
+reasoning still holds, and the event
 stream is still not read for verdicts. What changed is that the server stopped needing the vendor's
 signal: run `20260904-173914-9254ec` had a builder answer `passed` for six tasks whose named tests
 it never wrote, because the suite it ran was green at the old count, so the server now runs the
 gate command **itself**, on the host, and reads its own exit code — the same answer for every
 vendor. See `docs/adr/0015`. The audit trail is still the run log, which records each vendor
-tool's outcome for all three vendors and now the gate run beside them. Reacting to a gate that is a
+tool's outcome for every vendor and now the gate run beside them. Reacting to a gate that is a
 condition rather than a command, and so to `unavailable` or `failed` where nothing could be run,
 still belongs to the orchestrator, for the reason it always did: a condition has no exit code, and
 blocking the flow on a self-report would kill a run that can degrade gracefully.
@@ -748,7 +649,7 @@ is what would mangle a gate naming a non-ASCII path or test. See `docs/adr/0015`
 
 The Flow log and Canonical decision ledger record the **results of acts that reached their commit
 point**, so an act that threw before it could commit may write neither. The run behind #19 left a
-folder holding `state.json` and no record of whether `cursor-agent` was spawned, with what
+folder holding `state.json` and no record of whether the vendor CLI was spawned, with what
 arguments, or how it died. Vendor sessions did emit `Started`/`Finished`/`Failed`, but only into an
 unbounded channel that production never reads.
 
@@ -833,20 +734,18 @@ the published schema. Domain rules that depend on a value being present — a se
 carry a `revision` — stay where they always were, in the act, where they can say what is missing and
 why.
 
-## The `canvas` profile has a host; the Tasks extension still has none
+## The `canvas` profile is built, and no supported host negotiates it; nor the Tasks extension
 
-Measured on 2026-08-15 against a spike server built on the MCP C# SDK 2.2.0: Claude Code 2.1.233 and
-Cursor 1.0.0 both negotiate protocol `2025-11-25` and report `extensions: null` with no UI
-capability. Neither the MCP Apps extension (the `canvas` profile) nor the Tasks extension (streamed
-progress) is negotiated by any available host.
+Measured on 2026-08-15 against a spike server built on the MCP C# SDK 2.2.0: Claude Code 2.1.233
+negotiates protocol `2025-11-25` and reports `extensions: null` with no UI capability. Neither the
+MCP Apps extension (the `canvas` profile) nor the Tasks extension (streamed progress) was negotiated.
 
-Half of that has expired. Run `20260818-123941-05cfa8`, orchestrated from Cursor 3.15, recorded
-`profile: "Canvas"` in its state, and run `20260822-190108-fcccbd` did the same from Cursor 3.17.8 —
-which identifies itself as `cursor-vscode` and advertises
-`{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}}`. The
-detector only says `Canvas` when `McpApps.GetUiCapability(...)` returns non-null, so current Cursor
-**does** negotiate the UI capability. Claude Code still reports `Text`; Codex has not been measured,
-because its sandbox refuses to spawn the spike.
+A host this plugin no longer supports later negotiated the MCP Apps extension, advertising
+`{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}}`, and
+runs from it recorded `profile: "Canvas"` — see [docs/adr/0008](docs/adr/0008-render-the-plan-on-a-canvas.md)
+and [docs/adr/0043](docs/adr/0043-remove-cursor-as-host-and-vendor.md). The detector only says
+`Canvas` when `McpApps.GetUiCapability(...)` returns non-null. Claude Code still reports `Text`;
+Codex has not been measured, because its sandbox refuses to spawn the spike.
 
 So the `canvas` branch is written, and it is one tool wide: `forge.plan.show` renders the plan
 through the `ui://planforge/plan.html` resource — see [docs/adr/0008](docs/adr/0008-render-the-plan-on-a-canvas.md).
@@ -862,16 +761,11 @@ No MCP mechanism lets this server make a host display a file — resources and n
 carry one, but nothing renders unasked — so showing `flow_log.md` belongs to the orchestrator,
 and the skill instructs it per host.
 
-Measured on 2026-08-17 against Cursor 3.15.19 on Windows: `cursor <path>` opens a markdown file
-under `.forge/` in the Agents window rendered as Preview, with the Preview | Source toggle — the
-exclusion that hides that toggle for `.cursor/`, `.claude/` and `.codex/` paths does not cover
-`.forge/`. The rendering is a snapshot, not a watch: an external append changed nothing within
-ten seconds or on window focus, and re-running the same `cursor <path>` is what refreshed it.
-The Claude Code desktop panel is documented to behave the same way — render on send, no disk
-watch — so the skill's rule is uniform: surface once, refresh after every worker call.
+The Claude Code desktop panel is documented to render a file on send and not to watch the disk, so
+the skill's rule is: surface once, refresh after every worker call.
 
-What the skill could not do on its own is make that happen early. Run `20260822-190108-fcccbd`,
-orchestrated from Cursor, surfaced the path in its closing message and nowhere before it: the
+What the skill could not do on its own is make that happen early. Run `20260822-190108-fcccbd`
+surfaced the path in its closing message and nowhere before it: the
 instruction to show the file at the first plan-review result had fallen out of view long before the
 result arrived, and no tool result carried the path, so nothing brought it back. Every act result
 now carries a `documents` object — a path plus what to do with it, per file — from the moment each
@@ -1039,7 +933,7 @@ sent. Git's diff headers name a tracked file from the repository root, while a p
 workspace's prefix, so that a name the size refusal lists is one `excludePaths` takes. The
 Critic's diff keeps git's headers as they are.
 
-## Codex refuses a turn over 1,048,576 characters; claude and cursor-agent state no limit
+## Codex refuses a turn over 1,048,576 characters; claude states no limit
 
 Read from the codex-rs source on 2026-10-05 against codex-cli 0.159.2, after run
 `20261004-093111-b79938` failed a code-review round with `turn/start failed: Input exceeds the
@@ -1059,8 +953,6 @@ maximum length of 1048576 characters` and `actual_chars: 1056671`:
 - **Claude.** The `claude.exe` of Claude Code 2.1.286 holds no client-side character limit on its
   prompt. The only length refusal is the API's `prompt is too long`, counted in tokens against the
   model's context window, which no character count here can predict.
-- **cursor-agent.** The 2026.09.18-9a7762b bundle holds no client-side limit either. Whatever its
-  service enforces was not measured.
 
 The server therefore measures the code-review prompt for codex only, before the critic starts; see
 docs/adr/0029. Over the limit it gives the window by path rather than refusing it; see
@@ -1072,8 +964,8 @@ Measured on 2026-10-18 from run `20261017-180043-675224`'s `forge.log`, whose th
 rounds each gave a codex `gpt-6-astra` critic 30 untracked files by path: the `vendor.tooluse`
 events of every round name all 30. A name in a command shows the file was opened, not that it was
 read whole, and a search over a folder reads files it never names, so this is evidence for the
-delivery, not a check the server could run. No claude or cursor-agent critic has been given files
-by path: neither states a limit, so neither ever is.
+delivery, not a check the server could run. No claude critic has been given files by path: claude
+states no limit, so it never is.
 
 ## The session is not the workspace, and only one host says where it is
 
@@ -1104,11 +996,10 @@ handshake with a server that records the `initialize` params and then requests `
 |---|---|---|---|
 | `claude-code` 2.1.258 | 2025-11-25 | `{"listChanged": true}` | the session's working directory |
 | `codex-mcp-client` 0.147.0 | 2025-06-18 | no | `{"roots": []}` |
-| `Cursor` 1.0.0 | 2025-11-25 | no | error `-32601 Method not found` |
 
-Two of the three answer a request they never advertised, one of them with an error, which is why the
-declared capability decides whether to ask at all rather than the shape of the answer. Only the host
-that declares it moves its run folder; the other two keep the layout they had.
+Codex answers a request it never advertised, which is why the declared capability decides whether
+to ask at all rather than the shape of the answer. Only the host that declares it moves its run
+folder; the other keeps the layout it had.
 
 Roots is deprecated by the specification of 2026-07-28 (SEP-2577, which retires sampling and logging
 with it) on the grounds of vague semantics and low adoption, and it names no successor — after it
@@ -1176,9 +1067,8 @@ only `claude.pff.hooks.json`; and `codex plugin add` from a local marketplace in
 of its own printed the card after a forced compaction, once — the compact hook came from
 `codex.pff.hooks.json` through `.codex-plugin/plugin.json`.
 
-**Cursor gets nothing from the resume card.** It runs neither file. An Orchestrator there, or one
-in a Codex that has not trusted the hook, recovers the way the skill core says for any host without
-a card — `forge.status` first, then the reference for the phase the run is in. The skill core's size
+**A Codex that has not trusted the hook gets nothing from the resume card.** An Orchestrator there
+recovers the way the skill core says for any host without a card — `forge.status` first, then the reference for the phase the run is in. The skill core's size
 helps every host alike.
 
 ## An escaped letter cost the Orchestrator eight times the letter

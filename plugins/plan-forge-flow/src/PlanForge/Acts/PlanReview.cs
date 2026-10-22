@@ -286,16 +286,6 @@ internal sealed class PlanReview
         return WrittenDraft(run) ?? throw MissingDraft();
     }
 
-    /// <summary>
-    /// The same demand as <see cref="TakeDraft"/>, made before a background job is started, so a
-    /// round with no draft anywhere is an argument error answered by the call that made it rather
-    /// than a job that fails with nothing running behind it.
-    /// </summary>
-    internal static void RequireDraft(RunDirectory run, string? planDraft)
-    {
-        if (string.IsNullOrWhiteSpace(planDraft) && WrittenDraft(run) is null) throw MissingDraft();
-    }
-
     private static string? WrittenDraft(RunDirectory run) =>
         File.Exists(run.PlanPath) && run.ReadPlan() is { } plan && !string.IsNullOrWhiteSpace(plan)
             ? plan

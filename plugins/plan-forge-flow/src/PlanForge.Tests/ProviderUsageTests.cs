@@ -217,31 +217,9 @@ public sealed class ProviderUsageTests
         Assert.Equal(1.5m, usage.SessionTotal?.CostUsd);
     }
 
-    [Fact]
-    public void Cursor_includes_both_cache_classes_in_total_input()
-    {
-        var usage = ProviderUsage.Cursor(Usage(
-            """
-            {
-              "inputTokens": 7,
-              "cacheReadTokens": 8,
-              "cacheWriteTokens": 9,
-              "outputTokens": 10
-            }
-            """));
-
-        Assert.Equal(24, usage.InputTokens);
-        Assert.Equal(8, usage.CacheReadTokens);
-        Assert.Equal(9, usage.CacheCreationTokens);
-        Assert.Equal(10, usage.OutputTokens);
-        Assert.Null(usage.ReasoningTokens);
-        Assert.Null(usage.MalformedFields);
-    }
-
     [Theory]
     [InlineData("claude")]
     [InlineData("codex")]
-    [InlineData("cursor")]
     public void Missing_usage_is_absent_not_malformed(string vendor)
     {
         var usage = Parse(vendor, null);
@@ -258,7 +236,6 @@ public sealed class ProviderUsageTests
     [InlineData("claude", """{"claude-opus-5-5":{"inputTokens":"bad","outputTokens":3}}""",
                 "modelUsage.claude-opus-5-5.inputTokens")]
     [InlineData("codex", """{"input_tokens":"bad","output_tokens":3}""", "usage.input_tokens")]
-    [InlineData("cursor", """{"inputTokens":"bad","outputTokens":3}""", "usage.inputTokens")]
     public void Every_vendor_preserves_independent_counters_when_one_is_malformed(string vendor, string json, string path)
     {
         var usage = Parse(vendor, Usage(json));
@@ -277,17 +254,17 @@ public sealed class ProviderUsageTests
     [InlineData("9223372036854775808")]
     public void Non_integer_or_out_of_range_counter_is_named_without_its_value(string value)
     {
-        var usage = ProviderUsage.Cursor(Usage($$"""{"inputTokens":{{value}},"outputTokens":3}"""));
+        var usage = ProviderUsage.Codex(Usage($$"""{"input_tokens":{{value}},"output_tokens":3}"""));
 
         Assert.Null(usage.InputTokens);
         Assert.Equal(3, usage.OutputTokens);
-        Assert.Equal(["usage.inputTokens"], usage.MalformedFields);
+        Assert.Equal(["usage.input_tokens"], usage.MalformedFields);
     }
 
     [Fact]
     public void Invalid_usage_block_is_named_once()
     {
-        var usage = ProviderUsage.Cursor(Element("[]"));
+        var usage = ProviderUsage.Codex(Element("[]"));
 
         Assert.Equal(["usage"], usage.MalformedFields);
     }
@@ -353,8 +330,6 @@ public sealed class ProviderUsageTests
     [Theory]
     [InlineData("claude",
                 """{"claude-opus-5-5":{"inputTokens":1,"cacheReadInputTokens":2,"outputTokens":4}}""")]
-    [InlineData("cursor",
-                """{"inputTokens":1,"cacheReadTokens":2,"outputTokens":4}""")]
     public void Missing_cache_component_omits_derived_total_without_calling_it_malformed(string vendor,
                                                                                          string json)
     {
@@ -371,9 +346,6 @@ public sealed class ProviderUsageTests
     [InlineData("claude",
                 """{"claude-opus-5-5":{"inputTokens":1,"cacheReadInputTokens":"bad","cacheCreationInputTokens":3,"outputTokens":4}}""",
                 "modelUsage.claude-opus-5-5.cacheReadInputTokens")]
-    [InlineData("cursor",
-                """{"inputTokens":1,"cacheReadTokens":"bad","cacheWriteTokens":3,"outputTokens":4}""",
-                "usage.cacheReadTokens")]
     public void Malformed_cache_component_omits_derived_total_but_preserves_independent_counters(string vendor,
                                                                                                  string json,
                                                                                                  string path)
@@ -391,9 +363,6 @@ public sealed class ProviderUsageTests
     [InlineData("claude",
                 """{"claude-opus-5-5":{"inputTokens":9223372036854775807,"cacheReadInputTokens":1,"cacheCreationInputTokens":0}}""",
                 "modelUsage.*.inputTokens")]
-    [InlineData("cursor",
-                """{"inputTokens":9223372036854775807,"cacheReadTokens":1,"cacheWriteTokens":0}""",
-                "usage.inputTokens")]
     public void Derived_total_overflow_is_omitted_and_names_the_input_field(string vendor,
                                                                             string json,
                                                                             string path)
@@ -421,7 +390,6 @@ public sealed class ProviderUsageTests
     {
         "claude" => ProviderUsage.Claude(usage),
         "codex" => ProviderUsage.Codex(usage),
-        "cursor" => ProviderUsage.Cursor(usage),
         _ => throw new ArgumentOutOfRangeException(nameof(vendor), vendor, null)
     };
 

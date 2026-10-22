@@ -1,7 +1,6 @@
 using PlanForge.Vendors;
 using PlanForge.Vendors.Claude;
 using PlanForge.Vendors.Codex;
-using PlanForge.Vendors.Cursor;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -184,13 +183,12 @@ public sealed class CodexArgumentTests
 
     /// <summary>
     /// codex-rs MAX_USER_INPUT_TEXT_CHARS, which refused run 20261004-093111-b79938's fourth code-review
-    /// round at 1,056,671 characters. Neither claude nor cursor-agent states a character limit.
+    /// round at 1,056,671 characters. Claude states no character limit.
     /// </summary>
     [Fact]
     public void Only_codex_states_a_prompt_character_limit()
     {
         Assert.Equal(1_048_576, ((IVendor)new CodexCliVendor()).PromptCharacterLimit);
         Assert.Null(((IVendor)new ClaudeCliVendor()).PromptCharacterLimit);
-        Assert.Null(((IVendor)new CursorAgentVendor()).PromptCharacterLimit);
     }
 }

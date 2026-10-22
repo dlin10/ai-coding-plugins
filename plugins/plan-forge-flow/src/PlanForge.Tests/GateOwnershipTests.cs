@@ -143,7 +143,6 @@ public sealed class GateOwnershipTests : IDisposable
     [Theory]
     [InlineData("claude")]
     [InlineData("codex")]
-    [InlineData("cursor")]
     public void Every_builder_contract_preserves_conditions_and_reserves_executable_gates_for_the_server(string vendor)
     {
         var prompt = Prompts().Load(vendor, VendorRole.Builder);

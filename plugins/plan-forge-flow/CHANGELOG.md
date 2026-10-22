@@ -1,5 +1,27 @@
 # Plan Forge Flow releases
 
+## 0.59.0
+
+Cursor is no longer supported, as a host or as a vendor. ADR 0043.
+
+- The plugin ships no `.cursor-plugin/plugin.json` and is gone from the monorepo's Cursor
+  marketplace; `build/package.ps1` refuses a bundle that carries a Cursor manifest or
+  `prompts/cursor/`. An installation made from that marketplace keeps the version it has.
+- `cursor` is no longer a vendor: `forge.models` reports claude and codex, and an act or Scout
+  selection that names `cursor` is refused as an unknown vendor. `prompts/cursor/` and the
+  schema-in-the-prompt path that only Cursor used are gone; both remaining vendors hand their schema
+  to the CLI.
+- `forge.work.poll` holds every client to 1–3000 seconds and no longer reads the client's name; one
+  that names no wait still waits 45.
+- `forge.work.start` runs the Builder acts alone, `build.next` and `review.fix`, for one that may
+  outlast the host's hour. `plan.review`, `review.code` and `scout`, which only the Cursor routing
+  sent through a job, are refused as unknown acts, and their arguments — `planDraft`, `deferred`,
+  `revision`, `userGrantedRound`, `question`, `sessionMode`, `excludePaths` — are gone from its
+  schema. Every other act goes through its one-call tool, as the skill already sent it.
+- `forge.plan.show` keeps the canvas for a host that negotiates MCP Apps.
+- The monorepo validator lets a Claude catalog entry be missing from the Cursor catalog when its
+  plugin ships no Cursor manifest.
+
 ## 0.58.0
 
 Tool results carry what the Orchestrator acts on, compact and unescaped. Issue #176, ADR 0042.

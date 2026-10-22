@@ -93,12 +93,12 @@ public sealed class HostSessionTests : IDisposable
         var source = new CountingSource();
         var phases = new OrchestratorPhases(TimeProvider.System, source, name => name == SESSION_VARIABLE ? "session-a" : null);
 
-        var runId = await BeginAsync(phases, "cursor", null);
-        await DeclareAsync(phases, runId, "planning", "cursor", null);
+        var runId = await BeginAsync(phases, "other-mcp-client", null);
+        await DeclareAsync(phases, runId, "planning", "other-mcp-client", null);
 
         Assert.Null(phases.Hosts.Current());
         var record = Assert.Single(Records(runId));
-        Assert.Equal("cursor", record.GetProperty("host").GetString());
+        Assert.Equal("other-mcp-client", record.GetProperty("host").GetString());
         Assert.Equal("no_host_session", record.GetProperty("usageMissing").GetString());
         Assert.False(record.TryGetProperty("hostSessionId", out _));
         Assert.False(record.TryGetProperty("usageSource", out _));

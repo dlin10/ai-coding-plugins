@@ -20,16 +20,12 @@ internal interface IVendor
     Task<VendorReadiness> ProbeAsync(CancellationToken ct);
 
     /// <summary>
-    /// The selection in this vendor's canonical spelling, before anything records or confirms it:
-    /// cursor reads a <c>-fast</c> written into the model or effort as a Fast request.
-    /// </summary>
-    Selection Normalize(Selection selection) => selection;
-
-    /// <summary>
     /// Why the catalogue does not confirm this Fast request, or null when it does: the model is
     /// listed — by its id, or by the model id it resolved to — with Fast at the requested effort, and
-    /// nothing says the account refuses it. Cursor confirms by joined id instead.
+    /// nothing says the account refuses it.
     /// </summary>
+    /// <param name="selection">The Fast request, as the tool call asked for it.</param>
+    /// <param name="catalog">The vendor's catalogue from its probe.</param>
     string? RefuseFast(Selection selection, VendorCatalog catalog)
     {
         var model = catalog.Models.FirstOrDefault(entry =>
@@ -80,9 +76,9 @@ internal sealed record RoleSpec(VendorRole Role,
 
 /// <summary>
 /// Model and effort are kept apart because vendors express effort differently — a flag for Claude,
-/// a model property for Codex, part of the model string for Cursor. The vendor joins them. Fast is
-/// kept apart for the same reason — a settings key for Claude, a service tier for Codex, a suffix
-/// for Cursor — and is asked for out loud either way; see docs/adr/0023.
+/// a model property for Codex. The vendor joins them. Fast is kept apart for the same reason — a
+/// settings key for Claude, a service tier for Codex — and is asked for out loud either way; see
+/// docs/adr/0023.
 /// </summary>
 internal sealed record Selection(string Model, string? Effort, bool Fast = false);
 
@@ -96,7 +92,7 @@ internal sealed record VendorCatalog(IReadOnlyList<VendorModel> Models, CatalogS
 
 internal enum CatalogSource
 {
-    /// <summary>The vendor reported the list itself: codex, cursor.</summary>
+    /// <summary>The vendor reported the list itself: codex.</summary>
     Live,
 
     /// <summary>

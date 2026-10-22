@@ -126,3 +126,7 @@ redirected, which it always is from a server, it announces that it is reading ad
 appends what it finds to the prompt as a `<stdin>` block — so a caller that passes the prompt as an
 argument must also close stdin, or the prompt arrives twice. Passing `-` as the prompt, which is
 what this vendor does, removes the trap along with the length limit.
+
+> **Amended 2026-10-22 ([0043](0043-remove-cursor-as-host-and-vendor.md)).** `SchemaInPrompt` did
+> not stay: Cursor is no longer a vendor, nothing else needed it, and it was removed. Both vendors
+> left hand their schema to the CLI.

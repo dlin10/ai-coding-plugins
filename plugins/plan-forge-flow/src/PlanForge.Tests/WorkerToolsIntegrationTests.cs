@@ -16,9 +16,9 @@ namespace PlanForge.Tests;
 /// Needs a Roslyn MCP server listening on <c>PLANFORGE_IT_ROSLYN_PORT</c> (5051 when unset — the
 /// port of this repository's own solution, served while Visual Studio has it open) and, for claude,
 /// a local-scope server for this repository whose name starts with <c>roslyn-</c>, which is what
-/// <c>roslyn-setup-repo</c> writes. Codex and cursor get their server from a scratch workspace this
-/// test writes under the test binary — inside the repository, so codex trusts it — and the codex
-/// one deliberately carries no approval key: the grant has to come from the launch.
+/// <c>roslyn-setup-repo</c> writes. Codex gets its server from a scratch workspace this test writes
+/// under the test binary — inside the repository, so codex trusts it — and it deliberately carries
+/// no approval key: the grant has to come from the launch.
 /// </remarks>
 public sealed class WorkerToolsIntegrationTests : IDisposable
 {
@@ -38,11 +38,8 @@ public sealed class WorkerToolsIntegrationTests : IDisposable
         var port = Environment.GetEnvironmentVariable("PLANFORGE_IT_ROSLYN_PORT") is { Length: > 0 } value ? value : "5051";
 
         Directory.CreateDirectory(Path.Combine(_workspace, ".codex"));
-        Directory.CreateDirectory(Path.Combine(_workspace, ".cursor"));
         File.WriteAllText(Path.Combine(_workspace, ".codex", "config.toml"),
                           $"[mcp_servers.roslyn-it]\nurl = \"http://localhost:{port}/mcp\"\nomit_tools_from = [\"deferred\"]\n");
-        File.WriteAllText(Path.Combine(_workspace, ".cursor", "mcp.json"),
-                          $$"""{ "mcpServers": { "roslyn-it": { "url": "http://localhost:{{port}}/mcp" } } }""");
 
         _log = Path.Combine(_workspace, "forge.log");
         _logScope = RunLog.Use(new RunLog(_log));
@@ -65,8 +62,6 @@ public sealed class WorkerToolsIntegrationTests : IDisposable
     [InlineData("claude", "haiku", null, "builder")]
     [InlineData("codex", "gpt-5.6-luna", "low", "critic")]
     [InlineData("codex", "gpt-5.6-luna", "low", "builder")]
-    [InlineData("cursor", "auto", null, "critic")]
-    [InlineData("cursor", "auto", null, "builder")]
     public async Task A_headless_worker_calls_roslyn_with_only_the_default_grant(string vendorId, string model, string? effort, string roleName)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
@@ -106,7 +101,6 @@ public sealed class WorkerToolsIntegrationTests : IDisposable
         var granted = grant.GetProperty("fields");
         _output.WriteLine(granted.GetRawText());
         Assert.Equal("roslyn-*", granted.GetProperty("patterns").GetString());
-        if (vendorId is not "cursor")
-            Assert.StartsWith("roslyn-", granted.GetProperty("servers").GetString(), StringComparison.Ordinal);
+        Assert.StartsWith("roslyn-", granted.GetProperty("servers").GetString(), StringComparison.Ordinal);
     }
 }

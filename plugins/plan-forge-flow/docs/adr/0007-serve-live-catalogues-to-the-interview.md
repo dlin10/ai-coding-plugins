@@ -44,3 +44,6 @@ hangs is bounded by a 60-second cap in the cache, not by the host's clock. The c
 process-lifetime snapshot, so a model released mid-session appears only after a server restart —
 the same staleness window as the CLI binary itself. And claude's declarative list is still a list
 written down in this repo, now labelled as such rather than pretended live.
+
+> **Amended 2026-10-22 ([0043](0043-remove-cursor-as-host-and-vendor.md)).** Cursor is no longer a
+> vendor, so its family collapse and suffix join are gone; codex's is the one live catalogue left.

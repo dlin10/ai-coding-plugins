@@ -13,19 +13,6 @@ internal static class ExecutableResolver
     public static string? Resolve(string command) =>
         Resolve(command, Environment.GetEnvironmentVariable("PATH"), OperatingSystem.IsWindows());
 
-    /// <summary>
-    /// PATH first, then the given fallback directories. cursor-agent installs outside PATH, and a
-    /// process started from a long-lived host inherits a stale PATH anyway.
-    /// </summary>
-    public static string? Resolve(string command, IEnumerable<string> fallbackDirectories)
-    {
-        if (Resolve(command) is { } onPath) 
-            return onPath;
-
-        var extras = string.Join(Path.PathSeparator, fallbackDirectories);
-        return Resolve(command, extras, OperatingSystem.IsWindows());
-    }
-
     internal static string? Resolve(string command, string? pathValue, bool windows)
         => Resolve(command, pathValue, windows, unwrapShims: true);
 

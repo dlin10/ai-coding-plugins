@@ -1,15 +1,16 @@
 # AI Coding Plugins
 
 A monorepo of cross-host developer plugins for Codex, Claude Code, and Cursor. Each plugin lives in
-`plugins/<name>` and ships three host manifests — `.claude-plugin/plugin.json`,
+`plugins/<name>` and ships one manifest per host it supports — `.claude-plugin/plugin.json`,
 `.codex-plugin/plugin.json`, `.cursor-plugin/plugin.json` — that the root catalogs
-(`.claude-plugin/marketplace.json`, `.cursor-plugin/`, `.agents/plugins/`) point at. Some plugins are
-skills only; others carry a .NET solution and publish a binary.
+(`.claude-plugin/marketplace.json`, `.cursor-plugin/`, `.agents/plugins/`) point at. Most support
+all three; Plan Forge Flow supports Codex and Claude Code only and ships no Cursor manifest. Some
+plugins are skills only; others carry a .NET solution and publish a binary.
 
 Mods change Claude Code's own interface, so they are Claude Code-only: each lives in `mods/<name>`,
 ships only `.claude-plugin/plugin.json`, and is listed in `.claude-plugin/marketplace.json` alone.
 The validator lets a Claude catalog entry be missing from the Cursor catalog only when its `source`
-is under `./mods/`.
+is under `./mods/` or the plugin ships no `.cursor-plugin/plugin.json`.
 
 Most plugins keep their own `AGENTS.md` next to the code. That file is the authority for anything
 about that plugin — its solution, its test filters, its packaging script, its design constraints.
@@ -88,8 +89,8 @@ prove that the rule now holds everywhere.
 Releasing a plugin is bumping its version, and the version lives in more than one place. All of
 these must move in the same commit:
 
-- `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `.cursor-plugin/plugin.json` — the
-  validator fails when the three disagree.
+- `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `.cursor-plugin/plugin.json` — those
+  the plugin ships; the validator fails when they disagree.
 - `README.md`, when its title carries a version (`# Plan Forge Flow 0.32.0`). The validator compares
   the first version in the heading against the manifests; a title left behind fails CI after the
   merge, not before it.

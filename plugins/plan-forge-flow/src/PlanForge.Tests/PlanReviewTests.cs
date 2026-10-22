@@ -1,6 +1,6 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlanForge.Acts;
-using PlanForge.Jobs;
 using PlanForge.Prompts;
 using PlanForge.Run;
 using PlanForge.Vendors;
@@ -310,13 +310,21 @@ public sealed class PlanReviewTests : IDisposable
         critic.Enqueue(new Critique("approve", [], "nothing left"));
         critic.Enqueue(new Critique("approve", [], "nothing left"));
         var run = NewRun(rounds: 5, cap: 5, tallies: [new(6, false), new(4, false)]);
-        var work = new WorkAct(critic, new PromptLibrary(RepositoryPrompts()));
+        var prompts = new PromptLibrary(RepositoryPrompts());
 
-        var automatic = JsonNode.Parse(await work.RunAsync("plan.review", run, HardenedPlan, new Selection("critic-model", null), null, null,
-                                                           "reworked step 3", false, CancellationToken.None))!;
+        // What forge.plan.review answers with, around a vendor the test supplies.
+        async Task<JsonNode> Round(string revision)
+        {
+            var review = new PlanReview(critic, prompts);
+            var critique = await review.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null), revision, null,
+                                                    false, CancellationToken.None);
+            return JsonNode.Parse(ReviewCap.Attach(JsonSerializer.Serialize(critique, ContractJson.Default.Critique),
+                                                   review.ContinuedAutomatically))!;
+        }
+
+        var automatic = await Round("reworked step 3");
         run.WriteState(run.ReadState() with { ReviewRoundCap = 10 });
-        var budgeted = JsonNode.Parse(await work.RunAsync("plan.review", run, HardenedPlan, new Selection("critic-model", null), null, null,
-                                                          "reworked step 3 again", false, CancellationToken.None))!;
+        var budgeted = await Round("reworked step 3 again");
 
         Assert.Equal("6 → 4", automatic["continuedAutomatically"]?.GetValue<string>());
         Assert.Null(budgeted["continuedAutomatically"]);

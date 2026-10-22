@@ -78,12 +78,6 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Scout_vendor_question_is_omitted_for_cursor_with_cursor_available()
-    {
-        ContainsScout("On a Cursor host, when `cursor` is available, omit the Scout Vendor question", ScoutSection());
-    }
-
-    [Fact]
     public void Continue_is_only_a_same_investigation_follow_up()
     {
         Contains("Use `continue` only for a direct follow-up in the same investigation", Skill());
@@ -98,7 +92,7 @@ public sealed class ScoutSkillTests
     [Fact]
     public void Every_scout_call_passes_an_explicit_session_mode()
     {
-        Contains("For every direct or background Scout call, pass `sessionMode` explicitly", Skill());
+        Contains("For every Scout call, pass `sessionMode` explicitly", Skill());
     }
 
     [Fact]
@@ -126,15 +120,9 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Non_cursor_scout_routing_is_direct()
+    public void Scout_routing_is_direct()
     {
-        Contains("On non-Cursor hosts, call `forge.scout.run` directly", Skill());
-    }
-
-    [Fact]
-    public void Cursor_scout_routing_is_background()
-    {
-        Contains("Cursor runs the `scout` act only through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`", Skill());
+        Contains("Call `forge.scout.run` directly", Skill());
     }
 
     [Fact]
@@ -142,7 +130,7 @@ public sealed class ScoutSkillTests
     {
         var skill = Skill();
         Assert.True(skill.IndexOf("The tools, in order", StringComparison.Ordinal) >= 0);
-        Assert.True(skill.IndexOf("non-Cursor hosts, call `forge.scout.run` directly", StringComparison.Ordinal) >= 0);
+        Assert.True(skill.IndexOf("call `forge.scout.run` directly", StringComparison.Ordinal) >= 0);
         Assert.True(skill.IndexOf("The code-review loop", StringComparison.Ordinal) >= 0);
         Assert.True(skill.IndexOf("The same routing applies to Scout", StringComparison.Ordinal) >= 0);
     }
@@ -162,7 +150,7 @@ public sealed class ScoutSkillTests
     [Fact]
     public void Documents_have_scout_only_conditional_metadata()
     {
-        Contains("Only a successful direct Scout call or a successful completed Scout fetch", "documents.scout", "Non-Scout results omit it", Skill());
+        Contains("Only a successful Scout call also carries", "documents.scout", "Non-Scout results omit it", Skill());
     }
 
     [Fact]

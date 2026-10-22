@@ -217,7 +217,7 @@ public sealed class DiagnosticLogTests : IDisposable
     }
 
     /// <summary>
-    /// The twenty-minute timeout that swallowed a critique delivered in two: cursor-agent finished
+    /// The twenty-minute timeout that swallowed a critique delivered in two: the vendor CLI finished
     /// and exited, an MCP server it had spawned kept the inherited stdout handle, and a reader
     /// waiting for EOF was waiting on a process that was never the one under the timeout. What the
     /// vendor wrote still arrives; the wait ends when the vendor does.

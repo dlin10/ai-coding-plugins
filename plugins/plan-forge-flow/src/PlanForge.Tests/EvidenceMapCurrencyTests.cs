@@ -3,7 +3,6 @@ using System.Text.Json.Nodes;
 using PlanForge.Acts;
 using PlanForge.Evidence;
 using PlanForge.Infrastructure;
-using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Prompts;
 using PlanForge.Run;
@@ -138,15 +137,18 @@ public sealed class EvidenceMapCurrencyTests
                                                     [new PlanEdit("replace", target.Id, target.Hash, task)], CancellationToken.None));
     }
 
-    /// <summary>Runs one plan-review round through the work act and returns its warning, if any.</summary>
+    /// <summary>Runs one plan-review round as forge.plan.review does and returns its warning, if any.</summary>
     /// <param name="fixture">The Run under review.</param>
     private static async Task<string?> Review(EvidenceToolRun fixture)
     {
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new Critique("approve", [], "good"));
         var revision = fixture.Run.ReadState().ReviewRounds > 0 ? "revised" : null;
-        return WarningOf(await new WorkAct(vendor, new PromptLibrary()).RunAsync(
-            "plan.review", fixture.Run, null, new Selection("critic", null), null, null, revision, false, CancellationToken.None));
+        var review = new PlanReview(vendor, new PromptLibrary());
+        var critique = await review.ReviewAsync(fixture.Run, null, new Selection("critic", null), revision, null, false,
+                                                CancellationToken.None);
+        return WarningOf(EvidenceMapCurrency.Attach(JsonSerializer.Serialize(critique, ContractJson.Default.Critique),
+                                                    review.EvidenceMapWarning));
     }
 
     /// <summary>Reads the optional warning beside a tool or act result.</summary>

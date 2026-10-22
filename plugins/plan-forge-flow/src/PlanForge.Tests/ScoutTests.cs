@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlanForge.Acts;
 using PlanForge.Diagnostics;
-using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Infrastructure;
 using PlanForge.Prompts;
@@ -88,9 +87,8 @@ public sealed class ScoutTests : IDisposable
     [InlineData(":42")]
     public void Malformed_repository_locators_are_rejected(string source)
     {
-        Assert.False(SchemaInPrompt.TryExtract(ItemJson("repository", source),
-                                               new VendorSchema<ScoutItem>(ItemSchema(), ContractJson.Default.ScoutItem),
-                                               out _, out _));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(ItemJson("repository", source),
+            ContractJson.Default.ScoutItem));
     }
 
     [Theory]
@@ -99,9 +97,8 @@ public sealed class ScoutTests : IDisposable
     [InlineData("https://")]
     public void Malformed_external_locators_are_rejected(string source)
     {
-        Assert.False(SchemaInPrompt.TryExtract(ItemJson("external", source),
-                                               new VendorSchema<ScoutItem>(ItemSchema(), ContractJson.Default.ScoutItem),
-                                               out _, out _));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(ItemJson("external", source),
+            ContractJson.Default.ScoutItem));
     }
 
     [Fact]
@@ -110,7 +107,8 @@ public sealed class ScoutTests : IDisposable
         var json = JsonNode.Parse(ReportJson(ValidReport("summary")))!.AsObject();
         json.Remove("openDecisions");
 
-        Assert.False(SchemaInPrompt.TryExtract(json.ToJsonString(), Schemas.ScoutReport, out _, out _));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(json.ToJsonString(),
+            ContractJson.Default.ScoutReport));
     }
 
     [Fact]
@@ -119,7 +117,8 @@ public sealed class ScoutTests : IDisposable
         var json = JsonNode.Parse(ReportJson(ValidReport("summary")))!.AsObject();
         json["openDecisions"] = null;
 
-        Assert.False(SchemaInPrompt.TryExtract(json.ToJsonString(), Schemas.ScoutReport, out _, out _));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(json.ToJsonString(),
+            ContractJson.Default.ScoutReport));
     }
 
     [Fact]
@@ -148,7 +147,8 @@ public sealed class ScoutTests : IDisposable
         var json = JsonNode.Parse(ReportJson(ValidReport("summary")))!.AsObject();
         json["confirmedFacts"]![0]!["source"] = null;
 
-        Assert.False(SchemaInPrompt.TryExtract(json.ToJsonString(), Schemas.ScoutReport, out _, out _));
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(json.ToJsonString(),
+            ContractJson.Default.ScoutReport));
     }
 
     /// <summary>The Scout prompt contains only the question and repository location.</summary>
@@ -690,74 +690,34 @@ public sealed class ScoutTests : IDisposable
     }
 
     [Fact]
-    public async Task Background_cancellation_is_reported_without_creating_a_scout_failure()
+    public async Task Structurally_invalid_output_fails_as_invalid_output_without_a_retry()
     {
         var run = NewRun();
-        var registry = new JobRegistry();
-        var vendor = new BlockingScoutVendor();
-        var start = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "scout", null, null, null, null, null, null, null, false, "cancel", "fresh",
-            CancellationToken.None, _ => vendor, _prompts))!;
-        var jobId = start["jobId"]!.GetValue<string>();
-
-        await ForgeTools.CancelWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
-        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId,
-                                                              jobId, CancellationToken.None))!;
-
-        Assert.Equal("failed", fetch["state"]!.GetValue<string>());
-        Assert.Equal("job was cancelled", fetch["error"]!.GetValue<string>());
-        Assert.Null(run.ReadState().Scout!.LastFailure);
-        Assert.Contains("scout.cancelled", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Cursor_invalid_output_is_corrected_on_its_single_retry()
-    {
-        var run = NewRun();
-        var vendor = new RetryingScoutVendor(ValidReport("corrected"), failTwice: false);
-
-        var json = await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "retry", "fresh",
-                                              CancellationToken.None, _ => vendor, _prompts);
-
-        Assert.Contains("corrected", json, StringComparison.Ordinal);
-        Assert.Equal(2, vendor.Session.Attempts);
-    }
-
-    [Fact]
-    public async Task Two_structurally_invalid_attempts_fail_after_exactly_one_retry()
-    {
-        var run = NewRun();
-        var vendor = new RetryingScoutVendor(ValidReport("unused"), failTwice: true);
+        var vendor = new InvalidScoutVendor();
 
         var error = await Assert.ThrowsAsync<ScoutException>(() =>
-            ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "retry twice", "fresh",
+            ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "invalid", "fresh",
                                 CancellationToken.None, _ => vendor, _prompts));
 
-        Assert.Equal(2, vendor.Session.Attempts);
+        Assert.Equal(1, vendor.Session.Attempts);
         Assert.Equal("invalid_output", run.ReadState().Scout!.LastFailure!.Code);
         Assert.Contains("invalid_output", error.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>A failed background Scout exposes safe diagnostics in results and logs.</summary>
+    /// <summary>A failed Scout exposes safe diagnostics in its error and logs, never the vendor's own text.</summary>
     [Fact]
-    public async Task A_failed_background_job_exposes_only_the_safe_failure_text()
+    public async Task A_failed_scout_exposes_only_the_safe_failure_text()
     {
         var run = NewRun();
-        var registry = new JobRegistry();
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new VendorException("malicious stderr and stack", 1), "bad token");
 
-        var start = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "scout", null, null, null, null, null, null, null, false, "failure", "fresh",
-            CancellationToken.None, _ => vendor, _prompts))!;
-        var jobId = start["jobId"]!.GetValue<string>();
-        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId,
-                                                              jobId, CancellationToken.None))!;
+        var error = await Assert.ThrowsAsync<ScoutException>(() =>
+            ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "failure", "fresh",
+                                CancellationToken.None, _ => vendor, _prompts));
 
-        Assert.DoesNotContain("malicious", fetch.ToJsonString(), StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("vendor_failed", fetch["error"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.DoesNotContain("malicious", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("vendor_failed", error.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("malicious", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("malicious", AtomicFile.Read(run.FlowLogPath), StringComparison.OrdinalIgnoreCase);
     }
@@ -811,9 +771,6 @@ public sealed class ScoutTests : IDisposable
     private static string ReportJson(ScoutReport report) =>
         JsonSerializer.Serialize(report, ContractJson.Default.ScoutReport);
 
-    private static string ItemSchema() =>
-        "{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},\"sourceKind\":{\"type\":\"string\"},\"source\":{\"type\":\"string\"}},\"required\":[\"text\",\"sourceKind\",\"source\"],\"additionalProperties\":false}";
-
     private static string RepositoryPrompts()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -827,38 +784,31 @@ public sealed class ScoutTests : IDisposable
         throw new DirectoryNotFoundException("could not locate the prompts folder above the test binary");
     }
 
-    private sealed class RetryingScoutVendor(ScoutReport report, bool failTwice) : IVendor
+    private sealed class InvalidScoutVendor : IVendor
     {
-        public string Id => "cursor";
+        public string Id => "codex";
         public VendorCatalog Catalog { get; } = new([], CatalogSource.Live);
-        public RetryingScoutSession Session { get; } = new(report, failTwice);
+        public InvalidScoutSession Session { get; } = new();
 
         public Task<VendorReadiness> ProbeAsync(CancellationToken ct) =>
             Task.FromResult(new VendorReadiness(true, "test"));
 
-        public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct)
-        {
-            Session.StartedWithResumeToken = resumeToken;
-            return Task.FromResult<IVendorSession>(Session);
-        }
+        public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct) =>
+            Task.FromResult<IVendorSession>(Session);
     }
 
-    private sealed class RetryingScoutSession(ScoutReport report, bool failTwice) : IVendorSession
+    /// <summary>A session whose reply does not parse, as a vendor session reports one: a JsonException.</summary>
+    private sealed class InvalidScoutSession : IVendorSession
     {
         public int Attempts { get; private set; }
-        public string? StartedWithResumeToken { get; set; }
         public IAsyncEnumerable<VendorEvent> Events => Empty();
         public bool CanResume => true;
-        public string? ResumeToken => "retry-session";
+        public string? ResumeToken => "invalid-session";
 
         public Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
         {
             Attempts++;
-            var json = Attempts == 1 || failTwice ? "{\"summary\":null}" : ReportJson(report);
-            if (SchemaInPrompt.TryExtract(json, schema, out T value, out _))
-                return Task.FromResult(value);
-            if (Attempts == 1) return RunAsync<T>(prompt, schema, ct);
-            throw new JsonException("structural Scout output failed twice");
+            throw new JsonException("structural Scout output");
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -886,30 +836,6 @@ public sealed class ScoutTests : IDisposable
         public string? ResumeToken => throw new OperationCanceledException();
         public Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct) =>
             Task.FromResult((T)(object)report);
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-        private static async IAsyncEnumerable<VendorEvent> Empty() { yield break; }
-    }
-
-    private sealed class BlockingScoutVendor : IVendor
-    {
-        public string Id => "codex";
-        public VendorCatalog Catalog { get; } = new([], CatalogSource.Live);
-        public Task<VendorReadiness> ProbeAsync(CancellationToken ct) =>
-            Task.FromResult(new VendorReadiness(true, "test"));
-        public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct) =>
-            Task.FromResult<IVendorSession>(new BlockingScoutSession());
-    }
-
-    private sealed class BlockingScoutSession : IVendorSession
-    {
-        public IAsyncEnumerable<VendorEvent> Events => Empty();
-        public bool CanResume => true;
-        public string? ResumeToken => "cancel-session";
-        public async Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct)
-        {
-            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-            return default!;
-        }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         private static async IAsyncEnumerable<VendorEvent> Empty() { yield break; }
     }

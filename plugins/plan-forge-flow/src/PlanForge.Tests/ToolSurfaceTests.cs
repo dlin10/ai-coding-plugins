@@ -83,12 +83,12 @@ public sealed class ToolSurfaceTests
     {
         var result = await ToolErrors.Surfaced((_, _) =>
         {
-            WorkAct.ValidateArguments("build.next", null, new Selection("model", null), null, null, null, true);
+            WorkAct.ValidateArguments("build.next", new Selection("model", null), note: "framing");
             throw new InvalidOperationException("the validator accepted an argument the act does not take");
         })(null!, CancellationToken.None);
 
         Assert.True(result.IsError);
-        Assert.Contains("userGrantedRound", Text(result), StringComparison.Ordinal);
+        Assert.Contains("note", Text(result), StringComparison.Ordinal);
         Assert.Contains("build.next", Text(result), StringComparison.Ordinal);
     }
 
@@ -308,23 +308,27 @@ public sealed class ToolSurfaceTests
             Assert.DoesNotContain(name, required);
     }
 
+    /// <summary>
+    /// A job runs a Builder act alone, so its start publishes the Builder's arguments and none of
+    /// the critic's or Scout's — docs/adr/0043.
+    /// </summary>
     [Fact]
-    public void Background_start_keeps_model_optional_but_publishes_question_and_session_mode()
+    public void Background_start_keeps_model_optional_and_publishes_only_builder_arguments()
     {
         var schema = SchemaFor(nameof(ForgeTools.StartWork));
         var properties = schema.GetProperty("properties");
         var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
 
-        foreach (var name in new[] { "act", "model", "question", "sessionMode" })
+        foreach (var name in new[] { "act", "model", "decisions", "fixAttemptId", "fixFindingIds", "note", "gate" })
             Assert.True(properties.TryGetProperty(name, out _), $"forge.work.start is missing {name}");
+        foreach (var name in new[] { "planDraft", "revision", "deferred", "userGrantedRound", "question", "sessionMode", "excludePaths" })
+            Assert.False(properties.TryGetProperty(name, out _), $"forge.work.start still publishes {name}");
         Assert.Contains("act", required);
         Assert.DoesNotContain("model", required);
-        Assert.DoesNotContain("question", required);
-        Assert.DoesNotContain("sessionMode", required);
     }
 
     [Fact]
-    public void Poll_publishes_an_optional_wait_and_hides_the_server()
+    public void Poll_publishes_an_optional_wait_and_hides_its_injected_services()
     {
         var schema = SchemaFor(nameof(ForgeTools.PollWork));
         var properties = schema.GetProperty("properties").EnumerateObject().Select(property => property.Name).ToList();
@@ -360,7 +364,7 @@ public sealed class ToolSurfaceTests
     }
 
     [Fact]
-    public void Work_start_description_names_all_five_acts_and_status_names_scout_state()
+    public void Work_start_description_names_the_two_builder_acts_and_status_names_scout_state()
     {
         var start = typeof(ForgeTools).GetMethod(nameof(ForgeTools.StartWork), BindingFlags.Public | BindingFlags.Static)!;
         var status = typeof(ForgeTools).GetMethod(nameof(ForgeTools.Status), BindingFlags.Public | BindingFlags.Static,
@@ -368,11 +372,10 @@ public sealed class ToolSurfaceTests
         var actDescription = start.GetParameters().Single(parameter => parameter.Name == "act")
             .GetCustomAttribute<DescriptionAttribute>()!.Description;
 
-        Assert.Contains("plan.review", actDescription, StringComparison.Ordinal);
         Assert.Contains("build.next", actDescription, StringComparison.Ordinal);
-        Assert.Contains("review.code", actDescription, StringComparison.Ordinal);
         Assert.Contains("review.fix", actDescription, StringComparison.Ordinal);
-        Assert.Contains("scout", actDescription, StringComparison.Ordinal);
+        foreach (var removed in new[] { "plan.review", "review.code", "scout" })
+            Assert.DoesNotContain(removed, actDescription, StringComparison.Ordinal);
         Assert.Contains("run.scout", status.GetCustomAttribute<DescriptionAttribute>()!.Description, StringComparison.Ordinal);
     }
 
@@ -383,8 +386,7 @@ public sealed class ToolSurfaceTests
         foreach (var path in new[]
                  {
                      Path.Combine(prompts, "scout-contract.md"),
-                     Path.Combine(prompts, "claude", "scout.md"),
-                     Path.Combine(prompts, "cursor", "scout.md")
+                     Path.Combine(prompts, "claude", "scout.md")
                  })
             Assert.True(File.Exists(path), $"missing Scout prompt asset: {path}");
 
@@ -395,16 +397,14 @@ public sealed class ToolSurfaceTests
     }
 
     /// <summary>
-    /// The one way to narrow a code-review round reaches it on both of its routes and is asked for
-    /// only by the orchestrator: docs/adr/0029. How the window travels is the server's choice, so
-    /// nothing is published for it: docs/adr/0034.
+    /// The one way to narrow a code-review round reaches it and is asked for only by the
+    /// orchestrator: docs/adr/0029. How the window travels is the server's choice, so nothing is
+    /// published for it: docs/adr/0034.
     /// </summary>
-    [Theory]
-    [InlineData(nameof(ForgeTools.ReviewCode))]
-    [InlineData(nameof(ForgeTools.StartWork))]
-    public void Code_review_publishes_its_optional_round_scope(string methodName)
+    [Fact]
+    public void Code_review_publishes_its_optional_round_scope()
     {
-        var schema = SchemaFor(methodName);
+        var schema = SchemaFor(nameof(ForgeTools.ReviewCode));
         var properties = schema.GetProperty("properties");
         var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
 

@@ -62,3 +62,8 @@ An account change made mid-session, such as claude extra usage switched on, reac
 only after a restart. A change the other way is still caught by claude's own `init`. Codex offers
 Fast on every listed model today, so for codex the check guards against a future catalogue rather
 than today's.
+
+> **Amended 2026-10-22 ([0043](0043-remove-cursor-as-host-and-vendor.md)).** Cursor is no longer a
+> vendor, so the `-fast` id, its confirmation by joined id and `IVendor.Normalize`, which read a
+> `-fast` written into a cursor model or effort, are gone. Fast is a settings key for claude and a
+> service tier for codex.

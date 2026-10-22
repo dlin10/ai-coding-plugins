@@ -17,16 +17,6 @@ public sealed class ScoutContractTests
     }
 
     [Fact]
-    public void Cursor_scout_structured_return_wording_is_appended_after_the_shared_contract()
-    {
-        var prompt = Prompts().Load("cursor", VendorRole.Scout);
-
-        Assert.Contains("Return the Scout report as the JSON object only", prompt, StringComparison.Ordinal);
-        Assert.True(prompt.IndexOf("Finish all foreground work before returning", StringComparison.Ordinal)
-                    < prompt.IndexOf("Return the Scout report as the JSON object only", StringComparison.Ordinal));
-    }
-
-    [Fact]
     public void Codex_scout_loads_without_a_vendor_prompt_file()
     {
         var prompt = Prompts().Load("codex", VendorRole.Scout);
@@ -54,7 +44,7 @@ public sealed class ScoutContractTests
     [Fact]
     public void Scout_contract_requires_exactly_the_six_categories()
     {
-        var prompt = Prompts().Load("cursor", VendorRole.Scout);
+        var prompt = Prompts().Load("claude", VendorRole.Scout);
 
         Assert.Contains("Return exactly the six categories defined by the Scout output schema.", prompt,
                          StringComparison.Ordinal);

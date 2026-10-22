@@ -60,9 +60,19 @@ test('reports a plugin listed in the Claude catalog but not in the Cursor one', 
   const cursor = { name: 'm', plugins: [] };
   const errors = [];
 
-  validateCatalogSuperset(claude, cursor, (error) => errors.push(error));
+  validateCatalogSuperset(claude, cursor, (error) => errors.push(error), () => true);
 
   assert.deepEqual(errors, [
     'plugin "example" is in .claude-plugin/marketplace.json but missing from .cursor-plugin/marketplace.json',
   ]);
+});
+
+test('lets a plugin that ships no Cursor manifest be listed in the Claude catalog alone', () => {
+  const claude = { name: 'm', plugins: [{ name: 'example', source: './plugins/example' }] };
+  const cursor = { name: 'm', plugins: [] };
+  const errors = [];
+
+  validateCatalogSuperset(claude, cursor, (error) => errors.push(error), () => false);
+
+  assert.deepEqual(errors, []);
 });
