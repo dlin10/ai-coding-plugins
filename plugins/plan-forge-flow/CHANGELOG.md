@@ -1,5 +1,28 @@
 # Plan Forge Flow releases
 
+## 0.61.0
+
+The run's decisions are a Run artifact with identity. Issue #178, ADR 0045.
+
+- New tool `forge.decision.record` appends one decision to `decisions.json` and a
+  `## Decision D-nnnn` entry to the Flow log: the Orchestrator phase, the question as asked, the
+  options offered with the recommended one marked, the answer as given, `by` (`user` or
+  `orchestrator`), what it bears on, and the earlier decision it supersedes. The server numbers it
+  from `D-0001`; the same content again is a `no_op` answering with its ID; a superseded decision
+  stays recorded and cannot be superseded twice. Every field passes the secret guard before the
+  call is logged. The server now exposes twenty-two tools.
+- Every plan-review and code-review critic is shown the run's current decisions as a `# Decisions`
+  section after the ledger projection, one line each, superseded answers left out; beyond 12,000
+  characters the oldest are left out and named. The critic contract says a decision is not a gap.
+  A code-review round over its vendor's limit reports the section's size.
+- `forge.status` carries `decisions`: the count and the last five, one line each. Every result's
+  `documents` carries `decisions` once the file exists. The resume card names the file and the
+  count, and shows the call's shape.
+- The skill records every answer that settles something the moment it is given, instead of an
+  `Interview D-n` or `(user):` note in `forge.log`, and shows the user the decision count beside the
+  plan at approval.
+- A `decisions.json` that does not read back stops the call that reads it and is left as it is.
+
 ## 0.60.0
 
 Scout runs beside the Orchestrator's own work. Issue #171, ADR 0044.

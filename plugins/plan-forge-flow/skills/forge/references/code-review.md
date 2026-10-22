@@ -125,8 +125,8 @@ note adds only what the ledger lacks. For each rule:
 - **Rule** — one sentence: the property the code gets wrong, not the example that showed it, with
   the IDs it covers and where it comes from. Cite the requirement, `R5`: the Builder holds the
   requirements in its Brief. A fix prompt carries no task text, so when the rule rests on a task's
-  wording, quote that sentence. When it rests on a decision the user made during the run, say so,
-  and record the decision with `forge.log.append` if you have not.
+  wording, quote that sentence. When it rests on a decision the user made during the run, cite its
+  `D-` ID, recording the decision with `forge.decision.record` first if you have not.
 - **Owner** — the one place that decides the question: the owner the plan names, an existing
   function, or one to create. Say that every other place calls it instead of deciding again.
 - **Axes** — every kind of place where the same question is decided, listed. Take them from the

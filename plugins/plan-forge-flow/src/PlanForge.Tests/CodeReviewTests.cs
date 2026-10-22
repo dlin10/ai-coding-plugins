@@ -406,6 +406,33 @@ public sealed class CodeReviewTests : IDisposable
         Assert.Contains("HEAD fallback bbbbbbbbbbbb", critique.Summary, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A decision taken mid-build reaches the code-review critic the same way it reaches the plan's:
+    /// after the ledger projection, before the instruction blocks. See docs/adr/0045.
+    /// </summary>
+    [Fact]
+    public async Task The_critic_is_shown_the_run_s_decisions_after_the_ledger_projection()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "diff is sound"));
+        var run = NewRun();
+        run.WriteState(run.ReadState() with { BuilderInstructions = "keep it simple" });
+        DecisionRecords.Record(run, DecisionRecords.Validate("build", "May an empty wider list change the engine?", null,
+                                                             "Yes: an empty list never means the engine may not change",
+                                                             "user", "task 4", null));
+
+        await NewReview(critic, new ReviewGit(["tracked.txt"], "diff")).ReviewAsync(run, new Selection("critic-model", null), false,
+                                                                                     CancellationToken.None);
+
+        var prompt = Assert.Single(critic.Sessions).PromptText;
+        var projection = prompt.IndexOf("# Decision ledger projection", StringComparison.Ordinal);
+        var decisions = prompt.IndexOf("# Decisions", StringComparison.Ordinal);
+        var builder = prompt.IndexOf("# Instructions the user gave the builder for this run", StringComparison.Ordinal);
+        Assert.True(projection >= 0 && projection < decisions && decisions < builder, prompt);
+        Assert.Contains("- D-0001 (user): May an empty wider list change the engine? → Yes: an empty list never means the engine may not change",
+                        prompt, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task The_critique_lands_in_the_flow_log_numbered_by_its_own_loop()
     {

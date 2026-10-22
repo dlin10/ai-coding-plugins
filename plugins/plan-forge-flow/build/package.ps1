@@ -177,10 +177,10 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.scout.select', 'forge.scout.run', 'forge.evidence.map', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.outline', 'forge.plan.patch', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.scout.select', 'forge.scout.run', 'forge.evidence.map', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.outline', 'forge.plan.patch', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.decision.record', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
-        if ($tools.Count -ne 21) { throw "published executable must expose exactly twenty-one forge.* tools, found $($tools.Count)" }
+        if ($tools.Count -ne 22) { throw "published executable must expose exactly twenty-two forge.* tools, found $($tools.Count)" }
         # The canvas is two halves that only work together: the tool has to point at the resource,
         # and the resource has to come back as an MCP App. Either half alone renders nothing.
         $planShow = $tools | Where-Object { $_.name -eq 'forge.plan.show' } | Select-Object -First 1
@@ -351,6 +351,16 @@ function Test-PublishedServer([string]$Executable) {
                 throw "$($tool.name) publishes fast as something other than a boolean"
             }
         }
+        # A decision is the run's record of what was settled (docs/adr/0045): the question, the answer
+        # and who gave it are required, and the options are objects the SDK can only describe through
+        # this assembly's own argument contract.
+        $decisionRecord = $tools | Where-Object { $_.name -eq 'forge.decision.record' } | Select-Object -First 1
+        foreach ($parameter in @('workspaceRoot', 'runId', 'phase', 'question', 'answer', 'by')) {
+            if (@($decisionRecord.inputSchema.required) -notcontains $parameter) { throw "forge.decision.record schema must require $parameter" }
+        }
+        if (($decisionRecord.inputSchema.properties.options | ConvertTo-Json -Depth 10 -Compress) -notmatch '"label"') {
+            throw 'forge.decision.record publishes options without their label'
+        }
         $scoutRun = $tools | Where-Object { $_.name -eq 'forge.scout.run' } | Select-Object -First 1
         $scoutRunProperties = @($scoutRun.inputSchema.properties.PSObject.Properties.Name)
         foreach ($parameter in @('workspaceRoot', 'runId', 'question', 'sessionMode')) {
@@ -372,6 +382,7 @@ function Test-PublishedServer([string]$Executable) {
             'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate', 'plan', 'planHash', 'rebuildFrom')
             'forge.plan.show'   = @('plan')
             'forge.log.append'  = @('level', 'detail', 'phase')
+            'forge.decision.record' = @('options', 'bearsOn', 'supersedes')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
             # had to send them together could not correct one without restating the other.
             'forge.instructions.set' = @('criticInstructions', 'builderInstructions')

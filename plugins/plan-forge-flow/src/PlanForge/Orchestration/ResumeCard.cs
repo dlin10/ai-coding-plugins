@@ -156,6 +156,11 @@ internal static class ResumeCard
                 { } scout => new WorkerChoice(scout.Vendor, scout.Model ?? "?", scout.Effort, scout.Fast).Arguments
                              + ", as selected; every call passes sessionMode explicitly."
             });
+        var decisions = run.ReadDecisions().Count;
+        card.AppendLine(decisions == 0
+                            ? "- Decisions: none recorded yet."
+                            : $"- Decisions: {decisions} recorded in {run.DecisionsPath}. Read them there, not in your summary, "
+                              + "before you ask the user anything the run may have settled.");
 
         AppendIds(card, "Unresolved", ledger.UnresolvedFindingIds);
         AppendIds(card, "  of which active in plan review", ledger.PlanReviewActiveFindingIds.Intersect(ledger.UnresolvedFindingIds).ToArray());
@@ -226,6 +231,9 @@ internal static class ResumeCard
             read = ["code-review.md", "ledger.md"];
         }
 
+        card.AppendLine("- forge.decision.record { phase: \"<the phase you are in>\", question: \"<as asked>\", answer: \"<as given>\", "
+                        + "by: \"user\" | \"orchestrator\", options?: [{ label, recommended?: true }], bearsOn?: \"R3, F-0012\", "
+                        + "supersedes?: \"D-...\" } the moment an answer settles something; never forge.log.append for it.");
         card.Append("Before your next forge call, read ")
             .Append(string.Join(", ", read.Select(file => references is null ? $"references/{file}" : Path.Combine(references, file))))
             .AppendLine(references is null

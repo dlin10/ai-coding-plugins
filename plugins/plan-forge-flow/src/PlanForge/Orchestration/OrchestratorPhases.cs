@@ -29,7 +29,7 @@ internal sealed class OrchestratorPhases
     internal const string FILE_NAME = "orchestrator-phase.json";
 
     private const string INTERVIEW = "interview";
-    private const string DONE = "done";
+    internal const string DONE = "done";
     internal const string OPEN = "open";
     private const string NONE = "none";
     internal const string LOG_SOURCE = "telemetry";

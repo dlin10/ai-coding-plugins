@@ -16,6 +16,7 @@ public sealed class ResumeCardTests : IDisposable
     private const string FINDING_TEXT = "FINDING-TEXT-NEVER-PRINTED";
     private const string INSTRUCTIONS = "INSTRUCTIONS-NEVER-PRINTED";
     private const string GATE_VALUE = "GATE-VALUE-NEVER-PRINTED";
+    private const string DECISION_TEXT = "DECISION-TEXT-NEVER-PRINTED";
 
     private static readonly string PLAN = $"""
         Builder: codex / gpt-x / high
@@ -199,6 +200,37 @@ public sealed class ResumeCardTests : IDisposable
         Clean(output.ToString());
     }
 
+    /// <summary>
+    /// After a compaction the decisions are the part of the interview a summary loses first, so the
+    /// card names where they are and how many — and, as with the plan and the findings, never their text.
+    /// </summary>
+    [Fact]
+    public void The_card_names_the_decisions_file_and_how_many_it_holds()
+    {
+        var run = NewRun("20261021-100000-decided", approved: false, tasksCompleted: 0);
+        foreach (var answer in new[] { "first", "second" })
+            DecisionRecords.Record(run, DecisionRecords.Validate("interview", $"{DECISION_TEXT} {answer}?", null,
+                                                                 $"{DECISION_TEXT} {answer}", "user", null, null));
+
+        var card = ResumeCard.Of(_root, SESSION, null);
+
+        Assert.Contains($"- Decisions: 2 recorded in {run.DecisionsPath}.", card, StringComparison.Ordinal);
+        Assert.Contains("- forge.decision.record { phase: \"<the phase you are in>\", question: \"<as asked>\"", card, StringComparison.Ordinal);
+        Clean(card);
+    }
+
+    [Fact]
+    public void A_run_with_no_decision_says_so_and_still_shows_the_call()
+    {
+        NewRun("20261021-100000-undecided", approved: true, tasksCompleted: 1);
+
+        var card = ResumeCard.Of(_root, SESSION, null);
+
+        Assert.Contains("- Decisions: none recorded yet.", card, StringComparison.Ordinal);
+        Assert.Contains("- forge.decision.record {", card, StringComparison.Ordinal);
+        Clean(card);
+    }
+
     [Fact]
     public void The_entry_point_prints_nothing_without_a_run_and_refuses_bad_arguments()
     {
@@ -219,7 +251,7 @@ public sealed class ResumeCardTests : IDisposable
     /// <param name="card">The printed card.</param>
     private static void Clean(string card)
     {
-        foreach (var secret in new[] { PLAN_TEXT, FINDING_TEXT, INSTRUCTIONS, GATE_VALUE })
+        foreach (var secret in new[] { PLAN_TEXT, FINDING_TEXT, INSTRUCTIONS, GATE_VALUE, DECISION_TEXT })
             Assert.DoesNotContain(secret, card, StringComparison.Ordinal);
         Assert.All(card, character => Assert.True(character < 128, $"non-ASCII U+{(int)character:X4} in the card"));
         Assert.InRange(card.Length, 1, 10_000);

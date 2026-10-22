@@ -38,3 +38,26 @@ The question offers the same options. Keep their descriptions short and in agree
 explanation, put the recommended option first, and end its label with "(Recommended)". A mechanical
 question — a vendor, a model and effort, the Fast tier, a value a gate needs — needs one or two
 sentences of explanation and no code.
+
+## Recording the answer
+
+Record every answer that settles something with `forge.decision.record` the moment it is given,
+before you act on it: the interview's answers, the scope answers of *Rounds, revision, and caps* in
+`plan-review.md`, the choices made at approval, and what is decided mid-build and in code review.
+Pass the question as you asked it — the question, not the explanation before it — the options as
+offered with `recommended: true` on the one you recommended, the answer as given, `by: "user"`, the
+`phase` you are in, and in `bearsOn` the requirement, task, gate or finding IDs it governs once they
+exist. A choice you settle yourself without asking is recorded too, with `by: "orchestrator"`. An
+answer that changes an earlier one is a new record whose `supersedes` names it; nothing is removed.
+The record replaces the `forge.log.append` note: never also write a decision as an `Interview D-n`
+or `(user):` note.
+
+Mechanical answers are not recorded here — the interview mode, vendors, models, efforts and Fast,
+the instruction answers, a round-cap grant, the approval itself — since the tool each goes to
+records it where it has one, and a value a gate needs is never recorded. An answer that only settles a finding's disposition goes into that
+finding's decision batch, whose `reason` carries it; when it settles a question beyond the finding,
+record it here as well and cite its `D-` ID in the batch's reason.
+
+Every later Critic, plan and code review alike, is shown the run's current decisions, one line
+each. After a compaction or a resume, read them in `decisions.json` rather than in your summary, and
+never ask again a question a recorded decision settled.

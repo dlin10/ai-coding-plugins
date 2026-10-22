@@ -28,6 +28,7 @@ internal sealed class RunDirectory
     /// <summary>The content-addressed Evidence map file.</summary>
     private const string EVIDENCE_MAP_FILE_NAME = "evidence-map.json";
     private const string DECISION_LEDGER_FILE_NAME = "decision-ledger.json";
+    private const string DECISIONS_FILE_NAME = "decisions.json";
     private const string REVIEW_DIFFS_FOLDER_PREFIX = "review-round-";
 
     // The folder ignores itself, so no managed block in info/exclude and nothing to clean up.
@@ -95,6 +96,12 @@ internal sealed class RunDirectory
     public string EvidenceMapPath => System.IO.Path.Combine(Path, EVIDENCE_MAP_FILE_NAME);
 
     internal string DecisionLedgerPath => System.IO.Path.Combine(Path, DECISION_LEDGER_FILE_NAME);
+
+    /// <summary>
+    /// The Run's recorded decisions, one per settled question, appended by <c>forge.decision.record</c>.
+    /// Public because the path travels out with every act result once the file exists.
+    /// </summary>
+    public string DecisionsPath => System.IO.Path.Combine(Path, DECISIONS_FILE_NAME);
 
     /// <summary>
     /// The folder a code-review round's tracked diffs are written to when the window is given to
@@ -265,6 +272,38 @@ internal sealed class RunDirectory
     /// <summary>Reads the validated Scout entries, or an empty list when no answer has been stored.</summary>
     public IReadOnlyList<ScoutAnswerEntry> ReadScoutAnswers() =>
         ScoutAnswers.Read(File.Exists(ScoutAnswersPath) ? AtomicFile.Read(ScoutAnswersPath) : null);
+
+    /// <summary>Reads the checked decision records, or none when no decision has been recorded.</summary>
+    public IReadOnlyList<DecisionRecord> ReadDecisions() =>
+        DecisionRecords.Read(File.Exists(DecisionsPath) ? AtomicFile.Read(DecisionsPath) : null);
+
+    /// <summary>
+    /// One recorded decision in the timeline, under the ID it received: the question and the answer
+    /// verbatim, and the options as the question offered them.
+    /// </summary>
+    /// <param name="record">The decision as recorded.</param>
+    public void AppendFlowDecision(DecisionRecord record)
+    {
+        var entry = new StringBuilder().Append("## Decision ").AppendLine(record.DecisionId)
+                                       .AppendLine()
+                                       .Append("Phase: ").AppendLine(record.Phase)
+                                       .Append("By: ").AppendLine(record.By);
+        if (record.Supersedes is not null) entry.Append("Supersedes: ").AppendLine(record.Supersedes);
+        if (record.BearsOn is not null) entry.Append("Bears on: ").AppendLine(record.BearsOn);
+        entry.AppendLine()
+             .Append("Question: ").AppendLine(record.Question.TrimEnd());
+        if (record.Options is { Count: > 0 } options)
+        {
+            entry.AppendLine();
+            foreach (var option in options)
+                entry.Append("- ").Append(option.Label).AppendLine(option.Recommended ? " (recommended)" : "");
+        }
+
+        entry.AppendLine()
+             .Append("Answer: ").AppendLine(record.Answer.TrimEnd())
+             .AppendLine();
+        AtomicFile.Append(FlowLogPath, entry.ToString());
+    }
 
     /// <summary>
     /// Appends one content-free Evidence map accounting entry, even for an interrupted call. Each

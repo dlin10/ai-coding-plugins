@@ -38,7 +38,7 @@ The critic judges the requirements too, and those findings are not all yours to 
 interview already settles — two requirements you wrote that contradict each other, a condition
 stated too vaguely to check — you revise and carry on without stopping. One it does not — a
 requirement covering a question nobody asked, or an answer that would move the scope — goes to the
-user before you revise, and its answer goes into `forge.log.append`. Ask the moment it comes up
+user before you revise, and its answer goes into `forge.decision.record` (`asking.md`). Ask the moment it comes up
 rather than saving it for approval: a scope question answered late invalidates every round that ran
 after it. When one critique brings several, ask them one at a time, the one the others depend on
 first.

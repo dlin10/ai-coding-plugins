@@ -62,12 +62,13 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
 
         var plan = run.ReadPlan();
         var projection = ledger.RenderProjection(LedgerPhase.CodeReview);
+        var decisions = DecisionRecords.Section(run.ReadDecisions());
         var round = state.CodeReviewRounds + 1;
         string DiffPath(ReviewFile file) => run.ReviewDiffPath(round, file.Path);
 
         // The embedded prompt carries everything any delivery hands over, so guarding it covers the
         // files a critic is later pointed to: its own read sends them to its vendor all the same.
-        var review = ComposeReview(plan, window, projection, state, scope, Delivery.Embedded, DiffPath);
+        var review = ComposeReview(plan, window, projection, decisions, state, scope, Delivery.Embedded, DiffPath);
         SensitiveInput.Guard(review, "the diff under review");
 
         // Refused here rather than by the vendor, which fails the turn after it has started and says
@@ -81,7 +82,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
             foreach (var next in (Delivery[])[Delivery.UntrackedByPath, Delivery.AllByPath])
             {
                 delivery = next;
-                review = ComposeReview(plan, window, projection, state, scope, delivery, DiffPath);
+                review = ComposeReview(plan, window, projection, decisions, state, scope, delivery, DiffPath);
                 if (Characters(review) <= limit) break;
             }
 
@@ -89,7 +90,8 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
             if (size > limit)
             {
                 var error = new ReviewPromptTooLargeException(
-                    Oversize(vendor.Id, size, limit, granted, Characters(plan), Characters(projection), window.Files.Count));
+                    Oversize(vendor.Id, size, limit, granted, Characters(plan), Characters(projection), Characters(decisions),
+                             window.Files.Count));
                 run.AppendFlowRoundNotSent("Code review", round, error.Message);
                 throw error;
             }
@@ -199,12 +201,13 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     /// <param name="plan">The approved plan.</param>
     /// <param name="window">The review window.</param>
     /// <param name="ledgerProjection">The code-review projection of the decision ledger.</param>
+    /// <param name="decisions">The Run's Decisions section, empty when none is recorded.</param>
     /// <param name="state">The run state, for the instructions it carries.</param>
     /// <param name="scope">What the round leaves out.</param>
     /// <param name="delivery">Which of the window's files are given by path instead of embedded.</param>
     /// <param name="diffPath">Where a tracked file's diff is written when it is given by path.</param>
-    private static string ComposeReview(string plan, ReviewWindow window, string ledgerProjection, RunState state,
-                                        ReviewScope scope, Delivery delivery, Func<ReviewFile, string> diffPath)
+    private static string ComposeReview(string plan, ReviewWindow window, string ledgerProjection, string decisions,
+                                        RunState state, ReviewScope scope, Delivery delivery, Func<ReviewFile, string> diffPath)
     {
         var prompt = new StringBuilder().AppendLine("# Approved plan")
                                         .AppendLine()
@@ -269,6 +272,11 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         if (ledgerProjection.Length > 0)
             prompt.AppendLine()
                   .AppendLine(ledgerProjection.TrimEnd())
+                  .AppendLine()
+                  .AppendLine();
+
+        if (decisions.Length > 0)
+            prompt.AppendLine(decisions.TrimEnd())
                   .AppendLine()
                   .AppendLine();
 
@@ -375,7 +383,8 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     /// <summary>
     /// Why the round was not sent, written for the orchestrator that has to choose what to narrow.
     /// It is measured with every file already given by path, so what is left is the plan, the
-    /// ledger projection and the list of files, and only <c>excludePaths</c> can shorten the list.
+    /// ledger projection, the decisions and the list of files, and only <c>excludePaths</c> can
+    /// shorten the list.
     /// </summary>
     /// <param name="vendorId">The critic's vendor.</param>
     /// <param name="size">The prompt's size in characters, every file given by path.</param>
@@ -383,9 +392,10 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     /// <param name="granted">Whether the round was one the user granted past the cap.</param>
     /// <param name="planSize">The approved plan's share.</param>
     /// <param name="projectionSize">The ledger projection's share.</param>
+    /// <param name="decisionsSize">The Decisions section's share.</param>
     /// <param name="fileCount">How many files the window lists.</param>
     private static string Oversize(string vendorId, int size, int limit, bool granted, int planSize, int projectionSize,
-                                   int fileCount) =>
+                                   int decisionsSize, int fileCount) =>
         new StringBuilder()
             .Append($"the code-review prompt is {Count(size)} characters with every changed file given to the critic by ")
             .Append($"path, and {vendorId} accepts at most {Count(limit)}, {Count(size - limit)} over. Nothing was sent ")
@@ -395,7 +405,8 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
             .AppendLine("What the prompt holds:")
             .AppendLine($"- approved plan: {Count(planSize)}")
             .AppendLine($"- ledger projection: {Count(projectionSize)}")
-            .AppendLine($"- the list of {fileCount} changed files, and everything else: {Count(size - planSize - projectionSize)}")
+            .AppendLine($"- decisions: {Count(decisionsSize)}")
+            .AppendLine($"- the list of {fileCount} changed files, and everything else: {Count(size - planSize - projectionSize - decisionsSize)}")
             .AppendLine()
             .Append("To fit, start the round again with `excludePaths` naming what is not the run's work, such as run ")
             .Append("tooling or generated output. What the critic is handed is the user's call: show them these sizes and ")
