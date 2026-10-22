@@ -1,7 +1,7 @@
 # Plan Forge Flow
 
 Plan Forge Flow is an MCP stdio server — a .NET 10 executable named `planforge` — packaged as a
-plugin for Codex, Claude Code, and Cursor. It is not a CLI: nothing here is meant to be run by a
+plugin for Codex and Claude Code. It is not a CLI: nothing here is meant to be run by a
 human at a prompt, and its entry point is the MCP handshake. The binary has one second entry point,
 which no human runs either: `planforge.exe --telemetry-collector --port <n>`, the Telemetry
 collector (`Orchestration/TelemetryCollector.cs`). A server starts it detached when the host's
@@ -27,7 +27,7 @@ That is the fast suite and the one to run by default. Tests traited `Category=In
 the real vendor CLIs, take minutes, and cost money — run them deliberately, never as a reflex:
 
 ```bash
-dotnet test src/PlanForgeFlow.sln --filter "FullyQualifiedName~CursorAgentTests.Only_the_critic_is_started_in_plan_mode"
+dotnet test src/PlanForgeFlow.sln --filter "FullyQualifiedName~ClaudeCriticTests.Critic_returns_a_valid_critique"
 ```
 
 Any change to C# under `src/` requires rebuilding the complete release asset set before handoff:
@@ -64,7 +64,7 @@ src/PlanForge/            the MCP server
   Mcp/                    tool surface
   Acts/                   PlanReview, Build, CodeReview, ReviewFix, Scout; the gate parser, runner and keeper
   Vendors/                IVendor and the shared contracts
-    Claude/ Codex/ Cursor/    one folder per vendor, matching prompts/
+    Claude/ Codex/        one folder per vendor, matching prompts/
   Orchestration/          capability profile
   Run/ Repo/ Prompts/ Review/ Infrastructure/
 src/PlanForge.Tests/      integration tests are traited "Category=Integration"
@@ -114,27 +114,27 @@ inside the call.
 ## The vendor seam
 
 `IVendor` / `IVendorSession` ([Vendors/](src/PlanForge/Vendors)) is the abstraction over model
-suppliers that run in a separate process. Three implementations live in per-vendor folders that
-mirror `prompts/`: `Claude/`, `Codex/`, `Cursor/`.
+suppliers that run in a separate process. Two implementations live in per-vendor folders that
+mirror `prompts/`: `Claude/`, `Codex/`. Cursor was the third until 0.59.0 removed it as both host
+and vendor — see [docs/adr/0043](docs/adr/0043-remove-cursor-as-host-and-vendor.md).
 
-Structured output is a hard requirement of the interface. Claude and Codex reach it natively —
+Structured output is a hard requirement of the interface. Both vendors reach it natively —
 `--json-schema` and `codex exec --output-schema`, the latter since
-[docs/adr/0012](docs/adr/0012-reach-codex-through-exec.md) — and Cursor has no schema flag, so it
-alone goes through `SchemaInPrompt`: schema in the prompt, validation here, exactly one retry. Model catalogues feed the interview: `CatalogCache` probes every vendor in
+[docs/adr/0012](docs/adr/0012-reach-codex-through-exec.md) — so the CLI enforces the schema and no
+validation of our own stands in for it. Model catalogues feed the interview: `CatalogCache` probes every vendor in
 the background from `forge.begin`, and `forge.models` serves the results so the model question
 offers what the vendor actually serves — see
 [docs/adr/0007](docs/adr/0007-serve-live-catalogues-to-the-interview.md). A catalogue is `live`
-where the vendor publishes a list (codex, cursor) and `resolved` for claude, whose probe turns each
+where the vendor publishes a list (codex) and `resolved` for claude, whose probe turns each
 remembered alias into the model id the CLI would send and drops any it does not resolve — see
 [docs/adr/0010](docs/adr/0010-resolve-claude-aliases-through-the-cli.md). For model and effort
 they stay **advisory**: the vendor CLI decides, and an unrecognised model is a warning, not a
 refusal.
 
 Effort is kept separate from model in `Selection` because each vendor expresses it differently —
-a flag for Claude, a model property for Codex, a suffix inside the model id for Cursor. The join
-belongs in the vendor, never in the core. `Fast` is the third axis for the same reason — a
-`--settings` key for Claude, a `service_tier` for Codex, the `-fast` suffix for Cursor — and the one
-exception to advisory validation: `Vendors/FastTier.cs` refuses a Fast request the catalogue does not
+a flag for Claude, a model property for Codex. The join belongs in the vendor, never in the core.
+`Fast` is the third axis for the same reason — a `--settings` key for Claude, a `service_tier` for
+Codex — and the one exception to advisory validation: `Vendors/FastTier.cs` refuses a Fast request the catalogue does not
 confirm before any worker starts, every turn names its speed rather than inheriting the vendor's own
 configuration, and Claude refuses once more at its session's `init`. See
 [docs/adr/0023](docs/adr/0023-refuse-a-fast-request-nothing-confirmed.md).
@@ -147,10 +147,9 @@ Adding a vendor means a folder under `Vendors/`, an arm in `VendorFactory`, and 
 vendor needs to be told something the role contracts do not already say — a folder under `prompts/`
 and the matching bundle assertion in `build/package.ps1`.
 
-**Claude and Cursor keep Critic and Scout read-only by different mechanisms, and Codex not at all**;
-none of it is enforced by this codebase — Claude withholds `--permission-mode acceptEdits` and the
-builder's shell grant, Cursor relies on `--mode plan` alone, and Codex runs every role without its
-sandbox, so only the role contracts stand in the way — see
+**Claude keeps Critic and Scout read-only, and Codex does not**; none of it is enforced by this
+codebase — Claude withholds `--permission-mode acceptEdits` and the builder's shell grant, and
+Codex runs every role without its sandbox, so only the role contracts stand in the way — see
 [docs/adr/0033](docs/adr/0033-run-codex-critics-and-scouts-without-a-sandbox.md). All Worker roles receive the run's
 Worker tools, so Critic and Scout stay read-only only while the servers named there are — see
 [docs/adr/0017](docs/adr/0017-grant-worker-tools-by-exact-server-name.md). `CONTEXT.md` documents
@@ -203,8 +202,8 @@ the plugin and is overwritten by the next upgrade. What a user wants said for on
 `critic-contract.md`, and `scout-contract.md` carry their respective role contracts;
 `prompts/<vendor>/<role>.md` adds only what differs about that vendor — how it
 must hand its answer back — and is optional, which is why codex, whose `--output-schema` settles the
-question, has no file at all. The role text lived in three copies until they drifted: the codex and
-cursor critics lost "do not reopen a settled finding without a proposal" and their builders lost "a
+question, has no file at all. The role text lived in one copy per vendor until they drifted: two
+vendors' critics lost "do not reopen a settled finding without a proposal" and their builders lost "a
 half-finished task reported as done is worse than a blocked one", asymmetric since the first commit. `PromptLibrary` walks up from the binary
 because the shipped layouts differ (publish output vs. installed plugin), but **a third layout
 cannot be walked to at all**: the launcher downloads the bare executable into a per-version cache
@@ -379,8 +378,14 @@ from a host that answered for them and rendered nothing — see
 [docs/adr/0003](docs/adr/0003-approval-through-the-orchestrator.md). The consequence to hold on to:
 `Approved` in the run state is an assertion by the orchestrator, and no code here can check it.
 
-Drift is reported by `forge.status`, not only by the decision call, because the orchestrator has to
-show it to the user before asking rather than after.
+Drift is reported by `forge.status` rather than by the decision call, because the orchestrator has
+to show it to the user before asking rather than after.
+
+A tool result carries what the Orchestrator acts on; what only the server reads, or what the Flow
+log already holds, stays out. Every JSON result leaves through one call-tool filter,
+`Mcp/ToolResultText.cs`, which writes it compact and with non-ASCII as written rather than
+`\uXXXX`, so a serialiser's own indentation or escaping never reaches the Orchestrator — see
+[docs/adr/0042](docs/adr/0042-tool-results-carry-what-the-orchestrator-acts-on.md).
 
 ## Build constraints that bite
 

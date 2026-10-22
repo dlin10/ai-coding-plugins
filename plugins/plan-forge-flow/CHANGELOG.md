@@ -1,5 +1,75 @@
 # Plan Forge Flow releases
 
+## 0.59.0
+
+Cursor is no longer supported, as a host or as a vendor. ADR 0043.
+
+- The plugin ships no `.cursor-plugin/plugin.json` and is gone from the monorepo's Cursor
+  marketplace; `build/package.ps1` refuses a bundle that carries a Cursor manifest or
+  `prompts/cursor/`. An installation made from that marketplace keeps the version it has.
+- `cursor` is no longer a vendor: `forge.models` reports claude and codex, and an act or Scout
+  selection that names `cursor` is refused as an unknown vendor. `prompts/cursor/` and the
+  schema-in-the-prompt path that only Cursor used are gone; both remaining vendors hand their schema
+  to the CLI.
+- `forge.work.poll` holds every client to 1–3000 seconds and no longer reads the client's name; one
+  that names no wait still waits 45.
+- `forge.work.start` runs the Builder acts alone, `build.next` and `review.fix`, for one that may
+  outlast the host's hour. `plan.review`, `review.code` and `scout`, which only the Cursor routing
+  sent through a job, are refused as unknown acts, and their arguments — `planDraft`, `deferred`,
+  `revision`, `userGrantedRound`, `question`, `sessionMode`, `excludePaths` — are gone from its
+  schema. Every other act goes through its one-call tool, as the skill already sent it.
+- `forge.plan.show` keeps the canvas for a host that negotiates MCP Apps.
+- The monorepo validator lets a Claude catalog entry be missing from the Cursor catalog when its
+  plugin ships no Cursor manifest.
+
+## 0.58.0
+
+Tool results carry what the Orchestrator acts on, compact and unescaped. Issue #176, ADR 0042.
+
+- Every JSON tool result leaves through one call-tool filter that writes it without indentation and
+  with non-ASCII as written instead of `\uXXXX`. On the measured runs held in Russian this was two
+  thirds of the forge result tokens; nothing the Orchestrator reads changes but its spelling.
+- `forge.work.fetch` carries the act's payload as the `result` object instead of a JSON string.
+- `forge.status` reports the run state the Orchestrator decides from, without the server's own
+  bookkeeping: `taskChanges`, the builder session id, vendor and scope, `workerTools`,
+  `builderRoots`, `startedAt` and `baselineHead` are gone. `run.gateEnvironment` is the sorted
+  variable names: the values, often connection strings, no longer reach the result or `forge.log`.
+- `forge.plan.confirm` answers with `approved` and `taskCount`; drift is read from `forge.status`
+  before asking.
+- A `forge.build.next` whose task passed cleanly — `done`, verification `passed`, gate `passed`,
+  directly or through a Job — answers with those outcomes, the gate's exit code and seconds, and the
+  counters. The Builder's summary, evidence and files and the gate's command and output stay in the
+  Flow log; every other result goes out whole.
+- A `forge.work.poll` carries `documents` only when they changed since the job last answered with
+  them. `forge.plan.patch` no longer echoes `baseHash`, the applied edits or their sizes, which the
+  Flow log and `forge.log` record. `forge.models` drops each model's vendor description.
+
+## 0.57.0
+
+Plan review gets an end the Critic can reach, and a converging review no longer waits for the user
+at the cap. Issue #172, ADR 0041.
+
+- `prompts/critic-contract.md` defines severity by the implementer the plan names: `major` when,
+  following the material as written, that implementer would produce a wrong result or leave a
+  stated goal unmet; `minor` when it says too little but the implementer would still do the right
+  thing, and for wording, counts and gaps a gate already catches. The verdict is `approve` when no
+  `blocker` or `major` remains among the new findings and the unresolved ones still present; minors
+  still reach the ledger and the Builder. Six rated examples from the 2026-10-06 study mark the
+  major/minor line.
+- At the cap, `forge.plan.review` and `forge.review.code` (and `forge.work.start` for either) run
+  the round without `userGrantedRound` when the last round's finding count — its new findings plus
+  the unresolved ones its Critic still found — is below the round before it and none is a
+  `blocker`, for as long as the count keeps falling. The cap is not raised; a flat or rising count
+  or a blocker is refused with the existing cap error.
+- The Flow log records `## Plan review — round continued automatically` (or `Code review`) with
+  `continued automatically: 4 → 2`, and the round's result carries `continuedAutomatically`.
+- The run state gains `autoContinuedReviewRounds`, `autoContinuedCodeReviewRounds`,
+  `reviewTallies` and `codeReviewTallies`, which `forge.status` reports beside the granted rounds;
+  the resume card prints `+ N automatic`. A run begun before 0.57.0 has no tallies and asks at the
+  cap as before.
+- The skill's *Rounds, revision, and caps* asks the cap question only when the tool refuses, and
+  announces an automatic round in one line with its counts.
+
 ## 0.56.0
 
 The Orchestrator comes back from a context compaction knowing where its run stands. Issue #170,

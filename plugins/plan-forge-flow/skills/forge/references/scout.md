@@ -22,12 +22,11 @@ an explicit `forge.scout.select` call. Scout selection is independent of and may
 after final Critic/Builder selection; if the first need occurs before it, this Scout catalogue call
 is still just-in-time and separate from the final refresh in `interview.md`.
 When exactly one valid Vendor is available, omit the Scout Vendor question and use that Vendor for
-the offered combination. On a Cursor host, when `cursor` is available, omit the Scout Vendor
-question as well and offer the resolved Cursor choices directly. Offer the Fast tier for Scout by
+the offered combination. Offer the Fast tier for Scout by
 the same rule as for the other roles in `interview.md`, as its own yes/no after the combination is chosen, and
 pass the answer as `fast` to `forge.scout.select`; it stays with the selection.
 
-For every direct or background Scout call, pass `sessionMode` explicitly. Use `continue` only for a
+For every Scout call, pass `sessionMode` explicitly. Use `continue` only for a
 direct follow-up in the same investigation. Use `fresh` for an independent question, a new
 subsystem, stale evidence, or a deliberate reset. After a failure, retry with the saved selection;
 reselect explicitly to clear the old session and failure; or explicitly choose continue without

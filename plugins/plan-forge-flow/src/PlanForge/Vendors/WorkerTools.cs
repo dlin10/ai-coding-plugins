@@ -8,8 +8,8 @@ namespace PlanForge.Vendors;
 /// The MCP servers a worker may call without being asked. A headless worker has nobody to answer a
 /// permission prompt, so whatever its vendor does not already allow is refused (issue #90). The run
 /// names servers by pattern, and each launch matches the patterns against the vendor's own server
-/// list, because neither vendor that needs a grant takes one: claude matches a rule on the exact
-/// server name, codex approves one server at a time. See docs/adr/0017.
+/// list, because neither vendor takes a pattern: claude matches a rule on the exact server name,
+/// codex approves one server at a time. See docs/adr/0017.
 /// </summary>
 internal static class WorkerTools
 {
@@ -76,14 +76,6 @@ internal static class WorkerTools
                ("servers", granted.Count == 0 ? null : string.Join(", ", granted)),
                ("listed", servers.Count.ToString()));
         return granted;
-    }
-
-    /// <summary>Records a vendor whose own flag already grants every server, so there is nothing to look up.</summary>
-    public static void RecordBlanket(string vendor, RoleSpec role, string detail)
-    {
-        if (role.WorkerTools is not { Count: > 0 }) return;
-
-        Record("info", vendor, role, ("detail", detail));
     }
 
     private static void Record(string level, string vendor, RoleSpec role, params (string Name, string? Value)[] fields) =>

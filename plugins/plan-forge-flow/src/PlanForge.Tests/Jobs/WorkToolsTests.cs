@@ -29,16 +29,14 @@ public sealed class WorkToolsTests : IDisposable
     }
 
     [Fact]
-    public async Task Start_poll_fetch_returns_the_one_call_critique_payload()
+    public async Task Start_poll_fetch_returns_the_one_call_build_payload()
     {
         var run = NewRun("cycle");
         var vendor = new RecordingVendor("claude");
-        var critique = new Critique("approve", [], "looks good");
-        vendor.Enqueue(critique);
+        vendor.Enqueue(Built());
         var registry = new JobRegistry();
 
-        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
+        var start = await StartBuild(registry, run, () => vendor);
         Assert.Equal("running", JsonNode.Parse(start)!["state"]!.GetValue<string>());
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
@@ -48,9 +46,9 @@ public sealed class WorkToolsTests : IDisposable
 
         Assert.Equal("succeeded", poll["state"]!.GetValue<string>());
         Assert.Equal("succeeded", fetch["state"]!.GetValue<string>());
-        var identified = critique with { UnresolvedAssessments = [], Reopenings = [] };
-        Assert.Equal(JsonSerializer.Serialize(identified, ContractJson.Default.Critique),
-            fetch["result"]!.GetValue<string>());
+        var result = Assert.IsType<JsonObject>(fetch["result"]);
+        Assert.Equal("done", result["result"]!["status"]!.GetValue<string>());
+        Assert.Equal(1, result["tasksCompleted"]!.GetValue<int>());
     }
 
     /// <summary>
@@ -63,11 +61,10 @@ public sealed class WorkToolsTests : IDisposable
     {
         var run = NewRun("timeline");
         var vendor = new RecordingVendor("claude");
-        vendor.Enqueue(new Critique("revise", [new Finding("major", "step 1", "no gate")], "one hole"));
+        vendor.Enqueue(Built());
         var registry = new JobRegistry();
 
-        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
+        var start = await StartBuild(registry, run, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
 
@@ -83,7 +80,7 @@ public sealed class WorkToolsTests : IDisposable
     }
 
     /// <summary>
-    /// The Cursor host's shape of the same lag: the act runs for minutes behind start → poll →
+    /// The job surface's shape of the same lag: the act runs for minutes behind start → poll →
     /// fetch, and the plan is on disk before the first of them, so the link has no reason to wait
     /// for the fetch that ends the wait.
     /// </summary>
@@ -93,11 +90,8 @@ public sealed class WorkToolsTests : IDisposable
         var run = NewRun("start-documents");
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
-        await ForgeTools.WritePlan(SessionRoots.None, _workspace, run.RunId, "## draft", CancellationToken.None);
 
-        var start = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "plan.review", "critic", null, "claude", null, null, null, null, false, CancellationToken.None,
-            () => vendor))!;
+        var start = JsonNode.Parse(await StartBuild(registry, run, () => vendor))!;
         var jobId = start["jobId"]!.GetValue<string>();
         var poll = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
             TimeSpan.FromMilliseconds(50), CancellationToken.None))!;
@@ -105,35 +99,43 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Equal(run.PlanPath, start["documents"]!["plan"]!["path"]!.GetValue<string>());
         Assert.Null(start["documents"]!["flowLog"]);
         Assert.Equal("running", poll["state"]!.GetValue<string>());
-        Assert.Equal(run.PlanPath, poll["documents"]!["plan"]!["path"]!.GetValue<string>());
+        Assert.Null(poll["documents"]);
 
         vendor.Release();
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
     }
 
     /// <summary>
-    /// The draft the start omits has to be somewhere, and a run whose plan was never written is the
-    /// case the act would otherwise fail on with a job already running behind it.
+    /// A long act is polled again and again, and the same documents on every poll were the larger
+    /// half of what polling cost the Orchestrator. A poll repeats them only when they changed since
+    /// the job last answered with them, so a file that first appears mid-job still reaches it once.
     /// </summary>
     [Fact]
-    public async Task A_plan_review_start_with_no_draft_written_is_refused_before_the_vendor()
+    public async Task A_poll_carries_the_documents_only_when_they_changed_since_the_job_last_answered()
     {
-        var run = NewRun("no-draft");
+        var run = NewRun("poll-documents");
+        var vendor = new BlockingVendor();
         var registry = new JobRegistry();
-        var calls = 0;
-        Func<IVendor> factory = () =>
-        {
-            calls++;
-            return new RecordingVendor("claude");
-        };
+        var start = JsonNode.Parse(await StartBuild(registry, run, () => vendor))!;
+        var jobId = start["jobId"]!.GetValue<string>();
+        async Task<JsonNode> Poll() => JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace,
+            run.RunId, jobId, TimeSpan.FromMilliseconds(50), CancellationToken.None))!;
 
-        var rejection = await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry,
-            SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null, "claude", null, null, null,
-            null, false, CancellationToken.None, factory));
+        var unchanged = await Poll();
+        AtomicFile.Append(run.FlowLogPath, "## Timeline\n");
+        var appeared = await Poll();
+        var again = await Poll();
 
-        Assert.Contains("forge.plan.write", rejection.Message, StringComparison.Ordinal);
-        Assert.Equal(0, calls);
-        Assert.Null(registry.Get(run.Path));
+        Assert.Null(unchanged["documents"]);
+        Assert.Equal(run.FlowLogPath, appeared["documents"]!["flowLog"]!["path"]!.GetValue<string>());
+        Assert.Equal(run.PlanPath, appeared["documents"]!["plan"]!["path"]!.GetValue<string>());
+        Assert.Null(again["documents"]);
+
+        vendor.Release();
+        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
+        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
+            CancellationToken.None))!;
+        Assert.Equal(run.FlowLogPath, fetch["documents"]!["flowLog"]!["path"]!.GetValue<string>());
     }
 
     /// <summary>
@@ -151,8 +153,8 @@ public sealed class WorkToolsTests : IDisposable
 
         Assert.Contains("\"critique\"", JsonSerializer.Serialize(new CritiqueResult(critique, documents),
             ForgeToolJson.Default.CritiqueResult), StringComparison.Ordinal);
-        Assert.Contains("\"build\"", JsonSerializer.Serialize(new BuildNextResult(new BuildOutcome(build, 1, 1), documents),
-            ForgeToolJson.Default.BuildNextResult), StringComparison.Ordinal);
+        Assert.Contains("\"tasksCompleted\"", BuildOutcomeView.Of(new BuildOutcome(build, 1, 1)).ToJsonString(),
+                        StringComparison.Ordinal);
         Assert.Contains("\"fix\"", JsonSerializer.Serialize(new ReviewFixResult(build, documents),
             ForgeToolJson.Default.ReviewFixResult), StringComparison.Ordinal);
         var evidence = new EvidenceMapResult("fixture", "requested", null, false, 1, 0, 0, 1, null,
@@ -162,36 +164,10 @@ public sealed class WorkToolsTests : IDisposable
         var outline = PlanOutline.Of("# Plan\n");
         Assert.Contains("\"outline\"", JsonSerializer.Serialize(new PlanOutlineResult("run", outline, documents),
             ForgeToolJson.Default.PlanOutlineResult), StringComparison.Ordinal);
-        Assert.Contains("\"sizes\"", JsonSerializer.Serialize(new PlanForge.Mcp.PlanPatchResult("run", outline.PlanHash,
-            outline, [new PlanPatchChange("replace", "s0", "# Plan")], PlanPatchSizes.Payload([]), 0, 1, documents),
+        Assert.Contains("\"tasksKept\"", JsonSerializer.Serialize(new PlanForge.Mcp.PlanPatchResult("run", outline, 0, 1, documents),
             ForgeToolJson.Default.PlanPatchResult), StringComparison.Ordinal);
         Assert.Contains("\"documents\"", JsonSerializer.Serialize(new PlanWriteResult("run", PlanOutline.Of("# Plan\n"), documents),
             ForgeToolJson.Default.PlanWriteResult), StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// The act refuses this itself, but only once the job is running. Refusing at the start keeps
-    /// it an argument error answered by this call, with no vendor constructed behind it.
-    /// </summary>
-    [Fact]
-    public async Task A_second_plan_review_round_without_a_revision_is_refused_before_the_vendor()
-    {
-        var run = NewRun("no-revision");
-        run.WriteState(run.ReadState() with { ReviewRounds = 1 });
-        var registry = new JobRegistry();
-        var calls = 0;
-        Func<IVendor> factory = () =>
-        {
-            calls++;
-            return new RecordingVendor("claude");
-        };
-
-        await Assert.ThrowsAsync<RevisionMissingException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace,
-            run.RunId, "plan.review", "critic", null, "claude", "## draft", null, null, null,
-            false, CancellationToken.None, factory));
-
-        Assert.Equal(0, calls);
-        Assert.Null(registry.Get(run.Path));
     }
 
     [Fact]
@@ -201,8 +177,7 @@ public sealed class WorkToolsTests : IDisposable
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
 
-        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
+        var start = await StartBuild(registry, run, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
         // The worker runs on a thread of its own, and `Emit` is what records the two activity
@@ -229,20 +204,18 @@ public sealed class WorkToolsTests : IDisposable
     }
 
     /// <summary>
-    /// Cursor cancels a call at a minute, so 45 seconds stays its ceiling; any other client may wait
-    /// up to 3000 of the hour its host grants. Outside the range the wait is clamped and says so.
+    /// A poll may wait up to 3000 of the hour its host grants a call. Outside the range the wait is
+    /// clamped and says so.
     /// </summary>
     [Theory]
-    [InlineData("claude-code", null, 45, false)]
-    [InlineData("claude-code", 3000, 3000, false)]
-    [InlineData("codex-mcp-client", 5000, 3000, true)]
-    [InlineData("claude-code", 0, 1, true)]
-    [InlineData("cursor-vscode", 30, 30, false)]
-    [InlineData("cursor-vscode", 3000, 45, true)]
-    [InlineData("cursor-vscode", null, 45, false)]
-    public void A_poll_waits_as_asked_within_the_client_range(string client, int? waitSeconds, int expected, bool clamped)
+    [InlineData(null, 45, false)]
+    [InlineData(30, 30, false)]
+    [InlineData(3000, 3000, false)]
+    [InlineData(5000, 3000, true)]
+    [InlineData(0, 1, true)]
+    public void A_poll_waits_as_asked_within_its_range(int? waitSeconds, int expected, bool clamped)
     {
-        var wait = PollWait.For(client, waitSeconds);
+        var wait = PollWait.For(waitSeconds);
 
         Assert.Equal(TimeSpan.FromSeconds(expected), wait.Timeout);
         Assert.Equal(clamped, wait.Clamped is not null);
@@ -254,13 +227,12 @@ public sealed class WorkToolsTests : IDisposable
         var run = NewRun("long-poll");
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
-        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
+        var start = await StartBuild(registry, run, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
         await vendor.Recorded.WaitAsync(TimeSpan.FromSeconds(30));
 
         var poll = ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None,
-                                       "claude-code", 3000);
+                                       3000);
         vendor.Release();
         var settled = JsonNode.Parse(await poll.WaitAsync(TimeSpan.FromSeconds(30)))!;
 
@@ -273,20 +245,19 @@ public sealed class WorkToolsTests : IDisposable
     {
         var run = NewRun("clamped-poll");
         var vendor = new RecordingVendor("claude");
-        vendor.Enqueue(new Critique("approve", [], "looks good"));
+        vendor.Enqueue(Built());
         var registry = new JobRegistry();
-        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
+        var start = await StartBuild(registry, run, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
 
         var plain = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
             CancellationToken.None))!;
         var clamped = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
-            CancellationToken.None, "cursor-vscode", 3000))!;
+            CancellationToken.None, 5000))!;
 
         Assert.Null(plain["waitClamped"]);
         Assert.Equal("succeeded", clamped["state"]!.GetValue<string>());
-        Assert.Contains("up to 45 seconds", clamped["waitClamped"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.Contains("up to 3000 seconds", clamped["waitClamped"]!.GetValue<string>(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -295,9 +266,7 @@ public sealed class WorkToolsTests : IDisposable
         var run = NewRun("cancel");
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
-        var start = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "plan.review", "critic", null, "claude", "## draft", null, null, null, false,
-            CancellationToken.None, () => vendor))!;
+        var start = JsonNode.Parse(await StartBuild(registry, run, () => vendor))!;
         var jobId = start["jobId"]!.GetValue<string>();
 
         var cancelled = JsonNode.Parse(await ForgeTools.CancelWork(registry, SessionRoots.None, _workspace, run.RunId,
@@ -317,11 +286,15 @@ public sealed class WorkToolsTests : IDisposable
     }
 
     /// <summary>
-    /// A blank draft is refused only because nothing is on disk to review: the fallback
-    /// forge.plan.write leaves is a file, and this run has none.
+    /// A job runs a Builder act and nothing else: the critic and Scout acts a job once carried for a
+    /// host that cancelled every call at a minute have their one-call tools only — docs/adr/0043.
     /// </summary>
-    [Fact]
-    public async Task Invalid_act_and_blank_plan_do_not_construct_the_vendor()
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("plan.review")]
+    [InlineData("review.code")]
+    [InlineData("scout")]
+    public async Task An_act_a_job_does_not_run_does_not_construct_the_vendor(string act)
     {
         var run = NewRun("invalid");
         var registry = new JobRegistry();
@@ -332,11 +305,10 @@ public sealed class WorkToolsTests : IDisposable
             return new RecordingVendor("claude");
         };
 
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "unknown", "critic", null, "claude", null, null, null, null, false, CancellationToken.None, factory));
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "plan.review", "critic", null, "claude", " ", null, null, null, false, CancellationToken.None, factory));
+        var rejection = await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry,
+            SessionRoots.None, _workspace, run.RunId, act, "builder", null, "claude", CancellationToken.None, factory));
 
+        Assert.Contains("build.next or review.fix", rejection.Message, StringComparison.Ordinal);
         Assert.Equal(0, calls);
         Assert.Null(registry.Get(run.Path));
         Assert.False(Directory.Exists(Path.Combine(run.Path, "jobs")));
@@ -344,9 +316,7 @@ public sealed class WorkToolsTests : IDisposable
 
     /// <summary>
     /// The arguments are read before the registry is, so a start that would have rejoined a running
-    /// job still answers for what it was called with. `findings` stands in for the blank draft this
-    /// used to pin: a draft is optional here now, since forge.plan.write may already have written
-    /// one.
+    /// job still answers for what it was called with.
     /// </summary>
     [Fact]
     public async Task Invalid_arguments_are_rejected_before_rejoining_an_active_job()
@@ -354,8 +324,7 @@ public sealed class WorkToolsTests : IDisposable
         var run = NewRun("invalid-active");
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
-        var first = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review",
-            "critic", null, "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor))!;
+        var first = JsonNode.Parse(await StartBuild(registry, run, () => vendor))!;
         var jobId = first["jobId"]!.GetValue<string>();
         var calls = 0;
         Func<IVendor> factory = () =>
@@ -365,10 +334,9 @@ public sealed class WorkToolsTests : IDisposable
         };
 
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "unknown", "critic", null, "claude", null, null, null, null, false, CancellationToken.None, factory));
+            "unknown", "builder", null, "claude", CancellationToken.None, factory));
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId,
-            "plan.review", "critic", null, "claude", "## draft", "- fix it", null, null, false,
-            CancellationToken.None, factory));
+            "build.next", "builder", null, "claude", CancellationToken.None, factory, fixFindingIds: ["F-0001"]));
 
         Assert.Equal(0, calls);
         Assert.Equal(jobId, registry.Get(run.Path)?.Id);
@@ -381,11 +349,10 @@ public sealed class WorkToolsTests : IDisposable
     {
         var run = NewRun("failure");
         var vendor = new RecordingVendor("claude");
-        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "the checks ran"), "wrong schema"));
+        vendor.Enqueue(new Critique("approve", [], "wrong schema"));
         var registry = new JobRegistry();
 
-        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor);
+        var start = await StartBuild(registry, run, () => vendor);
         var jobId = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
 
@@ -394,7 +361,6 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Equal("failed", fetch["state"]!.GetValue<string>());
         Assert.Null(fetch["result"]);
         Assert.Contains("scripted response", fetch["error"]!.GetValue<string>(), StringComparison.Ordinal);
-        Assert.DoesNotContain("forge.work.fetch.error", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -404,11 +370,9 @@ public sealed class WorkToolsTests : IDisposable
         var vendor = new BlockingVendor();
         var registry = new JobRegistry();
 
-        var first = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic",
-            null, "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor))!;
+        var first = JsonNode.Parse(await StartBuild(registry, run, () => vendor))!;
         var jobId = first["jobId"]!.GetValue<string>();
-        var second = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic",
-            null, "claude", "## draft", null, null, null, false, CancellationToken.None, () => vendor))!;
+        var second = JsonNode.Parse(await StartBuild(registry, run, () => vendor))!;
 
         Assert.False(second["started"]!.GetValue<bool>());
         Assert.Equal(jobId, second["jobId"]!.GetValue<string>());
@@ -452,12 +416,22 @@ public sealed class WorkToolsTests : IDisposable
         Assert.Contains("forge.work.cancel", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
     }
 
+    /// <summary>An approved one-task plan whose gate is a condition, so a build runs no command.</summary>
+    /// <param name="runId">The Run to create.</param>
     private RunDirectory NewRun(string runId)
     {
         var run = RunDirectory.Create(_workspace, runId);
-        run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.Now, 0, 5));
+        run.WritePlan("## Approach\n1. Task.\n   **Gate:** condition checked\n");
+        run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.Now, 0, 5, Approved: true));
         return run;
     }
+
+    private Task<string> StartBuild(JobRegistry registry, RunDirectory run, Func<IVendor> vendor) =>
+        ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "build.next", "builder", null, "claude",
+                             CancellationToken.None, vendor);
+
+    private static BuildResult Built() =>
+        new("done", [], new Verification("passed", "condition checked"), "built");
 
     private sealed class BlockingVendor : IVendor
     {
@@ -498,11 +472,7 @@ public sealed class WorkToolsTests : IDisposable
                 [("command", "dotnet test")]));
             recorded.TrySetResult();
             await release.Task.WaitAsync(ct);
-            return (T)(object)new VendorCritique
-            {
-                Verdict = "approve", Findings = [], Summary = "released",
-                UnresolvedAssessments = [], Reopenings = []
-            };
+            return (T)(object)new BuildResult("done", [], new Verification("passed", "condition checked"), "released");
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

@@ -37,3 +37,8 @@ are already holding, rendered by nobody. Measured against the published binary w
 one advertising the extension and one not, `tools/list` is identical either way — twelve unchanged
 tools plus this one, and `_meta.ui` on this one alone. What both now also see is a `resources`
 capability and a single `ui://` resource, which is the whole cost of the change to a text host.
+
+> **Amended 2026-10-22 ([0043](0043-remove-cursor-as-host-and-vendor.md)).** Cursor, the one host
+> measured to negotiate MCP Apps, is no longer supported. The canvas stays, because it answers the
+> capability rather than a host's name; until another host negotiates it, it is dormant — Claude
+> Code reports `Text`, and Codex has not been measured.

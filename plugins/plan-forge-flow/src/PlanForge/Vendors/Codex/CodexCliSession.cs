@@ -302,7 +302,7 @@ internal sealed partial class CodexCliSession : IVendorSession
 
     /// <summary>
     /// Turns one line of `codex exec --json` into events. Internal so the tests can drive it
-    /// directly, as they already drive the Claude and Cursor sessions.
+    /// directly, as they already drive the Claude session.
     /// </summary>
     /// <param name="root">The parsed JSONL message.</param>
     internal void Observe(JsonElement root) => Observe(root, null);

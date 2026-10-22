@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PlanForge.Acts;
+using PlanForge.Infrastructure;
 using PlanForge.Mcp;
 using PlanForge.Repo;
 using PlanForge.Run;
@@ -66,19 +67,46 @@ public sealed class ConfirmPlanTests : IDisposable
     }
 
     /// <summary>
-    /// The field existed before this route did, and both approval paths used to return it empty
-    /// whatever the tree looked like.
+    /// A gate variable is often a connection string. Status names it, as the resume card does, and
+    /// neither the result nor the run's log — where every result is written — carries its value.
+    /// Server-only state stays out of the status too — docs/adr/0042.
     /// </summary>
     [Fact]
-    public async Task Drift_since_the_baseline_comes_back_with_the_decision()
+    public async Task Status_names_the_gate_environment_without_its_values_and_leaves_server_state_out()
+    {
+        var ct = CancellationToken.None;
+        var run = await StartRunAsync(ct);
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, plan: Plan,
+                                     gateEnvironment: new Dictionary<string, string> { ["CD_TEST_SQL_CONN"] = "Server=db;Password=hunter2" });
+
+        var json = await ForgeTools.Status(SessionRoots.None, _repo, run.RunId, ct);
+        using var status = JsonDocument.Parse(json);
+        var saved = status.RootElement.GetProperty("run");
+
+        Assert.Equal(["CD_TEST_SQL_CONN"], saved.GetProperty("gateEnvironment").EnumerateArray().Select(name => name.GetString()));
+        Assert.DoesNotContain("hunter2", json, StringComparison.Ordinal);
+        // Shared read: forge.begin's catalogue probes may still be appending to the log.
+        Assert.DoesNotContain("hunter2", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
+        foreach (var hidden in new[] { "taskChanges", "builderSessionId", "builderVendor", "builderSessionScope", "workerTools",
+                                       "builderRoots", "startedAt", "baselineHead" })
+            Assert.False(saved.TryGetProperty(hidden, out _), hidden);
+        Assert.True(saved.GetProperty("approved").GetBoolean());
+    }
+
+    /// <summary>
+    /// The Orchestrator reads the drift from <c>forge.status</c> to show the user before asking;
+    /// repeated with the decision it arrives after the only moment it could matter — docs/adr/0042.
+    /// </summary>
+    [Fact]
+    public async Task The_decision_answers_with_itself_and_leaves_drift_to_status()
     {
         var ct = CancellationToken.None;
         var run = await StartRunAsync(ct);
         await File.WriteAllTextAsync(Path.Combine(_repo, "tracked.txt"), "edited after the baseline\n", ct);
 
-        var result = await ConfirmAsync(run.RunId, approved: true, ct);
+        using var answer = JsonDocument.Parse(await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, plan: Plan));
 
-        Assert.Equal(["tracked.txt"], result.DriftedFiles);
+        Assert.Equal(["approved", "taskCount"], answer.RootElement.EnumerateObject().Select(property => property.Name));
     }
 
     /// <summary>

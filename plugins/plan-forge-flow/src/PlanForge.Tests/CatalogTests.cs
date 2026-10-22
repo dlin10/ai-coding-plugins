@@ -31,22 +31,20 @@ public sealed class CatalogTests : IDisposable
                     FastEfforts = ["low", "high"], FastUnavailable = "extra_usage_disabled"
                 }
             ], CatalogSource.Resolved)),
-            "codex" => new CatalogVendor("codex", available: true, new VendorCatalog([
+            _ => new CatalogVendor("codex", available: true, new VendorCatalog([
                 new VendorModel("gpt-5.6-sol", ["low", "ultra"], "GPT-5.6-Sol", "Latest.", "low", IsDefault: true)
                 {
                     FastEfforts = ["low", "ultra"], FastHint = "1.5x speed, increased usage"
                 }
-            ], CatalogSource.Live)),
-            _ => new CatalogVendor("cursor", available: false, new VendorCatalog([], CatalogSource.Live),
-                detail: "cursor-agent was not found on PATH")
+            ], CatalogSource.Live))
         });
 
         var result = JsonNode.Parse(await ForgeTools.Models(cache, SessionRoots.None, _workspace, run.RunId, CancellationToken.None))!;
 
         var vendors = result["vendors"]!.AsArray();
-        Assert.Equal(["claude", "codex", "cursor"], vendors.Select(v => v!["vendor"]!.GetValue<string>()));
-        Assert.Equal(["resolved", "live", "live"], vendors.Select(v => v!["source"]!.GetValue<string>()));
-        Assert.Equal([true, true, false], vendors.Select(v => v!["available"]!.GetValue<bool>()));
+        Assert.Equal(["claude", "codex"], vendors.Select(v => v!["vendor"]!.GetValue<string>()));
+        Assert.Equal(["resolved", "live"], vendors.Select(v => v!["source"]!.GetValue<string>()));
+        Assert.Equal([true, true], vendors.Select(v => v!["available"]!.GetValue<bool>()));
 
         var sol = vendors[1]!["models"]!.AsArray().Single()!;
         Assert.Equal("gpt-5.6-sol", sol["id"]!.GetValue<string>());
@@ -60,10 +58,25 @@ public sealed class CatalogTests : IDisposable
 
         var opus = vendors[0]!["models"]!.AsArray().Single()!;
         Assert.Equal("extra_usage_disabled", opus["fastUnavailable"]!.GetValue<string>());
+    }
 
-        var cursor = vendors[2]!;
-        Assert.Equal("cursor-agent was not found on PATH", cursor["detail"]!.GetValue<string>());
-        Assert.Empty(cursor["models"]!.AsArray());
+    [Fact]
+    public async Task An_unavailable_vendor_is_reported_with_why_and_no_models()
+    {
+        var run = NewRun("models-unavailable");
+        var cache = new CatalogCache((id, _) => id switch
+        {
+            "claude" => new CatalogVendor("claude", available: true, new VendorCatalog([], CatalogSource.Resolved)),
+            _ => new CatalogVendor("codex", available: false, new VendorCatalog([], CatalogSource.Live),
+                detail: "codex was not found on PATH")
+        });
+
+        var result = JsonNode.Parse(await ForgeTools.Models(cache, SessionRoots.None, _workspace, run.RunId, CancellationToken.None))!;
+
+        var codex = result["vendors"]!.AsArray()[1]!;
+        Assert.False(codex["available"]!.GetValue<bool>());
+        Assert.Equal("codex was not found on PATH", codex["detail"]!.GetValue<string>());
+        Assert.Empty(codex["models"]!.AsArray());
     }
 
     [Fact]
@@ -81,7 +94,7 @@ public sealed class CatalogTests : IDisposable
         await cache.GetAsync("codex", _workspace, CancellationToken.None);
         await cache.GetAsync("codex", _workspace, CancellationToken.None);
 
-        Assert.Equal(3, created.Count);
+        Assert.Equal(2, created.Count);
         Assert.All(created, vendor => Assert.Equal(1, vendor.Probes));
     }
 

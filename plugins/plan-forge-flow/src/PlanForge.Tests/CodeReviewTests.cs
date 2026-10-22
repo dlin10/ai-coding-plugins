@@ -236,6 +236,53 @@ public sealed class CodeReviewTests : IDisposable
         Assert.Equal(0, state.GrantedCodeReviewRounds);
     }
 
+    /// <summary>
+    /// Code review shares the cap with plan review, so it shares the rule too: falling findings with
+    /// no blocker run the round past the cap without a grant, and leave the cap where it was.
+    /// </summary>
+    [Fact]
+    public async Task At_the_cap_a_round_runs_without_a_grant_while_the_findings_fall()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "looks good"));
+        var run = NewRun(codeReviewRounds: 3, codeReviewTallies: [new(5, false), new(2, false)]);
+        var act = NewReview(critic);
+
+        await act.ReviewAsync(run, new Selection("critic-model", null), false, ct);
+
+        var state = run.ReadState();
+        Assert.Equal(4, state.CodeReviewRounds);
+        Assert.Equal(3, state.CodeReviewRoundCap);
+        Assert.Equal(0, state.GrantedCodeReviewRounds);
+        Assert.Equal(1, state.AutoContinuedCodeReviewRounds);
+        Assert.Equal(new ReviewTally(0, false), state.CodeReviewTallies![^1]);
+        Assert.Equal("5 → 2", act.ContinuedAutomatically);
+        Assert.Contains("## Code review — round continued automatically", File.ReadAllText(run.FlowLogPath),
+                        StringComparison.Ordinal);
+    }
+
+    /// <summary>Findings that did not fall send the cap question to the user, exactly as before rounds were tallied.</summary>
+    [Fact]
+    public async Task At_the_cap_a_round_whose_findings_did_not_fall_is_refused()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct);
+        await WriteFileAsync("tracked.txt", "ordinary change\n", ct);
+
+        var critic = new RecordingVendor("claude");
+        var run = NewRun(codeReviewRounds: 3, codeReviewTallies: [new(5, false), new(15, false)]);
+
+        await Assert.ThrowsAsync<CodeReviewCapReachedException>(() =>
+            NewReview(critic).ReviewAsync(run, new Selection("critic-model", null), false, ct));
+
+        Assert.Empty(critic.Sessions);
+        Assert.Equal(3, run.ReadState().CodeReviewRounds);
+    }
+
     [Fact]
     public async Task Review_requires_an_approved_plan()
     {
@@ -648,12 +695,14 @@ public sealed class CodeReviewTests : IDisposable
                                 int reviewRounds = 0,
                                 int codeReviewRounds = 0,
                                 string? baselineHead = null,
-                                string runId = "review")
+                                string runId = "review",
+                                IReadOnlyList<ReviewTally>? codeReviewTallies = null)
     {
         var run = RunDirectory.Create(_repo, runId);
         run.WriteState(new RunState(runId, _repo, "Text", DateTimeOffset.Now, reviewRounds, 5,
                                     BaselineHead: baselineHead ?? _baselineHead, Approved: approved,
-                                    CodeReviewRounds: codeReviewRounds, CodeReviewRoundCap: 3));
+                                    CodeReviewRounds: codeReviewRounds, CodeReviewRoundCap: 3,
+                                    CodeReviewTallies: codeReviewTallies));
         run.WritePlan(Plan);
         return run;
     }

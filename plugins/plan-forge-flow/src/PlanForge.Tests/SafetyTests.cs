@@ -195,7 +195,7 @@ public sealed class SafetyTests
     /// finds every place a fix has to reach: builders without it made no Roslyn call in 38 fix turns.
     /// The orchestration contract: a host hands whichever worker it runs whatever the user installed
     /// in it, and on 2026-08-29 that put this plugin's own skill and MCP server in front of a
-    /// cursor builder.
+    /// builder.
     /// </summary>
     [Fact]
     public void Appends_the_shared_contracts_each_role_is_owed()

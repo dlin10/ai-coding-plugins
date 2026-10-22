@@ -35,3 +35,6 @@ because the worker can still do the work by text search and a failed act would c
 and the run log says so. The critic receives the same grants as the builder, so its read-only
 posture now depends on the granted servers being read-only too — true of Roslyn, and the
 orchestrator's to keep true for anything else it names.
+
+> **Amended 2026-10-22 ([0043](0043-remove-cursor-as-host-and-vendor.md)).** Cursor is no longer a
+> vendor; claude and codex are the two the grant has to reach, and both get it by exact name.

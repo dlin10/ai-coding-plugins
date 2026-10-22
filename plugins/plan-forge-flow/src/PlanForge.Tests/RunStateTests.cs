@@ -55,6 +55,40 @@ public sealed class RunStateTests : IDisposable
         Assert.Null(state.PendingGateFailure);
     }
 
+    /// <summary>
+    /// A run begun before rounds were tallied reads with none, so it asks at the cap as it did; the
+    /// tallies a later round writes read back as written.
+    /// </summary>
+    [Fact]
+    public void A_state_file_without_round_tallies_reads_with_none_and_tallies_round_trip()
+    {
+        const string runId = "test-run";
+        var run = RunDirectory.Create(_workspace, runId);
+        File.WriteAllText(Path.Combine(run.Path, "state.json"),
+            """
+            {
+              "runId": "test-run",
+              "workspaceRoot": "C:\\workspace",
+              "profile": "Text",
+              "startedAt": "2026-09-03T00:00:00+00:00",
+              "reviewRounds": 5,
+              "reviewRoundCap": 5
+            }
+            """);
+
+        var state = run.ReadState();
+
+        Assert.Equal(0, state.AutoContinuedReviewRounds);
+        Assert.Equal(0, state.AutoContinuedCodeReviewRounds);
+        Assert.Null(state.ReviewTallies);
+        Assert.Null(state.CodeReviewTallies);
+
+        run.WriteState(state with { AutoContinuedReviewRounds = 1, ReviewTallies = [new(4, false), new(2, true)] });
+        var written = run.ReadState();
+        Assert.Equal(1, written.AutoContinuedReviewRounds);
+        Assert.Equal(new ReviewTally[] { new(4, false), new(2, true) }, written.ReviewTallies!);
+    }
+
     [Fact]
     public void The_gate_settings_round_trip_through_the_state_file()
     {

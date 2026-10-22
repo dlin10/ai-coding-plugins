@@ -52,6 +52,7 @@ builder.Services
         // Outermost, so every call counts in the Run's clock from its arrival, however it ends.
         o.Filters.Request.CallToolFilters.Add(OrchestratorCall.Filter(phases));
         o.Filters.Request.CallToolFilters.Add(ToolErrors.Surfaced);
+        o.Filters.Request.CallToolFilters.Add(ToolResultText.Compact);
     })
     .WithStdioServerTransport()
     // The SDK's own options plus this assembly's contract for the two structured arguments of

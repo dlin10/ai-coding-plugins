@@ -124,7 +124,7 @@ public sealed class FullGateReviewTests : IDisposable
             () => ForgeTools.Status(SessionRoots.None, _workspace, run.RunId, CancellationToken.None),
             () => Confirm(run, false, "bad", new OrchestratorDecisionBatch("invalid", [])),
             () => new WorkAct(new RecordingVendor("codex"), Prompts()).RunAsync("review.fix", run,
-                null, Critic, null, null, null, false, CancellationToken.None, gate: "bad") })
+                Critic, CancellationToken.None, gate: "bad") })
         {
             await AssertFiltered(read, "saved fullGate");
             AssertSnapshot(before, run);
@@ -170,7 +170,7 @@ public sealed class FullGateReviewTests : IDisposable
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task Pending_guard_precedes_cap_grant_empty_diff_and_background_job(bool grant, bool empty)
+    public async Task Pending_guard_precedes_cap_grant_and_empty_diff(bool grant, bool empty)
     {
         var run = NewRun(true);
         run.WriteState(run.ReadState() with { CodeReviewRounds = 3 });
@@ -181,12 +181,9 @@ public sealed class FullGateReviewTests : IDisposable
             .ReviewAsync(run, Critic, grant, CancellationToken.None), ContractJson.Default.Critique), "pending full host verification");
         await AssertFiltered(() => ForgeTools.ReviewCode(new CatalogCache(), SessionRoots.None, _workspace,
             run.RunId, "critic", CancellationToken.None, vendor: "codex", userGrantedRound: grant), "pending full host verification");
-        var registry = new JobRegistry();
-        await AssertFiltered(() => StartReview(registry, run, vendor, grant), "pending full host verification");
         AssertSnapshot(before, run);
         Assert.Empty(vendor.Sessions);
         Assert.Equal(0, git.Reads);
-        Assert.Null(registry.Get(run.Path));
     }
 
     [Theory]
@@ -227,41 +224,6 @@ public sealed class FullGateReviewTests : IDisposable
     }
 
     [Fact]
-    public async Task Final_background_review_matches_direct_and_fetch_retains_pending_snapshot()
-    {
-        await InitializeGit();
-        await File.WriteAllTextAsync(Path.Combine(_workspace, "tracked.txt"), "changed");
-        var run = NewRun(true);
-        run.WriteState(run.ReadState() with { FullGate = "final" });
-        static RecordingVendor Vendor()
-        {
-            var vendor = new RecordingVendor("codex");
-            vendor.Enqueue(new VendorCritique { Verdict = "approve", Summary = "approved", Findings = [], Reopenings = [],
-                UnresolvedAssessments = [new("F-0001", false, "fixed"), new("F-0002", false, "fixed")] });
-            return vendor;
-        }
-        var direct = await new CodeReview(Vendor(), Prompts(), new GitClient(_workspace))
-            .ReviewAsync(run, Critic, false, CancellationToken.None);
-        var registry = new JobRegistry();
-        var start = JsonNode.Parse(await StartReview(registry, run, Vendor(), false))!;
-        var id = start["jobId"]!.GetValue<string>();
-        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, id, CancellationToken.None);
-        var fetch = await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, id, CancellationToken.None);
-        var payload = JsonNode.Parse(fetch)!["result"]!.GetValue<string>();
-        var background = JsonSerializer.Deserialize(payload, ContractJson.Default.Critique)!;
-        Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.Critique),
-            JsonSerializer.Serialize(background, ContractJson.Default.Critique));
-        run.ReadDecisionLedger().Apply(new OrchestratorDecisionBatch("partial", [new("F-0001", "hostVerified",
-            "orchestrator", "verified", "G1 passed covering A")]), LedgerPhase.CodeReview);
-        Assert.Equal(fetch, await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, id, CancellationToken.None));
-        var status = JsonNode.Parse(await ForgeTools.Status(SessionRoots.None, _workspace, run.RunId, CancellationToken.None))!;
-        Assert.Equal("[\"F-0002\"]", status["ledger"]!["pendingFullGateFindingIds"]!.ToJsonString());
-        var current = await new CodeReview(new RecordingVendor("codex"), Prompts(), new ReviewGit(true))
-            .ReviewAsync(run, Critic, false, CancellationToken.None);
-        Assert.Equal(["F-0002"], current.PendingFullGateFindingIds);
-    }
-
-    [Fact]
     public async Task Plan_review_omits_pending_annotation_with_saved_final_timing()
     {
         var run = NewRun(true);
@@ -273,24 +235,6 @@ public sealed class FullGateReviewTests : IDisposable
             false, CancellationToken.None);
         Assert.DoesNotContain("pendingFullGateFindingIds", JsonSerializer.Serialize(result, ContractJson.Default.Critique));
         Assert.Equal(2, run.ReadDecisionLedger().Summary.PendingFullGateFindingIds.Count);
-    }
-
-    [Fact]
-    public async Task Execution_rechecks_after_successful_admission()
-    {
-        var run = NewRun(false);
-        var vendor = new RecordingVendor("codex");
-        var registry = new JobRegistry();
-        var start = await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "review.code",
-            "critic", null, "codex", null, null, null, null, false, null, null, CancellationToken.None,
-            _ => { AddPending(run); return vendor; }, Prompts());
-        var id = JsonNode.Parse(start)!["jobId"]!.GetValue<string>();
-        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, id, CancellationToken.None);
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, id, CancellationToken.None))!;
-        Assert.Equal("failed", fetch["state"]!.GetValue<string>());
-        Assert.Contains("pending full host verification", fetch["error"]!.GetValue<string>());
-        Assert.Empty(vendor.Sessions);
-        Assert.Equal(0, run.ReadState().CodeReviewRounds);
     }
 
     [Fact]
@@ -389,10 +333,6 @@ public sealed class FullGateReviewTests : IDisposable
     private Task<string> Confirm(RunDirectory run, bool approved, string? timing, OrchestratorDecisionBatch? decisions = null) =>
         ForgeTools.ConfirmPlan(SessionRoots.None, _workspace, run.RunId, approved, CancellationToken.None,
             decisions: decisions, fullGate: timing, plan: Plan);
-
-    private Task<string> StartReview(JobRegistry registry, RunDirectory run, IVendor vendor, bool grant) =>
-        ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "review.code", "critic", null, "codex",
-            null, null, null, null, grant, null, null, CancellationToken.None, _ => vendor, Prompts());
 
     private async Task InitializeGit()
     {

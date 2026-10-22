@@ -107,11 +107,11 @@ public sealed class WorkerTelemetryTests : IDisposable
     }
 
     [Fact]
-    public void Cursor_schema_retry_keeps_turn_identity_and_numbers_process_attempts()
+    public void A_retried_turn_keeps_its_identity_and_numbers_process_attempts()
     {
         var context = Context("plan_review", round: 1);
         var role = new RoleSpec(VendorRole.Critic, "role", Telemetry: context);
-        var turn = new VendorTurn(role, new Selection("cursor-model", "default"), "cursor");
+        var turn = new VendorTurn(role, new Selection("claude-model", "high"), "claude");
 
         var first = turn.Start(10, resumeToken: null);
         first.InvalidOutput();
@@ -131,7 +131,7 @@ public sealed class WorkerTelemetryTests : IDisposable
         Assert.Equal("succeeded", records[1].GetProperty("outcome").GetString());
         Assert.Equal("fresh", records[0].GetProperty("sessionMode").GetString());
         Assert.Equal("resumed", records[1].GetProperty("sessionMode").GetString());
-        Assert.Equal("default", records[1].GetProperty("effort").GetString());
+        Assert.Equal("high", records[1].GetProperty("effort").GetString());
     }
 
     [Fact]

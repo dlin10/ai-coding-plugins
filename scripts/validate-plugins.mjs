@@ -229,12 +229,19 @@ function deepEqual(a, b) {
   return false;
 }
 
+/** Whether the plugin a catalog entry names ships a Cursor manifest. */
+function shipsCursorManifest(entry) {
+  return typeof entry.source === 'string'
+    && existsSync(join(resolve(repoRoot, entry.source), '.cursor-plugin', 'plugin.json'));
+}
+
 /**
  * Cursor catalog may be a strict superset of Claude catalog (Cursor-only plugins).
  * Shared entries must be deep-equal; Claude-only entries are an error, except mods
- * (`./mods/...`), which change Claude Code's own interface and have no Cursor counterpart.
+ * (`./mods/...`), which change Claude Code's own interface and have no Cursor counterpart,
+ * and plugins that ship no Cursor manifest, which Cursor has nothing to install from.
  */
-export function validateCatalogSuperset(claude, cursor, report = fail) {
+export function validateCatalogSuperset(claude, cursor, report = fail, shipsCursor = shipsCursorManifest) {
   if (claude.name !== cursor.name) {
     report(
       `marketplace name mismatch: Claude "${claude.name}" vs Cursor "${cursor.name}"`,
@@ -253,6 +260,7 @@ export function validateCatalogSuperset(claude, cursor, report = fail) {
     const cursorEntry = cursorByName.get(entry.name);
     if (!cursorEntry) {
       if (typeof entry.source === 'string' && entry.source.startsWith('./mods/')) continue;
+      if (!shipsCursor(entry)) continue;
       report(
         `plugin "${entry.name}" is in .claude-plugin/marketplace.json but missing from .cursor-plugin/marketplace.json`,
       );
@@ -269,7 +277,8 @@ export function validateCatalogSuperset(claude, cursor, report = fail) {
 /** Cross-host sync checks: catalog superset, plugin versions equal, roslyn-mcp extension version consistent. */
 function validateSync() {
   // 1. Cursor marketplace may be a strict superset of Claude marketplace
-  //    (Cursor-only plugins). Shared entries must be deep-equal.
+  //    (Cursor-only plugins), less the plugins that ship no Cursor manifest.
+  //    Shared entries must be deep-equal.
   const claudeCatalog = join(repoRoot, '.claude-plugin', 'marketplace.json');
   const cursorCatalog = join(repoRoot, '.cursor-plugin', 'marketplace.json');
   const codexCatalog = join(repoRoot, '.agents', 'plugins', 'marketplace.json');

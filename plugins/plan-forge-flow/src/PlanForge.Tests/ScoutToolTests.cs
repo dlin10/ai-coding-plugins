@@ -201,8 +201,8 @@ public sealed class ScoutToolTests : IDisposable
     [Fact]
     public async Task Direct_id_keyed_factory_receives_the_persisted_vendor_id()
     {
-        var run = NewRun(new ScoutState(true, "cursor", "model", null));
-        var vendor = VendorWith("cursor", "session");
+        var run = NewRun(new ScoutState(true, "codex", "model", null));
+        var vendor = VendorWith("codex", "session");
         string? requested = null;
 
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "question", "fresh",
@@ -212,215 +212,18 @@ public sealed class ScoutToolTests : IDisposable
                 return vendor;
             }, _prompts);
 
-        Assert.Equal("cursor", requested);
+        Assert.Equal("codex", requested);
     }
 
     [Fact]
-    public async Task Background_id_keyed_factory_receives_the_persisted_vendor_id()
-    {
-        var run = NewRun(new ScoutState(true, "cursor", "model", null));
-        var vendor = VendorWith("cursor", "session");
-        string? requested = null;
-        var registry = new JobRegistry();
-
-        var start = await StartScout(registry, run, vendor, id =>
-        {
-            requested = id;
-            return vendor;
-        });
-        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
-            start.JobId, CancellationToken.None);
-
-        Assert.Equal("cursor", requested);
-    }
-
-    [Fact]
-    public async Task Background_fetch_result_is_the_complete_report()
-    {
-        var run = NewRun();
-        var registry = new JobRegistry();
-        var source = new string('a', 397) + ":42";
-        var vendor = new RecordingVendor("codex");
-        vendor.Enqueue(LargeReport(source), "session");
-        var started = await StartScout(registry, run, vendor);
-        var poll = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace,
-            run.RunId, started.JobId, CancellationToken.None))!;
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace,
-            run.RunId, started.JobId, CancellationToken.None))!;
-
-        Assert.Equal("succeeded", poll["state"]!.GetValue<string>());
-        Assert.Equal("succeeded", fetch["state"]!.GetValue<string>());
-        using var report = JsonDocument.Parse(fetch["result"]!.GetValue<string>());
-        var root = report.RootElement;
-        var facts = root.GetProperty("confirmedFacts").EnumerateArray().ToArray();
-        Assert.Equal(2000, root.GetProperty("summary").GetString()!.Length);
-        Assert.Equal(5, facts.Length);
-        Assert.All(facts, fact =>
-        {
-            Assert.Equal(1000, fact.GetProperty("text").GetString()!.Length);
-            Assert.Equal(source, fact.GetProperty("source").GetString());
-        });
-        Assert.True(root.TryGetProperty("dependentsAndPinnedBehaviour", out _));
-        Assert.False(root.TryGetProperty("truncated", out _));
-        Assert.False(root.TryGetProperty("scout", out _));
-    }
-
-    /// <summary>Background successful scout fetch includes scout metadata.</summary>
-    [Fact]
-    public async Task Background_successful_scout_fetch_includes_scout_metadata()
-    {
-        var run = NewRun();
-        var registry = new JobRegistry();
-        var started = await StartScout(registry, run, VendorWith("background", "session"));
-        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
-            started.JobId, CancellationToken.None);
-
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace,
-            run.RunId, started.JobId, CancellationToken.None))!;
-
-        Assert.Equal(run.ScoutAnswersPath, fetch["documents"]!["scout"]!["path"]!.GetValue<string>());
-    }
-
-    [Fact]
-    public async Task Background_failed_scout_fetch_omits_scout_metadata()
-    {
-        var run = NewRun();
-        var registry = new JobRegistry();
-        var vendor = new RecordingVendor("codex");
-        vendor.Enqueue(new VendorException("vendor stderr", 7), "failed-session");
-        var started = await StartScout(registry, run, vendor);
-        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
-            started.JobId, CancellationToken.None);
-
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace,
-            run.RunId, started.JobId, CancellationToken.None))!;
-
-        Assert.Null(fetch["documents"]!["scout"]);
-        Assert.Contains("vendor_failed", fetch["error"]!.GetValue<string>(), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Missing_background_selection_is_refused_synchronously_without_job_or_factory()
-    {
-        var run = NewRunCore(null);
-        var registry = new JobRegistry();
-        var starts = 0;
-
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, null, null, null, null, null, false,
-            "question", "fresh", CancellationToken.None, _ =>
-            {
-                starts++;
-                return VendorWith("missing", "session");
-            }, _prompts));
-
-        Assert.Equal(0, starts);
-        Assert.Null(registry.Get(run.Path));
-    }
-
-    [Fact]
-    public async Task Disabled_background_selection_is_refused_synchronously_without_job_or_factory()
-    {
-        var run = NewRunCore(new ScoutState(false));
-        var registry = new JobRegistry();
-
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, null, null, null, null, null, false,
-            "question", "fresh", CancellationToken.None, _ => VendorWith("disabled", "session"), _prompts));
-
-        Assert.Null(registry.Get(run.Path));
-    }
-
-    [Fact]
-    public async Task Scout_requires_a_nonblank_question()
-    {
-        var run = NewRun();
-        var registry = new JobRegistry();
-
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, null, null, null, null, null, false,
-            " ", "fresh", CancellationToken.None, _ => VendorWith("blank", "session"), _prompts));
-
-        Assert.Null(registry.Get(run.Path));
-    }
-
-    [Fact]
-    public async Task An_overlong_question_is_rejected_synchronously_by_background_start()
-    {
-        var run = NewRun();
-        var registry = new JobRegistry();
-
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, null, null, null, null, null, false,
-            new string('q', Scout.MaxQuestionLength + 1), "fresh", CancellationToken.None,
-            _ => VendorWith("long", "session"), _prompts));
-
-        Assert.Null(registry.Get(run.Path));
-    }
-
-    [Fact]
-    public async Task Scout_rejects_all_legacy_arguments()
-    {
-        var run = NewRun();
-        var registry = new JobRegistry();
-
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", "model", null, null, null, null, null, null, false,
-            "question", "fresh", CancellationToken.None, _ => VendorWith("model", "session"), _prompts));
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, "effort", null, null, null, null, null, false,
-            "question", "fresh", CancellationToken.None, _ => VendorWith("effort", "session"), _prompts));
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, "cursor", null, null, null, null, false,
-            "question", "fresh", CancellationToken.None, _ => VendorWith("vendor", "session"), _prompts));
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, null, "draft", null, null, null, false,
-            "question", "fresh", CancellationToken.None, _ => VendorWith("draft", "session"), _prompts));
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, null, null, "findings", null, null, false,
-            "question", "fresh", CancellationToken.None, _ => VendorWith("findings", "session"), _prompts));
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, null, null, null, "deferred", null, false,
-            "question", "fresh", CancellationToken.None, _ => VendorWith("deferred", "session"), _prompts));
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, null, null, null, null, "revision", false,
-            "question", "fresh", CancellationToken.None, _ => VendorWith("revision", "session"), _prompts));
-        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, "scout", null, null, null, null, null, null, null, true,
-            "question", "fresh", CancellationToken.None, _ => VendorWith("round", "session"), _prompts));
-    }
-
-    [Fact]
-    public void Background_schema_makes_model_optional_but_runtime_requires_it_for_legacy_acts()
+    public void Job_schema_makes_model_optional_but_runtime_requires_it()
     {
         var schema = ToolSchema(nameof(ForgeTools.StartWork));
         var properties = schema.GetProperty("properties");
 
         Assert.Contains("model", properties.EnumerateObject().Select(property => property.Name));
         Assert.DoesNotContain("model", schema.GetProperty("required").EnumerateArray().Select(value => value.GetString()));
-        Assert.Throws<ArgumentRejectedException>(() => WorkAct.ValidateArguments(
-            "build.next", null, null, null, null, null, false));
-    }
-
-    /// <summary>The background result and logs contain the report JSON without its store path.</summary>
-    [Fact]
-    public async Task Background_result_job_file_and_tool_result_log_contain_the_report_json()
-    {
-        var run = NewRun();
-        var registry = new JobRegistry();
-        var started = await StartScout(registry, run, VendorWith("background", "session"));
-        await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId,
-            started.JobId, CancellationToken.None);
-        var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace,
-            run.RunId, started.JobId, CancellationToken.None))!;
-
-        var job = AtomicFile.Read(run.JobFilePath(started.JobId));
-        var log = AtomicFile.Read(run.DiagnosticLogPath);
-        Assert.Contains("dependentsAndPinnedBehaviour", job, StringComparison.Ordinal);
-        Assert.Contains("dependentsAndPinnedBehaviour", log, StringComparison.Ordinal);
-        Assert.DoesNotContain("scout-answers.json", job, StringComparison.Ordinal);
-        using var report = JsonDocument.Parse(fetch["result"]!.GetValue<string>());
-        Assert.False(report.RootElement.TryGetProperty("truncated", out _));
+        Assert.Throws<ArgumentRejectedException>(() => WorkAct.ValidateArguments("build.next", null));
     }
 
     [Fact]
@@ -450,19 +253,6 @@ public sealed class ScoutToolTests : IDisposable
                                       string mode = "fresh") =>
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "bounded question", mode,
             CancellationToken.None, _ => vendor, _prompts);
-
-    private async Task<BackgroundRun> StartScout(JobRegistry registry,
-                                                  RunDirectory run,
-                                                  RecordingVendor vendor,
-                                                  Func<string, IVendor>? factory = null)
-    {
-        var requestedFactory = factory ?? (_ => vendor);
-        var start = JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace,
-            run.RunId, "scout", null, null, null, null, null, null, null, false,
-            "bounded question", "fresh", CancellationToken.None, requestedFactory, _prompts))!;
-        var jobId = start["jobId"]!.GetValue<string>();
-        return new BackgroundRun(start, jobId);
-    }
 
     private RecordingVendor VendorWith(string summary, string resumeToken)
     {
@@ -556,6 +346,4 @@ public sealed class ScoutToolTests : IDisposable
 
         throw new DirectoryNotFoundException("could not locate the prompts folder above the test binary");
     }
-
-    private sealed record BackgroundRun(JsonNode Start, string JobId);
 }

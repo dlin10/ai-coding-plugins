@@ -1,5 +1,9 @@
 # A builder session per plan task and per code-review round
 
+What `forge.status` shows of the session is amended by
+[0042](0042-tool-results-carry-what-the-orchestrator-acts-on.md): `builderSessionScope` and
+`taskChanges` are server-only state and stay out of the status.
+
 Narrows the Builder's session from the whole Run to one plan task or one code-review round, and
 with it when [0019](0019-instruct-the-workers-through-the-act-prompt.md) delivers the Builder Brief
 and the user's instructions. Issue #129.

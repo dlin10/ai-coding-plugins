@@ -20,6 +20,12 @@ internal sealed class ClaudeCliVendor : IVendor
     /// <summary>The opt-in whose answer `init` reports as <c>fast_mode_state</c>.</summary>
     private const string FAST_OPT_IN = """{"fastMode":true}""";
 
+    /// <summary>
+    /// The marker this plugin's launcher answers by exiting before planforge starts. Other plugins
+    /// and MCP servers ignore it, so a process that carries it sees every server but this one.
+    /// </summary>
+    internal const string SelfExclusionEnvironment = "PLANFORGE_SELF_EXCLUDED";
+
     // Five levels, verified against the CLI. The old code carried six, including a "none" that
     // does not exist.
     private static readonly string[] EFFORTS = ["low", "medium", "high", "xhigh", "max"];
@@ -123,14 +129,15 @@ internal sealed class ClaudeCliVendor : IVendor
     /// <summary>
     /// The servers a worker started here would load. `claude mcp list` is the only listing the CLI
     /// has, prints text and health-checks every server on the way; this plugin's own server is told
-    /// to exit at once through the marker Cursor workers already carry, rather than being started
+    /// to exit at once through <see cref="SelfExclusionEnvironment"/>, rather than being started
     /// and handshaken for nothing.
     /// </summary>
+    /// <param name="ct">Cancels the listing.</param>
     private async Task<IReadOnlyList<string>> ListServersAsync(CancellationToken ct)
     {
         var environment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            [Cursor.CursorAgentSession.SelfExclusionEnvironment] = "1"
+            [SelfExclusionEnvironment] = "1"
         };
         var spec = new ProcessSpec(Executable, ["mcp", "list"], _workingDirectory, string.Empty, environment);
         return ParseServerList(await StreamingProcess.CollectAsync(spec, LIST_TIMEOUT, ct).ConfigureAwait(false));
@@ -264,10 +271,14 @@ internal sealed class ClaudeCliVendor : IVendor
         && alias.All(character => char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character is '-');
 
     /// <summary>
-    /// Newest first, by the version parsed out of the resolved id the way cursor's families are
-    /// sorted; the sort is stable, so a tie keeps the remembered order and `fable` stays ahead of
-    /// `opus`. Ids without a version go to the tail.
+    /// Newest first, by the version parsed out of the resolved id; the sort is stable, so a tie
+    /// keeps the remembered order and `fable` stays ahead of `opus`. Ids without a version go to the
+    /// tail.
     /// </summary>
+    /// <param name="resolved">Each remembered or discovered alias with the model id the CLI resolved it to.</param>
+    /// <param name="defaultModel">The model the CLI picks when none is asked for, if it said.</param>
+    /// <param name="fastAliases">The aliases offered with the Fast tier.</param>
+    /// <param name="fastUnavailable">Why the account will not serve Fast, if it will not.</param>
     internal static List<VendorModel> BuildModels(IReadOnlyList<(string Alias, string Id)> resolved,
                                                   string? defaultModel,
                                                   IReadOnlySet<string>? fastAliases = null,

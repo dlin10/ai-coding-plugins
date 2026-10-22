@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using PlanForge.Prompts;
 using PlanForge.Vendors;
-using PlanForge.Vendors.Cursor;
+using PlanForge.Vendors.Claude;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -51,11 +51,11 @@ public sealed class PromptRootTests : IDisposable
     public void A_configured_root_is_what_the_library_then_loads_from()
     {
         var root = Path.Combine(_temp, "prompts");
-        Directory.CreateDirectory(Path.Combine(root, "cursor"));
+        Directory.CreateDirectory(Path.Combine(root, "claude"));
         File.WriteAllText(Path.Combine(root, "critic-contract.md"), "judge it");
-        File.WriteAllText(Path.Combine(root, "cursor", "critic.md"), "answer in JSON");
+        File.WriteAllText(Path.Combine(root, "claude", "critic.md"), "answer in JSON");
 
-        var prompt = new PromptLibrary(PromptLibrary.Locate(root)).Load("cursor", VendorRole.Critic);
+        var prompt = new PromptLibrary(PromptLibrary.Locate(root)).Load("claude", VendorRole.Critic);
 
         // Both halves, in order: the role contract, then what differs about this vendor.
         Assert.Contains("judge it", prompt, StringComparison.Ordinal);
@@ -78,7 +78,7 @@ public sealed class PromptRootTests : IDisposable
     }
 
     [Fact]
-    public async Task The_launcher_exits_before_starting_the_server_in_a_cursor_worker()
+    public async Task The_launcher_exits_before_starting_the_server_in_a_self_excluded_process()
     {
         var start = new ProcessStartInfo("cmd.exe")
         {
@@ -90,7 +90,7 @@ public sealed class PromptRootTests : IDisposable
         start.ArgumentList.Add("/d");
         start.ArgumentList.Add("/c");
         start.ArgumentList.Add(Launcher());
-        start.Environment[CursorAgentSession.SelfExclusionEnvironment] = "1";
+        start.Environment[ClaudeCliVendor.SelfExclusionEnvironment] = "1";
 
         using var process = Process.Start(start) ?? throw new InvalidOperationException("launcher did not start");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));

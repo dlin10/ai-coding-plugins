@@ -4,7 +4,6 @@ using PlanForge.Mcp;
 using PlanForge.Run;
 using PlanForge.Vendors;
 using PlanForge.Vendors.Codex;
-using PlanForge.Vendors.Cursor;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -62,23 +61,6 @@ public sealed class FastTierTests : IDisposable
                         claude.RefuseFast(new Selection("opus", null, Fast: true), new VendorCatalog([refused], CatalogSource.Resolved)));
     }
 
-    /// <summary>
-    /// Cursor confirms by the id the join would send, so a full id that already carries its effort
-    /// is confirmed as surely as a family plus an effort.
-    /// </summary>
-    [Fact]
-    public void Cursor_confirms_fast_by_the_id_the_join_would_send()
-    {
-        var codex = new VendorModel("gpt-5.3-codex", ["low", "default", "high"]) { FastEfforts = ["default", "high"] };
-        var catalog = new VendorCatalog([codex], CatalogSource.Live);
-        var cursor = new CursorAgentVendor();
-
-        Assert.Null(cursor.RefuseFast(new Selection("gpt-5.3-codex", "high", Fast: true), catalog));
-        Assert.Null(cursor.RefuseFast(new Selection("gpt-5.3-codex", null, Fast: true), catalog));
-        Assert.Null(cursor.RefuseFast(new Selection("gpt-5.3-codex-high", null, Fast: true), catalog));
-        Assert.Contains("gpt-5.3-codex-low-fast", cursor.RefuseFast(new Selection("gpt-5.3-codex", "low", Fast: true), catalog));
-    }
-
     [Fact]
     public async Task A_background_act_asking_for_fast_the_catalogue_does_not_confirm_never_starts()
     {
@@ -86,7 +68,7 @@ public sealed class FastTierTests : IDisposable
         var vendor = new RecordingVendor("codex") { Catalog = new VendorCatalog([Mini], CatalogSource.Live) };
         var registry = new JobRegistry();
 
-        var refusal = await Assert.ThrowsAsync<ArgumentRejectedException>(() => StartPlanReview(registry, run, vendor, "gpt-5.4-mini"));
+        var refusal = await Assert.ThrowsAsync<ArgumentRejectedException>(() => StartBuild(registry, run, vendor, "gpt-5.4-mini"));
 
         Assert.Contains("gpt-5.4-mini", refusal.Message, StringComparison.Ordinal);
         Assert.Empty(vendor.Sessions);
@@ -98,10 +80,10 @@ public sealed class FastTierTests : IDisposable
     {
         var run = NewRun("confirmed");
         var vendor = new RecordingVendor("codex") { Catalog = new VendorCatalog([Astra], CatalogSource.Live) };
-        vendor.Enqueue(new Critique("approve", [], "ready"));
+        vendor.Enqueue(Built());
         var registry = new JobRegistry();
 
-        var start = JsonNode.Parse(await StartPlanReview(registry, run, vendor, "gpt-6-astra"))!;
+        var start = JsonNode.Parse(await StartBuild(registry, run, vendor, "gpt-6-astra"))!;
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, start["jobId"]!.GetValue<string>(),
                                   CancellationToken.None);
 
@@ -117,17 +99,17 @@ public sealed class FastTierTests : IDisposable
     {
         var run = NewRun("fell-back");
         var vendor = new RecordingVendor("codex") { Catalog = new VendorCatalog([Astra], CatalogSource.Live) };
-        vendor.Enqueue(new Critique("approve", [], "ready"),
+        vendor.Enqueue(Built(),
                        speedWarning: "claude fell back to standard speed during the turn (fast_mode_state cooldown)");
         var registry = new JobRegistry();
 
-        var jobId = JsonNode.Parse(await StartPlanReview(registry, run, vendor, "gpt-6-astra"))!["jobId"]!.GetValue<string>();
+        var jobId = JsonNode.Parse(await StartBuild(registry, run, vendor, "gpt-6-astra"))!["jobId"]!.GetValue<string>();
         await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
         var fetch = JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
                                                               CancellationToken.None))!;
 
-        var result = JsonNode.Parse(fetch["result"]!.GetValue<string>())!;
-        Assert.Equal("approve", result["verdict"]!.GetValue<string>());
+        var result = fetch["result"]!;
+        Assert.Equal("done", result["result"]!["status"]!.GetValue<string>());
         Assert.Contains("cooldown", result["speedWarning"]!.GetValue<string>(), StringComparison.Ordinal);
         Assert.Contains("fast_mode_state cooldown", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
     }
@@ -145,15 +127,19 @@ public sealed class FastTierTests : IDisposable
         Assert.Contains("no Fast tier", refusal.Message, StringComparison.Ordinal);
     }
 
-    private Task<string> StartPlanReview(JobRegistry registry, RunDirectory run, RecordingVendor vendor, string model) =>
-        ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "plan.review", model, null, "codex",
-                             "## draft", null, null, null, false, null, null, CancellationToken.None, _ => vendor,
-                             fast: true);
+    private Task<string> StartBuild(JobRegistry registry, RunDirectory run, RecordingVendor vendor, string model) =>
+        ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "build.next", model, null, "codex",
+                             CancellationToken.None, _ => vendor, fast: true);
 
+    private static BuildResult Built() => new("done", [], new Verification("passed", "condition checked"), "built");
+
+    /// <summary>An approved one-task plan whose gate is a condition, so a build runs no command.</summary>
+    /// <param name="runId">The Run to create.</param>
     private RunDirectory NewRun(string runId)
     {
         var run = RunDirectory.Create(_workspace, runId);
-        run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.Now, 0, 5));
+        run.WritePlan("## Approach\n1. Task.\n   **Gate:** condition checked\n");
+        run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.Now, 0, 5, Approved: true));
         return run;
     }
 }

@@ -1,6 +1,5 @@
 using PlanForge.Vendors.Claude;
 using PlanForge.Vendors.Codex;
-using PlanForge.Vendors.Cursor;
 
 namespace PlanForge.Vendors;
 
@@ -11,7 +10,7 @@ namespace PlanForge.Vendors;
 /// <remarks>
 /// Deliberately a factory rather than a container registration. A vendor is built around the
 /// workspace root, which arrives as a tool argument, so there is nothing to resolve at startup —
-/// the container would hold the same three-way mapping and then need a runtime key anyway, trading
+/// the container would hold the same two-way mapping and then need a runtime key anyway, trading
 /// this message for a resolution failure. The tool surface builds its other collaborators the same
 /// way.
 /// </remarks>
@@ -24,7 +23,6 @@ internal static class VendorFactory
         {
             "claude" => new ClaudeCliVendor(workspaceRoot),
             "codex" => new CodexCliVendor(workspaceRoot),
-            "cursor" => new CursorAgentVendor(workspaceRoot),
-            _ => throw new VendorException($"unknown vendor '{id}' — expected claude, codex or cursor")
+            _ => throw new VendorException($"unknown vendor '{id}' — expected claude or codex")
         };
 }

@@ -71,17 +71,16 @@ public sealed class PlanPatchPayloadTests(ITestOutputHelper output) : IDisposabl
         await Write(whole, revised);
         var json = await ForgeTools.PatchPlan(SessionRoots.None, _workspace, patched.RunId, outline.PlanHash,
                                               edits, CancellationToken.None);
-        var answer = JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanPatchResult)!;
-
         Assert.Equal(revised, whole.ReadPlan());
         Assert.Equal(File.ReadAllBytes(whole.PlanPath), File.ReadAllBytes(patched.PlanPath));
         var fullDraftSize = new PlanPatchSize(revised.Length, Encoding.UTF8.GetByteCount(revised));
-        Assert.True(answer.Sizes.PayloadSize.Characters < fullDraftSize.Characters);
-        Assert.True(answer.Sizes.PayloadSize.Utf8Bytes < fullDraftSize.Utf8Bytes);
-        Assert.Equal(PlanPatchSizes.Payload(edits).PayloadSize, answer.Sizes.PayloadSize);
+        var sizes = PlanPatchToolTests.LoggedSizes(patched);
+        Assert.True(sizes.PayloadSize.Characters < fullDraftSize.Characters);
+        Assert.True(sizes.PayloadSize.Utf8Bytes < fullDraftSize.Utf8Bytes);
+        Assert.Equal(PlanPatchSizes.Payload(edits).PayloadSize, sizes.PayloadSize);
         Assert.Equal(PlanPatchSizes.Payload(edits).Before(plan).Built(
             TaskText(2, bodies[1]) + TaskText(taskCount, bodies[^1]),
-            string.Concat(edits.Select(edit => edit!.Content)), revised), answer.Sizes);
+            string.Concat(edits.Select(edit => edit!.Content)), revised), sizes);
 
         var entry = Assert.Single(AtomicFile.Read(patched.DiagnosticLogPath)
             .Split('\n')
@@ -90,13 +89,12 @@ public sealed class PlanPatchPayloadTests(ITestOutputHelper output) : IDisposabl
             .Select(line => JsonSerializer.Deserialize(line, DiagnosticJson.Default.LogEntry)!),
             record => record.Event == "plan.patch");
         Assert.Equal("applied", entry.Fields!["outcome"]);
-        foreach (var (name, value) in answer.Sizes.LogFields()) Assert.Equal(value, entry.Fields[name]);
 
         foreach (var marker in Enumerable.Range(1, taskCount).Select(Marker).Append(ChangedMarker).Append(InsertedMarker))
             Assert.DoesNotContain(marker, json, StringComparison.Ordinal);
 
         Report("full draft", fullDraftSize);
-        foreach (var (name, size) in answer.Sizes.Measurements()) Report(name, size);
+        foreach (var (name, size) in sizes.Measurements()) Report(name, size);
         Report("answer", new PlanPatchSize(json.Length, Encoding.UTF8.GetByteCount(json)));
     }
 

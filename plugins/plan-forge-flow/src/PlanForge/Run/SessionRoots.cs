@@ -19,10 +19,9 @@ namespace PlanForge.Run;
 /// <para>
 /// Measured on 2026-09-03 by answering each host's handshake with a server that records it:
 /// claude-code 2.1.258 declares <c>roots: {listChanged: true}</c> and answers with the session's
-/// working directory; codex-mcp-client 0.147.0 declares no roots and answers <c>[]</c>; Cursor
-/// 1.0.0 declares no roots and answers <c>-32601 Method not found</c>. The declared capability is
-/// therefore checked before the request is sent, and a host without it keeps the layout it always
-/// had, under <c>workspaceRoot</c>.
+/// working directory; codex-mcp-client 0.147.0 declares no roots and answers <c>[]</c>. The
+/// declared capability is therefore checked before the request is sent, and a host without it keeps
+/// the layout it always had, under <c>workspaceRoot</c>.
 /// </para>
 /// <para>
 /// Roots is deprecated by the specification of 2026-07-28 (SEP-2577, which retires sampling and

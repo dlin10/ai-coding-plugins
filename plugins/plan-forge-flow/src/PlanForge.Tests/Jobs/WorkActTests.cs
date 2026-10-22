@@ -3,7 +3,6 @@ using PlanForge.Acts;
 using PlanForge.Jobs;
 using PlanForge.Mcp;
 using PlanForge.Prompts;
-using PlanForge.Repo;
 using PlanForge.Run;
 using PlanForge.Vendors;
 using Xunit;
@@ -33,25 +32,6 @@ public sealed class WorkActTests : IDisposable
     }
 
     [Fact]
-    public async Task Plan_review_dispatch_matches_the_direct_act_payload()
-    {
-        const string draft = "## Approach\n\n1. Review the change.\n";
-        var directVendor = new RecordingVendor("claude");
-        var response = new Critique("approve", [], "good");
-        directVendor.Enqueue(response);
-        var direct = await new PlanReview(directVendor, _prompts).ReviewAsync(
-            NewRun("plan-direct"), draft, new Selection("critic", "low"), null, null, false, CancellationToken.None);
-
-        var dispatchedVendor = new RecordingVendor("claude");
-        dispatchedVendor.Enqueue(response);
-        var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
-            "plan.review", NewRun("plan-dispatched"), draft, new Selection("critic", "low"), null, null, null,
-            false, CancellationToken.None);
-
-        Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.Critique), payload);
-    }
-
-    [Fact]
     public async Task Build_dispatch_matches_the_direct_act_payload()
     {
         var directVendor = new RecordingVendor("codex");
@@ -63,69 +43,9 @@ public sealed class WorkActTests : IDisposable
         var dispatchedVendor = new RecordingVendor("codex");
         dispatchedVendor.Enqueue(response, "next");
         var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
-            "build.next", NewApprovedRun("build-dispatched"), null, new Selection("builder", null), null, null, null,
-            false, CancellationToken.None);
+            "build.next", NewApprovedRun("build-dispatched"), new Selection("builder", null), CancellationToken.None);
 
-        Assert.Equal(JsonSerializer.Serialize(direct, ForgeToolJson.Default.BuildOutcome), payload);
-    }
-
-    [Fact]
-    public async Task Code_review_dispatch_matches_the_direct_act_payload()
-    {
-        var git = new RecordingReviewGit(["tracked.cs"], "diff");
-        var directVendor = new RecordingVendor("claude");
-        var response = new Critique("approve", [], "good");
-        directVendor.Enqueue(response);
-        var direct = await new CodeReview(directVendor, _prompts, git).ReviewAsync(
-            NewApprovedRun("code-direct"), new Selection("critic", null), false, CancellationToken.None);
-
-        var dispatchedVendor = new RecordingVendor("claude");
-        dispatchedVendor.Enqueue(response);
-        var payload = await new WorkAct(dispatchedVendor, _prompts, git).RunAsync(
-            "review.code", NewApprovedRun("code-dispatched"), null, new Selection("critic", null), null, null, null,
-            false, CancellationToken.None);
-
-        Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.Critique), payload);
-    }
-
-    /// <summary>
-    /// The Cursor host reaches every worker act only through forge.work.start, so without this the
-    /// grant's dead end would survive there even after the direct tools accept it.
-    /// </summary>
-    [Fact]
-    public async Task A_grant_is_accepted_for_plan_review_and_review_code()
-    {
-        var planVendor = new RecordingVendor("claude");
-        planVendor.Enqueue(new Critique("approve", [], "good"));
-        var planPayload = await new WorkAct(planVendor, _prompts).RunAsync(
-            "plan.review", NewRun("plan-granted"), "## Approach\n\n1. Review the change.\n",
-            new Selection("critic", "low"), null, null, null, true, CancellationToken.None);
-        Assert.Contains("\"verdict\":\"approve\"", planPayload, StringComparison.Ordinal);
-
-        var git = new RecordingReviewGit(["tracked.cs"], "diff");
-        var codeVendor = new RecordingVendor("claude");
-        codeVendor.Enqueue(new Critique("approve", [], "good"));
-        var codePayload = await new WorkAct(codeVendor, _prompts, git).RunAsync(
-            "review.code", NewApprovedRun("code-granted"), null, new Selection("critic", null), null, null, null,
-            true, CancellationToken.None);
-        Assert.Contains("\"verdict\":\"approve\"", codePayload, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// One theory over both capless acts is deliberate: after the case-arm split in
-    /// <c>ValidateArguments</c>, <c>build.next</c> and <c>review.fix</c> reject the grant in
-    /// different arms, and a fact covering only one would let the other be dropped silently.
-    /// </summary>
-    [Theory]
-    [InlineData("build.next")]
-    [InlineData("review.fix")]
-    public async Task A_grant_is_refused_by_the_capless_acts(string act)
-    {
-        var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() => new WorkAct(new RecordingVendor("claude"), _prompts)
-            .RunAsync(act, NewRun($"{act}-granted"), null, new Selection("model", null), null, null, null,
-                true, CancellationToken.None));
-
-        Assert.Contains("userGrantedRound", error.Message, StringComparison.Ordinal);
+        Assert.Equal(BuildOutcomeView.Of(direct).ToJsonString(), payload);
     }
 
     [Fact]
@@ -147,9 +67,8 @@ public sealed class WorkActTests : IDisposable
         var dispatchedFinding = dispatchedRun.ReadDecisionLedger().AddFinding(
             new Finding("major", "tracked.cs", "fix it"), LedgerPhase.CodeReview);
         var payload = await new WorkAct(dispatchedVendor, _prompts).RunAsync(
-            "review.fix", dispatchedRun, null, new Selection("builder", null), null, null, null,
-            false, CancellationToken.None, decisions: null, fixAttemptId: "fix",
-            fixFindingIds: [dispatchedFinding.FindingId]);
+            "review.fix", dispatchedRun, new Selection("builder", null), CancellationToken.None,
+            decisions: null, fixAttemptId: "fix", fixFindingIds: [dispatchedFinding.FindingId]);
 
         Assert.Equal(JsonSerializer.Serialize(direct, ContractJson.Default.BuildResult), payload);
         Assert.Equal(directRun.ReadState().BuilderSessionId, dispatchedRun.ReadState().BuilderSessionId);
@@ -157,79 +76,35 @@ public sealed class WorkActTests : IDisposable
     }
 
     [Fact]
-    public async Task Raw_review_fix_findings_and_deferred_are_rejected()
+    public async Task A_review_fix_with_neither_decisions_nor_findings_is_refused()
     {
         var vendor = new RecordingVendor("codex");
-        var run = NewApprovedRun("fix-deferred");
+        var run = NewApprovedRun("fix-empty");
 
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => new WorkAct(vendor, _prompts).RunAsync(
-            "review.fix", run, null, new Selection("builder", null), " \n", "- outside the plan", null,
-            false, CancellationToken.None));
+            "review.fix", run, new Selection("builder", null), CancellationToken.None));
 
         Assert.Empty(vendor.Sessions);
         Assert.Empty(run.ReadDecisionLedger().Snapshot.AppliedDecisionBatches);
     }
 
-    [Fact]
-    public async Task Unknown_act_is_refused()
+    /// <summary>
+    /// A job runs the two Builder acts alone; the critic and Scout acts have their one-call tools
+    /// only — docs/adr/0043.
+    /// </summary>
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("plan.review")]
+    [InlineData("review.code")]
+    [InlineData("scout")]
+    public async Task An_act_a_job_does_not_run_is_refused(string act)
     {
-        var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() => new WorkAct(new RecordingVendor("claude"), _prompts)
-            .RunAsync("unknown", NewRun("unknown"), null, new Selection("model", null), null, null, null,
-                false, CancellationToken.None));
+        var vendor = new RecordingVendor("claude");
+        var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() => new WorkAct(vendor, _prompts)
+            .RunAsync(act, NewApprovedRun($"refused-{act}"), new Selection("model", null), CancellationToken.None));
 
         Assert.Contains("unknown work act", error.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Code_review_dispatch_carries_the_rounds_scope()
-    {
-        var git = new RecordingReviewGit(["tracked.cs"], "diff");
-        var vendor = new RecordingVendor("claude");
-        vendor.Enqueue(new Critique("approve", [], "good"));
-
-        await new WorkAct(vendor, _prompts, git).RunAsync(
-            "review.code", NewApprovedRun("code-scoped"), null, new Selection("critic", null), null, null, null,
-            false, CancellationToken.None, scope: ReviewScope.From(["build"]));
-
-        Assert.Contains("Also excluded from this round by the orchestrator: `build`.",
-                        Assert.Single(vendor.Sessions).PromptText, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("plan.review")]
-    [InlineData("build.next")]
-    [InlineData("review.fix")]
-    [InlineData("scout")]
-    public void A_review_scope_is_refused_by_every_act_but_code_review(string act)
-    {
-        var error = Assert.Throws<ArgumentRejectedException>(() =>
-            WorkAct.ValidateArguments(act, null, new Selection("model", null), null, null, null, false,
-                                      scope: ReviewScope.From(["build"])));
-
-        Assert.Contains("excludePaths", error.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Legacy_blank_optional_arguments_keep_their_existing_per_act_behavior()
-    {
-        var selection = new Selection("model", null);
-
-        WorkAct.ValidateArguments("plan.review", "", selection, "", "", "", false);
-        WorkAct.ValidateArguments("build.next", "", selection, "", "", "", false);
-        WorkAct.ValidateArguments("review.code", "", selection, "", "", "", false);
-        Assert.Throws<ArgumentRejectedException>(() =>
-            WorkAct.ValidateArguments("review.fix", "", selection, "", "", "", false));
-    }
-
-    [Fact]
-    public void Legacy_scout_only_arguments_reject_even_empty_presence()
-    {
-        var selection = new Selection("model", null);
-
-        Assert.Throws<ArgumentRejectedException>(() =>
-            WorkAct.ValidateArguments("build.next", null, selection, null, null, null, false, "", null));
-        Assert.Throws<ArgumentRejectedException>(() =>
-            WorkAct.ValidateArguments("build.next", null, selection, null, null, null, false, null, ""));
+        Assert.Empty(vendor.Sessions);
     }
 
     private RunDirectory NewRun(string runId)
@@ -263,13 +138,5 @@ public sealed class WorkActTests : IDisposable
         }
 
         throw new DirectoryNotFoundException("could not locate the prompts folder above the test binary");
-    }
-
-    private sealed class RecordingReviewGit(IReadOnlyList<string> paths, string diff) : IReviewGit
-    {
-        public Task<ReviewWindow> ReadReviewWindowAsync(string baselineHead, IReadOnlyList<string> excludedPaths,
-                                                        CancellationToken ct) =>
-            Task.FromResult(new ReviewWindow(baselineHead, baselineHead, IsFallback: false, paths,
-                                             diff.Length == 0 ? [] : [new ReviewFile(paths[0], diff, Untracked: false)]));
     }
 }

@@ -10,16 +10,20 @@ namespace PlanForge.Vendors;
 internal static class FastTier
 {
     /// <summary>
-    /// The selection in the vendor's own spelling, confirmed against its catalogue when it asks for
-    /// Fast. A catalogue that is not there to ask — a vendor whose probe failed — confirms nothing.
+    /// The selection, confirmed against the vendor's catalogue when it asks for Fast. A catalogue
+    /// that is not there to ask — a vendor whose probe failed — confirms nothing.
     /// </summary>
+    /// <param name="catalogs">The probed catalogues the confirmation reads.</param>
+    /// <param name="vendor">The vendor the selection is for.</param>
+    /// <param name="selection">The model, effort and speed the tool call asked for.</param>
+    /// <param name="workspaceRoot">The workspace a fresh probe runs in.</param>
+    /// <param name="ct">Stops waiting for the probe.</param>
     internal static async Task<Selection> ConfirmAsync(CatalogCache catalogs,
                                                        IVendor vendor,
-                                                       Selection requested,
+                                                       Selection selection,
                                                        string workspaceRoot,
                                                        CancellationToken ct)
     {
-        var selection = vendor.Normalize(requested);
         if (!selection.Fast) return selection;
 
         var report = await catalogs.GetAsync(vendor.Id, workspaceRoot, ct).ConfigureAwait(false);

@@ -78,3 +78,10 @@ server lives. A server killed outright can still orphan a worker that is produci
 Windows a child does not die with its parent, and this codebase uses no job object. A critic orphaned
 that way is harmless because every vendor keeps it read-only; an orphaned builder can keep editing a
 workspace whose run is gone.
+
+> **Amended 2026-10-22 ([0043](0043-remove-cursor-as-host-and-vendor.md)).** Cursor is no longer a
+> host, so the routing rule this record wrote for it is gone. The four job tools stay for the
+> Builder act that may outlast a host's hour: `forge.work.start` runs `build.next` and `review.fix`
+> and refuses the critic and Scout acts, which only that routing sent through a job.
+> `forge.work.poll` no longer reads the client's name: every client may wait 1 to 3000 seconds, and
+> one that names no wait still waits 45.

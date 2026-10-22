@@ -45,17 +45,32 @@ public sealed class PlanPatchToolTests : IDisposable
         var result = JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanPatchResult)!;
 
         Assert.Equal(run.RunId, result.RunId);
-        Assert.Equal(outline.PlanHash, result.BaseHash);
         Assert.Equal(OutlineJson(PlanOutline.Of(run.ReadPlan())), OutlineJson(result.Outline));
-        Assert.Equal(new PlanPatchChange("replace", edit.Target!, "1. Snapshot orders."), Assert.Single(result.Changed));
         Assert.Equal(run.PlanPath, result.Documents.Plan!.Path);
         Assert.Equal(run.FlowLogPath, result.Documents.FlowLog!.Path);
         AssertNoBodies(json);
         AssertNoBodies(File.ReadAllText(run.FlowLogPath));
         AssertNoBodies(AtomicFile.Read(run.DiagnosticLogPath));
-        Assert.Equal(PlanPatchSizes.Payload([edit]).PayloadSize, result.Sizes.PayloadSize);
-        Assert.Equal(new PlanPatchSize(Plan.Length, Encoding.UTF8.GetByteCount(Plan)), result.Sizes.PlanBefore);
-        Assert.Equal(new PlanPatchSize(Replacement.Length, Encoding.UTF8.GetByteCount(Replacement)), result.Sizes.Written);
+        var sizes = LoggedSizes(run);
+        Assert.Equal(PlanPatchSizes.Payload([edit]).PayloadSize, sizes.PayloadSize);
+        Assert.Equal(new PlanPatchSize(Plan.Length, Encoding.UTF8.GetByteCount(Plan)), sizes.PlanBefore);
+        Assert.Equal(new PlanPatchSize(Replacement.Length, Encoding.UTF8.GetByteCount(Replacement)), sizes.Written);
+    }
+
+    /// <summary>
+    /// The base hash, the applied edits and their sizes are the call's own arguments measured back:
+    /// they go to the Flow log and <c>forge.log</c>, not to the Orchestrator — docs/adr/0042.
+    /// </summary>
+    [Fact]
+    public async Task A_patch_does_not_echo_its_base_hash_edits_or_sizes()
+    {
+        var run = NewRun();
+        var outline = PlanOutline.Of(run.ReadPlan());
+
+        using var answer = JsonDocument.Parse(await Patch(run, outline.PlanHash, [Edit(outline)]));
+
+        Assert.Equal(["runId", "outline", "tasksKept", "firstTaskOwed", "documents"],
+                     answer.RootElement.EnumerateObject().Select(property => property.Name));
     }
 
     [Fact]
@@ -603,7 +618,7 @@ public sealed class PlanPatchToolTests : IDisposable
         Assert.Contains(outline.PlanHash, flow, StringComparison.Ordinal);
         Assert.Contains(result.Outline.PlanHash, flow, StringComparison.Ordinal);
         Assert.Contains("replace " + edit.Target + ": 1. Snapshot orders.", flow, StringComparison.Ordinal);
-        foreach (var (name, size) in result.Sizes.Measurements())
+        foreach (var (name, size) in LoggedSizes(run).Measurements())
             Assert.Contains($"{name}: {size.Characters} characters, {size.Utf8Bytes} UTF-8 bytes", flow, StringComparison.Ordinal);
         AssertNoBodies(flow);
     }
@@ -627,8 +642,8 @@ public sealed class PlanPatchToolTests : IDisposable
         {
             try
             {
-                var json = await Patch(run, outcome == "stale_base" ? "0000000000000000" : outline.PlanHash, [edit]);
-                sizes = JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanPatchResult)!.Sizes;
+                await Patch(run, outcome == "stale_base" ? "0000000000000000" : outline.PlanHash, [edit]);
+                sizes = LoggedSizes(run);
             }
             catch (PlanPatchRejectedException error) { sizes = error.Sizes; }
             catch (PlanPatchFailedException error) { sizes = error.Sizes; }
@@ -744,6 +759,20 @@ public sealed class PlanPatchToolTests : IDisposable
     }
 
     private static FileStream Hold(string path, FileShare share) => new(path, FileMode.Open, FileAccess.Read, share);
+
+    /// <summary>The sizes an applied patch's <c>plan.patch</c> event recorded in <c>forge.log</c>.</summary>
+    /// <param name="run">The run that was patched once.</param>
+    internal static PlanPatchSizes LoggedSizes(RunDirectory run)
+    {
+        var fields = Assert.Single(Entries(run), entry => entry.Event == "plan.patch").Fields!;
+        PlanPatchSize? Size(string name) =>
+            fields.TryGetValue(name + "Characters", out var characters)
+                ? new PlanPatchSize(int.Parse(characters!, CultureInfo.InvariantCulture),
+                                    int.Parse(fields[name + "Utf8Bytes"]!, CultureInfo.InvariantCulture))
+                : null;
+        return new PlanPatchSizes(Size("payload")!, Size("supplied")!, Size("planBefore"), Size("removed"),
+                                  Size("written"), Size("planAfter"));
+    }
 
     private static IReadOnlyList<LogEntry> Entries(RunDirectory run) => AtomicFile.Read(run.DiagnosticLogPath)
         .Split('\n')
