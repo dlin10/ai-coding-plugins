@@ -226,6 +226,277 @@ public sealed class ScoutToolTests : IDisposable
         Assert.Throws<ArgumentRejectedException>(() => WorkAct.ValidateArguments("build.next", null));
     }
 
+    /// <summary>
+    /// A Scout question through start → poll → fetch lands exactly as a direct call's does: the
+    /// numbered entry, the Flow-log outcome, the anchor and <c>documents.scout</c>. See docs/adr/0044.
+    /// </summary>
+    [Fact]
+    public async Task A_scout_job_runs_end_to_end_as_the_direct_route_does()
+    {
+        var direct = NewRun();
+        var background = NewRun();
+        var registry = new JobRegistry();
+
+        await Direct(direct, VendorWith("answer", "session"));
+        var start = await StartScout(registry, background, VendorWith("answer", "session"));
+        var fetch = await Finish(registry, background, Id(start));
+
+        Assert.True(start["started"]!.GetValue<bool>());
+        Assert.Equal("scout", start["act"]!.GetValue<string>());
+        Assert.Equal("succeeded", fetch["state"]!.GetValue<string>());
+        Assert.Equal("answer", fetch["result"]!["summary"]!.GetValue<string>());
+        Assert.Equal(background.ScoutAnswersPath, fetch["documents"]!["scout"]!["path"]!.GetValue<string>());
+        Assert.Equal(AtomicFile.Read(direct.ScoutAnswersPath), AtomicFile.Read(background.ScoutAnswersPath));
+        Assert.Equal(AtomicFile.Read(direct.FlowLogPath), AtomicFile.Read(background.FlowLogPath));
+        Assert.Equal(direct.ReadState().Scout, background.ReadState().Scout);
+        Assert.Equal(1, background.ReadState().ScoutAnswers);
+    }
+
+    [Fact]
+    public async Task A_scout_job_result_is_the_complete_report()
+    {
+        var run = NewRun();
+        var registry = new JobRegistry();
+        var source = new string('a', 397) + ":42";
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(LargeReport(source), "session");
+
+        var fetch = await Finish(registry, run, Id(await StartScout(registry, run, vendor)));
+
+        using var report = JsonDocument.Parse(fetch["result"]!.ToJsonString());
+        var root = report.RootElement;
+        var facts = root.GetProperty("confirmedFacts").EnumerateArray().ToArray();
+        Assert.Equal(2000, root.GetProperty("summary").GetString()!.Length);
+        Assert.Equal(5, facts.Length);
+        Assert.All(facts, fact =>
+        {
+            Assert.Equal(1000, fact.GetProperty("text").GetString()!.Length);
+            Assert.Equal(source, fact.GetProperty("source").GetString());
+        });
+        Assert.False(root.TryGetProperty("truncated", out _));
+        Assert.False(root.TryGetProperty("scout", out _));
+    }
+
+    [Fact]
+    public async Task A_failed_scout_job_fetch_omits_scout_metadata_and_carries_the_safe_failure()
+    {
+        var run = NewRun();
+        var registry = new JobRegistry();
+        var vendor = new RecordingVendor("codex");
+        vendor.Enqueue(new VendorException("vendor stderr", 7), "failed-session");
+
+        var fetch = await Finish(registry, run, Id(await StartScout(registry, run, vendor)));
+
+        Assert.Equal("failed", fetch["state"]!.GetValue<string>());
+        Assert.Null(fetch["documents"]!["scout"]);
+        Assert.Contains("vendor_failed", fetch["error"]!.GetValue<string>(), StringComparison.Ordinal);
+        Assert.DoesNotContain("vendor stderr", fetch.ToJsonString(), StringComparison.Ordinal);
+        Assert.Equal("vendor_failed", run.ReadState().Scout!.LastFailure!.Code);
+    }
+
+    [Fact]
+    public async Task A_cancelled_scout_job_leaves_no_scout_failure()
+    {
+        var run = NewRun();
+        var registry = new JobRegistry();
+        var vendor = new GatedScoutVendor("never", "cancel-session");
+        var jobId = Id(await StartScout(registry, run, vendor));
+        await vendor.Holding.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        await ForgeTools.CancelWork(registry, SessionRoots.None, _workspace, run.RunId, jobId, CancellationToken.None);
+        var fetch = await Finish(registry, run, jobId);
+
+        Assert.Equal("job was cancelled", fetch["error"]!.GetValue<string>());
+        Assert.Null(run.ReadState().Scout!.LastFailure);
+        Assert.Contains("scout.cancelled", AtomicFile.Read(run.DiagnosticLogPath), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("missing", "question", "fresh")]
+    [InlineData("disabled", "question", "fresh")]
+    [InlineData("selected", " ", "fresh")]
+    [InlineData("selected", "overlong", "fresh")]
+    [InlineData("selected", "question", null)]
+    [InlineData("selected", "question", "resume")]
+    public async Task A_scout_job_that_cannot_run_is_refused_before_a_job_or_vendor(string selection,
+                                                                                   string question,
+                                                                                   string? sessionMode)
+    {
+        var run = NewRunCore(selection switch
+        {
+            "missing" => null,
+            "disabled" => new ScoutState(false),
+            _ => new ScoutState(true, "codex", "model", "effort")
+        });
+        var registry = new JobRegistry();
+        var starts = 0;
+
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
+            _workspace, run.RunId, "scout", null, null, null, CancellationToken.None, _ =>
+            {
+                starts++;
+                return VendorWith("unused", "session");
+            }, _prompts,
+            question: question == "overlong" ? new string('q', Scout.MaxQuestionLength + 1) : question,
+            sessionMode: sessionMode));
+
+        Assert.Equal(0, starts);
+        Assert.Null(registry.Get(run.Path));
+    }
+
+    /// <summary>Scout runs on its persisted selection, so a job takes none of the Builder's arguments, and a Builder act takes none of Scout's.</summary>
+    [Fact]
+    public async Task A_scout_job_and_a_builder_job_take_only_their_own_arguments()
+    {
+        var run = NewRun();
+        var registry = new JobRegistry();
+        var starts = 0;
+        Func<string, IVendor> factory = _ =>
+        {
+            starts++;
+            return VendorWith("unused", "session");
+        };
+        Task<string> StartWith(string? model = null, string? effort = null, string? vendor = null, bool fast = false,
+                               string? note = null, string[]? fixFindingIds = null, string? gate = null) =>
+            ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "scout", model, effort, vendor,
+                                 CancellationToken.None, factory, _prompts, fixFindingIds: fixFindingIds, fast: fast,
+                                 note: note, gate: gate, question: "question", sessionMode: "fresh");
+
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => StartWith(model: "model"));
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => StartWith(effort: "high"));
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => StartWith(vendor: "codex"));
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => StartWith(fast: true));
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => StartWith(note: "note"));
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => StartWith(fixFindingIds: ["F-0001"]));
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => StartWith(gate: "full"));
+        await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
+            _workspace, run.RunId, "build.next", "builder", null, null, CancellationToken.None, factory, _prompts,
+            question: "question"));
+
+        Assert.Equal(0, starts);
+        Assert.Null(registry.Get(run.Path));
+    }
+
+    /// <summary>
+    /// The split Impact pass: fresh questions run side by side, both answers land, numbered in the
+    /// order they finished, and no anchor survives them — none of their sessions is the one
+    /// investigation a later continue would mean.
+    /// </summary>
+    [Fact]
+    public async Task Two_fresh_jobs_run_side_by_side_both_answers_land_and_the_anchor_is_cleared()
+    {
+        var run = NewRun(new ScoutState(true, "codex", "model", "effort", "old-session"));
+        var registry = new JobRegistry();
+        var first = new GatedScoutVendor("first", "first-session");
+        var second = new GatedScoutVendor("second", "second-session");
+
+        var firstStart = await StartScout(registry, run, first, question: "first area");
+        var secondStart = await StartScout(registry, run, second, question: "second area");
+        await Task.WhenAll(first.Holding.Task, second.Holding.Task).WaitAsync(TimeSpan.FromSeconds(30));
+        second.Release();
+        var secondFetch = await Finish(registry, run, Id(secondStart));
+        first.Release();
+        var firstFetch = await Finish(registry, run, Id(firstStart));
+
+        Assert.True(secondStart["started"]!.GetValue<bool>());
+        Assert.Equal("succeeded", firstFetch["state"]!.GetValue<string>());
+        Assert.Equal("succeeded", secondFetch["state"]!.GetValue<string>());
+        Assert.Equal([(1, "second area"), (2, "first area")],
+                     run.ReadScoutAnswers().Select(entry => (entry.Number, entry.Question)));
+        Assert.Equal(2, run.ReadState().ScoutAnswers);
+        Assert.Null(run.ReadState().Scout!.SessionId);
+    }
+
+    [Fact]
+    public async Task A_continue_while_a_scout_job_runs_does_not_start_and_names_the_running_jobs()
+    {
+        var run = NewRun(new ScoutState(true, "codex", "model", "effort", "old-session"));
+        var registry = new JobRegistry();
+        var running = new GatedScoutVendor("running", "running-session");
+        var waiting = new GatedScoutVendor("waiting", "waiting-session");
+        var start = await StartScout(registry, run, running);
+        await running.Holding.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        var refused = await StartScout(registry, run, waiting, mode: "continue");
+
+        Assert.False(refused["started"]!.GetValue<bool>());
+        Assert.Equal(Id(start), refused["jobId"]!.GetValue<string>());
+        Assert.Equal([Id(start)], refused["activeJobIds"]!.AsArray().Select(id => id!.GetValue<string>()));
+        running.Release();
+        await Finish(registry, run, Id(start));
+        Assert.False(waiting.Holding.Task.IsCompleted);
+        Assert.Single(run.ReadScoutAnswers());
+    }
+
+    [Fact]
+    public async Task A_continue_job_runs_alone_and_keeps_its_anchor()
+    {
+        var run = NewRun(new ScoutState(true, "codex", "model", "effort", "old-session"));
+        var registry = new JobRegistry();
+        var continued = new GatedScoutVendor("continued", "old-session");
+        var start = await StartScout(registry, run, continued, mode: "continue");
+        await continued.Holding.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        var fresh = await StartScout(registry, run, new GatedScoutVendor("unused", "unused"));
+        continued.Release();
+        await Finish(registry, run, Id(start));
+
+        Assert.False(fresh["started"]!.GetValue<bool>());
+        Assert.Equal([Id(start)], fresh["activeJobIds"]!.AsArray().Select(id => id!.GetValue<string>()));
+        Assert.Equal("old-session", continued.StartedWithResumeToken);
+        Assert.Equal("old-session", run.ReadState().Scout!.SessionId);
+    }
+
+    /// <summary>A direct Scout call follows the job rules: a continue waits for the jobs, and a fresh question beside one leaves no anchor.</summary>
+    [Fact]
+    public async Task A_direct_call_beside_a_scout_job_follows_the_job_rules()
+    {
+        var run = NewRun(new ScoutState(true, "codex", "model", "effort", "old-session"));
+        var registry = new JobRegistry();
+        var job = new GatedScoutVendor("job", "job-session");
+        var start = await StartScout(registry, run, job);
+        await job.Holding.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        var refusal = await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.ScoutRun(SessionRoots.None,
+            _workspace, run.RunId, "follow-up", "continue", CancellationToken.None, _ => VendorWith("unused", "unused"),
+            _prompts, registry));
+        await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "beside", "fresh", CancellationToken.None,
+                                  _ => VendorWith("direct", "direct-session"), _prompts, registry);
+        var anchorBesideTheJob = run.ReadState().Scout!.SessionId;
+        job.Release();
+        await Finish(registry, run, Id(start));
+
+        Assert.Contains(Id(start), refusal.Message, StringComparison.Ordinal);
+        Assert.Null(anchorBesideTheJob);
+        Assert.Null(run.ReadState().Scout!.SessionId);
+        Assert.Equal(2, run.ReadScoutAnswers().Count);
+    }
+
+    /// <summary>
+    /// A Scout turn reads the state when it starts and writes it when it ends, minutes later. What the
+    /// Orchestrator wrote in between survives — here the user's instructions and a new Scout choice,
+    /// which keeps the session it chose rather than taking the old choice's.
+    /// </summary>
+    [Fact]
+    public async Task What_the_orchestrator_writes_while_a_scout_job_runs_survives_the_job()
+    {
+        var run = NewRun();
+        var registry = new JobRegistry();
+        var job = new GatedScoutVendor("job", "job-session");
+        var start = await StartScout(registry, run, job);
+        await job.Holding.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        var reselected = new ScoutState(true, "codex", "other-model", "effort");
+        run.WriteState(run.ReadState() with { CriticInstructions = "answer in Russian", Scout = reselected });
+        job.Release();
+        await Finish(registry, run, Id(start));
+
+        var state = run.ReadState();
+        Assert.Equal("answer in Russian", state.CriticInstructions);
+        Assert.Equal(reselected, state.Scout);
+        Assert.Equal(1, state.ScoutAnswers);
+    }
+
     [Fact]
     public async Task Failed_status_has_no_fallback_and_successful_recovery_clears_it()
     {
@@ -253,6 +524,30 @@ public sealed class ScoutToolTests : IDisposable
                                       string mode = "fresh") =>
         await ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "bounded question", mode,
             CancellationToken.None, _ => vendor, _prompts);
+
+    private async Task<JsonNode> StartScout(JobRegistry registry,
+                                            RunDirectory run,
+                                            IVendor vendor,
+                                            string mode = "fresh",
+                                            string question = "bounded question") =>
+        JsonNode.Parse(await ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "scout", null, null,
+                                                  null, CancellationToken.None, _ => vendor, _prompts,
+                                                  question: question, sessionMode: mode))!;
+
+    /// <summary>Polls the job until it stops, then fetches it, as the skill does.</summary>
+    /// <param name="registry">The registry the job runs in.</param>
+    /// <param name="run">The Run the job belongs to.</param>
+    /// <param name="jobId">The job to finish.</param>
+    private async Task<JsonNode> Finish(JobRegistry registry, RunDirectory run, string jobId)
+    {
+        var poll = JsonNode.Parse(await ForgeTools.PollWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
+                                                            TimeSpan.FromSeconds(30), CancellationToken.None))!;
+        Assert.NotEqual("running", poll["state"]!.GetValue<string>());
+        return JsonNode.Parse(await ForgeTools.FetchWork(registry, SessionRoots.None, _workspace, run.RunId, jobId,
+                                                         CancellationToken.None))!;
+    }
+
+    private static string Id(JsonNode start) => start["jobId"]!.GetValue<string>();
 
     private RecordingVendor VendorWith(string summary, string resumeToken)
     {
@@ -345,5 +640,56 @@ public sealed class ScoutToolTests : IDisposable
         }
 
         throw new DirectoryNotFoundException("could not locate the prompts folder above the test binary");
+    }
+
+    /// <summary>
+    /// A Scout vendor whose one turn holds until released, so a test can act while a job runs. One per
+    /// job: the recording vendor is not made to be started from two threads at once.
+    /// </summary>
+    /// <param name="summary">The summary of the report the turn answers with.</param>
+    /// <param name="token">The session's resume token.</param>
+    private sealed class GatedScoutVendor(string summary, string token) : IVendor
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string Id => "codex";
+        public VendorCatalog Catalog { get; } = new([], CatalogSource.Live);
+
+        /// <summary>Completes once the turn runs and holds.</summary>
+        public TaskCompletionSource Holding { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string? StartedWithResumeToken { get; private set; }
+
+        public void Release() => _release.TrySetResult();
+
+        public Task<VendorReadiness> ProbeAsync(CancellationToken ct) =>
+            Task.FromResult(new VendorReadiness(true, "gated"));
+
+        public Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct)
+        {
+            StartedWithResumeToken = resumeToken;
+            return Task.FromResult<IVendorSession>(new GatedSession(this, token));
+        }
+
+        private async Task<ScoutReport> TurnAsync(CancellationToken ct)
+        {
+            Holding.TrySetResult();
+            await _release.Task.WaitAsync(ct);
+            return ValidReport(summary);
+        }
+
+        private sealed class GatedSession(GatedScoutVendor vendor, string token) : IVendorSession
+        {
+            public IAsyncEnumerable<VendorEvent> Events => Empty();
+            public bool CanResume => true;
+            public string? ResumeToken => token;
+
+            public async Task<T> RunAsync<T>(string prompt, VendorSchema<T> schema, CancellationToken ct) =>
+                (T)(object)await vendor.TurnAsync(ct);
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+            private static async IAsyncEnumerable<VendorEvent> Empty() { yield break; }
+        }
     }
 }

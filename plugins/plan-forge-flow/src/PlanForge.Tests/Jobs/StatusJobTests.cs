@@ -36,19 +36,43 @@ public sealed class StatusJobTests : IDisposable
         });
         await activeReady.Task;
 
-        var active = JsonNode.Parse(await ForgeTools.Status(registry, SessionRoots.None, _workspace, run.RunId, ct))!;
+        var status = JsonNode.Parse(await ForgeTools.Status(registry, SessionRoots.None, _workspace, run.RunId, ct))!;
+        var active = Assert.Single(status["activeJobs"]!.AsArray())!;
 
-        Assert.Equal(start.JobId, active["activeJob"]!["jobId"]!.GetValue<string>());
-        Assert.Equal("plan.review", active["activeJob"]!["act"]!.GetValue<string>());
-        Assert.Equal("running", active["activeJob"]!["state"]!.GetValue<string>());
-        Assert.NotNull(active["activeJob"]!["lastActivityAt"]);
-        Assert.Equal("command_execution: dotnet test", active["activeJob"]!["lastEvent"]!.GetValue<string>());
+        Assert.Equal(start.JobId, active["jobId"]!.GetValue<string>());
+        Assert.Equal("plan.review", active["act"]!.GetValue<string>());
+        Assert.Equal("running", active["state"]!.GetValue<string>());
+        Assert.NotNull(active["lastActivityAt"]);
+        Assert.Equal("command_execution: dotnet test", active["lastEvent"]!.GetValue<string>());
 
         gate.SetResult("done");
         await registry.WaitAsync(run.Path, start.JobId, TimeSpan.FromSeconds(30), ct);
         var terminal = JsonNode.Parse(await ForgeTools.Status(registry, SessionRoots.None, _workspace, run.RunId, ct))!;
 
-        Assert.Null(terminal["activeJob"]);
+        Assert.Null(terminal["activeJobs"]);
+    }
+
+    /// <summary>
+    /// Fresh Scout jobs run side by side, and a resumed Orchestrator has to wait for each of them, so
+    /// status names every running job rather than one.
+    /// </summary>
+    [Fact]
+    public async Task Status_reports_every_running_job_oldest_first()
+    {
+        var ct = CancellationToken.None;
+        var run = await NewRun("parallel");
+        var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = new JobRegistry();
+        var first = registry.Start(run.Path, "scout", _ => gate.Task, shared: true);
+        var second = registry.Start(run.Path, "scout", _ => gate.Task, shared: true);
+
+        var status = JsonNode.Parse(await ForgeTools.Status(registry, SessionRoots.None, _workspace, run.RunId, ct))!;
+
+        Assert.Equal([first.JobId, second.JobId],
+                     status["activeJobs"]!.AsArray().Select(job => job!["jobId"]!.GetValue<string>()));
+        gate.SetResult("done");
+        await registry.WaitAsync(run.Path, first.JobId, TimeSpan.FromSeconds(30), ct);
+        await registry.WaitAsync(run.Path, second.JobId, TimeSpan.FromSeconds(30), ct);
     }
 
     [Fact]
@@ -95,8 +119,8 @@ public sealed class StatusJobTests : IDisposable
         Assert.NotEmpty(observations);
         Assert.All(observations, status =>
         {
-            var active = status["activeJob"];
-            Assert.True(active is null || active["state"]!.GetValue<string>() == "running");
+            var active = status["activeJobs"]?.AsArray() ?? [];
+            Assert.All(active, job => Assert.Equal("running", job!["state"]!.GetValue<string>()));
         });
 
         replacementRelease.SetResult("replacement");

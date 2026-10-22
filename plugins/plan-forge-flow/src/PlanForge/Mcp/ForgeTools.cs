@@ -202,22 +202,34 @@ internal sealed class ForgeTools
     }
 
     /// <summary>Answers a Scout question and appends its complete answer to scout-answers.json.</summary>
+    /// <param name="registry">The server's jobs, read for the Scout jobs a continue may not run beside.</param>
     /// <param name="roots">The host's session roots.</param>
     /// <param name="workspaceRoot">The absolute repository root.</param>
     /// <param name="runId">The Run receiving the answer.</param>
     /// <param name="question">The bounded reconnaissance question.</param>
     /// <param name="sessionMode">Whether to continue or start a fresh session.</param>
     /// <param name="ct">Cancels the Scout turn.</param>
-    [McpServerTool(Name = "forge.scout.run"), Description("Answers one bounded Scout question and returns the complete sourced answer under `scout`, unclipped, which is also appended as a numbered entry to the run's `scout-answers.json`. The Vendor, model, effort and Worker-tool grant come only from the persisted Scout selection; pass `sessionMode` explicitly as `continue` to use the current anchor or `fresh` to clear it before starting a new session. A failure before the answer is appended leaves `scout-answers.json` as it was, and the call returns a fixed safe failure.")]
-    public static Task<string> ScoutRun(SessionRoots roots,
+    [McpServerTool(Name = "forge.scout.run"), Description("Answers one bounded Scout question and returns the complete sourced answer under `scout`, unclipped, which is also appended as a numbered entry to the run's `scout-answers.json`. The Vendor, model, effort and Worker-tool grant come only from the persisted Scout selection; pass `sessionMode` explicitly as `continue` to use the current anchor or `fresh` to clear it before starting a new session. A `continue` is refused while a Scout job runs, and a turn that ran beside another Scout turn leaves no anchor. A failure before the answer is appended leaves `scout-answers.json` as it was, and the call returns a fixed safe failure.")]
+    public static Task<string> ScoutRun(JobRegistry registry,
+                                        SessionRoots roots,
                                         [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                         [Description("Run id from forge.begin.")] string runId,
                                         [Description("One bounded reconnaissance question, from 1 to 8,000 characters.")] string question,
                                         [Description("Session mode: exactly `continue` or `fresh`. `continue` supplies the persisted anchor; `fresh` clears it first.")] string sessionMode,
                                         CancellationToken ct) =>
         ScoutRun(roots, workspaceRoot, runId, question, sessionMode, ct,
-                 vendor => VendorFactory.Create(vendor, workspaceRoot));
+                 vendor => VendorFactory.Create(vendor, workspaceRoot), registry: registry);
 
+    /// <summary>Answers a Scout question through <paramref name="vendorFactory"/>.</summary>
+    /// <param name="roots">The host's session roots.</param>
+    /// <param name="workspaceRoot">The absolute repository root.</param>
+    /// <param name="runId">The Run receiving the answer.</param>
+    /// <param name="question">The bounded reconnaissance question.</param>
+    /// <param name="sessionMode">Whether to continue or start a fresh session.</param>
+    /// <param name="ct">Cancels the Scout turn.</param>
+    /// <param name="vendorFactory">Makes the vendor the persisted selection names.</param>
+    /// <param name="prompts">The role prompts, or null for the shipped ones.</param>
+    /// <param name="registry">The server's jobs, or null for a caller that runs none.</param>
     internal static async Task<string> ScoutRun(SessionRoots roots,
                                                 string workspaceRoot,
                                                 string runId,
@@ -225,7 +237,8 @@ internal sealed class ForgeTools
                                                 string sessionMode,
                                                 CancellationToken ct,
                                                 Func<string, IVendor> vendorFactory,
-                                                PromptLibrary? prompts = null)
+                                                PromptLibrary? prompts = null,
+                                                JobRegistry? registry = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.scout.run", [("sessionMode", sessionMode)],
@@ -234,6 +247,11 @@ internal sealed class ForgeTools
                 Scout.ValidateQuestion(question);
                 Scout.ValidateSessionMode(sessionMode);
                 SensitiveInput.Guard(question, "the Scout question");
+
+                string[] scoutJobs = [.. (registry?.Running(run.Path) ?? []).Where(job => job.Act == "scout").Select(job => job.Id)];
+                if (sessionMode == "continue" && scoutJobs.Length > 0)
+                    throw new ArgumentRejectedException(
+                        $"a continue runs alone, and Scout jobs {string.Join(", ", scoutJobs)} are running: fetch them first, or ask fresh");
 
                 var selected = Scout.RequireSelection(run.ReadState());
                 var act = new Scout(vendorFactory(selected.Vendor!), prompts ?? new PromptLibrary());
@@ -811,28 +829,30 @@ internal sealed class ForgeTools
             });
     }
 
-    [McpServerTool(Name = "forge.work.start"), Description("Starts a Builder act in the background — build.next or review.fix — for one that may outlast the host's clock on a single call. review.fix uses the same typed decisions, decisionBatchId and fix-attempt rules as its direct tool; ledger IDs, phases, states, batch conflicts and fix sets are preflighted before a job is created. Optional case-sensitive gate=full|targeted requires fix IDs when explicit; preserve gate, attempt and exact IDs on retry. Targeted success leaves fixes pending full host verification. Empty, whitespace, unknown modes and new/nonterminal invalid Fix gates are refused before decisions or jobs; terminal replay uses its saved result. Poll until terminal, then fetch. If started is false, rejoin the returned active job.")]
+    [McpServerTool(Name = "forge.work.start"), Description("Starts a worker act in the background: a Builder act — build.next or review.fix — that may outlast the host's clock on a single call, or a scout question to overlap with your own work. review.fix uses the same typed decisions, decisionBatchId and fix-attempt rules as its direct tool; ledger IDs, phases, states, batch conflicts and fix sets are preflighted before a job is created. Optional case-sensitive gate=full|targeted requires fix IDs when explicit; preserve gate, attempt and exact IDs on retry. Targeted success leaves fixes pending full host verification. Empty, whitespace, unknown modes and new/nonterminal invalid Fix gates are refused before decisions or jobs; terminal replay uses its saved result. scout takes only question and sessionMode and runs on the persisted Scout selection. A fresh scout job runs beside other fresh scout jobs; every other job runs alone. Poll until terminal, then fetch. If started is false, the jobs in activeJobIds kept it from starting: poll and fetch them, then start again.")]
     public static Task<string> StartWork(JobRegistry registry,
                                          CatalogCache catalogs,
                                          SessionRoots roots,
                                          [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                          [Description("Run id from forge.begin.")] string runId,
-                                         [Description("Worker act: build.next or review.fix.")] string act,
+                                         [Description("Worker act: build.next, review.fix or scout.")] string act,
                                          CancellationToken ct,
-                                         [Description("Model for the builder.")] string? model = null,
-                                         [Description("Optional effort level.")] string? effort = null,
-                                         [Description("Vendor: claude or codex. Defaults to claude.")] string? vendor = null,
+                                         [Description("Model for the builder. Not for scout.")] string? model = null,
+                                         [Description("Optional effort level. Not for scout.")] string? effort = null,
+                                         [Description("Vendor: claude or codex. Defaults to claude. Not for scout.")] string? vendor = null,
                                          [Description("Optional typed decision batch, accepted only by review.fix.")] OrchestratorDecisionBatch? decisions = null,
                                          [Description("Required by review.fix when fixFindingIds is non-empty.")] string? fixAttemptId = null,
                                          [Description("Exact ledger finding IDs for review.fix. Empty means decisions-only.")] string[]? fixFindingIds = null,
                                          [Description("For review.fix only. " + NOTE_DESCRIPTION)] string? note = null,
-                                         [Description(FAST_DESCRIPTION)] bool fast = false,
-                                         [Description("For review.fix only: exactly full (default) or targeted (case-sensitive). Requires non-empty fixFindingIds.")] string? gate = null)
+                                         [Description(FAST_DESCRIPTION + " Not for scout.")] bool fast = false,
+                                         [Description("For review.fix only: exactly full (default) or targeted (case-sensitive). Requires non-empty fixFindingIds.")] string? gate = null,
+                                         [Description("For scout only: the one bounded reconnaissance question, from 1 to 8,000 characters.")] string? question = null,
+                                         [Description("For scout only: exactly `fresh` or `continue`. A continue runs alone.")] string? sessionMode = null)
     {
         // VendorFactory.Create is deliberately the one line not covered by the factory-seam tests.
         return StartWork(registry, roots, workspaceRoot, runId, act, model, effort, vendor, ct,
                          id => VendorFactory.Create(id, workspaceRoot), null, decisions, fixAttemptId,
-                         fixFindingIds, catalogs, fast, note, gate);
+                         fixFindingIds, catalogs, fast, note, gate, question, sessionMode);
     }
 
     internal static Task<string> StartWork(JobRegistry registry,
@@ -867,7 +887,8 @@ internal sealed class ForgeTools
                                                  string[]? fixFindingIds = null,
                                                  CatalogCache? catalogs = null,
                                                  bool fast = false,
-                                                 string? note = null, string? gate = null)
+                                                 string? note = null, string? gate = null,
+                                                 string? question = null, string? sessionMode = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.work.start",
@@ -875,12 +896,19 @@ internal sealed class ForgeTools
              ("decisionBatchId", decisions?.DecisionBatchId),
              ("fixAttemptId", fixAttemptId),
              ("fixFindingIds", fixFindingIds is { Length: > 0 } ? string.Join(", ", fixFindingIds) : null),
-             ("note", note), ("gate", gate)],
+             ("note", note), ("gate", gate), ("sessionMode", sessionMode)],
             async () =>
             {
                 if (act == "review.fix") run.ReadState();
                 var requested = model is null ? null : new Selection(model, effort, fast);
-                WorkAct.ValidateArguments(act, requested, decisions, fixAttemptId, fixFindingIds, note, gate);
+                WorkAct.ValidateArguments(act, requested, decisions, fixAttemptId, fixFindingIds, note, gate,
+                                          question, sessionMode);
+                if (act == "scout")
+                {
+                    if (vendor is not null || effort is not null || fast)
+                        throw new ArgumentRejectedException("scout takes its vendor, effort and fast only from the persisted Scout selection");
+                    SensitiveInput.Guard(question!, "the Scout question");
+                }
 
                 try
                 {
@@ -893,18 +921,24 @@ internal sealed class ForgeTools
                     throw;
                 }
 
-                var vendorForAct = vendorFactory(vendor ?? VendorFactory.DefaultId);
-                var selection = await FastTier.ConfirmAsync(catalogs ?? new CatalogCache((id, _) => vendorFactory(id!)),
-                                                            vendorForAct, requested!, workspaceRoot, ct);
+                var vendorForAct = vendorFactory(act == "scout"
+                    ? Scout.RequireSelection(run.ReadState()).Vendor!
+                    : vendor ?? VendorFactory.DefaultId);
+                var selection = requested is null
+                    ? null
+                    : await FastTier.ConfirmAsync(catalogs ?? new CatalogCache((id, _) => vendorFactory(id!)),
+                                                  vendorForAct, requested, workspaceRoot, ct);
                 var workAct = new WorkAct(vendorForAct, prompts ?? new PromptLibrary());
                 var started = registry.Start(run.Path, act,
                     jobCt => workAct.RunAsync(act, run, selection, jobCt, decisions,
-                                               fixAttemptId, fixFindingIds, note, gate));
+                                               fixAttemptId, fixFindingIds, note, gate, question, sessionMode),
+                    shared: act == "scout" && sessionMode == "fresh");
 
                 var record = started.Record;
                 var documents = Documents(run);
                 ShownDocuments[JobKey(run, record.Id)] = documents;
-                return JsonSerializer.Serialize(new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started, documents),
+                return JsonSerializer.Serialize(new WorkStartResult(record.Id, record.Act, StateName(record.State), started.Started,
+                                                                    documents, started.ActiveJobIds),
                     ForgeToolJson.Default.WorkStartResult);
             });
     }
@@ -1009,7 +1043,7 @@ internal sealed class ForgeTools
                 return Task.FromResult(JsonSerializer.Serialize(
                     new WorkFetchResult(record.Id, record.Act, StateName(record.State), result,
                                         record.State == JobState.Failed ? record.Error : null,
-                                        Documents(run)),
+                                        Documents(run, includeScout: record is { Act: "scout", State: JobState.Completed })),
                     ForgeToolJson.Default.WorkFetchResult));
             });
     }
@@ -1045,12 +1079,11 @@ internal sealed class ForgeTools
                 var state = run.ReadState();
                 var drifted = await run.ReadBaseline(state.BaselineHead)
                                        .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
-                var active = registry.Get(run.Path) is { State: JobState.Running } job
-                    ? new ActiveJob(job.Id, job.Act, StateName(job.State), ElapsedSeconds(job),
-                                    job.LastActivityAt, job.LastEvent)
-                    : null;
+                ActiveJob[] active = [.. registry.Running(run.Path)
+                    .Select(job => new ActiveJob(job.Id, job.Act, StateName(job.State), ElapsedSeconds(job),
+                                                 job.LastActivityAt, job.LastEvent))];
 
-                return JsonSerializer.Serialize(new StatusResult(StatusRun.Of(state), drifted, active,
+                return JsonSerializer.Serialize(new StatusResult(StatusRun.Of(state), drifted, active is [] ? null : active,
                                                                   run.ReadDecisionLedger().Summary,
                                                                   AdvisorCatalog.Default.Discover(environment ?? Environment.GetEnvironmentVariable)),
                                                 ForgeToolJson.Default.StatusResult);
@@ -1396,10 +1429,10 @@ internal sealed record PlanViewResult(string RunId,
 /// </summary>
 /// <param name="Run">The part of the Run's saved state the Orchestrator acts on.</param>
 /// <param name="DriftedFiles">Paths changed since the baseline.</param>
-/// <param name="ActiveJob">The running job, if any.</param>
+/// <param name="ActiveJobs">The running jobs, oldest first, or null when none runs.</param>
 /// <param name="Ledger">The current finding summary.</param>
 /// <param name="Advisors">Current Advisor discovery, without credentials.</param>
-internal sealed record StatusResult(StatusRun Run, IReadOnlyList<string> DriftedFiles, ActiveJob? ActiveJob,
+internal sealed record StatusResult(StatusRun Run, IReadOnlyList<string> DriftedFiles, IReadOnlyList<ActiveJob>? ActiveJobs,
                                     LedgerSummary Ledger, AdvisorDiscovery Advisors);
 
 /// <summary>
@@ -1482,12 +1515,14 @@ internal sealed record ActiveJob(string JobId,
 /// start and every poll rather than only with the fetch, because a background act runs for minutes
 /// and the plan is on disk before the first of them — see docs/adr/0014.
 /// </summary>
-/// <param name="JobId">The job's id.</param>
+/// <param name="JobId">The job's id, or the oldest running job's when this one did not start.</param>
 /// <param name="Act">The act the job runs.</param>
 /// <param name="State">running, succeeded or failed.</param>
-/// <param name="Started">False when the call rejoined a job already running rather than starting one.</param>
+/// <param name="Started">False when the Run's running jobs kept this one from starting.</param>
 /// <param name="Documents">The run's documents as they stand at the start.</param>
-internal sealed record WorkStartResult(string JobId, string Act, string State, bool Started, RunDocuments Documents);
+/// <param name="ActiveJobIds">The jobs that kept this one from starting, oldest first; null when it started.</param>
+internal sealed record WorkStartResult(string JobId, string Act, string State, bool Started, RunDocuments Documents,
+                                       IReadOnlyList<string>? ActiveJobIds = null);
 
 /// <param name="Next">What to do with the file: the instruction travels with the path so neither depends on the skill still being in view.</param>
 internal sealed record RunDocument(string Path, string Next);

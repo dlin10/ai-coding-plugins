@@ -48,6 +48,11 @@ From 0.59.0 Cursor is neither a host nor a vendor.
   `review.fix` and refuses `plan.review`, `review.code` and `scout`, which only the Cursor routing
   sent through a job; their arguments leave its schema, and `PlanReview.RequireDraft`, which only
   the job route asked, goes too. Scout, plan review and code review use their one-call tools.
+
+  > **Amended 2026-10-22 ([0044](0044-overlap-scout-with-the-orchestrators-own-work.md)).** Scout
+  > is a job again from 0.60.0, on every host, so the Orchestrator can work while it runs:
+  > `forge.work.start` runs `build.next`, `review.fix` and `scout`, and still refuses `plan.review`
+  > and `review.code`.
 - The `Canvas` profile and `forge.plan.show` stay. They answer the MCP Apps capability, not a host's
   name (0008). Cursor was the one host measured to negotiate it, so until another does they stay
   dormant: Claude Code reports `Text`, and Codex has not been measured.

@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.59.0
+# Plan Forge Flow 0.60.0
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -27,7 +27,7 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 | `forge.begin` | Opens a run, takes a baseline of the working tree, and starts every vendor's catalogue probe in the background; reports configured and partly configured `advisors` |
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable, and the efforts each model offers at Fast speed |
 | `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort/Fast selection or an explicit decision to continue without Scout |
-| `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `scout-answers.json` |
+| `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `scout-answers.json`. A `continue` is refused while a Scout job runs |
 | `forge.evidence.map` | After the manual Evidence check, asks a configured Advisor how Scout items and Orchestrator implications bear on the plan; returns flags and resumable progress, storing judgments in `evidence-map.json` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
 | `forge.plan.write` | Writes the first draft or a complete rewrite to `PLAN.md` and answers with its outline (null for blank plan text) and path, running no worker |
@@ -39,8 +39,8 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 | `forge.build.next` | Builds one task; only the server runs its executable gate, withholds the task on failure and briefs the retry. The Builder checks conditions and may run separate checks |
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan. Saved beforeNextRound refuses pending fixes; final permits them and returns current pending IDs (including []); assessments do not verify them. A prompt longer than the critic's vendor accepts gives the critic its files by path, untracked files first; one too long even then is refused before it starts, with its sizes, and `excludePaths` narrows that one round |
 | `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs executable G entries by default (`gate=full`) or only the approved Fix gate (`gate=targeted`), leaving findings pending full host verification. Retry preserves gate, attempt and exact IDs |
-| `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempts, plus a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, active-job liveness, and current configured and partly configured `advisors` |
-| `forge.work.start` | Starts a Builder act — `build.next` or `review.fix` — expected to outlast the hour as a background job; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding |
+| `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempts, plus a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, every running job with its liveness (`activeJobs`), and current configured and partly configured `advisors` |
+| `forge.work.start` | Starts a background job: a Builder act — `build.next` or `review.fix` — expected to outlast the hour, or a `scout` question the orchestrator works beside; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding. Fresh Scout jobs run side by side; a `continue` or a Builder act runs alone, and a start it blocks names the running jobs in `activeJobIds` |
 | `forge.work.poll` | Waits for a background worker act, 45 seconds per call or `waitSeconds` (at most 3000, clamped and reported beyond that), returning as soon as it ends, and reports its latest stdout activity and recognised event |
 | `forge.work.cancel` | Requests cancellation of a background worker act; terminal jobs are unchanged and running jobs finish as failed |
 | `forge.work.fetch` | Fetches the historical terminal snapshot of a background worker act; status and new fix replay show current pending |

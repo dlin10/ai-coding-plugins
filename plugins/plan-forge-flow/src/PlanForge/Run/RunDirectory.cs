@@ -201,9 +201,21 @@ internal sealed class RunDirectory
         return runPath;
     }
 
-    public RunState ReadState()
+    public RunState ReadState() => ParseState(AtomicFile.Read(System.IO.Path.Combine(Path, STATE_FILE_NAME)));
+
+    /// <summary>
+    /// Replaces the state with what <paramref name="change"/> makes of it as it stands now, under the
+    /// state file's process-local mutation lock: for a writer that read the state long before it
+    /// writes, such as a Scout turn that ran for minutes beside the Orchestrator's own calls.
+    /// </summary>
+    /// <param name="change">The new state, made from the current one.</param>
+    public void UpdateState(Func<RunState, RunState> change) =>
+        AtomicFile.Update(System.IO.Path.Combine(Path, STATE_FILE_NAME),
+                          json => JsonSerializer.Serialize(change(ParseState(json ?? throw new RunNotFoundException(RunId))),
+                                                           ForgeJson.Readable.RunState));
+
+    private RunState ParseState(string json)
     {
-        var json = AtomicFile.Read(System.IO.Path.Combine(Path, STATE_FILE_NAME));
         using var document = JsonDocument.Parse(json);
         if (document.RootElement.TryGetProperty("fullGate", out var timing))
         {

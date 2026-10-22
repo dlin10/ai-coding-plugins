@@ -286,14 +286,14 @@ public sealed class WorkToolsTests : IDisposable
     }
 
     /// <summary>
-    /// A job runs a Builder act and nothing else: the critic and Scout acts a job once carried for a
-    /// host that cancelled every call at a minute have their one-call tools only — docs/adr/0043.
+    /// A job runs a Builder act or a Scout question and nothing else: the critic acts a job once
+    /// carried for a host that cancelled every call at a minute have their one-call tools only —
+    /// docs/adr/0043 and 0044.
     /// </summary>
     [Theory]
     [InlineData("unknown")]
     [InlineData("plan.review")]
     [InlineData("review.code")]
-    [InlineData("scout")]
     public async Task An_act_a_job_does_not_run_does_not_construct_the_vendor(string act)
     {
         var run = NewRun("invalid");
@@ -308,7 +308,7 @@ public sealed class WorkToolsTests : IDisposable
         var rejection = await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry,
             SessionRoots.None, _workspace, run.RunId, act, "builder", null, "claude", CancellationToken.None, factory));
 
-        Assert.Contains("build.next or review.fix", rejection.Message, StringComparison.Ordinal);
+        Assert.Contains("build.next, review.fix or scout", rejection.Message, StringComparison.Ordinal);
         Assert.Equal(0, calls);
         Assert.Null(registry.Get(run.Path));
         Assert.False(Directory.Exists(Path.Combine(run.Path, "jobs")));

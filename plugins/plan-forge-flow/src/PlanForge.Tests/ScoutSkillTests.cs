@@ -120,9 +120,9 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Scout_routing_is_direct()
+    public void Scout_routing_names_the_job_and_the_direct_call()
     {
-        Contains("Call `forge.scout.run` directly", Skill());
+        Contains("through `forge.work.start` with act `scout`", "Call `forge.scout.run` directly", Skill());
     }
 
     [Fact]

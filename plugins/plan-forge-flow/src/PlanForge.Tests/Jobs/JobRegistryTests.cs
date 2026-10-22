@@ -25,6 +25,49 @@ public sealed class JobRegistryTests
         await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
     }
 
+    /// <summary>
+    /// Shared jobs — fresh Scout questions — run side by side; any other job runs alone, and a start it
+    /// cannot make names every job in the way. See docs/adr/0044.
+    /// </summary>
+    [Fact]
+    public async Task Shared_jobs_run_side_by_side_and_any_other_job_runs_alone()
+    {
+        using var workspace = new TestWorkspace();
+        var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = new JobRegistry();
+
+        var first = registry.Start(workspace.RunPath, "scout", _ => gate.Task, shared: true);
+        var second = registry.Start(workspace.RunPath, "scout", _ => gate.Task, shared: true);
+        var alone = registry.Start(workspace.RunPath, "scout", _ => Task.FromResult("continue"));
+        var builder = registry.Start(workspace.RunPath, "build.next", _ => Task.FromResult("built"));
+
+        Assert.True(first.Started);
+        Assert.True(second.Started);
+        Assert.Null(second.ActiveJobIds);
+        Assert.Equal([first.JobId, second.JobId], registry.Running(workspace.RunPath).Select(job => job.Id));
+        foreach (var refused in new[] { alone, builder })
+        {
+            Assert.False(refused.Started);
+            Assert.Equal(first.JobId, refused.JobId);
+            Assert.Equal([first.JobId, second.JobId], refused.ActiveJobIds);
+        }
+
+        gate.SetResult("answered");
+        await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
+        await registry.WaitAsync(workspace.RunPath, second.JobId, TimeSpan.FromSeconds(30));
+        Assert.Empty(registry.Running(workspace.RunPath));
+
+        var lone = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var builderAlone = registry.Start(workspace.RunPath, "build.next", _ => lone.Task);
+        var sharedBeside = registry.Start(workspace.RunPath, "scout", _ => Task.FromResult("fresh"), shared: true);
+
+        Assert.True(builderAlone.Started);
+        Assert.False(sharedBeside.Started);
+        Assert.Equal([builderAlone.JobId], sharedBeside.ActiveJobIds);
+        lone.SetResult("built");
+        await registry.WaitAsync(workspace.RunPath, builderAlone.JobId, TimeSpan.FromSeconds(30));
+    }
+
     [Fact]
     public async Task Start_returns_a_running_snapshot_even_if_the_delegate_finishes_immediately()
     {
