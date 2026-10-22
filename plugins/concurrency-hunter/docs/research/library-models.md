@@ -104,7 +104,10 @@ line is written per member.
    against them, then write the full stub.
 3. **Produce every value.** Probes, driver subclasses, canned values, containers, witness seeds and lambda return
    markers are selected before the recipe step. Canned BCL values include `List<T>` for the collection interfaces,
-   `Dictionary`, `MemoryStream`, `Task.CompletedTask`, `typeof(object)`, `new Exception()` and `default` for value types. The recipe tries sources in this order: public constructor, public static factory, public static field of the exact type, public static property of the exact type, internal constructor of the library copy.
+   `Dictionary`, `MemoryStream`, `Task.CompletedTask`, `typeof(object)`, `new Exception()` and `default` for value types.
+   A value of a concrete ADR 0010 collection is the class itself, never a driver subclass, with two insertions of elements
+   built by their own types (two key–value pairs for a dictionary), and a seed field, witness return or `out` gets one
+   insertion of a seed value when the element can hold a user object. The recipe tries sources in this order: public constructor, public static factory, public static field of the exact type, public static property of the exact type, internal constructor of the library copy.
    An interface or abstract target then tries public concrete library classes convertible to it. Constructors taking a
    delegate come first when placing a probe, then those with fewer parameters; factories take fewer parameters first,
    skipping generic factories with interface constraints and factories taking the type they produce. The static field

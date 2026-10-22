@@ -312,6 +312,45 @@ public sealed class ModelEvalTests
     }
 
     [RequiresModelEvalsFact]
+    public void The_compile_fix_makes_no_compiled_body_extern()
+    {
+        // Every package of the evals compiled directly, past the cache, without the repair of the decompiler's artefacts and with it: the
+        // repair makes no body extern, and a library refused without it is refused for no CS0104 or CS0051 with it.
+        var resolver = ImplementationAssemblies.ForThisProcess();
+        var inputs = Inputs.Values.Concat(EffectEvals.ReadGold().Select(member => member.Input))
+                           .Concat(LinqEvals.ReadGold().Select(member => member.Input))
+                           .Concat(AccessorEvals.ReadGold().Select(member => member.Input))
+                           .Distinct();
+        var assemblies = inputs.Select(input => resolver.Resolve(input.Assembly, input.Version, input.Package, input.Framework))
+                               .Where(resolution => resolution is { Reason: null, Assembly: not null })
+                               .Select(resolution => resolution.Assembly!)
+                               .DistinctBy(assembly => assembly.Path, StringComparer.OrdinalIgnoreCase)
+                               .ToArray();
+
+        Assert.Contains(assemblies, assembly => assembly.AssemblyName == "AutoMapper");
+        foreach (var assembly in assemblies)
+        {
+            var name = $"{assembly.AssemblyName} {assembly.ImplementationVersion}";
+            var module = LibraryCompilation.Decompile(assembly, CancellationToken.None);
+            var references = assembly.References.Select(reference => (MetadataReference)MetadataReference.CreateFromFile(reference)).ToArray();
+            var kept = LibraryCompilation.CompileModule(assembly.AssemblyName, module, references, CancellationToken.None, repairArtefacts: false);
+            var repaired = LibraryCompilation.CompileModule(assembly.AssemblyName, module, references, CancellationToken.None);
+
+            if (kept.Reason is null)
+            {
+                Assert.True(repaired.Reason is null, $"{name}: {repaired.Reason}: {string.Join(", ", repaired.Errors)}");
+                var added = repaired.ExternMembers.Except(kept.ExternMembers, StringComparer.Ordinal).ToArray();
+                Assert.True(added.Length == 0, $"{name}: the repair makes extern {string.Join(", ", added)}");
+            }
+            else
+            {
+                Assert.Equal(GenerationReasons.LIBRARY_DOES_NOT_COMPILE, kept.Reason);
+                Assert.True(!repaired.Errors.Contains("CS0104") && !repaired.Errors.Contains("CS0051"), $"{name}: {string.Join(", ", repaired.Errors)}");
+            }
+        }
+    }
+
+    [RequiresModelEvalsFact]
     public void Missing_input_fails_under_the_flag()
     {
         using var install = new GenerationInstall();

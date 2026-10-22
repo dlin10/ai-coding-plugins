@@ -138,6 +138,7 @@ public sealed class ValueProvenance
         _checks.Check(GenerationStage.ReadEffects);
         Keeps = BuildKeeps();
         Result = BuildMemberResult(rawResult);
+        Keeps = WithoutCollectedKeeper(Keeps, rawResult);
         Outputs = BuildOutputs(rawOutputs);
         Stores = BuildStores(rawStores);
         Inputs = BuildInputs();
@@ -194,10 +195,13 @@ public sealed class ValueProvenance
             ? Order(Names(kept.Regions, ValuePlace.KeptValue, _fate, null).Concat(_symbolicKeeps.GetValueOrDefault(region) ?? []))
             : [];
 
-    /// <summary>Whether a region is one of the pre-existing objects on a path from a keeper to a value it keeps.</summary>
+    /// <summary>Whether a region is one of the pre-existing objects on a path from a keeper to a value it keeps. An object the call
+    /// made is never one: the walk goes through it to the value, but it was no state before the call (R6).</summary>
     /// <param name="region">The region written by the member.</param>
     public bool IsInKeepingChain(string region)
     {
+        if (_fate.Allocations.CreatedByCall(region))
+            return false;
         var chain = KeepingChain.Values.SelectMany(value => value).ToHashSet(StringComparer.Ordinal);
         if (chain.Contains(region) || !_fate.Heap.Regions.TryGetValue(region, out var stored))
             return chain.Contains(region);
@@ -518,6 +522,33 @@ public sealed class ValueProvenance
         return keeps;
     }
 
+    /// <summary>The keeps without the fresh result's when the result is named <c>collection(…)</c> or <c>dictionary(…)</c> and the
+    /// result keeps nothing but the elements and keys that form names: the form names them, and <c>keeps.result</c> stands only
+    /// beside a <c>new</c> result (R6). A result that keeps anything else — a comparer it was made with — stays a keeper.</summary>
+    /// <param name="keeps">The keeps built.</param>
+    /// <param name="rawResult">The result's regions.</param>
+    private IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> WithoutCollectedKeeper(IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> keeps,
+                                                                                            IReadOnlySet<string> rawResult)
+    {
+        if (Result?.Leaf.Kind is not (LibraryResultKind.Collection or LibraryResultKind.Dictionary))
+            return keeps;
+        foreach (var region in rawResult)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
+            if (!_keptByRegion.TryGetValue(region, out var kept) || kept.Name != FateClassifier.RESULT || _symbolicKeeps.ContainsKey(region))
+                continue;
+            var collected = _fate.Heap.PointsTo(region, ELEMENT).Concat(_fate.Heap.PointsTo(region, KEYS)).ToHashSet(StringComparer.Ordinal);
+            if (!kept.Regions.All(collected.Contains))
+                continue;
+            _keptByRegion.Remove(region);
+            _keepingChain.Remove(region);
+        }
+        if (_keptByRegion.Values.Any(keeper => keeper.Name == FateClassifier.RESULT))
+            return keeps;
+        return new SortedDictionary<string, IReadOnlyList<LibraryValue>>(keeps.Where(pair => pair.Key != FateClassifier.RESULT)
+                                                                              .ToDictionary(pair => pair.Key, pair => pair.Value), StringComparer.Ordinal);
+    }
+
     private IReadOnlyDictionary<string, LibraryResult> BuildOutputs(IReadOnlyDictionary<string, IReadOnlySet<string>> raw)
     {
         var outputs = new SortedDictionary<string, LibraryResult>(StringComparer.Ordinal);
@@ -673,17 +704,22 @@ public sealed class ValueProvenance
         }
 
         var region = regions.Single();
+        // Elements none of which has a name are objects new shows with the collection (R5): only a collection some of whose elements
+        // or keys have names refuses the rest as unnamed.
+        var elements = context.Heap.PointsTo(region, ELEMENT);
+        var keyed = context.Heap.PointsTo(region, KEYS);
+        var named = elements.Concat(keyed).Any(element => context.RootNames(element).Count != 0);
         if (type is IArrayTypeSymbol || type is INamedTypeSymbol collection && SeedableFields.Collection(collection) is { Dictionary: false })
         {
-            var values = Names(context.Heap.PointsTo(region, ELEMENT), valuePlace, context, null);
+            var values = Names(elements, valuePlace, context, null, markMissing: named);
             if (values.Count != 0)
                 return new LibraryResult(LibraryResultKind.Collection, values);
         }
 
         if (type is INamedTypeSymbol dictionary && SeedableFields.Collection(dictionary) is { Dictionary: true })
         {
-            var keys = Names(context.Heap.PointsTo(region, KEYS), valuePlace, context, null);
-            var values = Names(context.Heap.PointsTo(region, ELEMENT), valuePlace, context, null);
+            var keys = Names(keyed, valuePlace, context, null, markMissing: named);
+            var values = Names(elements, valuePlace, context, null, markMissing: named);
             if (keys.Count != 0 && values.Count != 0)
                 return new LibraryResult(LibraryResultKind.Dictionary, [.. keys, .. values]);
         }
@@ -2158,7 +2194,7 @@ public sealed class ValueProvenance
                 }
                 var values = instance.Summary.Accesses.Where(summary => summary.OperationId == access.OperationId && summary.Kind == SummaryAccessKind.Store)
                                      .SelectMany(summary => summary.Values.Where(value => !ReadsField(value, summary.Field)))
-                                     .SelectMany(value => Resolve(instance, value))
+                                     .SelectMany(value => Observation.SetupValues(instance, value, Executions.InSetup))
                                      .Where(value => Heap.Regions.TryGetValue(value, out var region) && region.Kind == HeapRegionKind.Delegate &&
                                                      Allocations.Of(value).Role == DriverRole.Seed)
                                      .ToHashSet(StringComparer.Ordinal);

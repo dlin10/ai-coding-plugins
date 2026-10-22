@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -62,6 +63,8 @@ public sealed record ProgramVariantType(string TypeKey, bool IsReferenceType, IR
 /// arguments.</summary>
 public sealed class ProgramIndex
 {
+    private static readonly SearchValues<char> TYPE_KEY_SEPARATORS = SearchValues.Create("<>, []*");
+
     private readonly Dictionary<string, ProgramType> _types;
     private readonly Dictionary<string, ProgramMethod> _methods;
     private readonly Dictionary<string, ClosedGenericType> _closedTypes;
@@ -303,9 +306,26 @@ public sealed class ProgramIndex
         }
     }
 
-    /// <summary>Whether a type key still names a type parameter of a type or method of the scope.</summary>
-    public bool IsOpen(string typeKey) =>
-        typeKey.Split(['<', '>', ',', ' ', '[', ']', '*'], StringSplitOptions.RemoveEmptyEntries).Any(_typeParameterKeys.Contains);
+    /// <summary>Whether a type key still names a type parameter of a type or method of the scope: one of the names between its separators
+    /// is one. A closed binding nests others to any depth, so a key may run to megabytes; each name is looked up where it stands, without
+    /// a copy of it.</summary>
+    /// <param name="typeKey">The type key.</param>
+    public bool IsOpen(string typeKey)
+    {
+        var lookup = _typeParameterKeys.GetAlternateLookup<ReadOnlySpan<char>>();
+        var rest = typeKey.AsSpan();
+        while (rest.Length > 0)
+        {
+            WorkCancellation.Check();
+            var end = rest.IndexOfAny(TYPE_KEY_SEPARATORS);
+            var name = end < 0 ? rest : rest[..end];
+            if (name.Length > 0 && lookup.Contains(name))
+                return true;
+            rest = end < 0 ? [] : rest[(end + 1)..];
+        }
+
+        return false;
+    }
 
     /// <summary>The original definition a type key is an instance of, with its type arguments in the order of the definition's
     /// <see cref="ProgramType.TypeParameterKeys"/>; a definition key decomposes to its own type parameters.</summary>

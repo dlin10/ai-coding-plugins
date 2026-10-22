@@ -58,6 +58,10 @@ public sealed class EffectReader
     private readonly HashSet<string> _inputSensitive = new(StringComparer.Ordinal);
     private readonly HashSet<string> _witnessObjects = new(StringComparer.Ordinal);
     private readonly HashSet<string> _receiverUserObjects = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Instance, string Action, IReadOnlySet<AbstractValue> Values), AccessSide> _sides = [];
+    private readonly Dictionary<(string Witness, string Action), AccessSide> _witnessSides = [];
+    private ILookup<string, CallEdge>? _callers;
+    private readonly Dictionary<string, IReadOnlySet<string>> _otherReceivers = new(StringComparer.Ordinal);
     private readonly HashSet<ISymbol> _unreachedFields = new(SymbolEqualityComparer.Default);
     private readonly GenerationCauses _causes = new();
     private readonly GenerationChecks _checks;
@@ -230,11 +234,12 @@ public sealed class EffectReader
     }
 
     /// <summary>The user objects the receiver holds — a seed setup placed in it, a probe its construction was given — and every object
-    /// below them: found from the receiver's roots without ever entering an argument's own object. The receiver itself is the library's
-    /// object, even as the driver's subclass. A probe or seed of an argument the member kept on the receiver is reached only through
-    /// that argument, whose own effect the entry names. An object an argument also reaches stays the receiver's when a path from the
-    /// receiver reaches it without the argument: the heap, which does not follow order, puts a seed setup stored below the receiver
-    /// into the argument kept there too, and the read of it is still a read of what the receiver held (R9).</summary>
+    /// below them, which decide an access whose own path does not say whose it is (<see cref="ReadsReceiverSeed"/>): found from the
+    /// receiver's roots without ever entering an argument's own object. The receiver itself is the library's object, even as the driver's
+    /// subclass. A probe or seed of an argument the member kept on the receiver is reached only through that argument, whose own effect
+    /// the entry names. An object an argument also reaches stays the receiver's when a path from the receiver reaches it without the
+    /// argument: the heap, which does not follow order, puts a seed setup stored below the receiver into the argument kept there too, and
+    /// only an access whose every alternative starts at the argument is the argument's alone (<see cref="SideOf"/>, R7).</summary>
     private void BuildReceiverUserObjects()
     {
         var arguments = _inputs.Where(input => !input.IsReceiver).SelectMany(input => input.Roots).ToHashSet(StringComparer.Ordinal);
@@ -347,7 +352,7 @@ public sealed class EffectReader
             if (ActionOf(access.ExecutionId) is not { } action)
                 continue;
 
-            if (IsIgnoredDriverStatic(access.Access.Field))
+            if (IsIgnoredDriverStatic(access.Access.Field) || IsOtherReceiversAccess(instance, access, action))
                 continue;
             if (IsWitnessRef(access.Access.Field) || IsWitnessRefStorage(access.RegionId, access.Slot))
             {
@@ -362,6 +367,40 @@ public sealed class EffectReader
         }
     }
 
+    /// <summary>Whether an access the member's entry makes through its own <c>this</c> lands on another action's receiver. The heap may merge
+    /// the entry's contexts, and then every receiver the driver passes it is its <c>this</c>; but when the action's own body is the only
+    /// caller entering it in the action, its <c>this</c> there is the action's receiver alone, and an object the driver made as another
+    /// action's receiver is no object of the call (R8).</summary>
+    /// <param name="instance">The library instance that accesses.</param>
+    /// <param name="access">The access.</param>
+    /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    private bool IsOtherReceiversAccess(MethodInstance instance, ExecutionAccess access, string action)
+    {
+        if (access.Access.Bases.Count == 0 || !access.Access.Bases.All(@base => @base is ConcurrencyHunter.Heap.ThisValue) ||
+            !OtherReceivers(action).Contains(access.RegionId))
+        {
+            return false;
+        }
+        var callers = _stage.Each(_heap.Edges).Where(edge => edge.CalleeInstance == instance.Id &&
+                                                             _analysis.InstanceExecutions.GetValueOrDefault(edge.CallerInstance)?
+                                                                      .Any(execution => ActionOf(execution) == action) == true)
+                            .Select(edge => _heap.Instances[edge.CallerInstance].BodyId).ToArray();
+        return callers.Length != 0 && callers.All(body => body == ValueObservation.DriverBody(action));
+    }
+
+    /// <summary>The objects the driver made as the receiver of an action or a trigger other than <paramref name="action"/>.</summary>
+    /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    private IReadOnlySet<string> OtherReceivers(string action)
+    {
+        if (_otherReceivers.TryGetValue(action, out var known))
+            return known;
+        var prefix = HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.DRIVER_TYPE, "Recv_");
+        var own = Inputs(action).Where(input => input.IsReceiver).SelectMany(input => input.Own).ToHashSet(StringComparer.Ordinal);
+        return _otherReceivers[action] = _stage.Each(_reachability.StaticFields()).Where(field => field.Slot.StartsWith(prefix, StringComparison.Ordinal))
+                                               .SelectMany(_reachability.Targets).Where(region => !own.Contains(region))
+                                               .ToHashSet(StringComparer.Ordinal);
+    }
+
     private void ReadLoad(MethodInstance instance, ExecutionAccess access, string action)
     {
         if (_probeReturns.Contains(access.RegionId) || _witnessReturns.Contains(access.RegionId))
@@ -371,21 +410,25 @@ public sealed class EffectReader
         }
 
         var enumeration = IsEnumerationRead(instance, access.Access.OperationId);
-        foreach (var input in Inputs(action))
+        var side = SideOf(instance, access.Access.Bases, action);
+        foreach (var input in Inputs(action).Where(input => Takes(input, side)))
         {
             _checks.Check(GenerationStage.ReadEffects);
             if (input.ProbeGraph.Contains(access.RegionId) || input.IsCollection && input.Roots.Contains(access.RegionId))
-                AddEffect(input.Name, READS_DEEP, action, enumeration, [access.RegionId]);
+                AddEffect(input.Name, READS_DEEP, action, enumeration, [access.RegionId], side);
         }
     }
 
     // A field of a struct kept in a cell is a write into that cell, as the store of the whole cell is (R7).
     // bounded: overload forwarding terminates at the implementation overload.
-    private void ReadStore(ExecutionAccess access, string action) =>
+    private void ReadStore(ExecutionAccess access, string action)
+    {
+        var instance = _heap.Instances.GetValueOrDefault(access.InstanceId);
         ReadStore(access.RegionId, access.Slot, access.Access.Field,
                   access.Access.IsOnCollection && access.Access.Selector is not null || FieldSlot.Root(access.Slot) == PathValue.ELEMENT, action,
-                  _heap.Instances.TryGetValue(access.InstanceId, out var instance) &&
-                  IsDelegateSlotStore(instance, access.Access, access.RegionId));
+                  instance is not null && IsDelegateSlotStore(instance, access.Access, access.RegionId),
+                  instance is null ? AccessSide.Region : SideOf(instance, access.Access.Bases, action));
+    }
 
     /// <summary>Classifies one library store outside setup into the object it writes: an effect, a state store or a model reason.</summary>
     /// <param name="region">The object written into: the holder of a struct's storage, never the storage itself.</param>
@@ -394,7 +437,10 @@ public sealed class EffectReader
     /// <param name="cell">Whether the store writes a cell of a collection.</param>
     /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
     /// <param name="delegateSlot">Whether <see cref="IsDelegateSlotStore"/> says the store is no state store.</param>
-    private void ReadStore(string region, string slot, IrFieldRef field, bool cell, string action, bool delegateSlot = false)
+    /// <param name="side">Whose store its own path says it is (<see cref="SideOf"/>); <see cref="AccessSide.Region"/> for a store
+    /// through a reference, which has none.</param>
+    private void ReadStore(string region, string slot, IrFieldRef field, bool cell, string action, bool delegateSlot = false,
+                           AccessSide side = AccessSide.Region)
     {
         if (_probeReturns.Contains(region) || _witnessReturns.Contains(region))
         {
@@ -406,7 +452,7 @@ public sealed class EffectReader
             return;
 
         var handled = false;
-        foreach (var input in Inputs(action))
+        foreach (var input in Inputs(action).Where(input => Takes(input, side)))
         {
             _checks.Check(GenerationStage.ReadEffects);
             if (input.IsArray && input.Roots.Contains(region) && cell)
@@ -423,10 +469,11 @@ public sealed class EffectReader
             }
             if (!input.OwnProbeRoots.Contains(region))
             {
-                if (input.Reached.Contains(region) && !input.Own.Contains(region))
+                // An object the call made is no part of what the input held before it, however the input reaches it now (R6).
+                if (input.Reached.Contains(region) && !input.Own.Contains(region) && !_allocations.CreatedByCall(region))
                 {
                     // A user object the receiver holds is no state of its own: a write into it has no form (TD-034b).
-                    if (input.IsReceiver && _receiverUserObjects.Contains(region))
+                    if (input.IsReceiver && ReadsReceiverSeed(side, [region]))
                         _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.RECEIVER_OBJECT_WRITE, $"{FieldSlot.Key(field)} of {region}");
                     else if (input.IsReceiver)
                         AddStateStore(region, action);
@@ -445,7 +492,7 @@ public sealed class EffectReader
         }
 
         // A seed no input reaches is a user object the library's own state holds, a static's: a write into it writes that state (R4).
-        if (!handled && (!_witnessObjects.Contains(region) || Origin(region).Role == DriverRole.Seed) && !_allocations.CreatedByCall(region))
+        if (!handled && (!_witnessObjects.Contains(region) || Origin(region).Role == DriverRole.Seed))
             AddStateStore(region, action);
     }
 
@@ -480,7 +527,7 @@ public sealed class EffectReader
         foreach (var value in store.Values)
         {
             _checks.Check(GenerationStage.ReadEffects);
-            var seedable = ReadsOwnSlot(instance, value, store.Field, region) || value is not (PathValue or StaticFieldValue);
+            var seedable = ReadsOwnSlot(instance, value, store, region) || value is not (PathValue or StaticFieldValue);
             if (!_observation.Resolve(instance, value).All(stored => Origin(stored).Role == DriverRole.ProbeDelegate ||
                                                                      seedable && Origin(stored).Role == DriverRole.Seed &&
                                                                      seeds?.Contains(stored) == true))
@@ -492,19 +539,23 @@ public sealed class EffectReader
     }
 
     /// <summary>Whether a value is a read of the slot itself: the same static field, or the same field of no object but the one
-    /// stored into.</summary>
+    /// stored into — of the body's own <c>this</c> when the store writes it there, as one run of a body has one <c>this</c> however
+    /// many receivers the heap merges into its instance (R8).</summary>
     /// <param name="instance">The library instance that stores.</param>
     /// <param name="value">One alternative of the stored value.</param>
-    /// <param name="field">The field stored into.</param>
+    /// <param name="store">The store.</param>
     /// <param name="region">The object stored into.</param>
-    private bool ReadsOwnSlot(MethodInstance instance, AbstractValue value, IrFieldRef field, string region)
+    private bool ReadsOwnSlot(MethodInstance instance, AbstractValue value, SummaryAccess store, string region)
     {
+        var field = store.Field;
         var slot = FieldSlot.Key(field);
         if (value is StaticFieldValue @static)
             return field.IsStatic && FieldSlot.Key(@static.Field) == slot;
         if (field.IsStatic || value is not PathValue { Segments: [.., var last] } path || last != slot)
             return false;
         var owner = path.Segments.Count == 1 ? path.Base : path with { Segments = path.Segments.Take(path.Segments.Count - 1).ToArray() };
+        if (owner is ConcurrencyHunter.Heap.ThisValue && store.Bases.Count != 0 && store.Bases.All(@base => @base is ConcurrencyHunter.Heap.ThisValue))
+            return true;
         var owners = _observation.Resolve(instance, owner);
         return owners.Count != 0 && owners.All(candidate => candidate == region);
     }
@@ -528,7 +579,7 @@ public sealed class EffectReader
             foreach (var value in access.Access.Values.Where(value => !ReadsField(value, access.Access.Field)))
             {
                 _checks.Check(GenerationStage.ReadEffects);
-                values.UnionWith(_observation.Resolve(instance, value));
+                values.UnionWith(_observation.SetupValues(instance, value, _executions.InSetup));
             }
         }
         return _setupSlotValues;
@@ -739,8 +790,7 @@ public sealed class EffectReader
                     }
                     if (inputs.FirstOrDefault(input => !input.IsReceiver) is { } argument)
                         _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.ARGUMENT_GRAPH_CELLS, $"{argument.Name}: {region} in {instance.BodyId}");
-                    else if ((inputs.Any(input => input.IsReceiver) || _allocations.Of(region).Kind == AllocationKind.LibraryBefore) &&
-                             !_allocations.CreatedByCall(region))
+                    else if (inputs.Any(input => input.IsReceiver) || _allocations.Of(region).Kind == AllocationKind.LibraryBefore)
                         AddStateStore(region, action);
                 }
 
@@ -784,8 +834,6 @@ public sealed class EffectReader
                 foreach (var (region, slot) in targets)
                 {
                     _checks.Check(GenerationStage.ReadEffects);
-                    if (_allocations.CreatedByCall(region))
-                        continue;
                     foreach (var action in actions.Where(action => slot is null || !StructStorageStore(region, slot, action)))
                     {
                         _checks.Check(GenerationStage.ReadEffects);
@@ -860,7 +908,9 @@ public sealed class EffectReader
             _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.CALLBACK_VALUE_IN_LIBRARY_CALL,
                         $"{effect.Kind} of {returned} by {instance.BodyId}#{effect.OperationId}");
         }
-        var inputs = Inputs(action).Where(input => input.Reached.Any(regions.Contains)).ToArray();
+        // A read's own path is the value's before the heap resolves it: it says whose read it is (R7).
+        var side = effect.Kind is IrLibraryEffectKind.DeepRead or IrLibraryEffectKind.Enumerate ? SideOf(instance, effect.Values, action) : AccessSide.Region;
+        var inputs = Inputs(action).Where(input => Takes(input, side) && input.Reached.Any(regions.Contains)).ToArray();
         if (inputs.Length == 0)
             return;
 
@@ -875,7 +925,7 @@ public sealed class EffectReader
             {
                 _checks.Check(GenerationStage.ReadEffects);
                 if (reads)
-                    AddEffect(input.Name, READS_DEEP, action, enumeration, regions.Where(input.Reached.Contains));
+                    AddEffect(input.Name, READS_DEEP, action, enumeration, regions.Where(input.Reached.Contains), side);
                 if (writes)
                 {
                     _causes.Add(GenerationReasons.VOCABULARY, ModelCauses.ENUMERATION_WRITE,
@@ -891,7 +941,7 @@ public sealed class EffectReader
             switch (effect.Kind)
             {
                 case IrLibraryEffectKind.DeepRead:
-                    AddEffect(input.Name, READS_DEEP, action, enumeration: false, regions.Where(input.Reached.Contains));
+                    AddEffect(input.Name, READS_DEEP, action, enumeration: false, regions.Where(input.Reached.Contains), side);
                     break;
                 case IrLibraryEffectKind.WriteArgument when input.OwnProbeRoots.Any(regions.Contains):
                     AddEffect(input.Name, WRITES_ARGUMENT, action, enumeration: false, []);
@@ -950,11 +1000,16 @@ public sealed class EffectReader
 
     private void ReadWitnessesAndUnknownCalls()
     {
-        foreach (var input in _inputs)
+        foreach (var (witness, regions) in _handoffs.WitnessesOutsideSetup)
         {
             _checks.Check(GenerationStage.ReadEffects);
-            if (input.Reached.Any(_handoffs.WitnessedOutsideSetup.Contains))
-                AddEffect(input.Name, READS_DEEP, input.Action, enumeration: false, input.Reached.Where(_handoffs.WitnessedOutsideSetup.Contains));
+            foreach (var input in _inputs)
+            {
+                _checks.Check(GenerationStage.ReadEffects);
+                var side = WitnessSide(witness, input.Action);
+                if (Takes(input, side) && input.Reached.Any(regions.Contains))
+                    AddEffect(input.Name, READS_DEEP, input.Action, enumeration: false, input.Reached.Where(regions.Contains), side);
+            }
         }
 
         foreach (var regions in _handoffs.HandoffsOutsideSetup.Values)
@@ -1063,19 +1118,21 @@ public sealed class EffectReader
     private bool MatchesUnseeded(IrFieldRef field) =>
         _unreachedFields.Concat(_driver.UnseededMembers).Any(member => Matches(field, member));
 
-    /// <summary>Records one effect on an argument, and for a <c>reads-deep</c> of the receiver whether the objects it read include a
-    /// user object the receiver holds or an object reachable from one — the one place that answers it for every read.</summary>
+    /// <summary>Records one effect on an argument, and for a <c>reads-deep</c> of the receiver whether it read a user object the
+    /// receiver holds or an object reachable from one (<see cref="ReadsReceiverSeed"/>).</summary>
     /// <param name="parameter">The parameter name, or <c>this</c>.</param>
     /// <param name="kind"><c>reads-deep</c>, <c>writes-arg</c> or <c>writes-cells</c>.</param>
     /// <param name="root"><c>V_Call</c> or <c>V_Enum</c>.</param>
     /// <param name="enumeration">Whether the access was an enumeration read.</param>
     /// <param name="read">The objects a <c>reads-deep</c> read; empty for a write.</param>
-    private void AddEffect(string parameter, string kind, string root, bool enumeration, IEnumerable<string> read)
+    /// <param name="side">Whose read its own path says it is; <see cref="AccessSide.Region"/> for one without a path.</param>
+    private void AddEffect(string parameter, string kind, string root, bool enumeration, IEnumerable<string> read,
+                           AccessSide side = AccessSide.Region)
     {
         var key = (parameter, kind);
         if (!_effects.TryGetValue(key, out var observation))
             _effects[key] = observation = new Observation();
-        if (kind == READS_DEEP && parameter == FateClassifier.THIS && read.Any(_receiverUserObjects.Contains))
+        if (kind == READS_DEEP && parameter == FateClassifier.THIS && ReadsReceiverSeed(side, read))
             observation.ReadsUserObject = true;
         observation.Roots.Add(root);
         if (enumeration)
@@ -1084,8 +1141,107 @@ public sealed class EffectReader
             observation.NonEnumerationRoots.Add(root);
     }
 
+    /// <summary>Whether an access is to a user object the receiver holds — a seed setup placed in it, a probe its construction was given —
+    /// or an object below one: the one place that answers it for every read and write of the receiver (SPEC "Fields and seeds", R7). An
+    /// access with a path of its own — a load, a store, a value the body hands to a known call or to a witness — is decided by that path
+    /// (<see cref="SideOf"/>, <see cref="WitnessSide"/>), so a region the heap lets the receiver's seed and an argument share changes no
+    /// access's owner; one whose path does not say — an alternative from each side, a parameter of a helper body the receiver's seed was
+    /// handed to — and one without a path — a handoff, a store through a reference — by the objects it reaches
+    /// (<see cref="BuildReceiverUserObjects"/>), so the receiver's read of what it held stays.</summary>
+    /// <param name="side">Whose access the access's own path says it is.</param>
+    /// <param name="regions">The objects the access reaches.</param>
+    private bool ReadsReceiverSeed(AccessSide side, IEnumerable<string> regions) => side switch
+    {
+        AccessSide.Receiver => true,
+        AccessSide.Argument => false,
+        _ => regions.Any(_receiverUserObjects.Contains)
+    };
+
+    /// <summary>Whether an input makes an access whose own path says whose it is: the receiver only one on a path from the receiver, an
+    /// argument only one on a path from an argument, every input one without a path.</summary>
+    /// <param name="input">The input.</param>
+    /// <param name="side">Whose access the access's own path says it is.</param>
+    private static bool Takes(Input input, AccessSide side) => side == AccessSide.Region || input.IsReceiver == (side == AccessSide.Receiver);
+
+    /// <summary>Whose access an access's own path says it is (R7): <see cref="AccessSide.Receiver"/> when every alternative of it starts
+    /// at the receiver and passes a field setup seeded or a probe its construction was given, <see cref="AccessSide.Argument"/> when every
+    /// alternative starts at an argument's own object, else <see cref="AccessSide.Region"/>, which the objects it reaches decide.</summary>
+    /// <param name="instance">The library instance that accesses.</param>
+    /// <param name="values">The access's bases, or the value a known call is handed, before the heap resolves them.</param>
+    /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    private AccessSide SideOf(MethodInstance instance, IReadOnlySet<AbstractValue> values, string action)
+    {
+        var key = (instance.Id, action, values);
+        if (_sides.TryGetValue(key, out var known))
+            return known;
+        var sides = _stage.Each(values).Select(value => PathSide(instance, value, action)).Distinct().ToArray();
+        return _sides[key] = sides is [var only] ? only : AccessSide.Region;
+    }
+
+    /// <summary>Whose access one alternative of an access's path says it is (<see cref="SideOf"/>).</summary>
+    /// <param name="instance">The library instance that accesses.</param>
+    /// <param name="value">The alternative.</param>
+    /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    private AccessSide PathSide(MethodInstance instance, AbstractValue value, string action)
+    {
+        var start = value is PathValue path ? path.Base : value;
+        var segments = value is PathValue { Segments: var followed } ? followed : [];
+        var starts = _heap.Resolve(instance.Id, start);
+        if (starts.Count == 0)
+            return AccessSide.Region;
+        if (starts.All(region => Inputs(action).Any(input => !input.IsReceiver && input.Own.Contains(region))))
+            return AccessSide.Argument;
+        if (!starts.All(region => Inputs(action).Any(input => input.IsReceiver && input.Own.Contains(region))))
+            return AccessSide.Region;
+        for (var count = 1; count <= segments.Count; count++)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
+            if (_heap.Resolve(instance.Id, new PathValue(start, segments.Take(count).ToArray()))
+                     .Any(region => Origin(region).Role == DriverRole.Seed || IsUserProbe(region)))
+            {
+                return AccessSide.Receiver;
+            }
+        }
+        return AccessSide.Region;
+    }
+
+    /// <summary>Whose read a witness's is (R7): a witness has no access of its own, but each call that entered it hands it values with
+    /// paths of their own — its receiver and its arguments. When every alternative of every such value says the same side
+    /// (<see cref="PathSide"/>), that is the witness's; else, or when no call says, <see cref="AccessSide.Region"/>.</summary>
+    /// <param name="witness">The witness instance.</param>
+    /// <param name="action"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    private AccessSide WitnessSide(string witness, string action)
+    {
+        if (_witnessSides.TryGetValue((witness, action), out var known))
+            return known;
+        _callers ??= _stage.Each(_heap.Edges).ToLookup(edge => edge.CalleeInstance, StringComparer.Ordinal);
+        var sides = new HashSet<AccessSide>();
+        foreach (var edge in _callers[witness])
+        {
+            _checks.Check(GenerationStage.ReadEffects);
+            if (!_heap.Instances.TryGetValue(edge.CallerInstance, out var caller))
+            {
+                sides.Add(AccessSide.Region);
+                continue;
+            }
+            foreach (var call in caller.Summary.Calls.Where(call => call.OperationId == edge.OperationId))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
+                sides.UnionWith(_stage.Each(call.Receivers.Concat(call.Arguments.SelectMany(argument => argument.Values)))
+                                      .Select(value => PathSide(caller, value, action)));
+            }
+        }
+        return _witnessSides[(witness, action)] = sides is { Count: 1 } ? sides.Single() : AccessSide.Region;
+    }
+
+    /// <summary>Records a store into library state that existed before the call. Every route that finds a state store records it
+    /// here, so this is where the rule is decided: an object the call made is no such state, whoever reaches it (R6).</summary>
+    /// <param name="region">The object written into.</param>
+    /// <param name="root"><c>V_Call</c> or <c>V_Enum</c>.</param>
     private void AddStateStore(string region, string root)
     {
+        if (_allocations.CreatedByCall(region))
+            return;
         if (!_stateStores.TryGetValue(region, out var roots))
             _stateStores[region] = roots = new HashSet<string>(StringComparer.Ordinal);
         roots.Add(root);
@@ -1243,6 +1399,19 @@ public sealed class EffectReader
         public bool IsArray => Type is IArrayTypeSymbol;
         public bool IsCollection => IsArray || Type is INamedTypeSymbol named && SeedableFields.Collection(named) is not null;
         public bool IsStruct => Type.TypeKind == TypeKind.Struct && TypeShape.Of(Type) is TypeShapeKind.PlainStruct or TypeShapeKind.StructWithReferences;
+    }
+
+    /// <summary>Whose access an access's own path says it is (<see cref="SideOf"/>).</summary>
+    private enum AccessSide
+    {
+        /// <summary>No path says: the objects the access reaches decide.</summary>
+        Region,
+
+        /// <summary>A path from the receiver through a field setup seeded or a probe its construction was given.</summary>
+        Receiver,
+
+        /// <summary>A path from an argument's own object.</summary>
+        Argument
     }
 
     private sealed class Observation

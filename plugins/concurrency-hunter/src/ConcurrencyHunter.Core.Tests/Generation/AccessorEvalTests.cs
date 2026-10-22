@@ -66,6 +66,27 @@ public sealed class AccessorEvalTests
                                          .Select(pair => $"{pair.Second.Id}: {pair.Second.Verdict}; {Show(pair.First)}")));
     }
 
+    /// <summary>The add accessors of <c>BackgroundWorker</c>'s field-like events <c>DoWork</c> and <c>RunWorkerCompleted</c> answer
+    /// their gold exactly: the handler's fate <c>unknown-execution</c> and an entry without effects. The subscription combines the
+    /// handler with the seed setup subscribed and stores it back, which keeps nothing and writes no state of the library (R8).</summary>
+    [RequiresModelEvalsFact]
+    public void BackgroundWorker_event_accessors_match_their_gold()
+    {
+        var run = AccessorEvals.InstalledRun;
+        var lines = AccessorEvals.Lines(run);
+        var members = new[]
+        {
+            "M:System.ComponentModel.BackgroundWorker.add_DoWork(System.ComponentModel.DoWorkEventHandler)",
+            "M:System.ComponentModel.BackgroundWorker.add_RunWorkerCompleted(System.ComponentModel.RunWorkerCompletedEventHandler)"
+        };
+
+        foreach (var member in members)
+        {
+            var (answer, line) = Assert.Single(run.Answers.Zip(lines), pair => pair.First.Gold.Member == member);
+            Assert.True(line.Verdict == EvalReport.EXACT, $"{member}: {line.Verdict}; {Show(answer)}");
+        }
+    }
+
     [RequiresModelEvalsFact]
     public void No_accessor_member_is_refused_as_an_accessor()
     {

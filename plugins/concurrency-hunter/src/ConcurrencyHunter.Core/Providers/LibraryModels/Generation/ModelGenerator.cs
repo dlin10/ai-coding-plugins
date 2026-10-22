@@ -496,7 +496,7 @@ public static class ModelGenerator
                 if (effect.Kind == EffectReader.READS_DEEP && EnumerationReadIsNamed(parameter, effect, fates, values))
                     continue;
                 if (effect.Roots.Contains(DriverSynthesizer.ENUMERATE, StringComparer.Ordinal) &&
-                    values.Result?.Leaf.Kind != LibraryResultKind.Sequence)
+                    values.Result?.Leaf.Kind != LibraryResultKind.Sequence && !IsCallsOwn(effect, values))
                 {
                     causes.Add(ModelReasons.VOCABULARY, ModelCauses.ENUMERATION_WITHOUT_SEQUENCE, $"{effect.Kind} of {parameter}");
                     continue;
@@ -564,6 +564,16 @@ public static class ModelGenerator
             _ => false
         });
     }
+
+    /// <summary>Whether an effect the driver's enumeration made is the call's own: the result is named <c>collection(…)</c> or
+    /// <c>dictionary(…)</c>, under any depth of <c>task(…)</c> — an array or an ADR 0010 collection, which the engine enumerates itself,
+    /// so the driver's enumeration runs no code of the library beyond its own call of the member — and the member's call made the effect
+    /// too. Such a result names no place that drops the read: <c>ToList</c> keeps <c>reads-deep</c> (TD-034b).</summary>
+    /// <param name="effect">The effect.</param>
+    /// <param name="values">The values named in the run.</param>
+    private static bool IsCallsOwn(GeneratedEffect effect, ValueProvenance values) =>
+        values.Result?.Leaf.Kind is LibraryResultKind.Collection or LibraryResultKind.Dictionary &&
+        effect.Roots.Contains(DriverSynthesizer.CALL, StringComparer.Ordinal);
 
     private static bool NamesElements(LibraryValue value, string parameter)
     {

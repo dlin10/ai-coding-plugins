@@ -57,6 +57,33 @@ public sealed class ValueSourceMatrixTests
         Assert.Equal(Enum.GetValues<Place>(), Cells.Select(cell => cell.Place).Distinct().Order());
     }
 
+    [Fact]
+    public void No_seed_cell_leaves_a_statement_for_its_unseeded_path()
+    {
+        var wrong = new ConcurrentQueue<string>();
+        var unseeded = 0;
+        Parallel.ForEach(Cells.Where(cell => cell.Place == Place.Seed), CellParallelism, cell =>
+        {
+            try
+            {
+                var library = Compile(LibrarySource(cell));
+                Assert.True(library.Compilation is not null, $"{library.Reason}: {string.Join(", ", library.Errors)}");
+                var member = library.Compilation.GetTypeByMetadataName("Lib.Api")!.GetMembers("Run").OfType<IMethodSymbol>().Single();
+                var synthesis = DriverSynthesizer.Synthesize(library.Compilation, member, library.ExternMembers, library.OpenedFields, CancellationToken.None);
+                Assert.True(synthesis.Driver is not null, $"{synthesis.Reason}: {synthesis.Detail}");
+                // The unseeded array records the paths below it that only its seed's element would have carried.
+                if (!synthesis.Driver.Unseeded.Any(path => path.StartsWith("arg:holder/F:Lib.Holder.Values", StringComparison.Ordinal)))
+                    return;
+                Interlocked.Increment(ref unseeded);
+                Assert.DoesNotContain(".Values = ", synthesis.Driver.Source);
+                Assert.DoesNotContain(synthesis.Driver.SeedStatements, seed => seed.Path == "arg:holder/F:Lib.Holder.Values");
+            }
+            catch (Exception error) { wrong.Enqueue($"{cell}: {error.Message}"); }
+        });
+        Assert.True(wrong.IsEmpty, $"{wrong.Count} cells:\n" + string.Join('\n', wrong.Take(30)));
+        Assert.NotEqual(0, unseeded);
+    }
+
     private static bool Allowed(Source source, Shape shape, Place place)
     {
         // Recipe deliberately defaults structs before consulting sources; returns and witnesses consult sources.

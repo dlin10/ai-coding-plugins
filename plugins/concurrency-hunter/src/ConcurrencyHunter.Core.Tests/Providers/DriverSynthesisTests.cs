@@ -624,6 +624,24 @@ public sealed class DriverSynthesisTests
     }
 
     [Fact]
+    public void A_chain_past_the_class_nesting_bound_in_a_rolled_back_witness_refuses_the_member()
+    {
+        var chain = string.Join(" ", Enumerable.Range(0, 17).Select(index => index < 16
+            ? $"public interface Link{index} {{ Link{index + 1} Next(); }}"
+            : "public interface Link16 { void Done(); }"));
+        // The witness of Get declares the chain for its return, then is rolled back for the out value it cannot make.
+        var source = "using System; namespace Lib { " + chain + """
+             public interface User { Link0 Get<T>(out T value); }
+             public static class Api { public static void Run(User user) { } }
+             }
+             """;
+        var synthesis = SynthesizeIn(source, "M:Lib.Api.Run(Lib.User)");
+
+        Assert.Equal(GenerationReasons.DRIVER_NOT_SYNTHESIZED, synthesis.Reason);
+        Assert.Contains("nest more than 16 deep", synthesis.Detail);
+    }
+
+    [Fact]
     public void A_return_type_the_lambda_cannot_make_is_driver_not_synthesized()
     {
         var synthesis = Synthesize("M:Lib.Api.Hard(System.Func{Lib.Hidden})");

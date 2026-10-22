@@ -280,7 +280,8 @@ public static class DriverSynthesizer
             return new DriverSynthesis(null, GenerationReasons.DRIVER_NOT_SYNTHESIZED, string.Join("; ", writer.Failures.Distinct().Take(DETAILS_SHOWN)));
 
         // A trigger whose call does not compile leaves its holder's member uncovered rather than the whole driver unbuilt: errors
-        // only inside trigger actions, or inside the setup of their own arguments, drop those triggers once and recompile.
+        // only inside trigger actions, or inside the setup of their own arguments, rebuild the driver once with a new writer that
+        // excludes those holders' members, so nothing their triggers wrote stays in it, and compile it again.
         string source;
         SyntaxTree tree;
         CSharpCompilation compilation;
@@ -299,7 +300,11 @@ public static class DriverSynthesizer
                                                      !IsTargetInitError(diagnostic, tree, writer.CallStatements, cancellationToken)).ToArray();
             if (errors.Length == 0 || attempt > 0 || TriggersIn(tree, errors, cancellationToken) is not { } failing)
                 break;
-            writer.DropTriggers(failing, errors.Select(error => $"{error.Id} {error.GetMessage()}").First());
+            var why = errors.Select(error => $"{error.Id} {error.GetMessage()}").First();
+            var excluded = writer.Triggers.Where(trigger => failing.Contains(trigger.Action))
+                                 .ToDictionary(trigger => (trigger.Holder, trigger.Member), _ => why);
+            writer = new Writer(library, definition, openedFields, loadedStatics, witnesses, checks, excluded);
+            writer.Build();
         }
 
         if (errors.Length > 0)
@@ -502,8 +507,11 @@ public static class DriverSynthesizer
     /// <param name="loadedStatics">The static storage loaded by the reached closure.</param>
     /// <param name="witnesses">The comparison witnesses each probe needs.</param>
     /// <param name="checks">The generation's checks, which cancel the writing at each class declaration.</param>
+    /// <param name="excluded">The holder members the driver writes no trigger for, by holder (<c>result</c> or <c>this</c>) and member
+    /// id, each with the compiler error its call met in the driver first built; <c>null</c> for that first build.</param>
     private sealed class Writer(CSharpCompilation library, IMethodSymbol member, IReadOnlySet<string> openedFields,
-                                IReadOnlySet<(string Type, string Name)> loadedStatics, ComparisonWitnesses witnesses, GenerationChecks checks)
+                                IReadOnlySet<(string Type, string Name)> loadedStatics, ComparisonWitnesses witnesses, GenerationChecks checks,
+                                IReadOnlyDictionary<(string Holder, string Member), string>? excluded = null)
     {
         /// <summary>The types whose members compare what they get, which the analysis takes to read it, as it takes <c>Equals</c>.</summary>
         private static readonly HashSet<string> ComparisonTypes = new(
@@ -571,7 +579,7 @@ public static class DriverSynthesizer
         public List<string> Failures { get; } = [];
 
         /// <summary>The type that started the first chain of class declarations to pass <see cref="CLASS_NESTING"/> levels, or
-        /// <c>null</c> when none did. A candidate rollback restores it; a variant rollback does not.</summary>
+        /// <c>null</c> when none did. A rejected candidate's transaction restores it; a variant's <see cref="Rollback"/> keeps it.</summary>
         public string? TooDeep { get; private set; }
 
         public List<string> Defaulted { get; } = [];
@@ -631,7 +639,8 @@ public static class DriverSynthesizer
 
             // The triggers (A5): for each holder the applicability rules could admit — the result of a constructor or of a reference
             // type, the receiver of an instance method — one per member a caller could invoke on its static type, T0…T23 for the whole
-            // driver: the holders share the 24, and a member past them leaves its holder uncovered.
+            // driver: the holders share the 24, and a member past them leaves its holder uncovered. An excluded member is skipped
+            // before numbering but keeps the place it took among the 24 when the driver was first built, so the cap falls where it fell.
             var triggers = new List<(string Variant, string Holder, string Statement)>();
             var holders = new List<(string Kind, ITypeSymbol Type)>();
             if (constructs || _result is { IsReferenceType: true })
@@ -639,6 +648,7 @@ public static class DriverSynthesizer
             if (_receiver is not null)
                 holders.Add((FateClassifier.THIS, _receiver));
             var number = 0;
+            var excludedPlaces = 0;
             foreach (var (kind, type) in holders)
             {
                 checks.Check(GenerationStage.Synthesize);
@@ -650,17 +660,25 @@ public static class DriverSynthesizer
                     continue;
                 }
 
+                var dropped = new List<string>();
                 foreach (var trigger in HolderMembers(holder))
                 {
                     checks.Check(GenerationStage.Synthesize);
-                    if (number == MAX_TRIGGERS)
+                    if (excluded?.TryGetValue((kind, Id(trigger.OriginalDefinition)), out var why) == true)
+                    {
+                        dropped.Add($"{Id(trigger.OriginalDefinition)}: the driver's call does not compile: {why}");
+                        excludedPlaces++;
+                        continue;
+                    }
+
+                    if (number + excludedPlaces == MAX_TRIGGERS)
                     {
                         uncovered.Add($"{Id(trigger)}: past the driver's {MAX_TRIGGERS} triggers");
                         continue;
                     }
 
                     var variant = "T" + number;
-                    var snapshot = Snapshot();
+                    var snapshot = Snapshot(_setup);
                     Setup(variant);
                     var statement = TriggerStatement(trigger, holder, kind == FateClassifier.RESULT ? "r" : $"Recv_{variant}", variant);
                     if (Failures.Count > snapshot.Failures)
@@ -674,6 +692,8 @@ public static class DriverSynthesizer
                     Triggers.Add(new DriverTrigger(variant, Id(trigger.OriginalDefinition), kind));
                     triggers.Add((variant, kind, statement));
                 }
+
+                uncovered.AddRange(dropped);
             }
 
             var keepsResult = _result is not null && TypeShape.Of(_result) != TypeShapeKind.RefLikeOrPointer;
@@ -700,34 +720,6 @@ public static class DriverSynthesizer
 
         /// <summary>By holder, the members no trigger calls, with why (<see cref="Driver.Uncovered"/>).</summary>
         public Dictionary<string, IReadOnlyList<string>> Uncovered { get; } = new(StringComparer.Ordinal);
-
-        /// <summary>Drops trigger actions whose code does not compile: their members become uncovered, their probes and the setup of
-        /// their own arguments go.</summary>
-        /// <param name="variants">The trigger variants to drop.</param>
-        /// <param name="why">The first compiler error, for the record.</param>
-        public void DropTriggers(IReadOnlySet<string> variants, string why)
-        {
-            foreach (var trigger in Triggers.Where(trigger => variants.Contains(trigger.Action)).ToArray())
-            {
-                checks.Check(GenerationStage.Synthesize);
-                ((List<string>)Uncovered[trigger.Holder]).Add($"{trigger.Member}: the driver's call does not compile: {why}");
-                Triggers.Remove(trigger);
-            }
-
-            _actions.RemoveAll(action => variants.Any(variant => action.StartsWith($"    public static void {variant}()\n", StringComparison.Ordinal) ||
-                                                                 action.StartsWith($"    public static async global::System.Threading.Tasks.Task {variant}()\n", StringComparison.Ordinal)));
-            _setup.RemoveAll(statement => variants.Any(variant => statement.StartsWith($"TArg_{variant}_", StringComparison.Ordinal)));
-            for (var index = 0; index < Parameters.Count; index++)
-            {
-                checks.Check(GenerationStage.Synthesize);
-                var parameter = Parameters[index];
-                Parameters[index] = parameter with
-                {
-                    Probes = parameter.Probes.Where(probe => !variants.Contains(probe.Variant)).ToArray(),
-                    OwnFields = parameter.OwnFields.Where(pair => !variants.Contains(pair.Key)).ToDictionary(StringComparer.Ordinal)
-                };
-            }
-        }
 
         /// <summary>The driver's source: the driver class, the keep class, then the driver's own types.</summary>
         public string Source()
@@ -1156,7 +1148,7 @@ public static class DriverSynthesizer
 
         private bool SeedField(string target, ITypeSymbol type, string path, List<string> statements, out string? seededValue)
         {
-            var snapshot = Snapshot();
+            var snapshot = Snapshot(statements);
             if (TrySeedField(target, type, path, statements, out seededValue) && Failures.Count == snapshot.Failures)
                 return true;
             Rollback(snapshot, "Seed");
@@ -1172,7 +1164,7 @@ public static class DriverSynthesizer
         /// <param name="statements">The statements the subscription is added in.</param>
         private bool SeedEvent(string target, ITypeSymbol type, string path, List<string> statements)
         {
-            var snapshot = Snapshot();
+            var snapshot = Snapshot(statements);
             if (SeedClassValue(type) is { } seed && Failures.Count == snapshot.Failures)
             {
                 AddSeed(path, $"{target} += {seed};", statements);
@@ -1244,7 +1236,7 @@ public static class DriverSynthesizer
             var collection = type is INamedTypeSymbol { TypeKind: not TypeKind.Interface, IsAbstract: false } named ? SeedableFields.Collection(named) : null;
             if (type is not IArrayTypeSymbol && collection is null)
                 return false;
-            var snapshot = Snapshot();
+            var snapshot = Snapshot(statements);
             var values = type is IArrayTypeSymbol array ? new[] { SeedAxis(array.ElementType) } : collection!.Axes.Select(SeedAxis).ToArray();
             // A defaulted element is a null: it carries no seed.
             if (values.Any(value => value is null) || Failures.Count != snapshot.Failures || Defaulted.Count != snapshot.Defaulted)
@@ -1652,8 +1644,8 @@ public static class DriverSynthesizer
         }
 
         /// <summary>The receiver: the driver's subclass when a user could subclass its type, overriding everything but the member and
-        /// what it overrides, and for an accessor the property or event it belongs to and what that overrides; else the recipe's
-        /// value.</summary>
+        /// what it overrides, and for an accessor the property or event it belongs to and what that overrides; the container an
+        /// argument of its type gets; else the recipe's value.</summary>
         /// <param name="receiver">The receiver's type.</param>
         private string ReceiverValue(INamedTypeSymbol receiver)
         {
@@ -1680,6 +1672,7 @@ public static class DriverSynthesizer
             return kind switch
             {
                 ParameterKind.Canned => Canned(receiver, owner),
+                ParameterKind.Container => Container(receiver, owner, RECEIVER_DEPTH, _setup),
                 ParameterKind.NotSynthesized => Fail($"the receiver is of {receiver.ToDisplayString()}, a ref-like type"),
                 _ => Recipe(receiver, owner, RECEIVER_DEPTH, _setup)
             };
@@ -2069,9 +2062,9 @@ public static class DriverSynthesizer
             return $"default({R(type)})";
         }
 
-        /// <summary>An array or a list of two values of the element's kind; an array of rank r has every dimension of length 1 but
-        /// the last, of length 2.</summary>
-        /// <param name="type">The array or sequence interface.</param>
+        /// <summary>An array, a list of two values of the element's kind, or a concrete ADR 0010 collection
+        /// (<see cref="CollectionValue"/>); an array of rank r has every dimension of length 1 but the last, of length 2.</summary>
+        /// <param name="type">The array, sequence interface or concrete collection.</param>
         /// <param name="owner">What the value belongs to.</param>
         /// <param name="depth">How many more constructors or factories the recipe may nest.</param>
         /// <param name="hoist">Setup's statements, or <c>null</c>.</param>
@@ -2088,8 +2081,40 @@ public static class DriverSynthesizer
                 return $"new {R(array)} {initializer}";
             }
 
+            if (ParameterKinds.IsConcreteCollection(type))
+                return CollectionValue(SeedableFields.Collection((INamedTypeSymbol)type)!, owner, depth, hoist);
             var element = ((INamedTypeSymbol)type).TypeArguments[0];
             return $"new global::System.Collections.Generic.List<{R(element)}> {{ {Value(element, owner, depth, hoist)}, {Value(element, owner, depth, hoist)} }}";
+        }
+
+        /// <summary>A concrete ADR 0010 collection, the class itself and never a subclass of it, with two insertions through its table
+        /// member of values <see cref="Value"/> builds for each axis's own type: a dictionary gets two pairs, its key and its value each
+        /// of its own type. In setup the collection is a local of its own; elsewhere a factory of its own makes it from the values,
+        /// which are built where the value is asked for and keep their roles there, while the collection is an argument value.</summary>
+        /// <param name="collection">The collection.</param>
+        /// <param name="owner">What the value belongs to.</param>
+        /// <param name="depth">How many more constructors or factories the recipe may nest.</param>
+        /// <param name="hoist">Setup's statements, or <c>null</c>.</param>
+        private string CollectionValue(SeedableFields.CollectionSeed collection, Owner owner, int depth, List<string>? hoist)
+        {
+            var first = collection.Axes.Select(axis => Value(axis, owner, depth, hoist)).ToArray();
+            var second = collection.Axes.Select(axis => Value(axis, owner, depth, hoist)).ToArray();
+            var type = CollectionType(collection);
+            if (hoist is not null)
+            {
+                var local = Unique($"container_{owner.Name}_{owner.Variant}");
+                hoist.Add($"var {local} = new {type}();");
+                hoist.Add(Insertion(collection, local, first));
+                hoist.Add(Insertion(collection, local, second));
+                return local;
+            }
+
+            var factory = Unique($"Container_{owner.Name}");
+            var parameters = collection.Axes.Concat(collection.Axes).Select((axis, index) => $"{R(Substitute(axis))} p{index}");
+            var names = Enumerable.Range(0, 2 * collection.Axes.Count).Select(index => $"p{index}").ToArray();
+            _methods.Add($"internal static {type} {factory}({string.Join(", ", parameters)}) {{ var value = new {type}(); " +
+                         $"{Insertion(collection, "value", names[..collection.Axes.Count])} {Insertion(collection, "value", names[collection.Axes.Count..])} return value; }}");
+            return $"{DRIVER_TYPE}.{factory}({string.Join(", ", first.Concat(second))})";
         }
 
         /// <summary>The recipe's nullable, pair, struct or task value, then the first built library source from <see cref="LibraryValue"/>.
@@ -2332,7 +2357,8 @@ public static class DriverSynthesizer
         }
 
         /// <summary>What a lambda returns, made in its own body: a completed task of a value made by this rule, a canned value, a
-        /// probe class instance for a type parameter, an expression tree from its factory, an <c>R_</c> marker for <c>object</c>, an interface or an abstract class, the
+        /// probe class instance for a type parameter, an expression tree from its factory, a concrete ADR 0010 collection as an argument
+        /// of its type gets it, an <c>R_</c> marker for <c>object</c>, an interface or an abstract class, the
         /// first built library source for a concrete class, a struct with references or an abstract class no driver can derive from;
         /// a holding value no rule makes is
         /// <c>driver-not-synthesized</c>, never a default.</summary>
@@ -2365,6 +2391,9 @@ public static class DriverSynthesizer
 
             if (Kind(type) == ParameterKind.ExpressionTree)
                 return Value(type, owner, depth, null);
+            // A concrete ADR 0010 collection holds the values an argument of its type holds, never nothing (R5).
+            if (ParameterKinds.IsConcreteCollection(type))
+                return Value(type, owner, Math.Max(depth, INLINE_DEPTH), null);
 
             // A struct with references holds as a class does: the recipe's library sources below, never a default.
 
@@ -2550,7 +2579,7 @@ public static class DriverSynthesizer
         private string PropertyWitness(string modifier, IPropertySymbol property, string explicitOwner = "", ITypeParameterSymbol? self = null)
         {
             var accessors = new List<(string Declaration, string? Body)>();
-            var snapshot = Snapshot();
+            var snapshot = Snapshot(null);
             var explicitly = explicitOwner.Length > 0;
             foreach (var accessor in new[] { property.GetMethod, property.SetMethod })
             {
@@ -2592,10 +2621,13 @@ public static class DriverSynthesizer
                 return null;
             }
 
-            var snapshot = Snapshot();
+            var snapshot = Snapshot(null);
             var result = WitnessReturn(method.ReturnsVoid, Substitute(returnType), returnsByRef, returnsByRefReadonly);
             if (!method.ReturnsVoid && result is null)
+            {
+                Rollback(snapshot, "Witness");
                 return null;
+            }
             var field = ReadsByConvention(method) ? READ_WITNESS_FIELD : WITNESS_FIELD;
             var statements = new List<string>(WitnessStores("this", self, field));
             foreach (var (parameter, index) in method.Parameters.Select((parameter, index) => (parameter, index)))
@@ -2654,7 +2686,7 @@ public static class DriverSynthesizer
                 return null;
             if (TypeShape.Of(type) is TypeShapeKind.Immutable or TypeShapeKind.PlainStruct)
                 return Canned(type, new Owner("Witness", null));
-            var snapshot = Snapshot();
+            var snapshot = Snapshot(null);
             var value = Kind(type) == ParameterKind.ExpressionTree
                 ? Value(type, new Owner("Witness", null), INLINE_DEPTH, null)
                 : SeedableFields.Seed(type) ||
@@ -2903,12 +2935,13 @@ public static class DriverSynthesizer
 
         private static string Escape(string name) => SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None ? "@" + name : name;
 
-        /// <summary>A candidate's rollback and the failure and stack sizes used to judge its construction.</summary>
+        /// <summary>A candidate's rollback and the failure, default and stack sizes used to judge its construction.</summary>
         /// <param name="Restore">Restores the captured mutable state.</param>
         /// <param name="Failures">The failure count before construction.</param>
+        /// <param name="Defaulted">The defaulted-value count before construction.</param>
         /// <param name="Below">The unseeded-path stack size.</param>
         /// <param name="Declaring">The class-declaration stack size.</param>
-        private sealed record CandidateState(Action Restore, int Failures, int Below, int Declaring);
+        private sealed record CandidateState(Action Restore, int Failures, int Defaulted, int Below, int Declaring);
 
         /// <summary>Captures Failures, Defaulted, _setup, _seedStatements, _fields, _witnessFields, _keep, _types, _methods,
         /// _actions, _chosen, _seedTypeKeys and _classKeys by size, removing their new keys from _probeTypes, _choices, _seedTypes
@@ -2916,9 +2949,10 @@ public static class DriverSynthesizer
         /// and inputs and the value owner's, plus the caller's hoisted statements. Captures _intermediates, _lambdaParameters,
         /// _seedContainers, _staticsSeeded and TooDeep by value. The _below and _declaring stacks are checked, not restored;
         /// the library producer cache _producers is not transactional.</summary>
-        /// <param name="owner">The owner of the candidate value, including an inline owner outside the owner dictionary.</param>
+        /// <param name="owner">The owner of the candidate value, including an inline owner outside the owner dictionary, or <c>null</c>
+        /// for work that builds no value of its own owner.</param>
         /// <param name="hoist">The caller's statements, or <c>null</c>.</param>
-        private CandidateState SnapshotCandidate(Owner owner, List<string>? hoist)
+        private CandidateState SnapshotCandidate(Owner? owner, List<string>? hoist)
         {
             var restore = new List<Action>();
             void List<T>(List<T> list)
@@ -2980,7 +3014,7 @@ public static class DriverSynthesizer
             Dictionary(_probeStructs);
             Dictionary(_unseeded);
             Dictionary(_owners);
-            foreach (var existing in _owners.Values.Append(owner).Distinct())
+            foreach (var existing in (owner is null ? _owners.Values : _owners.Values.Append(owner)).Distinct())
             {
                 WorkCancellation.Check();
                 List(existing.Probes);
@@ -3009,7 +3043,7 @@ public static class DriverSynthesizer
                     WorkCancellation.Check();
                     action();
                 }
-            }, Failures.Count, _below.Count, _declaring.Count);
+            }, Failures.Count, Defaulted.Count, _below.Count, _declaring.Count);
         }
 
         /// <summary>Builds one expression atomically; a failed value leaves the writer as though the candidate were absent.</summary>
@@ -3028,43 +3062,22 @@ public static class DriverSynthesizer
             return null;
         }
 
-        private (int Failures, int Defaulted, int Setup, int Fields, int Keep, int Types, int Methods, int SeedTypes, int ClassKeys, int Chosen) Snapshot() =>
-            (Failures.Count, Defaulted.Count, _setup.Count, _fields.Count, _keep.Count, _types.Count, _methods.Count, _seedTypeKeys.Count,
-             _classKeys.Count, _chosen.Count);
+        /// <summary>Captures, before work the driver may cancel — a trigger variant, a seed of a field, an event or an element, a
+        /// witness's property, body or value —, what <see cref="SnapshotCandidate"/> captures for a candidate, with the statements the
+        /// work writes into, so that <see cref="Rollback"/> leaves the driver as it would be without the work.</summary>
+        /// <param name="statements">The statements the work writes into, or <c>null</c> when it writes into none of its own.</param>
+        private CandidateState Snapshot(List<string>? statements) => SnapshotCandidate(null, statements);
 
-        /// <summary>Drops everything a trigger variant added, when one of its values could not be built.</summary>
-        /// <param name="snapshot">The sizes before the variant was built.</param>
-        /// <param name="variant">The trigger's variant.</param>
-        private void Rollback((int Failures, int Defaulted, int Setup, int Fields, int Keep, int Types, int Methods, int SeedTypes, int ClassKeys, int Chosen) snapshot,
-                              string variant)
+        /// <summary>Cancels the work since a <see cref="Snapshot"/>: restores everything it captured except <see cref="TooDeep"/>,
+        /// and drops the variant's owners. A chain past <see cref="CLASS_NESTING"/> refuses the member whatever work is cancelled
+        /// (TD-034b), and a flag left set stops each later variant from declaring the chain again.</summary>
+        /// <param name="snapshot">The state before the work.</param>
+        /// <param name="variant">The trigger's variant, or <c>Seed</c> or <c>Witness</c>.</param>
+        private void Rollback(CandidateState snapshot, string variant)
         {
-            foreach (var parameter in _chosen.Skip(snapshot.Chosen))
-            {
-                WorkCancellation.Check();
-                _probeTypes.Remove(parameter);
-                _choices.Remove(parameter);
-            }
-
-            _chosen.RemoveRange(snapshot.Chosen, _chosen.Count - snapshot.Chosen);
-            Failures.RemoveRange(snapshot.Failures, Failures.Count - snapshot.Failures);
-            Defaulted.RemoveRange(snapshot.Defaulted, Defaulted.Count - snapshot.Defaulted);
-            _setup.RemoveRange(snapshot.Setup, _setup.Count - snapshot.Setup);
-            _fields.RemoveRange(snapshot.Fields, _fields.Count - snapshot.Fields);
-            _keep.RemoveRange(snapshot.Keep, _keep.Count - snapshot.Keep);
-            _types.RemoveRange(snapshot.Types, _types.Count - snapshot.Types);
-            _methods.RemoveRange(snapshot.Methods, _methods.Count - snapshot.Methods);
-            foreach (var key in _seedTypeKeys.Skip(snapshot.SeedTypes))
-            {
-                WorkCancellation.Check();
-                _seedTypes.Remove(key);
-            }
-            _seedTypeKeys.RemoveRange(snapshot.SeedTypes, _seedTypeKeys.Count - snapshot.SeedTypes);
-            foreach (var key in _classKeys.Skip(snapshot.ClassKeys))
-            {
-                WorkCancellation.Check();
-                _classes.Remove(key);
-            }
-            _classKeys.RemoveRange(snapshot.ClassKeys, _classKeys.Count - snapshot.ClassKeys);
+            var tooDeep = TooDeep;
+            snapshot.Restore();
+            TooDeep = tooDeep;
             foreach (var key in _owners.Keys.Where(key => key.Variant == variant).ToArray())
             {
                 WorkCancellation.Check();

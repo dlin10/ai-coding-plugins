@@ -56,6 +56,36 @@ internal sealed class ValueObservation
     // bounded: overload forwarding terminates at the implementation overload.
     public IReadOnlySet<string> Resolve(MethodInstance instance, AbstractValue value) => Resolve(instance, value, []);
 
+    /// <summary>The regions a value a setup store writes may hold: what <see cref="Resolve(MethodInstance, AbstractValue)"/> finds, and
+    /// for a parameter what the instance's setup callers pass to it. Once a body's contexts merge, a setup call still reaches the
+    /// instance it reached before the merge beside the merged one, and that instance keeps no binding of the argument: the seed the
+    /// call passed is still what setup put into the slot (R8).</summary>
+    /// <param name="instance">The instance storing.</param>
+    /// <param name="value">The stored value.</param>
+    /// <param name="inSetup">Whether an execution is one of setup's.</param>
+    public IReadOnlySet<string> SetupValues(MethodInstance instance, AbstractValue value, Func<string, bool> inSetup)
+    {
+        var values = Resolve(instance, value).ToHashSet(StringComparer.Ordinal);
+        if (value is not ParameterValue parameter)
+            return values;
+        foreach (var edge in _heap.Edges.Where(edge => edge.CalleeInstance == instance.Id))
+        {
+            _checks.Check();
+            if (!_heap.Instances.TryGetValue(edge.CallerInstance, out var caller) ||
+                _run.Executions?.InstanceExecutions.GetValueOrDefault(caller.Id)?.Any(inSetup) != true)
+            {
+                continue;
+            }
+            foreach (var argument in caller.Summary.Calls.Where(call => call.OperationId == edge.OperationId).SelectMany(call => call.Arguments)
+                                           .Where(argument => argument.ParameterOrdinal == parameter.Ordinal))
+            {
+                _checks.Check();
+                values.UnionWith(argument.Values.SelectMany(argumentValue => Resolve(caller, argumentValue)));
+            }
+        }
+        return values;
+    }
+
     /// <summary>Whether any alternative, or an unknown call among their origins, may hold an object the heap does not name.</summary>
     /// <param name="instance">The instance expressing the values.</param>
     /// <param name="values">The symbolic alternatives.</param>

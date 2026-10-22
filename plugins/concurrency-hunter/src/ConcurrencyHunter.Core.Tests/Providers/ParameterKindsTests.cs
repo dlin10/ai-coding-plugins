@@ -33,13 +33,15 @@ public sealed class ParameterKindsTests
             public struct Pair { public string Name; public object Value; }
             public struct Point { public int X; public int Y; }
             public sealed class Many : List<int>, ISink { public void Put(object value) { } }
+            public class More : List<Bag> { }
             public sealed class Holder { public Action Run; }
 
             public static unsafe class Api
             {
                 public static void Axes(Span<int> span, int* pointer, Func<int, bool> predicate, string text, DateTime when, Point point, int[] numbers,
                                         IEnumerable<int> sequence, IReadOnlyList<Bag> list, object item, ISink sink, Handler handler, Bag bag, Box box,
-                                        Pair pair, Task task, Task<int> result, Closed closed, Secret secret, Guarded guarded, Many many) { }
+                                        Pair pair, Task task, Task<int> result, Closed closed, Secret secret, Guarded guarded, Many many,
+                                        List<Bag> bags, Dictionary<string, Bag> map, ISet<Bag> set, More more) { }
                 public static void Generic<T>(T value, IEnumerable<T> values) { }
                 public static void Passing(ref Action first, out Action second, in Action third, ref Bag fourth) { second = null; }
                 public static void Arrays(int[] single, int[,] square, int[][] jagged, Func<int>[] probes, Action done) { }
@@ -101,6 +103,16 @@ public sealed class ParameterKindsTests
         Assert.Equal(ParameterKind.Container, Kind("Generic", "values"));
         // A class implementing a sequence interface is not a sequence interface: it takes its own axis.
         Assert.Equal(ParameterKind.RecipeValue, Kind("Axes", "many"));
+    }
+
+    [Fact]
+    public void A_concrete_ADR_0010_collection_takes_axis_4_before_axis_6()
+    {
+        Assert.Equal(ParameterKind.Container, Kind("Axes", "bags"));
+        Assert.Equal(ParameterKind.Container, Kind("Axes", "map"));
+        // An interface of the table is no concrete collection, and a subclass of a collection is not in the table.
+        Assert.Equal(ParameterKind.ProbeObject, Kind("Axes", "set"));
+        Assert.Equal(ParameterKind.Subclass, Kind("Axes", "more"));
     }
 
     [Fact]

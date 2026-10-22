@@ -73,6 +73,14 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   content, `with`, a box); storage possibly filled by a write the analysis does not see; the default comparer a heap
   instance makes; a value type of the driver constructed where it is created; and a `Nullable` that is its value in
   CoreLib's own bodies. Each such answer is named in `docs/runs/5d-A10.md`.
+  Run B4 adds the causes of the generator's precision (SPEC TD-034b): the driver after cancelled work, and after a
+  rebuild without a trigger whose call does not compile, is the driver it would be without them; a concrete ADR 0010
+  collection the driver builds is the class itself with two insertions of elements, never a subclass of the driver; a
+  fresh collection result is a collection of the observed values' names, a delegate's return keeps its name across an
+  execution boundary, and keeping goes through the objects the call made; an access to the receiver's seed is decided by
+  the access's own path; one run of a body has one `this`, and the seed setup passed a body stays the slot's seed once
+  the body's contexts merge; and a decompiled library compiles without CS0104 and CS0051. Each such answer is named in
+  `docs/runs/5d-B4.md`.
   An answer may also change because the driver constructs a call it previously refused, or because the snapshot
   gains `detail` and `causes`; each changed answer is named by declaration id with its rule in the run record.
 - **Verdict report.** When `CH_MODEL_EVALS_REPORT` names a folder, `ModelEvalTests`, `EffectsEvalTests`,

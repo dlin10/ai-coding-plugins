@@ -669,6 +669,35 @@ public sealed class ValueProvenanceTests
         Assert.Equal(ModelReasons.LIBRARY_STATE, trace.Answer.ModelReason);
     }
 
+    // The chain goes through objects the call made to the value, but what the call made is no state that was there before it (R6).
+    [Theory]
+    [InlineData("_kept = new Shell { Value = new Shell { Value = value } };")]
+    [InlineData("var inner = new Shell(); inner.Value = value; var outer = new Shell(); outer.Value = inner; _kept = outer;")]
+    [InlineData("_a.Value = new Shell { Value = new Shell { Value = value } };")]
+    public void A_value_kept_through_objects_the_call_made_keeps_its_name(string body)
+    {
+        var trace = Trace(FreshChainSource(body), "M:Lib.Bag.Add(System.Object)");
+
+        Assert.Equal(["arg:value"], Text(Read(trace).Keeps["this"]));
+        Assert.NotNull(trace.Answer.Model);
+    }
+
+    [Theory]
+    [InlineData("_kept = new Shell { Value = value }; _b.Count = 1;")]
+    [InlineData("_a.Value = new Shell { Value = value }; _b.Count = 1;")]
+    public void A_write_into_a_pre_existing_object_beside_a_chain_through_made_objects_gives_library_state(string body)
+    {
+        var trace = Trace(FreshChainSource(body), "M:Lib.Bag.Add(System.Object)");
+
+        Assert.Null(trace.Answer.Model);
+        Assert.Equal(ModelReasons.LIBRARY_STATE, trace.Answer.ModelReason);
+    }
+
+    private static string FreshChainSource(string body) =>
+        "public sealed class Node { public object Value; public int Count; } public sealed class Shell { public object Value; } " +
+        "public sealed class Bag { private readonly Node _a = new Node(); private readonly Node _b = new Node(); private object _kept; " +
+        $"public void Add(object value) {{ {body} }} }}";
+
     [Theory]
     [InlineData("items[0] = items[0]; cells[0] = items[0];")]
     [InlineData("var item = items[0]; items[0] = item; cells[0] = item;")]

@@ -236,6 +236,157 @@ public sealed class LibraryCompilationTests
     }
 
     [Fact]
+    public void An_ambiguous_type_name_after_a_using_compiles_whole()
+    {
+        // System.Text.Json's converters: the decompiler sees the library's own BooleanConverter and writes its simple name after
+        // `using System.ComponentModel`, whose BooleanConverter lives in an assembly the library does not reference; only the compilation
+        // against the whole framework sees both.
+        using var install = new GenerationInstall();
+        var emitted = Emitted(install, "Fixture.Ambiguous", """
+            using System.ComponentModel;
+            using Lib.Converters;
+
+            namespace Lib.Converters
+            {
+                public sealed class BooleanConverter { public int Value; }
+            }
+
+            namespace Lib.Metadata
+            {
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                public static class Services
+                {
+                    public static BooleanConverter Shared { get; } = new BooleanConverter();
+                    public static int Read() => new BooleanConverter().Value;
+                }
+            }
+            """);
+        var assembly = emitted with
+        {
+            References = [.. emitted.References, Path.Combine(emitted.SharedFrameworkDirectory, "System.ComponentModel.TypeConverter.dll")]
+        };
+        var module = LibraryCompilation.Decompile(assembly, CancellationToken.None);
+        var references = assembly.References.Select(reference => (MetadataReference)MetadataReference.CreateFromFile(reference)).ToArray();
+
+        var kept = LibraryCompilation.CompileModule(assembly.AssemblyName, module, references, CancellationToken.None, repairArtefacts: false);
+        var repaired = LibraryCompilation.CompileModule(assembly.AssemblyName, module, references, CancellationToken.None);
+
+        Assert.Equal(GenerationReasons.LIBRARY_DOES_NOT_COMPILE, kept.Reason);
+        Assert.Contains("CS0104", kept.Errors);
+        Assert.True(repaired.Reason is null, $"{repaired.Reason}: {string.Join(", ", repaired.Errors)}");
+        Assert.Equal(0, repaired.ExternBodies);
+        Assert.Empty(repaired.ExternMembers);
+        Assert.DoesNotContain(repaired.Compilation!.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error &&
+                                                                                   !LibraryCompilation.BenignDeclarationErrors.Contains(diagnostic.Id));
+        var services = repaired.Compilation.GetTypeByMetadataName("Lib.Metadata.Services")!;
+        Assert.Equal("Lib.Converters.BooleanConverter", services.GetMembers("Shared").OfType<IPropertySymbol>().Single().Type.ToDisplayString());
+
+        // A name ambiguous between two types the decompiler saw is no artefact of it, and the repair does not choose: the body stays extern.
+        var both = CompileSource("""
+            using A;
+            using B;
+
+            namespace A { public sealed class Item { } }
+            namespace B { public sealed class Item { } }
+            namespace C
+            {
+                public static class Use
+                {
+                    public static object Make() => new Item();
+                    public static object Fine() => new A.Item();
+                }
+            }
+            """);
+        Assert.Null(both.Reason);
+        Assert.Equal(["M:C.Use.Make"], both.ExternMembers);
+    }
+
+    [Fact]
+    public void A_local_function_with_a_display_class_in_its_signature_compiles_whole()
+    {
+        // AutoMapper 14's ProjectionBuilder as the decompiler leaves it: static local functions its compiler emitted as internal methods,
+        // called from a local function the decompiler left in a class display class, take a private struct display class by reference
+        // (CS0051) or return one (CS0050).
+        var decompiled = new DecompiledModule([CSharpSyntaxTree.ParseText("""
+            using System.Runtime.CompilerServices;
+
+            namespace Lib
+            {
+                public sealed class Builder
+                {
+                    [CompilerGenerated]
+                    private struct _003C_003Ec__DisplayClass0_1
+                    {
+                        public int first;
+                    }
+
+                    [CompilerGenerated]
+                    private sealed class _003C_003Ec__DisplayClass0_0
+                    {
+                        public int limit;
+
+                        internal bool _003CCreate_003Eg__Outer_007C1(int item)
+                        {
+                            _003C_003Ec__DisplayClass0_1 obj = _003CCreate_003Eg__Make_007C0_3(item);
+                            return _003CCreate_003Eg__Both_007C0_2(ref obj, limit);
+                        }
+                    }
+
+                    public bool Create(int item, int limit) => new _003C_003Ec__DisplayClass0_0 { limit = limit }._003CCreate_003Eg__Outer_007C1(item);
+
+                    [CompilerGenerated]
+                    internal static bool _003CCreate_003Eg__Both_007C0_2(ref _003C_003Ec__DisplayClass0_1 P_0, int limit)
+                    {
+                        return P_0.first > limit;
+                    }
+
+                    [CompilerGenerated]
+                    internal static _003C_003Ec__DisplayClass0_1 _003CCreate_003Eg__Make_007C0_3(int item)
+                    {
+                        _003C_003Ec__DisplayClass0_1 result = default;
+                        result.first = item;
+                        return result;
+                    }
+                }
+            }
+            """, new CSharpParseOptions(LanguageVersion.Preview), "Fixture.Library/Lib.Builder.cs")], []);
+
+        var kept = LibraryCompilation.CompileModule("Fixture.Library", decompiled, EmittedAssemblies.RuntimeReferences, CancellationToken.None,
+                                                    repairArtefacts: false);
+        var repaired = LibraryCompilation.CompileModule("Fixture.Library", decompiled, EmittedAssemblies.RuntimeReferences, CancellationToken.None);
+
+        Assert.Equal(GenerationReasons.LIBRARY_DOES_NOT_COMPILE, kept.Reason);
+        Assert.Contains("CS0051", kept.Errors);
+        Assert.Contains("CS0050", kept.Errors);
+        Assert.True(repaired.Reason is null, $"{repaired.Reason}: {string.Join(", ", repaired.Errors)}");
+        Assert.Equal(0, repaired.ExternBodies);
+        Assert.Empty(repaired.ExternMembers);
+        Assert.Empty(repaired.Compilation!.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error));
+        Assert.Equal(Accessibility.Private, Method(repaired, "Lib.Builder", "_003CCreate_003Eg__Both_007C0_2").DeclaredAccessibility);
+        Assert.Equal(Accessibility.Private, Method(repaired, "Lib.Builder", "_003CCreate_003Eg__Make_007C0_3").DeclaredAccessibility);
+
+        // A method the compiler did not generate, or one whose signature names no compiler-generated type, is no unfolded local function.
+        foreach (var (method, hidden) in new[] { ("", "[CompilerGenerated]"), ("[CompilerGenerated]", "") })
+        {
+            var refused = CompileSource($$"""
+                using System.Runtime.CompilerServices;
+
+                public sealed class Holder
+                {
+                    {{hidden}}
+                    private struct Hidden { }
+
+                    {{method}}
+                    internal static void Use(ref Hidden hidden) { }
+                }
+                """);
+
+            Assert.Equal(GenerationReasons.LIBRARY_DOES_NOT_COMPILE, refused.Reason);
+            Assert.Contains("CS0051", refused.Errors);
+        }
+    }
+
+    [Fact]
     public void A_property_or_indexer_accessor_in_error_makes_the_member_extern()
     {
         var result = CompileSource("""
@@ -280,6 +431,45 @@ public sealed class LibraryCompilationTests
             Assert.True(result.Reason is null, $"{name}: {result.Reason}: {string.Join(", ", result.Errors)}");
             Assert.NotNull(result.Compilation);
         }
+
+        // System.Text.Json compiled directly, past the cache, without the repair of the decompiler's artefacts and with it: the converters
+        // named after `using System.ComponentModel` (CS0104) keep their bodies, and no body that compiled without the repair loses its own.
+        var json = ImplementationAssemblies.ForThisProcess().Resolve("System.Text.Json", "10.0", null, "net10.0").Assembly!;
+        var module = LibraryCompilation.Decompile(json, CancellationToken.None);
+        var references = json.References.Select(reference => (MetadataReference)MetadataReference.CreateFromFile(reference)).ToArray();
+        var kept = LibraryCompilation.CompileModule(json.AssemblyName, module, references, CancellationToken.None, repairArtefacts: false);
+        var repaired = LibraryCompilation.CompileModule(json.AssemblyName, module, references, CancellationToken.None);
+        var ambiguous = AmbiguousMembers(json.AssemblyName, module, references);
+
+        Assert.True(kept.Reason is null, $"{kept.Reason}: {string.Join(", ", kept.Errors)}");
+        Assert.True(repaired.Reason is null, $"{repaired.Reason}: {string.Join(", ", repaired.Errors)}");
+        Assert.Subset(kept.ExternMembers.ToHashSet(StringComparer.Ordinal), repaired.ExternMembers.ToHashSet(StringComparer.Ordinal));
+        var gone = kept.ExternMembers.Except(repaired.ExternMembers, StringComparer.Ordinal).ToHashSet(StringComparer.Ordinal);
+        Assert.Subset(ambiguous, gone);
+        Assert.True(gone.Count >= 24, $"{gone.Count} members keep their bodies: {string.Join(", ", gone)}");
+        Assert.Empty(ambiguous.Intersect(repaired.ExternMembers, StringComparer.Ordinal));
+    }
+
+    /// <summary>The documentation ids of the members whose declaration or body has a CS0104 error in a decompiled module compiled as
+    /// it is, a property's with its accessors'.</summary>
+    /// <param name="assemblyName">The assembly name.</param>
+    /// <param name="module">The decompiled module.</param>
+    /// <param name="references">The references of the platform version.</param>
+    private static HashSet<string> AmbiguousMembers(string assemblyName, DecompiledModule module, IReadOnlyList<MetadataReference> references)
+    {
+        var compilation = CSharpCompilation.Create(assemblyName, module.Trees, references,
+                                                   new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+                                                                                nullableContextOptions: NullableContextOptions.Disable));
+        var members = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var error in compilation.GetDiagnostics().Where(diagnostic => diagnostic.Id == "CS0104"))
+        {
+            var tree = error.Location.SourceTree!;
+            var member = tree.GetRoot().FindNode(error.Location.SourceSpan).AncestorsAndSelf().OfType<MemberDeclarationSyntax>().First();
+            var symbol = compilation.GetSemanticModel(tree).GetDeclaredSymbol(member);
+            ISymbol?[] declared = symbol is IPropertySymbol property ? [property, property.GetMethod, property.SetMethod] : [symbol];
+            members.UnionWith(declared.OfType<ISymbol>().Select(declaredSymbol => declaredSymbol.GetDocumentationCommentId()!));
+        }
+        return members;
     }
 
     [Theory]

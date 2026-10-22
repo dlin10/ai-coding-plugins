@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "f83e03cc2613e63814371fe0aae30b164cff79a9c32c38ed4208151217fec8c4",
+  "generator": "67e5666217c640088d0ff8efc8408b6b94374c3845456b04e2639dff3d88b28d",
   "assembly": {
     "name": "Microsoft.AspNetCore.Mvc.Core",
     "version": "10.0.0.0",

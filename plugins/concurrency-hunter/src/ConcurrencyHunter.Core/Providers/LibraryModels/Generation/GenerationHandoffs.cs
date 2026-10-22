@@ -28,6 +28,7 @@ public sealed class GenerationHandoffs
     private readonly HashSet<(string Instance, int Operation)> _unsupported = [];
     private readonly HashSet<string> _witnessedInSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _witnessedOutsideSetup = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, IReadOnlySet<string>> _witnessesOutsideSetup = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlySet<string>> _unseenMembersOutsideSetup = new(StringComparer.Ordinal);
     private readonly HashSet<string> _foreignAccesses = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Instance, int Operation), IReadOnlySet<string>> _outsideByCall = [];
@@ -239,6 +240,10 @@ public sealed class GenerationHandoffs
     /// <summary>Regions received by witness instances that ran outside setup.</summary>
     public IReadOnlySet<string> WitnessedOutsideSetup => _witnessedOutsideSetup;
 
+    /// <summary>For each witness instance that ran outside setup, the regions it received: <see cref="WitnessedOutsideSetup"/> by the
+    /// witness, whose callers' values say whose read each is.</summary>
+    public IReadOnlyDictionary<string, IReadOnlySet<string>> WitnessesOutsideSetup => _witnessesOutsideSetup;
+
     /// <summary>For each witness instance that ran outside setup standing for a member the analysis does not see — any but those
     /// <see cref="DriverSynthesizer.READ_WITNESS_FIELD"/> names —, the objects it ran on.</summary>
     public IReadOnlyDictionary<string, IReadOnlySet<string>> UnseenMembersOutsideSetup => _unseenMembersOutsideSetup;
@@ -348,6 +353,7 @@ public sealed class GenerationHandoffs
         if (!executions.Any(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution)))
             return false;
         _witnessedOutsideSetup.UnionWith(regions);
+        _witnessesOutsideSetup[instanceId] = regions;
         return true;
     }
 

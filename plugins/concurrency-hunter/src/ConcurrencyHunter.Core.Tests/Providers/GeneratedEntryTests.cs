@@ -126,6 +126,60 @@ public sealed class GeneratedEntryTests
         Assert.Contains(answer.Model.Effects, effect => effect == LibraryEffect.DeepReadOf("node"));
     }
 
+    [Theory]
+    [InlineData("public static object[] Wrap(Node p) => new object[] { p };", "M:Lib.Api.Wrap(Lib.Node)", "collection(arg:p)")]
+    [InlineData("public static HashSet<object> Wrap(Node p, Node q) => new HashSet<object> { p, q };", "M:Lib.Api.Wrap(Lib.Node,Lib.Node)", "collection(arg:p,arg:q)")]
+    [InlineData("public static Dictionary<Node, Node> Wrap(Node k, Node v) => new Dictionary<Node, Node> { [k] = v };", "M:Lib.Api.Wrap(Lib.Node,Lib.Node)",
+                "dictionary(arg:k,arg:v)")]
+    public void A_fresh_collection_of_named_values_names_them_and_keeps_nothing(string member, string id, string expected)
+    {
+        var answer = Answer($"public abstract class Node {{ }} public static class Api {{ {member} }}", id);
+
+        AssertPassesReader(answer);
+        Assert.Equal(expected, answer.Model!.Result?.ToString());
+        Assert.Empty(answer.Model.Keeps);
+        Assert.Empty(answer.Model.Effects);
+    }
+
+    // TD-034b: a collection(…) result is no place that drops the read of an enumerated argument — ToList keeps reads-deep — whether the
+    // call returns the collection itself or a task of it.
+    [Theory]
+    [InlineData("public static List<object> Wrap(IEnumerable<object> source) { var r = new List<object>(); foreach (var x in source) r.Add(x); return r; }",
+                "M:Lib.Api.Wrap(System.Collections.Generic.IEnumerable{System.Object})", "collection(elements(arg:source))")]
+    [InlineData("public static Task<List<object>> Wrap(IEnumerable<object> source) { var r = new List<object>(); foreach (var x in source) r.Add(x); return Task.FromResult(r); }",
+                "M:Lib.Api.Wrap(System.Collections.Generic.IEnumerable{System.Object})", "task(collection(elements(arg:source)))")]
+    [InlineData("public static object[] Wrap(IEnumerable<object> source) { var r = new object[1]; foreach (var x in source) r[0] = x; return r; }",
+                "M:Lib.Api.Wrap(System.Collections.Generic.IEnumerable{System.Object})", "collection(elements(arg:source))")]
+    public void A_fresh_collection_of_an_arguments_elements_keeps_the_read_of_the_argument(string member, string id, string expected)
+    {
+        var answer = Answer($"public abstract class Node {{ }} public static class Api {{ {member} }}", id);
+
+        AssertPassesReader(answer);
+        Assert.Equal(expected, answer.Model!.Result?.ToString());
+        Assert.Equal([LibraryEffect.DeepReadOf("source")], answer.Model.Effects);
+    }
+
+    [Fact]
+    public void A_read_the_call_makes_beside_a_collected_result_is_written_once()
+    {
+        var answer = Answer("public abstract class Node { public object Value; } public static class Api { public static List<object> Pick(Node[] items) { _ = items[1].Value; return new List<object> { items[0] }; } }",
+                            "M:Lib.Api.Pick(Lib.Node[])");
+
+        AssertPassesReader(answer);
+        Assert.Equal("collection(elements(arg:items))", answer.Model!.Result?.ToString());
+        Assert.Equal([LibraryEffect.DeepReadOf("items")], answer.Model.Effects);
+    }
+
+    [Theory]
+    [InlineData("public static List<object> Wrap(Node p) => new List<object> { p, new Leaf() };", "M:Lib.Api.Wrap(Lib.Node)")]
+    [InlineData("public static Dictionary<Node, Leaf> Wrap(Node k) => new Dictionary<Node, Leaf> { [k] = new Leaf() };", "M:Lib.Api.Wrap(Lib.Node)")]
+    public void A_fresh_collection_with_an_unnamed_value_beside_a_named_one_has_vocabulary_reason(string member, string id)
+    {
+        var answer = Answer($"public abstract class Node {{ }} public sealed class Leaf {{ }} public static class Api {{ {member} }}", id);
+
+        AssertNoModel(answer, ModelReasons.VOCABULARY);
+    }
+
     [Fact]
     public void A_member_gets_an_entry_that_passes_the_project_reader()
     {
@@ -317,9 +371,7 @@ public sealed class GeneratedEntryTests
     [Fact]
     public void A_list_indexer_read_whose_element_is_kept_keeps_reads_deep()
     {
-        // Node.Value is no seed field: the driver's list argument is empty, so a seed into its elements would store into no object
-        // and make the read incomplete (task 6), which is not what this case is about.
-        var answer = Answer("public abstract class Node { public int Value; } public sealed class Bag { private Node _value; public void Add(List<Node> nodes) { _value = nodes[0]; _ = nodes[0].Value; } }",
+        var answer = Answer("public abstract class Node { public object Child; } public sealed class Bag { private Node _value; public void Add(List<Node> nodes) { _value = nodes[0]; _ = nodes[0].Child; } }",
                             "M:Lib.Bag.Add(System.Collections.Generic.List{Lib.Node})");
 
         Assert.Contains(answer.Model!.Effects, effect => effect == LibraryEffect.DeepReadOf("nodes"));
@@ -507,6 +559,55 @@ public sealed class GeneratedEntryTests
     }
 
     [Fact]
+    public void A_read_of_the_value_a_setter_stores_is_a_read_of_its_argument()
+    {
+        // The heap does not follow order, so the seed setup stored in _item and the value the setter keeps there share their Child; the
+        // read's own path starts at value, so it reads the argument and no receiver seed (R7).
+        var answer = Answer("public class Item { public object Child; } " +
+                            "public sealed class Host { private Item _item; public Item P { set { _item = value; value.Child.ToString(); } } }",
+                            "M:Lib.Host.set_P(Lib.Item)");
+
+        AssertPassesReader(answer);
+        Assert.Contains(LibraryEffect.DeepReadOf("value"), answer.Model!.Effects);
+        Assert.DoesNotContain(LibraryEffect.DeepReadOf("this"), answer.Model!.Effects);
+    }
+
+    /// <summary>A subscription to a field-like event combines the handler with what the event's storage held and stores the combination
+    /// back: it keeps nothing new and writes no library state, however many receivers the driver makes. With enough public members the
+    /// heap merges the seed factory's and the accessor's contexts, so the seed setup subscribed reaches the accessor only through what
+    /// setup passed it, the read of the storage names every receiver, and the call's store lands on each trigger's receiver too; none of
+    /// that is the call's (R8).</summary>
+    /// <param name="declaration">The class's modifiers: an unsealed receiver is the driver's subclass, a sealed one the library's type.</param>
+    /// <param name="members">How many public members beside <c>Start</c> the class declares, each a trigger with a receiver of its own.</param>
+    [Theory]
+    [InlineData("public class", 0)]
+    [InlineData("public class", 16)]
+    [InlineData("public sealed class", 16)]
+    public void A_field_like_event_subscription_keeps_nothing_and_writes_no_state(string declaration, int members)
+    {
+        var answer = Answer($"{declaration} Worker {{ public event Action Work; public void Start() {{ ThreadPool.QueueUserWorkItem(_ => Work?.Invoke()); }} " +
+                            $"{Triggers(members)} }}", "M:Lib.Worker.add_Work(System.Action)");
+
+        AssertPassesReader(answer);
+        Assert.Equal(FateClassifier.UNKNOWN_EXECUTION, answer.Classified!["value"].Fate);
+        Assert.Empty(answer.Model!.Keeps);
+        Assert.Empty(answer.Model.Effects);
+    }
+
+    /// <summary>An event accessor that also counts writes its own receiver's state, which the receivers the heap merges into the accessor
+    /// leave a state store (R8).</summary>
+    [Fact]
+    public void An_event_accessor_that_also_counts_has_library_state_however_many_receivers_merge()
+    {
+        var answer = Answer("public class Worker { private Action _work; private int _count; " +
+                            "public event Action Work { add { _work += value; _count++; } remove { _work -= value; } } " +
+                            $"public void Start() {{ ThreadPool.QueueUserWorkItem(_ => _work?.Invoke()); }} {Triggers(16)} }}",
+                            "M:Lib.Worker.add_Work(System.Action)");
+
+        AssertNoModel(answer, ModelReasons.LIBRARY_STATE);
+    }
+
+    [Fact]
     public void A_receiver_field_holding_an_object_its_constructor_made_handed_to_an_extern_method_touches_the_receiver()
     {
         // No seed is in it, but the object handed out is the receiver's own state, which the extern may write: a write the analysis
@@ -686,6 +787,8 @@ public sealed class GeneratedEntryTests
         Assert.Empty(files.Rejections);
         Assert.Single(files.Entries);
     }
+
+    private static string Triggers(int count) => string.Concat(Enumerable.Range(0, count).Select(index => $"public void M{index}() {{ }} "));
 
     private static string[] Text(IEnumerable<LibraryValue> values) =>
         values.Select(value => value.ToString()).Order(StringComparer.Ordinal).ToArray();

@@ -41,7 +41,12 @@ public sealed record LibraryCompilationResult(CSharpCompilation? Compilation, st
 /// the decompiler threw on.</summary>
 /// <param name="Trees">The trees of the types decompiled.</param>
 /// <param name="Failures">One entry per type the decompiler threw on, <c>&lt;type&gt;: &lt;exception&gt;: &lt;message&gt;</c>.</param>
-public sealed record DecompiledModule(IReadOnlyList<SyntaxTree> Trees, IReadOnlyList<string> Failures);
+public sealed record DecompiledModule(IReadOnlyList<SyntaxTree> Trees, IReadOnlyList<string> Failures)
+{
+    /// <summary>The names of the assemblies the decompiler's type system held, the module's own among them: a simple type name it wrote
+    /// names the one type of that name it saw there.</summary>
+    public IReadOnlySet<string> DecompilerAssemblies { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+}
 
 /// <summary>What a test hooks into one library compilation to hold it at a known place; <c>null</c> in production.</summary>
 internal sealed class LibraryCompilationProbe
@@ -261,7 +266,10 @@ public static class LibraryCompilation
         attributes.CancellationToken = cancellationToken;
         attributes.AstTransforms.Add(new RemoveCompilerGeneratedAssemblyAttributes());
         trees[^1] = Parse(attributes.DecompileModuleAndAssemblyAttributes(), settings, $"{assembly.AssemblyName}/AssemblyInfo.cs", checks);
-        return new DecompiledModule(trees.OfType<SyntaxTree>().ToArray(), failures.OfType<string>().ToArray());
+        return new DecompiledModule(trees.OfType<SyntaxTree>().ToArray(), failures.OfType<string>().ToArray())
+        {
+            DecompilerAssemblies = typeSystem.Modules.Select(loaded => loaded.AssemblyName).ToHashSet(StringComparer.OrdinalIgnoreCase)
+        };
     }
 
     /// <summary>Compiles a decompiled module, or refuses it whole when the decompiler threw on one of its types: a missing type
@@ -271,19 +279,24 @@ public static class LibraryCompilation
     /// <param name="references">The references of the platform version.</param>
     /// <param name="cancellationToken">Cancels the compilation.</param>
     /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
+    /// <param name="repairArtefacts">Whether the decompiler's artefacts are repaired (<see cref="Repaired"/>); <c>false</c> only in a test
+    /// that measures what the repair changes.</param>
     // bounded: overload forwarding terminates at the implementation overload.
     internal static LibraryCompilationResult CompileModule(string assemblyName, DecompiledModule module, IReadOnlyList<MetadataReference> references,
-                                                           CancellationToken cancellationToken, IReadOnlySet<string>? selectedMembers = null) =>
-        CompileModule(assemblyName, module, references, new GenerationChecks(cancellationToken), selectedMembers);
+                                                           CancellationToken cancellationToken, IReadOnlySet<string>? selectedMembers = null,
+                                                           bool repairArtefacts = true) =>
+        CompileModule(assemblyName, module, references, new GenerationChecks(cancellationToken), selectedMembers, repairArtefacts);
 
-    /// <summary>Compiles a decompiled module as a stage of a generation (<see cref="CompileModule(string, DecompiledModule, IReadOnlyList{MetadataReference}, CancellationToken, IReadOnlySet{string}?)"/>).</summary>
+    /// <summary>Compiles a decompiled module as a stage of a generation (<see cref="CompileModule(string, DecompiledModule, IReadOnlyList{MetadataReference}, CancellationToken, IReadOnlySet{string}?, bool)"/>).</summary>
     /// <param name="assemblyName">The assembly name.</param>
     /// <param name="module">The decompiled module.</param>
     /// <param name="references">The references of the platform version.</param>
     /// <param name="checks">The generation's checks, which cancel the compilation.</param>
     /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
+    /// <param name="repairArtefacts">Whether the decompiler's artefacts are repaired (<see cref="Repaired"/>).</param>
     internal static LibraryCompilationResult CompileModule(string assemblyName, DecompiledModule module, IReadOnlyList<MetadataReference> references,
-                                                           GenerationChecks checks, IReadOnlySet<string>? selectedMembers = null)
+                                                           GenerationChecks checks, IReadOnlySet<string>? selectedMembers = null,
+                                                           bool repairArtefacts = true)
     {
         if (module.Failures.Count > 0)
         {
@@ -292,7 +305,8 @@ public static class LibraryCompilation
                                                 module.Failures.Select(failure => $"decompiler: {failure}").ToArray());
         }
 
-        return CompileTrees(assemblyName, module.Trees, references, checks, selectedMembers);
+        return CompileTrees(assemblyName, module.Trees, references, checks, selectedMembers, repairArtefacts: repairArtefacts,
+                            decompilerAssemblies: module.DecompilerAssemblies);
     }
 
     /// <summary>Compiles decompiled trees as a library named as the assembly, unsafe code allowed, nullable disabled, makes every
@@ -314,16 +328,21 @@ public static class LibraryCompilation
         CompileTrees(assemblyName, trees, references, new GenerationChecks(cancellationToken), selectedMembers, openFields);
 
     /// <summary>Compiles decompiled trees as a stage of a generation (<see cref="CompileTrees(string, IReadOnlyList{SyntaxTree}, IReadOnlyList{MetadataReference}, CancellationToken, IReadOnlySet{string}?, bool)"/>):
-    /// it checks before each tree it rewrites and before each rewrite round.</summary>
+    /// it checks before each tree it rewrites and before each rewrite round. The decompiler's artefacts are repaired once, before any
+    /// body is rewritten, so that a body whose only error was one keeps its body.</summary>
     /// <param name="assemblyName">The assembly name.</param>
     /// <param name="trees">The decompiled trees.</param>
     /// <param name="references">The references of the platform version.</param>
     /// <param name="checks">The generation's checks, which cancel the compilation.</param>
     /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
     /// <param name="openFields">Whether to open seed and path fields for the model driver.</param>
+    /// <param name="repairArtefacts">Whether the decompiler's artefacts are repaired (<see cref="Repaired"/>).</param>
+    /// <param name="decompilerAssemblies">The assemblies the decompiler saw (<see cref="DecompiledModule.DecompilerAssemblies"/>), or
+    /// <c>null</c> when only the library itself is known to be among them.</param>
     internal static LibraryCompilationResult CompileTrees(string assemblyName, IReadOnlyList<SyntaxTree> trees,
                                                           IReadOnlyList<MetadataReference> references, GenerationChecks checks,
-                                                          IReadOnlySet<string>? selectedMembers = null, bool openFields = true)
+                                                          IReadOnlySet<string>? selectedMembers = null, bool openFields = true,
+                                                          bool repairArtefacts = true, IReadOnlySet<string>? decompilerAssemblies = null)
     {
         var cancellationToken = checks.Token;
         var bodies = trees.Sum(tree => tree.GetRoot(cancellationToken).DescendantNodes().Count(IsBody));
@@ -408,15 +427,26 @@ public static class LibraryCompilation
                                                                                            tree.FilePath, cancellationToken: cancellationToken));
         }
 
+        var repairs = repairArtefacts;
         for (var round = 0; ; round++)
         {
             checks.Check(GenerationStage.CompileLibrary);
             var targets = new Targets();
             issuedNames.Clear();
             var unusable = new SortedSet<string>(StringComparer.Ordinal);
-            // Getter targets are known before CS0276 is assigned to the same property, regardless of diagnostic order.
-            foreach (var error in compilation.GetDiagnostics(cancellationToken).Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
-                                             .OrderBy(error => error.Id == "CS8051" ? 0 : 1))
+            var errors = Errors(compilation, cancellationToken);
+            if (repairs)
+            {
+                // The repair is no rewrite round: a library is not refused a round for an artefact it had.
+                repairs = false;
+                var repaired = Repaired(compilation, errors, decompilerAssemblies, cancellationToken);
+                if (repaired != compilation)
+                {
+                    compilation = repaired;
+                    errors = Errors(compilation, cancellationToken);
+                }
+            }
+            foreach (var error in errors)
             {
                 WorkCancellation.Check();
                 if (!targets.Add(error) && !BenignDeclarationErrors.Contains(error.Id))
@@ -459,6 +489,114 @@ public static class LibraryCompilation
     /// that runs: <c>System.Runtime.CompilerServices.Unsafe</c>.</summary>
     /// <param name="type">The type.</param>
     internal static bool HasNoBodies(INamedTypeSymbol type) => type.GetDocumentationCommentId() == UNSAFE;
+
+    /// <summary>The errors of a compilation, CS8051 first: getter targets are known before CS0276 is assigned to the same property,
+    /// regardless of diagnostic order.</summary>
+    /// <param name="compilation">The compilation.</param>
+    /// <param name="cancellationToken">Cancels the binding.</param>
+    private static Diagnostic[] Errors(CSharpCompilation compilation, CancellationToken cancellationToken) =>
+        compilation.GetDiagnostics(cancellationToken).Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+                   .OrderBy(error => error.Id == "CS8051" ? 0 : 1).ToArray();
+
+    /// <summary>The compilation with the decompiler's artefacts repaired, or the same compilation when it has none. A simple type name
+    /// the decompiler wrote after a <c>using</c> because it saw one type of that name, which the full reference set makes ambiguous
+    /// (CS0104), is qualified as the one candidate the decompiler saw (<see cref="SeenQualifier"/>). A local function the decompiler
+    /// left as a method, whose signature names a display class less accessible than the method (CS0050, CS0051), is made private
+    /// (<see cref="IsUnfoldedLocalFunction"/>): only its own type and the types nested in it call it, as only they see the display
+    /// class. Any other error, and an artefact neither rule decides, is left to the rewrite rounds.</summary>
+    /// <param name="compilation">The compilation.</param>
+    /// <param name="errors">Its errors.</param>
+    /// <param name="decompilerAssemblies">The assemblies the decompiler saw, or <c>null</c> when only the library itself is known.</param>
+    /// <param name="cancellationToken">Cancels the binding and the rewrite.</param>
+    private static CSharpCompilation Repaired(CSharpCompilation compilation, IReadOnlyList<Diagnostic> errors, IReadOnlySet<string>? decompilerAssemblies,
+                                              CancellationToken cancellationToken)
+    {
+        var repairs = new Dictionary<SyntaxTree, Dictionary<SyntaxNode, Func<SyntaxNode, SyntaxNode>>>();
+        foreach (var error in errors)
+        {
+            WorkCancellation.Check();
+            if (error.Id is not ("CS0104" or "CS0050" or "CS0051") || error.Location.SourceTree is not { } tree)
+                continue;
+            var model = compilation.GetSemanticModel(tree);
+            var location = tree.GetRoot(cancellationToken).FindNode(error.Location.SourceSpan, getInnermostNodeForTie: true);
+            SyntaxNode? target = null;
+            Func<SyntaxNode, SyntaxNode>? repair = null;
+            if (error.Id == "CS0104")
+            {
+                if (location.AncestorsAndSelf().OfType<SimpleNameSyntax>().FirstOrDefault() is { } name &&
+                    SeenQualifier(name, model, decompilerAssemblies, cancellationToken) is { } qualifier)
+                {
+                    target = name;
+                    repair = current => QualifiedName(qualifier, ((SimpleNameSyntax)current).WithoutTrivia()).WithTriviaFrom(current);
+                }
+            }
+            else if (location.AncestorsAndSelf().OfType<MethodDeclarationSyntax>().FirstOrDefault() is { } method &&
+                     IsUnfoldedLocalFunction(method, model, cancellationToken))
+            {
+                target = method;
+                repair = current => Private((MethodDeclarationSyntax)current);
+            }
+            if (target is null || repair is null)
+                continue;
+            if (!repairs.TryGetValue(tree, out var nodes))
+                repairs[tree] = nodes = [];
+            nodes[target] = repair;
+        }
+
+        foreach (var (tree, nodes) in repairs)
+        {
+            WorkCancellation.Check();
+            var rewritten = tree.GetRoot(cancellationToken).ReplaceNodes(nodes.Keys, (original, current) => nodes[original](current));
+            compilation = compilation.ReplaceSyntaxTree(tree, CSharpSyntaxTree.ParseText(rewritten.ToFullString(), (CSharpParseOptions)tree.Options,
+                                                                                           tree.FilePath, cancellationToken: cancellationToken));
+        }
+        return compilation;
+    }
+
+    /// <summary>The namespace, as <c>global::</c>-qualified name, of the one candidate of an ambiguous simple type name that the decompiler
+    /// saw: declared in the library itself or in an assembly the decompiler held. The decompiler writes a simple name only when it sees
+    /// one type of that name, and it always sees the library. <c>null</c> when no candidate or more than one was seen, or the one seen
+    /// is not a type of a named namespace.</summary>
+    /// <param name="name">The ambiguous name.</param>
+    /// <param name="model">The semantic model of its tree.</param>
+    /// <param name="decompilerAssemblies">The assemblies the decompiler saw, or <c>null</c> when only the library itself is known.</param>
+    /// <param name="cancellationToken">Cancels the binding.</param>
+    private static NameSyntax? SeenQualifier(SimpleNameSyntax name, SemanticModel model, IReadOnlySet<string>? decompilerAssemblies,
+                                             CancellationToken cancellationToken)
+    {
+        var seen = model.GetSymbolInfo(name, cancellationToken).CandidateSymbols
+                        .Select(candidate => candidate is IMethodSymbol { MethodKind: Microsoft.CodeAnalysis.MethodKind.Constructor } constructor
+                                    ? constructor.ContainingType
+                                    : candidate)
+                        .OfType<INamedTypeSymbol>().Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default)
+                        .Where(type => SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, model.Compilation.Assembly) ||
+                                       decompilerAssemblies?.Contains(type.ContainingAssembly.Identity.Name) == true)
+                        .ToArray();
+        return seen is [{ ContainingSymbol: INamespaceSymbol { IsGlobalNamespace: false } containing }]
+            ? ParseName(containing.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))
+            : null;
+    }
+
+    /// <summary>Whether a method is a local function the decompiler left as a method: compiler-generated, its signature naming a
+    /// compiler-generated type, a display class.</summary>
+    /// <param name="method">The method.</param>
+    /// <param name="model">The semantic model of its tree.</param>
+    /// <param name="cancellationToken">Cancels the binding.</param>
+    private static bool IsUnfoldedLocalFunction(MethodDeclarationSyntax method, SemanticModel model, CancellationToken cancellationToken) =>
+        model.GetDeclaredSymbol(method, cancellationToken) is { } symbol && IsCompilerGenerated(symbol) &&
+        symbol.Parameters.Select(parameter => parameter.Type).Append(symbol.ReturnType).Any(type => type is INamedTypeSymbol named && IsCompilerGenerated(named));
+
+    private static bool IsCompilerGenerated(ISymbol symbol) =>
+        symbol.GetAttributes().Any(attribute => attribute.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.CompilerGeneratedAttribute");
+
+    /// <summary>A method made private: its accessibility modifiers give way to <c>private</c>.</summary>
+    /// <param name="method">The method.</param>
+    private static MethodDeclarationSyntax Private(MethodDeclarationSyntax method)
+    {
+        var leading = method.Modifiers.Count > 0 ? method.Modifiers[0].LeadingTrivia : default;
+        var kept = method.Modifiers.Where(modifier => !SyntaxFacts.IsAccessibilityModifier(modifier.Kind()));
+        return method.WithModifiers(TokenList(kept.Prepend(Token(leading, SyntaxKind.PrivateKeyword, TriviaList(Space)))));
+    }
 
     /// <summary>The call a method's body consists of when that call names the method's own name: its expression body or its only
     /// statement, a <c>return</c> of it or the call alone, through <c>ref</c>; otherwise <c>null</c>. Only syntax: whether the call

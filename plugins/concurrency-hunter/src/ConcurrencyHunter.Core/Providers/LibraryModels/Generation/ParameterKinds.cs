@@ -14,7 +14,8 @@ public enum ParameterKind
     /// <summary>Axis 3: an immutable type or a plain struct, filled with a canned value; not holding.</summary>
     Canned,
 
-    /// <summary>Axis 4: an array or a sequence interface, filled with two values of its element's kind.</summary>
+    /// <summary>Axis 4: an array, a sequence interface or a concrete ADR 0010 collection, filled with two values of its element's
+    /// kind.</summary>
     Container,
 
     /// <summary>Axis 5: <c>object</c>, an interface, a derivable abstract class or a type parameter, filled with a probe class.</summary>
@@ -64,7 +65,7 @@ public static class ParameterKinds
             return ParameterKind.ExpressionTree;
         }
 
-        if (type is IArrayTypeSymbol || IsSequence(type))
+        if (type is IArrayTypeSymbol || IsSequence(type) || IsConcreteCollection(type))
             return ParameterKind.Container;
         if (type.SpecialType == SpecialType.System_Object || type.TypeKind is TypeKind.Interface or TypeKind.TypeParameter or TypeKind.Dynamic ||
             type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: true } abstractClass && Derivation.CanDerive(abstractClass))
@@ -105,6 +106,12 @@ public static class ParameterKinds
     internal static bool IsSequence(ITypeSymbol type) =>
         type is INamedTypeSymbol { TypeKind: TypeKind.Interface, Arity: 1 } named &&
         Sequences.Contains(named.OriginalDefinition.ContainingNamespace.ToDisplayString() + "." + named.MetadataName);
+
+    /// <summary>Whether the type is one of the concrete classes of the ADR 0010 table (<see cref="SeedableFields.Collection"/>), which
+    /// axis 4 fills with the class itself: a subclass of one is not in the table and takes its own axis.</summary>
+    /// <param name="type">The type.</param>
+    internal static bool IsConcreteCollection(ITypeSymbol type) =>
+        type is INamedTypeSymbol { TypeKind: TypeKind.Class } named && SeedableFields.Collection(named) is not null;
 }
 
 /// <summary>What a user type in another assembly could do with a library class: derive from it, call its constructors, override

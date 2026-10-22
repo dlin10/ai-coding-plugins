@@ -6,7 +6,7 @@ internal static class PhaseOrder
 
     private static readonly string[] Phases = ["0", "1a", "1b", "2", "2b", "3", "4", "4b", "5a", "5b", "5c", "5d", "5e", "5f", "5g", "6", "7", "8"];
 
-    private static readonly string[] Runs = ["A1", "A2", "B1", "A3", "B2", "B2b", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "B3", "B3c", "B4", "C"];
+    private static readonly string[] Runs = ["A1", "A2", "B1", "A3", "B2", "B2b", "A4", "A5", "A6", "A7", "A8", "A9", "A10", "B3", "B3c", "B4", "B4b", "C"];
 
     /// <summary>Every point of the order: a phase, and right after it the runs of that phase as <c>&lt;phase&gt;-&lt;run&gt;</c>.</summary>
     private static readonly string[] Points =

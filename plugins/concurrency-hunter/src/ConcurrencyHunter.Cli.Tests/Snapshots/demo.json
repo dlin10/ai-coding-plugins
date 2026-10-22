@@ -561,7 +561,7 @@
         {
           "member": "M:Polly.ResiliencePipeline.Execute\u0060\u00601(System.Func{\u0060\u00600})",
           "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
-          "cause": "timeout"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Polly.ResiliencePipelineBuilder.Build",

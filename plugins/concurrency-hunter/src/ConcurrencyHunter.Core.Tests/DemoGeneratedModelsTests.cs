@@ -113,6 +113,22 @@ public sealed class DemoGeneratedModelsTests
         }
     }
 
+    /// <summary>The committed answer of Polly's <c>Execute&lt;T&gt;(Func&lt;T&gt;)</c> is not a <c>timeout</c>: its generation finishes within the
+    /// member limit.</summary>
+    [Fact]
+    public void Polly_execute_of_T_is_no_timeout()
+    {
+        const string member = "M:Polly.ResiliencePipeline.Execute``1(System.Func{``0})";
+        var path = Assert.Single(Directory.GetFiles(Path.Combine(DemoModels(), "generated", "Polly.Core"), "*.json", SearchOption.AllDirectories));
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+
+        var entry = Assert.Single(document.RootElement.GetProperty("members").EnumerateArray(),
+                                  item => item.GetProperty("member").GetString() == member);
+        Assert.False(entry.TryGetProperty("refusal", out var refusal) &&
+                     refusal.GetProperty("reason").GetString() == GenerationOutcome.TIMEOUT,
+                     entry.GetRawText());
+    }
+
     /// <summary>The demo's target auto-property accessors have answers that do not refuse a call for never reaching its body.</summary>
     [Fact]
     public void Demo_auto_property_accessors_reach_their_bodies()

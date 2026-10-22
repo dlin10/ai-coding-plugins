@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "f83e03cc2613e63814371fe0aae30b164cff79a9c32c38ed4208151217fec8c4",
+  "generator": "67e5666217c640088d0ff8efc8408b6b94374c3845456b04e2639dff3d88b28d",
   "assembly": {
     "name": "Polly.Core",
     "version": "8.0.0.0",
@@ -88,9 +88,22 @@
     {
       "member": "M:Polly.ResiliencePipeline.Execute``1(System.Func{``0})",
       "refusal": {
-        "reason": "timeout",
-        "detail": "the generation did not finish within the member limit of 60 s",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "callback-value-in-library-call",
+          "callback-value-read",
+          "callback-value-written",
+          "enumeration-write",
+          "probe-handed-to-unseen",
+          "receiver-member-unseen",
+          "result-unresolved",
+          "unseeded-read",
+          "unsupported-store",
+          "value-unobserved",
+          "witness-value-accessed-elsewhere",
+          "witness-value-handed"
+        ]
       }
     },
     {

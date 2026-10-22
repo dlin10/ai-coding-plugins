@@ -535,10 +535,10 @@
         "mvid": "df12b206-485d-4371-b887-6bb99dcde699"
       },
       "classified": null,
-      "reason": "library-does-not-compile",
+      "reason": "driver-not-synthesized",
       "model": null,
       "modelReason": null,
-      "detail": "CS0051, CS0104",
+      "detail": "M:AutoMapper.IMapperBase.Map``1(System.Object) is abstract; M:AutoMapper.IMapperBase.Map``1(System.Object) is an interface member",
       "causes": [],
       "reachedBodies": 0
     },
@@ -550,10 +550,10 @@
         "mvid": "df12b206-485d-4371-b887-6bb99dcde699"
       },
       "classified": null,
-      "reason": "library-does-not-compile",
+      "reason": "driver-not-synthesized",
       "model": null,
       "modelReason": null,
-      "detail": "CS0051, CS0104",
+      "detail": "M:AutoMapper.IMapperBase.Map``2(``0,``1) is abstract; M:AutoMapper.IMapperBase.Map``2(``0,``1) is an interface member",
       "causes": [],
       "reachedBodies": 0
     },
@@ -575,7 +575,7 @@
         "result-unnamed",
         "value-unnamed"
       ],
-      "reachedBodies": 468
+      "reachedBodies": 469
     },
     {
       "member": "M:FluentValidation.AbstractValidator`1.ValidateAsync(`0,System.Threading.CancellationToken)",
@@ -595,7 +595,7 @@
         "result-unnamed",
         "value-unnamed"
       ],
-      "reachedBodies": 468
+      "reachedBodies": 469
     },
     {
       "member": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.IValidator{`1},System.String[])",
@@ -777,9 +777,9 @@
       "reason": "closure-bound",
       "model": null,
       "modelReason": null,
-      "detail": "the reachable set reached 1693 bodies, over 1500",
+      "detail": "the reachable set reached 1741 bodies, over 1500",
       "causes": [],
-      "reachedBodies": 1693
+      "reachedBodies": 1741
     },
     {
       "member": "M:System.Threading.Channels.ChannelWriter`1.TryWrite(`0)",
@@ -3627,7 +3627,6 @@
       "modelReason": "vocabulary",
       "detail": "",
       "causes": [
-        "enumeration-without-sequence",
         "value-unobserved"
       ],
       "reachedBodies": 439
@@ -4200,7 +4199,6 @@
       "modelReason": "unknown-touch",
       "detail": "",
       "causes": [
-        "argument-graph-write",
         "kept-user-object",
         "probe-handed-to-unseen",
         "receiver-object-write",
@@ -4223,13 +4221,25 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.ComponentModel.BackgroundWorker.add_DoWork(System.ComponentModel.DoWorkEventHandler)",
+        "assemblies": [
+          "System.ComponentModel.EventBasedAsync"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "value": {
+            "fate": "unknown-execution"
+          }
+        }
+      },
+      "modelReason": null,
       "detail": "",
-      "causes": [
-        "kept-user-object",
-        "value-unnamed"
-      ],
+      "causes": [],
       "reachedBodies": 22
     },
     {
@@ -4246,13 +4256,25 @@
         }
       },
       "reason": null,
-      "model": null,
-      "modelReason": "vocabulary",
+      "model": {
+        "member": "M:System.ComponentModel.BackgroundWorker.add_RunWorkerCompleted(System.ComponentModel.RunWorkerCompletedEventHandler)",
+        "assemblies": [
+          "System.ComponentModel.EventBasedAsync"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "value": {
+            "fate": "unknown-execution"
+          }
+        }
+      },
+      "modelReason": null,
       "detail": "",
-      "causes": [
-        "kept-user-object",
-        "value-unnamed"
-      ],
+      "causes": [],
       "reachedBodies": 22
     },
     {
@@ -4418,7 +4440,7 @@
       "causes": [
         "library-state-store"
       ],
-      "reachedBodies": 88
+      "reachedBodies": 85
     }
   ],
   "packages": [
@@ -4427,7 +4449,7 @@
       "package": "AutoMapper",
       "implementationVersion": "14.0.0",
       "bodies": 1062,
-      "externBodies": 0,
+      "externBodies": 2,
       "members": 2,
       "driversSynthesized": 0
     },
@@ -4571,7 +4593,7 @@
       "package": null,
       "implementationVersion": "10.0.13",
       "bodies": 3296,
-      "externBodies": 31,
+      "externBodies": 7,
       "members": 1,
       "driversSynthesized": 1
     },
@@ -4592,5 +4614,5 @@
     "System.Linq": 17,
     "System.Linq.Queryable": 0
   },
-  "accessorsExact": 6
+  "accessorsExact": 8
 }

@@ -16,11 +16,7 @@ public sealed class AccessorEntryMatrixTests(ClassCache cache) : IClassFixture<C
     private Matrix Results => cache.Get("results", Run);
 
     // A cell that comes out wider for a cause this plan does not change is listed here with it.
-    private static readonly IReadOnlyDictionary<string, string> Wider = Listed(
-        ("vocabulary: the heap does not follow order, so setup's store through Recv._value lands in the probe the setter keeps, and the " +
-         "read of the value's object is also a read of a receiver seed", [
-            "IndexerSetter/Item/ReadDeep", "Setter/Item/ReadDeep"
-        ]));
+    private static readonly IReadOnlyDictionary<string, string> Wider = Listed();
 
     /// <summary>The accessor the cell generates.</summary>
     public enum AccessorKind

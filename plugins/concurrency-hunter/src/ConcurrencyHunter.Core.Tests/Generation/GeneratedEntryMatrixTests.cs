@@ -17,18 +17,12 @@ public sealed class GeneratedEntryMatrixTests(ITestOutputHelper output, ClassCac
     private Matrix Results => cache.Get("results", Run);
 
     private static readonly IReadOnlyDictionary<string, string> Wider = Listed(
-        ("the heap does not carry the named value through the concrete List<object> initializer, so the fresh collection is refused", [
-            "Probe/ReturnInCollection/Call", "Element/ReturnInCollection/Call", "LibraryArg/ReturnInCollection/Call",
-            "DelegateResult/ReturnInCollection/Call", "Fresh/ReturnInCollection/Call", "FreshHoldingProbe/ReturnInCollection/Call"
-        ]),
-        ("the heap loses the delegate-return provenance across the child or iterator execution, so the observed value has no name", [
+        ("the generator names the observed value returns:g across the child or iterator execution, but SPEC TD-034a's entry check " +
+         "places returns:D of an unknown-execution fate nowhere and of an iterator fate only inside a sequence(…) result or another " +
+         "iterator's inputs, so the reader rejects the entry", [
             "DelegateResult/HandToDelegate/TaskRun", "DelegateResult/KeepOnSealedReceiver/TaskRun",
             "DelegateResult/KeepOnSealedReceiver/Enumeration", "DelegateResult/StoreInArrayArg/TaskRun",
             "DelegateResult/StoreInArrayArg/Enumeration"
-        ]),
-        ("the keeping chain does not project arg:p through the fresh Box linked into the pre-existing keeper", [
-            "FreshHoldingProbe/KeepOnSealedReceiver/Call", "FreshHoldingProbe/KeepOnSubReceiver/Call",
-            "FreshHoldingProbe/KeepOnLibraryArg/Call"
         ]));
 
     /// <summary>The kind and R5 name of the value the member observes.</summary>

@@ -2885,10 +2885,10 @@
       ]
     },
     {
-      "id": "polly-execute-invokes-delegate/delegate-runs-in-the-action",
+      "id": "polly-execute-invokes-delegate/pipeline-decides-the-fate",
       "phase": "5d-B4",
       "rule": "DCA1002",
-      "confidence": "high",
+      "confidence": "medium",
       "resource": { "region": "di:Demo.Web.Cases.PollyExecuteInvokesDelegate.State@Singleton", "accessPath": ["Hits"] },
       "accesses": [
         { "symbol": "Demo.Web.Cases.PollyExecuteInvokesDelegate.PipelineController.Post()", "operation": "read-modify-write" },
@@ -2896,19 +2896,8 @@
       ]
     },
     {
-      "id": "polly-circuit-breaker-callback-at-execute/callback-runs-in-execute",
-      "phase": "5d-B4",
-      "rule": "DCA1002",
-      "confidence": "high",
-      "resource": { "region": "di:Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute.Breaker@Singleton", "accessPath": ["Opened"] },
-      "accesses": [
-        { "symbol": "Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute.Breaker..ctor()", "operation": "read-modify-write" },
-        { "symbol": "Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute.Breaker..ctor()", "operation": "read-modify-write" }
-      ]
-    },
-    {
       "id": "protobuf-parser-factory-at-parse/factory-runs-at-parse",
-      "phase": "5d-B4",
+      "phase": "5d-B4b",
       "rule": "DCA1002",
       "confidence": "high",
       "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] },
@@ -2926,9 +2915,20 @@
       "resource": { "region": "di:Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute.Breaker@Singleton", "accessPath": ["Opened"] }
     },
     {
+      "id": "polly-circuit-breaker-callback-at-execute/opened-runs-one-at-a-time",
+      "phase": "5d-B4",
+      "resource": { "region": "di:Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute.Breaker@Singleton", "accessPath": ["Opened"] }
+    },
+    {
       "id": "protobuf-parser-factory-at-parse",
       "phase": "5d",
       "until": "5d-B4",
+      "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] }
+    },
+    {
+      "id": "protobuf-parser-factory-at-parse/holder-unconfirmed",
+      "phase": "5d-B4",
+      "until": "5d-B4b",
       "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] }
     },
     {
