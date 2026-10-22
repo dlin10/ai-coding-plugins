@@ -1,6 +1,9 @@
 # Forge reference: writing the plan
 
-Read it once the requirements are written and the selections settled, before the first draft.
+Read it once the interview's decisions are settled, before you sketch the approach. The sketch — the
+mechanisms and the Change points they introduce — and its matrix check come first; the requirements,
+gates and tasks are written in full while the Impact pass runs (`scout.md`), once the selections are
+settled.
 
 ## Writing the plan
 

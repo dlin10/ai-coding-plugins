@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -64,12 +65,6 @@ internal sealed class RunDirectory
             throw new ArgumentRejectedException("job id resolves outside the run's jobs folder");
 
         return jobPath;
-    }
-
-    internal IEnumerable<string> EnumerateJobFiles()
-    {
-        var jobsPath = System.IO.Path.Combine(Path, JOBS_FOLDER);
-        return Directory.Exists(jobsPath) ? Directory.EnumerateFiles(jobsPath, "*.json") : [];
     }
 
     public string FlowLogPath => System.IO.Path.Combine(Path, FLOW_LOG_FILE_NAME);
@@ -201,9 +196,24 @@ internal sealed class RunDirectory
         return runPath;
     }
 
-    public RunState ReadState()
+    // Never inlined: a failed read has to name RunDirectory in the stack forge.log keeps, and a
+    // one-line wrapper is what dynamic PGO inlines into its caller once that caller runs hot.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public RunState ReadState() => ParseState(AtomicFile.Read(System.IO.Path.Combine(Path, STATE_FILE_NAME)));
+
+    /// <summary>
+    /// Replaces the state with what <paramref name="change"/> makes of it as it stands now, under the
+    /// state file's process-local mutation lock: for a writer that read the state long before it
+    /// writes, such as a Scout turn that ran for minutes beside the Orchestrator's own calls.
+    /// </summary>
+    /// <param name="change">The new state, made from the current one.</param>
+    public void UpdateState(Func<RunState, RunState> change) =>
+        AtomicFile.Update(System.IO.Path.Combine(Path, STATE_FILE_NAME),
+                          json => JsonSerializer.Serialize(change(ParseState(json ?? throw new RunNotFoundException(RunId))),
+                                                           ForgeJson.Readable.RunState));
+
+    private RunState ParseState(string json)
     {
-        var json = AtomicFile.Read(System.IO.Path.Combine(Path, STATE_FILE_NAME));
         using var document = JsonDocument.Parse(json);
         if (document.RootElement.TryGetProperty("fullGate", out var timing))
         {

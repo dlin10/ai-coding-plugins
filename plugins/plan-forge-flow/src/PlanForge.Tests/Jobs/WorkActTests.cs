@@ -89,14 +89,13 @@ public sealed class WorkActTests : IDisposable
     }
 
     /// <summary>
-    /// A job runs the two Builder acts alone; the critic and Scout acts have their one-call tools
-    /// only — docs/adr/0043.
+    /// A job runs the two Builder acts and Scout; the critic acts have their one-call tools only —
+    /// docs/adr/0043 and 0044.
     /// </summary>
     [Theory]
     [InlineData("unknown")]
     [InlineData("plan.review")]
     [InlineData("review.code")]
-    [InlineData("scout")]
     public async Task An_act_a_job_does_not_run_is_refused(string act)
     {
         var vendor = new RecordingVendor("claude");

@@ -1123,7 +1123,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
 
         Assert.Contains("cannot also appear", error.Message, StringComparison.Ordinal);
         Assert.False(vendorCreated);
-        Assert.Null(registry.Get(run.Path));
+        JobAssert.NoJob(registry, run.Path);
         Assert.Equal(LedgerDisposition.Unresolved,
                      Assert.Single(run.ReadDecisionLedger().Snapshot.Entries).Disposition);
     }
@@ -1434,7 +1434,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
 
         Assert.Equal(ReviewFix.RaiseWithFixRefused, direct.Message);
         Assert.Equal(ReviewFix.RaiseWithFixRefused, background.Message);
-        Assert.Null(registry.Get(run.Path));
+        JobAssert.NoJob(registry, run.Path);
         Assert.Equal(finding.FindingId, Assert.Single(run.ReadDecisionLedger().Snapshot.Entries).FindingId);
     }
 

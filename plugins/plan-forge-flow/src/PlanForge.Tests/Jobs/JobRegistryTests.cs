@@ -25,6 +25,49 @@ public sealed class JobRegistryTests
         await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
     }
 
+    /// <summary>
+    /// Shared jobs — fresh Scout questions — run side by side; any other job runs alone, and a start it
+    /// cannot make names every job in the way. See docs/adr/0044.
+    /// </summary>
+    [Fact]
+    public async Task Shared_jobs_run_side_by_side_and_any_other_job_runs_alone()
+    {
+        using var workspace = new TestWorkspace();
+        var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var registry = new JobRegistry();
+
+        var first = registry.Start(workspace.RunPath, "scout", _ => gate.Task, shared: true);
+        var second = registry.Start(workspace.RunPath, "scout", _ => gate.Task, shared: true);
+        var alone = registry.Start(workspace.RunPath, "scout", _ => Task.FromResult("continue"));
+        var builder = registry.Start(workspace.RunPath, "build.next", _ => Task.FromResult("built"));
+
+        Assert.True(first.Started);
+        Assert.True(second.Started);
+        Assert.Null(second.ActiveJobIds);
+        Assert.Equal([first.JobId, second.JobId], registry.Running(workspace.RunPath).Select(job => job.Id));
+        foreach (var refused in new[] { alone, builder })
+        {
+            Assert.False(refused.Started);
+            Assert.Equal(first.JobId, refused.JobId);
+            Assert.Equal([first.JobId, second.JobId], refused.ActiveJobIds);
+        }
+
+        gate.SetResult("answered");
+        await registry.WaitAsync(workspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
+        await registry.WaitAsync(workspace.RunPath, second.JobId, TimeSpan.FromSeconds(30));
+        Assert.Empty(registry.Running(workspace.RunPath));
+
+        var lone = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var builderAlone = registry.Start(workspace.RunPath, "build.next", _ => lone.Task);
+        var sharedBeside = registry.Start(workspace.RunPath, "scout", _ => Task.FromResult("fresh"), shared: true);
+
+        Assert.True(builderAlone.Started);
+        Assert.False(sharedBeside.Started);
+        Assert.Equal([builderAlone.JobId], sharedBeside.ActiveJobIds);
+        lone.SetResult("built");
+        await registry.WaitAsync(workspace.RunPath, builderAlone.JobId, TimeSpan.FromSeconds(30));
+    }
+
     [Fact]
     public async Task Start_returns_a_running_snapshot_even_if_the_delegate_finishes_immediately()
     {
@@ -96,7 +139,7 @@ public sealed class JobRegistryTests
         var start = registry.Start(workspace.RunPath, "plan", _ => Task.FromResult("payload"));
         var completed = await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.FromSeconds(30));
 
-        var roundTripped = new JobRegistry().Get(workspace.RunPath);
+        var roundTripped = new JobRegistry().Get(workspace.RunPath, start.JobId);
 
         Assert.Equal(completed, roundTripped);
     }
@@ -111,8 +154,10 @@ public sealed class JobRegistryTests
         var second = registry.Start(secondWorkspace.RunPath, "plan", _ => Task.FromResult("second"));
 
         Assert.NotEqual(first.JobId, second.JobId);
-        Assert.Equal(first.JobId, registry.Get(firstWorkspace.RunPath)?.Id);
-        Assert.Equal(second.JobId, registry.Get(secondWorkspace.RunPath)?.Id);
+        Assert.NotNull(registry.Get(firstWorkspace.RunPath, first.JobId));
+        Assert.NotNull(registry.Get(secondWorkspace.RunPath, second.JobId));
+        Assert.Null(registry.Get(secondWorkspace.RunPath, first.JobId));
+        Assert.Null(registry.Get(firstWorkspace.RunPath, second.JobId));
         await registry.WaitAsync(firstWorkspace.RunPath, first.JobId, TimeSpan.FromSeconds(30));
         await registry.WaitAsync(secondWorkspace.RunPath, second.JobId, TimeSpan.FromSeconds(30));
     }
@@ -242,8 +287,7 @@ public sealed class JobRegistryTests
 
         Assert.Equal(JobState.Completed, firstResult?.State);
         Assert.True(replacement.Started);
-        Assert.Equal(replacement.JobId, registry.Get(workspace.RunPath)?.Id);
-        Assert.Equal(JobState.Running, registry.Get(workspace.RunPath)?.State);
+        Assert.Equal([replacement.JobId], registry.Running(workspace.RunPath).Select(job => job.Id));
         replacementRelease.SetResult("replacement");
         await registry.WaitAsync(workspace.RunPath, replacement.JobId, TimeSpan.FromSeconds(30));
     }
@@ -267,12 +311,12 @@ public sealed class JobRegistryTests
 
         if (start is { Started: true })
         {
-            Assert.True(registry.Get(workspace.RunPath)?.State != JobState.Running);
+            Assert.Empty(registry.Running(workspace.RunPath));
             Assert.True((await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.Zero))?.State != JobState.Running);
         }
         else
         {
-            Assert.Null(registry.Get(workspace.RunPath));
+            JobAssert.NoJob(registry, workspace.RunPath);
         }
     }
 
@@ -284,7 +328,7 @@ public sealed class JobRegistryTests
         var registry = new JobRegistry();
         var start = registry.Start(workspace.RunPath, "plan", _ => release.Task);
         await registry.CloseAsync();
-        var forced = registry.Get(workspace.RunPath);
+        var forced = registry.Get(workspace.RunPath, start.JobId);
         var filePath = Directory.EnumerateFiles(Path.Combine(workspace.RunPath, "jobs"), "*.json").Single();
         var afterClose = File.ReadAllText(filePath);
 
@@ -297,7 +341,7 @@ public sealed class JobRegistryTests
         release.SetResult("late");
         await Task.Delay(25);
 
-        Assert.Equal(forced, registry.Get(workspace.RunPath));
+        Assert.Equal(forced, registry.Get(workspace.RunPath, start.JobId));
         Assert.Equal(afterClose, File.ReadAllText(filePath));
         Assert.True((await registry.WaitAsync(workspace.RunPath, start.JobId, TimeSpan.Zero))?.State != JobState.Running);
     }

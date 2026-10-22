@@ -182,6 +182,8 @@ internal static class ResumeCard
         {
             card.AppendLine("no plan is written yet: the interview, the vendor choice or the first draft.")
                 .AppendLine("Next calls (? marks an optional argument):")
+                .AppendLine("- forge.status {} if Scout jobs were running: activeJobs names them; forge.work.poll { jobId, waitSeconds: 3000 } "
+                            + "and forge.work.fetch { jobId } for each before you use its answer.")
                 .AppendLine("- forge.plan.write { planDraft: \"<the whole plan>\" }, once the Impact pass has run against the draft.");
             read = ["interview.md", "planning.md", "scout.md"];
         }

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using PlanForge.Prompts;
@@ -45,11 +46,13 @@ internal sealed class Scout
         ScoutState? selected = null;
         string? suppliedToken = null;
         IVendorSession? session = null;
+        ScoutFlight? flight = null;
 
         try
         {
             state = run.ReadState();
             selected = RequireSelection(state);
+            flight = ScoutFlight.Enter(run);
             suppliedToken = SafeToken(selected.SessionId);
             var resumeToken = sessionMode == "continue" ? suppliedToken : null;
 
@@ -93,15 +96,24 @@ internal sealed class Scout
             }
 
             var anchor = ResumeAnchor(started, suppliedToken, sessionMode);
-            var number = state.ScoutAnswers + 1;
-            state = state with
+            var locators = ScoutLocators.Of(state.WorkspaceRoot, report);
+            var number = 0;
+
+            // The state is read again here, not taken from the start of the turn: the Orchestrator and
+            // other Scout turns wrote it while this one ran. Numbering and appending under one lock
+            // keeps the numbers increasing in the file when turns finish together.
+            lock (flight.Gate)
             {
-                Scout = selected with { SessionId = anchor, LastFailure = null },
-                ScoutAnswers = number
-            };
-            run.WriteState(state);
-            run.AppendScoutAnswer(new ScoutAnswerEntry(number, question, report,
-                                                       ScoutLocators.Of(state.WorkspaceRoot, report)));
+                var kept = flight.Overlapped ? null : anchor;
+                run.UpdateState(current =>
+                {
+                    number = current.ScoutAnswers + 1;
+                    return Settled(current, selected, scout => scout with { SessionId = kept, LastFailure = null })
+                        with { ScoutAnswers = number };
+                });
+                run.AppendScoutAnswer(new ScoutAnswerEntry(number, question, report, locators));
+            }
+
             run.AppendFlowScoutOutcome("completed", question);
             run.Log.Write("info", "scout", "scout.completed",
                 ("vendor", _vendor.Id), ("model", selected.Model), ("effort", selected.Effort),
@@ -112,14 +124,18 @@ internal sealed class Scout
         }
         catch (OperationCanceledException)
         {
-            PersistCancellation(run, state, selected, suppliedToken, session, sessionMode, question);
+            PersistCancellation(run, state, selected, suppliedToken, session, sessionMode, question, flight);
             throw;
         }
         catch (Exception error)
         {
             var failure = FailureFor(error);
-            PersistFailure(run, state, selected, suppliedToken, session, sessionMode, question, failure);
+            PersistFailure(run, state, selected, suppliedToken, session, sessionMode, question, failure, flight);
             throw new ScoutException(failure);
+        }
+        finally
+        {
+            flight?.Dispose();
         }
     }
 
@@ -192,21 +208,36 @@ internal sealed class Scout
     private static string ActualSessionMode(string? resumeToken) =>
         resumeToken is { Length: > 0 } ? "resumed" : "fresh";
 
+    /// <summary>
+    /// The state with what a turn leaves on its Scout choice, or as it is when the user chose another
+    /// Scout while the turn ran: the turn's session and failure belong to the choice it ran with.
+    /// </summary>
+    /// <param name="current">The state as it stands at the write.</param>
+    /// <param name="selected">The Scout choice the turn ran with.</param>
+    /// <param name="change">What the turn leaves on that choice.</param>
+    private static RunState Settled(RunState current, ScoutState selected, Func<ScoutState, ScoutState> change) =>
+        current.Scout is { } scout
+        && scout with { SessionId = null, LastFailure = null } == selected with { SessionId = null, LastFailure = null }
+            ? current with { Scout = change(scout) }
+            : current;
+
     private static void PersistCancellation(RunDirectory run,
                                             RunState? state,
                                             ScoutState? selected,
                                              string? suppliedToken,
                                              IVendorSession? session,
                                              string sessionMode,
-                                             string question)
+                                             string question,
+                                             ScoutFlight? flight)
     {
         if (state is null || selected is null) return;
 
         try
         {
-            var anchor = session is null ? sessionMode == "continue" ? suppliedToken : null
-                                         : ResumeAnchor(session, suppliedToken, sessionMode);
-            run.WriteState(state with { Scout = selected with { SessionId = anchor } });
+            var anchor = flight is { Overlapped: true } ? null
+                         : session is null ? sessionMode == "continue" ? suppliedToken : null
+                         : ResumeAnchor(session, suppliedToken, sessionMode);
+            run.UpdateState(current => Settled(current, selected, scout => scout with { SessionId = anchor }));
             run.AppendFlowScoutOutcome("cancelled", question);
             run.Log.Write("warn", "scout", "scout.cancelled", ("sessionMode", ActualSessionMode(suppliedToken)));
         }
@@ -224,18 +255,18 @@ internal sealed class Scout
                                 IVendorSession? session,
                                 string sessionMode,
                                 string question,
-                                ScoutFailure failure)
+                                ScoutFailure failure,
+                                ScoutFlight? flight)
     {
         if (state is null || selected is null) return;
 
-        var anchor = session is null ? sessionMode == "continue" ? suppliedToken : null
-                                     : ResumeAnchor(session, suppliedToken, sessionMode);
+        var anchor = flight is { Overlapped: true } ? null
+                     : session is null ? sessionMode == "continue" ? suppliedToken : null
+                     : ResumeAnchor(session, suppliedToken, sessionMode);
         try
         {
-            run.WriteState(state with
-            {
-                Scout = selected with { SessionId = anchor, LastFailure = failure }
-            });
+            run.UpdateState(current => Settled(current, selected,
+                                               scout => scout with { SessionId = anchor, LastFailure = failure }));
         }
         catch (Exception)
         {
@@ -256,6 +287,52 @@ internal sealed class Scout
         {
             // A failed audit must not replace the fixed failure that crosses the act boundary.
         }
+    }
+}
+
+/// <summary>
+/// One Scout turn in flight in this server process. Turns of one Run that overlap — fresh jobs side by
+/// side, or a direct call beside a job — each leave the Run with no session anchor, because none of
+/// their sessions is the one investigation a later <c>continue</c> would mean. See docs/adr/0044.
+/// </summary>
+internal sealed class ScoutFlight : IDisposable
+{
+    private static readonly ConcurrentDictionary<string, List<ScoutFlight>> FLIGHTS = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly List<ScoutFlight> _peers;
+    private bool _overlapped;
+
+    private ScoutFlight(List<ScoutFlight> peers) => _peers = peers;
+
+    /// <summary>The one lock every turn of the Run settles its answer under.</summary>
+    public object Gate => _peers;
+
+    /// <summary>Whether another turn of the Run was in flight at any moment of this one.</summary>
+    public bool Overlapped
+    {
+        get
+        {
+            lock (_peers) return _overlapped;
+        }
+    }
+
+    /// <summary>Records a turn of <paramref name="run"/> as in flight, and the turns already in flight as overlapped.</summary>
+    /// <param name="run">The Run the turn belongs to.</param>
+    public static ScoutFlight Enter(RunDirectory run)
+    {
+        var peers = FLIGHTS.GetOrAdd(Path.GetFullPath(run.Path), _ => []);
+        lock (peers)
+        {
+            var flight = new ScoutFlight(peers) { _overlapped = peers.Count > 0 };
+            foreach (var peer in peers) peer._overlapped = true;
+            peers.Add(flight);
+            return flight;
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_peers) _peers.Remove(this);
     }
 }
 

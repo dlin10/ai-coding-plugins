@@ -309,22 +309,21 @@ public sealed class ToolSurfaceTests
     }
 
     /// <summary>
-    /// A job runs a Builder act alone, so its start publishes the Builder's arguments and none of
-    /// the critic's or Scout's — docs/adr/0043.
+    /// A job runs a Builder act or a Scout question, so its start publishes the Builder's and Scout's
+    /// arguments, all optional, and none of the critic's — docs/adr/0043 and 0044.
     /// </summary>
     [Fact]
-    public void Background_start_keeps_model_optional_and_publishes_only_builder_arguments()
+    public void Background_start_keeps_model_optional_and_publishes_only_builder_and_scout_arguments()
     {
         var schema = SchemaFor(nameof(ForgeTools.StartWork));
         var properties = schema.GetProperty("properties");
         var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
 
-        foreach (var name in new[] { "act", "model", "decisions", "fixAttemptId", "fixFindingIds", "note", "gate" })
+        foreach (var name in new[] { "act", "model", "decisions", "fixAttemptId", "fixFindingIds", "note", "gate", "question", "sessionMode" })
             Assert.True(properties.TryGetProperty(name, out _), $"forge.work.start is missing {name}");
-        foreach (var name in new[] { "planDraft", "revision", "deferred", "userGrantedRound", "question", "sessionMode", "excludePaths" })
+        foreach (var name in new[] { "planDraft", "revision", "deferred", "userGrantedRound", "excludePaths" })
             Assert.False(properties.TryGetProperty(name, out _), $"forge.work.start still publishes {name}");
-        Assert.Contains("act", required);
-        Assert.DoesNotContain("model", required);
+        Assert.Equal(["act"], required.Except(["workspaceRoot", "runId"]));
     }
 
     [Fact]
@@ -364,7 +363,7 @@ public sealed class ToolSurfaceTests
     }
 
     [Fact]
-    public void Work_start_description_names_the_two_builder_acts_and_status_names_scout_state()
+    public void Work_start_description_names_the_builder_acts_and_scout_and_status_names_scout_state()
     {
         var start = typeof(ForgeTools).GetMethod(nameof(ForgeTools.StartWork), BindingFlags.Public | BindingFlags.Static)!;
         var status = typeof(ForgeTools).GetMethod(nameof(ForgeTools.Status), BindingFlags.Public | BindingFlags.Static,
@@ -372,9 +371,9 @@ public sealed class ToolSurfaceTests
         var actDescription = start.GetParameters().Single(parameter => parameter.Name == "act")
             .GetCustomAttribute<DescriptionAttribute>()!.Description;
 
-        Assert.Contains("build.next", actDescription, StringComparison.Ordinal);
-        Assert.Contains("review.fix", actDescription, StringComparison.Ordinal);
-        foreach (var removed in new[] { "plan.review", "review.code", "scout" })
+        foreach (var act in new[] { "build.next", "review.fix", "scout" })
+            Assert.Contains(act, actDescription, StringComparison.Ordinal);
+        foreach (var removed in new[] { "plan.review", "review.code" })
             Assert.DoesNotContain(removed, actDescription, StringComparison.Ordinal);
         Assert.Contains("run.scout", status.GetCustomAttribute<DescriptionAttribute>()!.Description, StringComparison.Ordinal);
     }

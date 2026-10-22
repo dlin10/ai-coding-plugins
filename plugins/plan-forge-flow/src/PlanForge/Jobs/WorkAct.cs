@@ -8,8 +8,9 @@ using PlanForge.Vendors;
 namespace PlanForge.Jobs;
 
 /// <summary>
-/// The Builder act a Job runs: <c>build.next</c> or <c>review.fix</c>, the two that may outlast a
-/// host's clock on one call. Every other act has only its one-call tool — see docs/adr/0043.
+/// The act a Job runs: <c>build.next</c> or <c>review.fix</c>, the two Builder acts that may outlast
+/// a host's clock on one call, or <c>scout</c>, a question the Orchestrator overlaps with its own
+/// work. Plan and code review have only their one-call tools — see docs/adr/0043 and 0044.
 /// </summary>
 internal sealed class WorkAct
 {
@@ -28,15 +29,17 @@ internal sealed class WorkAct
     }
 
     /// <summary>Runs the act and answers with what its one-call tool would.</summary>
-    /// <param name="act"><c>build.next</c> or <c>review.fix</c>.</param>
+    /// <param name="act"><c>build.next</c>, <c>review.fix</c> or <c>scout</c>.</param>
     /// <param name="run">The Run the act belongs to.</param>
-    /// <param name="selection">The Builder's model, effort and speed.</param>
+    /// <param name="selection">The Builder's model, effort and speed; null for <c>scout</c>, which runs on the persisted Scout selection.</param>
     /// <param name="ct">Cancels the act.</param>
     /// <param name="decisions">The code-review decision batch, for <c>review.fix</c> only.</param>
     /// <param name="fixAttemptId">The fix attempt, for <c>review.fix</c> only.</param>
     /// <param name="fixFindingIds">The findings to fix, for <c>review.fix</c> only.</param>
     /// <param name="note">The Orchestrator's Fix note, for <c>review.fix</c> only.</param>
     /// <param name="gate">The verification mode, for <c>review.fix</c> only.</param>
+    /// <param name="question">The bounded reconnaissance question, for <c>scout</c> only.</param>
+    /// <param name="sessionMode"><c>fresh</c> or <c>continue</c>, for <c>scout</c> only.</param>
     public async Task<string> RunAsync(
         string act,
         RunDirectory run,
@@ -46,11 +49,13 @@ internal sealed class WorkAct
         string? fixAttemptId = null,
         IReadOnlyList<string>? fixFindingIds = null,
         string? note = null,
-        string? gate = null)
+        string? gate = null,
+        string? question = null,
+        string? sessionMode = null)
     {
         ArgumentNullException.ThrowIfNull(run);
         if (act == "review.fix") run.ReadState();
-        ValidateArguments(act, selection, decisions, fixAttemptId, fixFindingIds, note, gate);
+        ValidateArguments(act, selection, decisions, fixAttemptId, fixFindingIds, note, gate, question, sessionMode);
 
         switch (act)
         {
@@ -67,19 +72,27 @@ internal sealed class WorkAct
                 return SpeedWarnings.Attach(run, RaisedFindings.Attach(fixJson, fixAct.RaisedFindingIds),
                                             fixAct.SpeedWarning);
 
+            case "scout":
+                var scoutAct = new Scout(_vendor, _prompts);
+                var scout = await scoutAct.RunAsync(run, question!, sessionMode!, ct).ConfigureAwait(false);
+                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(scout, ForgeToolJson.Default.ScoutReport),
+                                            scoutAct.SpeedWarning);
+
             default:
                 throw new ArgumentRejectedException($"unknown work act '{act}'");
         }
     }
 
     /// <summary>Refuses an act a Job does not run, or arguments its act does not take.</summary>
-    /// <param name="act"><c>build.next</c> or <c>review.fix</c>.</param>
-    /// <param name="selection">The Builder's model, effort and speed; the model is required.</param>
+    /// <param name="act"><c>build.next</c>, <c>review.fix</c> or <c>scout</c>.</param>
+    /// <param name="selection">The Builder's model, effort and speed: the model is required, and <c>scout</c> takes none.</param>
     /// <param name="decisions">The code-review decision batch, for <c>review.fix</c> only.</param>
     /// <param name="fixAttemptId">The fix attempt, for <c>review.fix</c> only.</param>
     /// <param name="fixFindingIds">The findings to fix, for <c>review.fix</c> only.</param>
     /// <param name="note">The Orchestrator's Fix note, for <c>review.fix</c> only.</param>
     /// <param name="gate">The verification mode, for <c>review.fix</c> only.</param>
+    /// <param name="question">The bounded reconnaissance question, required by <c>scout</c> only.</param>
+    /// <param name="sessionMode"><c>fresh</c> or <c>continue</c>, required by <c>scout</c> only.</param>
     internal static void ValidateArguments(
         string act,
         Selection? selection,
@@ -87,14 +100,32 @@ internal sealed class WorkAct
         string? fixAttemptId = null,
         IReadOnlyList<string>? fixFindingIds = null,
         string? note = null,
-        string? gate = null)
+        string? gate = null,
+        string? question = null,
+        string? sessionMode = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
-        if (act is not "build.next" and not "review.fix")
-            throw new ArgumentRejectedException($"unknown work act '{act}': a job runs build.next or review.fix");
+        if (act is not "build.next" and not "review.fix" and not "scout")
+            throw new ArgumentRejectedException($"unknown work act '{act}': a job runs build.next, review.fix or scout");
         if (gate is not null && act != "review.fix")
             throw new ArgumentRejectedException($"gate is not used by {act}");
+
+        if (act == "scout")
+        {
+            if (selection is not null)
+                throw new ArgumentRejectedException("model is not used by scout, which runs on the persisted Scout selection");
+            RejectPresent(decisions, nameof(decisions), act);
+            RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
+            RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
+            RejectProvided(note, nameof(note), act);
+            Scout.ValidateQuestion(question ?? throw new ArgumentRejectedException("scout requires question"));
+            Scout.ValidateSessionMode(sessionMode ?? throw new ArgumentRejectedException("scout requires sessionMode"));
+            return;
+        }
+
+        RejectPresent(question, nameof(question), act);
+        RejectPresent(sessionMode, nameof(sessionMode), act);
 
         if (selection is null || string.IsNullOrWhiteSpace(selection.Model))
             throw new ArgumentRejectedException($"{act} requires model");

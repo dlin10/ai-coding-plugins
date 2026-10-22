@@ -20,7 +20,8 @@ failed.
 Then the loop is yours to run, exactly as with plan review: `forge.review.code` runs one critic
 round against the approved plan and `forge.review.fix` hands kept findings to the builder — through
 start → poll → fetch only for a fix batch expected to outlast the host's hour. The same routing
-applies to Scout: call `forge.scout.run` directly with an explicit `sessionMode`. Repeat until the
+applies to Scout: start a job only for a question you have your own work to do beside, and otherwise
+call `forge.scout.run` directly, with an explicit `sessionMode` either way. Repeat until the
 verdict is `approve` or the cap refuses. The critic and the builder never talk directly — you
 are between them because you are the only participant who knows what the plan deliberately left
 out.

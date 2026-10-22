@@ -85,3 +85,9 @@ workspace whose run is gone.
 > and refuses the critic and Scout acts, which only that routing sent through a job.
 > `forge.work.poll` no longer reads the client's name: every client may wait 1 to 3000 seconds, and
 > one that names no wait still waits 45.
+
+> **Amended 2026-10-22 ([0044](0044-overlap-scout-with-the-orchestrators-own-work.md)).** The job
+> tools carry Scout again, on every host, and "one job per run" no longer holds: fresh Scout jobs
+> run side by side, while a `continue` Scout job and a Builder act each run alone. A start that may
+> not run still answers rather than fails, now with every running job in `activeJobIds`, and
+> `forge.status` reports them all as `activeJobs`.

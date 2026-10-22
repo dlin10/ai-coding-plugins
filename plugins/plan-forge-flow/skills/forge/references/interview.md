@@ -1,6 +1,6 @@
 # Forge reference: the interview and the vendor choice
 
-Read it right after `forge.begin`. It ends when both roles' selections are settled and `phase: "planning"` is declared; `planning.md` takes over from there.
+Read it right after `forge.begin`. The interview ends when its decisions are settled and `phase: "planning"` is declared; `planning.md` takes over from there, and the vendor choice at the end of this file runs while the Impact pass does.
 
 ## Act 1: the interview
 
@@ -52,6 +52,12 @@ for each answer, whichever skill is running the interview. You are looking for t
 plan would otherwise leave to whoever implements it: what is out of scope, what happens on the
 error paths, what existing behaviour must not change, how the result will be verified.
 
+The opening questions are those whose answer does not depend on where things are in the code: the
+boundary of the change, what stays out of it, and the verification question below. When the
+interview needs the lay of the land and Scout runs, ask them while the orientation job runs
+(`scout.md`), and fetch it before the first question that needs it; every other question waits for
+its answer.
+
 Before the first plan, ask one verification question in the language of the conversation: full
 verification after each Builder fix turn, or only at the end of the run? Explain that the latter
 uses a meaningful short check after each fix and leaves fixes pending until all full checks pass.
@@ -62,19 +68,20 @@ choice in the Brief, with its label in the language of the plan and the paramete
 Pass timing on first confirm and gate on each fix; never repeat this interview between fixes.
 Without an explicit targeted choice, keep full verification.
 
-When the interview has settled the decisions, write the requirements first — the `## Requirements`
-section `planning.md` describes. They are the interview's own output and do not depend on who implements
-them, which is why they come before the vendor and model questions.
-
-Then choose the vendors and models — the whole of the "Choosing the vendor and model" section
-below — before writing the tasks. The builder's selection is an input to them: the plan's depth is
-calibrated to the model and effort that will execute it, so tasks written before that choice are
-written blind.
+When the interview has settled the decisions, declare `phase: "planning"`, sketch the approach and
+make its matrix check (`planning.md`), and start the Impact pass on it as a Scout job (`scout.md`).
+While it runs, choose the vendors and models — the whole of the "Choosing the vendor and model"
+section below — and write the requirements, gates and tasks in full. The requirements — the
+`## Requirements` section `planning.md` describes — are the interview's own output and do not
+depend on who implements them. The tasks do: the builder's selection is an input to them, the
+plan's depth is calibrated to the model and effort that will execute it, so tasks written before
+that choice are written blind.
 
 ## Choosing the vendor and model
 
-This happens at the end of Act 1, after the last interview question and before the first plan
-draft — the depth rule in `planning.md` reads the builder's selection.
+This happens while the Impact pass runs, after the approach is sketched and before the tasks are
+written — the depth rule in `planning.md` reads the builder's selection. Without Scout it follows the
+sketch directly.
 
 Critic/Builder selection remains at most six questions total: two Vendor questions, two
 model/effort questions, and one Fast question for each role whose choice offers it. Ask them role
@@ -148,5 +155,5 @@ refuses what the catalogue does not confirm. The roles are not interchangeable i
 builder works against an already-hardened plan and can be cheap; the critic is judging, so lean
 nearer the strong end.
 
-Once both roles' selections and instructions are settled, the interview is over: declare
-`phase: "planning"` before you start the first plan draft.
+Once both roles' selections and instructions are settled, write the tasks, then fetch the Impact
+pass and fold it in as `scout.md` describes.
