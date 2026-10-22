@@ -92,7 +92,7 @@ Write gate commands as follows:
   run without the sandbox too, and stay read-only by their contracts alone.
 
 ```markdown
-Builder: cursor / gpt-5.3-codex / high
+Builder: codex / gpt-5.3-codex / high
 Fix verification: gate=<full|targeted>; fullGate=<beforeNextRound|final>
 
 ## Requirements

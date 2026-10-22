@@ -542,17 +542,15 @@ public sealed class ReviewFixTests : IDisposable
     [Fact]
     public void The_background_start_takes_a_note_only_for_a_fix_with_ids()
     {
-        var critic = new Selection("critic-model", null);
         var builder = new Selection("builder-model", null);
 
         Assert.Throws<ArgumentRejectedException>(() => WorkAct.ValidateArguments(
-            "review.code", null, critic, null, null, null, false, note: "framing"));
+            "build.next", builder, note: "framing"));
         Assert.Throws<ArgumentRejectedException>(() => WorkAct.ValidateArguments(
-            "review.fix", null, builder, null, null, null, false,
+            "review.fix", builder,
             decisions: new OrchestratorDecisionBatch("defer", [new OrchestratorDecision("F-0001", "defer", "user", "later")]),
             note: "framing"));
-        WorkAct.ValidateArguments("review.fix", null, builder, null, null, null, false,
-                                  fixAttemptId: "attempt", fixFindingIds: ["F-0001"], note: "framing");
+        WorkAct.ValidateArguments("review.fix", builder, fixAttemptId: "attempt", fixFindingIds: ["F-0001"], note: "framing");
     }
 
     private LedgerReviewFix NewFix(RecordingVendor builder) =>

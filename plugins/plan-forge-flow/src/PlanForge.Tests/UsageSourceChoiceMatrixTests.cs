@@ -187,7 +187,7 @@ public sealed class UsageSourceChoiceMatrixTests : IDisposable
                 break;
             default:
                 // A host that is not Claude Code and carries no thread, though the variable is set.
-                await world.CallAsync(world.Phases, "cursor", null);
+                await world.CallAsync(world.Phases, "other-mcp-client", null);
                 break;
         }
 

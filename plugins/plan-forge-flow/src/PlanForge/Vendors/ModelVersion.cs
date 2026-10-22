@@ -1,16 +1,17 @@
 namespace PlanForge.Vendors;
 
 /// <summary>
-/// Recency parsed out of a model id, shared because two vendors need it for the same reason: the
-/// order their ids arrive in is not recency, and the interview is promised "newest first".
+/// Recency parsed out of a model id: the order the ids arrive in is not recency, and the interview
+/// is promised "newest first".
 /// </summary>
 internal static class ModelVersion
 {
     /// <summary>
     /// The version is the first run of numeric tokens, each contributing its dot-separated
     /// segments: "claude-opus-4-8" is the two-segment 4.8 written with dashes, not the integer 48,
-    /// and "gpt-5.3-codex" carries 5.3 inside one token. Ids without one ("auto") return empty.
+    /// and "gpt-5.3-codex" carries 5.3 inside one token. Ids without one ("opus") return empty.
     /// </summary>
+    /// <param name="id">The model id to read.</param>
     public static int[] Segments(string id)
     {
         var segments = new List<int>();

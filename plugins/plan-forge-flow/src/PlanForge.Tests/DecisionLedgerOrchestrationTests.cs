@@ -53,16 +53,6 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     }
 
     [Fact]
-    public void Code_review_does_not_accept_plan_decisions()
-    {
-        var run = NewRun("code-no-decisions");
-        Assert.Throws<ArgumentRejectedException>(() => WorkAct.ValidateArguments(
-            "review.code", null, new Selection("critic", null), null, null, null, false, null, null,
-            Batch(Decision("defer", "F-0001")), null, null));
-        Assert.NotNull(run);
-    }
-
-    [Fact]
     public async Task Review_code_tool_refuses_an_unapproved_run_before_vendor_start()
     {
         var run = NewRun("code-tool", approved: false);
@@ -1117,22 +1107,6 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     }
 
     [Fact]
-    public async Task Background_plan_review_rejects_invalid_ledger_request_before_started_true()
-    {
-        var run = await NewToolRunAsync("background-preflight");
-        var registry = new JobRegistry();
-        var vendorCreated = false;
-        await Assert.ThrowsAsync<DecisionLedgerRequestException>(() => ForgeTools.StartWork(
-            registry, SessionRoots.None, _workspace, run.RunId, "plan.review", "critic", null,
-            "codex", run.ReadPlan(), null, null, null, false, CancellationToken.None,
-            () => { vendorCreated = true; return new RecordingVendor("codex"); },
-            decisions: Batch(Decision("defer", "F-0001"))));
-        Assert.False(vendorCreated);
-        Assert.Null(registry.Get(run.Path));
-        Assert.Contains("preflight", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task Background_review_fix_rejects_overlapping_decision_and_fix_ids_before_started_true()
     {
         var run = NewRun("background-fix-overlap");
@@ -1142,7 +1116,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
 
         var error = await Assert.ThrowsAsync<DecisionLedgerRequestException>(() => ForgeTools.StartWork(
             registry, SessionRoots.None, _workspace, run.RunId, "review.fix", "builder", null,
-            "codex", null, null, null, null, false, CancellationToken.None,
+            "codex", CancellationToken.None,
             () => { vendorCreated = true; return new RecordingVendor("codex"); },
             decisions: new OrchestratorDecisionBatch("overlap", [Decision("defer", finding.FindingId)]),
             fixAttemptId: "attempt", fixFindingIds: [finding.FindingId]));
@@ -1169,7 +1143,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var registry = new JobRegistry();
         var started = JsonNode.Parse(await ForgeTools.StartWork(
             registry, SessionRoots.None, _workspace, backgroundRun.RunId, "review.fix", "builder", null,
-            "codex", null, null, null, null, false, CancellationToken.None,
+            "codex", CancellationToken.None,
             () => new RecordingVendor("codex"),
             decisions: new OrchestratorDecisionBatch("parity", [Decision("defer", backgroundFinding.FindingId)]),
             fixFindingIds: []))!;
@@ -1454,7 +1428,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
                 .FixAsync(run, new Selection("builder", null), batch, "attempt", [finding.FindingId], CancellationToken.None));
         var background = await Assert.ThrowsAsync<DecisionLedgerRequestException>(() => ForgeTools.StartWork(
             registry, SessionRoots.None, _workspace, run.RunId, "review.fix", "builder", null,
-            "codex", null, null, null, null, false, CancellationToken.None,
+            "codex", CancellationToken.None,
             () => new RecordingVendor("codex"), decisions: batch,
             fixAttemptId: "attempt", fixFindingIds: [finding.FindingId]));
 
@@ -1476,7 +1450,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var registry = new JobRegistry();
         var started = JsonNode.Parse(await ForgeTools.StartWork(
             registry, SessionRoots.None, _workspace, backgroundRun.RunId, "review.fix", "builder", null,
-            "codex", null, null, null, null, false, CancellationToken.None,
+            "codex", CancellationToken.None,
             () => new RecordingVendor("codex"),
             decisions: new OrchestratorDecisionBatch("raise", [], [Raise("left behind")]), fixFindingIds: []))!;
         var jobId = started["jobId"]!.GetValue<string>();

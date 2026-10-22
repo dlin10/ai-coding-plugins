@@ -6,8 +6,8 @@ namespace PlanForge.Tests;
 
 /// <summary>
 /// The probe's parsing and merging, on the lines the CLI actually emits. Everything here is a pure
-/// function for the same reason cursor's parser is: the process side is one integration test, and
-/// the decisions worth pinning down are all in the text.
+/// function: the process side is one integration test, and the decisions worth pinning down are all
+/// in the text.
 /// </summary>
 public sealed class ClaudeCatalogTests
 {
@@ -15,6 +15,16 @@ public sealed class ClaudeCatalogTests
         """
         {"type":"system","subtype":"init","cwd":"C:\\work","session_id":"abc","tools":[],"model":"claude-fable-5","permissionMode":"auto"}
         """;
+
+    /// <summary>"4-8" is the two-segment version 4.8 written with dashes, never the integer 48.</summary>
+    [Fact]
+    public void Reads_version_segments_out_of_model_ids()
+    {
+        Assert.Equal([4, 8], ModelVersion.Segments("claude-opus-4-8-thinking"));
+        Assert.Equal([5, 3], ModelVersion.Segments("gpt-5.3-codex"));
+        Assert.Equal([5], ModelVersion.Segments("claude-opus-5-thinking"));
+        Assert.Empty(ModelVersion.Segments("opus"));
+    }
 
     [Fact]
     public void Reads_the_resolved_model_out_of_the_init_line()

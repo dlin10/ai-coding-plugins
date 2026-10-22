@@ -1,6 +1,6 @@
-# Plan Forge Flow 0.58.0
+# Plan Forge Flow 0.59.0
 
-Plan Forge Flow is a Codex, Claude Code, and Cursor plugin for decision-complete planning, fresh
+Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
 typed .NET 10 executable named `planforge` that exposes twenty-one tools. Release 0.16.0 supports only
 Windows x64.
@@ -40,8 +40,8 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 | `forge.review.code` | One code-review round: a fresh critic judges the diff against the approved plan. Saved beforeNextRound refuses pending fixes; final permits them and returns current pending IDs (including []); assessments do not verify them. A prompt longer than the critic's vendor accepts gives the critic its files by path, untracked files first; one too long even then is refused before it starts, with its sizes, and `excludePaths` narrows that one round |
 | `forge.review.fix` | Applies typed code decisions, including raises of the orchestrator's own, and optionally fixes exact ledger IDs under a retryable fix-attempt ID, with an optional note to the Builder, then runs executable G entries by default (`gate=full`) or only the approved Fix gate (`gate=targeted`), leaving findings pending full host verification. Retry preserves gate, attempt and exact IDs |
 | `forge.status` | Reports saved `run.fullGate`, current pending IDs and covering attempts, plus a compact ledger summary with current IDs, dispositions and active phases, `run.scout` state, filtered drift, active-job liveness, and current configured and partly configured `advisors` |
-| `forge.work.start` | On Cursor hosts, and elsewhere for a Builder act expected to outlast the hour, starts one worker act, including Scout, as a background job; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding |
-| `forge.work.poll` | Waits for a background worker act, 45 seconds per call or `waitSeconds` (at most 45 on Cursor, 3000 elsewhere, clamped and reported beyond that), returning as soon as it ends, and reports its latest stdout activity and recognised event |
+| `forge.work.start` | Starts a Builder act — `build.next` or `review.fix` — expected to outlast the hour as a background job; optional gate is only for review.fix with fix IDs, with direct-call validation and immutable retry binding |
+| `forge.work.poll` | Waits for a background worker act, 45 seconds per call or `waitSeconds` (at most 3000, clamped and reported beyond that), returning as soon as it ends, and reports its latest stdout activity and recognised event |
 | `forge.work.cancel` | Requests cancellation of a background worker act; terminal jobs are unchanged and running jobs finish as failed |
 | `forge.work.fetch` | Fetches the historical terminal snapshot of a background worker act; status and new fix replay show current pending |
 | `forge.log.append` | Appends one orchestrator entry to the run's diagnostic log; its optional `phase` declares the Orchestrator phase that begins, closing the open one and recording it in `telemetry.json` |
@@ -159,8 +159,8 @@ rather than repaired. The plan it approves is `PLAN.md` as it stands, named by t
 copy was shown at, rather than the whole text sent back; see
 [docs/adr/0038](docs/adr/0038-approve-the-plan-on-disk-by-its-hash.md).
 
-On a host that negotiates the MCP Apps UI extension — Cursor does, Claude Code does not — "however
-its own host shows things best" has a concrete answer: `forge.plan.show` renders the plan as a
+On a host that negotiates the MCP Apps UI extension — Claude Code does not — "however its own host
+shows things best" has a concrete answer: `forge.plan.show` renders the plan as a
 document, with the drift above it, in the host's own UI. It is display only, and every other host
 sees the surface it always did. See
 [docs/adr/0008](docs/adr/0008-render-the-plan-on-a-canvas.md).
@@ -170,7 +170,7 @@ not be used for, and nothing in this codebase can tell the difference.
 
 ## Vendors
 
-Three vendors can fill the Critic, Builder, or Scout role. Critic and Builder are chosen per call
+Two vendors can fill the Critic, Builder, or Scout role. Critic and Builder are chosen per call
 with the `vendor` argument, while Scout persists its own selection: the critic's choice goes to the
 two review tools, the builder's to `forge.build.next` and `forge.review.fix`, so the roles stay
 independent:
@@ -179,10 +179,9 @@ independent:
 |---|---|---|---|
 | `claude` | Claude Code CLI | `--json-schema`, natively | resolved, aliases through `init` |
 | `codex` | Codex CLI, `codex exec` | `--output-schema`, natively | live, `codex debug models` |
-| `cursor` | `cursor-agent` CLI | schema in the prompt, validated here | live, `--list-models` |
 
-Structured output is a hard requirement of the vendor interface, so a vendor without native support
-gets the schema in its prompt and one retry against our own validation. The catalogues feed the
+Structured output is a hard requirement of the vendor interface, and both vendors meet it natively:
+the CLI is handed the schema and enforces it. The catalogues feed the
 interview: `forge.models` serves them so the model question offers what the vendor actually serves,
 newest first, rather than the orchestrator's memory of the line-up. They remain advisory for
 model and effort — the vendor CLI decides, and an unfamiliar model is a warning rather than a
@@ -190,8 +189,7 @@ refusal.
 
 Speed is the exception. Each worker can run at its vendor's Fast tier — quicker, at a higher usage
 price — where the catalogue lists it for that model and effort: codex's `priority` tier with its
-price hint, cursor's `-fast` ids, and claude's fast mode where both the model and the account allow
-it. A `fast` request the catalogue does not confirm is refused before any worker starts, and every
+price hint, and claude's fast mode where both the model and the account allow it. A `fast` request the catalogue does not confirm is refused before any worker starts, and every
 turn names its speed, so a Fast toggle in the vendor's own configuration never reaches a run.
 Claude also refuses at the start of its session when the account will not serve Fast. When a Claude
 turn falls back to standard speed part-way, the result carries `speedWarning`. See
@@ -309,7 +307,7 @@ and [ADR 0037](docs/adr/0037-keep-the-scout-report-as-json-only.md).
 
 ## Requirements
 
-- Codex, Claude Code 2.1.232 or newer, or Cursor 3.15.6 or newer
+- Codex, or Claude Code 2.1.232 or newer
 - Windows x64
 - Git, and a Git repository for the target change
 - The CLI of whichever vendor you select for a role
@@ -341,7 +339,6 @@ The installed plugin is small:
 plugins/plan-forge-flow/
   .codex-plugin/plugin.json
   .claude-plugin/plugin.json
-  .cursor-plugin/plugin.json
   .mcp.json
   bin/planforge-launcher.cmd
   hooks/claude.pff.hooks.json
@@ -358,7 +355,7 @@ a hook runs `planforge.exe --resume-card`, which prints where the session's run 
 shapes of the calls ahead into the compacted context: `hooks/claude.pff.hooks.json` on Claude Code,
 `hooks/codex.pff.hooks.json` on Codex. Codex runs a plugin's hook only once you have trusted it — open `/hooks`
 in Codex after installing or updating the plugin and trust the plan-forge-flow `SessionStart` hook.
-Cursor runs no hook. See
+See
 [`docs/adr/0040`](docs/adr/0040-resume-the-orchestrator-after-a-compaction.md).
 
 The executable is not in the repository. On launch, `bin/planforge-launcher.cmd` runs a locally
@@ -374,7 +371,7 @@ where `cmd.exe` holds under 10 MB of working set and `powershell.exe` around 50.
 Everything a run knows lives under one folder, isolated by run id, in the directory your host says
 you are working in — so the plan and the timeline sit beside your session and your host can link
 them, even when the run is reviewing a repository root several levels above. A host that does not
-tell the server where you are (today: Codex and Cursor) gets the folder under `workspaceRoot`
+tell the server where you are (today: Codex) gets the folder under `workspaceRoot`
 instead.
 
 ```text
@@ -415,7 +412,7 @@ In telemetry, `inputTokens` is the complete input processed by the Worker attemp
 reads and cache creation. `cacheReadTokens` and `cacheCreationTokens` are optional subsets of that
 total and must not be added to it. Likewise, `outputTokens` is the complete output count and
 `reasoningTokens` is an optional subset of it. `costUsd` is the price Claude reports for the attempt
-(`total_cost_usd`); Codex and Cursor report none, so their records carry no `costUsd`.
+(`total_cost_usd`); Codex reports none, so its records carry no `costUsd`.
 
 Every counter is the attempt's own, including on a resumed Builder or Scout session. Codex reports
 its tokens, and Claude its tokens and cost, as a running total for the whole session, so a resumed
@@ -463,7 +460,7 @@ An `orchestrator.usage` record carries, absent values omitted:
 
 The Host session is what the counters are read for. Under Claude Code it is the session the server
 was started for (`CLAUDE_CODE_SESSION_ID`); under Codex it is the thread its tool calls name
-(`_meta.threadId`). Cursor gives the server neither, so a host with no Host session gets time only,
+(`_meta.threadId`). A host that gives the server neither has no Host session and gets time only,
 with `usageMissing: "no_host_session"`.
 
 The tokens come from one of two Usage sources, chosen once per server process when its Host session

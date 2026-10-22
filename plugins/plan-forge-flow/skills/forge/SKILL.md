@@ -26,7 +26,7 @@ A compaction leaves you at most this file's start and your own summary, and a su
 argument shapes wrongly. On Claude Code and Codex the plugin prints a **resume card** into your
 context right after a compaction: the run, where it stands, the next calls with their exact argument
 shapes, and the reference file to read. Trust it over your summary, and read that file before your
-next forge call. With no card — Cursor, a Codex whose user has not trusted the plugin's hook, or a run
+next forge call. With no card — a Codex whose user has not trusted the plugin's hook, or a run
 another session began — call `forge.status` first and read the reference for the phase the run is
 in. Never call a forge tool from a remembered argument list: the shapes are in the table below.
 
@@ -89,7 +89,7 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 | `forge.begin` | `workerTools?: ["<MCP server pattern>"]` — no `runId` | Once, first. Returns `runId`, `client`, `profile`, `advisors`. |
 | `forge.models` | — | At the first Scout need, and again right before the critic/builder vendor question. |
 | `forge.scout.select` | `enabled`, `vendor?`, `model?`, `effort?`, `fast?` | Once, at the first broad need; `enabled: false` continues without Scout. |
-| `forge.scout.run` | `question`, `sessionMode: "fresh" \| "continue"` | One Scout question, non-Cursor hosts. |
+| `forge.scout.run` | `question`, `sessionMode: "fresh" \| "continue"` | One Scout question, always direct. |
 | `forge.evidence.map` | `changePoints: ["…"]`, `implications?: [{ text, derivedFrom: ["A1.confirmedFacts.1"] }]`, `advisor?` | After the manual Evidence check, when an Advisor is configured. |
 | `forge.instructions.set` | `criticInstructions?`, `builderInstructions?` — the user's words verbatim | End of the interview, only if either answer was not "no instructions". |
 | `forge.plan.write` | `planDraft` — the whole plan | The first draft and genuine rewrites. |
@@ -98,11 +98,11 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 | `forge.plan.review` | `model`, `effort?`, `vendor?`, `fast?`, `revision` (from round 2), `decisions?`, `userGrantedRound?` | One critic round over `PLAN.md`. Never `planDraft`. |
 | `forge.plan.show` | — | `Canvas` profile only, before asking for approval. Never `plan`. |
 | `forge.plan.confirm` | `approved`, `planHash`, `decisions?`, `fullGate?: "beforeNextRound" \| "final"`, `gateEnvironment?: { "NAME": "value" }`, `rebuildFrom?` | The user's answer. Never `plan`; `approved: false` takes no `decisions`. |
-| `forge.build.next` | `model`, `effort?`, `vendor?`, `fast?` | One task per call, non-Cursor hosts. |
-| `forge.review.code` | `model`, `effort?`, `vendor?`, `fast?`, `userGrantedRound?`, `excludePaths?` | One code-review round, non-Cursor hosts. |
+| `forge.build.next` | `model`, `effort?`, `vendor?`, `fast?` | One task per call. |
+| `forge.review.code` | `model`, `effort?`, `vendor?`, `fast?`, `userGrantedRound?`, `excludePaths?` | One code-review round. |
 | `forge.review.fix` | `model`, `effort?`, `vendor?`, `fast?`, `decisions?`, `fixAttemptId?`, `fixFindingIds?`, `note?`, `gate?: "full" \| "targeted"` | Decisions, raises, and a fix of exactly `fixFindingIds`. |
-| `forge.work.start` | `act: "plan.review" \| "build.next" \| "review.code" \| "review.fix" \| "scout"` and that act's arguments | Every worker act on Cursor; a long Builder act elsewhere. |
-| `forge.work.poll` | `jobId`, `waitSeconds?` — `3000` off Cursor, omitted on it | Again at once while `running`; never end your turn on it. |
+| `forge.work.start` | `act: "build.next" \| "review.fix"` and that act's arguments | Only a Builder act that may outlast the host's hour. |
+| `forge.work.poll` | `jobId`, `waitSeconds: 3000` | Again at once while `running`; never end your turn on it. |
 | `forge.work.fetch` | `jobId` | Once the poll says the job stopped. |
 | `forge.work.cancel` | `jobId` | Only on the user's explicit request. |
 | `forge.status` | — | Before approval, at a cap, after a resume, and whenever the user asks. |
@@ -115,10 +115,9 @@ what, by, reason }] }`. Actions are `defer`, `reject`, `duplicateOf`, `accept` a
 `addressedByRevision` in plan review and `hostVerified` in code review. Raises belong to a
 decisions-only `forge.review.fix`. `ledger.md` has the rules.
 
-On Cursor every worker act, Scout included, goes through `forge.work.start` → `forge.work.poll` →
-`forge.work.fetch`; elsewhere call the one-call tools, and use `forge.work.start` only for a Builder
-act that may outlast the host's hour. The critic's selection goes to the two review tools, the
-builder's to `forge.build.next` and `forge.review.fix`. `tools.md` has every contract in full.
+Call the one-call tools, and go through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`
+only for a Builder act that may outlast the host's hour. The critic's selection goes to the two
+review tools, the builder's to `forge.build.next` and `forge.review.fix`. `tools.md` has every contract in full.
 
 Every worker act answers beside a `documents` object holding `flowLog` and `plan`, each with a
 `path` and what to do with it. Surface the plan in the turn that wrote it and the Flow log from the

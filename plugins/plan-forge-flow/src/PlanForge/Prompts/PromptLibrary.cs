@@ -79,7 +79,7 @@ internal sealed class PromptLibrary(string? root = null)
                             Path.Combine(vendorId, $"{role.ToString().ToLowerInvariant()}.md"));
 
         // A host running a worker for us also hands it whatever the user installed there, and this
-        // plugin is usually among that: a cursor builder measured on 2026-08-29 was given the run's
+        // plugin is usually among that: a builder measured on 2026-08-29 was given the run's
         // own forge skill and started its MCP server. Neither role has any business driving the run
         // it was called into, so both are told to leave that surface alone.
         prompt = Append(prompt, OrchestrationContractFile);

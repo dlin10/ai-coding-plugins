@@ -1,7 +1,6 @@
 using PlanForge.Vendors;
 using PlanForge.Vendors.Claude;
 using PlanForge.Vendors.Codex;
-using PlanForge.Vendors.Cursor;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -84,46 +83,16 @@ public sealed class ScoutVendorTests
     }
 
     [Fact]
-    public void Cursor_scout_uses_plan_mode_without_disabling_network_access()
-    {
-        var session = new CursorAgentSession(new RoleSpec(VendorRole.Scout, "scout"),
-                                              new Selection("auto", null), null);
-
-        var arguments = session.BuildArguments();
-
-        Assert.True(session.CanResume);
-        Assert.Equal(["--mode", "plan"], arguments.SkipWhile(argument => argument != "--mode").Take(2));
-        Assert.Contains("--approve-mcps", arguments);
-        Assert.DoesNotContain("--resume", arguments);
-        AssertNoNetworkDisable(arguments);
-    }
-
-    [Fact]
-    public void Cursor_scout_resumes_with_plan_mode()
-    {
-        var session = new CursorAgentSession(new RoleSpec(VendorRole.Scout, "scout"),
-                                              new Selection("auto", null), null, "chat-scout");
-
-        var arguments = session.BuildArguments();
-
-        Assert.Equal("chat-scout", arguments[arguments.IndexOf("--resume") + 1]);
-        Assert.Equal(["--mode", "plan"], arguments.SkipWhile(argument => argument != "--mode").Take(2));
-        AssertNoNetworkDisable(arguments);
-    }
-
-    [Fact]
     public void Every_scout_vendor_session_can_resume_and_only_codex_runs_without_a_read_only_launch()
     {
         var selection = new Selection("model", null);
         var claude = new ClaudeCliSession(new RoleSpec(VendorRole.Scout, "scout"), selection, null, "claude");
         var codex = new CodexCliSession(new RoleSpec(VendorRole.Scout, "scout"), selection, null, "codex");
-        var cursor = new CursorAgentSession(new RoleSpec(VendorRole.Scout, "scout"), selection, null, "cursor");
 
-        Assert.All(new IVendorSession[] { claude, codex, cursor }, session => Assert.True(session.CanResume));
+        Assert.All(new IVendorSession[] { claude, codex }, session => Assert.True(session.CanResume));
         Assert.DoesNotContain("acceptEdits", claude.BuildArguments("schema.json"));
         Assert.Contains("--dangerously-bypass-approvals-and-sandbox", CodexCliSession.BuildArguments(
             new RoleSpec(VendorRole.Scout, "scout"), selection, null, "schema.json", "result.json"));
-        Assert.Contains("--mode", cursor.BuildArguments());
     }
 
     private static void AssertNoNetworkDisable(IEnumerable<string> arguments)

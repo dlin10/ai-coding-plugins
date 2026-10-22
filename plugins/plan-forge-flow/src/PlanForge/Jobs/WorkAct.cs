@@ -1,79 +1,63 @@
 using System.Text.Json;
 using PlanForge.Acts;
-using PlanForge.Evidence;
 using PlanForge.Mcp;
 using PlanForge.Prompts;
-using PlanForge.Repo;
 using PlanForge.Run;
 using PlanForge.Vendors;
 
 namespace PlanForge.Jobs;
 
+/// <summary>
+/// The Builder act a Job runs: <c>build.next</c> or <c>review.fix</c>, the two that may outlast a
+/// host's clock on one call. Every other act has only its one-call tool — see docs/adr/0043.
+/// </summary>
 internal sealed class WorkAct
 {
     private readonly IVendor _vendor;
     private readonly PromptLibrary _prompts;
-    private readonly IReviewGit? _git;
 
     public WorkAct(IVendor vendor)
         : this(vendor, new PromptLibrary())
     {
     }
 
-    public WorkAct(IVendor vendor, PromptLibrary prompts, IReviewGit? git = null)
+    public WorkAct(IVendor vendor, PromptLibrary prompts)
     {
         _vendor = vendor;
         _prompts = prompts;
-        _git = git;
     }
 
+    /// <summary>Runs the act and answers with what its one-call tool would.</summary>
+    /// <param name="act"><c>build.next</c> or <c>review.fix</c>.</param>
+    /// <param name="run">The Run the act belongs to.</param>
+    /// <param name="selection">The Builder's model, effort and speed.</param>
+    /// <param name="ct">Cancels the act.</param>
+    /// <param name="decisions">The code-review decision batch, for <c>review.fix</c> only.</param>
+    /// <param name="fixAttemptId">The fix attempt, for <c>review.fix</c> only.</param>
+    /// <param name="fixFindingIds">The findings to fix, for <c>review.fix</c> only.</param>
+    /// <param name="note">The Orchestrator's Fix note, for <c>review.fix</c> only.</param>
+    /// <param name="gate">The verification mode, for <c>review.fix</c> only.</param>
     public async Task<string> RunAsync(
         string act,
         RunDirectory run,
-        string? planDraft,
         Selection? selection,
-        string? findings,
-        string? deferred,
-        string? revision,
-        bool userGrantedRound,
         CancellationToken ct,
-        string? question = null,
-        string? sessionMode = null,
         OrchestratorDecisionBatch? decisions = null,
         string? fixAttemptId = null,
         IReadOnlyList<string>? fixFindingIds = null,
         string? note = null,
-        ReviewScope? scope = null, string? gate = null)
+        string? gate = null)
     {
         ArgumentNullException.ThrowIfNull(run);
         if (act == "review.fix") run.ReadState();
-        ValidateArguments(act, planDraft, selection, findings, deferred, revision, userGrantedRound,
-                          question, sessionMode, decisions, fixAttemptId, fixFindingIds, note, scope, gate);
+        ValidateArguments(act, selection, decisions, fixAttemptId, fixFindingIds, note, gate);
 
         switch (act)
         {
-            case "plan.review":
-                var planReview = new PlanReview(_vendor, _prompts);
-                var critique = await planReview.ReviewAsync(run, planDraft, selection!, revision, deferred, userGrantedRound, ct,
-                                                            orchestratorDecisions: decisions)
-                                               .ConfigureAwait(false);
-                var json = ReviewCap.Attach(JsonSerializer.Serialize(critique, ContractJson.Default.Critique),
-                                            planReview.ContinuedAutomatically);
-                return SpeedWarnings.Attach(run, EvidenceMapCurrency.Attach(json, planReview.EvidenceMapWarning),
-                                            planReview.SpeedWarning);
-
             case "build.next":
                 var buildAct = new Build(_vendor, _prompts);
                 var build = await buildAct.NextAsync(run, selection!, ct).ConfigureAwait(false);
                 return SpeedWarnings.Attach(run, BuildOutcomeView.Of(build).ToJsonString(), buildAct.SpeedWarning);
-
-            case "review.code":
-                var git = _git ?? new GitClient(run.ReadState().WorkspaceRoot);
-                var codeReviewAct = new CodeReview(_vendor, _prompts, git);
-                var codeReview = await codeReviewAct.ReviewAsync(run, selection!, userGrantedRound, ct, scope).ConfigureAwait(false);
-                return SpeedWarnings.Attach(run, ReviewCap.Attach(JsonSerializer.Serialize(codeReview, ContractJson.Default.Critique),
-                                                                  codeReviewAct.ContinuedAutomatically),
-                                            codeReviewAct.SpeedWarning);
 
             case "review.fix":
                 var fixAct = new ReviewFix(_vendor, _prompts);
@@ -83,95 +67,41 @@ internal sealed class WorkAct
                 return SpeedWarnings.Attach(run, RaisedFindings.Attach(fixJson, fixAct.RaisedFindingIds),
                                             fixAct.SpeedWarning);
 
-            case "scout":
-                var scoutAct = new Scout(_vendor, _prompts);
-                var scout = await scoutAct.RunAsync(run, question!, sessionMode!, ct).ConfigureAwait(false);
-                return SpeedWarnings.Attach(run, JsonSerializer.Serialize(scout, ForgeToolJson.Default.ScoutReport),
-                                            scoutAct.SpeedWarning);
-
             default:
                 throw new ArgumentRejectedException($"unknown work act '{act}'");
         }
     }
 
+    /// <summary>Refuses an act a Job does not run, or arguments its act does not take.</summary>
+    /// <param name="act"><c>build.next</c> or <c>review.fix</c>.</param>
+    /// <param name="selection">The Builder's model, effort and speed; the model is required.</param>
+    /// <param name="decisions">The code-review decision batch, for <c>review.fix</c> only.</param>
+    /// <param name="fixAttemptId">The fix attempt, for <c>review.fix</c> only.</param>
+    /// <param name="fixFindingIds">The findings to fix, for <c>review.fix</c> only.</param>
+    /// <param name="note">The Orchestrator's Fix note, for <c>review.fix</c> only.</param>
+    /// <param name="gate">The verification mode, for <c>review.fix</c> only.</param>
     internal static void ValidateArguments(
         string act,
-        string? planDraft,
         Selection? selection,
-        string? findings,
-        string? deferred,
-        string? revision,
-        bool userGrantedRound,
-        string? question = null,
-        string? sessionMode = null,
         OrchestratorDecisionBatch? decisions = null,
         string? fixAttemptId = null,
         IReadOnlyList<string>? fixFindingIds = null,
         string? note = null,
-        ReviewScope? scope = null, string? gate = null)
+        string? gate = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
 
-        if (act is not "plan.review" and not "build.next" and not "review.code" and not "review.fix" and not "scout")
-            throw new ArgumentRejectedException($"unknown work act '{act}'");
+        if (act is not "build.next" and not "review.fix")
+            throw new ArgumentRejectedException($"unknown work act '{act}': a job runs build.next or review.fix");
         if (gate is not null && act != "review.fix")
             throw new ArgumentRejectedException($"gate is not used by {act}");
-        if (scope is not null && act != "review.code")
-            throw new ArgumentRejectedException($"excludePaths is not used by {act}");
-
-        if (act == "scout")
-        {
-            RejectPresent(planDraft, nameof(planDraft), act);
-            RejectPresent(selection?.Model, nameof(selection), act);
-            RejectPresent(selection?.Effort, nameof(selection), act);
-            RejectPresent(findings, nameof(findings), act);
-            RejectPresent(deferred, nameof(deferred), act);
-            RejectPresent(revision, nameof(revision), act);
-            RejectPresent(decisions, nameof(decisions), act);
-            RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
-            RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
-            RejectProvided(note, nameof(note), act);
-            RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
-            if (question is null)
-                throw new ArgumentRejectedException("scout requires question");
-            Scout.ValidateQuestion(question);
-            if (sessionMode is null)
-                throw new ArgumentRejectedException("scout requires sessionMode");
-            Scout.ValidateSessionMode(sessionMode);
-            return;
-        }
 
         if (selection is null || string.IsNullOrWhiteSpace(selection.Model))
             throw new ArgumentRejectedException($"{act} requires model");
 
         switch (act)
         {
-            // planDraft is optional here and nowhere else: forge.plan.write or forge.plan.patch leaves
-            // the plan on disk ahead of the round, and the act reads it when the start omits it. Whether
-            // there is one to read is a question about the run, so forge.work.start asks it through
-            // PlanReview.RequireDraft rather than here.
-            case "plan.review":
-                RejectProvided(findings, nameof(findings), act);
-                RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
-                RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
-                RejectProvided(note, nameof(note), act);
-                break;
             case "build.next":
-                RejectProvided(planDraft, nameof(planDraft), act);
-                RejectProvided(findings, nameof(findings), act);
-                RejectProvided(deferred, nameof(deferred), act);
-                RejectProvided(revision, nameof(revision), act);
-                RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
-                RejectPresent(decisions, nameof(decisions), act);
-                RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
-                RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
-                RejectProvided(note, nameof(note), act);
-                break;
-            case "review.code":
-                RejectProvided(planDraft, nameof(planDraft), act);
-                RejectProvided(findings, nameof(findings), act);
-                RejectProvided(deferred, nameof(deferred), act);
-                RejectProvided(revision, nameof(revision), act);
                 RejectPresent(decisions, nameof(decisions), act);
                 RejectPresent(fixAttemptId, nameof(fixAttemptId), act);
                 RejectPresent(fixFindingIds, nameof(fixFindingIds), act);
@@ -181,11 +111,6 @@ internal sealed class WorkAct
                 FixGatePolicy.GateMode(gate);
                 if (gate is not null && (fixFindingIds is null || fixFindingIds.Count == 0))
                     throw new ArgumentRejectedException("gate requires non-empty fixFindingIds");
-                RejectProvided(planDraft, nameof(planDraft), act);
-                RejectProvided(findings, nameof(findings), act);
-                RejectProvided(deferred, nameof(deferred), act);
-                RejectProvided(revision, nameof(revision), act);
-                RejectProvided(userGrantedRound, nameof(userGrantedRound), act);
                 if (fixFindingIds is null && decisions is null)
                     throw new ArgumentRejectedException($"{act} requires decisions or fixFindingIds");
                 if (!string.IsNullOrWhiteSpace(fixAttemptId) && (fixFindingIds is null || fixFindingIds.Count == 0))
@@ -196,9 +121,6 @@ internal sealed class WorkAct
                     throw new ArgumentRejectedException("note requires non-empty fixFindingIds");
                 break;
         }
-
-        RejectPresent(question, nameof(question), act);
-        RejectPresent(sessionMode, nameof(sessionMode), act);
     }
 
     private static void RejectProvided(string? value, string argumentName, string act)
@@ -218,12 +140,6 @@ internal sealed class WorkAct
         if (value is not null)
             throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
     }
-
-    private static void RejectProvided(bool value, string argumentName, string act)
-    {
-        if (value)
-            throw new ArgumentRejectedException($"{argumentName} is not used by {act}");
-    }
 }
 
 internal static class OrchestrationPreflight
@@ -232,17 +148,11 @@ internal static class OrchestrationPreflight
                                   string? fixAttemptId, IReadOnlyList<string>? fixFindingIds,
                                   string? note = null, string? gate = null)
     {
-        if (act == "review.code") CodeReview.RequireReady(run, run.ReadState());
         if (act == "review.fix" && !run.ReadState().Approved)
             throw new NotApprovedException(run.RunId);
         var ledger = run.ReadDecisionLedger();
         switch (act)
         {
-            case "plan.review":
-                if (decisions is not null)
-                    ledger.ValidateOrchestratorBatch(decisions, LedgerPhase.PlanReview);
-                return;
-
             case "review.fix":
                 var (_, ids, attempt, _) = ReviewFix.ValidateRequest(run, ledger, decisions, fixAttemptId,
                                                                      fixFindingIds, note, gate);

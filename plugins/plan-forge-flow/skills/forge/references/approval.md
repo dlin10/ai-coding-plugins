@@ -9,7 +9,7 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
 
 1. Call `forge.status` and read `driftedFiles` — the files that changed since `forge.begin`.
 2. Show the user the **whole** plan, not a summary of it, and the drifted files beside it.
-   - On the `Canvas` profile — the one `forge.begin` reported, which today means Cursor — call
+   - On the `Canvas` profile — the one `forge.begin` reported for a host that negotiated MCP Apps — call
      `forge.plan.show` without `plan`. It renders `PLAN.md` as a document, with the drift above it,
      in the host's own UI, and answers with its `planHash`. Do not paste the plan into the chat as
      well; the canvas is where they read it.

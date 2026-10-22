@@ -10,9 +10,9 @@ namespace PlanForge.Vendors;
 /// </summary>
 internal sealed class CatalogCache
 {
-    internal static readonly string[] KnownVendors = ["claude", "codex", "cursor"];
+    internal static readonly string[] KnownVendors = ["claude", "codex"];
 
-    // Generous: the slowest probe measured is cursor-agent at ~3s. This is the only bound on the
+    // Generous: no probe measured has taken more than a few seconds. This is the only bound on the
     // codex probe, whose app-server requests are limited solely by the caller's token.
     private static readonly TimeSpan _probeTimeout = TimeSpan.FromSeconds(60);
 

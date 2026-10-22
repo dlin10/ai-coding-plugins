@@ -6,7 +6,6 @@ using PlanForge.Infrastructure;
 using PlanForge.Vendors;
 using PlanForge.Vendors.Claude;
 using PlanForge.Vendors.Codex;
-using PlanForge.Vendors.Cursor;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -45,7 +44,6 @@ public sealed class VendorTimingTests : IDisposable
     [InlineData("claude", "Bash")]
     [InlineData("codex", "command_execution")]
     [InlineData("codex", "mcp_tool_call")]
-    [InlineData("cursor", "shell")]
     public void Vendor_tool_pairs_are_matched_by_id_and_parallel_intervals_are_counted_once(string vendor, string tool)
     {
         var role = Role();
@@ -53,12 +51,10 @@ public sealed class VendorTimingTests : IDisposable
         var attempt = new VendorTurn(role, selection, vendor).Start(1, null, _clock);
         var newSessionClaude = new ClaudeCliSession(role, selection, null);
         var newSessionCodex = new CodexCliSession(role, selection, null);
-        var newSessionCursor = new CursorAgentSession(role, selection, null);
         Action<JsonElement> observe = vendor switch
         {
             "claude" => root => newSessionClaude.Observe(root, attempt),
-            "codex" => root => newSessionCodex.Observe(root, attempt),
-            _ => root => newSessionCursor.Observe(root, attempt)
+            _ => root => newSessionCodex.Observe(root, attempt)
         };
 
         attempt.ProcessStarted();
@@ -84,7 +80,6 @@ public sealed class VendorTimingTests : IDisposable
     [Theory]
     [InlineData("claude")]
     [InlineData("codex")]
-    [InlineData("cursor")]
     public void A_non_string_call_id_leaves_tool_time_unknown_without_losing_the_turn(string vendor)
     {
         var attempt = Turn().Start(1, null, _clock);
@@ -92,14 +87,12 @@ public sealed class VendorTimingTests : IDisposable
         var selection = new Selection("model", null);
         var claude = new ClaudeCliSession(role, selection, null);
         var codex = new CodexCliSession(role, selection, null);
-        var cursor = new CursorAgentSession(role, selection, null);
         Action<JsonElement> observe = vendor switch
         {
             "claude" => root => claude.Observe(root, attempt),
-            "codex" => root => codex.Observe(root, attempt),
-            _ => root => cursor.Observe(root, attempt)
+            _ => root => codex.Observe(root, attempt)
         };
-        var tool = vendor switch { "claude" => "Bash", "codex" => "command_execution", _ => "shell" };
+        var tool = vendor switch { "claude" => "Bash", _ => "command_execution" };
         attempt.ProcessStarted();
         Send(observe, ToolEvent(vendor, tool, "bad", true).Replace("\"bad\"", "42", StringComparison.Ordinal));
         _clock.Advance(10);
@@ -304,8 +297,7 @@ public sealed class VendorTimingTests : IDisposable
             "claude" => started
                 ? """{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TOOL","id":"ID","input":{}}]}}"""
                 : """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"ID","content":"done"}]}}""",
-            "codex" => """{"type":"item.STATE","item":{"id":"ID","type":"TOOL","server":"mcp","tool":"read"}}""",
-            _ => """{"type":"tool_call","subtype":"STATE","tool_call":{"toolCallId":"ID","TOOLToolCall":{"args":{},"result":{"success":{}}}}}"""
+            _ => """{"type":"item.STATE","item":{"id":"ID","type":"TOOL","server":"mcp","tool":"read"}}"""
         };
         return template.Replace("TOOL", tool, StringComparison.Ordinal)
                        .Replace("ID", id, StringComparison.Ordinal)

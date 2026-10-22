@@ -4,7 +4,6 @@ using PlanForge.Infrastructure;
 using PlanForge.Run;
 using PlanForge.Vendors;
 using PlanForge.Vendors.Claude;
-using PlanForge.Vendors.Cursor;
 using Xunit;
 
 namespace PlanForge.Tests;
@@ -47,31 +46,6 @@ public sealed class OutputCapMislabelTests : IDisposable
         Assert.Null(structured);
         var skipped = Single(Read(run), "vendor.skipped-line");
         Assert.Equal("claude", skipped.GetProperty("source").GetString());
-        Assert.Contains("planning", Field(skipped, "payload"), StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Cursor_skips_a_line_that_is_json_but_not_an_object_and_still_reads_the_result()
-    {
-        var run = RunDirectory.Create(_repo, "20260101-000000-cursor");
-        var lines = Path.Combine(_repo, "lines.jsonl");
-        await File.WriteAllLinesAsync(lines,
-        [
-            "\"planning\"",
-            """{"type":"result","result":"the critique","session_id":"chat-1"}"""
-        ]);
-
-        var session = new CursorAgentSession(new RoleSpec(VendorRole.Builder, "prompt"), new Selection("model", null), null);
-
-        string result;
-        using (RunLog.Use(run.Log))
-        {
-            result = await session.ReadResultAsync(Replaying(lines), CancellationToken.None);
-        }
-
-        Assert.Equal("the critique", result);
-        var skipped = Single(Read(run), "vendor.skipped-line");
-        Assert.Equal("cursor", skipped.GetProperty("source").GetString());
         Assert.Contains("planning", Field(skipped, "payload"), StringComparison.Ordinal);
     }
 

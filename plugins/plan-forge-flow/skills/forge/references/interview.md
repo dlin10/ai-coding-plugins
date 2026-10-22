@@ -103,13 +103,6 @@ one follow-up question about the part that does not fit before that role's selec
      working vendor CLI. Then declare `phase: "done"`.
    - If exactly one is available, do not ask either vendor question. Tell the user which vendor
      both roles will use, and draw step 2's pairs from it alone.
-   - If you are orchestrating from inside Cursor and `cursor` is available, do not ask either
-     vendor question even when other vendors are too: Cursor fronts models from several vendors
-     behind the one `cursor-agent` CLI, so the vendor distinction is already expressed by the
-     model choice. Trust either signal alone: the `client` field `forge.begin` returned names
-     cursor, or the host you are running in is Cursor. Tell the user both workers will run through
-     `cursor-agent`, put both roles on the `cursor` vendor, and draw step 2's pairs from its
-     catalogue alone.
 2. The model-and-effort question requests a valid combination for that role's chosen vendor, drawn
    from that vendor's catalogue in the tool's order — it is already newest first. Offer three
    concrete model-plus-effort pairs, your recommendation first, among them the vendor's own pick
@@ -122,19 +115,8 @@ one follow-up question about the part that does not fit before that role's selec
    family released since this plugin shipped appears only if the CLI knew to name it. Never offer
    one vendor's model family under another vendor.
 
-   For the `cursor` vendor, the catalogue has already collapsed the ~200 raw ids into families:
-   the model id is the family (`gpt-5.3-codex`) and `efforts` are the variants the CLI actually
-   listed (`low`, `high`, …, plus `default` when the bare id is itself listed), with the ones it
-   also listed as a `-fast` id under `fastEfforts`. Pass the family id as `model` and the chosen
-   variant as `effort` — or leave `effort` unset for the `default` variant — and the server joins
-   them back into an id the CLI listed, adding `-fast` when `fast` is true. Never build an id
-   yourself, never write `-fast` into a model or an effort, never offer an effort the catalogue does
-   not list for that family, and never use the bracket-override syntax the CLI's own tip advertises
-   (`model[effort=high]`): measured on 2026-08-19, cursor-agent rejects even the tip's own example.
-
 3. Ask the Fast question only when a pair the call offers lists its effort under `fastEfforts` —
-   `default` for a cursor family offered without an effort, any entry at all for claude or codex
-   without one — with `fastUnavailable` null: should the role run at the vendor's Fast tier,
+   any entry at all for a pair offered without an effort — with `fastUnavailable` null: should the role run at the vendor's Fast tier,
    quicker, at a higher usage price? Name the pairs that offer it. Offer "standard speed" first, as
    the recommendation unless the user has asked for speed, and name `fastHint` beside Fast where
    the catalogue gives one — it is the vendor's own word on the price. Pass `fast: true` to that

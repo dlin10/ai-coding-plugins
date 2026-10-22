@@ -5,9 +5,9 @@ Read it when the last task's gate passes, before you run the plan's gates and th
 ## The code-review loop
 
 When the last task's gate passes, declare `phase: "code_review"` before you run the gates below.
-Declare `phase: "code_review"` again each time a review round's critique arrives — `forge.review.code` returning, or on
-Cursor `forge.work.fetch` of its job — so each record holds one round: your filtering, the fixes and
-their checks up to the next critique.
+Declare `phase: "code_review"` again each time a review round's critique arrives — `forge.review.code`
+returning — so each record holds one round: your filtering, the fixes and their checks up to the
+next critique.
 
 After the last task and before the first review round, run the plan's `## Gates` entries yourself,
 in your own environment — all of them, conditions included. The server runs the executable ones
@@ -17,12 +17,11 @@ tree it is reading. Record what you ran and what it showed with `forge.log.appen
 is not a code-review finding: stop there and decide with the user, exactly as with a task whose gate
 failed.
 
-Then the loop is yours to run, exactly as with plan review: on non-Cursor hosts, `forge.review.code`
-runs one critic round against the approved plan and `forge.review.fix` hands kept findings to the
-builder; on Cursor, run both acts through start → poll → fetch. The same routing applies to Scout:
-non-Cursor hosts call `forge.scout.run` directly with an explicit `sessionMode`, while Cursor runs
-the `scout` act only through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`. Repeat until
-the verdict is `approve` or the cap refuses. The critic and the builder never talk directly — you
+Then the loop is yours to run, exactly as with plan review: `forge.review.code` runs one critic
+round against the approved plan and `forge.review.fix` hands kept findings to the builder — through
+start → poll → fetch only for a fix batch expected to outlast the host's hour. The same routing
+applies to Scout: call `forge.scout.run` directly with an explicit `sessionMode`. Repeat until the
+verdict is `approve` or the cap refuses. The critic and the builder never talk directly — you
 are between them because you are the only participant who knows what the plan deliberately left
 out.
 

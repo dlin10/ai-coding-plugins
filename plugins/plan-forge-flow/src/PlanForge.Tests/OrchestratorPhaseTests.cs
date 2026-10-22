@@ -360,9 +360,9 @@ public sealed class OrchestratorPhaseTests : IDisposable
     public async Task A_host_without_a_session_records_time_only_with_no_host_session()
     {
         var phases = Phases();
-        var runId = await BeginAsync(phases, client: "cursor");
+        var runId = await BeginAsync(phases, client: "other-mcp-client");
 
-        await DeclareAsync(phases, runId, "planning", client: "cursor");
+        await DeclareAsync(phases, runId, "planning", client: "other-mcp-client");
 
         var record = Single(Records(runId));
         Assert.Equal("no_host_session", record.GetProperty("usageMissing").GetString());
@@ -514,7 +514,7 @@ public sealed class OrchestratorPhaseTests : IDisposable
     {
         var usage = new ReturningSource { ThrowOnCancel = source == "throws" };
         var phases = new OrchestratorPhases(_clock, usage, name => name == "CLAUDE_CODE_SESSION_ID" ? "session-a" : null);
-        var client = source == "no_host_session" ? "cursor" : "claude-code";
+        var client = source == "no_host_session" ? "other-mcp-client" : "claude-code";
         var runId = await BeginAsync(phases, client);
         _clock.Advance(TimeSpan.FromSeconds(10));
 

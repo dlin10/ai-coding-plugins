@@ -223,18 +223,13 @@ public sealed class TargetedFixOrchestrationTests : IDisposable
         }
     }
 
-    [Theory]
-    [InlineData("build.next")]
-    [InlineData("review.code")]
-    [InlineData("plan.review")]
-    [InlineData("scout")]
-    public async Task Explicit_gate_is_refused_for_other_background_acts(string act)
+    [Fact]
+    public async Task Explicit_gate_is_refused_for_a_background_build()
     {
         var run = NewRun();
         var registry = new JobRegistry();
         var error = await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.StartWork(registry, SessionRoots.None,
-            _workspace, run.RunId, act, "builder", null, "codex", null, null, null, null, false,
-            CancellationToken.None, () => Vendor(), gate: "full"));
+            _workspace, run.RunId, "build.next", "builder", null, "codex", CancellationToken.None, () => Vendor(), gate: "full"));
         Assert.Contains("gate", error.Message, StringComparison.Ordinal);
         Assert.Null(registry.Get(run.Path));
     }
@@ -339,16 +334,16 @@ public sealed class TargetedFixOrchestrationTests : IDisposable
     }
 
     [Fact]
-    public async Task Cursor_parsed_host_fields_are_stripped_before_task_and_fix_consumers()
+    public async Task Worker_supplied_host_fields_are_stripped_before_task_and_fix_consumers()
     {
         const string wire = """
             {"status":"done","filesChanged":[],"verification":{"outcome":"passed","evidence":"condition checked"},
              "summary":"fixed","gateMode":"targeted","pendingFullGateFindingIds":["F-9999"]}
             """;
         Assert.DoesNotContain("gateMode", Schemas.BuildResult.Json, StringComparison.Ordinal);
-        Assert.True(SchemaInPrompt.TryExtract(wire, Schemas.BuildResult, out var parsed, out var error), error);
+        var parsed = JsonSerializer.Deserialize(wire, Schemas.BuildResult.TypeInfo)!;
         Assert.Equal("targeted", parsed.GateMode);
-        var vendor = new RecordingVendor("cursor");
+        var vendor = new RecordingVendor("codex");
         vendor.Enqueue(parsed);
         var fixRun = NewRun("## Gates\n1. **G1.** condition checked\n");
         var fix = await Fix(vendor).FixAsync(fixRun, Builder, null, "A", ["F-0001"], CancellationToken.None);
@@ -375,8 +370,7 @@ public sealed class TargetedFixOrchestrationTests : IDisposable
     private Task<string> Start(JobRegistry registry, RunDirectory run, IVendor vendor, string? mode,
                                OrchestratorDecisionBatch? decisions = null, string[]? ids = null, string? attempt = "A") =>
         ForgeTools.StartWork(registry, SessionRoots.None, _workspace, run.RunId, "review.fix", "builder", null, "codex",
-            null, null, null, null, false, null, null, CancellationToken.None, _ => vendor, Prompts(),
-            decisions, attempt, ids ?? ["F-0001"], gate: mode);
+            CancellationToken.None, _ => vendor, Prompts(), decisions, attempt, ids ?? ["F-0001"], gate: mode);
 
     private static ReviewFix Fix(IVendor vendor) => new(vendor, Prompts());
     private static BuildResult Report() => new("done", [], new Verification("unavailable", "gate belongs to server"), "fixed");
