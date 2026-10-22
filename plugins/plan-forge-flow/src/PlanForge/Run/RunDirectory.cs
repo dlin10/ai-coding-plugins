@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -195,6 +196,9 @@ internal sealed class RunDirectory
         return runPath;
     }
 
+    // Never inlined: a failed read has to name RunDirectory in the stack forge.log keeps, and a
+    // one-line wrapper is what dynamic PGO inlines into its caller once that caller runs hot.
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public RunState ReadState() => ParseState(AtomicFile.Read(System.IO.Path.Combine(Path, STATE_FILE_NAME)));
 
     /// <summary>
