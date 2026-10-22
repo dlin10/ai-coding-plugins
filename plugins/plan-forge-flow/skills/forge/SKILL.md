@@ -29,6 +29,8 @@ shapes, and the reference file to read. Trust it over your summary, and read tha
 next forge call. With no card — a Codex whose user has not trusted the plugin's hook, or a run
 another session began — call `forge.status` first and read the reference for the phase the run is
 in. Never call a forge tool from a remembered argument list: the shapes are in the table below.
+Never trust your summary for what the user decided either: read the run's `decisions.json`, whose
+count the card and `forge.status` give, before you ask anything it may have settled.
 
 ## Where the rest of this skill is
 
@@ -38,10 +40,10 @@ and again whenever you resume it:
 
 | File | Read it | It holds |
 |---|---|---|
-| `references/asking.md` | before your first question to the user | Asking the user: one question per call, each explained, the recommendation first |
-| `references/interview.md` | right after `forge.begin` | Act 1: the interview, the mode ladder, the verification question; Choosing the vendor and model |
-| `references/scout.md` | at the first broad reconnaissance need, and before the first `forge.plan.write` | Scout reconnaissance; The Scout question; The Impact pass; The Evidence check |
-| `references/planning.md` | once the requirements and both selections are settled | Writing the plan: requirements, gates, the Fix gate grammar, gate commands, the Approach; The matrix check; The matrix task |
+| `references/asking.md` | before your first question to the user | Asking the user: one question per call, each explained, the recommendation first; Recording the answer |
+| `references/interview.md` | right after `forge.begin` | Act 1: the interview, the opening questions, the mode ladder, the verification question; Choosing the vendor and model |
+| `references/scout.md` | at the first broad reconnaissance need, and before the Impact pass | Scout reconnaissance; The Scout question; The Impact pass; The Evidence check |
+| `references/planning.md` | once the interview's decisions are settled | Writing the plan: requirements, gates, the Fix gate grammar, gate commands, the Approach; The matrix check; The matrix task |
 | `references/plan-review.md` | before the first `forge.plan.review` | Rounds, revision, and caps; Writing a revision |
 | `references/ledger.md` | before your first decision batch | Decision ledger protocol |
 | `references/approval.md` | when the critique settles | Approval |
@@ -65,10 +67,12 @@ and again whenever you resume it:
 Declare each phase as it begins with `forge.log.append`'s `phase`; `forge.begin` opens `interview`
 itself. The run moves through them in this order, back to `plan_revision` whenever the plan changes:
 
-1. **`interview`** — `forge.begin`, the mode question, the interview, the verification question, the
-   requirements, the critic and builder selections, `forge.instructions.set`. `interview.md`.
-2. **`planning`** — declared once both selections are settled: the draft and its matrix check, the
-   Impact pass, `forge.plan.write`, the Evidence check, the first round. `planning.md`, `scout.md`.
+1. **`interview`** — `forge.begin`, the mode question, the interview with the orientation Scout job
+   and the opening questions asked beside it, the verification question. `interview.md`.
+2. **`planning`** — declared once the interview's decisions are settled: the approach sketch and its
+   matrix check, the Impact pass as a Scout job, and while it runs the critic and builder selections,
+   `forge.instructions.set` and the requirements, gates and tasks; then its answer folded in,
+   `forge.plan.write`, the Evidence check, the first round. `planning.md`, `scout.md`, `interview.md`.
 3. **`plan_revision`** — after every `revise` verdict, and when revising an approved plan: patch or
    rewrite, then the next `forge.plan.review`. `plan-review.md`, `ledger.md`.
 4. **`approval`** — when the critique settles: status, the whole plan shown, the user's answer, the
@@ -89,7 +93,7 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 | `forge.begin` | `workerTools?: ["<MCP server pattern>"]` — no `runId` | Once, first. Returns `runId`, `client`, `profile`, `advisors`. |
 | `forge.models` | — | At the first Scout need, and again right before the critic/builder vendor question. |
 | `forge.scout.select` | `enabled`, `vendor?`, `model?`, `effort?`, `fast?` | Once, at the first broad need; `enabled: false` continues without Scout. |
-| `forge.scout.run` | `question`, `sessionMode: "fresh" \| "continue"` | One Scout question, always direct. |
+| `forge.scout.run` | `question`, `sessionMode: "fresh" \| "continue"` | One Scout question whose answer the next question to the user waits on. |
 | `forge.evidence.map` | `changePoints: ["…"]`, `implications?: [{ text, derivedFrom: ["A1.confirmedFacts.1"] }]`, `advisor?` | After the manual Evidence check, when an Advisor is configured. |
 | `forge.instructions.set` | `criticInstructions?`, `builderInstructions?` — the user's words verbatim | End of the interview, only if either answer was not "no instructions". |
 | `forge.plan.write` | `planDraft` — the whole plan | The first draft and genuine rewrites. |
@@ -101,11 +105,12 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 | `forge.build.next` | `model`, `effort?`, `vendor?`, `fast?` | One task per call. |
 | `forge.review.code` | `model`, `effort?`, `vendor?`, `fast?`, `userGrantedRound?`, `excludePaths?` | One code-review round. |
 | `forge.review.fix` | `model`, `effort?`, `vendor?`, `fast?`, `decisions?`, `fixAttemptId?`, `fixFindingIds?`, `note?`, `gate?: "full" \| "targeted"` | Decisions, raises, and a fix of exactly `fixFindingIds`. |
-| `forge.work.start` | `act: "build.next" \| "review.fix"` and that act's arguments | Only a Builder act that may outlast the host's hour. |
+| `forge.work.start` | `act: "build.next" \| "review.fix"` and that act's arguments, or `act: "scout"`, `question`, `sessionMode` | A Builder act that may outlast the host's hour; a Scout question you work beside. |
 | `forge.work.poll` | `jobId`, `waitSeconds: 3000` | Again at once while `running`; never end your turn on it. |
 | `forge.work.fetch` | `jobId` | Once the poll says the job stopped. |
 | `forge.work.cancel` | `jobId` | Only on the user's explicit request. |
 | `forge.status` | — | Before approval, at a cap, after a resume, and whenever the user asks. |
+| `forge.decision.record` | `phase`, `question`, `answer`, `by: "user" \| "orchestrator"`, `options?: [{ label, recommended? }]`, `bearsOn?`, `supersedes?` | The moment an answer settles something. `asking.md` says which. |
 | `forge.log.append` | `message`, `level?`, `detail?`, `phase?` | Your record of choices, retries and stops; declares phases. |
 
 `decisions`, on `forge.plan.review`, `forge.plan.confirm` and `forge.review.fix`, is one object, not an
@@ -116,11 +121,13 @@ what, by, reason }] }`. Actions are `defer`, `reject`, `duplicateOf`, `accept` a
 decisions-only `forge.review.fix`. `ledger.md` has the rules.
 
 Call the one-call tools, and go through `forge.work.start` → `forge.work.poll` → `forge.work.fetch`
-only for a Builder act that may outlast the host's hour. The critic's selection goes to the two
-review tools, the builder's to `forge.build.next` and `forge.review.fix`. `tools.md` has every contract in full.
+for a Builder act that may outlast the host's hour and for a Scout question you work beside —
+`scout.md` says which. Fresh Scout jobs run side by side; a `continue` or a Builder act runs alone.
+The critic's selection goes to the two review tools, the builder's to `forge.build.next` and
+`forge.review.fix`. `tools.md` has every contract in full.
 
 Every worker act answers beside a `documents` object holding `flowLog` and `plan`, each with a
-`path` and what to do with it. Surface the plan in the turn that wrote it and the Flow log from the
+`path` and what to do with it, and `decisions` once one is recorded. Surface the plan in the turn that wrote it and the Flow log from the
 first Scout outcome or critique on, and again after every worker act; link them, never paste the
 plan, and keep one line of narration per worker call.
 
@@ -157,7 +164,8 @@ resume card's hook only reads the run. The consequences to hold yourself to:
 Do not hand-edit anything under `.forge/` — including `forge.log`, which is append-only and
 written through `forge.log.append`. Use that tool whenever a run does something a later reader
 would have to guess at: the models and vendors you selected and why, a retry and what provoked it,
-a finding you deferred, the point at which you stopped. It takes `message` plus an optional `level`
+a finding you deferred, the point at which you stopped. An answer that settles something is not such
+an entry: it goes to `forge.decision.record`. It takes `message` plus an optional `level`
 (`info`, `warn`, `error`), an optional longer `detail`, and an optional `phase` — one of
 `interview`, `planning`, `plan_revision`, `approval`, `build`, `code_review`, `wrap_up` or `done`,
 exactly as spelled — which closes the Orchestrator phase that is open and opens the one it names, as

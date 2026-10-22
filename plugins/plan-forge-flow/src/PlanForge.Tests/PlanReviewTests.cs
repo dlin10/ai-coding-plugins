@@ -718,6 +718,44 @@ public sealed class PlanReviewTests : IDisposable
         Assert.Contains("`dotnet build`", flow, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A question the run settled outside any finding reaches the critic only through the Decisions
+    /// section, so a round must carry it — after the ledger it sits beside, and before the user's own
+    /// instructions, which stay last. See docs/adr/0045.
+    /// </summary>
+    [Fact]
+    public async Task The_critic_is_shown_the_run_s_decisions_after_the_ledger_projection()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 0, cap: 5);
+        run.WriteState(run.ReadState() with { CriticInstructions = "answer in Russian" });
+        DecisionRecords.Record(run, DecisionRecords.Validate("interview", "Is generation by dependencies in scope?", null,
+                                                             "Deferred to a later run", "user", "R3", null));
+
+        await new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+            .ReviewAsync(run, HardenedPlan, new Selection("critic-model", null), null, null, false, CancellationToken.None);
+
+        var prompt = Assert.Single(critic.Sessions).PromptText;
+        var projection = prompt.IndexOf("# Decision ledger projection", StringComparison.Ordinal);
+        var decisions = prompt.IndexOf("# Decisions", StringComparison.Ordinal);
+        var instructions = prompt.IndexOf("# Instructions from the user for this run", StringComparison.Ordinal);
+        Assert.True(projection >= 0 && projection < decisions && decisions < instructions, prompt);
+        Assert.Contains("- D-0001 (user): Is generation by dependencies in scope? → Deferred to a later run", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Compose_leaves_the_decisions_out_when_none_is_recorded()
+    {
+        var with = PlanReview.Compose("# Plan", "# Decision ledger projection\nEntries: (none)\n",
+                                      "# Decisions\n\n- D-0001 (user): q → a\n", null);
+        var without = PlanReview.Compose("# Plan", "# Decision ledger projection\nEntries: (none)\n", "", null);
+
+        Assert.Contains("- D-0001 (user): q → a", with, StringComparison.Ordinal);
+        Assert.DoesNotContain("# Decisions", without, StringComparison.Ordinal);
+        Assert.StartsWith(without.TrimEnd(), with, StringComparison.Ordinal);
+    }
+
     private RunDirectory NewRun(int rounds, int cap, IReadOnlyList<string>? workerTools = null,
                                 IReadOnlyList<ReviewTally>? tallies = null)
     {

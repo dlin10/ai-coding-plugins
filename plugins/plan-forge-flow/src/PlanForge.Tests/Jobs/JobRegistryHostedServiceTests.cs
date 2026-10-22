@@ -25,7 +25,7 @@ public sealed class JobRegistryHostedServiceTests
             var terminal = registry.Get(runPath, start.JobId);
             Assert.NotNull(terminal);
             Assert.Equal(JobState.Failed, terminal!.State);
-            Assert.Equal(JobState.Failed, registry.Get(runPath)!.State);
+            Assert.Empty(registry.Running(runPath));
         }
         finally
         {

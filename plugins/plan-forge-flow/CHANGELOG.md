@@ -1,5 +1,58 @@
 # Plan Forge Flow releases
 
+## 0.61.0
+
+The run's decisions are a Run artifact with identity. Issue #178, ADR 0045.
+
+- New tool `forge.decision.record` appends one decision to `decisions.json` and a
+  `## Decision D-nnnn` entry to the Flow log: the Orchestrator phase, the question as asked, the
+  options offered with the recommended one marked, the answer as given, `by` (`user` or
+  `orchestrator`), what it bears on, and the earlier decision it supersedes. The server numbers it
+  from `D-0001`; the same content again is a `no_op` answering with its ID; a superseded decision
+  stays recorded and cannot be superseded twice. Every field passes the secret guard before the
+  call is logged. The server now exposes twenty-two tools.
+- Every plan-review and code-review critic is shown the run's current decisions as a `# Decisions`
+  section after the ledger projection, one line each, superseded answers left out; beyond 12,000
+  characters the oldest are left out and named. The critic contract says a decision is not a gap.
+  A code-review round over its vendor's limit reports the section's size.
+- `forge.status` carries `decisions`: the count and the last five, one line each. Every result's
+  `documents` carries `decisions` once the file exists. The resume card names the file and the
+  count, and shows the call's shape.
+- The skill records every answer that settles something the moment it is given, instead of an
+  `Interview D-n` or `(user):` note in `forge.log`, and shows the user the decision count beside the
+  plan at approval.
+- A `decisions.json` that does not read back stops the call that reads it and is left as it is.
+
+## 0.60.0
+
+Scout runs beside the Orchestrator's own work. Issue #171, ADR 0044.
+
+- `forge.work.start` runs `scout` again, on every host, with `question` and `sessionMode` and none of
+  the Builder's arguments; the vendor, model, effort and Fast come from the persisted Scout
+  selection. A fetched Scout job carries the same `scout-answers.json` entry, Flow-log outcome and
+  `documents.scout` as `forge.scout.run`. `plan.review` and `review.code` stay refused.
+- A Run can have several running jobs: fresh Scout jobs run side by side, while a `continue` Scout
+  job and a Builder act each run alone. A start that may not run answers `started: false` with every
+  running job in `activeJobIds`. `forge.status` reports them all as `activeJobs`, replacing
+  `activeJob`.
+- Scout turns that overlap — fresh jobs side by side, or a direct call beside a job — leave no
+  session anchor; a later follow-up is `fresh`, naming the answers it builds on. A direct `continue`
+  is refused while a Scout job runs.
+- A Scout turn writes the state as it stands when the turn ends rather than the copy it read when it
+  started, so what the Orchestrator wrote meanwhile — instructions, a new Scout choice — survives,
+  and answers that finish together are numbered in the order they finish instead of the second one
+  being refused and lost. A turn that ends after the user chose another Scout leaves the new
+  choice's session and failure alone.
+- The skill starts the orientation question as a job right after the Scout selection and asks the
+  opening questions — the change's boundary, what stays out, the verification timing — while it
+  runs. The Impact pass starts as a job once the approach is sketched and its matrix check made;
+  while it runs the Orchestrator asks the Critic and Builder questions and writes the requirements,
+  gates and tasks, then fetches the pass and folds it in before the first `forge.plan.write`. An
+  Impact pass naming more than six Change points is split by area into fresh jobs run side by side.
+  `planning` now begins with the approach sketch.
+- The resume card for a run with no plan yet points at `forge.status`'s `activeJobs` for Scout jobs
+  started before the compaction.
+
 ## 0.59.0
 
 Cursor is no longer supported, as a host or as a vendor. ADR 0043.

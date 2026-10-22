@@ -79,6 +79,7 @@ internal sealed class PlanReview
         var granted = atCap && userGrantedRound;
         RequireRevision(state.ReviewRounds, revision);
         var ledger = run.ReadDecisionLedger();
+        var decisions = DecisionRecords.Section(run.ReadDecisions());
         if (orchestratorDecisions is not null)
         {
             try
@@ -131,7 +132,7 @@ internal sealed class PlanReview
                          Telemetry: new WorkerTelemetryContext(run.TelemetryPath, run.Log, "plan_review", Round: round)),
             selection, resumeToken: null, ct);
 
-        var prompt = Compose(draft, ledger.RenderProjection(LedgerPhase.PlanReview), state.CriticInstructions);
+        var prompt = Compose(draft, ledger.RenderProjection(LedgerPhase.PlanReview), decisions, state.CriticInstructions);
         SensitiveInput.Guard(prompt, "the plan under review");
 
         VendorCritique wireCritique;
@@ -376,10 +377,15 @@ internal sealed class PlanReview
     }
 
     /// <summary>
-    /// The critic's own instructions come last, after everything it is judging. The builder's never
+    /// The plan, then what the run has settled — the ledger's projection and the Run's decisions —
+    /// and the critic's own instructions last, after everything it is judging. The builder's never
     /// appear here: they explain code, and at plan review there is none.
     /// </summary>
-    private static string Compose(string planDraft, string ledgerProjection, string? criticInstructions)
+    /// <param name="planDraft">The plan under review.</param>
+    /// <param name="ledgerProjection">The plan-phase projection of the decision ledger.</param>
+    /// <param name="decisions">The Run's Decisions section, empty when none is recorded.</param>
+    /// <param name="criticInstructions">The user's text for the critic, or null.</param>
+    internal static string Compose(string planDraft, string ledgerProjection, string decisions, string? criticInstructions)
     {
         var prompt = new StringBuilder()
             .AppendLine("# Plan under review")
@@ -389,6 +395,11 @@ internal sealed class PlanReview
         if (ledgerProjection.Length > 0)
             prompt.AppendLine()
                   .AppendLine(ledgerProjection.TrimEnd())
+                  .AppendLine()
+                  .AppendLine();
+
+        if (decisions.Length > 0)
+            prompt.AppendLine(decisions.TrimEnd())
                   .AppendLine()
                   .AppendLine();
 

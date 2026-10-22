@@ -177,10 +177,10 @@ function Test-PublishedServer([string]$Executable) {
             }
         }
 
-        foreach ($required in @('forge.begin', 'forge.models', 'forge.scout.select', 'forge.scout.run', 'forge.evidence.map', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.outline', 'forge.plan.patch', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
+        foreach ($required in @('forge.begin', 'forge.models', 'forge.scout.select', 'forge.scout.run', 'forge.evidence.map', 'forge.instructions.set', 'forge.plan.write', 'forge.plan.outline', 'forge.plan.patch', 'forge.plan.review', 'forge.plan.show', 'forge.plan.confirm', 'forge.build.next', 'forge.review.code', 'forge.review.fix', 'forge.status', 'forge.decision.record', 'forge.log.append', 'forge.work.start', 'forge.work.poll', 'forge.work.cancel', 'forge.work.fetch')) {
             if ($tools.name -notcontains $required) { throw "published executable does not expose $required" }
         }
-        if ($tools.Count -ne 21) { throw "published executable must expose exactly twenty-one forge.* tools, found $($tools.Count)" }
+        if ($tools.Count -ne 22) { throw "published executable must expose exactly twenty-two forge.* tools, found $($tools.Count)" }
         # The canvas is two halves that only work together: the tool has to point at the resource,
         # and the resource has to come back as an MCP App. Either half alone renders nothing.
         $planShow = $tools | Where-Object { $_.name -eq 'forge.plan.show' } | Select-Object -First 1
@@ -240,19 +240,19 @@ function Test-PublishedServer([string]$Executable) {
         if (@($models.inputSchema.required) -contains 'vendor') { throw 'forge.models schema incorrectly requires vendor' }
         $workStart = $tools | Where-Object { $_.name -eq 'forge.work.start' } | Select-Object -First 1
         $workStartProperties = @($workStart.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($parameter in @('act', 'model', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')) {
+        foreach ($parameter in @('act', 'model', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate', 'question', 'sessionMode')) {
             if ($workStartProperties -notcontains $parameter) { throw "forge.work.start schema is missing $parameter" }
         }
-        foreach ($parameter in @('model', 'effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')) {
+        foreach ($parameter in @('model', 'effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate', 'question', 'sessionMode')) {
             if (@($workStart.inputSchema.required) -contains $parameter) { throw "forge.work.start schema incorrectly requires $parameter" }
         }
-        # A job runs a Builder act alone (docs/adr/0043): the critic's and Scout's arguments stay off it.
-        foreach ($parameter in @('planDraft', 'findings', 'deferred', 'revision', 'userGrantedRound', 'question', 'sessionMode', 'excludePaths')) {
+        # A job runs a Builder act or a Scout question (docs/adr/0043, 0044): the critics' arguments stay off it.
+        foreach ($parameter in @('planDraft', 'findings', 'deferred', 'revision', 'userGrantedRound', 'excludePaths')) {
             if ($workStartProperties -contains $parameter) { throw "forge.work.start schema still publishes $parameter" }
         }
         $actDescription = $workStart.inputSchema.properties.act.description
-        if ($actDescription -notmatch '(?i)build\.next.*review\.fix' -or $actDescription -match '(?i)plan\.review|review\.code|scout') {
-            throw 'forge.work.start act argument description does not name exactly the two Builder acts'
+        if ($actDescription -notmatch '(?i)build\.next.*review\.fix.*scout' -or $actDescription -match '(?i)plan\.review|review\.code') {
+            throw 'forge.work.start act argument description does not name exactly the two Builder acts and scout'
         }
         $status = $tools | Where-Object { $_.name -eq 'forge.status' } | Select-Object -First 1
         if ($status.description -notmatch '(?i)run\.scout') {
@@ -351,6 +351,16 @@ function Test-PublishedServer([string]$Executable) {
                 throw "$($tool.name) publishes fast as something other than a boolean"
             }
         }
+        # A decision is the run's record of what was settled (docs/adr/0045): the question, the answer
+        # and who gave it are required, and the options are objects the SDK can only describe through
+        # this assembly's own argument contract.
+        $decisionRecord = $tools | Where-Object { $_.name -eq 'forge.decision.record' } | Select-Object -First 1
+        foreach ($parameter in @('workspaceRoot', 'runId', 'phase', 'question', 'answer', 'by')) {
+            if (@($decisionRecord.inputSchema.required) -notcontains $parameter) { throw "forge.decision.record schema must require $parameter" }
+        }
+        if (($decisionRecord.inputSchema.properties.options | ConvertTo-Json -Depth 10 -Compress) -notmatch '"label"') {
+            throw 'forge.decision.record publishes options without their label'
+        }
         $scoutRun = $tools | Where-Object { $_.name -eq 'forge.scout.run' } | Select-Object -First 1
         $scoutRunProperties = @($scoutRun.inputSchema.properties.PSObject.Properties.Name)
         foreach ($parameter in @('workspaceRoot', 'runId', 'question', 'sessionMode')) {
@@ -363,7 +373,7 @@ function Test-PublishedServer([string]$Executable) {
         $optional = @{
             'forge.begin'       = @('workerTools')
             'forge.scout.select' = @('vendor', 'model', 'effort')
-            'forge.work.start' = @('model', 'effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')
+            'forge.work.start' = @('model', 'effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate', 'question', 'sessionMode')
             'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'decisions', 'revision', 'deferred', 'userGrantedRound')
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
@@ -372,6 +382,7 @@ function Test-PublishedServer([string]$Executable) {
             'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate', 'plan', 'planHash', 'rebuildFrom')
             'forge.plan.show'   = @('plan')
             'forge.log.append'  = @('level', 'detail', 'phase')
+            'forge.decision.record' = @('options', 'bearsOn', 'supersedes')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
             # had to send them together could not correct one without restating the other.
             'forge.instructions.set' = @('criticInstructions', 'builderInstructions')

@@ -28,7 +28,12 @@ internal sealed record JobRecord(
     public string JobId => Id;
 }
 
-internal sealed record JobStartResult(string JobId, bool Started, JobRecord Record)
+/// <summary>What a start did: the job it started, or the oldest of the jobs that kept it from starting.</summary>
+/// <param name="JobId">The started job, or the oldest running one.</param>
+/// <param name="Started">False when the Run's running jobs kept this one from starting.</param>
+/// <param name="Record">The job <paramref name="JobId"/> names, as it stands.</param>
+/// <param name="ActiveJobIds">Every job that kept this one from starting, oldest first; null when it started.</param>
+internal sealed record JobStartResult(string JobId, bool Started, JobRecord Record, IReadOnlyList<string>? ActiveJobIds = null)
 {
     public string Id => JobId;
 }
@@ -38,7 +43,7 @@ internal sealed class JobRegistry
     private static readonly TimeSpan CloseBound = TimeSpan.FromSeconds(1);
 
     private readonly object _gate = new();
-    private readonly Dictionary<string, Entry> _active = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<Entry>> _active = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Dictionary<string, Entry>> _finishing =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Dictionary<string, JobRecord>> _terminal =
@@ -46,7 +51,16 @@ internal sealed class JobRegistry
     private bool _closed;
     private Task? _closeTask;
 
-    public JobStartResult Start(string runPath, string act, Func<CancellationToken, Task<string>> work)
+    /// <summary>
+    /// Starts <paramref name="work"/> as a job of the Run, unless the Run's running jobs keep it from
+    /// starting: a shared job runs beside other shared jobs, and any other job runs alone.
+    /// </summary>
+    /// <param name="runPath">The Run's folder.</param>
+    /// <param name="act">The act the job runs.</param>
+    /// <param name="work">The act, handed the job's cancellation.</param>
+    /// <param name="shared">Whether the job may run beside the Run's other shared jobs — a fresh Scout
+    /// question; see docs/adr/0044.</param>
+    public JobStartResult Start(string runPath, string act, Func<CancellationToken, Task<string>> work, bool shared = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(act);
@@ -63,7 +77,8 @@ internal sealed class JobRegistry
                 null,
                 null,
                 null),
-            work);
+            work,
+            shared);
 
         lock (_gate)
         {
@@ -72,13 +87,21 @@ internal sealed class JobRegistry
                 throw new InvalidOperationException("job registry is closed");
             }
 
-            if (_active.TryGetValue(canonicalRunPath, out var current))
+            if (_active.TryGetValue(canonicalRunPath, out var running))
             {
-                var record = current.Snapshot();
-                return new JobStartResult(record.Id, false, record);
+                if (!shared || running.Any(job => !job.Shared))
+                {
+                    var record = running[0].Snapshot();
+                    return new JobStartResult(record.Id, false, record, [.. running.Select(job => job.Record.Id)]);
+                }
+            }
+            else
+            {
+                running = [];
+                _active.Add(canonicalRunPath, running);
             }
 
-            _active.Add(canonicalRunPath, entry);
+            running.Add(entry);
         }
 
         var started = entry.Snapshot();
@@ -86,24 +109,16 @@ internal sealed class JobRegistry
         return new JobStartResult(started.Id, true, started);
     }
 
-    public JobRecord? Get(string runPath)
+    /// <summary>The Run's running jobs, oldest first.</summary>
+    /// <param name="runPath">The Run's folder.</param>
+    public IReadOnlyList<JobRecord> Running(string runPath)
     {
         var canonicalRunPath = Canonicalize(runPath);
 
         lock (_gate)
         {
-            if (_active.TryGetValue(canonicalRunPath, out var active))
-            {
-                return active.Snapshot();
-            }
-
-            if (TryGetTerminal(canonicalRunPath, out var terminal))
-            {
-                return terminal;
-            }
+            return _active.TryGetValue(canonicalRunPath, out var active) ? [.. active.Select(job => job.Snapshot())] : [];
         }
-
-        return Read(canonicalRunPath);
     }
 
     public JobRecord? Get(string runPath, string jobId)
@@ -112,12 +127,9 @@ internal sealed class JobRegistry
 
         lock (_gate)
         {
-            if (_active.TryGetValue(canonicalRunPath, out var active))
+            if (Find(canonicalRunPath, jobId) is { } active)
             {
-                if (active.Record.Id == jobId)
-                {
-                    return active.Snapshot();
-                }
+                return active.Snapshot();
             }
 
             if (_terminal.TryGetValue(canonicalRunPath, out var terminal) &&
@@ -138,7 +150,7 @@ internal sealed class JobRegistry
 
         lock (_gate)
         {
-            if (_active.TryGetValue(canonicalRunPath, out var candidate) && candidate.Record.Id == jobId)
+            if (Find(canonicalRunPath, jobId) is { } candidate)
             {
                 candidate.MarkCancellation("job was cancelled");
                 active = candidate;
@@ -167,7 +179,7 @@ internal sealed class JobRegistry
             }
 
             _closed = true;
-            var entries = new List<Entry>(_active.Values);
+            var entries = _active.Values.SelectMany(running => running).ToList();
             _closeTask = CloseCoreAsync(entries);
             return _closeTask;
         }
@@ -184,7 +196,7 @@ internal sealed class JobRegistry
 
         lock (_gate)
         {
-            if (_active.TryGetValue(canonicalRunPath, out entry) && entry.Record.Id == jobId)
+            if ((entry = Find(canonicalRunPath, jobId)) is not null)
             {
                 // Keep the active entry below.
             }
@@ -248,7 +260,7 @@ internal sealed class JobRegistry
 
         lock (_gate)
         {
-            if (!_active.TryGetValue(runPath, out var current) || !ReferenceEquals(current, entry))
+            if (!IsActive(runPath, entry))
             {
                 return;
             }
@@ -265,7 +277,7 @@ internal sealed class JobRegistry
             }
 
             entry.Record = terminal;
-            _active.Remove(runPath);
+            Release(runPath, entry);
             RememberTerminal(terminal);
             RememberFinishing(runPath, entry);
         }
@@ -303,7 +315,7 @@ internal sealed class JobRegistry
         {
             foreach (var entry in entries)
             {
-                if (!_active.TryGetValue(entry.Record.RunPath, out var current) || !ReferenceEquals(current, entry))
+                if (!IsActive(entry.Record.RunPath, entry))
                 {
                     continue;
                 }
@@ -316,7 +328,7 @@ internal sealed class JobRegistry
                     Error = "abandoned at shutdown"
                 };
                 entry.Record = terminal;
-                _active.Remove(entry.Record.RunPath);
+                Release(entry.Record.RunPath, entry);
                 RememberTerminal(terminal);
                 RememberFinishing(entry.Record.RunPath, entry);
                 claimed.Add((entry, terminal));
@@ -330,6 +342,20 @@ internal sealed class JobRegistry
     }
 
     private static string Canonicalize(string runPath) => Path.GetFullPath(runPath);
+
+    private Entry? Find(string runPath, string jobId) =>
+        _active.TryGetValue(runPath, out var running) ? running.Find(job => job.Record.Id == jobId) : null;
+
+    private bool IsActive(string runPath, Entry entry) =>
+        _active.TryGetValue(runPath, out var running) && running.Contains(entry);
+
+    private void Release(string runPath, Entry entry)
+    {
+        var running = _active[runPath];
+        running.Remove(entry);
+        if (running.Count == 0)
+            _active.Remove(runPath);
+    }
 
     private static void Persist(JobRecord record)
     {
@@ -374,14 +400,6 @@ internal sealed class JobRegistry
         }
     }
 
-    private static JobRecord? Read(string runPath)
-    {
-        return RunDirectory.FromPath(runPath).EnumerateJobFiles()
-            .Select(ReadFile)
-            .OfType<JobRecord>()
-            .FirstOrDefault(record => record.State != JobState.Running);
-    }
-
     private static JobRecord? Read(string runPath, string jobId)
     {
         var path = RunDirectory.FromPath(runPath).JobFilePath(jobId);
@@ -392,18 +410,6 @@ internal sealed class JobRegistry
 
         var record = ReadFile(path);
         return record is null || record.State == JobState.Running ? null : record;
-    }
-
-    private bool TryGetTerminal(string runPath, out JobRecord? terminal)
-    {
-        if (_terminal.TryGetValue(runPath, out var records) && records.Count > 0)
-        {
-            terminal = records.Values.OrderByDescending(record => record.CompletedAt).First();
-            return true;
-        }
-
-        terminal = null;
-        return false;
     }
 
     private void RememberTerminal(JobRecord record)
@@ -472,14 +478,16 @@ internal sealed class JobRegistry
         private bool _cancellationRequested;
         private string? _cancellationError;
 
-        public Entry(JobRecord record, Func<CancellationToken, Task<string>> work)
+        public Entry(JobRecord record, Func<CancellationToken, Task<string>> work, bool shared)
         {
             Record = record;
             Work = work;
+            Shared = shared;
         }
 
         public JobRecord Record { get; set; }
         public Func<CancellationToken, Task<string>> Work { get; }
+        public bool Shared { get; }
         public CancellationTokenSource Cancellation { get; } = new();
         public WorkerActivity Activity { get; } = new();
         public TaskCompletionSource<JobRecord> Signal { get; } =

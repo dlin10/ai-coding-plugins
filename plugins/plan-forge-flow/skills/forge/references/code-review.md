@@ -20,7 +20,8 @@ failed.
 Then the loop is yours to run, exactly as with plan review: `forge.review.code` runs one critic
 round against the approved plan and `forge.review.fix` hands kept findings to the builder — through
 start → poll → fetch only for a fix batch expected to outlast the host's hour. The same routing
-applies to Scout: call `forge.scout.run` directly with an explicit `sessionMode`. Repeat until the
+applies to Scout: start a job only for a question you have your own work to do beside, and otherwise
+call `forge.scout.run` directly, with an explicit `sessionMode` either way. Repeat until the
 verdict is `approve` or the cap refuses. The critic and the builder never talk directly — you
 are between them because you are the only participant who knows what the plan deliberately left
 out.
@@ -124,8 +125,8 @@ note adds only what the ledger lacks. For each rule:
 - **Rule** — one sentence: the property the code gets wrong, not the example that showed it, with
   the IDs it covers and where it comes from. Cite the requirement, `R5`: the Builder holds the
   requirements in its Brief. A fix prompt carries no task text, so when the rule rests on a task's
-  wording, quote that sentence. When it rests on a decision the user made during the run, say so,
-  and record the decision with `forge.log.append` if you have not.
+  wording, quote that sentence. When it rests on a decision the user made during the run, cite its
+  `D-` ID, recording the decision with `forge.decision.record` first if you have not.
 - **Owner** — the one place that decides the question: the owner the plan names, an existing
   function, or one to create. Say that every other place calls it instead of deciding again.
 - **Axes** — every kind of place where the same question is decided, listed. Take them from the

@@ -26,9 +26,21 @@ the offered combination. Offer the Fast tier for Scout by
 the same rule as for the other roles in `interview.md`, as its own yes/no after the combination is chosen, and
 pass the answer as `fast` to `forge.scout.select`; it stays with the selection.
 
+Run Scout beside your own work wherever its answer is not needed yet: start the question with
+`forge.work.start` (`act: "scout"`, `question`, `sessionMode`), go on asking and writing, and poll
+and fetch it at the first step that needs the answer. A question whose answer the next question to
+the user waits on is a direct `forge.scout.run`. The orientation question is the first such job:
+start it with `sessionMode: fresh` right after the Scout selection, ask the opening questions
+`interview.md` names while it runs, and fetch it before the first question that needs the lay of
+the land.
+
 For every Scout call, pass `sessionMode` explicitly. Use `continue` only for a
 direct follow-up in the same investigation. Use `fresh` for an independent question, a new
-subsystem, stale evidence, or a deliberate reset. After a failure, retry with the saved selection;
+subsystem, stale evidence, or a deliberate reset. A `continue` runs alone: while a Scout job runs,
+`forge.work.start` answers it with `started: false` and the running jobs in `activeJobIds`, and
+`forge.scout.run` refuses it — fetch those jobs first. Fresh jobs run side by side, and Scout turns
+that ran side by side leave no session to continue: after them, ask `fresh` and name in the question
+the earlier answers it builds on. After a failure, retry with the saved selection;
 reselect explicitly to clear the old session and failure; or explicitly choose continue without
 Scout. Never silently choose session continuity and never fall back to another Vendor. A
 `no_shell` failure is the exception to retrying at once: the Scout's commands never started, so it
@@ -52,14 +64,15 @@ Write every Scout question — orientation or impact — with these parts:
 - **Search scope** — named beyond `src/`: the test projects, `build/`, `skills/`, `docs/`,
   `prompts/`, and whatever else in the repository pins behaviour.
 
-A question may run to 8,000 characters. When an Impact pass's Change points do not fit, split it
-by area into several questions.
+A question may run to 8,000 characters. Split an Impact pass by area into several questions when it
+names more than six Change points or they do not fit, and run the parts as fresh jobs side by side.
 
 ### The Impact pass
 
-After you have drafted the plan's approach and made its matrix check, and before the first
-`forge.plan.write`, ask the Scout one Impact pass. Every plan gets one. It is a Scout need, so it
-starts the Scout selection round when none has been made. Name every Change point the approach
+After you have sketched the plan's approach — its mechanisms and the Change points they introduce —
+and made its matrix check, and before the first `forge.plan.write`, ask the Scout one Impact pass.
+Every plan gets one. It is a Scout need, so it starts the Scout selection round when none has been
+made. Name every Change point the approach
 introduces — symbols, contracts, wire and persisted formats, counters, prompts and skill text — and
 ask, for each one:
 
@@ -87,11 +100,15 @@ Search <the scope, beyond src/>.
 ```
 
 Run the first Impact pass with `sessionMode: fresh`, so the orientation framing cannot anchor the
-enumeration. Its result carries the complete answer: fold it into the plan — tasks for affected
-consumers, tests to update, artefacts to re-record — before the plan is written. When a revision
-introduces a Change point no Impact pass has checked, ask again with `sessionMode: continue` about
-the new Change points only, before its review. When the Run continues without Scout,
-make the same check yourself with reference and caller queries and text search, and record what
+enumeration, and run it as a job. While it runs, ask the Critic and Builder questions — "Choosing
+the vendor and model" in `interview.md` — and write the requirements, gates and tasks in full: the
+tasks' depth follows the Builder choice, which is settled by then. Then poll and fetch the pass, and
+fold its complete answer into the plan — tasks for affected consumers, tests to update, artefacts to
+re-record — before the plan is written. A plan written before its pass returns is the failure the
+pass exists to prevent. When a revision introduces a Change point no Impact pass has checked, ask
+again with `sessionMode: continue` about the new Change points only, before its review — or
+`fresh`, naming the answers it extends, after a pass split into parallel jobs. When the Run
+continues without Scout, make the same check yourself with reference and caller queries and text search, and record what
 you searched with `forge.log.append`.
 
 ### The Evidence check

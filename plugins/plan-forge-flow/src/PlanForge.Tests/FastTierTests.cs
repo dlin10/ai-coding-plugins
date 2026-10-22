@@ -72,7 +72,7 @@ public sealed class FastTierTests : IDisposable
 
         Assert.Contains("gpt-5.4-mini", refusal.Message, StringComparison.Ordinal);
         Assert.Empty(vendor.Sessions);
-        Assert.Null(registry.Get(run.Path));
+        JobAssert.NoJob(registry, run.Path);
     }
 
     [Fact]

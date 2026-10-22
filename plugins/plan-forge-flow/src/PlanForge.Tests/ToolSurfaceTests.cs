@@ -249,9 +249,9 @@ public sealed class ToolSurfaceTests
         Assert.Contains("array", properties.GetProperty("builderRoots").GetRawText(), StringComparison.Ordinal);
     }
 
-    /// <summary>The published surface includes the bounded Evidence map beside all existing tools.</summary>
+    /// <summary>The published surface includes the decision record and the bounded Evidence map beside all existing tools.</summary>
     [Fact]
-    public void The_published_surface_has_twenty_one_tools_including_the_evidence_map()
+    public void The_published_surface_has_twenty_two_tools_including_the_decision_record()
     {
         var tools = typeof(ForgeTools).GetMethods(BindingFlags.Public | BindingFlags.Static)
             .Select(method => method.GetCustomAttribute<McpServerToolAttribute>())
@@ -259,12 +259,65 @@ public sealed class ToolSurfaceTests
             .Select(attribute => attribute!.Name)
             .ToList();
 
-        Assert.Equal(21, tools.Count);
+        Assert.Equal(22, tools.Count);
         Assert.Contains("forge.plan.outline", tools);
         Assert.Contains("forge.plan.patch", tools);
         Assert.Contains("forge.evidence.map", tools);
         Assert.Contains("forge.scout.select", tools);
         Assert.Contains("forge.scout.run", tools);
+        Assert.Contains("forge.decision.record", tools);
+    }
+
+    [Fact]
+    public void Decision_record_requires_the_question_the_answer_and_who_and_publishes_the_options_as_objects()
+    {
+        var schema = SchemaFor(nameof(ForgeTools.RecordDecision));
+
+        Assert.Equal(["workspaceRoot", "runId", "phase", "question", "answer", "by"],
+                     schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
+        var properties = schema.GetProperty("properties");
+        Assert.Equal(["workspaceRoot", "runId", "phase", "question", "answer", "by", "options", "bearsOn", "supersedes"],
+                     properties.EnumerateObject().Select(property => property.Name));
+        var options = properties.GetProperty("options");
+        Assert.Contains("array", options.GetProperty("type").GetRawText(), StringComparison.Ordinal);
+        Assert.Equal(["label", "recommended"],
+                     options.GetProperty("items").GetProperty("properties").EnumerateObject().Select(property => property.Name));
+    }
+
+    /// <summary>
+    /// The options are the first array of objects this tool takes and its result a new record, and
+    /// reflection is off: a type missing from either source-generated context compiles and fails only
+    /// here, on the wire.
+    /// </summary>
+    [Fact]
+    public async Task A_decision_with_options_round_trips_on_the_wire()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
+        try
+        {
+            var run = RunDirectory.Create(workspace, "wire");
+            run.WriteState(new RunState(run.RunId, workspace, "Text", DateTimeOffset.Now, 0, 5));
+            var call = new JsonObject
+            {
+                ["workspaceRoot"] = workspace, ["runId"] = run.RunId, ["phase"] = "interview",
+                ["question"] = "Is generation by dependencies in scope?", ["answer"] = "Deferred", ["by"] = "user",
+                ["options"] = new JsonArray(new JsonObject { ["label"] = "In scope" },
+                                            new JsonObject { ["label"] = "Deferred", ["recommended"] = true })
+            };
+
+            var result = await OnTheWireAsync("forge.decision.record", call.ToJsonString());
+
+            Assert.True(result.IsError is null or false, Text(result));
+            var answer = JsonNode.Parse(Text(result))!;
+            Assert.Equal("D-0001", answer["decisionId"]!.GetValue<string>());
+            Assert.Equal(run.DecisionsPath, answer["documents"]!["decisions"]!["path"]!.GetValue<string>());
+            Assert.True(Assert.Single(run.ReadDecisions()).Options![1].Recommended);
+        }
+        finally
+        {
+            try { Directory.Delete(workspace, recursive: true); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     [Fact]
@@ -309,22 +362,21 @@ public sealed class ToolSurfaceTests
     }
 
     /// <summary>
-    /// A job runs a Builder act alone, so its start publishes the Builder's arguments and none of
-    /// the critic's or Scout's — docs/adr/0043.
+    /// A job runs a Builder act or a Scout question, so its start publishes the Builder's and Scout's
+    /// arguments, all optional, and none of the critic's — docs/adr/0043 and 0044.
     /// </summary>
     [Fact]
-    public void Background_start_keeps_model_optional_and_publishes_only_builder_arguments()
+    public void Background_start_keeps_model_optional_and_publishes_only_builder_and_scout_arguments()
     {
         var schema = SchemaFor(nameof(ForgeTools.StartWork));
         var properties = schema.GetProperty("properties");
         var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
 
-        foreach (var name in new[] { "act", "model", "decisions", "fixAttemptId", "fixFindingIds", "note", "gate" })
+        foreach (var name in new[] { "act", "model", "decisions", "fixAttemptId", "fixFindingIds", "note", "gate", "question", "sessionMode" })
             Assert.True(properties.TryGetProperty(name, out _), $"forge.work.start is missing {name}");
-        foreach (var name in new[] { "planDraft", "revision", "deferred", "userGrantedRound", "question", "sessionMode", "excludePaths" })
+        foreach (var name in new[] { "planDraft", "revision", "deferred", "userGrantedRound", "excludePaths" })
             Assert.False(properties.TryGetProperty(name, out _), $"forge.work.start still publishes {name}");
-        Assert.Contains("act", required);
-        Assert.DoesNotContain("model", required);
+        Assert.Equal(["act"], required.Except(["workspaceRoot", "runId"]));
     }
 
     [Fact]
@@ -364,7 +416,7 @@ public sealed class ToolSurfaceTests
     }
 
     [Fact]
-    public void Work_start_description_names_the_two_builder_acts_and_status_names_scout_state()
+    public void Work_start_description_names_the_builder_acts_and_scout_and_status_names_scout_state()
     {
         var start = typeof(ForgeTools).GetMethod(nameof(ForgeTools.StartWork), BindingFlags.Public | BindingFlags.Static)!;
         var status = typeof(ForgeTools).GetMethod(nameof(ForgeTools.Status), BindingFlags.Public | BindingFlags.Static,
@@ -372,9 +424,9 @@ public sealed class ToolSurfaceTests
         var actDescription = start.GetParameters().Single(parameter => parameter.Name == "act")
             .GetCustomAttribute<DescriptionAttribute>()!.Description;
 
-        Assert.Contains("build.next", actDescription, StringComparison.Ordinal);
-        Assert.Contains("review.fix", actDescription, StringComparison.Ordinal);
-        foreach (var removed in new[] { "plan.review", "review.code", "scout" })
+        foreach (var act in new[] { "build.next", "review.fix", "scout" })
+            Assert.Contains(act, actDescription, StringComparison.Ordinal);
+        foreach (var removed in new[] { "plan.review", "review.code" })
             Assert.DoesNotContain(removed, actDescription, StringComparison.Ordinal);
         Assert.Contains("run.scout", status.GetCustomAttribute<DescriptionAttribute>()!.Description, StringComparison.Ordinal);
     }
