@@ -19,7 +19,9 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
      `forge.plan.outline` when you no longer have it.
 
    Either way, if anything drifted, say so out loud rather than leaving it in a list they may not
-   read. On a re-approval after tasks were built, read `run.tasksCompleted` from the same
+   read. Beside the plan, say how many decisions the run has recorded — `decisions.count` from the
+   same `forge.status` — not their text; the plan is what they approve, and `decisions.json` holds
+   the rest if they ask. On a re-approval after tasks were built, read `run.tasksCompleted` from the same
    `forge.status` and tell them how many built tasks the approval keeps and which task the builder
    runs next. The server does not judge whether a change to the Requirements or Gates invalidates a
    built task; that is theirs to say.

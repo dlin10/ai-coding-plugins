@@ -37,7 +37,7 @@ Any change to C# under `src/` requires rebuilding the complete release asset set
 ```
 
 That publishes `win-x64`, verifies the published binary by completing an MCP handshake and asserting
-that `tools/list` names all twenty-one `forge.*` tools, refreshes the single self-contained
+that `tools/list` names all twenty-two `forge.*` tools, refreshes the single self-contained
 `bin/win-x64/planforge.exe`, and writes the single versioned
 `artifacts/plan-forge-flow-<version>-win-x64.zip`. A change to the tool surface must be mirrored in
 the script's assertions. Packaging supports only Windows x64: it fails if a second RID binary, a
@@ -225,9 +225,9 @@ beside the binary. Do not move it in with the prompts.
 
 ## Run state, and the absence of locks
 
-Everything a run knows lives under `.forge/<runId>/`: `state.json`, `decision-ledger.json`, `PLAN.md`,
-`scout-answers.json`, `evidence-map.json`, `flow_log.md`, `forge.log`, `telemetry.json`,
-`orchestrator-phase.json`, `baseline.patch`. **Not under
+Everything a run knows lives under `.forge/<runId>/`: `state.json`, `decision-ledger.json`,
+`decisions.json`, `PLAN.md`, `scout-answers.json`, `evidence-map.json`, `flow_log.md`, `forge.log`,
+`telemetry.json`, `orchestrator-phase.json`, `baseline.patch`. **Not under
 `workspaceRoot`** — that argument is the
 git window and the workers' working directory, and the run's own files follow the *session* instead,
 the directory the host names through MCP's roots capability (`Run/SessionRoots.cs`), falling back to
@@ -288,6 +288,14 @@ the same length any more: they are spread either side of the old twenty-five mil
 that two waiters do not come back together. Keep the *mean* where it is. Waiting less means retrying
 more, and a caller that retries every millisecond holds its thread instead of parking it — a backoff
 starting at one millisecond doubled the suite's running time and starved the tasks sharing its pool.
+
+`decisions.json` holds the run's decisions, appended through `forge.decision.record`: one `D-nnnn`
+record per settled question, numbered by the server and never removed, a changed answer superseding
+an earlier one. Like `approved`, each record is the Orchestrator's assertion. Every review Critic is
+shown the current records in a bounded Decisions section after its ledger projection, and
+`forge.status` and the resume card point back at them; no Builder sees them. A file that does not
+read back stops the call, as a malformed ledger does — see
+[docs/adr/0045](docs/adr/0045-record-the-runs-decisions-as-a-run-artifact.md).
 
 `scout-answers.json` is the only Scout report: appended numbered entries hold the complete answer
 as returned, stable item identities and locator checks. `evidence-map.json` keeps content-addressed

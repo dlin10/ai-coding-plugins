@@ -1054,7 +1054,7 @@ internal sealed class ForgeTools
     /// <param name="workspaceRoot">The Run's workspace root.</param>
     /// <param name="runId">The Run to read.</param>
     /// <param name="ct">Caller cancellation.</param>
-    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing. `ledger` is the compact source-of-truth summary of current finding IDs by disposition and active phase, so a resumed Orchestrator need not read run files. Also returns saved `run.fullGate` timing and current `ledger.pendingFullGateFindingIds` and covering attempts; corrupted or unknown saved timing, including non-string JSON, is refused without changing the run. Log the failure with forge.log.append and start a new run; do not hand-edit run files. beforeNextRound blocks review with pending fixes; final permits review, but full verification remains required before successful completion. Also returns run progress, `run.scout` with enabled/selection, current session and last failure, filtered drift, and active-job liveness. Call it before approval, retry or a round-cap decision.")]
+    [McpServerTool(Name = "forge.status"), Description("Reports where the run stands and changes nothing. `ledger` is the compact source-of-truth summary of current finding IDs by disposition and active phase, so a resumed Orchestrator need not read run files. Also returns saved `run.fullGate` timing and current `ledger.pendingFullGateFindingIds` and covering attempts; corrupted or unknown saved timing, including non-string JSON, is refused without changing the run. Log the failure with forge.log.append and start a new run; do not hand-edit run files. beforeNextRound blocks review with pending fixes; final permits review, but full verification remains required before successful completion. Also returns run progress, `run.scout` with enabled/selection, current session and last failure, filtered drift, active-job liveness, and `decisions`: how many the run recorded and the last five, one line each — the rest are in `decisions.json`. Call it before approval, retry or a round-cap decision.")]
     public static async Task<string> Status(JobRegistry registry,
                                             SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -1085,6 +1085,7 @@ internal sealed class ForgeTools
 
                 return JsonSerializer.Serialize(new StatusResult(StatusRun.Of(state), drifted, active is [] ? null : active,
                                                                   run.ReadDecisionLedger().Summary,
+                                                                  DecisionRecords.Status(run.ReadDecisions()),
                                                                   AdvisorCatalog.Default.Discover(environment ?? Environment.GetEnvironmentVariable)),
                                                 ForgeToolJson.Default.StatusResult);
             });
@@ -1099,6 +1100,51 @@ internal sealed class ForgeTools
     internal static Task<string> Status(SessionRoots roots, string workspaceRoot, string runId, CancellationToken ct,
                                         Func<string, string?>? environment = null) =>
         Status(new JobRegistry(), roots, workspaceRoot, runId, ct, environment);
+
+    /// <summary>
+    /// The Run's decisions, kept outside the Orchestrator's conversation, which a compaction reduces
+    /// to its own summary of the interview. Checked and guarded before the call is logged, as a plan
+    /// revision is, because the question and the answer are logged in full. See docs/adr/0045.
+    /// </summary>
+    /// <param name="roots">The session roots advertised by the MCP host.</param>
+    /// <param name="workspaceRoot">The run's workspace root.</param>
+    /// <param name="runId">The run the decision belongs to.</param>
+    /// <param name="phase">The Orchestrator phase the decision was made in.</param>
+    /// <param name="question">The question as asked.</param>
+    /// <param name="answer">The answer as given.</param>
+    /// <param name="by">Who decided: <c>user</c> or <c>orchestrator</c>.</param>
+    /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
+    /// <param name="options">The choices the question offered, or null.</param>
+    /// <param name="bearsOn">The IDs the decision governs, or null.</param>
+    /// <param name="supersedes">The ID of the decision this one changes, or null.</param>
+    [McpServerTool(Name = "forge.decision.record"), Description("Records one decision the moment it settles something — the user's answer to a question, or a choice you made yourself — in the run's `decisions.json` and the Flow log, under an ID the server assigns from `D-0001` on. Pass the question as asked and the answer as given, verbatim. Every later plan-review and code-review critic is shown the run's current decisions, one line each; a changed answer is a new record that names the one it supersedes, and nothing is removed. The same content sent again is a no-op answering with the ID it already has. A decision goes here, not into forge.log.append. Declares no phase.")]
+    public static async Task<string> RecordDecision(SessionRoots roots,
+                                                    [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                                    [Description("Run id from forge.begin.")] string runId,
+                                                    [Description("The Orchestrator phase the decision was made in: interview, planning, plan_revision, approval, build, code_review or wrap_up (case-sensitive). It labels the record and declares nothing.")] string phase,
+                                                    [Description("The question as it was asked, verbatim: the question itself, not the explanation before it. At most 4,000 characters.")] string question,
+                                                    [Description("The answer as given, verbatim: the option's label, or the user's own words. At most 8,000 characters.")] string answer,
+                                                    [Description("Who decided, exactly user or orchestrator: user when the user's answer settled it, orchestrator when you settled it yourself.")] string by,
+                                                    CancellationToken ct,
+                                                    [Description("The choices the question offered, in the order shown, with recommended: true on the one you recommended. Omit for a question asked in prose. At most 20.")] DecisionOption[]? options = null,
+                                                    [Description("Optional free text naming the requirement, task, gate or finding IDs the decision governs, e.g. \"R3, task 4, F-0012\".")] string? bearsOn = null,
+                                                    [Description("The ID of the earlier decision this answer changes, e.g. D-0004; one already superseded is refused.")] string? supersedes = null)
+    {
+        var decision = DecisionRecords.Validate(phase, question, options, answer, by, bearsOn, supersedes);
+        var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
+        return await LoggedAsync(run, workspaceRoot, "forge.decision.record",
+            [("phase", phase), ("by", by), ("question", question), ("answer", answer),
+             ("options", options is { Length: > 0 } ? string.Join(" | ", options.Select(option => option.Label)) : null),
+             ("bearsOn", bearsOn), ("supersedes", supersedes)],
+            () =>
+            {
+                var outcome = DecisionRecords.Record(run, decision);
+                return Task.FromResult(JsonSerializer.Serialize(
+                    new DecisionRecordResult(outcome.Record.DecisionId, outcome.Recorded ? "recorded" : "no_op", outcome.Count,
+                                             Documents(run)),
+                    ForgeToolJson.Default.DecisionRecordResult));
+            });
+    }
 
     /// <summary>
     /// The orchestrator's own entry point into the run log. Everything else here logs itself; this
@@ -1152,7 +1198,8 @@ internal sealed class ForgeTools
     /// rhythms: the timeline grows with every act, while the plan only moves when a round's draft is
     /// written. One shared instruction would have to blur that into "show these to the user".
     /// The diagnostic log is deliberately absent — it is for the orchestrator, and is not written
-    /// to be read as a user document here.
+    /// to be read as a user document here. The decisions file is the one entry addressed to the
+    /// orchestrator: its path is how a compacted one finds what the run settled (docs/adr/0045).
     /// </remarks>
     /// <param name="run">The run whose user-facing files are described.</param>
     /// <param name="includeScout">Whether to include the Scout report when it exists.</param>
@@ -1171,6 +1218,11 @@ internal sealed class ForgeTools
             includeScout && File.Exists(run.ScoutAnswersPath)
                 ? new RunDocument(run.ScoutAnswersPath,
                                   "show the Scout report to the user now, and show it again after each later successful Scout call appends its answer.")
+                : null,
+            File.Exists(run.DecisionsPath)
+                ? new RunDocument(run.DecisionsPath,
+                                  "the run's recorded decisions: after a compaction or a resume, read them here, not in your summary, "
+                                  + "before you ask the user anything again. Add to them only through forge.decision.record.")
                 : null);
 
     /// <summary>
@@ -1431,9 +1483,10 @@ internal sealed record PlanViewResult(string RunId,
 /// <param name="DriftedFiles">Paths changed since the baseline.</param>
 /// <param name="ActiveJobs">The running jobs, oldest first, or null when none runs.</param>
 /// <param name="Ledger">The current finding summary.</param>
+/// <param name="Decisions">How many decisions the run recorded, and the last five as one line each.</param>
 /// <param name="Advisors">Current Advisor discovery, without credentials.</param>
 internal sealed record StatusResult(StatusRun Run, IReadOnlyList<string> DriftedFiles, IReadOnlyList<ActiveJob>? ActiveJobs,
-                                    LedgerSummary Ledger, AdvisorDiscovery Advisors);
+                                    LedgerSummary Ledger, DecisionsStatus Decisions, AdvisorDiscovery Advisors);
 
 /// <summary>
 /// What <c>forge.status</c> shows of <see cref="RunState"/>: everything the Orchestrator decides
@@ -1528,14 +1581,28 @@ internal sealed record WorkStartResult(string JobId, string Act, string State, b
 internal sealed record RunDocument(string Path, string Next);
 
 /// <summary>
-/// The files of a run that exist to be shown to a person. All entries are optional and start out
-/// absent: the timeline appears with the first act that records one, the plan with the write that
-/// precedes the first round, and Scout only after a successful Scout call.
+/// The files of a run that exist to be shown to a person, and the decisions the orchestrator reads
+/// back. All entries are optional and start out absent: the timeline appears with the first act that
+/// records one, the plan with the write that precedes the first round, Scout only after a successful
+/// Scout call, and the decisions with the first one recorded.
 /// </summary>
+/// <param name="FlowLog">The run's user-facing timeline.</param>
+/// <param name="Plan">The plan as it now stands.</param>
+/// <param name="Scout">The Scout report, on the results that appended to it.</param>
+/// <param name="Decisions">The run's recorded decisions.</param>
 internal sealed record RunDocuments(RunDocument? FlowLog,
                                     RunDocument? Plan,
                                     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                    RunDocument? Scout = null);
+                                    RunDocument? Scout = null,
+                                    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                    RunDocument? Decisions = null);
+
+/// <summary>What <c>forge.decision.record</c> did with one decision.</summary>
+/// <param name="DecisionId">The record's ID: the new one, or the one a replay found.</param>
+/// <param name="Outcome"><c>recorded</c>, or <c>no_op</c> when the same content was already recorded.</param>
+/// <param name="Count">How many decisions the run holds now.</param>
+/// <param name="Documents">The run's documents and what to do with them.</param>
+internal sealed record DecisionRecordResult(string DecisionId, string Outcome, int Count, RunDocuments Documents);
 
 /// <summary>Both review tools answer with this: one critique, plus where the user can watch the run.</summary>
 internal sealed record CritiqueResult(Critique Critique, RunDocuments Documents);
@@ -1653,6 +1720,8 @@ internal sealed record CatalogModel(string Id,
 [JsonSerializable(typeof(EvidenceImplication[]))]
 [JsonSerializable(typeof(PlanEdit))]
 [JsonSerializable(typeof(IReadOnlyList<PlanEdit?>))]
+[JsonSerializable(typeof(DecisionOption))]
+[JsonSerializable(typeof(DecisionOption[]))]
 internal sealed partial class ToolArgumentJson : JsonSerializerContext
 {
     // Lazy rather than a field initializer: the generated half of this class initializes its own
@@ -1685,6 +1754,8 @@ internal sealed partial class ToolArgumentJson : JsonSerializerContext
 [JsonSerializable(typeof(InstructionsResult))]
 [JsonSerializable(typeof(PlanViewResult))]
 [JsonSerializable(typeof(StatusResult))]
+[JsonSerializable(typeof(DecisionsStatus))]
+[JsonSerializable(typeof(DecisionRecordResult))]
 [JsonSerializable(typeof(LedgerSummary))]
 [JsonSerializable(typeof(PendingFullGateAttempt))]
 [JsonSerializable(typeof(ScoutSelectionResult))]

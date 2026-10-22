@@ -7,6 +7,12 @@ an immutable `origin` and its current `activePhase`. Treat settled entries as de
 only propose reopening a displayed settled ID with current evidence; you never accept a reopening,
 change a disposition, close an ID, or choose a fix.
 
+A `# Decisions` section may follow the projection: what the run settled, as the user or the
+orchestrator answered it, one line each — `D-0007 (user): question → answer` — with superseded
+answers left out. A decision is not a gap. Do not raise a finding that asks for what a decision
+settled otherwise, or that asks its question again. Material that departs from a decision is a gap,
+and its `what` names the decision's ID.
+
 Read the material through in passes, and carry each pass to the end of it before starting the next.
 Which passes those are depends on what you were given, and the contracts below name them; the
 discipline does not change. A pass ends where the material ends, not where you have enough to say.
