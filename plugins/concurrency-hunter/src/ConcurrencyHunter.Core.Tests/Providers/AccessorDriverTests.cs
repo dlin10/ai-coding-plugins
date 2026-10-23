@@ -37,7 +37,7 @@ public sealed class AccessorDriverTests
             public sealed class Outer { private sealed class Inner { public object Value { get; set; } } }
             public class Virtual { public virtual event Action Changed; }
             public class Overriding : Virtual { public override event Action Changed; }
-            public sealed class Plain { public event Action Changed; }
+            public sealed class Plain { public event Action Changed; public void Fire() { } }
             public sealed class External { public extern event Action Changed; }
 
             public static class Api

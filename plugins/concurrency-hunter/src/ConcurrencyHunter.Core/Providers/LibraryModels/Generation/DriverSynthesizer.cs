@@ -660,8 +660,10 @@ public static class DriverSynthesizer
                     continue;
                 }
 
+                // The holder's type is exact when it is sealed or the holder is what the constructor made: no subclass's override can
+                // stand behind an object member it does not override itself. A receiver of an unsealed class is the driver's subclass.
                 var dropped = new List<string>();
-                foreach (var trigger in HolderMembers(holder))
+                foreach (var trigger in HolderMembers(holder, exact: holder.IsSealed || constructs && kind == FateClassifier.RESULT))
                 {
                     checks.Check(GenerationStage.Synthesize);
                     if (excluded?.TryGetValue((kind, Id(trigger.OriginalDefinition)), out var why) == true)
@@ -1769,11 +1771,15 @@ public static class DriverSynthesizer
         /// <summary>Every member a caller could invoke on a holder's static type (A5, the open-world rule): the public instance
         /// methods, generic ones included, property, indexer and event accessors, and delegate <c>Invoke</c> of the type, of its base
         /// types and of every interface it implements, wherever they are declared, then <c>object</c>'s <c>ToString</c>, <c>Equals</c>
-        /// and <c>GetHashCode</c>; the member itself included. One per member a call reaches: an override stands for what it overrides,
-        /// and an interface member a public method of a class holder implements stands for itself only when that method is not
-        /// already in.</summary>
+        /// and <c>GetHashCode</c> unless the type is exact; the member itself included. One per member a call reaches: an override
+        /// stands for what it overrides, and an interface member a public method of a class holder implements stands for itself only
+        /// when that method is not already in. Of an exact type, an <c>object</c> member is in only through an override the type or a
+        /// base declares — <c>System.ValueType</c>'s and a record's included — since <c>object</c>'s own implementation is all a call
+        /// of one it does not override reaches; so is an interface's declaration of one that <c>object</c>'s member implements.</summary>
         /// <param name="holder">The holder's static type.</param>
-        private IEnumerable<IMethodSymbol> HolderMembers(INamedTypeSymbol holder)
+        /// <param name="exact">Whether the holder's value is of exactly that type: the type is sealed, or the holder is a constructor's
+        /// result.</param>
+        private IEnumerable<IMethodSymbol> HolderMembers(INamedTypeSymbol holder, bool exact)
         {
             var types = new List<INamedTypeSymbol>();
             for (var type = holder; type is not null && type.SpecialType != SpecialType.System_Object; type = type.BaseType)
@@ -1794,7 +1800,8 @@ public static class DriverSynthesizer
                     checks.Check(GenerationStage.Synthesize);
                     if (type.TypeKind == TypeKind.Interface && holder.TypeKind != TypeKind.Interface &&
                         holder.FindImplementationForInterfaceMember(method) is IMethodSymbol { DeclaredAccessibility: Accessibility.Public } implementation &&
-                        implementation.MethodKind != MethodKind.ExplicitInterfaceImplementation && seen.Contains(Root(implementation)))
+                        implementation.MethodKind != MethodKind.ExplicitInterfaceImplementation &&
+                        (seen.Contains(Root(implementation)) || ObjectsOwn(implementation)))
                     {
                         continue;
                     }
@@ -1804,12 +1811,17 @@ public static class DriverSynthesizer
                 }
             }
 
+            // An object member the type or a base overrides is in already, through its override; what is left is object's own.
             foreach (var method in library.GetSpecialType(SpecialType.System_Object).GetMembers().OfType<IMethodSymbol>().Where(method => method.IsVirtual && IsCallable(method)))
             {
                 checks.Check(GenerationStage.Synthesize);
-                if (seen.Add(Root(method)))
+                if (!ObjectsOwn(method) && seen.Add(Root(method)))
                     yield return method;
             }
+
+            // Of an exact type, a member a call reaches object's own implementation of is no trigger, whoever declares it: object
+            // itself, or an interface of the type that object's member implements (R3).
+            bool ObjectsOwn(IMethodSymbol implementation) => exact && implementation.ContainingType.SpecialType == SpecialType.System_Object;
 
             // A field-like event's accessors are the compiler's: they combine delegates and run none, so there is nothing to observe.
             // Whether a member is public or init is read as the library declares it, before the opening (OriginalAccessibility); the
@@ -1832,9 +1844,9 @@ public static class DriverSynthesizer
         }
 
         /// <summary>The statement of a trigger action after the call: one call of the holder's member, through a cast to the type
-        /// declaring it when that is not the holder's static type, its arguments built by setup into fields of their own; a task it
-        /// returns awaited; an event accessor is a subscription or an unsubscription. A member the driver cannot call is a
-        /// failure.</summary>
+        /// declaring it when that is not the holder's static type, its arguments built by setup into fields of their own, a span from
+        /// a field of its element's array; a task it returns awaited; an event accessor is a subscription or an unsubscription. A
+        /// member the driver cannot call is a failure.</summary>
         /// <param name="trigger">The member: a method, a property or indexer accessor, an event accessor or a delegate's <c>Invoke</c>.</param>
         /// <param name="holder">The holder's static type.</param>
         /// <param name="target">The holder in the action: <c>r</c> or <c>Recv_&lt;variant&gt;</c>.</param>
@@ -1855,6 +1867,7 @@ public static class DriverSynthesizer
                 ChooseTypeArguments(trigger.TypeParameters);
 
             var arguments = new List<string>();
+            var locals = new List<string>();
             foreach (var parameter in trigger.Parameters)
             {
                 checks.Check(GenerationStage.Synthesize);
@@ -1864,17 +1877,32 @@ public static class DriverSynthesizer
                     continue;
                 }
 
+                // A span no static field can hold is built in the call from a field of its element's array, seeded as an argument of
+                // that array would be; one passed by reference is a local declared before the call, which it does not outlive (R2).
                 var type = Substitute(parameter.Type);
+                var element = SpanElement(type);
+                var stored = element is null ? type : library.CreateArrayTypeSymbol(element);
                 var field = $"TArg_{variant}_{parameter.Ordinal}";
-                _fields.Add($"public static {R(type)} {field};");
-                _setup.Add($"{field} = {Value(type, new Owner($"{variant}_{parameter.Name}", null), ARGUMENT_DEPTH, _setup)};");
+                _fields.Add($"public static {R(stored)} {field};");
+                _setup.Add($"{field} = {Value(stored, new Owner($"{variant}_{parameter.Name}", null), ARGUMENT_DEPTH, _setup)};");
+                var argument = field;
+                if (element is not null && parameter.RefKind == RefKind.None)
+                    argument = $"new {R(type)}({field})";
+                else if (element is not null)
+                {
+                    argument = $"a{parameter.Ordinal}";
+                    locals.Add($"var {argument} = new {R(type)}({field}); ");
+                }
+
                 arguments.Add(parameter.RefKind switch
                 {
-                    RefKind.Ref => $"ref {field}",
-                    RefKind.In or RefKind.RefReadOnlyParameter => $"in {field}",
-                    _ => field
+                    RefKind.Ref => $"ref {argument}",
+                    RefKind.In or RefKind.RefReadOnlyParameter => $"in {argument}",
+                    _ => argument
                 });
             }
+
+            var before = string.Concat(locals);
 
             var receiver = SymbolEqualityComparer.Default.Equals(declaring, holder) ? target : $"(({R(declaring)}){target})";
             var awaits = TypeShape.Of(returned) is TypeShapeKind.Task or TypeShapeKind.TaskOfT && !trigger.ReturnsVoid;
@@ -1884,14 +1912,14 @@ public static class DriverSynthesizer
                 {
                     var property = (IPropertySymbol)trigger.AssociatedSymbol!;
                     var access = property.IsIndexer ? $"{receiver}[{string.Join(", ", arguments)}]" : $"{receiver}.{Escape(property.Name)}";
-                    return awaits ? $"await {access};" : $"_ = {access};";
+                    return awaits ? $"{before}await {access};" : $"{before}_ = {access};";
                 }
 
                 case MethodKind.PropertySet:
                 {
                     var property = (IPropertySymbol)trigger.AssociatedSymbol!;
                     var access = property.IsIndexer ? $"{receiver}[{string.Join(", ", arguments.SkipLast(1))}]" : $"{receiver}.{Escape(property.Name)}";
-                    return $"{access} = {arguments[^1]};";
+                    return $"{before}{access} = {arguments[^1]};";
                 }
 
                 case MethodKind.EventAdd or MethodKind.EventRemove:
@@ -1904,10 +1932,27 @@ public static class DriverSynthesizer
                 {
                     var typeArguments = trigger.IsGenericMethod ? "<" + string.Join(", ", trigger.TypeParameters.Select(R)) + ">" : "";
                     var call = $"{receiver}.{Escape(trigger.Name)}{typeArguments}({string.Join(", ", arguments)})";
-                    return awaits ? $"await {call};" : $"{call};";
+                    return awaits ? $"{before}await {call};" : $"{before}{call};";
                 }
             }
         }
+
+        /// <summary>The element of the runtime's <c>System.Span&lt;T&gt;</c> or <c>System.ReadOnlySpan&lt;T&gt;</c> — declared, outside any
+        /// type, in the namespace <c>System</c> of the assembly that declares <c>System.Object</c> —, or <c>null</c> for any other type, a
+        /// namesake nested in a type or declared by another assembly included (R2).</summary>
+        /// <param name="type">The type, substituted.</param>
+        private ITypeSymbol? SpanElement(ITypeSymbol type) =>
+            type is INamedTypeSymbol
+            {
+                OriginalDefinition:
+                {
+                    MetadataName: "Span`1" or "ReadOnlySpan`1", ContainingType: null,
+                    ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true }
+                } definition
+            } span &&
+            SymbolEqualityComparer.Default.Equals(definition.ContainingAssembly, library.GetSpecialType(SpecialType.System_Object).ContainingAssembly)
+                ? span.TypeArguments[0]
+                : null;
 
         /// <summary>Whether an accessor is one the compiler wrote for a field-like event (<see cref="FieldLikeEvents.Is"/>) that no
         /// subclass can replace: neither virtual nor an override (R8). An <c>extern</c> event is not field-like, so its accessors are

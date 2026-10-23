@@ -34,6 +34,7 @@ public sealed class GenerationHandoffs
     private readonly Dictionary<(string Instance, int Operation), IReadOnlySet<string>> _outsideByCall = [];
     private readonly Dictionary<string, IReadOnlyList<string>> _unseen = new(StringComparer.Ordinal);
     private readonly SortedSet<string> _unfollowedReceivers = new(StringComparer.Ordinal);
+    private readonly List<UnseenCall> _unseenCalls = [];
     private readonly StageChecks _checks;
 
     /// <summary>Builds all handoff sets once for a completed generator run.</summary>
@@ -70,9 +71,11 @@ public sealed class GenerationHandoffs
             var values = call.Receivers.Concat(call.Arguments.SelectMany(argument => argument.Values)).Concat(call.Delegates);
             // A reference argument hands the cell or field it names, which the call may read and write as it may any storage of an
             // object handed to it: the object that storage lies in is handed (question 160).
-            var storage = checks.Each(call.Arguments.SelectMany(argument => argument.References))
-                                .SelectMany(target => ValueProvenance.ReferenceStorage(_heap, call.Instance, target, out _));
+            var references = call.Arguments.SelectMany(argument => argument.References).ToArray();
+            var storage = checks.Each(references).SelectMany(target => ValueProvenance.ReferenceStorage(_heap, call.Instance, target, out _))
+                                .Concat(StorageHolders(call.Instance, call.Receivers));
             AddCall((call.Instance.Id, call.OperationId), checks.Each(values).SelectMany(value => _heap.Resolve(call.Instance.Id, value)).Concat(storage));
+            _unseenCalls.Add(new UnseenCall(call.Instance, call.OperationId, call.Receivers, references));
         }
 
         var observation = new ValueObservation(driver, run, checks.Each(unknownCalls).Select(call => (call.Instance.Id, call.OperationId)).ToHashSet(), checks);
@@ -93,9 +96,15 @@ public sealed class GenerationHandoffs
 
             // The body the heap does not have runs on an object it does not name; a receiver it does name goes to the body it resolves.
             // That body may be a user's override, which reaches a named receiver only through what a user can name: what the library
-            // keeps in a field a user cannot is not handed (question 142).
-            var arguments = checks.Each(call.Arguments.SelectMany(argument => argument.Values)).SelectMany(value => _heap.Resolve(instance.Id, value)).ToArray();
+            // keeps in a field a user cannot is not handed (question 142). A reference argument, and a struct's receiver by reference,
+            // hands the storage it names, as at a call the analysis does not follow (question 160).
+            var references = call.Arguments.SelectMany(argument => argument.References).ToArray();
+            var arguments = checks.Each(call.Arguments.SelectMany(argument => argument.Values)).SelectMany(value => _heap.Resolve(instance.Id, value))
+                                  .Concat(checks.Each(references).SelectMany(target => ValueProvenance.ReferenceStorage(_heap, instance, target, out _)))
+                                  .Concat(StorageHolders(instance, call.Receivers))
+                                  .ToArray();
             AddCall(site, arguments, arguments, checks.Each(call.Receivers).SelectMany(value => _heap.Resolve(instance.Id, value)));
+            _unseenCalls.Add(new UnseenCall(instance, site.Operation, call.Receivers, references));
         }
 
         // What an operation the lowering does not express is given goes where the analysis does not see, as an argument of a call it
@@ -264,6 +273,11 @@ public sealed class GenerationHandoffs
     /// Read by <c>EffectReader.ReadReasonsFromHandoffs</c>.</summary>
     public IReadOnlyCollection<string> UnfollowedReceiverCalls => _unfollowedReceivers;
 
+    /// <summary>Every call to code the analysis does not see that hands what it is given — a call it does not follow and a call without a
+    /// resolved target, in any execution —, with what it is given by reference: its receivers and its reference arguments. An operation
+    /// the lowering does not express is none: its operands are values. Read by <c>EffectReader.ReadStaticsHandedToUnseen</c>.</summary>
+    public IReadOnlyList<UnseenCall> UnseenCalls => _unseenCalls;
+
     /// <summary>What the analysis did not see in the tree of <c>V_Call</c> or <c>V_Enum</c>, sorted: every unresolved dispatch of an
     /// instance running there, of any call kind, delegate calls included, and every dispatch without a receiver object in a body one
     /// runs; every reached body whose lowering was dropped, which has no
@@ -306,6 +320,16 @@ public sealed class GenerationHandoffs
         return unseen.ToArray();
     }
 
+    /// <summary>The objects the storage a call's receivers are lies in: a struct's <c>this</c> by reference names its storage, which the
+    /// call may read and write as it may any storage of an object handed to it, as a reference argument's (question 160). A receiver of
+    /// any other kind, a struct copy's storage included, names none.</summary>
+    /// <param name="instance">The instance making the call.</param>
+    /// <param name="receivers">The call's receivers.</param>
+    private IEnumerable<string> StorageHolders(MethodInstance instance, IEnumerable<AbstractValue> receivers) =>
+        _checks.Each(receivers).SelectMany(value => _heap.Resolve(instance.Id, value))
+               .Where(region => _heap.Regions.TryGetValue(region, out var held) && held.Kind == HeapRegionKind.StructStorage)
+               .Select(region => _heap.Located(region, "")?.Region).OfType<string>();
+
     private IEnumerable<string> Receipts(string instanceId)
     {
         if (!_heap.Instances.TryGetValue(instanceId, out var instance))
@@ -325,7 +349,7 @@ public sealed class GenerationHandoffs
             return;
         if (executions.Any(_executions.InSetup))
             _inSetup.UnionWith(regions);
-        if (executions.Any(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution)))
+        if (OutsideSetup(executions))
         {
             _outsideSetup.UnionWith(regions);
             _outsideSetupDirectly.UnionWith(directly);
@@ -350,7 +374,7 @@ public sealed class GenerationHandoffs
             return false;
         if (executions.Any(_executions.InSetup))
             _witnessedInSetup.UnionWith(regions);
-        if (!executions.Any(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution)))
+        if (!OutsideSetup(executions))
             return false;
         _witnessedOutsideSetup.UnionWith(regions);
         _witnessesOutsideSetup[instanceId] = regions;
@@ -401,11 +425,21 @@ public sealed class GenerationHandoffs
     /// <param name="value">A receiver value.</param>
     private static bool ReadsStorage(AbstractValue value) => value is StaticFieldValue or PathValue or CapturedValue;
 
+    /// <summary>The executions of an instance that run outside setup and are no artefact — the tree of <c>V_Call</c> or <c>V_Enum</c>, an
+    /// unknown execution, a type initializer, a lazy construction, startup: where a site of the instance hands what it hands outside setup
+    /// (<see cref="HandoffsOutsideSetup"/>). The one owner of that split for every handoff; read by
+    /// <c>EffectReader.ReadStaticsHandedToUnseen</c> for the places of <see cref="UnseenCalls"/>.</summary>
+    /// <param name="instanceId">The instance.</param>
+    public IReadOnlyList<string> ExecutionsOutsideSetup(string instanceId) => OutsideSetupOf(ExecutionsOf(instanceId)).ToArray();
+
     /// <summary>Whether some of an instance's executions ran outside setup and are no artefact, as <see cref="File"/> files a site.</summary>
     /// <param name="executions">The instance's executions.</param>
-    private bool OutsideSetup(IReadOnlySet<string> executions) =>
-        !(executions.Count != 0 && executions.All(_executions.IsArtefact)) &&
-        executions.Any(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution));
+    private bool OutsideSetup(IReadOnlySet<string> executions) => OutsideSetupOf(executions).Any();
+
+    /// <summary>The executions of a set that are neither in setup's tree nor the artefact (<see cref="ExecutionsOutsideSetup"/>).</summary>
+    /// <param name="executions">An instance's executions.</param>
+    private IEnumerable<string> OutsideSetupOf(IReadOnlySet<string> executions) =>
+        executions.Where(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution));
 
     private IReadOnlySet<string> ExecutionsOf(string instanceId) =>
         _analysis.InstanceExecutions.GetValueOrDefault(instanceId) ?? new HashSet<string>(StringComparer.Ordinal);
@@ -539,3 +573,10 @@ public sealed class GenerationHandoffs
     private static bool IsWitnessField(IrFieldRef field) =>
         field is { IsStatic: true, Assembly: DriverSynthesizer.ASSEMBLY, ContainingTypeId: DriverSynthesizer.WITNESSED_TYPE };
 }
+
+/// <summary>A call to code the analysis does not see, with what it is given by reference (<see cref="GenerationHandoffs.UnseenCalls"/>).</summary>
+/// <param name="Instance">The instance making the call.</param>
+/// <param name="OperationId">The call's operation.</param>
+/// <param name="Receivers">Its receivers, as the instance's values.</param>
+/// <param name="References">The places its <c>ref</c>, <c>in</c> and <c>out</c> arguments name.</param>
+public sealed record UnseenCall(MethodInstance Instance, int OperationId, IReadOnlySet<AbstractValue> Receivers, IReadOnlyList<ReferenceTarget> References);

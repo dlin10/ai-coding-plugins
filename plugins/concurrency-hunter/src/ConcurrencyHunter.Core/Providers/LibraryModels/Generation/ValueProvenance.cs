@@ -210,6 +210,16 @@ public sealed class ValueProvenance
         return KeepingChain.Any(pair => SharesPath(pair.Key, region, pair.Value, _fate.Reachability.Edges));
     }
 
+    /// <summary>The driver action other than setup an execution runs for, as value provenance reads a run: the action of an own or a
+    /// child execution — <c>V_Call</c>, <c>V_Enum</c> or a trigger — and <c>null</c> for setup, the artefact and elsewhere.</summary>
+    /// <param name="executions">The run's driver executions.</param>
+    /// <param name="execution">The execution.</param>
+    internal static string? ActionOf(DriverExecutions executions, string execution)
+    {
+        var role = executions.Of(execution);
+        return role is { Role: DriverExecutionRole.Own or DriverExecutionRole.Child, Action: not null } ? role.Action : null;
+    }
+
     /// <summary>Whether one field path from a keeper, at most <see cref="KEEPING_PATH_DEPTH"/> fields long, reaches both a region and
     /// one of a set of regions. The two walks along a path go in step, as pairs of the objects each has reached, and a pair is
     /// expanded once, at the depth it is first reached, where it has the most of the depth left: the paths themselves are never
@@ -1362,6 +1372,20 @@ public sealed class ValueProvenance
         return places.Distinct().ToArray();
     }
 
+    /// <summary>Finds every static field a reference names, through the same bindings <see cref="ReferenceStorage"/> follows: the field
+    /// the place lies in, the first of its path, whether or not the heap has a region of its static storage — a reference to a scalar
+    /// static that nothing loads or stores has none. A cell of what a static field holds is no place of the static.</summary>
+    /// <param name="heap">The solved heap.</param>
+    /// <param name="instance">The instance expressing the reference.</param>
+    /// <param name="target">The reference location.</param>
+    internal static IReadOnlyList<IrFieldRef> ReferenceStatics(HeapSolution heap, MethodInstance instance, ReferenceTarget target)
+    {
+        var unobserved = false;
+        var statics = new List<IrFieldRef>();
+        ReferenceArrays(heap, instance, target, fields: true, [], ref unobserved, statics: statics);
+        return statics.Distinct().ToArray();
+    }
+
     /// <summary>Follows each reference binding once on its path to an array cell, or to a field when <paramref name="fields"/>.</summary>
     /// <param name="heap">The solved heap.</param>
     /// <param name="instance">The instance expressing the reference.</param>
@@ -1370,9 +1394,11 @@ public sealed class ValueProvenance
     /// <param name="seen">Bindings already visited.</param>
     /// <param name="unobserved">Whether any binding has no proven reference location.</param>
     /// <param name="places">Where each field a reference names is added, with the object it lies in and its slot; <c>null</c> for none.</param>
+    /// <param name="statics">Where each static field a reference names a place of is added; <c>null</c> for none.</param>
     private static IReadOnlySet<string> ReferenceArrays(HeapSolution heap, MethodInstance instance, ReferenceTarget target, bool fields,
                                                         HashSet<(string Instance, ReferenceTarget Target)> seen, ref bool unobserved,
-                                                        List<(string Region, string Slot, IrFieldRef Field)>? places = null)
+                                                        List<(string Region, string Slot, IrFieldRef Field)>? places = null,
+                                                        List<IrFieldRef>? statics = null)
     {
         WorkCancellation.Check();
         if (!seen.Add((instance.Id, target)))
@@ -1384,6 +1410,8 @@ public sealed class ValueProvenance
             // A field keeps its full slot and leaf, whether it lies directly in a holder or below an array cell (R4).
             case ReferenceCell cell when cell.IsOnCollection || fields:
             {
+                if (cell is { Field.IsStatic: true, IsOnCollection: false })
+                    statics?.Add(cell.Field);
                 // A static field lies in the static storage of its declaring type, whatever construction of it.
                 var holders = cell.Field.IsStatic
                     ? heap.Regions.Values.Where(region => region.Kind == HeapRegionKind.Static && region.TypeKey is { } type &&
@@ -1426,7 +1454,7 @@ public sealed class ValueProvenance
                         foreach (var reference in argument.References)
                         {
                             WorkCancellation.Check();
-                            arrays.UnionWith(ReferenceArrays(heap, caller, reference, fields, seen, ref unobserved, places));
+                            arrays.UnionWith(ReferenceArrays(heap, caller, reference, fields, seen, ref unobserved, places, statics));
                         }
                     }
                 }
@@ -1447,7 +1475,7 @@ public sealed class ValueProvenance
                     foreach (var reference in callee.Summary.ReferenceReturns)
                     {
                         WorkCancellation.Check();
-                        arrays.UnionWith(ReferenceArrays(heap, callee, reference, fields, seen, ref unobserved, places));
+                        arrays.UnionWith(ReferenceArrays(heap, callee, reference, fields, seen, ref unobserved, places, statics));
                     }
                 }
                 return arrays;
@@ -1545,11 +1573,8 @@ public sealed class ValueProvenance
             _roots.Where(pair => pair.Value.Any(candidate => candidate.Canonical == value.Canonical))
                   .Select(pair => pair.Key).ToHashSet(StringComparer.Ordinal);
 
-        public string? ActionOf(string execution)
-        {
-            var role = Executions.Of(execution);
-            return role is { Role: DriverExecutionRole.Own or DriverExecutionRole.Child, Action: not null } ? role.Action : null;
-        }
+        // bounded: forwards once to the static ActionOf, without re-entering this method.
+        public string? ActionOf(string execution) => ValueProvenance.ActionOf(Executions, execution);
 
         public IReadOnlySet<string> FiredExecutions(DriverProbe probe) =>
             _fired.GetValueOrDefault(probe.FiredField) ?? new HashSet<string>(StringComparer.Ordinal);

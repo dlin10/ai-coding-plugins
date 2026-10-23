@@ -135,8 +135,21 @@ line is written per member.
 5. **Lay out variants as actions** of one controller: `V_Call` (the call), `V_Enum` (the call and a `foreach` over a result
    that implements `IEnumerable`, strings aside), and `T0`…`T23`, one per public instance method of the holder — the
    constructed object, else a result whose type the library declares, else the receiver — and its library bases and
-   interfaces, non-generic, without `ref`/`in`/ref-like parameters, awaited when they return `Task` or `ValueTask`.
+   interfaces, a generic one closed over type arguments the driver chooses, awaited when they return `Task` or `ValueTask`. Each argument is a static field setup seeds,
+   passed as the parameter takes it — by value, `in`, `ref readonly` or `ref` —, and an `out` argument is discarded; of
+   the ref-like and pointer types, only the spans below are built.
    A static property setter is written `Type.Prop = value`; `Type.set_Prop(value)` does not compile.
+   A `Span<T>` or `ReadOnlySpan<T>` argument of a trigger — by value, `in`, `ref readonly` or `ref` — cannot live in a
+   static field, so setup seeds a static `T[]` field as it would a `T[]` argument in that place, and the trigger's call
+   builds the span from it (`new ReadOnlySpan<byte>(TArg_…)`; by reference, a local declared just before the call). That
+   is how both `ParseFrom(ReadOnlySpan<byte>)` of `MessageParser<T>` become triggers. Any other ref-like or pointer
+   argument is not built: its member stays an uncovered member of the holder. `ToString`, `Equals(object)` and
+   `GetHashCode` that only `System.Object` implements for the holder's type are no triggers when that type is exact — it
+   is sealed, or the holder is the constructed object — since no subclass's override can stand behind them, whether
+   `System.Object` or an interface of the type declares them; an override, `System.ValueType`'s and a record's included,
+   stays a trigger, as does an interface's member the type implements explicitly. A span is the runtime's
+   `System.Span<T>` or `System.ReadOnlySpan<T>` only: a namesake nested in a type or declared by the library is another
+   ref-like type.
 6. **Keep the result.** `V_Call` stores the result and the receiver in `Keep.R` and `Keep.Recv`. A side effect to know:
    a stored lazy sequence escapes and gets an unknown enumeration (ADR 0011), so in `V_Call` an iterator's probe fires in
    an unknown execution — check `V_Enum` before reading that as "unknown".

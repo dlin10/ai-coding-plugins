@@ -459,11 +459,10 @@ public sealed class GeneratedFateTests
         Assert.Equal(HolderResult, FateOf(result, "a"));
         Assert.Equal([DriverExecutions.Own("T0")], ConfirmationFiredIn(result, "P_a_0_T0"));
         Assert.Equal(HolderThis, FateOf(receiver, "a"));
-        // Every member a caller could invoke on Bus has a trigger — On itself, Fire, Twice and object's three — and those that run the
-        // delegate run it in place.
+        // Every member a caller could invoke on Bus has a trigger — On itself, Fire and Twice; Bus is sealed and overrides none of
+        // object's — and those that run the delegate run it in place.
         Assert.True(receiver.Driver!.Covers(FateClassifier.THIS));
-        Assert.Equal(["M:Lib.Bus.Fire", "M:Lib.Bus.On(System.Action)", "M:Lib.Bus.Twice", "M:System.Object.Equals(System.Object)",
-                      "M:System.Object.GetHashCode", "M:System.Object.ToString"],
+        Assert.Equal(["M:Lib.Bus.Fire", "M:Lib.Bus.On(System.Action)", "M:Lib.Bus.Twice"],
                      receiver.Driver.Triggers.Select(trigger => trigger.Member).Order(StringComparer.Ordinal));
         Assert.All(receiver.Driver.Triggers.Where(trigger => trigger.Member is "M:Lib.Bus.Fire" or "M:Lib.Bus.Twice"),
                    trigger => Assert.Equal([DriverExecutions.Own(trigger.Action)], ConfirmationFiredIn(receiver, $"P_a_0_{trigger.Action}")));
@@ -489,15 +488,17 @@ public sealed class GeneratedFateTests
     [Fact]
     public void A_holder_member_the_driver_cannot_call_leaves_the_holder_unconfirmed()
     {
-        // Scan takes a span the driver cannot build: no trigger calls it, so nothing shows it does not run the delegate elsewhere.
+        // Scan takes the library's own ref struct, which the driver cannot build: no trigger calls it, so nothing shows it does not
+        // run the delegate elsewhere.
         var trace = Trace("""
-            public sealed class Spanned { private Action _a; public Spanned(Action a) { _a = a; } public void Scan(ReadOnlySpan<int> s) { Task.Run(_a); } }
+            public ref struct Cursor { public int Position; }
+            public sealed class Spanned { private Action _a; public Spanned(Action a) { _a = a; } public void Scan(Cursor c) { Task.Run(_a); } }
             public static class Api { public static Spanned Make(Action a) => new Spanned(a); }
             """, "M:Lib.Api.Make(System.Action)");
 
         Assert.Equal(Unknown, FateOf(trace, "a"));
         Assert.False(trace.Driver!.Covers(FateClassifier.RESULT));
-        Assert.Contains(trace.Driver.Uncovered[FateClassifier.RESULT], why => why.StartsWith("M:Lib.Spanned.Scan(System.ReadOnlySpan{System.Int32})", StringComparison.Ordinal));
+        Assert.Contains(trace.Driver.Uncovered[FateClassifier.RESULT], why => why.StartsWith("M:Lib.Spanned.Scan(Lib.Cursor)", StringComparison.Ordinal));
         Assert.Null(trace.Confirmation);
 
         // A custom event accessor is called by `+=`, which the engine now lowers as a call of the accessor: it is a trigger, and the

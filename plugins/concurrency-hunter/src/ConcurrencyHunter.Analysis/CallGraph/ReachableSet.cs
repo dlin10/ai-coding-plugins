@@ -37,8 +37,9 @@ public enum DispatchRule
     ConstructedTypes
 }
 
-/// <summary>The rules the reachable set is built by: class-hierarchy dispatch and no type left out for every run but the generation
-/// of <c>System.Private.CoreLib</c> (ADR 0019).</summary>
+/// <summary>The rules the reachable set is built by: class-hierarchy dispatch with no type left out is the rule of the analysis of a
+/// program, and dispatch by constructed types the rule of the generation of any library, which leaves types out only for
+/// <c>System.Private.CoreLib</c> (ADR 0019).</summary>
 /// <param name="Dispatch">How a call that dispatches reaches its targets.</param>
 /// <param name="LeftOutTypeKeys">The definition keys of the types no body of which is ever in the set, whatever reaches for it: a call
 /// whose every target is one of their members has no target.</param>

@@ -41,7 +41,9 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
 - **Floor.** At least 14 of the 24 gold parameters classified exactly — or, while fewer are, no fewer than the `exact`
   the snapshot recorded, each inexact parameter named with its cause in `docs/QUESTIONS.md`. The snapshot records 11:
   a holder stands only when a trigger calls every member a caller could invoke on it, within the driver's 24, and no
-  gold holder is covered (questions 99 and 101). The inexact ones are in questions 97–101.
+  gold holder is confirmed: the Polly holders are not covered (question 99), the `MessageParser<T>` holder is covered
+  but its confirmation run stops at the closure bound (question 101), and the `FieldCodec<T>` holder of `ForMessage` is
+  not covered (question 187). The inexact ones are in questions 97–101 and 187.
 - **Entries.** The fate gold set is truth for fates only. Its whole answers are recorded, and the number of members
   with an entry never falls below the snapshot's `fateGoldEntries`; each member with no entry is named with its
   model reason in `docs/QUESTIONS.md`.
@@ -81,6 +83,13 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   the access's own path; one run of a body has one `this`, and the seed setup passed a body stays the slot's seed once
   the body's contexts merge; and a decompiled library compiles without CS0104 and CS0051. Each such answer is named in
   `docs/runs/5d-B4.md`.
+  Run B4b adds four causes of the reachable set and the driver (SPEC TD-008, TD-034b): the generation of any library
+  reaches only the overrides of the types its set constructs, a call into a body outside the set is an opaque call, and
+  code the analysis does not see gets the storage a reference argument of a call without a resolved target names and a
+  library static handed to it by reference (R1); a `Span<T>` or `ReadOnlySpan<T>` argument of a trigger is built from a
+  seeded array (R2); a member `System.Object` implements itself is no trigger of a holder of exact type (R3); and a
+  holder's confirmation run collects accesses only in the executions of the driver's actions (R4). Each such answer is
+  named in `docs/runs/5d-B4b.md`, with its requirement.
   An answer may also change because the driver constructs a call it previously refused, or because the snapshot
   gains `detail` and `causes`; each changed answer is named by declaration id with its rule in the run record.
 - **Verdict report.** When `CH_MODEL_EVALS_REPORT` names a folder, `ModelEvalTests`, `EffectsEvalTests`,

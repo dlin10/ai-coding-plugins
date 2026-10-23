@@ -67,6 +67,7 @@ public sealed class DriverSynthesisTests
                 public Fluent Chain(Action a) => this;
                 public void F00() {} public void F01() {} public void F02() {} public void F03() {} public void F04() {}
                 public void F05() {} public void F06() {} public void F07() {} public void F08() {} public void F09() {}
+                public void F10() {} public void F11() {}
             }
 
             public static class Api
@@ -752,14 +753,12 @@ public sealed class DriverSynthesisTests
         Assert.Contains("Arg_box_Call = new global::Lib.Box(L_box_0_Call());", setup);
         Assert.Contains("Arg_box_T0 = new global::Lib.Box(L_box_0_T0());", setup);
         Assert.Equal(ParameterKind.RecipeValue, box.Kind);
-        Assert.Equal(["Call:0:L_box_0_Call", .. Enumerable.Range(0, 5).Select(index => $"T{index}:0:L_box_0_T{index}")],
+        Assert.Equal(["Call:0:L_box_0_Call", .. Enumerable.Range(0, 2).Select(index => $"T{index}:0:L_box_0_T{index}")],
                      box.Probes.Select(probe => $"{probe.Variant}:{probe.Index}:{probe.Factory}"));
         Assert.Equal("Arg_box_T0", box.OwnFields["T0"]);
-        // Every member a caller could invoke on the returned Holder: its own methods, then object's overridable ones.
+        // Every member a caller could invoke on the returned Holder: its own methods; Holder is sealed and overrides none of object's.
         Assert.Equal([new DriverTrigger("T0", "M:Lib.Holder.Run", FateClassifier.RESULT), new DriverTrigger("T1", "M:Lib.Holder.RunAsync", FateClassifier.RESULT)],
-                     driver.Triggers.Take(2));
-        Assert.Equal(["M:System.Object.Equals(System.Object)", "M:System.Object.GetHashCode", "M:System.Object.ToString"],
-                     driver.Triggers.Skip(2).Select(trigger => trigger.Member).Order(StringComparer.Ordinal));
+                     driver.Triggers);
         Assert.True(driver.Covers(FateClassifier.RESULT));
         Assert.False(driver.Covers(FateClassifier.THIS));
     }

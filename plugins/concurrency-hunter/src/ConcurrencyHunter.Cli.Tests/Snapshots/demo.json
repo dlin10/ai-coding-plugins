@@ -371,7 +371,7 @@
         {
           "member": "M:Google.Protobuf.MessageParser\u00601.ParseFrom(System.Byte[])",
           "file": "Google.Protobuf/3.30.2/601a02d3-9487-45ce-a28b-99b5cb103efd.json",
-          "cause": "closure-bound"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Microsoft.AspNetCore.Builder.ControllerEndpointRouteBuilderExtensions.MapControllers(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
@@ -656,7 +656,7 @@
         {
           "member": "M:System.Net.Http.HttpClient.#ctor",
           "file": "Microsoft.NETCore.App/10.0/System.Net.Http.json",
-          "cause": "closure-bound"
+          "cause": "library-state"
         },
         {
           "member": "M:System.Threading.Channels.Channel.CreateUnbounded\u0060\u00601",

@@ -89,12 +89,15 @@ public static class ScopePipeline
     /// left out.</param>
     /// <param name="fieldPropertySites">The syntax trees and spans of driver seed statements whose automatic properties stay field
     /// accesses even when the run keeps other accesses as calls; <c>null</c> for none.</param>
+    /// <param name="accessesFilter">Builds, from the executions step's result, which executions the accesses step goes through, by
+    /// execution id; <c>null</c> for every execution.</param>
     public static ScopeRun Run(string scopeId, IReadOnlyList<Compilation> compilations,
                                IReadOnlyList<(Compilation Compilation, string? ProjectFilePath)> projectFiles, string rootDirectory,
                                ProviderRegistry registry, LibraryModels models, AnalysisLimits limits,
                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> loweringCache,
                                int? reachableBodyLimit, CancellationToken cancellationToken, Action<ScopeStep>? stepStarted = null,
-                               ReachabilityRules? reachability = null, IReadOnlyList<(SyntaxTree Tree, TextSpan Span)>? fieldPropertySites = null)
+                               ReachabilityRules? reachability = null, IReadOnlyList<(SyntaxTree Tree, TextSpan Span)>? fieldPropertySites = null,
+                               Func<ExecutionAnalysis, Func<string, bool>>? accessesFilter = null)
     {
         var step = new Stopwatch();
         var lowering = new Stopwatch();
@@ -228,7 +231,7 @@ public static class ScopePipeline
             var executionTime = Complete();
 
             Begin(ScopeStep.Accesses);
-            var interprocedural = new InterproceduralInput(scopeProgram, heap, executions);
+            var interprocedural = new InterproceduralInput(scopeProgram, heap, executions) { Collects = accessesFilter?.Invoke(executions) };
             var collection = InterproceduralAccesses.Collect(interprocedural, cancellationToken);
             counters[ScopeStep.Accesses] = new Dictionary<string, int>(StringComparer.Ordinal)
             {

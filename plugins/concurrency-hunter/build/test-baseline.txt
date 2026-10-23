@@ -6873,6 +6873,7 @@ ConcurrencyHunter.Core.Tests.Engine.ResultJoinMatrixTests.Every_single_task_cell
 ConcurrencyHunter.Core.Tests.Engine.ResultJoinMatrixTests.Every_twin_observes_its_wait_consistently	Passed
 ConcurrencyHunter.Core.Tests.Engine.ResultJoinMatrixTests.No_cell_with_a_second_alternative_is_ordered	Passed
 ConcurrencyHunter.Core.Tests.Engine.ResultJoinMatrixTests.The_matrix_has_exactly_the_allowed_cells	Passed
+ConcurrencyHunter.Core.Tests.Engine.ScopePipelineTests.An_execution_filter_leaves_out_the_accesses_of_the_executions_it_refuses	Passed
 ConcurrencyHunter.Core.Tests.Engine.ScopePipelineTests.Pipeline_gives_the_accesses_the_analyzer_reports_for_the_scope	Passed
 ConcurrencyHunter.Core.Tests.Engine.ScopePipelineTests.Pipeline_keeps_the_first_root_of_a_stable_id_and_reports_the_later_one	Passed
 ConcurrencyHunter.Core.Tests.Engine.ScopePipelineTests.Pipeline_over_its_limit_stops_after_reachability	Passed
@@ -8143,6 +8144,18 @@ ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_f
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "return await Forms.Models.PassTaskTask(Task.FromRe"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "var k = new Forms.Keeper(); Forms.Models.Keep(k, f"···)	Passed
 ConcurrencyHunter.Core.Tests.Generation.CompletionProducerFormTests.A_producer_form_handed_an_unseen_value_names_no_result_with_the_input(cell: "var tasks = new[] { Task.FromResult(flag ? x : Ext"···)	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Each_execution_role_is_collected_as_its_readers_read_it	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "", memberId: "M:Lib.Holder.#ctor(System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "public sealed class Args { } public sealed class R"···, memberId: "M:Lib.Api.Make(System.Action{Lib.Args})")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "public sealed class Bus { private Action _a; publi"···, memberId: "M:Lib.Bus.On(System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "public sealed class Busy { private Action _a; priv"···, memberId: "M:Lib.Api.Make(System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "public sealed class Made { } public sealed class R"···, memberId: "M:Lib.Api.Make(System.Action{Lib.Made})")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "public sealed class Narrow { public Narrow() { } p"···, memberId: "M:Lib.Keeper.Hold(System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "public sealed class Parser { private readonly Func"···, memberId: "M:Lib.Api.For(System.Int32,Lib.Parser)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "public sealed class Receiver { private Action _cal"···, memberId: "M:Lib.Api.Keep(System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "public sealed class Result { private readonly Acti"···, memberId: "M:Lib.Api.Make(System.Action{System.Object})")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.Holder_inputs_are_the_same_as_with_every_execution_collected(types: "public sealed class Result { private readonly obje"···, memberId: "M:Lib.Api.Make(System.Object,System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.ConfirmationAccessesTests.The_confirmation_collects_no_access_in_a_triggers_execution	Passed
 ConcurrencyHunter.Core.Tests.Generation.CoreLibDiagnosticsOffTests.A_stack_trace_is_never_made_and_its_text_is_a_value_of_its_type_and_nothing_else	Passed
 ConcurrencyHunter.Core.Tests.Generation.CoreLibDiagnosticsOffTests.An_event_source_does_nothing_its_bodies_are_never_entered_and_nothing_is_handed_to_unseen_code	Passed
 ConcurrencyHunter.Core.Tests.Generation.CoreLibDiagnosticsOffTests.Diagnostics_are_off_but_for_the_generation_of_a_member_of_their_own	Passed
@@ -9238,6 +9251,8 @@ ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.An_unknown_deleg
 ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.The_escape_artefacts_enumeration_is_not_foreign	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.What_an_operation_the_lowering_does_not_express_is_given_is_handed	Passed
 ConcurrencyHunter.Core.Tests.Generation.GenerationHandoffsTests.What_an_unknown_calls_argument_reaches_is_handed	Passed
+ConcurrencyHunter.Core.Tests.Generation.LibraryStaticHandoffMatrixTests.Every_axis_value_occurs_in_a_cell	Passed
+ConcurrencyHunter.Core.Tests.Generation.LibraryStaticHandoffMatrixTests.Every_cell_gets_its_expected_answer	Passed
 ConcurrencyHunter.Core.Tests.Generation.LinqOracleTests.Enumerable_Empty_is_a_candidate	Skipped
 ConcurrencyHunter.Core.Tests.Generation.LinqOracleTests.Every_linq_entry_is_generated_in_its_own_assembly	Skipped
 ConcurrencyHunter.Core.Tests.Generation.LinqOracleTests.Exact_linq_entries_meet_the_recorded_count	Skipped
@@ -9256,6 +9271,7 @@ ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Every_package_records_its
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Exact_fates_meet_the_floor	Skipped
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Fate_gold_members_with_an_entry_meet_the_recorded_count	Skipped
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Message_parser_constructor_finishes_under_the_bound	Skipped
+ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Message_parser_holder_is_covered_and_its_confirmation_passes_the_bound	Skipped
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Missing_input_fails_under_the_flag	Skipped
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_cannot_lower_the_accessor_floor	Passed
 ConcurrencyHunter.Core.Tests.Generation.ModelEvalTests.Recording_cannot_lower_the_exact_floor	Passed
@@ -9303,6 +9319,11 @@ ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_a_call_m
 ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_a_call_may_dispatch_away_from_is_overridable(types: "public class Service { public virtual void Run(Act"···, id: "M:Lib.Service.Run(System.Action)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_no_call_dispatches_away_from_is_answered(types: "public class Base { public virtual void Run(Action"···, id: "M:Lib.Service.Run(System.Action)")	Passed
 ConcurrencyHunter.Core.Tests.Generation.OverridableMemberTests.A_member_no_call_dispatches_away_from_is_answered(types: "public class Service { public void Run(Action acti"···, id: "M:Lib.Service.Run(System.Action)")	Passed
+ConcurrencyHunter.Core.Tests.Generation.PackageReachabilityTests.A_package_call_into_a_body_outside_the_set_is_an_opaque_call	Passed
+ConcurrencyHunter.Core.Tests.Generation.PackageReachabilityTests.A_package_interface_call_reaches_only_the_overrides_of_constructed_types	Passed
+ConcurrencyHunter.Core.Tests.Generation.PackageReachabilityTests.A_package_whose_method_a_recognizer_claims_is_refused_whole	Passed
+ConcurrencyHunter.Core.Tests.Generation.ReachabilityRuleSelectionTests.Every_axis_value_occurs_in_a_cell	Passed
+ConcurrencyHunter.Core.Tests.Generation.ReachabilityRuleSelectionTests.Every_cell_gets_its_expected_rule	Passed
 ConcurrencyHunter.Core.Tests.Generation.ReceiverSeedAccessMatrixTests.A_read_of_the_receivers_seed_whose_path_does_not_say_stays_a_read_of_this	Passed
 ConcurrencyHunter.Core.Tests.Generation.ReceiverSeedAccessMatrixTests.A_shared_region_leaves_each_access_to_its_own_path	Passed
 ConcurrencyHunter.Core.Tests.Generation.ReceiverSeedAccessMatrixTests.Every_axis_value_occurs_in_a_cell	Passed
@@ -11025,6 +11046,9 @@ ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.Entries_differin
 ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_as_a_result_and_an_output_loads_in_both_layers	Passed
 ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_inside_one_of_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_on_a_void_member_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.ObjectMemberTriggerMatrixTests.A_message_parser_shaped_holder_fits_the_24_triggers	Passed
+ConcurrencyHunter.Core.Tests.Providers.ObjectMemberTriggerMatrixTests.Every_axis_value_occurs_in_a_cell	Passed
+ConcurrencyHunter.Core.Tests.Providers.ObjectMemberTriggerMatrixTests.Every_cell_gets_its_expected_trigger_set	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_field_declared_in_a_struct_is_opened_as_a_classs_is	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_field_like_event_is_opened	Passed
 ConcurrencyHunter.Core.Tests.Providers.OpenedFieldsTests.A_field_of_a_private_nested_type_is_reachable	Passed
@@ -11258,6 +11282,12 @@ ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_first_argument_field_past_d
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_first_receiver_field_past_depth_3_is_unseeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_first_static_field_past_depth_2_is_unseeded	Passed
 ConcurrencyHunter.Core.Tests.Providers.SeedTests.The_receivers_field_at_depth_3_is_seeded	Passed
+ConcurrencyHunter.Core.Tests.Providers.SpanTriggerArgumentMatrixTests.A_namesake_span_leaves_its_member_uncovered	Passed
+ConcurrencyHunter.Core.Tests.Providers.SpanTriggerArgumentMatrixTests.A_pointer_argument_leaves_its_member_uncovered	Passed
+ConcurrencyHunter.Core.Tests.Providers.SpanTriggerArgumentMatrixTests.A_ref_struct_other_than_a_span_leaves_its_member_uncovered	Passed
+ConcurrencyHunter.Core.Tests.Providers.SpanTriggerArgumentMatrixTests.Every_axis_value_occurs_in_a_cell	Passed
+ConcurrencyHunter.Core.Tests.Providers.SpanTriggerArgumentMatrixTests.Every_cell_gets_its_expected_trigger	Passed
+ConcurrencyHunter.Core.Tests.Providers.SpanTriggerArgumentMatrixTests.No_cell_is_left_out_by_Allowed	Passed
 ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_cell_of_a_struct_array_is_a_place_its_fields_are_seeded_through	Passed
 ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_generic_readonly_structs_fields_like_KeyValuePairs_are_opened_and_seeded_with_its_probes	Passed
 ConcurrencyHunter.Core.Tests.Providers.StructSeedTests.A_nested_structs_reference_field_is_seeded_through_every_struct_field	Passed

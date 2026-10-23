@@ -80,7 +80,12 @@ public sealed class DriverExecutions
     /// <summary>Whether an execution is in tree(X).</summary>
     /// <param name="executionId">The execution.</param>
     /// <param name="action">The action.</param>
-    public bool InTree(string executionId, string action) => _actionsByRoot.GetValueOrDefault(TreeRootOf(executionId)) == action;
+    public bool InTree(string executionId, string action) => TreeActionOf(executionId) == action;
+
+    /// <summary>The driver action in whose tree an execution runs — setup, <c>V_Call</c>, <c>V_Enum</c> or a trigger — or <c>null</c> for
+    /// an execution in no action's tree: the one owner of which action's tree an execution is in.</summary>
+    /// <param name="executionId">The execution.</param>
+    public string? TreeActionOf(string executionId) => _actionsByRoot.GetValueOrDefault(TreeRootOf(executionId));
 
     /// <summary>Whether an execution is in setup's tree.</summary>
     /// <param name="executionId">The execution.</param>
@@ -96,7 +101,7 @@ public sealed class DriverExecutions
     {
         if (IsArtefact(executionId))
             return new DriverExecution(DriverExecutionRole.Artefact, null);
-        if (!_actionsByRoot.TryGetValue(TreeRootOf(executionId), out var action))
+        if (TreeActionOf(executionId) is not { } action)
             return new DriverExecution(DriverExecutionRole.Elsewhere, null);
         if (action == DriverSynthesizer.SETUP)
             return new DriverExecution(DriverExecutionRole.Setup, action);

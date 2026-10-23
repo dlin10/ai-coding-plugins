@@ -22,7 +22,7 @@
         "unseeded-read",
         "value-unnamed"
       ],
-      "reachedBodies": 49
+      "reachedBodies": 45
     },
     {
       "member": "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})",
@@ -57,7 +57,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 22
+      "reachedBodies": 21
     },
     {
       "member": "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{System.Threading.Tasks.Task})",
@@ -80,7 +80,7 @@
         "receiver-member-unseen",
         "unseeded-read"
       ],
-      "reachedBodies": 219
+      "reachedBodies": 49
     },
     {
       "member": "M:Polly.AsyncRetrySyntax.WaitAndRetryAsync(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
@@ -161,7 +161,7 @@
         "receiver-member-unseen",
         "unseeded-read"
       ],
-      "reachedBodies": 216
+      "reachedBodies": 48
     },
     {
       "member": "M:Polly.RetrySyntax.WaitAndRetry(Polly.PolicyBuilder,System.Int32,System.Func{System.Int32,System.TimeSpan},System.Action{System.Exception,System.TimeSpan,System.Int32,Polly.Context})",
@@ -230,7 +230,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 341
+      "reachedBodies": 8
     },
     {
       "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
@@ -271,7 +271,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 342
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})",
@@ -307,7 +307,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 357
+      "reachedBodies": 36
     },
     {
       "member": "M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
@@ -336,7 +336,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 352
+      "reachedBodies": 42
     },
     {
       "member": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}})",
@@ -364,7 +364,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 358
+      "reachedBodies": 27
     },
     {
       "member": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})",
@@ -390,7 +390,7 @@
         "result-several-objects",
         "value-unobserved"
       ],
-      "reachedBodies": 371
+      "reachedBodies": 52
     },
     {
       "member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
@@ -415,7 +415,7 @@
         "result-unresolved",
         "value-unobserved"
       ],
-      "reachedBodies": 350
+      "reachedBodies": 17
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})",
@@ -455,7 +455,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 342
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Enumerable.ToDictionary``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})",
@@ -482,7 +482,7 @@
         "enumeration-without-sequence",
         "result-several-objects"
       ],
-      "reachedBodies": 355
+      "reachedBodies": 22
     },
     {
       "member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})",
@@ -508,7 +508,7 @@
         "result-several-objects",
         "value-unobserved"
       ],
-      "reachedBodies": 354
+      "reachedBodies": 39
     },
     {
       "member": "M:System.Security.Claims.ClaimsPrincipal.FindFirst(System.Predicate{System.Security.Claims.Claim})",
@@ -575,7 +575,7 @@
         "result-unnamed",
         "value-unnamed"
       ],
-      "reachedBodies": 469
+      "reachedBodies": 84
     },
     {
       "member": "M:FluentValidation.AbstractValidator`1.ValidateAsync(`0,System.Threading.CancellationToken)",
@@ -595,7 +595,7 @@
         "result-unnamed",
         "value-unnamed"
       ],
-      "reachedBodies": 469
+      "reachedBodies": 82
     },
     {
       "member": "M:FluentValidation.IRuleBuilder`2.SetValidator(FluentValidation.IValidator{`1},System.String[])",
@@ -777,9 +777,9 @@
       "reason": "closure-bound",
       "model": null,
       "modelReason": null,
-      "detail": "the reachable set reached 1741 bodies, over 1500",
+      "detail": "the reachable set reached 1635 bodies, over 1500",
       "causes": [],
-      "reachedBodies": 1741
+      "reachedBodies": 1635
     },
     {
       "member": "M:System.Threading.Channels.ChannelWriter`1.TryWrite(`0)",
@@ -820,7 +820,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 400
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Aggregate``2(System.Collections.Generic.IEnumerable{``0},``1,System.Func{``1,``0,``1})~``1",
@@ -843,7 +843,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 11
     },
     {
       "member": "M:System.Linq.Enumerable.Aggregate``3(System.Collections.Generic.IEnumerable{``0},``1,System.Func{``1,``0,``1},System.Func{``1,``2})~``2",
@@ -870,7 +870,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 395
+      "reachedBodies": 14
     },
     {
       "member": "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Boolean",
@@ -893,7 +893,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 391
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0})~System.Boolean",
@@ -922,7 +922,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 518
+      "reachedBodies": 7
     },
     {
       "member": "M:System.Linq.Enumerable.Any``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Boolean",
@@ -945,7 +945,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 391
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.AsEnumerable``1(System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.IEnumerable{``0}",
@@ -963,7 +963,7 @@
         "enumeration-without-sequence",
         "probe-handed-to-unseen"
       ],
-      "reachedBodies": 391
+      "reachedBodies": 7
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
@@ -987,7 +987,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
@@ -1011,7 +1011,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Double",
@@ -1035,7 +1035,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Double",
@@ -1059,7 +1059,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
@@ -1082,7 +1082,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
@@ -1105,7 +1105,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int32}})~System.Nullable{System.Double}",
@@ -1128,7 +1128,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Double}",
@@ -1151,7 +1151,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
@@ -1174,7 +1174,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Average``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
@@ -1198,7 +1198,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Cast``1(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{``0}",
@@ -1219,7 +1219,7 @@
         "result-several-objects",
         "witness-value-handed"
       ],
-      "reachedBodies": 397
+      "reachedBodies": 26
     },
     {
       "member": "M:System.Linq.Enumerable.Contains``1(System.Collections.Generic.IEnumerable{``0},``0)~System.Boolean",
@@ -1236,7 +1236,7 @@
       "causes": [
         "probe-handed-to-unseen"
       ],
-      "reachedBodies": 424
+      "reachedBodies": 8
     },
     {
       "member": "M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0})~System.Int32",
@@ -1265,7 +1265,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 388
+      "reachedBodies": 7
     },
     {
       "member": "M:System.Linq.Enumerable.Count``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Int32",
@@ -1288,7 +1288,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 391
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.DistinctBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
@@ -1315,7 +1315,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 398
+      "reachedBodies": 17
     },
     {
       "member": "M:System.Linq.Enumerable.Empty``1~System.Collections.Generic.IEnumerable{``0}",
@@ -1333,7 +1333,7 @@
         "result-unresolved",
         "value-unobserved"
       ],
-      "reachedBodies": 389
+      "reachedBodies": 6
     },
     {
       "member": "M:System.Linq.Enumerable.ExceptBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
@@ -1378,7 +1378,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 398
+      "reachedBodies": 16
     },
     {
       "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0})~``0",
@@ -1395,7 +1395,7 @@
       "causes": [
         "value-unobserved"
       ],
-      "reachedBodies": 518
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
@@ -1418,7 +1418,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 11
     },
     {
       "member": "M:System.Linq.Enumerable.FirstOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
@@ -1441,7 +1441,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 11
     },
     {
       "member": "M:System.Linq.Enumerable.First``1(System.Collections.Generic.IEnumerable{``0})~``0",
@@ -1459,7 +1459,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 518
+      "reachedBodies": 18
     },
     {
       "member": "M:System.Linq.Enumerable.First``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
@@ -1483,7 +1483,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 20
     },
     {
       "member": "M:System.Linq.Enumerable.GroupBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{System.Linq.IGrouping{``1,``0}}",
@@ -1513,7 +1513,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 397
+      "reachedBodies": 38
     },
     {
       "member": "M:System.Linq.Enumerable.GroupBy``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})~System.Collections.Generic.IEnumerable{System.Linq.IGrouping{``1,``2}}",
@@ -1546,7 +1546,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 402
+      "reachedBodies": 43
     },
     {
       "member": "M:System.Linq.Enumerable.GroupBy``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``1,System.Collections.Generic.IEnumerable{``0},``2})~System.Collections.Generic.IEnumerable{``2}",
@@ -1580,7 +1580,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 402
+      "reachedBodies": 45
     },
     {
       "member": "M:System.Linq.Enumerable.GroupBy``4(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2},System.Func{``1,System.Collections.Generic.IEnumerable{``2},``3})~System.Collections.Generic.IEnumerable{``3}",
@@ -1617,7 +1617,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 407
+      "reachedBodies": 50
     },
     {
       "member": "M:System.Linq.Enumerable.GroupJoin``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,System.Collections.Generic.IEnumerable{``1},``3})~System.Collections.Generic.IEnumerable{``3}",
@@ -1653,7 +1653,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 410
+      "reachedBodies": 43
     },
     {
       "member": "M:System.Linq.Enumerable.IntersectBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
@@ -1698,7 +1698,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 398
+      "reachedBodies": 16
     },
     {
       "member": "M:System.Linq.Enumerable.Join``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,``1,``3})~System.Collections.Generic.IEnumerable{``3}",
@@ -1733,7 +1733,7 @@
         "probe-handed-to-unseen",
         "value-unobserved"
       ],
-      "reachedBodies": 409
+      "reachedBodies": 42
     },
     {
       "member": "M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0})~``0",
@@ -1750,7 +1750,7 @@
       "causes": [
         "value-unobserved"
       ],
-      "reachedBodies": 518
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
@@ -1773,7 +1773,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 402
+      "reachedBodies": 11
     },
     {
       "member": "M:System.Linq.Enumerable.LastOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
@@ -1796,7 +1796,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 402
+      "reachedBodies": 11
     },
     {
       "member": "M:System.Linq.Enumerable.Last``1(System.Collections.Generic.IEnumerable{``0})~``0",
@@ -1814,7 +1814,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 518
+      "reachedBodies": 18
     },
     {
       "member": "M:System.Linq.Enumerable.Last``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
@@ -1838,7 +1838,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 411
+      "reachedBodies": 20
     },
     {
       "member": "M:System.Linq.Enumerable.LeftJoin``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,``1,``3})~System.Collections.Generic.IEnumerable{``3}",
@@ -1873,7 +1873,7 @@
         "probe-handed-to-unseen",
         "value-unobserved"
       ],
-      "reachedBodies": 409
+      "reachedBodies": 41
     },
     {
       "member": "M:System.Linq.Enumerable.LongCount``1(System.Collections.Generic.IEnumerable{``0})~System.Int64",
@@ -1902,7 +1902,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 389
+      "reachedBodies": 7
     },
     {
       "member": "M:System.Linq.Enumerable.LongCount``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Int64",
@@ -1942,7 +1942,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 391
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Enumerable.MaxBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``0",
@@ -1967,7 +1967,7 @@
         "result-unresolved",
         "value-unobserved"
       ],
-      "reachedBodies": 402
+      "reachedBodies": 20
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
@@ -1991,7 +1991,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 400
+      "reachedBodies": 18
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
@@ -2015,7 +2015,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
@@ -2039,7 +2039,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
@@ -2063,7 +2063,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
@@ -2086,7 +2086,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 391
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
@@ -2109,7 +2109,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int32}})~System.Nullable{System.Int32}",
@@ -2132,7 +2132,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
@@ -2155,7 +2155,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
@@ -2178,7 +2178,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Max``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
@@ -2202,7 +2202,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Max``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``1",
@@ -2226,7 +2226,7 @@
         "probe-handed-to-unseen",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.MinBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``0",
@@ -2251,7 +2251,7 @@
         "result-unresolved",
         "value-unobserved"
       ],
-      "reachedBodies": 402
+      "reachedBodies": 20
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
@@ -2275,7 +2275,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 400
+      "reachedBodies": 18
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
@@ -2299,7 +2299,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
@@ -2323,7 +2323,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
@@ -2347,7 +2347,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
@@ -2370,7 +2370,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 391
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
@@ -2393,7 +2393,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int32}})~System.Nullable{System.Int32}",
@@ -2416,7 +2416,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
@@ -2439,7 +2439,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
@@ -2462,7 +2462,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Min``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
@@ -2486,7 +2486,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Min``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~``1",
@@ -2510,7 +2510,7 @@
         "probe-handed-to-unseen",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.OfType``1(System.Collections.IEnumerable)~System.Collections.Generic.IEnumerable{``0}",
@@ -2531,7 +2531,7 @@
         "result-several-objects",
         "witness-value-handed"
       ],
-      "reachedBodies": 396
+      "reachedBodies": 25
     },
     {
       "member": "M:System.Linq.Enumerable.OrderByDescending``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
@@ -2562,7 +2562,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 400
+      "reachedBodies": 59
     },
     {
       "member": "M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
@@ -2593,7 +2593,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 400
+      "reachedBodies": 59
     },
     {
       "member": "M:System.Linq.Enumerable.RightJoin``4(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``2},System.Func{``1,``2},System.Func{``0,``1,``3})~System.Collections.Generic.IEnumerable{``3}",
@@ -2628,7 +2628,7 @@
         "probe-handed-to-unseen",
         "value-unobserved"
       ],
-      "reachedBodies": 409
+      "reachedBodies": 41
     },
     {
       "member": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}})~System.Collections.Generic.IEnumerable{``1}",
@@ -2656,7 +2656,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 408
+      "reachedBodies": 30
     },
     {
       "member": "M:System.Linq.Enumerable.SelectMany``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Collections.Generic.IEnumerable{``1}})~System.Collections.Generic.IEnumerable{``1}",
@@ -2683,7 +2683,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 409
+      "reachedBodies": 22
     },
     {
       "member": "M:System.Linq.Enumerable.SelectMany``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Collections.Generic.IEnumerable{``1}},System.Func{``0,``1,``2})~System.Collections.Generic.IEnumerable{``2}",
@@ -2714,7 +2714,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 414
+      "reachedBodies": 27
     },
     {
       "member": "M:System.Linq.Enumerable.SelectMany``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Collections.Generic.IEnumerable{``1}},System.Func{``0,``1,``2})~System.Collections.Generic.IEnumerable{``2}",
@@ -2745,7 +2745,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 414
+      "reachedBodies": 27
     },
     {
       "member": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,``1})~System.Collections.Generic.IEnumerable{``1}",
@@ -2768,7 +2768,7 @@
         "probe-handed-to-unseen",
         "value-unobserved"
       ],
-      "reachedBodies": 397
+      "reachedBodies": 16
     },
     {
       "member": "M:System.Linq.Enumerable.Select``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``1}",
@@ -2795,7 +2795,7 @@
         "result-several-objects",
         "value-unobserved"
       ],
-      "reachedBodies": 416
+      "reachedBodies": 48
     },
     {
       "member": "M:System.Linq.Enumerable.SequenceEqual``1(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0})~System.Boolean",
@@ -2812,7 +2812,7 @@
       "causes": [
         "probe-handed-to-unseen"
       ],
-      "reachedBodies": 390
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0})~``0",
@@ -2830,7 +2830,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 399
+      "reachedBodies": 17
     },
     {
       "member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
@@ -2854,7 +2854,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 20
     },
     {
       "member": "M:System.Linq.Enumerable.SingleOrDefault``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean},``0)~``0",
@@ -2878,7 +2878,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 20
     },
     {
       "member": "M:System.Linq.Enumerable.Single``1(System.Collections.Generic.IEnumerable{``0})~``0",
@@ -2896,7 +2896,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 19
     },
     {
       "member": "M:System.Linq.Enumerable.Single``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~``0",
@@ -2920,7 +2920,7 @@
         "library-state-store",
         "value-unobserved"
       ],
-      "reachedBodies": 403
+      "reachedBodies": 22
     },
     {
       "member": "M:System.Linq.Enumerable.SkipWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
@@ -2947,7 +2947,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 396
+      "reachedBodies": 15
     },
     {
       "member": "M:System.Linq.Enumerable.SkipWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
@@ -2974,7 +2974,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 396
+      "reachedBodies": 15
     },
     {
       "member": "M:System.Linq.Enumerable.Skip``1(System.Collections.Generic.IEnumerable{``0},System.Int32)~System.Collections.Generic.IEnumerable{``0}",
@@ -2995,7 +2995,7 @@
         "result-several-objects",
         "value-unobserved"
       ],
-      "reachedBodies": 406
+      "reachedBodies": 37
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Decimal})~System.Decimal",
@@ -3035,7 +3035,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Double})~System.Double",
@@ -3075,7 +3075,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32})~System.Int32",
@@ -3115,7 +3115,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int64})~System.Int64",
@@ -3155,7 +3155,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Decimal}})~System.Nullable{System.Decimal}",
@@ -3195,7 +3195,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Double}})~System.Nullable{System.Double}",
@@ -3235,7 +3235,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int32}})~System.Nullable{System.Int32}",
@@ -3275,7 +3275,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Int64}})~System.Nullable{System.Int64}",
@@ -3315,7 +3315,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Nullable{System.Single}})~System.Nullable{System.Single}",
@@ -3355,7 +3355,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.Sum``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Single})~System.Single",
@@ -3395,7 +3395,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 392
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.TakeWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
@@ -3418,7 +3418,7 @@
         "probe-handed-to-unseen",
         "value-unobserved"
       ],
-      "reachedBodies": 396
+      "reachedBodies": 15
     },
     {
       "member": "M:System.Linq.Enumerable.TakeWhile``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
@@ -3441,7 +3441,7 @@
         "probe-handed-to-unseen",
         "value-unobserved"
       ],
-      "reachedBodies": 396
+      "reachedBodies": 15
     },
     {
       "member": "M:System.Linq.Enumerable.Take``1(System.Collections.Generic.IEnumerable{``0},System.Int32)~System.Collections.Generic.IEnumerable{``0}",
@@ -3461,7 +3461,7 @@
         "result-several-objects",
         "value-unobserved"
       ],
-      "reachedBodies": 390
+      "reachedBodies": 37
     },
     {
       "member": "M:System.Linq.Enumerable.Take``1(System.Collections.Generic.IEnumerable{``0},System.Range)~System.Collections.Generic.IEnumerable{``0}",
@@ -3482,7 +3482,7 @@
         "result-several-objects",
         "value-unobserved"
       ],
-      "reachedBodies": 407
+      "reachedBodies": 40
     },
     {
       "member": "M:System.Linq.Enumerable.ThenByDescending``2(System.Linq.IOrderedEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
@@ -3508,7 +3508,7 @@
         "value-unnamed",
         "witness-value-handed"
       ],
-      "reachedBodies": 418
+      "reachedBodies": 27
     },
     {
       "member": "M:System.Linq.Enumerable.ThenBy``2(System.Linq.IOrderedEnumerable{``0},System.Func{``0,``1})~System.Linq.IOrderedEnumerable{``0}",
@@ -3534,7 +3534,7 @@
         "value-unnamed",
         "witness-value-handed"
       ],
-      "reachedBodies": 418
+      "reachedBodies": 27
     },
     {
       "member": "M:System.Linq.Enumerable.ToArray``1(System.Collections.Generic.IEnumerable{``0})~``0[]",
@@ -3556,7 +3556,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 389
+      "reachedBodies": 18
     },
     {
       "member": "M:System.Linq.Enumerable.ToDictionary``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.Dictionary{``1,``0}",
@@ -3582,7 +3582,7 @@
         "result-several-objects",
         "value-unobserved"
       ],
-      "reachedBodies": 399
+      "reachedBodies": 18
     },
     {
       "member": "M:System.Linq.Enumerable.ToDictionary``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})~System.Collections.Generic.Dictionary{``1,``2}",
@@ -3612,7 +3612,7 @@
         "result-several-objects",
         "value-unobserved"
       ],
-      "reachedBodies": 404
+      "reachedBodies": 23
     },
     {
       "member": "M:System.Linq.Enumerable.ToList``1(System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.List{``0}",
@@ -3629,7 +3629,7 @@
       "causes": [
         "value-unobserved"
       ],
-      "reachedBodies": 439
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Enumerable.ToLookup``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Linq.ILookup{``1,``0}",
@@ -3659,7 +3659,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 399
+      "reachedBodies": 34
     },
     {
       "member": "M:System.Linq.Enumerable.ToLookup``3(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Func{``0,``2})~System.Linq.ILookup{``1,``2}",
@@ -3693,7 +3693,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 404
+      "reachedBodies": 39
     },
     {
       "member": "M:System.Linq.Enumerable.UnionBy``2(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1})~System.Collections.Generic.IEnumerable{``0}",
@@ -3735,7 +3735,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 398
+      "reachedBodies": 16
     },
     {
       "member": "M:System.Linq.Enumerable.Union``1(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``0})~System.Collections.Generic.IEnumerable{``0}",
@@ -3756,7 +3756,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 401
+      "reachedBodies": 36
     },
     {
       "member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
@@ -3782,7 +3782,7 @@
         "result-several-objects",
         "value-unobserved"
       ],
-      "reachedBodies": 402
+      "reachedBodies": 38
     },
     {
       "member": "M:System.Linq.Enumerable.Where``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Int32,System.Boolean})~System.Collections.Generic.IEnumerable{``0}",
@@ -3805,7 +3805,7 @@
         "probe-handed-to-unseen",
         "value-unobserved"
       ],
-      "reachedBodies": 396
+      "reachedBodies": 15
     },
     {
       "member": "M:System.Linq.Enumerable.Zip``3(System.Collections.Generic.IEnumerable{``0},System.Collections.Generic.IEnumerable{``1},System.Func{``0,``1,``2})~System.Collections.Generic.IEnumerable{``2}",
@@ -3828,7 +3828,7 @@
         "delegate-input-unobserved",
         "value-unobserved"
       ],
-      "reachedBodies": 398
+      "reachedBodies": 16
     },
     {
       "member": "M:System.Linq.Queryable.Any``1(System.Linq.IQueryable{``0})~System.Boolean",
@@ -3846,7 +3846,7 @@
         "probe-handed-to-unseen",
         "witness-value-handed"
       ],
-      "reachedBodies": 29
+      "reachedBodies": 8
     },
     {
       "member": "M:System.Linq.Queryable.Any``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~System.Boolean",
@@ -3864,7 +3864,7 @@
         "probe-handed-to-unseen",
         "witness-value-handed"
       ],
-      "reachedBodies": 30
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Queryable.OrderBy``2(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,``1}})~System.Linq.IOrderedQueryable{``0}",
@@ -3885,7 +3885,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 52
+      "reachedBodies": 26
     },
     {
       "member": "M:System.Linq.Queryable.OrderBy``2(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,``1}},System.Collections.Generic.IComparer{``1})~System.Linq.IOrderedQueryable{``0}",
@@ -3906,7 +3906,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 53
+      "reachedBodies": 27
     },
     {
       "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0})~``0",
@@ -3926,7 +3926,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 29
+      "reachedBodies": 8
     },
     {
       "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~``0",
@@ -3946,7 +3946,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 30
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}},``0)~``0",
@@ -3966,7 +3966,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 31
+      "reachedBodies": 10
     },
     {
       "member": "M:System.Linq.Queryable.SingleOrDefault``1(System.Linq.IQueryable{``0},``0)~``0",
@@ -3986,7 +3986,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 30
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Queryable.Single``1(System.Linq.IQueryable{``0})~``0",
@@ -4006,7 +4006,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 29
+      "reachedBodies": 8
     },
     {
       "member": "M:System.Linq.Queryable.Single``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~``0",
@@ -4026,7 +4026,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 30
+      "reachedBodies": 9
     },
     {
       "member": "M:System.Linq.Queryable.Skip``1(System.Linq.IQueryable{``0},System.Int32)~System.Linq.IQueryable{``0}",
@@ -4047,7 +4047,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 42
+      "reachedBodies": 16
     },
     {
       "member": "M:System.Linq.Queryable.Take``1(System.Linq.IQueryable{``0},System.Int32)~System.Linq.IQueryable{``0}",
@@ -4068,7 +4068,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 42
+      "reachedBodies": 16
     },
     {
       "member": "M:System.Linq.Queryable.Take``1(System.Linq.IQueryable{``0},System.Range)~System.Linq.IQueryable{``0}",
@@ -4089,7 +4089,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 42
+      "reachedBodies": 16
     },
     {
       "member": "M:System.Linq.Queryable.Where``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Boolean}})~System.Linq.IQueryable{``0}",
@@ -4110,7 +4110,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 52
+      "reachedBodies": 26
     },
     {
       "member": "M:System.Linq.Queryable.Where``1(System.Linq.IQueryable{``0},System.Linq.Expressions.Expression{System.Func{``0,System.Int32,System.Boolean}})~System.Linq.IQueryable{``0}",
@@ -4131,7 +4131,7 @@
         "value-unobserved",
         "witness-value-handed"
       ],
-      "reachedBodies": 52
+      "reachedBodies": 26
     }
   ],
   "accessors": [
@@ -4184,7 +4184,7 @@
         "value-unnamed",
         "value-unobserved"
       ],
-      "reachedBodies": 38
+      "reachedBodies": 34
     },
     {
       "member": "M:System.Collections.Specialized.ListDictionary.set_Item(System.Object,System.Object)",
@@ -4205,7 +4205,7 @@
         "unseeded-read",
         "value-unnamed"
       ],
-      "reachedBodies": 38
+      "reachedBodies": 34
     },
     {
       "member": "M:System.ComponentModel.BackgroundWorker.add_DoWork(System.ComponentModel.DoWorkEventHandler)",
@@ -4348,7 +4348,7 @@
       "modelReason": null,
       "detail": "",
       "causes": [],
-      "reachedBodies": 29
+      "reachedBodies": 25
     },
     {
       "member": "M:System.IO.FileSystemWatcher.add_Changed(System.IO.FileSystemEventHandler)",
@@ -4440,7 +4440,7 @@
       "causes": [
         "library-state-store"
       ],
-      "reachedBodies": 85
+      "reachedBodies": 54
     }
   ],
   "packages": [

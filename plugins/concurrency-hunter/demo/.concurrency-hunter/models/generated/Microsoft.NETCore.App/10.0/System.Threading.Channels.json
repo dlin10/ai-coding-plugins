@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "67e5666217c640088d0ff8efc8408b6b94374c3845456b04e2639dff3d88b28d",
+  "generator": "86ad6b9587ae1e5e7bda41772f752a1a30e9d28d108b3cdc658085d85dbb7672",
   "assembly": {
     "name": "System.Threading.Channels",
     "version": "10.0.0.0",

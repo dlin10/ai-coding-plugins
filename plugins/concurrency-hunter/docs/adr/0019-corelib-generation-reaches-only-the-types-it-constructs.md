@@ -90,3 +90,47 @@ that formatting and parsing run (about 1,750 bodies): a member past it meets the
 stand-ins next, and the run grows by minutes and gigabytes. Rejected: serving
 `SR` through models of its own assembly. A library model never applies to a member declared in the run,
 and changing that is where bottom-up generation would start.
+
+## Amendment, 2026-10-22: the generation of every library reaches only the types it constructs
+
+Question 143 asked whether the narrower reachable set applies to the generation of a package. It does,
+and the sentence above that the generation of a package is unchanged no longer holds. A package's
+generation dispatched a virtual or interface call to every override its class hierarchy offers, and a
+library with many implementations of one interface pulled them all in. In Google.Protobuf, a call of
+`IMessage.MergeFrom` reaches every message the assembly declares — `Any`, `Timestamp`, the descriptor
+protos — though a parse constructs one: the program's own.
+
+The decision, for the generation of every library:
+
+- A virtual or interface call reaches only the overrides of types the run constructs, by the first rule
+  above, with the same reading of value types and of the open-world assembly, the driver's.
+- A body outside that set that the heap resolves a call into is an opaque call, as above. It never
+  resolves to nothing.
+- The rest of the decision stays `System.Private.CoreLib`'s own: `System.SR` never entered, the types a
+  recognizer owns read as a program reads them, and diagnostics off. Any other assembly is still refused
+  whole when a recognizer claims one of its methods.
+
+Measured on Google.Protobuf before the decision, with constructed-type dispatch put in place of the
+class hierarchy for a package and nothing else changed:
+
+| Generation | Class hierarchy | Constructed types |
+|---|---|---|
+| `MessageParser<T>.ParseFrom(byte[])`, 3.30.2 | 1,571 bodies, `closure-bound` | 65 bodies, analysed, `unknown-touch` |
+| `MessageParser<T>.ParseFrom(byte[])`, 3.21.9 | no answer in 15 minutes | 65 bodies, 12 s, `unknown-touch` |
+| `MessageParser<T>` constructor, its fate run | 22 bodies | 22 bodies |
+| that constructor's holder confirmation, 3.30.2 / 3.21.9 | 2,744 / 2,170 bodies | 2,193 / 1,830 bodies |
+| `FieldCodec.ForMessage`, 3.21.9, its holder confirmation | 1,937 bodies | 166 bodies |
+
+No fate and no answer of the constructor or of `ForMessage` moved. The confirmation of the
+`MessageParser<T>` constructor still passes 1,500 bodies, through `ParseJson` alone;
+[ADR 0025](0025-a-holders-confirmation-run-collects-accesses-only-in-the-drivers-actions.md)
+records what the confirmation run collects and why its bound stays.
+
+The consequences to hold. Every generated answer of a package can move, so the model evals' snapshot and
+the demo's generated files are recorded again, each move with its cause. A call that the class hierarchy
+ran into an override of a type no reached body constructs is now an opaque call: wider, never narrower.
+
+Rejected: narrowing only a generation whose class-hierarchy set passes the bound. A member's precision
+would depend on the size of its closure, and a member past the bound would be analysed twice. Rejected:
+narrowing only the holder's confirmation run. `ParseFrom(byte[])` would stay past the bound, and a fate
+run and its confirmation would read different reachable sets.

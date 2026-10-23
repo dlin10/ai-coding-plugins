@@ -21,7 +21,8 @@ public sealed record GeneratedEffect(string Kind, IReadOnlyList<string> Roots, I
 
 /// <summary>A pre-existing library region the member stored into, with the roots in whose trees it did so.</summary>
 /// <param name="Region">The stored-into region.</param>
-/// <param name="Roots"><c>V_Call</c> and/or <c>V_Enum</c>.</param>
+/// <param name="Roots"><c>V_Call</c> and/or <c>V_Enum</c>, and, for a static handed to unseen code in no action's tree, the executions
+/// it was handed in.</param>
 public sealed record StateStore(string Region, IReadOnlyList<string> Roots);
 
 /// <summary>Reads effects, state stores and refusal evidence from one completed driver run. Only accesses made by bodies of the
@@ -114,6 +115,8 @@ public sealed class EffectReader
         ReadSummaryEvidence();
         _checks.Check(GenerationStage.ReadEffects);
         ReadUnknownDelegateStateStores();
+        _checks.Check(GenerationStage.ReadEffects);
+        ReadStaticsHandedToUnseen();
         _checks.Check(GenerationStage.ReadEffects);
         ReadWitnessesAndUnknownCalls();
         _checks.Check(GenerationStage.ReadEffects);
@@ -849,6 +852,52 @@ public sealed class EffectReader
         }
     }
 
+    /// <summary>Records a static field of the library's assembly that code the analysis does not see gets by reference outside setup — as
+    /// the receiver or a <c>ref</c>, <c>in</c> or <c>out</c> argument of a call the analysis does not follow or of a call without a resolved
+    /// target (<see cref="GenerationHandoffs.UnseenCalls"/>), in any execution <see cref="GenerationHandoffs.ExecutionsOutsideSetup"/> names:
+    /// the call's or the enumeration's tree, an unknown execution, a type initializer, a lazy construction — as a store into the static
+    /// storage of the field's type, which a store the analysis sees there is too (R1): that code may write it. It is recorded in the
+    /// action whose tree the execution is in, else in the execution itself. The field is found through what the receiver is —
+    /// a struct's storage, whose holder is the static storage, or the static storage itself — and through every static field a reference
+    /// names (<see cref="ValueProvenance.ReferenceStatics"/>), which a reference to a scalar or a reference field names without any
+    /// region of the heap. The driver's own statics, which it hands by reference to the member and its triggers, are no library state,
+    /// and a static's value handed by value is no reference to it.</summary>
+    private void ReadStaticsHandedToUnseen()
+    {
+        var library = _driver.Member.ContainingAssembly.Name;
+        foreach (var call in _handoffs.UnseenCalls)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
+            var roots = _handoffs.ExecutionsOutsideSetup(call.Instance.Id).Select(execution => ActionOf(execution) ?? execution)
+                                 .Distinct(StringComparer.Ordinal).ToArray();
+            if (roots.Length == 0)
+                continue;
+            var received = _stage.Each(call.Receivers).SelectMany(value => _heap.Resolve(call.Instance.Id, value))
+                                 .Select(region => _heap.Located(region, "")?.Region ?? region).Where(IsLibraryStatic)
+                                 .Concat(_stage.Each(call.References).SelectMany(target => ValueProvenance.ReferenceStatics(_heap, call.Instance, target))
+                                               .Where(field => field.Assembly == library)
+                                               .SelectMany(field => FieldSlot.TypeKey(field.Assembly, field.ContainingTypeId) is var type &&
+                                                                    StaticStorage()[type].ToArray() is { Length: > 0 } regions
+                                                                        ? regions
+                                                                        : [$"static:{type}"]));
+            foreach (var region in received.Distinct(StringComparer.Ordinal).ToArray())
+            {
+                _checks.Check(GenerationStage.ReadEffects);
+                foreach (var root in roots)
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
+                    AddStateStore(region, root);
+                }
+            }
+        }
+    }
+
+    /// <summary>Whether a region is the static storage of a type of the library's assembly.</summary>
+    /// <param name="region">The region.</param>
+    private bool IsLibraryStatic(string region) =>
+        _heap.Regions.TryGetValue(region, out var held) && held.Kind == HeapRegionKind.Static &&
+        held.TypeKey?.StartsWith($"{_driver.Member.ContainingAssembly.Name}:", StringComparison.Ordinal) == true;
+
     /// <summary>The instances a set of start instances reaches through call edges, the starts included. It checks at each instance
     /// it takes off its stack.</summary>
     /// <param name="starts">The start instances.</param>
@@ -1237,7 +1286,8 @@ public sealed class EffectReader
     /// <summary>Records a store into library state that existed before the call. Every route that finds a state store records it
     /// here, so this is where the rule is decided: an object the call made is no such state, whoever reaches it (R6).</summary>
     /// <param name="region">The object written into.</param>
-    /// <param name="root"><c>V_Call</c> or <c>V_Enum</c>.</param>
+    /// <param name="root"><c>V_Call</c> or <c>V_Enum</c>; for a static handed to unseen code in no action's tree, the execution
+    /// (<see cref="ReadStaticsHandedToUnseen"/>).</param>
     private void AddStateStore(string region, string root)
     {
         if (_allocations.CreatedByCall(region))

@@ -97,7 +97,12 @@ public sealed record InterproceduralCollection(IReadOnlyList<Access> Accesses, I
     public IReadOnlySet<string> UnseenFilledStorage { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
-public sealed record InterproceduralInput(ScopeProgram Scope, HeapSolution Heap, ExecutionAnalysis Executions);
+public sealed record InterproceduralInput(ScopeProgram Scope, HeapSolution Heap, ExecutionAnalysis Executions)
+{
+    /// <summary>Whether the collection goes through an execution, by its id; <c>null</c> for every execution. An execution it refuses
+    /// is not walked, so none of its accesses is collected.</summary>
+    public Func<string, bool>? Collects { get; init; }
+}
 
 /// <summary>
 /// Collects every access each execution runs, breadth-first from its entries over the heap's call edges, with whether the object it
@@ -147,10 +152,12 @@ public static partial class InterproceduralAccesses
                 WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
                 // The unknown enumeration of a library sequence enumerates it even where no body of its own runs there (R5), and an
-                // execution running work without a body makes its unresolved call though it runs no body (question 145).
-                if (input.Executions.Entries.TryGetValue(execution.Id, out var entries) ||
-                    execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject) ||
-                    workHosts.Contains(execution.Id))
+                // execution running work without a body makes its unresolved call though it runs no body (question 145). An execution
+                // the input's filter refuses is not walked.
+                if ((input.Collects is null || input.Collects(execution.Id)) &&
+                    (input.Executions.Entries.TryGetValue(execution.Id, out var entries) ||
+                     execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject) ||
+                     workHosts.Contains(execution.Id)))
                 {
                     var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, slotFields, origins,
                                                            unknownCalls, reach, cancellationToken);

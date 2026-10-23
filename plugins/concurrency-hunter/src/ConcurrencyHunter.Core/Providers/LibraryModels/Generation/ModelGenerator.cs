@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.CallGraph;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using Microsoft.CodeAnalysis;
@@ -178,15 +179,20 @@ public static class ModelGenerator
     /// model; <c>null</c> for those.</param>
     /// <param name="checkReported">Told the stage and the ordinal of each check within that stage before the check is made, for tests;
     /// <c>null</c> in production.</param>
+    /// <param name="confirmationCollectsEverything">Whether the holder's confirmation run collects the accesses of every execution
+    /// rather than only of those in the trees of the driver's actions, for tests that compare the two; <c>false</c> in production.</param>
     internal static GenerationTrace Trace(GenerationRequest request, LibraryCompilationResult library, CancellationToken cancellationToken,
-                                          LibraryModels? models = null, Action<GenerationStage, int>? checkReported = null)
+                                          LibraryModels? models = null, Action<GenerationStage, int>? checkReported = null,
+                                          bool confirmationCollectsEverything = false)
     {
         using var work = WorkCancellation.Enter(cancellationToken);
         var facts = new Facts(request);
-        return Unnamed(facts) ?? Classify(facts, library, new GenerationChecks(WorkCancellation.Token, checkReported), models);
+        return Unnamed(facts) ?? Classify(facts, library, new GenerationChecks(WorkCancellation.Token, checkReported), models,
+                                          confirmationCollectsEverything);
     }
 
-    private static GenerationTrace Classify(Facts facts, LibraryCompilationResult library, GenerationChecks checks, LibraryModels? models = null)
+    private static GenerationTrace Classify(Facts facts, LibraryCompilationResult library, GenerationChecks checks, LibraryModels? models = null,
+                                            bool confirmationCollectsEverything = false)
     {
         WorkCancellation.Check();
         facts.ExternBodies = library.ExternBodies;
@@ -230,27 +236,18 @@ public static class ModelGenerator
         var loadedStatics = new HashSet<(string Type, string Name)>();
         var witnesses = new ComparisonWitnesses();
         var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
-        // The driver's probes, subclasses and seeds stand for the user's objects, of whatever type they are.
-        var reachability = (corelib
-            ? new ReachabilityRules(DispatchRule.ConstructedTypes, CoreLibLeftOutTypeKeys(compilation, driver.Member))
-            {
-                SilentTypeKeys = CoreLibSilentTypeKeys(compilation, driver.Member)
-            }
-            : ReachabilityRules.ClassHierarchy) with
-        {
-            OpenWorldAssemblies = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY },
-            CalledPropertyKeys = driver.Member.AssociatedSymbol is IPropertySymbol property
-                ? new HashSet<string>(StringComparer.Ordinal) { $"{property.ContainingAssembly.Name}:{property.OriginalDefinition.GetDocumentationCommentId()}" }
-                : new HashSet<string>(StringComparer.Ordinal)
-        };
-        // A stage that runs the pipeline checks at its start and before each step the pipeline takes.
+        var reachability = Reachability(compilation, driver.Member);
+        // A stage that runs the pipeline checks at its start and before each step the pipeline takes. The confirmation run has the
+        // fate run's bound and collects accesses only in the trees of the driver's actions, where its readers read them (ADR 0025).
         ScopeRun Pipeline(bool triggers, GenerationStage stage)
         {
             checks.Check(stage);
+            var confirms = stage == GenerationStage.ConfirmHolder;
             return ScopePipeline.Run(SCOPE_ID, [compilation, driver.Compilation], [], Path.GetTempPath(), new ProviderRegistry([new DriverRootProvider(triggers)]),
                                      models, AnalysisLimits.Default, lowered, CLOSURE_BOUND, checks.Token, _ => checks.Check(stage),
                                      reachability: reachability,
-                                     fieldPropertySites: driver.SeedStatements.Select(seed => (seed.Operation.Syntax.SyntaxTree, seed.Operation.Syntax.Span)).ToArray());
+                                     fieldPropertySites: driver.SeedStatements.Select(seed => (seed.Operation.Syntax.SyntaxTree, seed.Operation.Syntax.Span)).ToArray(),
+                                     accessesFilter: confirms && !confirmationCollectsEverything ? executions => ConfirmationCollects(driver, executions) : null);
         }
 
         ScopeRun run;
@@ -393,6 +390,39 @@ public static class ModelGenerator
     /// <param name="member">The member.</param>
     private static bool Overridable(IMethodSymbol member) =>
         (member.IsVirtual || member.IsOverride && !member.IsSealed) && !member.ContainingType.IsSealed;
+
+    /// <summary>Which executions a holder's confirmation run collects accesses in (ADR 0025): those in the tree of setup, <c>V_Call</c> or
+    /// <c>V_Enum</c>, a superset of what value provenance reads of the run's accesses. An execution in a trigger's tree, or in no action's
+    /// tree, is not collected; the executions step stays whole, and the confirmation reads where the probes fired from it.</summary>
+    /// <param name="driver">The driver.</param>
+    /// <param name="executions">The confirmation run's executions.</param>
+    internal static Func<string, bool> ConfirmationCollects(Driver driver, ExecutionAnalysis executions)
+    {
+        // The artefact is read through what Keep.R reaches, which plays no part in which action's tree an execution is in.
+        var roles = new DriverExecutions(driver, executions, new HashSet<string>(StringComparer.Ordinal));
+        return execution => roles.TreeActionOf(execution) is DriverSynthesizer.SETUP or DriverSynthesizer.CALL or DriverSynthesizer.ENUMERATE;
+    }
+
+    /// <summary>The rules the reachable set of a member's generation is built by (ADR 0019): dispatch by constructed types for every
+    /// library, so a call the heap resolves into a body outside the set is an opaque call; for <c>System.Private.CoreLib</c> alone, the
+    /// types it leaves out (<see cref="CoreLibLeftOutTypeKeys"/>) and the diagnostics it runs with off (<see cref="CoreLibSilentTypeKeys"/>).
+    /// The driver's assembly is open-world, its probes, subclasses and seeds standing for the user's objects of whatever type, and the
+    /// property whose accessor is generated keeps its accesses as accessor calls.</summary>
+    /// <param name="compilation">The library compilation.</param>
+    /// <param name="member">The member generated.</param>
+    internal static ReachabilityRules Reachability(Compilation compilation, IMethodSymbol member) =>
+        (compilation.AssemblyName == "System.Private.CoreLib"
+            ? new ReachabilityRules(DispatchRule.ConstructedTypes, CoreLibLeftOutTypeKeys(compilation, member))
+            {
+                SilentTypeKeys = CoreLibSilentTypeKeys(compilation, member)
+            }
+            : new ReachabilityRules(DispatchRule.ConstructedTypes, new HashSet<string>(StringComparer.Ordinal))) with
+        {
+            OpenWorldAssemblies = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY },
+            CalledPropertyKeys = member.AssociatedSymbol is IPropertySymbol property
+                ? new HashSet<string>(StringComparer.Ordinal) { $"{property.ContainingAssembly.Name}:{property.OriginalDefinition.GetDocumentationCommentId()}" }
+                : new HashSet<string>(StringComparer.Ordinal)
+        };
 
     /// <summary>The definition keys of the types whose bodies CoreLib's generation of a member never enters (ADR 0019): <c>System.SR</c>,
     /// each type a recognizer owns (<see cref="EngineClaims.RecognizedCoreLibTypeKeys"/>) but the one declaring the member, whose own

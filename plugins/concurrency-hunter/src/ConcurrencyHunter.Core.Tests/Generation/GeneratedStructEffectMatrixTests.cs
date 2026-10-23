@@ -16,7 +16,8 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 /// on every route, since a copy holds the same objects — except through a <c>Nullable</c>'s or a pair's contents, a struct TD-034b
 /// leaves unseeded, where the read of the reference field gets no model (<c>incomplete</c>). The class twin of a cell on library storage is the same member with the struct
 /// declared as a class kept in the same place; a store of a whole struct holding <c>p</c> has the twin of a store of <c>p</c> into that
-/// place.</summary>
+/// place. A generic route's constrained call on a struct no reached body boxes is an opaque call, and the cell answers as that call
+/// (R1).</summary>
 /// <param name="cache">The class fixture that keeps the matrix's answers for every test of the class.</param>
 public sealed class GeneratedStructEffectMatrixTests(ClassCache cache) : IClassFixture<ClassCache>
 {
@@ -180,7 +181,8 @@ public sealed class GeneratedStructEffectMatrixTests(ClassCache cache) : IClassF
     [Fact]
     public void Every_route_answers_as_its_storage()
     {
-        var failures = Cells().Where(cell => IsWritableReference(cell.Route))
+        // A generic route answers as the opaque call it makes, not as its storage.
+        var failures = Cells().Where(cell => IsWritableReference(cell.Route) && !IsOpaqueRoute(cell.Route))
                               .GroupBy(cell => (cell.Storage, cell.Action))
                               .Where(group => group.Select(cell => Shape(Results.Answers[cell])).Distinct(StringComparer.Ordinal).Count() > 1)
                               .Select(group => $"{group.Key.Storage}/{group.Key.Action}: " +
@@ -194,8 +196,8 @@ public sealed class GeneratedStructEffectMatrixTests(ClassCache cache) : IClassF
     public void Every_copying_route_answers_as_a_copy()
     {
         var copying = Cells().Where(IsCopying).ToArray();
-        var failures = copying.Where(cell => Shape(Results.Answers[cell]) != Shape(Results.Answers[Copy(cell.Action)]))
-                              .Select(cell => $"{cell.Name}: {Show(Results.Answers[cell])}; the copy {Show(Results.Answers[Copy(cell.Action)])}")
+        var failures = copying.Where(cell => Shape(Results.Answers[cell]) != Shape(Results.Answers[Copy(cell)]))
+                              .Select(cell => $"{cell.Name}: {Show(Results.Answers[cell])}; the copy {Show(Results.Answers[Copy(cell)])}")
                               .ToArray();
 
         Assert.True(copying.Length > 0);
@@ -259,11 +261,23 @@ public sealed class GeneratedStructEffectMatrixTests(ClassCache cache) : IClassF
     /// <summary>R4: a write into the object the struct's reference field holds answers by the storage on every route but a contents
     /// route, whose struct TD-034b leaves unseeded behind a property or a <c>readonly</c> field, so the read of its reference field gets
     /// no model; otherwise a writable reference answers as its storage, and a readonly reference or a copying route as a by-value
-    /// parameter's copy.</summary>
+    /// parameter's copy. A generic route answers as the opaque call it makes (<see cref="ExpectedOpaque"/>).</summary>
     /// <param name="cell">The cell.</param>
-    private static EntryTruth Expected(Cell cell) => cell.Action == Action.TouchReference
+    private static EntryTruth Expected(Cell cell) => IsOpaqueRoute(cell.Route) ? EntryTruth.NoEntry(ExpectedOpaque(cell))
+        : cell.Action == Action.TouchReference
         ? IsContentsRoute(cell.Route) ? EntryTruth.NoEntry(ModelReasons.INCOMPLETE) : ExpectedTouch(cell.Storage)
         : ExpectedOn(IsWritableReference(cell.Route) ? cell.Storage : Storage.ByValueParameter, cell.Action);
+
+    /// <summary>R1: a generic route calls the interface member on <c>S</c> with a constrained call, and no reached body boxes <c>S</c>, so
+    /// the call is opaque: the code the analysis does not see gets the storage by reference, or for <c>in</c> and by value a copy of it.
+    /// Its answer is the first reason of those that call gives: <c>unknown-touch</c> where that code gets an input or what one reaches —
+    /// the receiver that holds the storage, a parameter's storage, which lies in the driver's, a static array setup seeds, a copy that
+    /// holds the seed setup put into a static the route loads —, otherwise <c>library-state</c> for the library static it gets by
+    /// reference, which nothing loads and so holds no seed.</summary>
+    /// <param name="cell">A cell of a generic route.</param>
+    private static string ExpectedOpaque(Cell cell) => cell is { Storage: Storage.StaticField, Route: Route.GenericRef }
+        ? ModelReasons.LIBRARY_STATE
+        : ModelReasons.UNKNOWN_TOUCH;
 
     /// <summary>R7, by the storage the write reaches: library storage — the receiver's field, cell and nested struct, a static field or a
     /// static array's cell — is library state for a scalar write and a mutating call, and for a store of <c>p</c> or of a whole struct
@@ -300,11 +314,13 @@ public sealed class GeneratedStructEffectMatrixTests(ClassCache cache) : IClassF
         _ => throw new InvalidOperationException($"No touch of a reference through {storage}.")
     };
 
-    /// <summary>The cause a cell's answer must name besides its model reason: the unseeded read of a contents route's reference field,
-    /// or a write into an object the receiver holds.</summary>
+    /// <summary>The cause a cell's answer must name besides its model reason: what the opaque call of a generic route gets, the unseeded
+    /// read of a contents route's reference field, or a write into an object the receiver holds.</summary>
     /// <param name="cell">The cell.</param>
     private static string? ExpectedCause(Cell cell) => cell switch
     {
+        _ when IsOpaqueRoute(cell.Route) => ExpectedOpaque(cell) == ModelReasons.LIBRARY_STATE ? ModelCauses.LIBRARY_STATE_STORE
+                                                                                               : ModelCauses.PROBE_HANDED_TO_UNSEEN,
         { Action: Action.TouchReference } when IsContentsRoute(cell.Route) => ModelCauses.UNSEEDED_READ,
         { Action: Action.TouchReference, Storage: Storage.ReceiverField or Storage.ReceiverArrayCell or Storage.ReceiverNestedField } =>
             ModelCauses.RECEIVER_OBJECT_WRITE,
@@ -316,6 +332,10 @@ public sealed class GeneratedStructEffectMatrixTests(ClassCache cache) : IClassF
     /// <param name="route">The route.</param>
     private static bool IsContentsRoute(Route route) =>
         route is Route.NullableValue or Route.NullableDefault or Route.PairValue or Route.PairDeconstruct;
+
+    /// <summary>Whether a route hands the struct to a constrained call of a generic method, which is opaque (<see cref="ExpectedOpaque"/>).</summary>
+    /// <param name="route">The route.</param>
+    private static bool IsOpaqueRoute(Route route) => route is Route.GenericRef or Route.GenericIn or Route.GenericByValue;
 
     private static bool IsReadonlyReference(Route route) => route is Route.ReadonlyRefProperty or Route.ReadonlyRefIndexer or
         Route.ReadonlyRefMethod or Route.ReadOnlySpan or Route.ReadonlyRefForeach or Route.InHelper or Route.GenericIn or
@@ -333,9 +353,11 @@ public sealed class GeneratedStructEffectMatrixTests(ClassCache cache) : IClassF
     private static bool IsCopying(Cell cell) =>
         IsCopyRoute(cell.Route) && cell.Action != Action.TouchReference || IsReadonlyReference(cell.Route) && cell.Action == Action.MutatingCall;
 
-    /// <summary>The cell a copy answers as: the same action on a by-value parameter.</summary>
-    /// <param name="action">The action.</param>
-    private static Cell Copy(Action action) => new(Storage.ByValueParameter, Route.Directly, action);
+    /// <summary>The cell a copy answers as: the same action on a by-value parameter, and for a generic route on a by-value parameter's
+    /// copy handed to the opaque call, as the copy is.</summary>
+    /// <param name="cell">The copying cell.</param>
+    private static Cell Copy(Cell cell) =>
+        new(Storage.ByValueParameter, IsOpaqueRoute(cell.Route) ? Route.GenericByValue : Route.Directly, cell.Action);
 
     /// <summary>Whether a cell's storage is library storage, where a class can stand in the same place, on a route a class takes: no
     /// generic route (the constraint is <c>struct</c>), and no <c>out</c> helper, whose only action is the whole write, whose twin — a store

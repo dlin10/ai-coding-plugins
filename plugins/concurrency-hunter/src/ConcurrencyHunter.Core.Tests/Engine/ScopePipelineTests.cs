@@ -2,6 +2,7 @@ using System.Text;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers;
@@ -158,7 +159,35 @@ public sealed class ScopePipelineTests
         Assert.Equal(unlimited.Collection.Accesses.Select(Key), atLimit.Collection.Accesses.Select(Key));
     }
 
-    private static async Task<ScopeRun> RunPipeline(Solution solution, string rootDirectory, ProviderRegistry registry, int? limit = null)
+    [Fact]
+    public async Task An_execution_filter_leaves_out_the_accesses_of_the_executions_it_refuses()
+    {
+        var solution = FixtureSolution.Create(("Case.cs", Source("_state.Touch();")));
+        var whole = await RunPipeline(solution, ROOT_DIRECTORY, ProviderRegistry.BuiltIn);
+        var accessed = whole.Collection!.Accesses.Select(access => access.ExecutionId).Distinct().Order(StringComparer.Ordinal).ToArray();
+        Assert.True(accessed.Length > 1, string.Join(", ", accessed));
+        var refused = accessed[0];
+        ExecutionAnalysis? given = null;
+
+        var filtered = await RunPipeline(solution, ROOT_DIRECTORY, ProviderRegistry.BuiltIn, accessesFilter: executions =>
+        {
+            given = executions;
+            return execution => execution != refused;
+        });
+
+        // The filter is built from the run's own executions, which it leaves whole; only the accesses step skips what it refuses.
+        Assert.Same(filtered.Executions, given);
+        Assert.Equal(whole.Executions!.Executions.Select(execution => execution.Id), filtered.Executions!.Executions.Select(execution => execution.Id));
+        Assert.DoesNotContain(filtered.Collection!.Accesses, access => access.ExecutionId == refused);
+        Assert.Equal(whole.Collection.Accesses.Where(access => access.ExecutionId != refused).Select(Key), filtered.Collection.Accesses.Select(Key));
+
+        // A filter that refuses nothing collects what no filter collects.
+        var everything = await RunPipeline(solution, ROOT_DIRECTORY, ProviderRegistry.BuiltIn, accessesFilter: _ => _ => true);
+        Assert.Equal(whole.Collection.Accesses.Select(Key), everything.Collection!.Accesses.Select(Key));
+    }
+
+    private static async Task<ScopeRun> RunPipeline(Solution solution, string rootDirectory, ProviderRegistry registry, int? limit = null,
+                                                    Func<ExecutionAnalysis, Func<string, bool>>? accessesFilter = null)
     {
         var scoped = Assert.Single(ProcessScopes.Discover(solution, rootDirectory).Scopes);
         var projectFiles = new List<(Compilation Compilation, string? ProjectFilePath)>();
@@ -169,7 +198,8 @@ public sealed class ScopePipelineTests
         }
 
         return ScopePipeline.Run(scoped.Scope.Id, projectFiles.Select(project => project.Compilation).ToArray(), projectFiles, rootDirectory,
-                                 registry, LibraryModels.BuiltIn, AnalysisLimits.Default, new(), limit, CancellationToken.None);
+                                 registry, LibraryModels.BuiltIn, AnalysisLimits.Default, new(), limit, CancellationToken.None,
+                                 accessesFilter: accessesFilter);
     }
 
     private static string Key(Access access) =>

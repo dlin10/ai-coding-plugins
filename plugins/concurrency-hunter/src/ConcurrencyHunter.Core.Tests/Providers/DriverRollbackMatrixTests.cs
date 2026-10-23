@@ -117,19 +117,23 @@ public sealed class DriverRollbackMatrixTests
     [Fact]
     public void A_rebuild_keeps_the_members_past_the_trigger_cap_uncovered()
     {
-        // 21 members of its own, IOld.Try, then object's three: 25 members, the 25th past the 24 triggers of the first build. The
-        // rebuild without Try keeps GetHashCode past them, though the exclusion freed a number.
-        var members = string.Concat(Enumerable.Range(0, 21).Select(index => $"public void M{index:00}() {{ }} "));
+        // 25 members of its own, none of object's (the holder is sealed and overrides none): IOld.Try, then IMany's 24, each
+        // implemented explicitly so that Try comes first, the 25th past the 24 triggers of the first build. The rebuild without Try
+        // keeps IMany.M23 past them, though the exclusion freed a number.
+        var declared = string.Concat(Enumerable.Range(0, 24).Select(index => $"void M{index:00}(); "));
+        var members = string.Concat(Enumerable.Range(0, 24).Select(index => $"void IMany.M{index:00}() {{ }} "));
         var driver = Synthesize($$"""
-            [Obsolete("old")] public sealed class Holder : IOld { public Holder() { } void IOld.Try() { } {{members}} }
+            public interface IMany { {{declared}} }
+            [Obsolete("old")] public sealed class Holder : IOld, IMany { public Holder() { } void IOld.Try() { } {{members}} }
             [Obsolete("old")] public static class Api { public static Holder Make(Action a) => new Holder(); }
             """, "M:Lib.Api.Make(System.Action)");
 
         Assert.Equal(23, driver.Triggers.Count);
         Assert.DoesNotContain(driver.Triggers, trigger => trigger.Member == "M:Lib.IOld.Try");
+        Assert.DoesNotContain(driver.Triggers, trigger => trigger.Member.StartsWith("M:System.Object.", StringComparison.Ordinal));
         var uncovered = driver.Uncovered[FateClassifier.RESULT];
         Assert.Contains(uncovered, why => why.StartsWith("M:Lib.IOld.Try: the driver's call does not compile: CS0619", StringComparison.Ordinal));
-        Assert.Contains("M:System.Object.GetHashCode: past the driver's 24 triggers", uncovered);
+        Assert.Contains("M:Lib.IMany.M23: past the driver's 24 triggers", uncovered);
         Assert.Equal(2, uncovered.Count);
     }
 
