@@ -1503,6 +1503,10 @@ public sealed class ValueProvenance
         private readonly IReadOnlySet<WrittenEdge> _placedSeeds;
         private readonly GenerationChecks _checks;
         private readonly StageChecks _stage;
+        private readonly Dictionary<string, StoreIndex> _actionStores = new(StringComparer.Ordinal);
+        private IReadOnlyList<MethodInstance>? _callInstances;
+        private StoreIndex? _callStores;
+        private IReadOnlyList<MemberStore>? _memberStores;
 
         /// <summary>One run as value provenance reads it: its roots, the edges its stores wrote and the edges setup placed. Each of
         /// those scans checks at the boundary of its repeated work, and so do the reachability, the allocations and the observation it
@@ -1708,24 +1712,43 @@ public sealed class ValueProvenance
                 return false;
             if (Written.Contains(edge))
                 return true;
-            foreach (var instance in MemberInstances(DriverSynthesizer.CALL).Concat(MemberInstances(DriverSynthesizer.ENUMERATE)))
+            foreach (var store in _memberStores ??= ReadMemberStores())
             {
                 _checks.Check(GenerationStage.ReadEffects);
-                if (instance.Summary.Stores.Concat(instance.Summary.ReferenceStores).Any(store =>
-                    (FieldMatches(edge.Field, store.Field.Name) && store.Bases.Any(value => Matches(instance, value, edge.Object)) ||
-                     Places(instance, store.Bases, store.Field).Any(place => place.Object == edge.Object && FieldMatches(edge.Field, place.Field))) &&
-                    store.Values.Any(value => Matches(instance, value, edge.Value))))
-                {
-                    return true;
-                }
-                if (instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores).Any(store => store.Kind == ElementOperationKind.Store &&
-                    FieldMatches(edge.Field, store.Slot) && store.Arrays.SelectMany(value => Resolve(instance, value)).Contains(edge.Object) &&
-                    store.Values.SelectMany(value => Resolve(instance, value)).Contains(edge.Value)))
+                if ((FieldMatches(edge.Field, store.Field) && MatchesAny(store.Bases, edge.Object) ||
+                     store.Places.Any(place => place.Object == edge.Object && FieldMatches(edge.Field, place.Field))) &&
+                    MatchesAny(store.Values, edge.Value))
                 {
                     return true;
                 }
             }
             return false;
+        }
+
+        /// <summary>The stores of the member's own call and enumeration entries, each read once for <see cref="WasWritten"/>: a field
+        /// store with what its bases and values stand for and the places it writes, and a cell store with its slot and the regions its
+        /// arrays and values resolve to.</summary>
+        private IReadOnlyList<MemberStore> ReadMemberStores()
+        {
+            var stores = new List<MemberStore>();
+            foreach (var instance in MemberInstances(DriverSynthesizer.CALL).Concat(MemberInstances(DriverSynthesizer.ENUMERATE)))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
+                foreach (var store in instance.Summary.Stores.Concat(instance.Summary.ReferenceStores))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
+                    stores.Add(new MemberStore(store.Field.Name, MatchOf(instance, store.Bases), Places(instance, store.Bases, store.Field).ToArray(),
+                                               MatchOf(instance, store.Values)));
+                }
+                foreach (var store in instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores).Where(store => store.Kind == ElementOperationKind.Store))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
+                    // A cell store matches its arrays and values by what they resolve to, never by a name.
+                    stores.Add(new MemberStore(store.Slot, new ValueMatch(store.Arrays.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal), []),
+                                               [], new ValueMatch(store.Values.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal), [])));
+                }
+            }
+            return stores;
         }
 
         /// <summary>The complete observations of values stored into an object's fields, including fields a helper's reference names
@@ -1735,32 +1758,24 @@ public sealed class ValueProvenance
         public IReadOnlySet<string> DirectStores(string @object, IReadOnlySet<string>? actions = null)
         {
             var values = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var instance in StoreInstances(actions))
+            GenerationCause? unobserved = null;
+            foreach (var (_, store) in StoresOf(actions).Fields.Of(@object))
             {
                 _checks.Check(GenerationStage.ReadEffects);
-                foreach (var store in _stage.Each(instance.Summary.Stores.Concat(instance.Summary.ReferenceStores)).Where(store => FieldCarriesObject(store.Field)))
+                var slots = store.Places.Where(place => place.Object == @object).Select(place => place.Field).ToArray();
+                if (slots.Length == 0 && store.Bases is { } bases && MatchesAny(bases, @object))
+                    slots = [store.Field];
+                if (slots.Length == 0)
+                    continue;
+                var stored = store.Stored.Value;
+                unobserved ??= stored.Unobserved;
+                foreach (var slot in slots)
                 {
                     _checks.Check(GenerationStage.ReadEffects);
-                    // A store into a struct's storage the object keeps writes the object, at the slot path through the struct (R1).
-                    var field = _stage.Each(Places(instance, store.Bases, store.Field)).Where(place => place.Object == @object)
-                                                                                       .Select(place => place.Field).FirstOrDefault();
-                    if (field is null && !_stage.Each(store.Bases).Any(value => Matches(instance, value, @object)))
-                        continue;
-                    values.UnionWith(Held(ObserveValues(instance, store.Values, store.Producers, out _))
-                                         .Where(value => !IsPlacedSlotSeed(@object, field ?? store.Field.Name, value)));
-                }
-                foreach (var access in _stage.Each(instance.Summary.ReferenceAccesses).Where(access => access.Kind == SummaryAccessKind.Store &&
-                    instance.Summary.ReferenceStores.All(store => store.OperationId != access.OperationId)))
-                {
-                    _checks.Check(GenerationStage.ReadEffects);
-                    foreach (var place in _stage.Each(access.Targets).SelectMany(target => ReferenceFields(Heap, instance, target))
-                                                .Where(place => place.Region == @object && FieldCarriesObject(place.Field)))
-                    {
-                        _checks.Check(GenerationStage.ReadEffects);
-                        values.UnionWith(ReferenceStoredValues(instance, access).Where(value => !IsPlacedSlotSeed(@object, place.Slot, value)));
-                    }
+                    values.UnionWith(stored.Values.Where(value => !IsPlacedSlotSeed(@object, slot, value)));
                 }
             }
+            Unobserved ??= unobserved;
             return values;
         }
 
@@ -1783,37 +1798,40 @@ public sealed class ValueProvenance
             FieldSymbols.Of(field, _driver.Compilation) is not IFieldSymbol symbol || CanHoldObject(symbol.Type);
 
         /// <summary>The observed objects a reference store writes, shared by DirectStores and DirectElementStores. The source variable
-        /// supplies its values; a parameter transfer supplies a value with no variable name. An unobserved source is refused.</summary>
+        /// supplies its values; a parameter transfer supplies a value with no variable name. An unobserved source is refused: the
+        /// first cause its observation finds comes back with the objects, for the reader to record.</summary>
         /// <param name="instance">The instance storing through the reference.</param>
         /// <param name="access">The reference store.</param>
-        private IReadOnlySet<string> ReferenceStoredValues(MethodInstance instance, SummaryReferenceAccess access)
+        private StoredValues ReferenceStoredValues(MethodInstance instance, SummaryReferenceAccess access)
         {
             var values = new HashSet<string>(StringComparer.Ordinal);
+            GenerationCause? unobserved = null;
             if (!Run.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
-                return values;
+                return new StoredValues([], null);
             var store = body.Blocks.SelectMany(block => block.Operations).OfType<IrStoreReferenceOperation>()
                             .FirstOrDefault(store => store.Id == access.OperationId);
             if (store is null)
-                return values;
+                return new StoredValues([], null);
             var symbol = body.Values[store.Value].SymbolKey;
             var variable = symbol is null ? null : instance.Summary.Variables.FirstOrDefault(variable => variable.SymbolKey == symbol);
             if (variable is not null)
-                values.UnionWith(Held(ObserveValues(instance, variable.Values, ValueOrigin.None, out _)));
+                values.UnionWith(Held(ObserveUnrecorded(instance, variable.Values, ValueOrigin.None, out unobserved)));
             else
             {
                 var transfers = instance.Summary.RefParameters.Where(parameter => access.Targets.Contains(new ReferenceParameter(parameter.Ordinal))).ToArray();
                 foreach (var parameter in transfers)
                 {
                     _checks.Check(GenerationStage.ReadEffects);
-                    values.UnionWith(Held(ObserveValues(instance, parameter.Values, ValueOrigin.None, out _)));
+                    values.UnionWith(Held(ObserveUnrecorded(instance, parameter.Values, ValueOrigin.None, out var missing)));
+                    unobserved ??= missing;
                 }
                 if (transfers.Length == 0)
                 {
-                    Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
-                                                       $"no proven value in {instance.BodyId}#{access.OperationId}");
+                    unobserved = new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
+                                                     $"no proven value in {instance.BodyId}#{access.OperationId}");
                 }
             }
-            return values;
+            return new StoredValues(values.ToArray(), unobserved);
         }
 
         /// <summary>The regions stored directly into cells of an array by the member.</summary>
@@ -1822,37 +1840,99 @@ public sealed class ValueProvenance
         public IReadOnlySet<string> DirectElementStores(string @object, IReadOnlySet<string>? actions = null)
         {
             var values = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var instance in StoreInstances(actions))
+            var index = StoresOf(actions);
+            GenerationCause? unobserved = null;
+            foreach (var (position, store) in index.Cells.Of(@object))
             {
                 _checks.Check(GenerationStage.ReadEffects);
-                foreach (var store in _stage.Each(instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores))
-                                            .Where(store => store.Kind == ElementOperationKind.Store &&
-                                                            _stage.Each(store.Arrays).Any(value => Matches(instance, value, @object))))
+                if (!MatchesAny(store.Arrays, @object))
+                    continue;
+                // A store through a reference with no proven place is met, whatever the object, before every store that follows it.
+                if (index.Unproven is { } unproven && unproven.Position <= position)
+                    unobserved ??= unproven.Cause;
+                var stored = store.Stored.Value;
+                unobserved ??= stored.Unobserved;
+                values.UnionWith(stored.Values);
+            }
+            Unobserved ??= unobserved ?? index.Unproven?.Cause;
+            return values;
+        }
+
+        /// <summary>The stores of the instances that run the observed actions, read once for each set of actions.</summary>
+        /// <param name="actions">The observed actions, or null for the member's call and enumeration.</param>
+        private StoreIndex StoresOf(IReadOnlySet<string>? actions)
+        {
+            if (actions is null)
+                return _callStores ??= IndexStores(StoreInstances(null));
+            var key = string.Join('\n', actions.Order(StringComparer.Ordinal));
+            if (!_actionStores.TryGetValue(key, out var index))
+                _actionStores[key] = index = IndexStores(StoreInstances(actions));
+            return index;
+        }
+
+        /// <summary>Reads the stores of a set of instances once, each at its position in the scan DirectStores and DirectElementStores
+        /// make of the instances, kept by the objects it may write.</summary>
+        /// <param name="instances">The instances, in the order of the scan.</param>
+        private StoreIndex IndexStores(IEnumerable<MethodInstance> instances)
+        {
+            var fields = new StoreTable<FieldWrite>();
+            var cells = new StoreTable<CellWrite>();
+            (int Position, GenerationCause Cause)? unproven = null;
+            foreach (var instance in instances)
+            {
+                _checks.Check(GenerationStage.ReadEffects);
+                foreach (var store in _stage.Each(instance.Summary.Stores.Concat(instance.Summary.ReferenceStores)).Where(store => FieldCarriesObject(store.Field)))
                 {
                     _checks.Check(GenerationStage.ReadEffects);
-                    values.UnionWith(Held(ObserveValues(instance, store.Values, store.Producers, out _)));
+                    // A store into a struct's storage the object keeps writes the object, at the slot path through the struct (R1): at the
+                    // first place of each object.
+                    var places = _stage.Each(Places(instance, store.Bases, store.Field)).DistinctBy(place => place.Object, StringComparer.Ordinal).ToArray();
+                    var bases = MatchOf(instance, store.Bases);
+                    fields.Append(new FieldWrite(places, bases, store.Field.Name, Stored(instance, store.Values, store.Producers)),
+                                  places.Select(place => place.Object).Concat(bases.Regions), bases.Named.Count != 0);
+                }
+                foreach (var store in _stage.Each(instance.Summary.Elements.Concat(instance.Summary.ReferenceElementStores))
+                                            .Where(store => store.Kind == ElementOperationKind.Store))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
+                    var arrays = MatchOf(instance, store.Arrays);
+                    cells.Append(new CellWrite(arrays, Stored(instance, store.Values, store.Producers)), arrays.Regions, arrays.Named.Count != 0);
                 }
                 foreach (var access in _stage.Each(instance.Summary.ReferenceAccesses).Where(access => access.Kind == SummaryAccessKind.Store))
                 {
                     _checks.Check(GenerationStage.ReadEffects);
+                    var stored = new Lazy<StoredValues>(() => ReferenceStoredValues(instance, access), LazyThreadSafetyMode.None);
+                    if (instance.Summary.ReferenceStores.All(store => store.OperationId != access.OperationId))
+                    {
+                        var places = _stage.Each(access.Targets).SelectMany(target => ReferenceFields(Heap, instance, target))
+                                           .Where(place => FieldCarriesObject(place.Field)).Select(place => (place.Region, place.Slot)).ToArray();
+                        fields.Append(new FieldWrite(places, null, "", stored), places.Select(place => place.Region), false);
+                    }
                     var arrays = new HashSet<string>(StringComparer.Ordinal);
                     foreach (var target in _stage.Each(access.Targets))
                     {
                         _checks.Check(GenerationStage.ReadEffects);
                         arrays.UnionWith(ReferenceArrays(Heap, instance, target, out var unobserved));
-                        if (unobserved)
+                        if (unobserved && unproven is null)
                         {
-                            Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
-                                                               $"no proven place in {instance.BodyId}#{access.OperationId}");
+                            unproven = (cells.Count, new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.REFERENCE_VALUE_UNOBSERVED,
+                                                                         $"no proven place in {instance.BodyId}#{access.OperationId}"));
                         }
                     }
-                    if (!arrays.Contains(@object))
-                        continue;
-                    values.UnionWith(ReferenceStoredValues(instance, access));
+                    cells.Append(new CellWrite(new ValueMatch(arrays, []), stored), arrays, false);
                 }
             }
-            return values;
+            return new StoreIndex(fields, cells, unproven);
         }
+
+        /// <summary>What a store of values puts into the objects it writes, observed on first use: the objects the values hold, and what
+        /// a struct copy among them holds in its stead (R2).</summary>
+        /// <param name="instance">The instance storing.</param>
+        /// <param name="values">The stored values.</param>
+        /// <param name="producers">Origins preserved through copies and merges.</param>
+        private Lazy<StoredValues> Stored(MethodInstance instance, IEnumerable<AbstractValue> values, ValueOrigin producers) =>
+            new(() => new StoredValues(Held(ObserveUnrecorded(instance, values, producers, out var unobserved)).ToArray(), unobserved),
+                LazyThreadSafetyMode.None);
 
         private IEnumerable<MethodInstance> StoreInstances(IReadOnlySet<string>? actions) => actions is null ? CallInstances() :
             _stage.Each(Heap.Instances.Values).Where(instance => IsLibraryBody(instance.BodyId) &&
@@ -1862,9 +1942,10 @@ public sealed class ValueProvenance
         // bounded: delegates once to the wrapped value, without re-entering this method.
         public bool IsMemberEntry(MethodInstance instance) => Observation.IsMemberEntry(instance);
 
-        public IEnumerable<MethodInstance> CallInstances() => _stage.Each(Heap.Instances.Values).Where(instance => IsLibraryBody(instance.BodyId) &&
-            (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
-                         .Any(execution => ActionOf(execution) is DriverSynthesizer.CALL or DriverSynthesizer.ENUMERATE));
+        /// <summary>The instances of library bodies that run in the member's call or enumeration, found on first use.</summary>
+        public IEnumerable<MethodInstance> CallInstances() => _stage.Each(_callInstances ??= _stage.Each(Heap.Instances.Values).Where(instance =>
+            IsLibraryBody(instance.BodyId) && (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
+                                                  .Any(execution => ActionOf(execution) is DriverSynthesizer.CALL or DriverSynthesizer.ENUMERATE)).ToArray());
 
         public bool Matches(MethodInstance instance, AbstractValue value, string region)
         {
@@ -1872,16 +1953,47 @@ public sealed class ValueProvenance
                 return true;
             if (!IsMemberEntry(instance))
                 return false;
-            return value switch
-            {
-                ConcurrencyHunter.Heap.ThisValue => RootNames(region).Any(root => root is ThisValue) ||
-                                                    Allocations.Of(region).Kind == AllocationKind.MemberObject,
-                ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length =>
-                    RootNames(region).Any(root => root is ArgumentValue argument &&
-                                                  argument.Parameter == _driver.Member.Parameters[parameter.Ordinal].Name),
-                _ => false
-            };
+            return MatchesByName(value, region);
         }
+
+        /// <summary>Whether a value of the member's own entry stands for a region by the region's name: the receiver for the receiver
+        /// or an object the member made, a parameter for its argument.</summary>
+        /// <param name="value">The value.</param>
+        /// <param name="region">The region.</param>
+        private bool MatchesByName(AbstractValue value, string region) => value switch
+        {
+            ConcurrencyHunter.Heap.ThisValue => RootNames(region).Any(root => root is ThisValue) ||
+                                                Allocations.Of(region).Kind == AllocationKind.MemberObject,
+            ParameterValue parameter when parameter.Ordinal >= 0 && parameter.Ordinal < _driver.Member.Parameters.Length =>
+                RootNames(region).Any(root => root is ArgumentValue argument &&
+                                              argument.Parameter == _driver.Member.Parameters[parameter.Ordinal].Name),
+            _ => false
+        };
+
+        /// <summary>What a set of values of one instance stands for, read once: <see cref="Matches"/> of any of them against a region
+        /// is <see cref="MatchesAny"/> of this.</summary>
+        /// <param name="instance">The instance expressing the values.</param>
+        /// <param name="values">The values.</param>
+        private ValueMatch MatchOf(MethodInstance instance, IEnumerable<AbstractValue> values)
+        {
+            var regions = new HashSet<string>(StringComparer.Ordinal);
+            var named = new List<AbstractValue>();
+            var entry = IsMemberEntry(instance);
+            foreach (var value in values)
+            {
+                _checks.Check(GenerationStage.ReadEffects);
+                regions.UnionWith(Resolve(instance, value));
+                if (entry)
+                    named.Add(value);
+            }
+            return new ValueMatch(regions, named);
+        }
+
+        /// <summary>Whether any of a set of values stands for a region, as <see cref="Matches"/> answers it for each of them.</summary>
+        /// <param name="match">What the values stand for.</param>
+        /// <param name="region">The region.</param>
+        private bool MatchesAny(ValueMatch match, string region) =>
+            match.Regions.Contains(region) || match.Named.Any(value => MatchesByName(value, region));
 
         public IReadOnlyList<MethodInstance> MemberInstances(string action)
         {
@@ -1925,10 +2037,25 @@ public sealed class ValueProvenance
         public IReadOnlySet<string> ObserveValues(MethodInstance instance, IEnumerable<AbstractValue> values, ValueOrigin producers,
                                                    out bool unobserved)
         {
+            var observed = ObserveUnrecorded(instance, values, producers, out var cause);
+            unobserved = cause is not null;
+            Unobserved ??= cause;
+            return observed;
+        }
+
+        /// <summary>Resolves every value and checks every alternative, as <see cref="ObserveValues"/> does, and gives the cause an
+        /// unobserved alternative records instead of recording it.</summary>
+        /// <param name="instance">The instance expressing the values.</param>
+        /// <param name="values">The symbolic alternatives.</param>
+        /// <param name="producers">Origins preserved through copies and merges.</param>
+        /// <param name="unobserved">The cause when any alternative cannot be observed, or <c>null</c>.</param>
+        private IReadOnlySet<string> ObserveUnrecorded(MethodInstance instance, IEnumerable<AbstractValue> values, ValueOrigin producers,
+                                                       out GenerationCause? unobserved)
+        {
             var alternatives = values.Distinct().ToArray();
-            unobserved = Observation.HasUnobservedValues(instance, alternatives, producers);
-            if (unobserved)
-                Unobserved ??= new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.VALUE_UNOBSERVED, $"in {instance.BodyId}");
+            unobserved = Observation.HasUnobservedValues(instance, alternatives, producers)
+                ? new GenerationCause(GenerationReasons.VOCABULARY, ModelCauses.VALUE_UNOBSERVED, $"in {instance.BodyId}")
+                : null;
             return alternatives.SelectMany(value => Resolve(instance, value)).ToHashSet(StringComparer.Ordinal);
         }
 
@@ -2283,5 +2410,85 @@ public sealed class ValueProvenance
             DriverSynthesizer.ENUMERATE => DriverSynthesizer.ENUMERATE_VARIANT,
             _ => action
         };
+
+        /// <summary>What a set of values of one instance stands for, as <see cref="Matches"/> decides it for each region.</summary>
+        /// <param name="Regions">The regions the values resolve to.</param>
+        /// <param name="Named">The values that may stand for a region by its name (<see cref="MatchesByName"/>): every value of the
+        /// member's own entry, none of any other instance.</param>
+        private sealed record ValueMatch(IReadOnlySet<string> Regions, IReadOnlyList<AbstractValue> Named);
+
+        /// <summary>What one store puts into the objects it writes.</summary>
+        /// <param name="Values">The stored objects, in the order the store's observation finds them.</param>
+        /// <param name="Unobserved">The first cause the observation finds, or <c>null</c>.</param>
+        private sealed record StoredValues(IReadOnlyList<string> Values, GenerationCause? Unobserved);
+
+        /// <summary>A store DirectStores reads: a field store, or a store through a reference to a field.</summary>
+        /// <param name="Places">Each object the store writes with the slot of it: for a field store the first place of each object
+        /// (<see cref="Places"/>), for a store through a reference every field its targets name.</param>
+        /// <param name="Bases">What a field store's bases stand for: an object one of them stands for that no place names is written at
+        /// <paramref name="Field"/>. <c>null</c> for a store through a reference.</param>
+        /// <param name="Field">The name of the field a field store names; empty for a store through a reference.</param>
+        /// <param name="Stored">What it stores, observed on first use.</param>
+        private sealed record FieldWrite(IReadOnlyList<(string Object, string Field)> Places, ValueMatch? Bases, string Field,
+                                         Lazy<StoredValues> Stored);
+
+        /// <summary>A store DirectElementStores reads: a cell store, or a store through a reference.</summary>
+        /// <param name="Arrays">What a cell store's arrays stand for, or the arrays the targets of a store through a reference name.</param>
+        /// <param name="Stored">What it stores, observed on first use.</param>
+        private sealed record CellWrite(ValueMatch Arrays, Lazy<StoredValues> Stored);
+
+        /// <summary>A store of the member's own call or enumeration entry, as <see cref="WasWritten"/> reads it: a field store, or a cell
+        /// store with its slot standing as the field.</summary>
+        /// <param name="Field">The field's name, or the cell store's slot.</param>
+        /// <param name="Bases">What a field store's bases stand for, or the regions a cell store's arrays resolve to.</param>
+        /// <param name="Places">The places a field store writes (<see cref="Places"/>); none for a cell store.</param>
+        /// <param name="Values">What the stored values stand for, or the regions a cell store's values resolve to.</param>
+        private sealed record MemberStore(string Field, ValueMatch Bases, IReadOnlyList<(string Object, string Field)> Places, ValueMatch Values);
+
+        /// <summary>The stores of one set of instances, read once, each kept by the objects it may write.</summary>
+        /// <param name="Fields">The stores DirectStores reads, in the order of its scan.</param>
+        /// <param name="Cells">The stores DirectElementStores reads, in the order of its scan.</param>
+        /// <param name="Unproven">The first store through a reference with no proven place, by its position among
+        /// <paramref name="Cells"/>, with the cause the scan records for it whatever object it reads; <c>null</c> when every place is
+        /// proven.</param>
+        private sealed record StoreIndex(StoreTable<FieldWrite> Fields, StoreTable<CellWrite> Cells, (int Position, GenerationCause Cause)? Unproven);
+
+        /// <summary>Stores kept by the objects they may write. A store's position is the order it was added in; the stores of an object
+        /// are those added with it among their regions and those that may stand for an object by its name, in position order.</summary>
+        /// <typeparam name="T">The kind of store.</typeparam>
+        private sealed class StoreTable<T>
+        {
+            private readonly List<T> _stores = [];
+            private readonly Dictionary<string, List<int>> _byObject = new(StringComparer.Ordinal);
+            private readonly List<int> _named = [];
+
+            /// <summary>The number of stores added: the position the next one takes.</summary>
+            public int Count => _stores.Count;
+
+            /// <summary>Adds a store at the next position.</summary>
+            /// <param name="store">The store.</param>
+            /// <param name="objects">The regions it may write.</param>
+            /// <param name="named">Whether it may also write an object one of its values stands for by name.</param>
+            public void Append(T store, IEnumerable<string> objects, bool named)
+            {
+                var position = _stores.Count;
+                _stores.Add(store);
+                foreach (var @object in objects)
+                {
+                    WorkCancellation.Check();
+                    if (!_byObject.TryGetValue(@object, out var positions))
+                        _byObject[@object] = positions = [];
+                    if (positions.Count == 0 || positions[^1] != position)
+                        positions.Add(position);
+                }
+                if (named)
+                    _named.Add(position);
+            }
+
+            /// <summary>The stores that may write an object, with their positions, in position order.</summary>
+            /// <param name="object">The object.</param>
+            public IEnumerable<(int Position, T Store)> Of(string @object) =>
+                (_byObject.GetValueOrDefault(@object) ?? []).Concat(_named).Distinct().Order().Select(position => (position, _stores[position]));
+        }
     }
 }
