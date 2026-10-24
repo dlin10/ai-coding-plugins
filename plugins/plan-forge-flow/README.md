@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.61.0
+# Plan Forge Flow 0.62.0
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -28,7 +28,7 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable, and the efforts each model offers at Fast speed |
 | `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort/Fast selection or an explicit decision to continue without Scout |
 | `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `scout-answers.json`. A `continue` is refused while a Scout job runs |
-| `forge.evidence.map` | After the manual Evidence check, asks a configured Advisor how Scout items and Orchestrator implications bear on the plan; returns flags and resumable progress, storing judgments in `evidence-map.json` |
+| `forge.evidence.map` | After the manual Evidence check, asks a configured Advisor in one call how Scout items and Orchestrator implications bear on the plan; returns flags and resumable progress, storing judgments in `evidence-map.json` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
 | `forge.plan.write` | Writes the first draft or a complete rewrite to `PLAN.md` and answers with its outline (null for blank plan text) and path, running no worker |
 | `forge.plan.outline` | Returns the current plan hash and snapshot targets with IDs, kinds, labels, hashes and character sizes, without plan text beyond labels |
@@ -210,8 +210,9 @@ option. TypeSafe's Jev and Microsoft-Decision-1 in Azure AI Foundry are the impl
 speak the same systemone protocol. The optional Evidence map is shadow-mode
 advice after the Orchestrator's mandatory manual Evidence check: code chooses the items and
 candidate plan units, validates every answer and settles each item's status. A `covered` removes
-nothing. The Orchestrator handles flags the manual check had not handled, calls again until
-`complete` or until `checkedThisCall` is 0, and checks new unchecked items by hand if incomplete.
+nothing. One call maps until done. The Orchestrator handles flags the manual check had not handled,
+calls again only when `complete` is false and not after a call whose `checkedThisCall` is 0, and
+checks new unchecked items by hand if incomplete.
 The map is never shown to the Critic, Builder or Scout and has no place in code review.
 
 Once a Run has used the map, `forge.plan.write`, `forge.plan.patch` and `forge.plan.review` answer
@@ -258,10 +259,11 @@ them.
 Microsoft-Decision-1 is paced by its deployment's request quota, which the service reports in its
 `x-ratelimit-*` response headers. A server process starts at one request a second until the first
 report, then spends the reported bucket at 90% of its refill rate, so a raised quota needs no
-configuration. At 60 requests a minute a map of a few hundred requests takes several
-`forge.evidence.map` calls. Measured on 2026-10-20 with calls 3 s apart: 100 requests in the first,
-43 in each of the next two, and no 429; the few still waiting for quota when a call ends are
-cancelled and asked again by the next call. Only a refusal whose body blames the request is
+configuration. One `forge.evidence.map` call waits for the quota as it goes and cancels nothing
+waiting for it, so at 60 requests a minute a map of a few hundred requests takes a few minutes in
+that one call. Measured on 2026-10-23 with one call of 150 requests: 68 answered in the first 10 s,
+then 54 a minute, all 150 in 100 s, with no 429 and no failure; a request took about 9 s, mostly
+waiting for quota, inside its 30-second timeout. Only a refusal whose body blames the request is
 remembered: an unsupported question as `rejected`, a token-limit refusal as `too_large`. An unknown
 deployment or a wrong endpoint (404), a bare 413 or 422 a gateway could send, and any other refusal
 stay `unavailable` and are asked again once the configuration is fixed; the endpoint is not part of

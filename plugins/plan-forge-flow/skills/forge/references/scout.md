@@ -131,8 +131,9 @@ shadow-mode advice: a `covered` excuses nothing and removes no manual check.
    implications. Each implication has `text` and `derivedFrom`, the existing Scout item IDs it
    rests on (`A{number}.{category}.{position}`, with positions starting at 1). The server keeps
    judgments and the latest result in `evidence-map.json`.
-2. Call again until `complete` is true or a call's `checkedThisCall` is 0. Keep the Change-point
-   list the same from call to call until an Impact pass adds Change points, then append those.
+2. One call maps the whole map. Call again only when `complete` is false, and not after a call
+   whose `checkedThisCall` is 0. Keep the Change-point list the same from call to call until an
+   Impact pass adds Change points, then append those.
    Only while the list would otherwise pass 200, merge related Change points into one entry each.
    A changed list re-asks the whole map. If merging related ones cannot bring it to 200, make no
    further map call in this Run: log `Evidence map: stopped, N Change points` with
