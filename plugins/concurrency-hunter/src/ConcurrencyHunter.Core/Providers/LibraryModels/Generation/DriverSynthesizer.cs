@@ -500,6 +500,48 @@ public static class DriverSynthesizer
         public Owner Inline() => new(Name, null);
     }
 
+    /// <summary>The keys a collection gained, in the order it gained them, for a collection that between a snapshot and its restore
+    /// only gains keys, as the writer's names and unseeded paths do. A restore removes the keys gained since its snapshot, where a copy
+    /// of the collection would make each snapshot and each restore cost the whole collection. Restores come in the reverse order of
+    /// their snapshots; one that does not throws.</summary>
+    internal sealed class KeyJournal
+    {
+        private readonly List<Gain> _keys = [];
+        private long _numbered;
+
+        /// <summary>Records a key the collection has just gained.</summary>
+        /// <param name="key">The key.</param>
+        public void Gained(string key) => _keys.Add(new Gain(key, _numbered++));
+
+        /// <summary>Captures the keys gained so far.</summary>
+        /// <param name="remove">Removes a key from the collection.</param>
+        /// <returns>The restore, which removes from the collection every key gained since, and throws when the restore of an earlier
+        /// snapshot came after this snapshot.</returns>
+        public Action Snapshot(Func<string, bool> remove)
+        {
+            var size = _keys.Count;
+            var numbered = _numbered;
+            return () =>
+            {
+                // A restore of an earlier snapshot since this one removed keys this one holds: the journal is shorter, or a key gained
+                // after this snapshot stands where its last key stood.
+                if (size > _keys.Count || size > 0 && _keys[size - 1].Number >= numbered)
+                    throw new InvalidOperationException("A writer snapshot was restored after the restore of an earlier snapshot.");
+                while (_keys.Count > size)
+                {
+                    WorkCancellation.Check();
+                    remove(_keys[^1].Key);
+                    _keys.RemoveAt(_keys.Count - 1);
+                }
+            };
+        }
+
+        /// <summary>A key the collection gained.</summary>
+        /// <param name="Key">The key.</param>
+        /// <param name="Number">How many keys the journal had recorded before it, removed ones included.</param>
+        private readonly record struct Gain(string Key, long Number);
+    }
+
     /// <summary>The driver of one member, written as text.</summary>
     /// <param name="library">The library compilation.</param>
     /// <param name="member">The member's definition.</param>
@@ -540,6 +582,9 @@ public static class DriverSynthesizer
         private readonly Dictionary<ITypeParameterSymbol, ITypeSymbol> _choices = new(SymbolEqualityComparer.Default);
         private readonly List<ITypeParameterSymbol> _chosen = [];
         private readonly HashSet<string> _names = new(StringComparer.Ordinal) { DRIVER_TYPE, KEEP_TYPE, WITNESSED_TYPE, WITNESSED_REF_TYPE };
+
+        /// <summary>The names <see cref="Unique"/> added to <see cref="_names"/>, which a rollback removes.</summary>
+        private readonly KeyJournal _namesGained = new();
         private readonly List<string> _types = [];
         private readonly List<string> _fields = [];
         private readonly List<string> _keep = [];
@@ -551,6 +596,9 @@ public static class DriverSynthesizer
         private readonly List<string> _setup = [];
         private readonly List<(string Path, string Statement)> _seedStatements = [];
         private readonly SortedDictionary<string, ISymbol> _unseeded = new(StringComparer.Ordinal);
+
+        /// <summary>The paths <see cref="AddUnseeded"/> added to <see cref="_unseeded"/>, which a rollback removes.</summary>
+        private readonly KeyJournal _unseededGained = new();
 
         /// <summary>The types the unseeded-path walk is below: entered by <see cref="RecordBelow"/>, <see cref="RecordStruct"/> or
         /// <see cref="SeedStruct"/> and not yet left.</summary>
@@ -1622,7 +1670,11 @@ public static class DriverSynthesizer
             }
         }
 
-        private void AddUnseeded(string path, ISymbol member) => _unseeded.TryAdd(path, member);
+        private void AddUnseeded(string path, ISymbol member)
+        {
+            if (_unseeded.TryAdd(path, member))
+                _unseededGained.Gained(path);
+        }
 
         private void AddSeed(string path, string statement, List<string> statements)
         {
@@ -2286,21 +2338,11 @@ public static class DriverSynthesizer
             foreach (var producer in _producers)
             {
                 checks.Check(GenerationStage.Synthesize);
+                // Only a producer that applies pays for a candidate's snapshot and rollback.
+                if (Applicable(producer, type) is not { } method)
+                    continue;
                 var value = TryCandidate(() =>
                 {
-                    var method = producer;
-                    if (method.IsGenericMethod)
-                    {
-                        if (method.TypeParameters.Any(parameter => parameter.ConstraintTypes.Any(constraint => constraint.TypeKind == TypeKind.Interface)))
-                            return null;
-                        var arguments = method.TypeParameters.Select(RecipeChoice).ToArray();
-                        if (arguments.Any(argument => argument is null))
-                            return null;
-                        method = method.Construct(arguments!);
-                    }
-
-                    if (!Converts(method.ReturnType, type) || method.Parameters.Any(parameter => SymbolEqualityComparer.Default.Equals(parameter.Type, type)))
-                        return null;
                     var typeArguments = method.IsGenericMethod ? "<" + string.Join(", ", method.TypeArguments.Select(R)) + ">" : "";
                     return $"{R(method.ContainingType)}.{Escape(method.Name)}{typeArguments}" +
                            $"({string.Join(", ", method.Parameters.Select(parameter => Argument(parameter.Type, owner, depth - 1, hoist)))})";
@@ -2310,6 +2352,30 @@ public static class DriverSynthesizer
             }
 
             return null;
+        }
+
+        /// <summary>The producer as <see cref="Factory"/> calls it, a generic one with the recipe's type arguments; <c>null</c> for a
+        /// generic one with an interface constraint or a type parameter the recipe has no argument for, one whose result does not
+        /// convert to the type, and one taking the very type it produces. It reads symbols only, so the factory asks it before a
+        /// candidate's snapshot.</summary>
+        /// <param name="producer">A public static method of the library.</param>
+        /// <param name="type">The type to produce.</param>
+        private IMethodSymbol? Applicable(IMethodSymbol producer, INamedTypeSymbol type)
+        {
+            var method = producer;
+            if (method.IsGenericMethod)
+            {
+                if (method.TypeParameters.Any(parameter => parameter.ConstraintTypes.Any(constraint => constraint.TypeKind == TypeKind.Interface)))
+                    return null;
+                var arguments = method.TypeParameters.Select(RecipeChoice).ToArray();
+                if (arguments.Any(argument => argument is null))
+                    return null;
+                method = method.Construct(arguments!);
+            }
+
+            return Converts(method.ReturnType, type) && !method.Parameters.Any(parameter => SymbolEqualityComparer.Default.Equals(parameter.Type, type))
+                ? method
+                : null;
         }
 
         /// <summary>The library's public, non-generic, non-abstract classes that convert to the type, fewest constructor parameters
@@ -2975,6 +3041,7 @@ public static class DriverSynthesizer
                 WorkCancellation.Check();
                 unique = $"{name}_{suffix}";
             }
+            _namesGained.Gained(unique);
             return unique;
         }
 
@@ -2990,7 +3057,8 @@ public static class DriverSynthesizer
 
         /// <summary>Captures Failures, Defaulted, _setup, _seedStatements, _fields, _witnessFields, _keep, _types, _methods,
         /// _actions, _chosen, _seedTypeKeys and _classKeys by size, removing their new keys from _probeTypes, _choices, _seedTypes
-        /// and _classes on rollback; copies _names, _probeStructs, _unseeded and _owners; captures every existing owner's probes
+        /// and _classes on rollback; captures _names and _unseeded, which only gain keys, by their <see cref="KeyJournal"/>s, removing
+        /// the keys gained since on rollback; copies _probeStructs and _owners; captures every existing owner's probes
         /// and inputs and the value owner's, plus the caller's hoisted statements. Captures _intermediates, _lambdaParameters,
         /// _seedContainers, _staticsSeeded and TooDeep by value. The _below and _declaring stacks are checked, not restored;
         /// the library producer cache _producers is not transactional.</summary>
@@ -3054,10 +3122,9 @@ public static class DriverSynthesizer
             List(_chosen);
             Keys(_seedTypes, _seedTypeKeys);
             Keys(_classes, _classKeys);
-            var names = _names.ToArray();
-            restore.Add(() => { _names.Clear(); _names.UnionWith(names); });
+            restore.Add(_namesGained.Snapshot(_names.Remove));
             Dictionary(_probeStructs);
-            Dictionary(_unseeded);
+            restore.Add(_unseededGained.Snapshot(_unseeded.Remove));
             Dictionary(_owners);
             foreach (var existing in (owner is null ? _owners.Values : _owners.Values.Append(owner)).Distinct())
             {

@@ -18,7 +18,8 @@ internal sealed class ValueObservation
     private readonly IReadOnlySet<(string Instance, int Operation)> _unknownCalls;
     private readonly StageChecks _checks;
 
-    /// <summary>The task regions whose completion the current walk is reading: a task met again on its own path adds nothing.</summary>
+    /// <summary>The task regions whose completion the current query has read, on any branch: a task met again adds nothing
+    /// (<see cref="HasUnobserved"/>). Each query starts it empty.</summary>
     private readonly HashSet<string> _walking = new(StringComparer.Ordinal);
 
     /// <summary>The run's writes into storage by slot, built on first use (<see cref="Writes"/>).</summary>
@@ -91,8 +92,11 @@ internal sealed class ValueObservation
     /// <param name="values">The symbolic alternatives.</param>
     /// <param name="producers">Origins preserved through copies and merges.</param>
     // bounded: overload forwarding terminates at the implementation overload.
-    public bool HasUnobservedValues(MethodInstance instance, IEnumerable<AbstractValue> values, ValueOrigin producers) =>
-        HasUnobservedValues(instance, values, producers, []);
+    public bool HasUnobservedValues(MethodInstance instance, IEnumerable<AbstractValue> values, ValueOrigin producers)
+    {
+        _walking.Clear();
+        return HasUnobservedValues(instance, values, producers, []);
+    }
 
     /// <summary>The bodies whose writes fill the storage a value reads — a static field, the last field or cell of a path on the objects
     /// its base reaches, a capture cell —, sorted; empty for any other value, or for storage nothing writes.</summary>
@@ -116,124 +120,123 @@ internal sealed class ValueObservation
     /// <param name="instance">The instance expressing the values.</param>
     /// <param name="values">The symbolic alternatives.</param>
     /// <param name="producers">Origins preserved through copies and merges.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedValues(MethodInstance instance, IEnumerable<AbstractValue> values, ValueOrigin producers,
                                       HashSet<(string Instance, AbstractValue Value)> seen) =>
         values.Any(value => HasUnobserved(instance, value, seen)) ||
         producers.Calls.Any(operation => _unknownCalls.Contains((instance.Id, operation)) && !IsDecidedCurrent(instance, operation));
 
-    /// <summary>Checks source-call and argument alternatives without treating a nonempty points-to set as completeness.</summary>
+    /// <summary>Checks source-call and argument alternatives without treating a nonempty points-to set as completeness. A query visits
+    /// each alternative once: <paramref name="seen"/> keeps every alternative the query has visited, on any branch, and one met again
+    /// answers <c>false</c>; a task's completion is kept the same way, in <see cref="_walking"/>. The query still answers whether some
+    /// unobserved leaf is reachable from it, because an answer depends on nothing but the instance and the value, and every branch of
+    /// the walk combines the answers of its recursive calls by "or" (<c>||</c>, <c>Any</c>), negating or joining by "and" only
+    /// conditions that do not recurse. A branch that negates a recursive answer, or joins two by "and", breaks the shared set: it would
+    /// read <c>false</c> for an alternative another branch has already visited.</summary>
     /// <param name="instance">The instance expressing the value.</param>
     /// <param name="value">The symbolic value.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch.</param>
     private bool HasUnobserved(MethodInstance instance, AbstractValue value, HashSet<(string Instance, AbstractValue Value)> seen)
     {
         // Every descent into a caller, a callee, a task or a write enters here again.
         _checks.Check();
         if (!seen.Add((instance.Id, value)))
             return false;
-        try
+        // A parameter is what its callers hand it: an ordinary call's argument, or the input a known call's fate hands the delegate
+        // it runs.
+        if (value is ParameterValue parameter)
         {
-            // A parameter is what its callers hand it: an ordinary call's argument, or the input a known call's fate hands the delegate
-            // it runs.
-            if (value is ParameterValue parameter)
+            return _heap.Edges.Where(edge => edge.CalleeInstance == instance.Id).Any(edge =>
             {
-                return _heap.Edges.Where(edge => edge.CalleeInstance == instance.Id).Any(edge =>
-                {
-                    var caller = _heap.Instances[edge.CallerInstance];
-                    return caller.Summary.Calls.Where(call => call.OperationId == edge.OperationId).SelectMany(call => call.Arguments)
-                                 .Where(argument => argument.ParameterOrdinal == parameter.Ordinal)
-                                 .Any(argument => HasUnobservedValues(caller, argument.Values, argument.Producers, seen));
-                }) ||
-                (_heap.FateRuns.GetValueOrDefault(instance.Id) ?? new HashSet<DelegateSite>()).Any(site => HasUnobservedFateInput(site, parameter.Ordinal, seen));
-            }
-            // A completion value is unobserved when the task waited for is, or when what completed any task it may be is.
-            if (value is AwaitResultValue awaited)
-            {
-                return instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId).SelectMany(join => join.Handles)
-                               .Any(handle => HasUnobservedTasks(instance, handle.Values, handle.Producers, seen));
-            }
-            if (value is CallResultValue call)
-            {
-                // Unwrap() gives what its outer task completes with: the task the outer task's work returned.
-                if (instance.Summary.Unwraps.FirstOrDefault(unwrap => unwrap.CallOperationId == call.OperationId) is { } unwrapped)
-                    return HasUnobservedTasks(instance, unwrapped.Outer.Values, unwrapped.Outer.Producers, seen);
-                var opaque = instance.Summary.OpaqueCalls.Where(opaque => opaque.OperationId == call.OperationId).ToArray();
-                // A decided `foreach` puts the alias of the storage it enumerates beside its Current placeholder, which is the
-                // call's handle and not a value of its own, even where the call itself is one the engine cannot follow (ADR 0010,
-                // TD-043); the alias is judged as itself.
-                if (IsDecidedCurrent(instance, call.OperationId))
-                    return false;
-                if (_unknownCalls.Contains((instance.Id, call.OperationId)))
-                    return true;
-                // A dispatch whose receiver may be an object the heap does not name may run a body the heap does not have, beside the
-                // callees it resolved (HeapSolution.UnresolvedCallTargets); a receiver the closed world binds is followed to its origin.
-                if (_heap.UnresolvedCallTargets.Contains((instance.Id, call.OperationId)) &&
-                    instance.Summary.Calls.Where(transfer => transfer.OperationId == call.OperationId)
-                            .Any(transfer => HasUnobservedValues(instance, transfer.Receivers, ValueOrigin.None, seen)))
-                {
-                    return true;
-                }
-                if (opaque.Any(opaque => GenerationHandoffs.IsTransparentIntrinsic(opaque.Callee)))
-                    return opaque.SelectMany(opaque => opaque.Arguments).Any(argument =>
-                        argument.Values.Any(argumentValue => HasUnobserved(instance, argumentValue, seen)));
-                var callees = _heap.Edges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == call.OperationId)
-                                   .Select(edge => _heap.Instances[edge.CalleeInstance]).ToArray();
-                // A known call's result is what its model's result form names: what its own delegates give back reaches it only through a
-                // returns: of the form, each as the engine answers it; a body the call reaches otherwise is walked as a callee.
-                if (opaque.FirstOrDefault(opaque => opaque.Library is { Result: not null }) is { Library.Result: { } form } known)
-                {
-                    if (form.TaskDepth == 0 && HasUnobservedModelResult(instance, known, form.Leaf, seen))
-                        return true;
-                    var own = known.Library.Fates
-                                   .SelectMany(fate => DelegateReturned(instance, known, fate.ParameterOrdinal)?.Runs ?? [])
-                                   .Select(run => run.Callee).ToHashSet(StringComparer.Ordinal);
-                    callees = callees.Where(callee => !own.Contains(callee.Id)).ToArray();
-                }
-                if (callees.Length != 0)
-                    return callees.Any(callee => callee.Summary.Returns.Any(returned =>
-                        HasUnobservedValues(callee, returned.Values, returned.Producers, seen)));
-                // Recognizers and collection models put the result's alias beside this call placeholder in the summary values.
-                if (opaque.Length != 0 && opaque.All(opaque => opaque.IsRecognized || opaque.Collection is not null || opaque.Implementations.Count != 0))
-                    return false;
-            }
-            if (value is RefResultValue reference)
-            {
-                var callees = _heap.Edges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == reference.OperationId)
-                                   .Select(edge => _heap.Instances[edge.CalleeInstance]).ToArray();
-                if (callees.Length != 0)
-                    return callees.Any(callee => callee.Summary.RefParameters.Where(parameter => parameter.Ordinal == reference.Ordinal)
-                                                     .SelectMany(parameter => parameter.Values).Any(returned => HasUnobserved(callee, returned, seen)));
-            }
-            // A struct held by value is no object of its own: it holds what it was copied from, which may be what a reference nothing
-            // proves reads (R2, question 160).
-            if (value is StructCopyValue copy)
-            {
-                return instance.Summary.StructCopies.Where(transfer => transfer.Targets.Contains(copy))
-                               .Any(transfer => HasUnobservedValues(instance, transfer.Sources, ValueOrigin.None, seen));
-            }
-            if (value is PathValue path && (HasUnobserved(instance, path.Base, seen) || HasUnobservedWrite(instance, path, seen)))
-                return true;
-            if (value is CapturedValue captured && HasUnobservedWriteInto(Closures(instance, captured.Cell), WholeProgram.ClosureSlot(captured.Cell), seen))
-                return true;
-            if (value is StaticFieldValue field &&
-                HasUnobservedWriteInto(new HashSet<string>(StringComparer.Ordinal) { _heap.StaticRegionOf(instance.Id, field.Field) },
-                                       FieldSlot.Key(field.Field), seen))
-            {
-                return true;
-            }
-            // What a known call keeps or stores is what its model names there.
-            if (value is LibraryKeepingValue keeping)
-                return HasUnobservedLibraryWrite(instance, keeping.OperationId, library => library.Keeps.GetValueOrDefault(keeping.KeeperOrdinal), seen);
-            if (value is LibraryStoredValue stored)
-                return HasUnobservedLibraryWrite(instance, stored.OperationId, library => library.Stores.GetValueOrDefault(stored.TargetOrdinal), seen);
-            return Resolve(instance, value).Count == 0 &&
-                !(IsMemberEntry(instance) && (value is ConcurrencyHunter.Heap.ThisValue || value is PathValue { Base: ParameterValue }));
+                var caller = _heap.Instances[edge.CallerInstance];
+                return caller.Summary.Calls.Where(call => call.OperationId == edge.OperationId).SelectMany(call => call.Arguments)
+                             .Where(argument => argument.ParameterOrdinal == parameter.Ordinal)
+                             .Any(argument => HasUnobservedValues(caller, argument.Values, argument.Producers, seen));
+            }) ||
+            (_heap.FateRuns.GetValueOrDefault(instance.Id) ?? new HashSet<DelegateSite>()).Any(site => HasUnobservedFateInput(site, parameter.Ordinal, seen));
         }
-        finally
+        // A completion value is unobserved when the task waited for is, or when what completed any task it may be is.
+        if (value is AwaitResultValue awaited)
         {
-            seen.Remove((instance.Id, value));
+            return instance.Summary.Joins.Where(join => join.OperationId == awaited.OperationId).SelectMany(join => join.Handles)
+                           .Any(handle => HasUnobservedTasks(instance, handle.Values, handle.Producers, seen));
         }
+        if (value is CallResultValue call)
+        {
+            // Unwrap() gives what its outer task completes with: the task the outer task's work returned.
+            if (instance.Summary.Unwraps.FirstOrDefault(unwrap => unwrap.CallOperationId == call.OperationId) is { } unwrapped)
+                return HasUnobservedTasks(instance, unwrapped.Outer.Values, unwrapped.Outer.Producers, seen);
+            var opaque = instance.Summary.OpaqueCalls.Where(opaque => opaque.OperationId == call.OperationId).ToArray();
+            // A decided `foreach` puts the alias of the storage it enumerates beside its Current placeholder, which is the
+            // call's handle and not a value of its own, even where the call itself is one the engine cannot follow (ADR 0010,
+            // TD-043); the alias is judged as itself.
+            if (IsDecidedCurrent(instance, call.OperationId))
+                return false;
+            if (_unknownCalls.Contains((instance.Id, call.OperationId)))
+                return true;
+            // A dispatch whose receiver may be an object the heap does not name may run a body the heap does not have, beside the
+            // callees it resolved (HeapSolution.UnresolvedCallTargets); a receiver the closed world binds is followed to its origin.
+            if (_heap.UnresolvedCallTargets.Contains((instance.Id, call.OperationId)) &&
+                instance.Summary.Calls.Where(transfer => transfer.OperationId == call.OperationId)
+                        .Any(transfer => HasUnobservedValues(instance, transfer.Receivers, ValueOrigin.None, seen)))
+            {
+                return true;
+            }
+            if (opaque.Any(opaque => GenerationHandoffs.IsTransparentIntrinsic(opaque.Callee)))
+                return opaque.SelectMany(opaque => opaque.Arguments).Any(argument =>
+                    argument.Values.Any(argumentValue => HasUnobserved(instance, argumentValue, seen)));
+            var callees = _heap.Edges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == call.OperationId)
+                               .Select(edge => _heap.Instances[edge.CalleeInstance]).ToArray();
+            // A known call's result is what its model's result form names: what its own delegates give back reaches it only through a
+            // returns: of the form, each as the engine answers it; a body the call reaches otherwise is walked as a callee.
+            if (opaque.FirstOrDefault(opaque => opaque.Library is { Result: not null }) is { Library.Result: { } form } known)
+            {
+                if (form.TaskDepth == 0 && HasUnobservedModelResult(instance, known, form.Leaf, seen))
+                    return true;
+                var own = known.Library.Fates
+                               .SelectMany(fate => DelegateReturned(instance, known, fate.ParameterOrdinal)?.Runs ?? [])
+                               .Select(run => run.Callee).ToHashSet(StringComparer.Ordinal);
+                callees = callees.Where(callee => !own.Contains(callee.Id)).ToArray();
+            }
+            if (callees.Length != 0)
+                return callees.Any(callee => callee.Summary.Returns.Any(returned =>
+                    HasUnobservedValues(callee, returned.Values, returned.Producers, seen)));
+            // Recognizers and collection models put the result's alias beside this call placeholder in the summary values.
+            if (opaque.Length != 0 && opaque.All(opaque => opaque.IsRecognized || opaque.Collection is not null || opaque.Implementations.Count != 0))
+                return false;
+        }
+        if (value is RefResultValue reference)
+        {
+            var callees = _heap.Edges.Where(edge => edge.CallerInstance == instance.Id && edge.OperationId == reference.OperationId)
+                               .Select(edge => _heap.Instances[edge.CalleeInstance]).ToArray();
+            if (callees.Length != 0)
+                return callees.Any(callee => callee.Summary.RefParameters.Where(parameter => parameter.Ordinal == reference.Ordinal)
+                                                 .SelectMany(parameter => parameter.Values).Any(returned => HasUnobserved(callee, returned, seen)));
+        }
+        // A struct held by value is no object of its own: it holds what it was copied from, which may be what a reference nothing
+        // proves reads (R2, question 160).
+        if (value is StructCopyValue copy)
+        {
+            return instance.Summary.StructCopies.Where(transfer => transfer.Targets.Contains(copy))
+                           .Any(transfer => HasUnobservedValues(instance, transfer.Sources, ValueOrigin.None, seen));
+        }
+        if (value is PathValue path && (HasUnobserved(instance, path.Base, seen) || HasUnobservedWrite(instance, path, seen)))
+            return true;
+        if (value is CapturedValue captured && HasUnobservedWriteInto(Closures(instance, captured.Cell), WholeProgram.ClosureSlot(captured.Cell), seen))
+            return true;
+        if (value is StaticFieldValue field &&
+            HasUnobservedWriteInto(new HashSet<string>(StringComparer.Ordinal) { _heap.StaticRegionOf(instance.Id, field.Field) },
+                                   FieldSlot.Key(field.Field), seen))
+        {
+            return true;
+        }
+        // What a known call keeps or stores is what its model names there.
+        if (value is LibraryKeepingValue keeping)
+            return HasUnobservedLibraryWrite(instance, keeping.OperationId, library => library.Keeps.GetValueOrDefault(keeping.KeeperOrdinal), seen);
+        if (value is LibraryStoredValue stored)
+            return HasUnobservedLibraryWrite(instance, stored.OperationId, library => library.Stores.GetValueOrDefault(stored.TargetOrdinal), seen);
+        return Resolve(instance, value).Count == 0 &&
+            !(IsMemberEntry(instance) && (value is ConcurrencyHunter.Heap.ThisValue || value is PathValue { Base: ParameterValue }));
     }
 
     /// <summary>Whether something written into a slot a storage read reads may be an object the heap does not name: the heap keeps only
@@ -241,7 +244,7 @@ internal sealed class ValueObservation
     /// path is judged, on the objects the read reaches there; a wildcard reads every slot of every object its base reaches.</summary>
     /// <param name="instance">The instance expressing the read.</param>
     /// <param name="path">The storage read.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedWrite(MethodInstance instance, PathValue path, HashSet<(string Instance, AbstractValue Value)> seen)
     {
         var holders = Resolve(instance, path.Base);
@@ -262,7 +265,7 @@ internal sealed class ValueObservation
     /// <summary>Whether a write into a slot of some objects may write an object the heap does not name.</summary>
     /// <param name="holders">The objects whose slot is read.</param>
     /// <param name="slot">The slot, or null for every slot.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedWriteInto(IReadOnlySet<string> holders, string? slot, HashSet<(string Instance, AbstractValue Value)> seen) =>
         _checks.Each(slot is null ? Writes.SelectMany(writes => writes) : Writes[slot]).Any(write =>
             write.Holders.Overlaps(holders) && HasUnobservedValues(write.Instance, write.Values, write.Producers, seen));
@@ -272,7 +275,7 @@ internal sealed class ValueObservation
     /// <param name="instance">The instance making the call.</param>
     /// <param name="operation">The call's operation.</param>
     /// <param name="values">What the model names there, given the call's model.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedLibraryWrite(MethodInstance instance, int operation, Func<IrLibraryCall, IReadOnlyList<IrModelValue>?> values,
                                            HashSet<(string Instance, AbstractValue Value)> seen) =>
         instance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == operation && call.Library is not null) is not { } call ||
@@ -356,7 +359,7 @@ internal sealed class ValueObservation
     /// <param name="instance">The instance expressing the values.</param>
     /// <param name="values">The values naming the tasks.</param>
     /// <param name="producers">Origins preserved through copies and merges.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedTasks(MethodInstance instance, IEnumerable<AbstractValue> values, ValueOrigin producers,
                                     HashSet<(string Instance, AbstractValue Value)> seen)
     {
@@ -370,26 +373,19 @@ internal sealed class ValueObservation
     /// walks its callee's returns (<see cref="HeapSolution.TaskCompleters"/>). A task region no producer the heap names completed, or
     /// one completed by code the analysis does not see in full, is unobserved.</summary>
     /// <param name="task">The task region.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedCompletion(string task, HashSet<(string Instance, AbstractValue Value)> seen)
     {
         _checks.Check();
         if (!_walking.Add(task))
             return false;
-        try
-        {
-            return _heap.TaskCompleters.GetValueOrDefault(task) is not { Count: > 0 } completers ||
-                   completers.Any(completer => HasUnobservedCompleter(completer, seen));
-        }
-        finally
-        {
-            _walking.Remove(task);
-        }
+        return _heap.TaskCompleters.GetValueOrDefault(task) is not { Count: > 0 } completers ||
+               completers.Any(completer => HasUnobservedCompleter(completer, seen));
     }
 
     /// <summary>Whether one producer of a task's completion value may give an object the heap does not name.</summary>
     /// <param name="completer">The producer.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedCompleter(TaskCompleter completer, HashSet<(string Instance, AbstractValue Value)> seen)
     {
         if (!_heap.Instances.TryGetValue(completer.Instance, out var instance))
@@ -447,7 +443,7 @@ internal sealed class ValueObservation
     /// <param name="instance">The instance making the call.</param>
     /// <param name="call">The known call.</param>
     /// <param name="value">The model value.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedModelValue(MethodInstance instance, SummaryOpaqueCall call, IrModelValue value,
                                          HashSet<(string Instance, AbstractValue Value)> seen)
     {
@@ -476,7 +472,7 @@ internal sealed class ValueObservation
     /// <param name="instance">The instance making the call.</param>
     /// <param name="call">The known call.</param>
     /// <param name="source">The model value naming the tasks.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedModelTasks(MethodInstance instance, SummaryOpaqueCall call, IrModelValue source,
                                          HashSet<(string Instance, AbstractValue Value)> seen) =>
         HasUnobservedModelValue(instance, call, source, seen) || ModelRegions(instance, call, source).Any(task => HasUnobservedCompletion(task, seen));
@@ -519,7 +515,7 @@ internal sealed class ValueObservation
     /// <param name="instance">The instance making the call.</param>
     /// <param name="call">The known call.</param>
     /// <param name="leaf">The result form's leaf.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedModelResult(MethodInstance instance, SummaryOpaqueCall call, IrLibraryResult leaf,
                                           HashSet<(string Instance, AbstractValue Value)> seen) =>
         leaf.Values.Where(value => leaf.Kind == IrResultKind.OneOf || NamesReturns(value))
@@ -548,7 +544,7 @@ internal sealed class ValueObservation
     /// <param name="instance">The instance making the call.</param>
     /// <param name="call">The known call.</param>
     /// <param name="returned">The model's <c>returns:</c> value.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedReturns(MethodInstance instance, SummaryOpaqueCall call, IrModelReturns returned,
                                       HashSet<(string Instance, AbstractValue Value)> seen) =>
         DelegateReturned(instance, call, returned.ParameterOrdinal) is not { Unseen: false } returns ||
@@ -560,7 +556,7 @@ internal sealed class ValueObservation
     /// for that parameter, observed as the call's model values are; unobserved where the model names no input for it.</summary>
     /// <param name="site">The known call's delegate parameter whose fate ran the delegate.</param>
     /// <param name="ordinal">The delegate's parameter.</param>
-    /// <param name="seen">Alternatives already visited on this path.</param>
+    /// <param name="seen">The alternatives this query has visited, on any branch (<see cref="HasUnobserved"/>).</param>
     private bool HasUnobservedFateInput(DelegateSite site, int ordinal, HashSet<(string Instance, AbstractValue Value)> seen)
     {
         if (!_heap.Instances.TryGetValue(site.Instance, out var caller) ||
