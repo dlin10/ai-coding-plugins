@@ -26,20 +26,30 @@ public sealed class EvidenceMapperTests
         Assert.Equal(2, run.Store().Judgments.Count);
     }
 
-    /// <summary>The dispatch boundary retains completed keys and resumes only missing keys next time.</summary>
+    /// <summary>Past the call's bound nothing starts, a running request still finishes, and the next call resumes from the store.</summary>
     [Fact]
-    public async Task Forty_second_budget_resumes_with_cache_hits()
+    public async Task Past_the_call_bound_nothing_starts_and_running_requests_finish()
     {
         using var run = MapperRun.Plain(3);
-        run.Advisor.Handler = (request, _) =>
+        run.Advisor.Limits = run.Advisor.Limits with { MaxConcurrency = 2 };
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        run.Advisor.Handler = async (request, ct) =>
         {
-            run.Clock.Advance(TimeSpan.FromSeconds(20));
-            return Task.FromResult(FakeAdvisor.Answer(request));
+            if (run.Advisor.Requests.Count == 1) await release.Task.WaitAsync(ct);
+            else run.Clock.Advance(TimeSpan.FromSeconds(3000));
+            return FakeAdvisor.Answer(request);
         };
-        var first = await run.Call();
+        var task = run.Call();
+        Assert.False(task.IsCompleted);
+        Assert.Equal(2, run.Advisor.Requests.Count);
+        release.SetResult();
+        var first = await task;
         Assert.False(first.Result.Complete);
         Assert.Equal(1, first.Result.Remaining);
         Assert.Equal(2, first.Result.CheckedThisCall);
+        Assert.NotNull(Outcome(first, 0).Answer);
+        Assert.Equal("not_yet_checked", Outcome(first, 2).Reason);
+        Assert.Equal(2, run.Advisor.Requests.Count);
         var sent = run.Advisor.Requests.Select(request => request.State["item"]!["text"]!.GetValue<string>()).ToArray();
         run.Advisor.Handler = (request, _) => Task.FromResult(FakeAdvisor.Answer(request));
         var second = await run.Call();
@@ -68,50 +78,6 @@ public sealed class EvidenceMapperTests
         await task;
         Assert.Equal(2, run.Advisor.PeakConcurrency);
         Assert.Equal(5, run.Advisor.Requests.Count);
-    }
-
-    /// <summary>The portion deadline cancels running work while queued keys remain unsent.</summary>
-    [Fact]
-    public async Task Forty_five_seconds_cancels_in_flight_requests_transiently()
-    {
-        using var run = MapperRun.Plain(2);
-        run.Advisor.Handler = async (_, ct) =>
-        {
-            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-            throw new InvalidOperationException();
-        };
-        var task = run.Call();
-        run.Clock.Advance(TimeSpan.FromSeconds(45));
-        var map = await task;
-        Assert.Equal("cancelled", Outcome(map, 0).Reason);
-        Assert.Equal("not_yet_checked", Outcome(map, 1).Reason);
-        Assert.Equal(2, map.Result.Remaining);
-        Assert.False(map.Result.Complete);
-        Assert.Empty(run.Store().Judgments);
-        Assert.Equal(45000, Assert.Single(run.Mapper.Progress.AskDurations));
-    }
-
-    /// <summary>Local measurement time counts toward the call deadline, rather than extending it.</summary>
-    [Fact]
-    public async Task Portion_deadline_includes_local_preparation_time()
-    {
-        using var run = MapperRun.Plain(1);
-        run.Advisor.OnMeasure = () =>
-        {
-            run.Advisor.OnMeasure = null;
-            run.Clock.Advance(TimeSpan.FromSeconds(5));
-        };
-        run.Advisor.Handler = (request, ct) =>
-        {
-            run.Clock.Advance(TimeSpan.FromSeconds(40));
-            ct.ThrowIfCancellationRequested();
-            return Task.FromResult(FakeAdvisor.Answer(request));
-        };
-        var map = await run.Call();
-        Assert.Equal("cancelled", Outcome(map, 0).Reason);
-        Assert.Equal(1, map.Result.Remaining);
-        Assert.Equal(TimeSpan.FromSeconds(45), run.Mapper.Progress.Duration);
-        Assert.Equal(40000d, Assert.Single(run.Mapper.Progress.AskDurations));
     }
 
     /// <summary>Unauthorized stops dispatch and is never cached.</summary>
@@ -524,7 +490,7 @@ internal sealed class MapperRun : IDisposable
     public string Root { get; } = Directory.CreateTempSubdirectory("planforge-mapper-").FullName;
     /// <summary>The persisted map path.</summary>
     public string Path => System.IO.Path.Combine(Root, "evidence-map.json");
-    /// <summary>The manual budget clock.</summary>
+    /// <summary>The manual clock for the call's bound and durations.</summary>
     public MapperClock Clock { get; } = new();
     /// <summary>The scripted service.</summary>
     public FakeAdvisor Advisor { get; } = new();
@@ -620,8 +586,6 @@ internal sealed class FakeAdvisor : IAdvisor
     public Func<AdviceRequest, CancellationToken, Task<AdviceResult>>? Handler { get; set; }
     /// <summary>The per-question script.</summary>
     public Func<ChoiceQuestion, AdviceOutcome> Choose { get; set; } = question => Valid(question);
-    /// <summary>An optional local measurement step, used to account for preparation time.</summary>
-    public Action? OnMeasure { get; set; }
     /// <summary>The greatest simultaneous invocation count.</summary>
     public int PeakConcurrency { get; private set; }
     /// <summary>The adapter's internal retries, deliberately invisible to the mapper.</summary>
@@ -631,11 +595,7 @@ internal sealed class FakeAdvisor : IAdvisor
 
     /// <summary>Measures in questions so packing boundaries are easy to script.</summary>
     /// <param name="request">The exact state and questions.</param>
-    public AdviceSize Measure(AdviceRequest request)
-    {
-        OnMeasure?.Invoke();
-        return new(request.Questions.Count, request.Questions.Count == 0 ? 0 : 1);
-    }
+    public AdviceSize Measure(AdviceRequest request) => new(request.Questions.Count, request.Questions.Count == 0 ? 0 : 1);
 
     /// <summary>Records and runs one request, including any script-owned retries.</summary>
     /// <param name="request">The request to retain.</param>

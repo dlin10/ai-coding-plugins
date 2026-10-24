@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlanForge.Acts;
 using PlanForge.Advisors;
+using PlanForge.Orchestration;
 using PlanForge.Run;
 
 namespace PlanForge.Evidence;
@@ -113,21 +114,19 @@ internal sealed class EvidenceMapProgress
 /// <summary>Owns one bounded map call, from local indexing through final atomic persistence.</summary>
 internal sealed class EvidenceMapper
 {
-    /// <summary>No request starts at or after this elapsed time.</summary>
-    private static readonly TimeSpan DispatchBudget = TimeSpan.FromSeconds(40);
-    /// <summary>In-flight requests are cancelled at this elapsed time.</summary>
-    private static readonly TimeSpan PortionBudget = TimeSpan.FromSeconds(45);
+    /// <summary>No request starts at or after this elapsed time; one already running finishes under the Advisor's own timeout.</summary>
+    private static readonly TimeSpan CallBound = TimeSpan.FromSeconds(HostCall.MAX_SECONDS);
     /// <summary>The monotonic opening timestamp, including tool preflight.</summary>
     private readonly long started;
     /// <summary>The single prepared call, validated before records become due.</summary>
     private Call? prepared;
-    /// <summary>The clock used by budgets, durations and persistence throttling.</summary>
+    /// <summary>The clock used by the call's bound, durations and persistence throttling.</summary>
     private readonly TimeProvider clock;
     /// <summary>An optional observer of successful store writes, used by deterministic tests.</summary>
     private readonly Action? storeWritten;
 
     /// <summary>Creates a call owner with an injectable clock and store-write observer.</summary>
-    /// <param name="clock">The budget clock, or the system clock.</param>
+    /// <param name="clock">The clock for the call's bound and durations, or the system clock.</param>
     /// <param name="storeWritten">An optional notification after each successful store write.</param>
     public EvidenceMapper(TimeProvider? clock = null, Action? storeWritten = null)
     {
@@ -191,17 +190,14 @@ internal sealed class EvidenceMapper
                             new EvidencePlanMark(PlanOutline.Hash(plan), reviewRounds));
     }
 
-    /// <summary>Runs the validated call with budgets and accounting measured from its opening.</summary>
-    /// <param name="ct">Caller cancellation, propagated after final persistence.</param>
+    /// <summary>Runs the validated call with its bound and accounting measured from its opening.</summary>
+    /// <param name="ct">Caller cancellation, the only thing that cancels running requests, propagated after final persistence.</param>
     public async Task<EvidenceMap> MapPreparedAsync(CancellationToken ct = default)
     {
         var session = prepared ?? throw new InvalidOperationException("The Evidence map must be prepared before dispatch.");
         var advisor = session.Advisor;
         session.ReadCache();
         var queue = session.Pack();
-        var portionLeft = PortionBudget - clock.GetElapsedTime(started);
-        using var portion = new CancellationTokenSource(portionLeft > TimeSpan.Zero ? portionLeft : TimeSpan.Zero, clock);
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ct, portion.Token);
         var running = new List<Task<Reply>>();
         var lastWrite = started;
         Exception? failure = null;
@@ -212,10 +208,10 @@ internal sealed class EvidenceMapper
             while (queue.Count > 0 || running.Count > 0)
             {
                 while (queue.Count > 0 && running.Count < advisor.Limits.MaxConcurrency && !running.Any(task => task.IsCompleted)
-                       && session.StoppedBy is null && !cancellation.IsCancellationRequested
-                       && clock.GetElapsedTime(started) < DispatchBudget)
+                       && session.StoppedBy is null && !ct.IsCancellationRequested
+                       && clock.GetElapsedTime(started) < CallBound)
                 {
-                    running.Add(AskAsync(advisor, queue.Dequeue(), cancellation.Token));
+                    running.Add(AskAsync(advisor, queue.Dequeue(), ct));
                 }
                 if (running.Count == 0) break;
                 var task = await Task.WhenAny(running).ConfigureAwait(false);
@@ -234,7 +230,6 @@ internal sealed class EvidenceMapper
         finally
         {
             // Drain every started invocation before the last write or letting cancellation escape.
-            cancellation.Cancel();
             foreach (var task in running)
             {
                 try { session.Receive(await task.ConfigureAwait(false), queue); }
@@ -265,7 +260,7 @@ internal sealed class EvidenceMapper
     /// <summary>Captures one invocation's outcome and duration without leaking adapter error content.</summary>
     /// <param name="advisor">The service to invoke.</param>
     /// <param name="batch">The exact request and distinct judgments it contains.</param>
-    /// <param name="ct">The linked caller and portion cancellation.</param>
+    /// <param name="ct">Caller cancellation.</param>
     private async Task<Reply> AskAsync(IAdvisor advisor, Batch batch, CancellationToken ct)
     {
         Progress.Requests++;
@@ -458,7 +453,7 @@ internal sealed class EvidenceMapper
             }
         }
 
-        /// <summary>Invalidates an incompatible model without re-asking the key during this portion.</summary>
+        /// <summary>Invalidates an incompatible model without re-asking the key during this call.</summary>
         /// <param name="part">The incompatible key.</param>
         private void Drop(Work part)
         {

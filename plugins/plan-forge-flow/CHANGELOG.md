@@ -1,5 +1,22 @@
 # Plan Forge Flow releases
 
+## 0.62.0
+
+`forge.evidence.map` maps in one call. Issue #186; ADR 0036 amended.
+
+- A call no longer stops starting requests at 40 seconds and cancels the running ones at 45, a limit
+  that served Cursor's 60-second tool calls after 0.59.0 had removed Cursor. No request starts after
+  3000 seconds, the bound `forge.work.poll` already waits to; a request already running finishes
+  under the Advisor's own timeout, and only the caller's cancellation cancels one. A map that used to
+  take several calls takes one, with one Flow-log entry and one `advisor.usage` record.
+- The map stays resumable and its result is unchanged: judgments are stored as they arrive, and
+  `complete`, `remaining`, `checkedThisCall` and `stoppedBy` report a call that ends early. The
+  tool's description and the skill call again only when `complete` is false, and not after a call
+  whose `checkedThisCall` is 0.
+- Microsoft-Decision-1 requests still waiting for quota are no longer cancelled at the end of a call
+  and asked again by the next one: the call waits for the quota. One call of 150 requests on a
+  60-a-minute deployment took 100 s, with no 429.
+
 ## 0.61.0
 
 The run's decisions are a Run artifact with identity. Issue #178, ADR 0045.

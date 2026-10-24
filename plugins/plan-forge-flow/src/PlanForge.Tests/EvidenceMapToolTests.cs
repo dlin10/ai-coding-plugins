@@ -15,54 +15,27 @@ namespace PlanForge.Tests;
 /// <summary>The tool boundary refuses before dispatch and finalizes every accepted call.</summary>
 public sealed class EvidenceMapToolTests
 {
-    /// <summary>Preflight consumes the tool's dispatch budget and appears in its usage record.</summary>
+    /// <summary>Requests that together outlast 45 seconds finish in one call, with one record of each kind timed from the opening.</summary>
     [Fact]
-    public async Task Preparation_past_the_dispatch_deadline_starts_no_request()
+    public async Task A_map_whose_requests_outlast_forty_five_seconds_completes_in_one_call()
     {
         using var run = new EvidenceToolRun();
-        var selections = 0;
+        run.Advisor.Limits = run.Advisor.Limits with { MaxQuestions = 2 };
+        run.Advisor.Handler = (request, ct) =>
+        {
+            run.Clock.Advance(TimeSpan.FromSeconds(30));
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(FakeAdvisor.Answer(request));
+        };
         var result = JsonNode.Parse(await ForgeTools.EvidenceMap(SessionRoots.None, run.Root, run.Run.RunId,
             ["Change WidgetApi"], CancellationToken.None, run.Environment.GetValueOrDefault,
-            (_, _) => { selections++; run.Clock.Advance(TimeSpan.FromSeconds(41)); return run.Advisor; }, run.Clock))!;
-        Assert.Equal(1, selections);
-        Assert.Empty(run.Advisor.Requests);
-        Assert.False(result["complete"]!.GetValue<bool>());
-        Assert.Equal(result["required"]!.GetValue<int>(), result["remaining"]!.GetValue<int>());
-        Assert.All(result["flags"]!.AsArray(), flag =>
-            Assert.Equal(["not_yet_checked"], flag!["uncheckedReasons"]!.AsArray().Select(reason => reason!.GetValue<string>())));
+            (_, _) => { run.Clock.Advance(TimeSpan.FromSeconds(5)); return run.Advisor; }, run.Clock))!;
+        Assert.True(result["complete"]!.GetValue<bool>());
+        Assert.Equal(2, run.Advisor.Requests.Count);
         var usage = Assert.Single(run.Records());
-        Assert.Equal(VendorAttempt.FormatLocalTimestamp(DateTimeOffset.UnixEpoch.ToLocalTime()), usage.GetProperty("at").GetString());
-        Assert.True(TimeSpan.Parse(usage.GetProperty("duration").GetString()!) >= TimeSpan.FromSeconds(41));
-        run.AssertRecords();
-    }
-
-    /// <summary>Preflight leaves only the remainder of the call's 45-second cancellation budget.</summary>
-    [Fact]
-    public async Task A_request_started_before_the_cutoff_is_cancelled_at_the_tool_deadline()
-    {
-        using var run = new EvidenceToolRun();
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        run.Advisor.Handler = async (_, ct) =>
-        {
-            entered.SetResult();
-            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-            throw new InvalidOperationException("cancelled request returned");
-        };
-        var call = ForgeTools.EvidenceMap(SessionRoots.None, run.Root, run.Run.RunId, ["Change WidgetApi"],
-            CancellationToken.None, run.Environment.GetValueOrDefault,
-            (_, _) => { run.Clock.Advance(TimeSpan.FromSeconds(39)); return run.Advisor; }, run.Clock);
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        run.Clock.Advance(TimeSpan.FromSeconds(5));
-        Assert.False(call.IsCompleted);
-        run.Clock.Advance(TimeSpan.FromSeconds(1));
-        var result = JsonNode.Parse(await call.WaitAsync(TimeSpan.FromSeconds(10)))!;
-        Assert.Single(run.Advisor.Requests);
-        Assert.False(result["complete"]!.GetValue<bool>());
-        Assert.All(result["flags"]!.AsArray(), flag =>
-            Assert.Equal(["cancelled"], flag!["uncheckedReasons"]!.AsArray().Select(reason => reason!.GetValue<string>())));
-        var usage = Assert.Single(run.Records());
-        Assert.Equal(VendorAttempt.FormatLocalTimestamp(DateTimeOffset.UnixEpoch.ToLocalTime()), usage.GetProperty("at").GetString());
-        Assert.Equal(TimeSpan.FromSeconds(45), TimeSpan.Parse(usage.GetProperty("duration").GetString()!));
+        Assert.Equal(2, usage.GetProperty("requests").GetInt32());
+        Assert.True(usage.GetProperty("complete").GetBoolean());
+        Assert.Equal(TimeSpan.FromSeconds(65), TimeSpan.Parse(usage.GetProperty("duration").GetString()!));
         run.AssertRecords();
     }
 
@@ -503,7 +476,7 @@ internal sealed class EvidenceToolRun : IDisposable
     public RunDirectory Run { get; }
     /// <summary>The service used after production configuration selection succeeds.</summary>
     public FakeAdvisor Advisor { get; } = new();
-    /// <summary>The manual portion and accounting clock.</summary>
+    /// <summary>The manual clock for the call's bound and accounting.</summary>
     public MapperClock Clock { get; } = new();
     /// <summary>The environment lookup, separate from tool arguments.</summary>
     public Dictionary<string, string?> Environment { get; } = new() { ["PLANFORGE_JEV_API_KEY"] = "DISTINCTIVE-JEV-CREDENTIAL-19ec85" };
