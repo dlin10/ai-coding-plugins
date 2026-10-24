@@ -263,7 +263,7 @@ internal sealed class ForgeTools
             });
     }
 
-    /// <summary>Advises the manual Evidence check in bounded portions through a configured Advisor.</summary>
+    /// <summary>Advises the manual Evidence check in one call through a configured Advisor.</summary>
     /// <param name="roots">The host's session roots.</param>
     /// <param name="workspaceRoot">The absolute repository root.</param>
     /// <param name="runId">The Run receiving the map.</param>
@@ -271,7 +271,7 @@ internal sealed class ForgeTools
     /// <param name="ct">Caller cancellation, propagated after persistence and records.</param>
     /// <param name="advisor">The configured Advisor id, or null to select the sole configured Advisor.</param>
     /// <param name="implications">Optional obligations derived from existing Scout items.</param>
-    [McpServerTool(Name = "forge.evidence.map"), Description("Advises the manual Evidence check through a configured Advisor in a bounded call. Call again until complete is true or checkedThisCall is zero. Supply all Change points and optional implications citing Scout item ids. A credential is never an argument: configuration comes only from the server process environment.")]
+    [McpServerTool(Name = "forge.evidence.map"), Description("Advises the manual Evidence check through a configured Advisor and maps in one call. Call again only when complete is false, and not after a call whose checkedThisCall is zero. Supply all Change points and optional implications citing Scout item ids. A credential is never an argument: configuration comes only from the server process environment.")]
     public static Task<string> EvidenceMap(SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                             [Description("Run id from forge.begin.")] string runId,
@@ -290,7 +290,7 @@ internal sealed class ForgeTools
     /// <param name="ct">Caller cancellation.</param>
     /// <param name="environment">The process environment lookup, never logged.</param>
     /// <param name="advisorFactory">Selects and constructs a configured Advisor.</param>
-    /// <param name="clock">The clock for portion budgets and usage.</param>
+    /// <param name="clock">The clock for the call's bound and usage.</param>
     /// <param name="advisor">An optional explicit Advisor id.</param>
     /// <param name="implications">Optional derived obligations.</param>
     internal static async Task<string> EvidenceMap(SessionRoots roots, string workspaceRoot, string runId,
@@ -1644,20 +1644,16 @@ internal sealed record PollWait(TimeSpan Timeout, string? Clamped)
 {
     private const int DEFAULT_SECONDS = 45;
 
-    // Claude Code's manifest "timeout" and Codex's tool_timeout_sec both end a call at the hour;
-    // ten minutes short of it leaves the result room to land before that clock does.
-    private const int MAX_SECONDS = 3000;
-
     /// <summary>The wait for a poll that asked for <paramref name="waitSeconds"/>, held to 1 to 3000 seconds.</summary>
     /// <param name="waitSeconds">The requested wait, or null for the 45-second default.</param>
     public static PollWait For(int? waitSeconds)
     {
         if (waitSeconds is not { } requested) return new PollWait(TimeSpan.FromSeconds(DEFAULT_SECONDS), null);
 
-        var granted = Math.Clamp(requested, 1, MAX_SECONDS);
+        var granted = Math.Clamp(requested, 1, HostCall.MAX_SECONDS);
         var clamped = granted == requested
             ? null
-            : $"waitSeconds {requested} is outside 1 to {MAX_SECONDS}; this poll waited up to {granted} seconds";
+            : $"waitSeconds {requested} is outside 1 to {HostCall.MAX_SECONDS}; this poll waited up to {granted} seconds";
         return new PollWait(TimeSpan.FromSeconds(granted), clamped);
     }
 }

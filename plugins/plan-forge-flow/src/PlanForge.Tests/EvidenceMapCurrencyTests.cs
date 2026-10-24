@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PlanForge.Acts;
+using PlanForge.Advisors;
 using PlanForge.Evidence;
 using PlanForge.Infrastructure;
 using PlanForge.Mcp;
@@ -89,9 +90,8 @@ public sealed class EvidenceMapCurrencyTests
     public async Task A_map_that_never_completed_is_warned()
     {
         using var fixture = new EvidenceToolRun();
-        await ForgeTools.EvidenceMap(SessionRoots.None, fixture.Root, fixture.Run.RunId, ["Change WidgetApi"],
-            CancellationToken.None, fixture.Environment.GetValueOrDefault,
-            (_, _) => { fixture.Clock.Advance(TimeSpan.FromSeconds(41)); return fixture.Advisor; }, fixture.Clock);
+        fixture.Advisor.Handler = (_, _) => throw new AdvisorException(AdvisorFailureKind.Unavailable);
+        Assert.False(JsonNode.Parse(await fixture.Call())!["complete"]!.GetValue<bool>());
 
         var warning = await Write(fixture, WIDER_PLAN);
         Assert.NotNull(warning);

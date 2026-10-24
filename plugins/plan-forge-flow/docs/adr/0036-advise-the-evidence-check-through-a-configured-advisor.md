@@ -77,6 +77,18 @@ about forty seconds, stores every judgment as soon as it has it, and reports wha
 what remains; the Orchestrator calls again until the map is complete. The same shape works on every
 host. Rejected: a background Job (built around a Vendor process) and one long call (dead on Cursor).
 
+> **Amended 2026-10-23 (issue #186, [0043](0043-remove-cursor-as-host-and-vendor.md)).** The one long
+> call was rejected for Cursor alone, and 0.59.0 removed Cursor. Both remaining hosts give a call an
+> hour: Claude Code through `"timeout": 3600000` in `.claude-plugin/plugin.json`, Codex through
+> `tool_timeout_sec: 3600` in `.mcp.json`. The forty-second portions cost calls and nothing else: in
+> Run `20261022-214038-e08c4f` four of six Jev maps took two calls, the first ending incomplete with
+> no failure only because dispatch had stopped. From 0.62.0 a call maps until done. No request starts
+> after 3000 seconds, the bound `forge.work.poll` already waits to; a request already running
+> finishes under the Advisor's own timeout, and only the caller's cancellation cancels one. Judgments
+> are still stored as they arrive and the result still reports what remains, so a call that ends
+> early — cancelled, stopped by an unauthorized or forbidden answer, left with failures after
+> retries, or at the bound — is resumed by calling again: the exception now, not the protocol.
+
 **What is asked.** The plan is divided into requirements, the Out-of-scope block, gates, the Fix
 gate and tasks, with any other text falling back to the plan outline's targets. The requirements
 with their exclusions and the Change points are state shared by every question. For each item the

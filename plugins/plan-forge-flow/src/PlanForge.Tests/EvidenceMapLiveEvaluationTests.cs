@@ -11,7 +11,7 @@ namespace PlanForge.Tests;
 /// <param name="output">The test runner's evaluation report sink.</param>
 public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
 {
-    /// <summary>Uses the configured Jev, resuming bounded calls until complete or no further judgment is checked.</summary>
+    /// <summary>Uses the configured Jev, mapping each fixture plan in one call.</summary>
     [Fact]
     [Trait("Category", "Integration")]
     public Task Evaluate_sanitized_fixture_with_configured_Jev() => Evaluate("jev", "PLANFORGE_JEV_API_KEY");
@@ -22,7 +22,7 @@ public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
     public Task Evaluate_sanitized_fixture_with_configured_Microsoft_Decision() =>
         Evaluate("microsoft-decision", "PLANFORGE_MSDECISION_API_KEY");
 
-    /// <summary>Evaluates every fixture plan with one configured Advisor and writes the pooled report.</summary>
+    /// <summary>Maps every fixture plan in one call with one configured Advisor and writes the pooled report.</summary>
     /// <param name="id">The Advisor to select.</param>
     /// <param name="keyVariable">Its credential variable, named in the failure when unset.</param>
     private async Task Evaluate(string id, string keyVariable)
@@ -36,19 +36,14 @@ public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
         var evaluations = new List<EvidenceEvaluation>();
         foreach (var plan in fixture.Labels.Keys)
         {
-            // Each plan starts with an independent store while progress remains pooled over every call.
+            // Each plan starts with an independent store while progress remains pooled over every plan.
             File.Delete(fixture.Run.EvidenceMapPath);
-            EvidenceMap last;
-            do
-            {
-                last = await fixture.Map(plan, advisor);
-                var call = fixture.Progress[^1];
-                output.WriteLine($"{plan} call: requests={call.Requests}, failed={call.FailedRequests}, "
-                                 + $"checked={last.Result.CheckedThisCall}, duration={call.Duration.TotalSeconds:F1} s");
-            }
-            while (!last.Result.Complete && last.Result.CheckedThisCall != 0);
-            evaluations.Add(new(last, fixture.Labels[plan]));
-            output.WriteLine($"{plan}: complete={last.Result.Complete}, remaining={last.Result.Remaining}");
+            var map = await fixture.Map(plan, advisor);
+            var call = fixture.Progress[^1];
+            output.WriteLine($"{plan} call: requests={call.Requests}, failed={call.FailedRequests}, "
+                             + $"checked={map.Result.CheckedThisCall}, duration={call.Duration.TotalSeconds:F1} s");
+            evaluations.Add(new(map, fixture.Labels[plan]));
+            output.WriteLine($"{plan}: complete={map.Result.Complete}, remaining={map.Result.Remaining}");
         }
         var report = EvidenceMetrics.Of(evaluations, fixture.Progress);
         var json = JsonSerializer.Serialize(report, EvidenceFixtureJson.Default.EvidenceMetricsReport);
@@ -58,6 +53,7 @@ public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
         output.WriteLine($"Evidence evaluation report: {path}");
         foreach (var evaluation in evaluations)
         {
+            Assert.True(evaluation.Map.Result.Complete, $"{evaluation.Map.Result.Remaining} judgments remain after one call");
             Assert.Equal(evaluation.Labels.Select(label => label.Id).Order(),
                 evaluation.Map.Observation.Select(item => item.Id).Order());
             Assert.DoesNotContain(evaluation.Map.Observation.SelectMany(item => item.Judgments)
