@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "c283cbb8e4993873a8f9af0ef57caf02f4a882c615cdd3cf8b20244dedae82ba",
+  "generator": "8b2144d7d6e955a5fc57cb5605499d3fba22fec36b06a0f297f0eb5940ff0bc0",
   "assembly": {
     "name": "Grpc.AspNetCore.Server",
     "version": "2.0.0.0",

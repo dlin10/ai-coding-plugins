@@ -75,6 +75,31 @@ public sealed class DriverRollbackMatrixTests
     }
 
     [Fact]
+    public void A_rejected_candidate_leaves_the_unseeded_paths_and_the_names_as_they_were()
+    {
+        // The rejected constructor or factory declares a probe class for its IUser, then only a default could fill its V; the accepted
+        // one declares that class again, under the name the rejected one took.
+        (string Rejected, string Accepted)[] cases =
+        [
+            ("public Built(IUser user, V v) { }", "public Built(IUser user, string s, int n) { }"),
+            ("public static Built Make(IUser user, V v) => null;", "private Built() { } public static Built Make(IUser user, string s, int n) => null;")
+        ];
+        static string Library(string candidates) =>
+            $"public sealed class Built {{ public NeedsV Field; {candidates} }} public static class Api {{ public static void Run(Built built) {{ }} }}";
+        // bounded: the two cases above.
+        foreach (var (rejected, accepted) in cases)
+        {
+            var cancelled = Synthesize(Library(rejected + " " + accepted), "M:Lib.Api.Run(Lib.Built)");
+            var absent = Synthesize(Library(accepted), "M:Lib.Api.Run(Lib.Built)");
+
+            Assert.Equal(absent.Source, cancelled.Source);
+            Assert.Contains("Probe_built", DeclaredClasses(cancelled));
+            Assert.Equal(absent.Unseeded, cancelled.Unseeded);
+            Assert.Contains("arg:built/F:Lib.Built.Field", cancelled.Unseeded);
+        }
+    }
+
+    [Fact]
     public void Seed_operations_name_only_statements_in_the_source()
     {
         var driver = Synthesize("""
