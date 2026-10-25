@@ -633,8 +633,18 @@ internal sealed class RunDirectory
                                .AppendLine()
                                .ToString());
 
+    public void AppendFlowPlanWritten(string planHash, PlanShape shape)
+    {
+        var entry = new StringBuilder().AppendLine("## Plan written")
+                                       .AppendLine()
+                                       .Append("Plan hash: ").AppendLine(planHash)
+                                       .AppendLine();
+        AppendPlanShape(entry, shape);
+        AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
+    }
+
     public void AppendFlowPlanPatched(string baseHash, string planHash,
-                                      IReadOnlyList<PlanPatchChange> changes, PlanPatchSizes sizes)
+                                      IReadOnlyList<PlanPatchChange> changes, PlanPatchSizes sizes, PlanShape shape)
     {
         var entry = new StringBuilder().AppendLine("## Plan patched")
                                        .AppendLine()
@@ -643,10 +653,27 @@ internal sealed class RunDirectory
         foreach (var change in changes)
             entry.Append("- ").Append(change.Op).Append(' ').Append(change.Target).Append(": ").AppendLine(change.Label);
         entry.AppendLine();
+        AppendPlanShape(entry, shape);
+        entry.AppendLine();
         foreach (var (name, size) in sizes.Measurements())
             entry.Append(name).Append(": ").Append(size.Characters).Append(" characters, ")
                  .Append(size.Utf8Bytes).AppendLine(" UTF-8 bytes");
         AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
+    }
+
+    private static void AppendPlanShape(StringBuilder entry, PlanShape shape)
+    {
+        entry.AppendLine("Shape:")
+             .Append("- Characters: ").AppendLine(shape.Characters.ToString(CultureInfo.InvariantCulture))
+             .Append("- Tasks: ").Append(shape.TaskCount).Append("; task characters: ").Append(shape.TaskCharacters)
+             .Append("; largest task: ").AppendLine(shape.LargestTaskCharacters.ToString(CultureInfo.InvariantCulture))
+             .Append("- Requirements: ").Append(shape.RequirementsCharacters)
+             .Append("; Approach: ").Append(shape.ApproachCharacters)
+             .Append("; ratio: ").AppendLine(shape.ApproachToRequirementsRatio?.ToString("0.00", CultureInfo.InvariantCulture) ?? "n/a")
+             .Append("- R-items: ").Append(shape.RequirementItemCount)
+             .Append("; named test classes: ").Append(shape.NamedTestClassCount)
+             .Append("; MatrixTests: ").AppendLine(shape.MatrixTestClassCount.ToString(CultureInfo.InvariantCulture))
+             .Append("- Offer a split: ").AppendLine(shape.SplitSuggested ? "yes" : "no");
     }
 
     /// <summary>
