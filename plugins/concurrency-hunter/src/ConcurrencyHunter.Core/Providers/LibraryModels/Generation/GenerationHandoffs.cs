@@ -430,7 +430,7 @@ public sealed class GenerationHandoffs
     /// (<see cref="HandoffsOutsideSetup"/>). The one owner of that split for every handoff; read by
     /// <c>EffectReader.ReadStaticsHandedToUnseen</c> for the places of <see cref="UnseenCalls"/>.</summary>
     /// <param name="instanceId">The instance.</param>
-    public IReadOnlyList<string> ExecutionsOutsideSetup(string instanceId) => OutsideSetupOf(ExecutionsOf(instanceId)).ToArray();
+    public IReadOnlyList<string> ExecutionsOutsideSetup(string instanceId) => OutsideSetupOf(DriverExecutions.ForInstance(_analysis, instanceId, includeInert: true)).ToArray();
 
     /// <summary>Whether some of an instance's executions ran outside setup and are no artefact, as <see cref="File"/> files a site.</summary>
     /// <param name="executions">The instance's executions.</param>
@@ -442,7 +442,7 @@ public sealed class GenerationHandoffs
         executions.Where(execution => !_executions.InSetup(execution) && !_executions.IsArtefact(execution));
 
     private IReadOnlySet<string> ExecutionsOf(string instanceId) =>
-        _analysis.InstanceExecutions.GetValueOrDefault(instanceId) ?? new HashSet<string>(StringComparer.Ordinal);
+        DriverExecutions.ForInstance(_analysis, instanceId);
 
     private IReadOnlySet<string> Close(IEnumerable<string> regions) => _reachability.From(regions);
 

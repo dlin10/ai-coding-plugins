@@ -136,6 +136,8 @@ public static class SemanticGaps
         foreach (var initializer in heap.TypeInitializers)
         {
             WorkCancellation.Check();
+            if (initializer.IsInert)
+                continue;
             foreach (var trigger in initializer.TriggeringInstances)
             {
                 WorkCancellation.Check();

@@ -18,24 +18,24 @@ public sealed class GeneratedDocumentTests
     private static readonly string[] GENERATION =
     [
         "implementation", "framework", "missingDependencies", "externBodies", "defaultedValues", "refusals", "setupWidened", "seeds", "unseeded",
-        "holderTriggers", "reachedBodies", "seconds"
+        "holderTriggers", "reachedBodies", "seconds", "mode", "stages", "attempts"
     ];
 
     // G-6's two examples, their "…" filled.
     private const string FIRST_EXAMPLE =
-        "{\"schemaVersion\":3,\"member\":\"" + ALL + "\",\"assembly\":{\"name\":\"System.Linq\",\"version\":\"10.0\",\"package\":null}," +
+        "{\"schemaVersion\":4,\"member\":\"" + ALL + "\",\"assembly\":{\"name\":\"System.Linq\",\"version\":\"10.0\",\"package\":null}," +
         "\"classified\":{\"predicate\":{\"fate\":\"invoke-now\",\"holder\":null}},\"reason\":null,\"detail\":\"\",\"model\":null,\"modelReason\":null," +
         "\"causes\":[],\"generation\":{\"implementation\":" +
         "{\"path\":\"C:\\\\Program Files\\\\dotnet\\\\shared\\\\Microsoft.NETCore.App\\\\10.0.0\\\\System.Linq.dll\",\"assemblyVersion\":\"10.0.0.0\"," +
         "\"fileVersion\":\"10.0.25.52411\",\"mvid\":\"" + MVID + "\"},\"framework\":\"net10.0\",\"missingDependencies\":[],\"externBodies\":3," +
         "\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[],\"seeds\":0,\"unseeded\":[],\"holderTriggers\":{}," +
-        "\"reachedBodies\":41,\"seconds\":2.3}}\n";
+        "\"reachedBodies\":41,\"seconds\":2.3,\"mode\":\"inert\",\"stages\":{\"resolve\":0.3},\"attempts\":[{\"mode\":\"inert\",\"reachedBodies\":41,\"confirmationBodies\":null,\"stages\":{\"analyze\":2.0}}]}}\n";
 
     private const string SECOND_EXAMPLE =
-        "{\"schemaVersion\":3,\"member\":\"" + JOIN + "\",\"assembly\":{\"name\":\"System.Private.CoreLib\",\"version\":\"8.0\",\"package\":null}," +
+        "{\"schemaVersion\":4,\"member\":\"" + JOIN + "\",\"assembly\":{\"name\":\"System.Private.CoreLib\",\"version\":\"8.0\",\"package\":null}," +
         "\"classified\":null,\"reason\":\"corelib\",\"detail\":\"\",\"model\":null,\"modelReason\":null,\"causes\":[],\"generation\":{\"implementation\":null," +
         "\"framework\":null,\"missingDependencies\":[],\"externBodies\":0,\"defaultedValues\":[],\"refusals\":{},\"setupWidened\":[]," +
-        "\"seeds\":0,\"unseeded\":[],\"holderTriggers\":{},\"reachedBodies\":0,\"seconds\":0.0}}\n";
+        "\"seeds\":0,\"unseeded\":[],\"holderTriggers\":{},\"reachedBodies\":0,\"seconds\":0.0,\"mode\":null,\"stages\":{},\"attempts\":[]}}\n";
 
     [Fact]
     public void Classified_answer_has_every_property_typed_as_G6_says()
@@ -44,7 +44,7 @@ public sealed class GeneratedDocumentTests
         var root = document.RootElement;
 
         Assert.Equal(TOP_LEVEL, Names(root));
-        Assert.Equal(3, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(4, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(JsonValueKind.String, root.GetProperty("member").ValueKind);
         var assembly = root.GetProperty("assembly");
         Assert.Equal(["name", "version", "package"], Names(assembly));
@@ -116,7 +116,11 @@ public sealed class GeneratedDocumentTests
                              new SortedDictionary<string, ClassifiedFate>(StringComparer.Ordinal) { ["predicate"] = new("invoke-now", null) }, null,
                              Record(new GenerationImplementation(@"C:\Program Files\dotnet\shared\Microsoft.NETCore.App\10.0.0\System.Linq.dll", "10.0.0.0",
                                                                  "10.0.25.52411", MVID),
-                                    "net10.0", externBodies: 3, reachedBodies: 41, seconds: 2.3));
+                                    "net10.0", externBodies: 3, reachedBodies: 41, seconds: 2.3) with
+                             {
+                                 Mode = "inert", Stages = new Dictionary<string, double> { ["resolve"] = 0.3 },
+                                 Attempts = [new GenerationAttempt("inert", 41, null) { Stages = new Dictionary<string, double> { ["analyze"] = 2.0 } }]
+                             });
 
         Assert.Equal(FIRST_EXAMPLE, Encoding.UTF8.GetString(GeneratedDocument.Write(answer)));
     }
@@ -155,7 +159,7 @@ public sealed class GeneratedDocumentTests
         var text = Encoding.UTF8.GetString(GeneratedDocument.Write(Example(JOIN, new GenerationAssembly("A", "8", null), null, GenerationReasons.CORELIB,
                                                                            Record(null, null, seconds: seconds))));
 
-        Assert.EndsWith($"\"seconds\":{written}}}}}\n", text, StringComparison.Ordinal);
+        Assert.Contains($"\"seconds\":{written},", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -201,7 +205,7 @@ public sealed class GeneratedDocumentTests
 
     private static GeneratedAnswer Example(string member, GenerationAssembly assembly, IReadOnlyDictionary<string, ClassifiedFate>? classified, string? reason,
                                            GenerationRecord record) =>
-        new(3, member, assembly, classified, reason, null, null, record);
+        new(4, member, assembly, classified, reason, null, null, record);
 
     private static GenerationRecord Record(GenerationImplementation? implementation, string? framework, int externBodies = 0, int reachedBodies = 0,
                                            double seconds = 0) =>

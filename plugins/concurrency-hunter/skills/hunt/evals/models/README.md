@@ -39,20 +39,20 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   and its fates equal the classified fates of the delegate-typed parameters. `ForMessage`'s carried `parser` has
   no fate in an entry: it is a non-delegate argument.
 - **Floor.** At least 14 of the 24 gold parameters classified exactly — or, while fewer are, no fewer than the `exact`
-  the snapshot recorded, each inexact parameter named with its cause in `docs/QUESTIONS.md`. The snapshot records 11:
-  a holder stands only when a trigger calls every member a caller could invoke on it, within the driver's 24, and no
-  gold holder is confirmed: the Polly holders are not covered (question 99), the `MessageParser<T>` holder is covered
-  but its confirmation run stops at the closure bound (question 101), and the `FieldCodec<T>` holder of `ForMessage` is
-  not covered (question 187). The inexact ones are in questions 97–101 and 187.
+  the snapshot recorded, each inexact parameter named with its cause in `docs/QUESTIONS.md`. The snapshot records 12:
+  a holder stands only when triggers cover every member a caller could invoke on it, within the driver's 24.
+  The `MessageParser<T>` constructor's holder is confirmed as `holder` `result` in `off`; the Polly holders
+  are not covered (question 99), and the `FieldCodec<T>` holder of `ForMessage` is not covered (question 187).
+  The remaining inexact ones are in questions 97–100 and 187.
 - **Entries.** The fate gold set is truth for fates only. Its whole answers are recorded, and the number of members
   with an entry never falls below the snapshot's `fateGoldEntries`; each member with no entry is named with its
   model reason in `docs/QUESTIONS.md`.
-  Run B2 records 3 entries of 18, `effectsExact` 8 of 18 (exact opaque answers), and `linqExact`
-  5 of 114 `System.Linq` entries and 0 of 15 `System.Linq.Queryable` entries. A refusal can be an exact whole
-  answer only when the truth requires the member to stay opaque. These counts do not make the fate gold set
-  whole-entry truth.
+  The snapshot records `fateGoldEntries` 3 of 18, `effectsExact` 8 of 18 (exact opaque answers),
+  `linqExact` 17 of 114 `System.Linq` entries and 0 of 15 `System.Linq.Queryable` entries, and
+  `accessorsExact` 8 of 12. A refusal is an exact whole answer only when truth requires an opaque
+  member. These counts do not make the fate gold set whole-entry truth.
   A recorded fate changes only by a cause of the floor rule below, every changed one named by declaration id with
-  its cause in `docs/QUESTIONS.md`. Run B2 changes no recorded fate. No recorded floor can decrease — `exact`, `fateGoldEntries`, `effectsExact`, each `linqExact` group and
+  its cause in the corresponding run record. No recorded floor can decrease, subject to the ADR 0026 exception below — `exact`, `fateGoldEntries`, `effectsExact`, each `linqExact` group and
   `accessorsExact`: the recording writer refuses a lower one and leaves the file's bytes as they were, save by the answers the
   generator now refuses as `overridable` (a model is applied by the member a call names, so a member a call may dispatch away
   from has none). CoreLib prerequisites step 10 lowers `accessorsExact` 7 → 6 so: `Component.set_Site` is virtual; and
@@ -90,6 +90,22 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   seeded array (R2); a member `System.Object` implements itself is no trigger of a holder of exact type (R3); and a
   holder's confirmation run collects accesses only in the executions of the driver's actions (R4). Each such answer is
   named in `docs/runs/5d-B4b.md`, with its requirement.
+  R1–R7 of [5d-B4c](../../../../docs/runs/5d-B4c.md) also permit a recorded answer, including `mode`,
+  to change: initializer treatments and inert execution (R1), its two generation readers (R2),
+  the whole-member retry and scan of excluded initializer closures (R3), static recipe values (R4),
+  agreement across static forms with explicit refusal exceptions (R5), generation records (R6),
+  and the shared 120-second member limit (R7). Every moved answer is named by declaration id with
+  its requirement in that record, including old and new reason, model reason, body count and mode;
+  every other changed field and each moved package or floor count is named too. These causes
+  permit no unsafe narrowing or decrease of a recorded floor except the single
+  [ADR 0026](../../../../docs/adr/0026-library-generation-type-initializers.md) exception:
+  `fateGoldEntries` was lowered manually from 4 to 3 before recording (D-0024). The
+  `MessageParser<T>` constructor is the only `members` answer that lost its model: its holder
+  is confirmed, but `modelReason` is `incomplete` with `unseeded-read`, because no permitted
+  recipe source builds `JsonParser.NullValueDescriptor`. The snapshot recording mechanism
+  is unchanged. The `exact` floor rose from 11 to 12; only `fateGoldEntries` fell.
+  The other floors, the entry and package sets, and each package's `bodies` and
+  `externBodies` stay the same.
   An answer may also change because the driver constructs a call it previously refused, or because the snapshot
   gains `detail` and `causes`; each changed answer is named by declaration id with its rule in the run record.
 - **Verdict report.** When `CH_MODEL_EVALS_REPORT` names a folder, `ModelEvalTests`, `EffectsEvalTests`,
@@ -103,12 +119,13 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
 - **Snapshot.** `generator-snapshot.json` holds the `members`, `effects`, `linq` and `accessors` answer arrays, sorted by declaration id:
   the implementation identity (assembly version, file version, MVID), the classification or the reason, the whole
   `model` entry or null, `modelReason`, `detail` (the answer's detail text, or `""` when absent), `causes` (the
-  `GenerationCause.Code` values, sorted in ascending ordinal order without duplicates, or `[]` when absent), and the bodies the driver reached; per
+  `GenerationCause.Code` values, sorted in ascending ordinal order without duplicates, or `[]` when absent),
+  `mode` (`run`, `inert`, `off`, or null before an attempt), and the bodies the driver reached, without stage times; per
   implementation assembly the package, the version folder the resolver took, the method bodies of the decompiled
   compilation and those made `extern`, the gold members and the drivers synthesized. The counts are `exact` for
   fates, `fateGoldEntries`, `effectsExact`, `linqExact` with separate `System.Linq` and `System.Linq.Queryable`
   counts, and `accessorsExact`. Every eval run
-  compares every answer field, including `detail` and `causes`, with the fresh snapshot and reports an implementation
+  compares every answer field, including `detail`, `causes` and `mode`, with the fresh snapshot and reports an implementation
   identity change (a runtime or package update) before any answer difference. It is rewritten only on purpose, by running the evals with `CH_MODEL_EVALS_RECORD=1`.
 - **Flag.** The evals (`ModelEvalTests`, `EffectsEvalTests`, `LinqOracleTests`, `AccessorEvalTests`) share the serial `Model evals` collection
   and read the installed .NET 8 and .NET 10 shared frameworks and the NuGet global packages
@@ -191,5 +208,4 @@ compares every fate with the gold fate through `EntryComparator.FateIsSafe` — 
 entry. The bar is zero unsafe narrowings. Every entry passes the project reader and its member check, and no member is
 refused as an `accessor`. An answer is exact when every fate, with its holder, and the entry are; the number of exact
 answers never falls below the snapshot's `accessorsExact`, and every inexact answer is named with its cause in
-`docs/QUESTIONS.md`. Run B2b records 7 of 12; CoreLib prerequisites step 10 records 6, `Component.set_Site` being
-`overridable` (question 163).
+`docs/QUESTIONS.md`. The snapshot floor is 8 of 12; `Component.set_Site` is `overridable` (question 163).

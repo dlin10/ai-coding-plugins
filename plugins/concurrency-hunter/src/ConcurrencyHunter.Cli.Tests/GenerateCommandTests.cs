@@ -23,6 +23,36 @@ public sealed class GenerateCommandTests : IDisposable
     public void Dispose() => _install.Dispose();
 
     [Fact]
+    public void A_generation_past_the_member_limit_writes_a_timeout_answer()
+    {
+        using var error = new StringWriter();
+        var code = GenerateCommand.Run(Valid(), error, _install.Resolver(), TimeSpan.FromSeconds(1), new CuttingClock());
+
+        Assert.True(code == ExitCode.Ok, error.ToString());
+        using var document = Answer();
+        var answer = document.RootElement;
+        Assert.Equal(4, answer.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(GenerationReasons.TIMEOUT, answer.GetProperty("reason").GetString());
+        Assert.Equal(JsonValueKind.Null, answer.GetProperty("model").ValueKind);
+        Assert.Equal(1, answer.GetProperty("generation").GetProperty("seconds").GetDouble());
+        Assert.True(answer.GetProperty("generation").GetProperty("stages").EnumerateObject().Any());
+    }
+
+    private sealed class CuttingClock : TimeProvider
+    {
+        private readonly FakeClock _clock = new();
+        public override long TimestampFrequency => _clock.TimestampFrequency;
+        public override long GetTimestamp()
+        {
+            var timestamp = _clock.GetTimestamp();
+            _clock.Advance(TimeSpan.FromSeconds(1));
+            return timestamp;
+        }
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            _clock.CreateTimer(callback, state, dueTime, period);
+    }
+
+    [Fact]
     public void Unknown_option_is_a_usage_error_and_writes_no_file() =>
         AssertUsageError([.. Valid(), "--target", "x"], "Unexpected argument '--target'.");
 

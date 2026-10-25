@@ -5,6 +5,7 @@ using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 
@@ -45,10 +46,28 @@ public sealed record GenerationImplementation(string Path, string AssemblyVersio
 public sealed record GenerationRecord(GenerationImplementation? Implementation, string? Framework, IReadOnlyList<string> MissingDependencies,
                                       int ExternBodies, IReadOnlyList<string> DefaultedValues, IReadOnlyDictionary<string, string> Refusals,
                                       IReadOnlyList<string> SetupWidened, int Seeds, IReadOnlyList<string> Unseeded,
-                                      IReadOnlyDictionary<string, IReadOnlyList<string>> HolderTriggers, int ReachedBodies, double Seconds);
+                                      IReadOnlyDictionary<string, IReadOnlyList<string>> HolderTriggers, int ReachedBodies, double Seconds)
+{
+    /// <summary>The answer attempt's treatment, or null before any attempt.</summary>
+    public string? Mode { get; init; }
+    /// <summary>Seconds in stages before the first attempt.</summary>
+    public IReadOnlyDictionary<string, double> Stages { get; init; } = new Dictionary<string, double>();
+    /// <summary>The attempts in order, including an attempt cut by the member limit.</summary>
+    public IReadOnlyList<GenerationAttempt> Attempts { get; init; } = [];
+}
+
+/// <summary>The runs of one initializer treatment.</summary>
+/// <param name="Mode">The treatment's wire name.</param>
+/// <param name="ReachedBodies">The final fate pass's body count.</param>
+/// <param name="ConfirmationBodies">The confirmation count, or null when it did not run.</param>
+public sealed record GenerationAttempt(string Mode, int ReachedBodies, int? ConfirmationBodies)
+{
+    /// <summary>Seconds in each stage of this attempt.</summary>
+    public IReadOnlyDictionary<string, double> Stages { get; init; } = new Dictionary<string, double>();
+}
 
 /// <summary>The generator's answer for one member (G-6): its classifications and whole model entry, or why either is absent.</summary>
-/// <param name="SchemaVersion">The answer's schema version, <c>3</c>.</param>
+/// <param name="SchemaVersion">The answer's schema version, <c>4</c>.</param>
 /// <param name="Member">The declaration id asked for.</param>
 /// <param name="Assembly">The assembly as asked for.</param>
 /// <param name="Classified">The fates by parameter name, or <c>null</c> when nothing was classified.</param>
@@ -73,6 +92,12 @@ public sealed record GeneratedAnswer(int SchemaVersion, string Member, Generatio
 /// <param name="Run">The fate run, when the pipeline ran and was not stopped.</param>
 internal sealed record GenerationTrace(GeneratedAnswer Answer, Driver? Driver, ScopeRun? Run)
 {
+    /// <summary>The confirmation runs made while closing the recipe storage set.</summary>
+    public int ConfirmationPasses { get; init; }
+
+    /// <summary>Recipe candidates whose finished off heap produced no object source.</summary>
+    internal IReadOnlySet<string> RejectedRecipeCandidates { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
     /// <summary>A holder's confirmation run (A5), when one ran and did not throw; it may be stopped.</summary>
     public ScopeRun? Confirmation { get; init; }
 
@@ -85,7 +110,7 @@ internal sealed record GenerationTrace(GeneratedAnswer Answer, Driver? Driver, S
 /// project models, writes no file and makes no network call.</summary>
 public static class ModelGenerator
 {
-    private const int SCHEMA_VERSION = 3;
+    private const int SCHEMA_VERSION = 4;
     private const int CLOSURE_BOUND = 1500;
     private const string SCOPE_ID = "model-generator";
     private const string TRACING = "System.Diagnostics.Tracing";
@@ -139,6 +164,71 @@ public static class ModelGenerator
     public static GeneratedAnswer Generate(GenerationRequest request, ImplementationAssemblies resolver, CancellationToken cancellationToken) =>
         Trace(request, resolver, cancellationToken).Answer;
 
+    /// <summary>Generates one member within one limit covering all its attempts; an expired limit is a timeout answer.</summary>
+    /// <param name="request">The member asked for.</param>
+    /// <param name="resolver">Finds the implementation assembly.</param>
+    /// <param name="limit">The member limit, or the server's limit.</param>
+    /// <param name="time">The clock for the limit and the generation record, or the system clock.</param>
+    /// <param name="cancellationToken">External cancellation, which propagates.</param>
+    public static GeneratedAnswer GenerateWithin(GenerationRequest request, ImplementationAssemblies resolver, TimeSpan? limit = null,
+                                                 TimeProvider? time = null, CancellationToken cancellationToken = default) =>
+        TraceWithin(request, resolver, limit, time, cancellationToken).Answer;
+
+    /// <summary>The bounded generation with its driver and runs.</summary>
+    /// <param name="request">The member asked for.</param>
+    /// <param name="resolver">Finds the implementation assembly.</param>
+    /// <param name="limit">The member limit, or the server's limit.</param>
+    /// <param name="time">The clock, or the system clock.</param>
+    /// <param name="cancellationToken">External cancellation, which propagates.</param>
+    /// <param name="checkReported">Reports stage checks for tests.</param>
+    internal static GenerationTrace TraceWithin(GenerationRequest request, ImplementationAssemblies resolver, TimeSpan? limit = null,
+                                                TimeProvider? time = null, CancellationToken cancellationToken = default,
+                                                Action<GenerationStage, int>? checkReported = null) =>
+        Within(request, limit, time, cancellationToken, checkReported, (Facts facts, GenerationChecks checks) => Resolve(facts, resolver, checks));
+
+    /// <summary>A bounded generation over a compiled fixture.</summary>
+    /// <param name="request">The member asked for.</param>
+    /// <param name="library">The compiled library.</param>
+    /// <param name="limit">The member limit, or the server's limit.</param>
+    /// <param name="time">The clock, or the system clock.</param>
+    /// <param name="cancellationToken">External cancellation, which propagates.</param>
+    /// <param name="checkReported">Reports stage checks for tests.</param>
+    /// <param name="initializers">The test treatment override.</param>
+    internal static GenerationTrace TraceWithin(GenerationRequest request, LibraryCompilationResult library, TimeSpan? limit = null,
+                                                TimeProvider? time = null, CancellationToken cancellationToken = default,
+                                                Action<GenerationStage, int>? checkReported = null, TypeInitializerTreatment? initializers = null) =>
+        Within(request, limit, time, cancellationToken, checkReported, (Facts facts, GenerationChecks checks) =>
+        {
+            checks.Check(GenerationStage.EngineClaims);
+            return Unnamed(facts) ?? Classify(facts, library, checks, initializers: initializers);
+        });
+
+    // bounded: one timer covers the entire member, and only its own expiry becomes an answer.
+    private static GenerationTrace Within(GenerationRequest request, TimeSpan? limit, TimeProvider? time, CancellationToken cancellationToken,
+                                          Action<GenerationStage, int>? checkReported, Func<Facts, GenerationChecks, GenerationTrace> generate)
+    {
+        var clock = time ?? TimeProvider.System;
+        var memberLimit = limit ?? GenerationLimits.MEMBER;
+        using var outside = WorkCancellation.Enter(cancellationToken);
+        var outsideToken = WorkCancellation.Token;
+        using var timeout = new CancellationTokenSource(memberLimit, clock);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(outsideToken, timeout.Token);
+        GenerationChecks checks = new(linked.Token, checkReported, clock, memberLimit);
+        var facts = new Facts(request, checks);
+        try
+        {
+            using var work = WorkCancellation.Enter(linked.Token);
+            var trace = generate(facts, checks);
+            outsideToken.ThrowIfCancellationRequested();
+            timeout.Token.ThrowIfCancellationRequested();
+            return trace;
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested && !outsideToken.IsCancellationRequested)
+        {
+            return facts.Refused(GenerationReasons.TIMEOUT, $"the generation reached its {memberLimit.TotalSeconds:0.0} s member limit", facts.Driver);
+        }
+    }
+
     /// <summary>The answer for one member, with the driver and the run behind it.</summary>
     /// <param name="request">The member asked for.</param>
     /// <param name="resolver">Finds the implementation assembly.</param>
@@ -151,8 +241,14 @@ public static class ModelGenerator
     {
         using var work = WorkCancellation.Enter(cancellationToken);
         GenerationChecks checks = new(WorkCancellation.Token, checkReported);
+        var facts = new Facts(request, checks);
+        return Resolve(facts, resolver, checks);
+    }
+
+    private static GenerationTrace Resolve(Facts facts, ImplementationAssemblies resolver, GenerationChecks checks)
+    {
         checks.Check(GenerationStage.Resolve);
-        var facts = new Facts(request);
+        var request = facts.Request;
         if (Unnamed(facts) is { } unnamed)
             return unnamed;
         var resolution = resolver.Resolve(request.AssemblyName, request.Version, request.PackageId, request.Framework, checks);
@@ -181,18 +277,20 @@ public static class ModelGenerator
     /// <c>null</c> in production.</param>
     /// <param name="confirmationCollectsEverything">Whether the holder's confirmation run collects the accesses of every execution
     /// rather than only of those in the trees of the driver's actions, for tests that compare the two; <c>false</c> in production.</param>
+    /// <param name="initializers">Overrides the type initializer treatment for tests; <c>null</c> selects the library's default.</param>
     internal static GenerationTrace Trace(GenerationRequest request, LibraryCompilationResult library, CancellationToken cancellationToken,
                                           LibraryModels? models = null, Action<GenerationStage, int>? checkReported = null,
-                                          bool confirmationCollectsEverything = false)
+                                          bool confirmationCollectsEverything = false, TypeInitializerTreatment? initializers = null)
     {
         using var work = WorkCancellation.Enter(cancellationToken);
-        var facts = new Facts(request);
-        return Unnamed(facts) ?? Classify(facts, library, new GenerationChecks(WorkCancellation.Token, checkReported), models,
-                                          confirmationCollectsEverything);
+        GenerationChecks checks = new(WorkCancellation.Token, checkReported);
+        var facts = new Facts(request, checks);
+        checks.Check(GenerationStage.EngineClaims);
+        return Unnamed(facts) ?? Classify(facts, library, checks, models, confirmationCollectsEverything, initializers);
     }
 
     private static GenerationTrace Classify(Facts facts, LibraryCompilationResult library, GenerationChecks checks, LibraryModels? models = null,
-                                            bool confirmationCollectsEverything = false)
+                                            bool confirmationCollectsEverything = false, TypeInitializerTreatment? initializers = null)
     {
         WorkCancellation.Check();
         facts.ExternBodies = library.ExternBodies;
@@ -216,11 +314,89 @@ public static class ModelGenerator
         if (claim is not null)
             return facts.Refused(GenerationReasons.ENGINE_RECOGNIZED, $"{claim.Method} is claimed by the {claim.Recognizer} recognizer");
 
+        var treatment = corelib ? TypeInitializerTreatment.Run : initializers == TypeInitializerTreatment.Run
+            ? TypeInitializerTreatment.Run : TypeInitializerTreatment.Inert;
+        var inertRuns = new List<ScopeRun>();
+        facts.BeginAttempt(treatment);
+        var first = Attempt(facts, library, checks, models, confirmationCollectsEverything, treatment, [], inertRuns);
+        if (treatment == TypeInitializerTreatment.Inert &&
+            (initializers == TypeInitializerTreatment.Off || initializers is null && first.Run is { } last && Overflowed(last, first.Confirmation)))
+        {
+            facts.BeginAttempt(TypeInitializerTreatment.Off);
+            library = LibraryCompilation.RecipeCopy(library, checks);
+            facts.Refusals = new SortedDictionary<string, string>();
+            facts.SetupWidened = [];
+            facts.HolderTriggers = new SortedDictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+            facts.ReachedBodies = 0;
+            facts.DefaultedValues = [];
+            facts.Seeds = 0;
+            facts.Unseeded = [];
+            first = Attempt(facts, library, checks, models, confirmationCollectsEverything, TypeInitializerTreatment.Off,
+                            inertRuns, []);
+        }
+        return first with { Answer = first.Answer with { Generation = facts.Record() } };
+    }
+
+    /// <summary>Only the final fate pass and the confirmation decide whether an attempt overflowed.</summary>
+    /// <param name="lastFatePass">The seeding loop's last fate pass.</param>
+    /// <param name="confirmation">The confirmation, or null.</param>
+    internal static bool Overflowed(ScopeRun lastFatePass, ScopeRun? confirmation) =>
+        lastFatePass.Stopped || confirmation?.Stopped == true;
+
+    private static GenerationTrace Attempt(Facts facts, LibraryCompilationResult library, GenerationChecks checks, LibraryModels? models,
+                                            bool confirmationCollectsEverything, TypeInitializerTreatment treatment,
+                                            IReadOnlyList<ScopeRun> inertRuns, List<ScopeRun> passes)
+    {
+        var recipeStatics = new HashSet<(string Type, string Name)>();
+        var confirmations = 0;
+        var rejectedRecipes = new HashSet<string>(StringComparer.Ordinal);
+        var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
+        var dropped = new SortedSet<string>(StringComparer.Ordinal);
+        while (true)
+        {
+            checks.Check(GenerationStage.Synthesize);
+            models ??= ModelsOutside(library.Compilation!.AssemblyName!);
+            var trace = AttemptPass(facts, library, checks, models, confirmationCollectsEverything, treatment, inertRuns, passes, recipeStatics,
+                                    rejectedRecipes, lowered, dropped);
+            if (trace.Confirmation is not null)
+                confirmations++;
+            var previous = rejectedRecipes.Count;
+            rejectedRecipes.UnionWith(trace.RejectedRecipeCandidates);
+            var grew = rejectedRecipes.Count != previous;
+            if (treatment == TypeInitializerTreatment.Off && trace.Confirmation is { Stopped: false } confirmation)
+                grew |= AddRecipeStatics(confirmation, library.Compilation!, recipeStatics);
+            // Each retry adds a rejected selected expression or newly loaded closed storage. The candidate sources are finite.
+            if (!grew)
+                return trace with { ConfirmationPasses = confirmations };
+        }
+    }
+
+    private static bool AddRecipeStatics(ScopeRun run, CSharpCompilation library, HashSet<(string Type, string Name)> recipeStatics)
+    {
+        var count = recipeStatics.Count;
+        recipeStatics.UnionWith(SeedableFields.LoadedClosedStatics(run).Where(storage =>
+            storage.Type.StartsWith(library.AssemblyName + ":", StringComparison.Ordinal) &&
+            !ReachableSet.RunsTypeInitializer(run.Program, storage.Type, TypeInitializerTreatment.Off,
+                new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY })));
+        return count != recipeStatics.Count;
+    }
+
+    private static GenerationTrace AttemptPass(Facts facts, LibraryCompilationResult library, GenerationChecks checks, LibraryModels models,
+                                                bool confirmationCollectsEverything, TypeInitializerTreatment treatment,
+                                                IReadOnlyList<ScopeRun> inertRuns, List<ScopeRun> passes,
+                                                HashSet<(string Type, string Name)> recipeStatics, IReadOnlySet<string> rejectedRecipes,
+                                                Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?> lowered,
+                                                SortedSet<string> dropped)
+    {
+        WorkCancellation.Check();
+        var compilation = library.Compilation!;
+        var member = DriverSynthesizer.FindMember(compilation, facts.Request.MemberId)!;
         var synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields,
                                                      new HashSet<(string Type, string Name)>(), new ComparisonWitnesses(), checks,
-                                                     library.ReplacedMembers);
+                                                     library.ReplacedMembers, treatment == TypeInitializerTreatment.Off ? recipeStatics : null, rejectedRecipes);
         if (synthesis.Driver is not { } driver)
             return facts.Refused(synthesis.Reason!, synthesis.Detail);
+        facts.Driver = driver;
         if (Overridable(driver.Member))
         {
             return facts.Refused(GenerationReasons.OVERRIDABLE,
@@ -232,11 +408,12 @@ public static class ModelGenerator
         facts.Seeds = driver.SeedStatements.Count;
         facts.Unseeded = driver.Unseeded;
 
-        models ??= ModelsOutside(compilation.AssemblyName!);
         var loadedStatics = new HashSet<(string Type, string Name)>();
         var witnesses = new ComparisonWitnesses();
-        var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
-        var reachability = Reachability(compilation, driver.Member);
+        var reachability = Reachability(compilation, driver.Member) with
+        {
+            TypeInitializers = treatment, RecordEdges = treatment == TypeInitializerTreatment.Inert
+        };
         // A stage that runs the pipeline checks at its start and before each step the pipeline takes. The confirmation run has the
         // fate run's bound and collects accesses only in the trees of the driver's actions, where its readers read them (ADR 0025).
         ScopeRun Pipeline(bool triggers, GenerationStage stage)
@@ -246,37 +423,45 @@ public static class ModelGenerator
             return ScopePipeline.Run(SCOPE_ID, [compilation, driver.Compilation], [], Path.GetTempPath(), new ProviderRegistry([new DriverRootProvider(triggers)]),
                                      models, AnalysisLimits.Default, lowered, CLOSURE_BOUND, checks.Token, _ => checks.Check(stage),
                                      reachability: reachability,
-                                     fieldPropertySites: driver.SeedStatements.Select(seed => (seed.Operation.Syntax.SyntaxTree, seed.Operation.Syntax.Span)).ToArray(),
+                                     fieldPropertySites: driver.SeedStatements.Concat(driver.RecipeStatements)
+                                                               .Select(seed => (seed.Operation.Syntax.SyntaxTree, seed.Operation.Syntax.Span)).ToArray(),
                                      accessesFilter: confirms && !confirmationCollectsEverything ? executions => ConfirmationCollects(driver, executions) : null);
         }
 
         ScopeRun run;
         // The lowering cache is shared by the runs, so a dropped body is reported only by the run that first lowered it.
-        var dropped = new SortedSet<string>(StringComparer.Ordinal);
         try
         {
             while (true)
             {
                 WorkCancellation.Check();
                 run = Pipeline(triggers: false, GenerationStage.Analyze);
+                facts.ReachedBodies = run.Reachable.ReachedBodies.Count;
+                passes.Add(run);
                 dropped.UnionWith(run.LoweringDiagnostics);
                 run = run with { LoweringDiagnostics = dropped.ToArray() };
                 var previousCount = loadedStatics.Count;
+                var recipesGrew = false;
                 // A probe whose closure reaches a default comparer implements its comparison interface on the next pass, a pass the
                 // closure bound stopped included: the comparer CoreLib selects for a probe without the interface may be what passed it.
                 var needsGrew = witnesses.Add(run, driver);
                 // A pass the bound stopped loads what a closure past the bound reaches, and a pass whose probes the next one changes what
                 // the comparer of a probe without the interface reaches, which the next pass's closure need not (question 142).
                 if (!run.Stopped && !needsGrew)
+                {
                     loadedStatics.UnionWith(SeedableFields.LoadedStatics(run).Where(field =>
                         field.Type.StartsWith(compilation.AssemblyName + ":", StringComparison.Ordinal)));
-                if (!needsGrew && (run.Stopped || loadedStatics.Count == previousCount))
+                    recipesGrew = treatment == TypeInitializerTreatment.Off && AddRecipeStatics(run, compilation, recipeStatics);
+                }
+                if (!needsGrew && !recipesGrew && (run.Stopped || loadedStatics.Count == previousCount))
                     break;
                 synthesis = DriverSynthesizer.Synthesize(compilation, member, library.ExternMembers, library.OpenedFields, loadedStatics,
-                                                         witnesses, checks, library.ReplacedMembers);
+                                                         witnesses, checks, library.ReplacedMembers,
+                                                         treatment == TypeInitializerTreatment.Off ? recipeStatics : null, rejectedRecipes);
                 if (synthesis.Driver is not { } seededDriver)
                     return facts.Refused(synthesis.Reason!, synthesis.Detail);
                 driver = seededDriver;
+                facts.Driver = driver;
             }
         }
         catch (Exception error) when (error is not OperationCanceledException)
@@ -291,7 +476,7 @@ public static class ModelGenerator
         if (run.Stopped)
         {
             return facts.Refused(GenerationReasons.CLOSURE_BOUND, $"the reachable set reached {run.StoppedAtReachableBodies} bodies, over {CLOSURE_BOUND}",
-                                 driver);
+                                 driver, run);
         }
 
         var body = IrLowering.RootBodyId(driver.Member);
@@ -325,6 +510,8 @@ public static class ModelGenerator
                 try
                 {
                     confirmation = Pipeline(triggers: true, GenerationStage.ConfirmHolder);
+                    facts.ConfirmationBodies = confirmation.Reachable.ReachedBodies.Count;
+                    passes.Add(confirmation);
                 }
                 catch (Exception error) when (error is not OperationCanceledException)
                 {
@@ -336,7 +523,8 @@ public static class ModelGenerator
         }
 
         checks.Check(GenerationStage.ReadEffects);
-        var effects = new EffectReader(driver, run, classified, checks);
+        var effects = new EffectReader(driver, run, classified, checks,
+                                       treatment == TypeInitializerTreatment.Off ? InitializerReachedBodies(inertRuns, checks) : []);
         var values = new ValueProvenance(driver, run, classified, confirmation, checks);
         facts.Unseeded = driver.Unseeded.Concat(effects.UnreachedSeeds).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         facts.HolderTriggers = values.HolderTriggers;
@@ -345,6 +533,23 @@ public static class ModelGenerator
         // keeping paths of each state store, so it is looked for only while no earlier reason is found, and only to its first case.
         var causes = new GenerationCauses();
         causes.Add(effects.Causes);
+        var unseededRecipes = effects.UnseededRecipeStatics.ToHashSet();
+        var rejected = effects.RejectedRecipeCandidates.ToHashSet(StringComparer.Ordinal);
+        if (confirmation is { Stopped: false } && (driver.RecipeStatements.Count != 0 || driver.UnseededRecipeStatics.Count != 0))
+        {
+            var confirmedEffects = new EffectReader(driver, confirmation, classified, checks, includeUnseededSeeds: false);
+            causes.Add(confirmedEffects.Causes.Where(cause => cause.Code == ModelCauses.UNSEEDED_READ));
+            unseededRecipes.UnionWith(confirmedEffects.UnseededRecipeStatics);
+            rejected.UnionWith(confirmedEffects.RejectedRecipeCandidates);
+        }
+        driver = driver with
+        {
+            UnseededRecipeStatics = unseededRecipes,
+            Unseeded = driver.Unseeded.Concat(unseededRecipes.Select(storage => $"static/{storage.Type}/{storage.Name}"))
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray()
+        };
+        facts.Driver = driver;
+        facts.Unseeded = facts.Unseeded.Concat(driver.Unseeded).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
         causes.Add(values.Causes);
         if (!causes.Has(ModelReasons.UNKNOWN_TOUCH) && !causes.Has(ModelReasons.INCOMPLETE) &&
             effects.StateStores.FirstOrDefault(store => !values.IsInKeepingChain(store.Region)) is { } state)
@@ -381,8 +586,48 @@ public static class ModelGenerator
         return new GenerationTrace(facts.Answer(classified, null, detail, model, modelReason, causes.All), driver, run)
         {
             Confirmation = confirmation,
-            StateStores = effects.StateStores
+            StateStores = effects.StateStores,
+            RejectedRecipeCandidates = rejected
         };
+    }
+
+    /// <summary>The bodies reached from non-running initializers, using only edges recorded by the inert attempt.</summary>
+    /// <param name="runs">Every fate pass and confirmation of the inert attempt.</param>
+    /// <param name="checks">The attempt's checks.</param>
+    internal static IReadOnlyList<InitializerBody> InitializerReachedBodies(IReadOnlyList<ScopeRun> runs, GenerationChecks checks)
+    {
+        var stage = new StageChecks(checks, GenerationStage.ReadEffects);
+        var bodies = stage.Each(runs).SelectMany(run => run.Reachable.Bodies).GroupBy(pair => pair.Key)
+                          .ToDictionary(group => group.Key, group => group.First().Value, StringComparer.Ordinal);
+        var edges = stage.Each(runs).SelectMany(run => run.Reachable.ReachEdges).Distinct().ToArray();
+        var outgoing = edges.Where(edge => edge.SourceBody is not null).ToLookup(edge => edge.SourceBody!);
+        var initializers = stage.Each(runs).SelectMany(run => run.Reachable.TypeInitializers
+                                .Where(candidate => candidate.ClosedTypeKeys.Any(key =>
+                                    !ReachableSet.RunsTypeInitializer(run.Program, key, TypeInitializerTreatment.Off, run.Reachable.OpenWorldAssemblies)))
+                                .Select(candidate => candidate.BodyId))
+                                .Distinct(StringComparer.Ordinal);
+        var result = new List<InitializerBody>();
+        foreach (var initializer in initializers)
+        {
+            checks.Check(GenerationStage.ReadEffects);
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var pending = new Stack<string>();
+            pending.Push(initializer);
+            while (pending.TryPop(out var current))
+            {
+                checks.Check(GenerationStage.ReadEffects);
+                if (!visited.Add(current))
+                    continue;
+                if (bodies.TryGetValue(current, out var body))
+                    result.Add(new InitializerBody(initializer, body, outgoing[current].ToArray(), bodies));
+                foreach (var edge in outgoing[current])
+                {
+                    checks.Check(GenerationStage.ReadEffects);
+                    pending.Push(edge.TargetBody);
+                }
+            }
+        }
+        return result;
     }
 
     /// <summary>Whether a call may dispatch away from a member: it is virtual, or an override not sealed, in a type not sealed, so another
@@ -406,8 +651,8 @@ public static class ModelGenerator
     /// <summary>The rules the reachable set of a member's generation is built by (ADR 0019): dispatch by constructed types for every
     /// library, so a call the heap resolves into a body outside the set is an opaque call; for <c>System.Private.CoreLib</c> alone, the
     /// types it leaves out (<see cref="CoreLibLeftOutTypeKeys"/>) and the diagnostics it runs with off (<see cref="CoreLibSilentTypeKeys"/>).
-    /// The driver's assembly is open-world, its probes, subclasses and seeds standing for the user's objects of whatever type, and the
-    /// property whose accessor is generated keeps its accesses as accessor calls.</summary>
+    /// Library type initializers are inert except in CoreLib. The driver's assembly is open-world, its probes, subclasses and seeds
+    /// standing for the user's objects of whatever type, and the property whose accessor is generated keeps its accesses as accessor calls.</summary>
     /// <param name="compilation">The library compilation.</param>
     /// <param name="member">The member generated.</param>
     internal static ReachabilityRules Reachability(Compilation compilation, IMethodSymbol member) =>
@@ -418,6 +663,7 @@ public static class ModelGenerator
             }
             : new ReachabilityRules(DispatchRule.ConstructedTypes, new HashSet<string>(StringComparer.Ordinal))) with
         {
+            TypeInitializers = compilation.AssemblyName == "System.Private.CoreLib" ? TypeInitializerTreatment.Run : TypeInitializerTreatment.Inert,
             OpenWorldAssemblies = new HashSet<string>(StringComparer.Ordinal) { DriverSynthesizer.ASSEMBLY },
             CalledPropertyKeys = member.AssociatedSymbol is IPropertySymbol property
                 ? new HashSet<string>(StringComparer.Ordinal) { $"{property.ContainingAssembly.Name}:{property.OriginalDefinition.GetDocumentationCommentId()}" }
@@ -486,7 +732,7 @@ public static class ModelGenerator
     {
         var executions = new DriverExecutions(driver, run.Executions!, new HashSet<string>(StringComparer.Ordinal));
         return run.Heap!.Instances.Values.Any(instance => instance.BodyId == body &&
-            (run.Executions!.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
+            DriverExecutions.ForInstance(run.Executions!, instance.Id)
                .Any(execution => executions.InTree(execution, DriverSynthesizer.CALL) || executions.InTree(execution, DriverSynthesizer.ENUMERATE)));
     }
 
@@ -629,11 +875,26 @@ public static class ModelGenerator
 
     /// <summary>What one generation has found so far.</summary>
     /// <param name="request">The member asked for.</param>
-    private sealed class Facts(GenerationRequest request)
+    /// <param name="checks">The generation's stage clock and cancellation checks.</param>
+    private sealed class Facts(GenerationRequest request, GenerationChecks checks)
     {
-        private readonly Stopwatch _clock = Stopwatch.StartNew();
+        private readonly List<GenerationAttempt> _attempts = [];
+
+        // bounded: forwards once to the stage ledger and appends one of the member's two attempts.
+        public void BeginAttempt(TypeInitializerTreatment treatment)
+        {
+            checks.BeginAttempt();
+            _attempts.Add(new GenerationAttempt(treatment.ToString().ToLowerInvariant(), 0, null));
+            Driver = null;
+        }
+
+        public int? ConfirmationBodies
+        {
+            set => _attempts[^1] = _attempts[^1] with { ConfirmationBodies = value };
+        }
 
         public GenerationRequest Request { get; } = request;
+        public Driver? Driver { get; set; }
         public GenerationImplementation? Implementation { get; set; }
         public string? Framework { get; set; }
         public IReadOnlyList<string> MissingDependencies { get; set; } = [];
@@ -645,7 +906,24 @@ public static class ModelGenerator
         public IReadOnlyList<string> Unseeded { get; set; } = [];
         public IReadOnlyDictionary<string, IReadOnlyList<string>> HolderTriggers { get; set; } =
             new SortedDictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
-        public int ReachedBodies { get; set; }
+        public int ReachedBodies
+        {
+            get => _attempts.LastOrDefault()?.ReachedBodies ?? 0;
+            set => _attempts[^1] = _attempts[^1] with { ReachedBodies = value };
+        }
+
+        // bounded: snapshots the finite stage ledger and at most two attempts, including after cancellation.
+        public GenerationRecord Record()
+        {
+            var stages = checks.Snapshot();
+            return new GenerationRecord(Implementation, Framework, MissingDependencies, ExternBodies, DefaultedValues, Refusals, SetupWidened,
+                                        Seeds, Unseeded, HolderTriggers, ReachedBodies, checks.Seconds)
+            {
+                Mode = _attempts.LastOrDefault()?.Mode,
+                Stages = stages[0],
+                Attempts = _attempts.Select((attempt, index) => attempt with { Stages = stages[index + 1] }).ToArray()
+            };
+        }
 
         public GenerationTrace Refused(string reason, string detail, Driver? driver = null, ScopeRun? run = null) =>
             new(Answer(null, reason, detail, null, null), driver, run);
@@ -654,8 +932,7 @@ public static class ModelGenerator
                                       string? modelReason, IReadOnlyList<GenerationCause>? causes = null) =>
             new(SCHEMA_VERSION, Request.MemberId, new GenerationAssembly(Request.AssemblyName, Request.Version, Request.PackageId), classified, reason,
                 model, modelReason,
-                new GenerationRecord(Implementation, Framework, MissingDependencies, ExternBodies, DefaultedValues, Refusals, SetupWidened, Seeds,
-                                     Unseeded, HolderTriggers, ReachedBodies, Math.Round(_clock.Elapsed.TotalSeconds, 1)))
+                Record())
             {
                 Detail = detail,
                 Causes = model is null ? causes ?? [] : []

@@ -37,6 +37,8 @@ public enum DispatchRule
     ConstructedTypes
 }
 
+public enum TypeInitializerTreatment { Run, Inert, Off }
+
 /// <summary>The rules the reachable set is built by: class-hierarchy dispatch with no type left out is the rule of the analysis of a
 /// program, and dispatch by constructed types the rule of the generation of any library, which leaves types out only for
 /// <c>System.Private.CoreLib</c> (ADR 0019).</summary>
@@ -45,6 +47,12 @@ public enum DispatchRule
 /// whose every target is one of their members has no target.</param>
 public sealed record ReachabilityRules(DispatchRule Dispatch, IReadOnlySet<string> LeftOutTypeKeys)
 {
+    /// <summary>Records every reach edge, including repeated reaches, for a generation's initializer scan.</summary>
+    public bool RecordEdges { get; init; }
+
+    /// <summary>How type initializers without open-world or open type arguments are treated.</summary>
+    public TypeInitializerTreatment TypeInitializers { get; init; } = TypeInitializerTreatment.Run;
+
     /// <summary>Class-hierarchy dispatch with no type left out.</summary>
     public static ReachabilityRules ClassHierarchy { get; } = new(DispatchRule.ClassHierarchy, new HashSet<string>(StringComparer.Ordinal));
 
@@ -107,8 +115,19 @@ public sealed record UnreachedMember(string MemberId, IReadOnlyList<string> Nest
 
 /// <summary>A type initializer that may run: the bodies referencing its type's statics or constructors, and the constructions
 /// building its type.</summary>
+/// <param name="TypeKey">The type definition.</param>
+/// <param name="BodyId">The initializer's body.</param>
+/// <param name="ReferencingBodyIds">The bodies referencing the type.</param>
+/// <param name="TriggeringConstructionIds">The constructions building the type.</param>
 public sealed record TypeInitializerCandidate(string TypeKey, string BodyId, IReadOnlyList<string> ReferencingBodyIds,
-                                              IReadOnlyList<string> TriggeringConstructionIds);
+                                              IReadOnlyList<string> TriggeringConstructionIds)
+{
+    /// <summary>Every closed key encountered for this type definition, including non-running bindings.</summary>
+    public IReadOnlySet<string> ClosedTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>The closed keys whose initializer executes, even when other bindings are inert or left out.</summary>
+    public IReadOnlySet<string> RunningTypeKeys { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+}
 
 /// <summary>A call into a method without a source body. <see cref="DelegateValues"/> are the delegate creations passed to it,
 /// with <see cref="DelegateTargets"/> the bodies or methods they name; none of them is invoked through the call.</summary>
@@ -116,6 +135,18 @@ public sealed record OpaqueCall(int OperationId, string Callee, IReadOnlyList<in
 
 /// <summary>A factory or instance registration: its region has no construction body.</summary>
 public sealed record UnanalysedRegistration(string RegionId, DiRegistration Registration);
+
+/// <summary>One reason a body is reached, with no source for roots and startup entries.</summary>
+/// <param name="SourceBody">The reaching body, or null.</param>
+/// <param name="Operation">The reaching operation, or null.</param>
+/// <param name="TargetBody">The reached body.</param>
+public sealed record ReachEdge(string? SourceBody, int? Operation, string TargetBody)
+{
+    /// <summary>Why this target is reached, independently of other targets recorded at the same operation.</summary>
+    public ReachEdgeKind Kind { get; init; }
+}
+
+public enum ReachEdgeKind { Other, Call, Delegate, ArgumentDelegate, Spawn }
 
 /// <summary>What a scope can run under class-hierarchy or constructed-types dispatch. <see cref="ReachedBodies"/> maps each body a call, delegate,
 /// root or construction reaches to that reason; <see cref="Bodies"/> holds every lowered body of the members in the set.</summary>
@@ -133,6 +164,12 @@ public sealed record ReachableSetResult(IReadOnlyList<ReachedMember> Members, IR
                                         IReadOnlyDictionary<string, IReadOnlyList<OpaqueCall>> OpaqueCalls,
                                         IReadOnlyList<UnanalysedRegistration> UnanalysedRegistrations)
 {
+    /// <summary>The recorded edges; empty unless recording was requested.</summary>
+    public IReadOnlyList<ReachEdge> ReachEdges { get; init; } = [];
+
+    /// <summary>The treatment used to build this set.</summary>
+    public TypeInitializerTreatment TypeInitializersTreatment { get; init; } = TypeInitializerTreatment.Run;
+
     /// <summary>How the set's calls that dispatch reached their targets.</summary>
     public DispatchRule Dispatch { get; init; } = DispatchRule.ClassHierarchy;
 
@@ -169,6 +206,35 @@ public sealed record ReachableSetResult(IReadOnlyList<ReachedMember> Members, IR
 /// </summary>
 public static class ReachableSet
 {
+    /// <summary>Whether a type initializer executes: all initializers under run, and otherwise those whose arguments contain an
+    /// open parameter or a type from an open-world assembly, including inside arrays and nested bindings.</summary>
+    /// <param name="program">The program defining type parameters.</param>
+    /// <param name="closedTypeKey">The type key being activated.</param>
+    /// <param name="treatment">The run's initializer treatment.</param>
+    /// <param name="openWorldAssemblies">The assemblies whose types stand for user objects.</param>
+    public static bool RunsTypeInitializer(ProgramIndex program, string closedTypeKey, TypeInitializerTreatment treatment,
+                                           IReadOnlySet<string> openWorldAssemblies)
+    {
+        if (treatment == TypeInitializerTreatment.Run || program.IsOpen(closedTypeKey))
+            return true;
+        var arguments = closedTypeKey.IndexOf('<');
+        if (arguments < 0)
+            return false;
+        var rest = closedTypeKey.AsSpan(arguments + 1);
+        while (!rest.IsEmpty)
+        {
+            WorkCancellation.Check();
+            var end = rest.IndexOfAny("<>, []*".AsSpan());
+            var name = end < 0 ? rest : rest[..end];
+            var colon = name.IndexOf(':');
+            if (colon > 0 && openWorldAssemblies.Contains(name[..colon].ToString()))
+                return true;
+            rest = end < 0 ? [] : rest[(end + 1)..];
+        }
+
+        return false;
+    }
+
     public const string CONTAINER_TYPE = "container";
 
     public static ReachableSetResult Build(ReachabilityInput input) => new Walker(input).Run();
@@ -278,11 +344,11 @@ public static class ReachableSet
         private readonly Queue<string> _pending = new();
         private readonly Dictionary<string, ConstructionState> _constructions = new(StringComparer.Ordinal);
         private readonly HashSet<string> _startupRegions = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, (string BodyId, List<string> Referencing, List<string> Constructions)> _typeInitializers =
+        private readonly Dictionary<string, (string BodyId, List<string> Referencing, List<string> Constructions, HashSet<string> Running, HashSet<string> Closed)> _typeInitializers =
             new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<OpaqueCall>> _opaqueCalls = new(StringComparer.Ordinal);
         private readonly Dictionary<string, List<(string Type, string Target)>> _delegateTargets = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, List<(string Type, string Reason)>> _delegateInvocations = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<(string Type, string Reason, ReachEdgeKind EdgeKind)>> _delegateInvocations = new(StringComparer.Ordinal);
         private readonly HashSet<string> _typeParameterNames;
         private readonly Dictionary<string, string> _sourceDelegateTypeKeys;
         private readonly HashSet<string> _leftOutMembers;
@@ -304,6 +370,7 @@ public static class ReachableSet
         private readonly Dictionary<(string Owner, int Ordinal), List<Action>> _openWatchers = new();
         private readonly HashSet<string> _instantiated = new(StringComparer.Ordinal);
         private readonly HashSet<string> _constructedTypes = new(StringComparer.Ordinal);
+        private readonly HashSet<ReachEdge> _reachEdges = [];
         private readonly Dictionary<string, List<(string Target, Action<string> Reach)>> _waiting = new(StringComparer.Ordinal);
 
         internal Walker(ReachabilityInput input)
@@ -436,7 +503,8 @@ public static class ReachableSet
             var typeInitializers = _typeInitializers.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                                     .Select(pair => new TypeInitializerCandidate(pair.Key, pair.Value.BodyId,
                                                                                                  pair.Value.Referencing.ToArray(),
-                                                                                                 pair.Value.Constructions.ToArray()))
+                                                                                                 pair.Value.Constructions.ToArray())
+                                                    { RunningTypeKeys = pair.Value.Running, ClosedTypeKeys = pair.Value.Closed })
                                                     .ToArray();
             var unanalysed = _input.DiIndex.Registrations
                                    .Where(registration => registration is { IsSupported: true, ImplementationType: not null, ServiceTypeKey: not null } &&
@@ -453,7 +521,9 @@ public static class ReachableSet
                                                                     StringComparer.Ordinal),
                                           unanalysed)
             {
+                ReachEdges = _reachEdges.ToArray(),
                 Dispatch = _input.Rules.Dispatch,
+                TypeInitializersTreatment = _input.Rules.TypeInitializers,
                 OpenWorldAssemblies = _input.Rules.OpenWorldAssemblies,
                 DefaultComparerTypes = _comparerTypes,
                 DefaultComparerBindings = _comparerBindings.ToDictionary(pair => pair.Key, pair => (IReadOnlySet<string>)pair.Value),
@@ -503,7 +573,14 @@ public static class ReachableSet
             if (_constructions.TryGetValue(id, out var existing))
             {
                 if (!existing.Triggers.Contains(trigger))
+                {
                     existing.Triggers.Add(trigger);
+                    foreach (var constructor in existing.ConstructorBodyIds)
+                    {
+                        WorkCancellation.Check();
+                        RecordConstructionEdges(constructor, existing);
+                    }
+                }
                 return;
             }
 
@@ -525,8 +602,7 @@ public static class ReachableSet
                 ReachBody(constructor.MethodId, $"construction:{id}");
             }
 
-            if (_program.Type(typeKey) is { } built)
-                AddTypeInitializerTrigger(built.TypeKey, id);
+            AddTypeInitializerTrigger(typeKey, id);
 
             var self = new ConstructionTrigger(ConstructionTriggerKind.Construction, id);
             foreach (var parameter in bindings?.ConstructorParameters ?? [])
@@ -538,8 +614,10 @@ public static class ReachableSet
 
         private static string RegionKey(string implementationTypeKey, DiLifetime lifetime) => $"{implementationTypeKey}@{lifetime}";
 
-        private void ReachBody(string bodyId, string reason)
+        private void ReachBody(string bodyId, string reason, ReachEdgeKind? edgeKind = null)
         {
+            if (_input.Rules.RecordEdges)
+                RecordEdge(bodyId, reason, edgeKind);
             if (_reachedBodies.ContainsKey(bodyId) || _leftOutMembers.Contains(_memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId))
                 return;
 
@@ -557,6 +635,56 @@ public static class ReachableSet
 
             _reachedBodies.Add(bodyId, reason);
             _pending.Enqueue(bodyId);
+        }
+
+        private void RecordEdge(string target, string reason, ReachEdgeKind? edgeKind = null)
+        {
+            if (reason.StartsWith("call:", StringComparison.Ordinal) || reason.StartsWith("delegate:", StringComparison.Ordinal) ||
+                reason.StartsWith("spawn:", StringComparison.Ordinal))
+            {
+                var start = reason.IndexOf(':') + 1;
+                var end = reason.LastIndexOf(':');
+                if (int.TryParse(reason.AsSpan(end + 1), out var operation))
+                    _reachEdges.Add(new ReachEdge(reason[start..end], operation, target)
+                    {
+                        Kind = edgeKind ?? (reason.StartsWith("call:", StringComparison.Ordinal) ? ReachEdgeKind.Call :
+                                            reason.StartsWith("delegate:", StringComparison.Ordinal) ? ReachEdgeKind.Delegate : ReachEdgeKind.Spawn)
+                    });
+            }
+            else if (reason.StartsWith("construction:", StringComparison.Ordinal) && _constructions.TryGetValue(reason[13..], out var construction))
+                RecordConstructionEdges(target, construction);
+            else if (!reason.StartsWith("type-initializer:", StringComparison.Ordinal))
+                _reachEdges.Add(new ReachEdge(null, null, target));
+        }
+
+        private void RecordConstructionEdges(string target, ConstructionState construction)
+        {
+            if (!_input.Rules.RecordEdges)
+                return;
+            if (construction.Triggers.Count == 0)
+                _reachEdges.Add(new ReachEdge(null, null, target));
+            foreach (var trigger in construction.Triggers)
+            {
+                WorkCancellation.Check();
+                if (trigger.Kind == ConstructionTriggerKind.Locator)
+                    RecordEdge(target, $"call:{trigger.Id}");
+                else if (trigger.Kind == ConstructionTriggerKind.Construction && _constructions.TryGetValue(trigger.Id, out var parent))
+                {
+                    foreach (var body in parent.ConstructorBodyIds)
+                    {
+                        WorkCancellation.Check();
+                        _reachEdges.Add(new ReachEdge(body, null, target));
+                    }
+                }
+                else
+                    _reachEdges.Add(new ReachEdge(null, null, target));
+            }
+            // A new locator trigger can also reach a type initializer already registered for this construction.
+            foreach (var candidate in _typeInitializers.Values.Where(candidate => candidate.Constructions.Contains(construction.Id)))
+            {
+                WorkCancellation.Check();
+                _reachEdges.Add(new ReachEdge(target, null, candidate.BodyId));
+            }
         }
 
         private void Process(string bodyId)
@@ -610,7 +738,7 @@ public static class ReachableSet
                         break;
                     case IrCallOperation { CallKind: IrCallKind.Delegate } call:
                         if (call.ReceiverValue is int receiver && values.TryGetValue(receiver, out var delegateValue))
-                            AddDelegateInvocation(delegateValue.Type, $"delegate:{bodyId}:{operation.Id}");
+                            AddDelegateInvocation(delegateValue.Type, $"delegate:{bodyId}:{operation.Id}", ReachEdgeKind.Delegate);
                         // The delegate invoked may be one the analysis cannot follow, which may run what it is handed (R3).
                         ReachHandedDelegates(call.ArgumentValues, values, definitions, operations, reason);
                         break;
@@ -663,7 +791,7 @@ public static class ReachableSet
                                 foreach (var methodId in library.Calls.SelectMany(model => model.MethodIds).Distinct(StringComparer.Ordinal))
                                 {
                                     WorkCancellation.Check();
-                                    ReachTargets(Targets(methodId, true), true, target => ReachBody(target, reason));
+                                    ReachTargets(Targets(methodId, true), true, target => ReachBody(target, reason, ReachEdgeKind.Other));
                                 }
                             }
                         }
@@ -695,7 +823,7 @@ public static class ReachableSet
                                 ReachTargets(targets, dispatched, target => ReachBody(target, reason));
                             });
                         if (call.CallKind is IrCallKind.Static or IrCallKind.Constructor && _program.Method(targetId) is { } method)
-                            Reference(method.ContainingTypeKey, bodyId);
+                            Reference(call.TargetContainingTypeKey ?? method.ContainingTypeKey, bodyId);
                         break;
                     }
                     case IrCreateDelegateOperation create when values.TryGetValue(create.ResultValue, out var created):
@@ -768,7 +896,7 @@ public static class ReachableSet
                 WorkCancellation.Check();
                 ReachBody(constructor.MethodId, reason);
             }
-            Reference(type.TypeKey, bodyId);
+            Reference(comparer, bodyId);
             SeeType(comparer, null, forBoxing: true);
             Instantiate(type.TypeKey);
         }
@@ -789,6 +917,11 @@ public static class ReachableSet
 
         /// <summary>Reaches what a spawn or a timer runs, as a DI factory's delegate: the targets of a delegate created in the body,
         /// every delegate of the value's type when it comes from elsewhere, or the implementations of the method it calls.</summary>
+        /// <param name="value">The work delegate's value.</param>
+        /// <param name="method">The work method, when the operation names one.</param>
+        /// <param name="values">The values of the reaching body.</param>
+        /// <param name="definitions">The operations defining those values.</param>
+        /// <param name="reason">The reason the work is reached.</param>
         private void ReachWork(int value, string? method, IReadOnlyDictionary<int, IrValue> values,
                                IReadOnlyDictionary<int, IrOperation> definitions, string reason)
         {
@@ -803,7 +936,7 @@ public static class ReachableSet
             if (DelegateCreation(value, definitions) is { } creation)
                 ReachDelegateTargets(creation, reason);
             else if (values.TryGetValue(value, out var delegateValue))
-                AddDelegateInvocation(delegateValue.Type, reason);
+                AddDelegateInvocation(delegateValue.Type, reason, ReachEdgeKind.Spawn);
         }
 
         private void AddDelegateCreation(string type, IrCreateDelegateOperation create, string bodyId)
@@ -819,7 +952,7 @@ public static class ReachableSet
                                                                _program.Type(method.ContainingTypeKey)?.IsInterface == true);
                 var targets = Targets(methodId, virtualDispatch);
                 if (method.IsStatic)
-                    Reference(method.ContainingTypeKey, bodyId);
+                    Reference(create.TargetContainingTypeKey ?? method.ContainingTypeKey, bodyId);
                 ReachTargets(targets, virtualDispatch, target => AddDelegateTarget(type, target));
             }
         }
@@ -837,24 +970,26 @@ public static class ReachableSet
                 return;
 
             known.Add((type, target));
-            var invocation = (_delegateInvocations.GetValueOrDefault(shape) ?? [])
-                             .Where(candidate => Invokes(candidate.Type, type))
-                             .Select(candidate => candidate.Reason)
-                             .FirstOrDefault();
-            if (invocation is not null)
-                ReachBody(target, invocation);
+            foreach (var invocation in (_delegateInvocations.GetValueOrDefault(shape) ?? [])
+                                       .Where(candidate => Invokes(candidate.Type, type)))
+            {
+                WorkCancellation.Check();
+                ReachBody(target, invocation.Reason, invocation.EdgeKind);
+                if (!_input.Rules.RecordEdges)
+                    break;
+            }
         }
 
-        private void AddDelegateInvocation(string type, string reason)
+        private void AddDelegateInvocation(string type, string reason, ReachEdgeKind edgeKind = ReachEdgeKind.ArgumentDelegate)
         {
             var shape = Shape(type);
             if (!_delegateInvocations.TryGetValue(shape, out var invocations))
                 _delegateInvocations.Add(shape, invocations = []);
-            invocations.Add((type, reason));
+            invocations.Add((type, reason, edgeKind));
             foreach (var target in (_delegateTargets.GetValueOrDefault(shape) ?? []).Where(target => Invokes(type, target.Type)))
             {
                 WorkCancellation.Check();
-                ReachBody(target.Target, reason);
+                ReachBody(target.Target, reason, edgeKind);
             }
         }
 
@@ -1435,11 +1570,14 @@ public static class ReachableSet
         }
 
         /// <summary>Reaches a created delegate's nested body, or every body its method group may run.</summary>
+        /// <param name="creation">The delegate creation whose targets are reached.</param>
+        /// <param name="reason">The reason its targets are reached.</param>
         private void ReachDelegateTargets(IrCreateDelegateOperation creation, string reason)
         {
+            var edgeKind = reason.StartsWith("spawn:", StringComparison.Ordinal) ? ReachEdgeKind.Spawn : ReachEdgeKind.ArgumentDelegate;
             if (creation.TargetBodyId is { } nested)
             {
-                ReachBody(nested, reason);
+                ReachBody(nested, reason, edgeKind);
                 return;
             }
 
@@ -1447,7 +1585,7 @@ public static class ReachableSet
                 return;
             var virtualDispatch = !creation.IsNonVirtual &&
                                   (method.IsVirtual || method.IsAbstract || method.IsOverride || _program.Type(method.ContainingTypeKey)?.IsInterface == true);
-            ReachTargets(Targets(methodId, virtualDispatch), virtualDispatch, target => ReachBody(target, reason));
+            ReachTargets(Targets(methodId, virtualDispatch), virtualDispatch, target => ReachBody(target, reason, edgeKind));
         }
 
         /// <summary>A locator call with a constant type constructs what it resolves: the bound registration, or every supported
@@ -1504,35 +1642,77 @@ public static class ReachableSet
 
         /// <summary>A reference from <paramref name="bodyId"/> to a static member or constructor of a type: that type's type
         /// initializer, unless the reference is in it, is a candidate reached for lowering.</summary>
+        /// <param name="typeKey">The closed type referenced.</param>
+        /// <param name="bodyId">The referencing body.</param>
         private void Reference(string typeKey, string bodyId)
         {
-            if (_program.Type(typeKey) is not { } type || TypeInitializer(type.TypeKey) is not { } initializer)
+            if (_input.Rules.TypeInitializers == TypeInitializerTreatment.Run || ParametersIn(typeKey, Owner(bodyId)).Count == 0)
+            {
+                ReferenceClosed(typeKey, bodyId);
+                return;
+            }
+
+            // Use the same closed-binding templates as comparer selection, including bindings learned after this body was walked.
+            var parameter = ($"initializer:{bodyId}:{typeKey}", 0);
+            Watch(parameter, closed => ReferenceClosed(closed, bodyId));
+            WatchOpen(parameter, () => ReferenceClosed(typeKey, bodyId));
+            BindClosed(parameter, typeKey, Owner(bodyId));
+        }
+
+        /// <summary>Registers an initializer reference after substituting the reaching body's generic context.</summary>
+        /// <param name="typeKey">The substituted type, or an open type when a heap context can stay open.</param>
+        /// <param name="bodyId">The referencing body.</param>
+        private void ReferenceClosed(string typeKey, string bodyId)
+        {
+            if (_input.Rules.TypeInitializers == TypeInitializerTreatment.Off && !RunsTypeInitializer(typeKey) ||
+                TypeInitializer(typeKey) is not { } initializer)
                 return;
             if ((_memberOfNestedBody.GetValueOrDefault(bodyId) ?? bodyId) == initializer.MethodId)
                 return;
 
-            var candidate = Candidate(type.TypeKey, initializer.MethodId);
+            var candidate = Candidate(typeKey, initializer.MethodId);
             if (!candidate.Referencing.Contains(bodyId, StringComparer.Ordinal))
                 candidate.Referencing.Add(bodyId);
+            if (_input.Rules.RecordEdges)
+                _reachEdges.Add(new ReachEdge(bodyId, null, initializer.MethodId));
         }
 
         private void AddTypeInitializerTrigger(string typeKey, string constructionId)
         {
-            if (TypeInitializer(typeKey) is not { } initializer)
+            if (_input.Rules.TypeInitializers == TypeInitializerTreatment.Off && !RunsTypeInitializer(typeKey) ||
+                TypeInitializer(typeKey) is not { } initializer)
                 return;
             var candidate = Candidate(typeKey, initializer.MethodId);
             if (!candidate.Constructions.Contains(constructionId, StringComparer.Ordinal))
                 candidate.Constructions.Add(constructionId);
+            if (_input.Rules.RecordEdges && _constructions.TryGetValue(constructionId, out var construction))
+            {
+                foreach (var body in construction.ConstructorBodyIds)
+                {
+                    WorkCancellation.Check();
+                    _reachEdges.Add(new ReachEdge(body, null, initializer.MethodId));
+                }
+            }
         }
 
-        private (string BodyId, List<string> Referencing, List<string> Constructions) Candidate(string typeKey, string initializerId)
+        private bool RunsTypeInitializer(string typeKey)
         {
-            if (!_typeInitializers.TryGetValue(typeKey, out var candidate))
+            WorkCancellation.Check();
+            return ReachableSet.RunsTypeInitializer(_program, typeKey, _input.Rules.TypeInitializers, _input.Rules.OpenWorldAssemblies);
+        }
+
+        private (string BodyId, List<string> Referencing, List<string> Constructions, HashSet<string> Running, HashSet<string> Closed) Candidate(string typeKey, string initializerId)
+        {
+            var definition = _program.Type(typeKey)!.TypeKey;
+            if (!_typeInitializers.TryGetValue(definition, out var candidate))
             {
-                candidate = (initializerId, [], []);
-                _typeInitializers.Add(typeKey, candidate);
-                ReachBody(initializerId, $"type-initializer:{typeKey}");
+                candidate = (initializerId, [], [], new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal));
+                _typeInitializers.Add(definition, candidate);
+                ReachBody(initializerId, $"type-initializer:{definition}");
             }
+            candidate.Closed.Add(typeKey);
+            if (RunsTypeInitializer(typeKey))
+                candidate.Running.Add(typeKey);
 
             return candidate;
         }

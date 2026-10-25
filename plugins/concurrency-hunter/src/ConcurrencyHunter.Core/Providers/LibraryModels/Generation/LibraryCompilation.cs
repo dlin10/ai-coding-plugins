@@ -35,6 +35,9 @@ public sealed record LibraryCompilationResult(CSharpCompilation? Compilation, st
     /// <summary>The documentation ids among <see cref="ExternMembers"/> whose decompiled body is not the code the runtime runs: every
     /// member of <c>Unsafe</c> and every intrinsic's placeholder.</summary>
     public IReadOnlySet<string> ReplacedMembers { get; init; } = new SortedSet<string>(StringComparer.Ordinal);
+
+    internal readonly object RecipeLock = new();
+    internal Lazy<Task<LibraryCompilationResult>>? RecipeOpening;
 }
 
 /// <summary>A module decompiled in memory: one tree per top-level type and the assembly-attributes tree last, and the top-level types
@@ -154,6 +157,67 @@ public static class LibraryCompilation
                 Compilations.TryRemove(KeyValuePair.Create(key, entry));
             }
         }
+    }
+
+    /// <summary>The recipe-opened copy owned by this compilation result, opened lazily on its own worker. A waiter cancels
+    /// only its wait; a cancelled opener releases the slot so a live waiter can try again.</summary>
+    /// <param name="library">The ordinary compiled library.</param>
+    /// <param name="checks">The attempt's cancellation checks.</param>
+    /// <param name="probe">Test hooks, or null.</param>
+    internal static LibraryCompilationResult RecipeCopy(LibraryCompilationResult library, GenerationChecks checks,
+                                                         LibraryCompilationProbe? probe = null)
+    {
+        while (true)
+        {
+            checks.Check(GenerationStage.CompileLibrary);
+            Lazy<Task<LibraryCompilationResult>> entry;
+            lock (library.RecipeLock)
+                entry = library.RecipeOpening ??= Started(library, checks, probe);
+            var opening = entry.Value;
+            probe?.Waiting?.Invoke();
+            try
+            {
+                return opening.WaitAsync(checks.Token).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException) when (!checks.Token.IsCancellationRequested && WasCancelled(opening))
+            {
+                lock (library.RecipeLock)
+                {
+                    if (ReferenceEquals(library.RecipeOpening, entry))
+                        library.RecipeOpening = null;
+                }
+            }
+        }
+    }
+
+    private static Lazy<Task<LibraryCompilationResult>> Started(LibraryCompilationResult library, GenerationChecks checks,
+                                                                 LibraryCompilationProbe? probe)
+    {
+        Lazy<Task<LibraryCompilationResult>>? entry = null;
+        entry = new Lazy<Task<LibraryCompilationResult>>(() =>
+        {
+            var opening = Task.Run(() =>
+            {
+                using var work = WorkCancellation.Enter(checks.Token);
+                probe?.Started?.Invoke();
+                checks.Check(GenerationStage.CompileLibrary);
+                var opened = LibraryFieldOpening.OpenRecipe(library.Compilation!, checks.Token);
+                checks.Check(GenerationStage.CompileLibrary);
+                return library with { Compilation = opened.Compilation, OpenedFields = opened.OpenedFields };
+            });
+            opening.ContinueWith(finished =>
+            {
+                if (!WasCancelled(finished))
+                    return;
+                lock (library.RecipeLock)
+                {
+                    if (ReferenceEquals(library.RecipeOpening, entry))
+                        library.RecipeOpening = null;
+                }
+            }, TaskScheduler.Default);
+            return opening;
+        });
+        return entry;
     }
 
     /// <summary>Removes the entries a run created from the cache (R12), each only while its key still maps to the instance the run added:

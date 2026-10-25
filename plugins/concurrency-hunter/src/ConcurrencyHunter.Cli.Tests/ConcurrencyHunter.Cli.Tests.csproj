@@ -39,6 +39,8 @@
              Link="Fixtures/DemoWorkspace.cs" />
     <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/GenerationInstall.cs"
              Link="Fixtures/GenerationInstall.cs" />
+    <Compile Include="../ConcurrencyHunter.Core.Tests/Fixtures/FakeClock.cs"
+             Link="Fixtures/FakeClock.cs" />
   </ItemGroup>
 
 </Project>

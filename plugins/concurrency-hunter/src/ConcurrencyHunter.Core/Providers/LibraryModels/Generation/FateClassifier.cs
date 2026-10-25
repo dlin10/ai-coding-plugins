@@ -240,7 +240,7 @@ public static class FateClassifier
             var result = _reach.StaticField(KeepResult);
             var resultTargets = result is null ? new HashSet<string>(StringComparer.Ordinal) : _reach.Targets(result);
             _executions = new DriverExecutions(driver, run.Executions!, _reach.From(resultTargets));
-            var allocations = new Allocations(driver, _heap, run.Executions!, _executions, _reach, _stage);
+            var allocations = new Allocations(driver, _heap, run.Executions!, _executions, _reach, _stage, run.Reachable.Bodies);
 
             var handoffs = new GenerationHandoffs(driver, run, _executions, _reach, _stage);
             _handed = handoffs.HandedInSetup.Concat(handoffs.HandedOutsideSetup)

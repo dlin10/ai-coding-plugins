@@ -151,7 +151,11 @@ public sealed record IteratorObject(string RegionId, CallEdge Creation);
 /// <param name="TriggeringInstances">The instances that triggered it.</param>
 /// <param name="TriggeringRegions">The regions that triggered it.</param>
 public sealed record TypeInitializerConstruction(string TypeKey, string InstanceId, IReadOnlyList<string> TriggeringInstances,
-                                                 IReadOnlyList<string> TriggeringRegions);
+                                                 IReadOnlyList<string> TriggeringRegions)
+{
+    /// <summary>Whether this initializer's execution keeps membership and work but collects no accesses.</summary>
+    public bool IsInert { get; init; }
+}
 
 /// <summary>A region the container or the framework constructs, with the constructor instances that run for it.</summary>
 /// <param name="RegionId">The constructed region.</param>
@@ -1431,6 +1435,8 @@ public static partial class WholeProgram
         private HeapSolution Result()
         {
             CheckCancellation();
+            var runningInitializers = _typeInitializers.Where(pair => RunsTypeInitializer(pair.Key))
+                                                       .Select(pair => pair.Value.InstanceId).ToHashSet(StringComparer.Ordinal);
             var reachable = _instances.Values.Select(instance => instance.BodyId).ToTrackedSet(StringComparer.Ordinal);
             // Every lowered body, nested ones included: a lambda the heap never reaches is inventory too.
             var loweredNotReached = _scope.Reachable.Bodies.Keys.Where(body => !reachable.Contains(body))
@@ -1623,7 +1629,8 @@ public static partial class WholeProgram
                 _typeInitializers.OrderBy(pair => pair.Key, StringComparer.Ordinal)
                                  .Select(pair => new TypeInitializerConstruction(pair.Key, pair.Value.InstanceId,
                                                                                  pair.Value.Instances.Order(StringComparer.Ordinal).ToArray(),
-                                                                                 SortedIdentities(pair.Value.Regions)))
+                                                                                 SortedIdentities(pair.Value.Regions))
+                                 { IsInert = !runningInitializers.Contains(pair.Value.InstanceId) })
                                  .ToArray(),
                 _constructions.OrderBy(pair => pair.Key.Identity, StringComparer.Ordinal)
                               .Select(pair => new RegionConstruction(pair.Key.Identity, pair.Value.ToArray())).ToArray(),
@@ -5541,7 +5548,8 @@ public static partial class WholeProgram
         /// <param name="triggerRegion">The triggerRegion.</param>
         private void ActivateTypeInitializer(string typeKey, InstanceState? triggerInstance, RegionRef? triggerRegion)
         {
-            if (_program.Type(typeKey) is not { } type ||
+            if (_scope.Reachable.TypeInitializersTreatment == TypeInitializerTreatment.Off && !RunsTypeInitializer(typeKey) ||
+                _program.Type(typeKey) is not { } type ||
                 _program.MethodsOf(type.TypeKey).FirstOrDefault(method => method.Kind == ProgramMethodKind.TypeInitializer && _scope.Reachable.HasBody(method)) is not { } initializer ||
                 triggerInstance?.BodyId == initializer.MethodId)
             {
@@ -5565,6 +5573,12 @@ public static partial class WholeProgram
                 _changes++;
             if (triggerRegion is not null && construction.Regions.Add(triggerRegion))
                 _changes++;
+        }
+
+        private bool RunsTypeInitializer(string typeKey)
+        {
+            WorkCancellation.Check();
+            return ReachableSet.RunsTypeInitializer(_program, typeKey, _scope.Reachable.TypeInitializersTreatment, _scope.Reachable.OpenWorldAssemblies);
         }
 
         private TrackedSet<RegionRef> Eval(InstanceState instance, IEnumerable<AbstractValue> values)

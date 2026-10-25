@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using ConcurrencyHunter.Frontend;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -67,6 +68,15 @@ public sealed record Driver(IMethodSymbol Member, CSharpCompilation Compilation,
                             IReadOnlyList<string> Unseeded, IReadOnlyList<ISymbol> UnseededMembers,
                             IReadOnlyList<DriverSeedStatement> SeedStatements, bool Enumerates)
 {
+    /// <summary>Setup assignments of recipe values, separate from seeds.</summary>
+    public IReadOnlyList<DriverSeedStatement> RecipeStatements { get; init; } = [];
+
+    /// <summary>The expressions selected as object-holding recipe candidates, including nested candidates.</summary>
+    internal IReadOnlySet<string> RecipeCandidates { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Closed static storage for which no recipe value could be built.</summary>
+    public IReadOnlySet<(string Type, string Name)> UnseededRecipeStatics { get; init; } = new HashSet<(string Type, string Name)>();
+
     /// <summary>The factory names of delegate seeds whose bodies are witnesses.</summary>
     public IReadOnlyList<string> SeedFactories { get; init; } = [];
 
@@ -236,9 +246,12 @@ public static class DriverSynthesizer
     /// <param name="checks">The generation's checks, which cancel the synthesis.</param>
     /// <param name="replacedMembers">The documentation ids among <paramref name="externMembers"/> whose body is not the code the runtime
     /// runs (<see cref="LibraryCompilationResult.ReplacedMembers"/>).</param>
+    /// <param name="recipeStatics">Closed static storage to fill before seeds, or null outside an off attempt.</param>
+    /// <param name="rejectedRecipes">Candidate expressions whose finished off heap held no object source.</param>
     internal static DriverSynthesis Synthesize(CSharpCompilation library, ISymbol member, IReadOnlySet<string> externMembers,
                                                IReadOnlySet<string> openedFields, IReadOnlySet<(string Type, string Name)> loadedStatics,
-                                               ComparisonWitnesses witnesses, GenerationChecks checks, IReadOnlySet<string>? replacedMembers = null)
+                                               ComparisonWitnesses witnesses, GenerationChecks checks, IReadOnlySet<string>? replacedMembers = null,
+                                               IReadOnlySet<(string Type, string Name)>? recipeStatics = null, IReadOnlySet<string>? rejectedRecipes = null)
     {
         var cancellationToken = checks.Token;
         checks.Check(GenerationStage.Synthesize);
@@ -256,7 +269,7 @@ public static class DriverSynthesizer
         }
 
         var definition = method.OriginalDefinition;
-        var writer = new Writer(library, definition, openedFields, loadedStatics, witnesses, checks);
+        var writer = new Writer(library, definition, openedFields, loadedStatics, witnesses, checks, recipeStatics: recipeStatics, rejectedRecipes: rejectedRecipes);
         writer.Build();
         if (!writer.Candidate)
         {
@@ -303,7 +316,7 @@ public static class DriverSynthesizer
             var why = errors.Select(error => $"{error.Id} {error.GetMessage()}").First();
             var excluded = writer.Triggers.Where(trigger => failing.Contains(trigger.Action))
                                  .ToDictionary(trigger => (trigger.Holder, trigger.Member), _ => why);
-            writer = new Writer(library, definition, openedFields, loadedStatics, witnesses, checks, excluded);
+            writer = new Writer(library, definition, openedFields, loadedStatics, witnesses, checks, excluded, recipeStatics, rejectedRecipes);
             writer.Build();
         }
 
@@ -317,14 +330,23 @@ public static class DriverSynthesizer
             return new DriverSynthesis(null, GenerationReasons.DRIVER_NOT_SYNTHESIZED, $"the driver's call does not bind to {Id(definition)}");
         var seeds = SeedOperations(compilation, tree, writer.SeedStatements, cancellationToken);
         return new DriverSynthesis(new Driver(definition, compilation, source, writer.Actions, writer.Parameters, writer.Triggers, writer.Uncovered,
-                                              writer.Defaulted.Distinct().Order(StringComparer.Ordinal).ToArray(), writer.Unseeded.Keys.ToArray(),
+                                              writer.Defaulted.Distinct().Order(StringComparer.Ordinal).ToArray(),
+                                              writer.Unseeded.Keys.Concat(writer.UnseededRecipeStatics.Select(storage => $"static/{storage.Type}/{storage.Name}"))
+                                                    .Order(StringComparer.Ordinal).ToArray(),
                                               writer.Unseeded.Values.ToArray(), seeds, writer.Enumerates)
                                    {
                                        SeedFactories = writer.SeedFactories,
-                                       ProbeTypes = writer.ProbeTypes
+                                       ProbeTypes = writer.ProbeTypes,
+                                       RecipeCandidates = writer.RecipeCandidates.ToHashSet(StringComparer.Ordinal),
+                                       RecipeStatements = SeedOperations(compilation, tree, writer.RecipeStatements, cancellationToken),
+                                       UnseededRecipeStatics = writer.UnseededRecipeStatics
                                    },
                                    null, "");
     }
+
+    /// <summary>The syntax identity shared by a selected recipe expression and its bound driver operation.</summary>
+    /// <param name="expression">The candidate expression.</param>
+    internal static string RecipeCandidateKey(string expression) => SyntaxFactory.ParseExpression(expression).NormalizeWhitespace().ToFullString();
 
     /// <summary>Whether a member answers <c>accessor</c>: a property or an event, named by its <c>P:</c> or <c>E:</c> id. Its
     /// accessor methods, named by their <c>M:</c> ids, are generated as methods are.</summary>
@@ -551,9 +573,12 @@ public static class DriverSynthesizer
     /// <param name="checks">The generation's checks, which cancel the writing at each class declaration.</param>
     /// <param name="excluded">The holder members the driver writes no trigger for, by holder (<c>result</c> or <c>this</c>) and member
     /// id, each with the compiler error its call met in the driver first built; <c>null</c> for that first build.</param>
+    /// <param name="recipeStatics">Closed static storage to fill before seeds, or null outside an off attempt.</param>
+    /// <param name="rejectedRecipes">Candidate expressions whose finished off heap held no object source.</param>
     private sealed class Writer(CSharpCompilation library, IMethodSymbol member, IReadOnlySet<string> openedFields,
                                 IReadOnlySet<(string Type, string Name)> loadedStatics, ComparisonWitnesses witnesses, GenerationChecks checks,
-                                IReadOnlyDictionary<(string Holder, string Member), string>? excluded = null)
+                                IReadOnlyDictionary<(string Holder, string Member), string>? excluded = null,
+                                IReadOnlySet<(string Type, string Name)>? recipeStatics = null, IReadOnlySet<string>? rejectedRecipes = null)
     {
         /// <summary>The types whose members compare what they get, which the analysis takes to read it, as it takes <c>Equals</c>.</summary>
         private static readonly HashSet<string> ComparisonTypes = new(
@@ -595,6 +620,9 @@ public static class DriverSynthesizer
         public Dictionary<string, int> CallStatements { get; } = new(StringComparer.Ordinal);
         private readonly List<string> _setup = [];
         private readonly List<(string Path, string Statement)> _seedStatements = [];
+        private readonly List<(string Path, string Statement)> _recipeStatements = [];
+        private bool _recipeValue;
+        public List<string> RecipeCandidates { get; } = [];
         private readonly SortedDictionary<string, ISymbol> _unseeded = new(StringComparer.Ordinal);
 
         /// <summary>The paths <see cref="AddUnseeded"/> added to <see cref="_unseeded"/>, which a rollback removes.</summary>
@@ -640,6 +668,10 @@ public static class DriverSynthesizer
 
         public IReadOnlyList<(string Path, string Statement)> SeedStatements => _seedStatements;
 
+        public IReadOnlyList<(string Path, string Statement)> RecipeStatements => _recipeStatements;
+
+        public HashSet<(string Type, string Name)> UnseededRecipeStatics { get; } = [];
+
         public IReadOnlyList<string> SeedFactories => _seedTypes.Where(seed => TypeShape.Of(seed.Key) == TypeShapeKind.Delegate)
                                                                .Select(seed => seed.Value).ToArray();
 
@@ -681,6 +713,7 @@ public static class DriverSynthesizer
                          (result.SpecialType == SpecialType.System_Collections_IEnumerable ||
                           result.AllInterfaces.Any(@interface => @interface.SpecialType == SpecialType.System_Collections_IEnumerable));
 
+            RecipeStatics();
             Setup(CALL_VARIANT);
             if (Enumerates)
                 Setup(ENUMERATE_VARIANT);
@@ -1445,6 +1478,56 @@ public static class DriverSynthesizer
             }
         }
 
+        private void RecipeStatics()
+        {
+            if (recipeStatics is null)
+                return;
+            foreach (var storage in recipeStatics.OrderBy(storage => storage.Type, StringComparer.Ordinal).ThenBy(storage => storage.Name, StringComparer.Ordinal))
+            {
+                checks.Check(GenerationStage.Synthesize);
+                // Bind in the library's semantic model so every symbol still belongs to this copy. The key is checked afterwards:
+                // an ambiguous same-named type in another assembly must not stand in for the requested closed storage.
+                var text = Regex.Replace(storage.Type, @"[^\s<>,\[\]*:]+:", "");
+                var tree = library.SyntaxTrees.First();
+                var type = library.GetSemanticModel(tree).GetSpeculativeTypeInfo(0, SyntaxFactory.ParseTypeName("global::" + text),
+                    SpeculativeBindingOption.BindAsTypeOrNamespace).Type as INamedTypeSymbol;
+                var field = type?.GetMembers().FirstOrDefault(candidate => candidate.Name == storage.Name ||
+                    candidate is IPropertySymbol && $"<{candidate.Name}>k__BackingField" == storage.Name);
+                if (field is { IsStatic: false })
+                    continue;
+                if (field is not null && !HoldsObjects(MemberType(field)))
+                    continue;
+                if (type is null || SymbolNames.TypeKey(type) != storage.Type || field is null || !CanWrite(field))
+                {
+                    UnseededRecipeStatics.Add(storage);
+                    continue;
+                }
+                var fieldType = MemberType(field);
+                var owner = new Owner("Recipe", null);
+                _recipeValue = true;
+                string? value;
+                try
+                {
+                    value = TryCandidate(() => Value(fieldType, owner, STATIC_DEPTH + ARGUMENT_DEPTH, _setup), owner, _setup);
+                }
+                finally
+                {
+                    _recipeValue = false;
+                }
+                if (value is null)
+                {
+                    UnseededRecipeStatics.Add(storage);
+                    continue;
+                }
+                var statement = $"{R(type)}.{Escape(field.Name)} = {value};";
+                _setup.Add(statement);
+                _recipeStatements.Add(($"static/{storage.Type}/{storage.Name}", statement));
+            }
+        }
+
+        private static bool HoldsObjects(ITypeSymbol type) =>
+            type.SpecialType != SpecialType.System_String && (type.IsReferenceType || TypeShape.Of(type) == TypeShapeKind.StructWithReferences);
+
         private bool TryConstructStaticType(INamedTypeSymbol definition, out INamedTypeSymbol type, out string text)
         {
             type = definition;
@@ -2056,6 +2139,15 @@ public static class DriverSynthesizer
         private string Value(ITypeSymbol type, Owner owner, int depth, List<string>? hoist)
         {
             type = Substitute(type);
+            if (_recipeValue)
+            {
+                if (!HoldsObjects(type))
+                    return $"default({R(type)})";
+                if (Kind(type) is ParameterKind.Delegate or ParameterKind.ExpressionTree or ParameterKind.Container or ParameterKind.NotSynthesized ||
+                    ContainsProbe(type))
+                    return Fail($"no library source can fill the recipe's {type.ToDisplayString()}");
+                return Recipe(type, owner, depth, hoist);
+            }
             switch (Kind(type))
             {
                 case ParameterKind.NotSynthesized:
@@ -2134,6 +2226,8 @@ public static class DriverSynthesizer
         private string Canned(ITypeSymbol type, Owner owner)
         {
             checks.Check(GenerationStage.Synthesize);
+            if (_recipeValue)
+                return Value(type, owner, ARGUMENT_DEPTH, null);
             if (type.SpecialType == SpecialType.System_String)
                 return "\"s\"";
             if (type.IsValueType)
@@ -2232,7 +2326,9 @@ public static class DriverSynthesizer
                 (Kind(Substitute(key)) != ParameterKind.Canned || Kind(Substitute(value)) != ParameterKind.Canned))
                 return $"new {R(pair)}({Value(key, owner, depth, hoist)}, {Value(value, owner, depth, hoist)})";
             if (TypeShape.Of(type) == TypeShapeKind.StructWithReferences && type.IsValueType)
-                return $"default({R(type)})";
+                return _recipeValue
+                    ? (type is INamedTypeSymbol structure ? LibraryValue(structure, owner, depth, hoist) : null) ?? Fail($"no constructor or factory fills {type}")
+                    : $"default({R(type)})";
             if (type is INamedTypeSymbol task && TypeShape.Of(type) is TypeShapeKind.Task or TypeShapeKind.TaskOfT)
             {
                 if (task.Arity == 0)
@@ -2251,6 +2347,8 @@ public static class DriverSynthesizer
         /// <param name="type">The type whose shared value is needed.</param>
         private string? SharedValue(INamedTypeSymbol type)
         {
+            if (_recipeValue && SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, library.Assembly))
+                return null;
             var members = type.GetMembers().Where(candidate => candidate.IsStatic && OriginalAccessibility(library, candidate));
             var shared = members.OfType<IFieldSymbol>().FirstOrDefault(field => SymbolEqualityComparer.Default.Equals(field.Type, type)) as ISymbol ??
                          members.OfType<IPropertySymbol>().FirstOrDefault(property => !property.IsIndexer && property.GetMethod is { } getter &&
@@ -2338,6 +2436,8 @@ public static class DriverSynthesizer
             foreach (var producer in _producers)
             {
                 checks.Check(GenerationStage.Synthesize);
+                if (_recipeValue && (producer.ReturnsByRef || producer.ReturnsByRefReadonly))
+                    continue;
                 // Only a producer that applies pays for a candidate's snapshot and rollback.
                 if (Applicable(producer, type) is not { } method)
                     continue;
@@ -2397,7 +2497,7 @@ public static class DriverSynthesizer
             var probes = owner.Probes.Count;
             var value = Value(type, owner, depth, hoist);
             type = Substitute(type);
-            if (hoist is null || owner.Probes.Count != probes || type.IsValueType || !ParameterKinds.IsHolding(Kind(type)) ||
+            if (_recipeValue || hoist is null || owner.Probes.Count != probes || type.IsValueType || !ParameterKinds.IsHolding(Kind(type)) ||
                 TypeShape.Of(type) == TypeShapeKind.RefLikeOrPointer)
             {
                 return value;
@@ -3055,7 +3155,7 @@ public static class DriverSynthesizer
         /// <param name="Declaring">The class-declaration stack size.</param>
         private sealed record CandidateState(Action Restore, int Failures, int Defaulted, int Below, int Declaring);
 
-        /// <summary>Captures Failures, Defaulted, _setup, _seedStatements, _fields, _witnessFields, _keep, _types, _methods,
+        /// <summary>Captures Failures, Defaulted, _setup, _seedStatements, RecipeCandidates, _fields, _witnessFields, _keep, _types, _methods,
         /// _actions, _chosen, _seedTypeKeys and _classKeys by size, removing their new keys from _probeTypes, _choices, _seedTypes
         /// and _classes on rollback; captures _names and _unseeded, which only gain keys, by their <see cref="KeyJournal"/>s, removing
         /// the keys gained since on rollback; copies _probeStructs and _owners; captures every existing owner's probes
@@ -3103,6 +3203,7 @@ public static class DriverSynthesizer
             List(Defaulted);
             List(_setup);
             List(_seedStatements);
+            List(RecipeCandidates);
             List(_fields);
             List(_witnessFields);
             List(_keep);
@@ -3168,8 +3269,13 @@ public static class DriverSynthesizer
             var value = build();
             if (_below.Count != snapshot.Below || _declaring.Count != snapshot.Declaring)
                 throw new InvalidOperationException("A library value candidate left a writer stack unbalanced.");
-            if (value is not null && Failures.Count == snapshot.Failures && TooDeep is null)
+            if (value is not null && Failures.Count == snapshot.Failures && TooDeep is null &&
+                (!_recipeValue || rejectedRecipes?.Contains(RecipeCandidateKey(value)) != true))
+            {
+                if (_recipeValue)
+                    RecipeCandidates.Add(RecipeCandidateKey(value));
                 return value;
+            }
             snapshot.Restore();
             return null;
         }

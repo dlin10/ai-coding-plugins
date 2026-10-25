@@ -31,7 +31,7 @@ internal sealed class RunGeneration
     internal static readonly TimeSpan RUN_LIMIT = TimeSpan.FromSeconds(900);
 
     /// <summary>One member's limit.</summary>
-    internal static readonly TimeSpan MEMBER_LIMIT = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan MEMBER_LIMIT = GenerationLimits.MEMBER;
 
     private readonly string _repositoryRoot;
     private readonly CancellationToken _runToken;

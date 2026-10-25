@@ -313,23 +313,23 @@
       },
       "accesses": 1338,
       "counters": {
-        "delegate-to-opaque": 10,
+        "delegate-to-opaque": 12,
         "element-operation": 37,
         "generated-in-run": 0,
-        "known-call": 333,
+        "known-call": 331,
         "known-call-built-in": 324,
-        "known-call-generated": 5,
+        "known-call-generated": 3,
         "known-call-project": 4,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 17,
         "opaque-by-project": 2,
-        "opaque-call": 1306,
+        "opaque-call": 1308,
         "out-of-range-call": 0,
         "pairs-removed-generated": 1,
         "reachable-bodies": 1558,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 17,
+        "semantic-gap": 19,
         "solver-available": 1,
         "solver-queries": 21,
         "solver-sat": 17,
@@ -349,6 +349,8 @@
         "unproven-joins": 50
       },
       "semanticGaps": [
+        "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",
+        "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.ProtobufParserFactoryAtParse.Msg\u003E..ctor(Func\u003CMsg\u003E)",
         "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Timer\u003E)",
         "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Task\u003Cint\u003E\u003E)",
         "Microsoft.Extensions.Options.Options.Create\u003CTOptions\u003E(Settings)",
@@ -368,6 +370,11 @@
         "System.Threading.Channels.ChannelWriter\u003CDemo.Web.Cases.ChannelHandoff.Order\u003E.TryWrite(Order)"
       ],
       "generationRefusals": [
+        {
+          "member": "M:Google.Protobuf.MessageParser\u00601.#ctor(System.Func{\u00600})",
+          "file": "Google.Protobuf/3.30.2/601a02d3-9487-45ce-a28b-99b5cb103efd.json",
+          "cause": "incomplete"
+        },
         {
           "member": "M:Google.Protobuf.MessageParser\u00601.ParseFrom(System.Byte[])",
           "file": "Google.Protobuf/3.30.2/601a02d3-9487-45ce-a28b-99b5cb103efd.json",

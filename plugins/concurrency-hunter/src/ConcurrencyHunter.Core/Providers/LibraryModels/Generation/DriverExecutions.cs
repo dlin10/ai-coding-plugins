@@ -56,6 +56,16 @@ public sealed class DriverExecutions
         }
     }
 
+    /// <summary>The executions an instance belongs to, excluding inert executions unless allocation origin or a library static
+    /// handed by reference needs them.</summary>
+    /// <param name="executions">The run's executions, or <c>null</c> before execution analysis.</param>
+    /// <param name="instanceId">The instance.</param>
+    /// <param name="includeInert">Whether to include inert type initializer executions.</param>
+    public static IReadOnlySet<string> ForInstance(ExecutionAnalysis? executions, string instanceId, bool includeInert = false) =>
+        executions?.InstanceExecutions.GetValueOrDefault(instanceId) is { } membership
+            ? includeInert ? membership : membership.Where(execution => !executions.IsInert(execution)).ToHashSet(StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+
     /// <summary>The id of an action's root execution, own(X).</summary>
     /// <param name="action">The action.</param>
     public static string Own(string action) => $"root:{DriverRootProvider.RootId(action)}";

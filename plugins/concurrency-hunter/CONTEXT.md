@@ -103,8 +103,23 @@ A constructor or type initializer running to produce an object or prepare a type
 the object it produces, or a type initializer to its own type's statics, nobody else can see unless
 it publishes the object; everything else it touches belongs to the execution that triggered it: the
 request that builds a controller, the first resolution of a singleton, the host starting its hosted
-services, the first use of a type.
+services, the first use of a type. Library generation makes an explicit exception for an
+**Inert type initializer**; program analysis keeps the construction in its triggering execution.
 _Avoid_: initialization (field initializers are part of a construction, not a separate thing), setup
+
+**Inert type initializer**:
+A library type initializer whose body is reachable and lowered and whose allocations, stores and
+calls are solved in the heap, while its `TypeInitializer` execution collects no accesses or probe
+firings, has no discovery target, code-flow step or construction edge, and attributes no semantic
+gap to a root. The shared execution walk still assigns membership, parents the work it starts and
+records its handoff of delegates to unseen code; that work has ordinary executions. The instance
+still runs once for the proof of one object per process. Generation reads inert membership only
+for allocation origin and a library static handed to unseen code by reference, as for a running
+initializer; all its other membership readers exclude it. A type whose closed arguments contain
+a driver type or an open type parameter at any depth runs its initializer even under `inert` or
+`off`; a merged instance runs if any of its closed types runs.
+_Avoid_: disabled initializer (an initializer left outside the set has no body in the analysis),
+no execution (the inert execution still carries membership and work parenthood)
 
 **Reachable set**:
 The method bodies a run analyzes: everything the call graph reaches from an execution root or a
@@ -113,7 +128,9 @@ against coverage. When the **Model generator** analyses a library, the set is na
 or interface call reaches only the overrides of types the run constructs or boxes. When that library
 is `System.Private.CoreLib`, the bodies of its resource-string type `System.SR` are never entered
 either, nor those of a **Recognized type**, whose calls there are what they are in a program. A body
-outside that set may still run, so a call into one is an **Opaque call**.
+outside that set may still run, so a call into one is an **Opaque call**. An **Inert type initializer**
+remains in the set; an initializer left outside it under `off` is neither lowered nor activated in
+the heap. Program analysis and CoreLib generation use running initializers.
 _Avoid_: scope, analyzed code, hot code
 
 **Process scope**:
@@ -466,13 +483,21 @@ _Avoid_: cached value, held object (a **Holder** keeps a delegate), element (a c
 **Model generator**:
 The part of the server that produces generated **Library models**: it decompiles the library, writes
 a **Driver** for each member the run reached, analyses the driver with the same engine that analyses
-the user's code, and records where each delegate ran and what each argument received.
+the user's code, and records where each delegate ran and what each argument received. Non-CoreLib
+generation starts with **Inert type initializer** executions and repeats the whole member with
+initializers left outside the set and **Recipe value** construction when the final fate pass or confirmation
+exceeds 1,500 bodies. CoreLib keeps running initializers. One server constant limits a member to
+120 seconds across both attempts in a run, model evals and `generate`; the CoreLib tool keeps five
+minutes. The generation record names the answer treatment, every attempt and its stage times.
 _Avoid_: model inference, AI generator (the generator runs no AI)
 
 **Generation refusal**:
 The **Model generator**'s answer that a member gets no generated **Library model**, with its cause:
 the library does not compile, no **Driver** could be built, something the analysis cannot see
-touched a probe, the member ran past its own share of the **Generation budget**. It is kept beside
+touched a probe, the member exhausted its 120-second limit across its attempts (`timeout`), an
+unseeded recipe static was read or written, or an excluded initializer could start work (`initializer-work-not-run`).
+The `generate` command and model evals keep the generation record up to a timeout, including its
+interrupted stage; a run keeps the refusal without a partial record. It is kept beside
 the generated models, so a later run of the same **Generator version** reads it instead of
 generating the member again. A member left
 ungenerated for a reason of the run or the machine — the run's budget ran out, the run stopped, the
@@ -502,6 +527,19 @@ calls each member of the object that may keep the delegate. Where a probe lambda
 answer for a delegate; what the member did to a probe object is the answer for an argument.
 _Avoid_: harness, test, stub
 
+**Recipe value**:
+A library value the **Driver** builds before seeds for a loaded closed static storage whose type
+initializer is left outside the set. Its sources, at every object-holding depth, are constructors,
+factories, internal constructors of the library copy, concrete implementations of interfaces or
+abstract types, or a shared static value of another assembly. A struct containing references needs
+such a source too, never `default`. Probes, driver subclasses, delegates, expression trees,
+containers and the library's own statics are not sources. Its whole graph has library-before-call
+origin, as if made by a running type initializer, including the same mixed origin when a creator
+instance also runs in setup or an action. It is optional and is not a **Seed**: failure leaves the
+closed storage unseeded, and a read or write through it outside setup refuses the model. Discovery
+of new closed storage repeats synthesis, seeding and holder confirmation to a fixed point.
+_Avoid_: static seed, user object, default value, probe
+
 **Seed**:
 A user object the **Driver** adds, before it calls the member, to every field that could hold one —
 in the library objects it hands over and in the library's static fields — because a program may
@@ -509,7 +547,10 @@ have put its own object there: a converter in serializer options, a writer given
 `Console.SetOut`. Every member of a seed is a witness: a value the library hands it is a value user
 code received, which a **Library model** writes as a **Deep read** of it, and a delegate handed to it
 runs in an **Unknown execution**. A seed only adds to what the field already holds, and never makes a
-value that came from a call without a body look followed.
+value that came from a call without a body look followed. A **Recipe value** supplies library state
+before seeds are added and is not a seed; ordinary seed opening keeps its readonly rules. Only the
+`off` library copy opens recipe statics for writes, while its analysis retains the ordinary copy's
+readonly facts.
 _Avoid_: stub, mock, placeholder
 
 **Open-world rule**:

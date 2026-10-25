@@ -40,6 +40,7 @@ public sealed class ConfirmationAccessesTests
         var receiver = Confirmed(SPAWNING_RECEIVER, SPAWNING_RECEIVER_ID);
         var lazy = Trace(LAZY_SPAWNING, LAZY_SPAWNING_ID);
         var unknown = Trace("public static class Api { public static void Run(Action a) { Sink.Take(a); } }", "M:Lib.Api.Run(System.Action)");
+        var inert = Trace("public static class Api { static Api() { Cache.Last = new object(); } public static void Run(Action a) { a(); } }", "M:Lib.Api.Run(System.Action)");
         var fire = Assert.Single(holder.Trace.Driver!.Triggers, trigger => trigger.Member == "M:Lib.Busy.Fire").Action;
         var artefact = Single(lazy.Run!, execution => execution.Kind == ExecutionKind.UnknownEnumeration);
 
@@ -65,6 +66,8 @@ public sealed class ConfirmationAccessesTests
             new("artefact", lazy, lazy.Run!, artefact, new DriverExecution(DriverExecutionRole.Artefact, null), null, false),
             new("artefact child", lazy, lazy.Run!, Single(lazy.Run!, execution => execution.Kind == ExecutionKind.Spawn && execution.TreeRootId == artefact),
                 new DriverExecution(DriverExecutionRole.Artefact, null), null, false),
+            new("inert type initializer", inert, inert.Run!, Single(inert.Run!, execution => execution.Kind == ExecutionKind.TypeInitializer && execution.IsInert),
+                new DriverExecution(DriverExecutionRole.Elsewhere, null), null, false),
             new("elsewhere", unknown, unknown.Run!, Single(unknown.Run!, execution => execution.Kind == ExecutionKind.UnknownDelegateCall),
                 new DriverExecution(DriverExecutionRole.Elsewhere, null), null, false)
         ];

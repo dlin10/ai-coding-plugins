@@ -917,6 +917,73 @@ public sealed class LibraryCompilationTests
         Assert.Same(result, LibraryCompilation.Compile(assembly, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Waiting_for_an_off_copy_another_attempt_opens_stops_with_the_waiters_token()
+    {
+        var library = CompileSource("public sealed class Box { private static readonly object X = new(); }");
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var cancellation = new CancellationTokenSource();
+        var first = Task.Run(() => LibraryCompilation.RecipeCopy(library, new GenerationChecks(CancellationToken.None),
+            new LibraryCompilationProbe { Started = () => { held.Set(); release.Wait(); } }));
+        try
+        {
+            Assert.True(held.Wait(TimeSpan.FromMinutes(1)));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Task.Run(() => LibraryCompilation.RecipeCopy(library,
+                new GenerationChecks(cancellation.Token), new LibraryCompilationProbe { Waiting = cancellation.Cancel })));
+            Assert.False(first.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+        }
+        var result = await first;
+        Assert.Same(result, LibraryCompilation.RecipeCopy(library, new GenerationChecks(CancellationToken.None)));
+    }
+
+    [Fact]
+    public async Task A_waiter_whose_opener_was_cancelled_opens_the_off_copy_itself()
+    {
+        var library = CompileSource("public sealed class Box { private static readonly object X = new(); }");
+        using var held = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var waiting = new ManualResetEventSlim();
+        using var cancellation = new CancellationTokenSource();
+        var first = Task.Run(() => LibraryCompilation.RecipeCopy(library, new GenerationChecks(cancellation.Token),
+            new LibraryCompilationProbe { Started = () => { held.Set(); release.Wait(); } }));
+        Assert.True(held.Wait(TimeSpan.FromMinutes(1)));
+        var starts = 0;
+        var second = Task.Run(() => LibraryCompilation.RecipeCopy(library, new GenerationChecks(CancellationToken.None),
+            new LibraryCompilationProbe { Waiting = waiting.Set, Started = () => Interlocked.Increment(ref starts) }));
+        try
+        {
+            Assert.True(waiting.Wait(TimeSpan.FromMinutes(1)));
+            cancellation.Cancel();
+        }
+        finally
+        {
+            release.Set();
+        }
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        var result = await second;
+        Assert.Equal(1, starts);
+        Assert.Same(result, LibraryCompilation.RecipeCopy(library, new GenerationChecks(CancellationToken.None)));
+    }
+
+    [Fact]
+    public void An_off_copy_cancelled_by_its_opener_is_opened_again_by_the_next_attempt()
+    {
+        var library = CompileSource("public sealed class Box { private static readonly object X = new(); }");
+        using var cancellation = new CancellationTokenSource();
+        Assert.ThrowsAny<OperationCanceledException>(() => LibraryCompilation.RecipeCopy(library, new GenerationChecks(cancellation.Token),
+            new LibraryCompilationProbe { Started = cancellation.Cancel }));
+        var starts = 0;
+        var next = LibraryCompilation.RecipeCopy(library, new GenerationChecks(CancellationToken.None),
+            new LibraryCompilationProbe { Started = () => starts++ });
+        Assert.Equal(1, starts);
+        Assert.Same(next, LibraryCompilation.RecipeCopy(library, new GenerationChecks(CancellationToken.None)));
+    }
+
     /// <summary>The top-level types of an assembly's metadata the whole-project decompiler writes: all but <c>&lt;Module&gt;</c> and
     /// <c>&lt;PrivateImplementationDetails&gt;</c>, which carry nothing a project declares.</summary>
     /// <param name="path">The assembly file.</param>

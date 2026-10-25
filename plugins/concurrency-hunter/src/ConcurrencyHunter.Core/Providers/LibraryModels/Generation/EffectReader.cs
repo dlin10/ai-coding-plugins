@@ -1,10 +1,12 @@
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Operations;
 
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
@@ -37,6 +39,7 @@ public sealed class EffectReader
     private const string ARRAY_ELEMENT_WRITE = "System.Array.set_Item";
 
     private readonly Driver _driver;
+    private readonly ProgramIndex _program;
     private readonly IReadOnlyDictionary<string, IrBody> _runBodies;
     private readonly HeapSolution _heap;
     private readonly ExecutionAnalysis _analysis;
@@ -65,6 +68,9 @@ public sealed class EffectReader
     private readonly Dictionary<string, IReadOnlySet<string>> _otherReceivers = new(StringComparer.Ordinal);
     private readonly HashSet<ISymbol> _unreachedFields = new(SymbolEqualityComparer.Default);
     private readonly GenerationCauses _causes = new();
+    private readonly HashSet<(string Type, string Name)> _unseededRecipeStatics;
+    private readonly bool _includeUnseededSeeds;
+    private readonly HashSet<string> _rejectedRecipes = new(StringComparer.Ordinal);
     private readonly GenerationChecks _checks;
     private readonly StageChecks _stage;
 
@@ -83,14 +89,19 @@ public sealed class EffectReader
     /// <param name="run">The completed run.</param>
     /// <param name="fates">The classified fates, or <c>null</c>: a parameter whose fate is <c>not-run</c> has no effect (R5).</param>
     /// <param name="checks">The generation's checks, which cancel the reading.</param>
-    internal EffectReader(Driver driver, ScopeRun run, IReadOnlyDictionary<string, ClassifiedFate>? fates, GenerationChecks checks)
+    /// <param name="initializerBodies">Bodies reached from initializers left out of this attempt.</param>
+    /// <param name="includeUnseededSeeds">Whether unseeded Seed paths count; confirmation checks only recipe storage.</param>
+    internal EffectReader(Driver driver, ScopeRun run, IReadOnlyDictionary<string, ClassifiedFate>? fates, GenerationChecks checks,
+                           IReadOnlyList<InitializerBody>? initializerBodies = null, bool includeUnseededSeeds = true)
     {
         if (run.Stopped)
             throw new ArgumentException("A stopped run has no effects to read.", nameof(run));
 
         _checks = checks;
+        _includeUnseededSeeds = includeUnseededSeeds;
         _stage = new StageChecks(checks, GenerationStage.ReadEffects);
         _driver = driver;
+        _program = run.Program;
         _runBodies = run.Reachable.Bodies;
         _heap = run.Heap!;
         _analysis = run.Executions!;
@@ -98,10 +109,13 @@ public sealed class EffectReader
         _immutableTypeKeys = run.ScopeProgram!.Program.ImmutableTypeKeys;
         var result = _reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "R"));
         _executions = new DriverExecutions(driver, _analysis, _reachability.From(result is null ? [] : _reachability.Targets(result)));
-        _allocations = new Allocations(driver, _heap, _analysis, _executions, _reachability, _stage);
+        _allocations = new Allocations(driver, _heap, _analysis, _executions, _reachability, _stage, run.Reachable.Bodies);
         _handoffs = new GenerationHandoffs(driver, run, _executions, _reachability, _stage);
         _observation = new ValueObservation(driver, run, _stage.Each(GenerationHandoffs.UnfollowedCalls(run))
                                                                .Select(call => (call.Instance.Id, call.OperationId)).ToHashSet(), _stage);
+
+        _unseededRecipeStatics = driver.UnseededRecipeStatics.ToHashSet();
+        ReadRecipeSources();
 
         BuildInputs();
         BuildSpecialObjects();
@@ -120,6 +134,8 @@ public sealed class EffectReader
         _checks.Check(GenerationStage.ReadEffects);
         ReadWitnessesAndUnknownCalls();
         _checks.Check(GenerationStage.ReadEffects);
+
+        ReadInitializerBodies(initializerBodies ?? []);
 
         Effects = _effects.Where(pair => fates?.GetValueOrDefault(pair.Key.Parameter)?.Fate != FateClassifier.NOT_RUN)
                           .OrderBy(pair => pair.Key.Parameter, StringComparer.Ordinal).ThenBy(pair => pair.Key.Kind, StringComparer.Ordinal)
@@ -350,7 +366,8 @@ public sealed class EffectReader
             _checks.Check(GenerationStage.ReadEffects);
             if (!_heap.Instances.TryGetValue(access.InstanceId, out var instance) || !IsLibraryBody(instance.BodyId))
                 continue;
-            if (access.Access.Kind == SummaryAccessKind.Load && OutsideSetup(access.ExecutionId) && MatchesUnseeded(access.Access.Field))
+            if (OutsideSetup(access.ExecutionId) && MatchesUnseeded(access.Access.Field, instance, access.RegionId, access.Slot,
+                includeSeeds: access.Access.Kind == SummaryAccessKind.Load))
                 _causes.Add(GenerationReasons.INCOMPLETE, ModelCauses.UNSEEDED_READ, $"{FieldSlot.Key(access.Access.Field)} in {instance.BodyId}");
             if (ActionOf(access.ExecutionId) is not { } action)
                 continue;
@@ -385,8 +402,8 @@ public sealed class EffectReader
             return false;
         }
         var callers = _stage.Each(_heap.Edges).Where(edge => edge.CalleeInstance == instance.Id &&
-                                                             _analysis.InstanceExecutions.GetValueOrDefault(edge.CallerInstance)?
-                                                                      .Any(execution => ActionOf(execution) == action) == true)
+                                                             DriverExecutions.ForInstance(_analysis, edge.CallerInstance)
+                                                                      .Any(execution => ActionOf(execution) == action))
                             .Select(edge => _heap.Instances[edge.CallerInstance].BodyId).ToArray();
         return callers.Length != 0 && callers.All(body => body == ValueObservation.DriverBody(action));
     }
@@ -742,13 +759,24 @@ public sealed class EffectReader
         foreach (var instance in _heap.Instances.Values.Where(instance => IsLibraryBody(instance.BodyId)))
         {
             _checks.Check(GenerationStage.ReadEffects);
-            var executions = _analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>();
-            // A load of an unseeded member counts in every execution outside setup — an unknown or startup execution the call caused
+            var executions = DriverExecutions.ForInstance(_analysis, instance.Id);
+            // An access through unseeded storage counts in every execution outside setup — an unknown or startup execution the call caused
             // included — whatever object it is on (task 6).
             if (executions.Any(OutsideSetup) &&
-                instance.Summary.Accesses.FirstOrDefault(access => access.Kind == SummaryAccessKind.Load && MatchesUnseeded(access.Field)) is { } unseeded)
+                instance.Summary.Accesses.FirstOrDefault(access => MatchesUnseeded(access.Field, instance,
+                    includeSeeds: access.Kind == SummaryAccessKind.Load)) is { } unseeded)
             {
                 _causes.Add(GenerationReasons.INCOMPLETE, ModelCauses.UNSEEDED_READ, $"{FieldSlot.Key(unseeded.Field)} in {instance.BodyId}");
+            }
+            if (executions.Any(OutsideSetup))
+            {
+                foreach (var field in instance.Summary.ReferenceAccesses.SelectMany(access => access.Targets)
+                                              .SelectMany(target => ValueProvenance.ReferenceStatics(_heap, instance, target)))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
+                    if (MatchesUnseeded(field, instance, reference: true, includeSeeds: false))
+                        _causes.Add(GenerationReasons.INCOMPLETE, ModelCauses.UNSEEDED_READ, $"{FieldSlot.Key(field)} in {instance.BodyId}");
+                }
             }
             var actions = executions.Select(ActionOf).Where(action => action is not null).Cast<string>().Distinct(StringComparer.Ordinal).ToArray();
             // A store into the struct the driver's action itself makes with `new S(...)` — what a struct constructor runs on — writes the
@@ -821,7 +849,7 @@ public sealed class EffectReader
         foreach (var (callers, callees) in handoffs)
         {
             _checks.Check(GenerationStage.ReadEffects);
-            var actions = callers.SelectMany(caller => (_analysis.InstanceExecutions.GetValueOrDefault(caller) ?? new HashSet<string>())
+            var actions = callers.SelectMany(caller => DriverExecutions.ForInstance(_analysis, caller)
                                                        .Select(ActionOf).Where(action => action is not null).Cast<string>())
                                  .Distinct(StringComparer.Ordinal).ToArray();
             if (actions.Length == 0)
@@ -889,6 +917,93 @@ public sealed class EffectReader
                     AddStateStore(region, root);
                 }
             }
+        }
+    }
+
+    private void ReadInitializerBodies(IReadOnlyList<InitializerBody> reachedBodies)
+    {
+        var library = _driver.Member.ContainingAssembly.Name;
+        var handoffs = new GenerationCauses();
+        var scans = reachedBodies.GroupBy(reached => reached.Body.BodyId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var handed = scans.ToDictionary(pair => pair.Key, _ => new HashSet<int>(), StringComparer.Ordinal);
+        var definitions = scans.ToDictionary(pair => pair.Key, pair => pair.Value.Body.Blocks.SelectMany(block => block.Operations)
+            .SelectMany(operation => operation.DefinedValues.Select(value => (value, operation))).GroupBy(pair => pair.value)
+            .ToDictionary(group => group.Key, group => group.Select(pair => pair.operation).ToArray()), StringComparer.Ordinal);
+        var changed = true;
+        while (changed)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
+            changed = false;
+            foreach (var reached in reachedBodies)
+            {
+                _checks.Check(GenerationStage.ReadEffects);
+                var body = reached.Body;
+                var parameters = body.Parameters.Where(parameter => parameter.RefKind != IrRefKind.None).ToArray();
+                foreach (var operation in body.Blocks.SelectMany(block => block.Operations))
+                {
+                    _checks.Check(GenerationStage.ReadEffects);
+                    if (InitializerWork.Starts(reached, operation))
+                        _causes.Add(ModelReasons.INCOMPLETE, ModelCauses.INITIALIZER_WORK_NOT_RUN,
+                                    $"{reached.Initializer}: {body.BodyId}#{operation.Id}");
+                    if (operation is not IrCallOperation call)
+                        continue;
+                    var pending = new Stack<int>(HandoffArguments(reached, call));
+                    var visited = new HashSet<int>();
+                    while (pending.TryPop(out var value))
+                    {
+                        _checks.Check(GenerationStage.ReadEffects);
+                        if (!visited.Add(value))
+                            continue;
+                        var current = body.Values.FirstOrDefault(candidate => candidate.Id == value);
+                        var symbol = current?.SymbolKey;
+                        if (current?.Kind == IrValueKind.Receiver)
+                            changed |= handed[body.BodyId].Add(-1);
+                        foreach (var parameter in parameters.Where(parameter => parameter.Value == value || symbol is not null &&
+                            body.Values.FirstOrDefault(candidate => candidate.Id == parameter.Value)?.SymbolKey == symbol))
+                        {
+                            _checks.Check(GenerationStage.ReadEffects);
+                            changed |= handed[body.BodyId].Add(parameter.Ordinal);
+                        }
+                        if (!definitions[body.BodyId].TryGetValue(value, out var sources))
+                            continue;
+                        foreach (var source in sources)
+                        {
+                            _checks.Check(GenerationStage.ReadEffects);
+                            if (source is IrAddressFieldOperation { Field.IsStatic: true } address && address.Field.Assembly == library)
+                            {
+                                AddStateStore($"static:{FieldSlot.TypeKey(address.Field.Assembly, address.Field.ContainingTypeId)}", reached.Initializer);
+                                handoffs.Add(ModelReasons.LIBRARY_STATE, ModelCauses.LIBRARY_STATE_STORE,
+                                             $"static:{FieldSlot.TypeKey(address.Field.Assembly, address.Field.ContainingTypeId)} in {reached.Initializer}");
+                            }
+                            else if (source is IrAssignOperation or IrConvertOperation or IrPhiOperation or IrAddressFieldOperation)
+                            {
+                                foreach (var operand in source.Operands)
+                                {
+                                    _checks.Check(GenerationStage.ReadEffects);
+                                    pending.Push(operand);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Possible work must not hide a static handoff established by the same scan. Other incomplete checks keep their early refusal.
+        if (_causes.All.Any(cause => cause.Code == ModelCauses.INITIALIZER_WORK_NOT_RUN))
+            _causes.Add(handoffs.All);
+
+        // A recorded dispatch edge cannot prove the receiver without a heap (D-0021). Only a non-virtual call with a body
+        // is followed; its ref parameters carry the same question transitively to this fixpoint.
+        IEnumerable<int> HandoffArguments(InitializerBody reached, IrCallOperation call)
+        {
+            if (InitializerWork.CallBody(reached, call) is not { } callee)
+                return call.Operands;
+            return handed.TryGetValue(callee.BodyId, out var ordinals)
+                ? ordinals.Select(ordinal => ordinal == -1 ? call.ReceiverValue : call.ArgumentAt(ordinal))
+                          .Where(value => value is not null).Select(value => value!.Value)
+                : [];
         }
     }
 
@@ -1164,8 +1279,152 @@ public sealed class EffectReader
         return false;
     }
 
-    private bool MatchesUnseeded(IrFieldRef field) =>
-        _unreachedFields.Concat(_driver.UnseededMembers).Any(member => Matches(field, member));
+    /// <summary>Closed recipe storage with no writable recipe or no object source in the completed heap.</summary>
+    internal IReadOnlySet<(string Type, string Name)> UnseededRecipeStatics => _unseededRecipeStatics;
+
+    /// <summary>Selected candidates whose completed evaluation produced no object source.</summary>
+    internal IReadOnlySet<string> RejectedRecipeCandidates => _rejectedRecipes;
+
+    private void ReadRecipeSources()
+    {
+        var setup = _stage.Each(_heap.Instances.Values).Where(instance => instance.BodyId ==
+            $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.{DriverSynthesizer.SETUP}").ToArray();
+        ReadRecipeCandidates(setup);
+        foreach (var statement in _driver.RecipeStatements)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
+            if (SeedField(statement.Operation) is not { } member || statement.Operation is not ISimpleAssignmentOperation assignment)
+                continue;
+            var span = assignment.Syntax.GetLocation().GetLineSpan();
+            var sources = SeedStores(setup, member, span).SelectMany(store => store.Access.Values
+                .SelectMany(value => _heap.Resolve(store.Instance.Id, value)));
+            var built = HasObjectSource(assignment.Value, sources, setup);
+            // Each object-holding argument constructed by the recipe needs its own source too. A fresh outer allocation
+            // does not make an empty inner factory result into a value (R4).
+            foreach (var argument in assignment.Value.DescendantsAndSelf().OfType<IArgumentOperation>().Where(argument =>
+                argument.Value.Type is { } type && type.SpecialType != SpecialType.System_String &&
+                (type.IsReferenceType || TypeShape.Of(type) == TypeShapeKind.StructWithReferences)))
+            {
+                _checks.Check(GenerationStage.ReadEffects);
+                var callSpan = argument.Parent!.Syntax.GetLocation().GetLineSpan();
+                var values = setup.SelectMany(instance =>
+                {
+                    var calls = _runBodies[instance.BodyId].Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+                        .Where(call => Within(call.Provenance.Span, callSpan)).Select(call => call.Id).ToHashSet();
+                    return instance.Summary.Calls.Where(call => calls.Contains(call.OperationId))
+                        .SelectMany(call => call.Arguments.Where(value => value.ParameterOrdinal == argument.Parameter!.Ordinal))
+                        .SelectMany(value => value.Values.SelectMany(value => _heap.Resolve(instance.Id, value)));
+                });
+                built &= HasObjectSource(argument.Value, values, setup);
+            }
+            if (!built)
+            {
+                var path = statement.Path["static/".Length..];
+                var slash = path.LastIndexOf('/');
+                _unseededRecipeStatics.Add((path[..slash], path[(slash + 1)..]));
+            }
+        }
+    }
+
+    private void ReadRecipeCandidates(IReadOnlyList<MethodInstance> setup)
+    {
+        if (_driver.RecipeCandidates.Count == 0)
+            return;
+        var method = _driver.Compilation.GetTypeByMetadataName(DriverSynthesizer.DRIVER_TYPE)!
+            .GetMembers(DriverSynthesizer.SETUP).OfType<IMethodSymbol>().Single();
+        var syntax = method.DeclaringSyntaxReferences.Single().GetSyntax(_checks.Token);
+        var semantic = _driver.Compilation.GetSemanticModel(syntax.SyntaxTree);
+        foreach (var expression in syntax.DescendantNodes().OfType<ExpressionSyntax>())
+        {
+            _checks.Check(GenerationStage.ReadEffects);
+            var key = DriverSynthesizer.RecipeCandidateKey(expression.ToString());
+            if (!_driver.RecipeCandidates.Contains(key))
+                continue;
+            var operation = semantic.GetOperation(expression, _checks.Token);
+            var span = expression.GetLocation().GetLineSpan();
+            var values = setup.SelectMany(instance =>
+            {
+                var calls = _runBodies[instance.BodyId].Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+                    .Where(call => SameSpan(call.Provenance.Span, span)).Select(call => call.Id).ToHashSet();
+                return operation is IObjectCreationOperation
+                    ? instance.Summary.Calls.Where(call => calls.Contains(call.OperationId))
+                        .SelectMany(call => call.Receivers).SelectMany(value => _heap.Resolve(instance.Id, value))
+                    : calls.SelectMany(call => _heap.Resolve(instance.Id, new CallResultValue(call)))
+                        .Concat(instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Load && SameSpan(access.Provenance.Span, span))
+                            .SelectMany(access => access.Values).SelectMany(value => _heap.Resolve(instance.Id, value)));
+            });
+            if (operation is not null && !HasObjectSource(operation, values, setup))
+                _rejectedRecipes.Add(key);
+        }
+    }
+
+    private static bool SameSpan(SourceSpan inner, FileLinePositionSpan outer) =>
+        (inner.StartLine, inner.StartColumn, inner.EndLine, inner.EndColumn) ==
+        (outer.StartLinePosition.Line + 1, outer.StartLinePosition.Character + 1, outer.EndLinePosition.Line + 1, outer.EndLinePosition.Character + 1);
+
+    private bool HasObjectSource(IOperation expression, IEnumerable<string> values, IReadOnlyList<MethodInstance> setup)
+    {
+        while (expression is IConversionOperation conversion)
+        {
+            _checks.Check(GenerationStage.ReadEffects);
+            expression = conversion.Operand;
+        }
+        // These are sources chosen by synthesis, including inside another candidate. A shared external static need
+        // not have an Allocation in the heap; a constructor supplies its value, including a struct with references. Its arguments are
+        // checked separately, so an empty inner candidate still rolls back (R4, D-0022).
+        if (expression is IObjectCreationOperation)
+            return true;
+        var shared = expression switch
+        {
+            IFieldReferenceOperation { Field.IsStatic: true } field => (ISymbol)field.Field,
+            IPropertyReferenceOperation { Property.IsStatic: true } property => property.Property,
+            _ => null
+        };
+        if (shared is not null && !SymbolEqualityComparer.Default.Equals(shared.ContainingAssembly, _driver.Member.ContainingAssembly) &&
+            _driver.RecipeCandidates.Contains(DriverSynthesizer.RecipeCandidateKey(expression.Syntax.ToString())))
+            return true;
+
+        var span = expression.Syntax.GetLocation().GetLineSpan();
+        var operations = setup.SelectMany(instance => _runBodies[instance.BodyId].Blocks.SelectMany(block => block.Operations))
+            .Where(operation => Within(operation.Provenance.Span, span)).Select(operation => operation.Id).ToHashSet();
+        var edges = _heap.Edges.ToLookup(edge => edge.CallerInstance);
+        var pending = new Stack<string>(setup.SelectMany(instance => edges[instance.Id])
+            .Where(edge => operations.Contains(edge.OperationId)).Select(edge => edge.CalleeInstance));
+        var instances = new HashSet<string>(StringComparer.Ordinal);
+        while (pending.TryPop(out var instance))
+        {
+            _checks.Check(GenerationStage.ReadEffects);
+            if (!instances.Add(instance))
+                continue;
+            foreach (var edge in edges[instance])
+            {
+                _checks.Check(GenerationStage.ReadEffects);
+                pending.Push(edge.CalleeInstance);
+            }
+        }
+        // A field reachable from a reference value cannot supply that value's own source. A struct's object
+        // values live in its fields, and are also checked as individual recipe arguments above.
+        var objects = expression.Type is { } type && TypeShape.Of(type) == TypeShapeKind.StructWithReferences
+            ? _reachability.From(values) : values;
+        return objects.Any(value => _allocations.CreatedByRecipe(value, instances, operations));
+    }
+
+    private bool MatchesUnseeded(IrFieldRef field, MethodInstance instance, string? regionId = null, string? slot = null,
+                                  bool reference = false, bool includeSeeds = true)
+    {
+        if (_includeUnseededSeeds && includeSeeds && _unreachedFields.Concat(_driver.UnseededMembers).Any(member => Matches(field, member)))
+            return true;
+        var region = regionId is not null ? _heap.Regions.GetValueOrDefault(regionId) : null;
+        if (!field.IsStatic && region?.Kind != HeapRegionKind.Static)
+            return false;
+        var type = region?.Kind == HeapRegionKind.Static ? region.TypeKey! :
+            ProgramIndex.Substitute($"{field.Assembly}:{field.ContainingTypeId}", instance.Substitution);
+        var name = slot is not null && region?.Kind == HeapRegionKind.Static ? FieldSlot.Name(FieldSlot.Root(slot)) : field.Name;
+        var merged = reference || region?.IsMerged == true || _program.IsOpen(type);
+        return _unseededRecipeStatics.Any(storage =>
+            (storage.Name == name || $"<{storage.Name}>k__BackingField" == name || storage.Name == $"<{name}>k__BackingField") &&
+            (storage.Type == type || merged && _program.Decompose(storage.Type).DefinitionKey == _program.Decompose(type).DefinitionKey));
+    }
 
     /// <summary>Records one effect on an argument, and for a <c>reads-deep</c> of the receiver whether it read a user object the
     /// receiver holds or an object reachable from one (<see cref="ReadsReceiverSeed"/>).</summary>

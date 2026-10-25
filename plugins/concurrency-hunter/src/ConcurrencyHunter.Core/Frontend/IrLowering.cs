@@ -7,6 +7,7 @@ using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Providers.LibraryModels;
+using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -291,7 +292,7 @@ public static class IrLowering
             field.Name,
             IrFieldKind.Field,
             field.IsStatic,
-            field.IsReadOnly,
+            LibraryFieldOpening.DeclaredReadOnly(field),
             SymbolNames.Type(field.Type),
             SymbolNames.TypeIdentity(field.ContainingType))
         {
@@ -309,7 +310,7 @@ public static class IrLowering
             property.Name,
             IrFieldKind.PropertyBackingField,
             property.IsStatic,
-            property.SetMethod is null,
+            LibraryFieldOpening.DeclaredReadOnly(property),
             SymbolNames.Type(property.Type),
             SymbolNames.TypeIdentity(property.ContainingType)) { FieldTypeKey = SymbolNames.TypeKey(property.Type) };
 
@@ -4806,7 +4807,7 @@ public static class IrLowering
             {
                 IParenthesizedOperation parenthesized => StructOperandOf(parenthesized.Operand),
                 IFieldReferenceOperation field => (field.Field.IsStatic ? StructOperand.StaticField : StructOperand.Field,
-                                                   field.Field.IsReadOnly && !IsUnderConstruction(field) ||
+                                                   LibraryFieldOpening.DeclaredReadOnly(field.Field) && !IsUnderConstruction(field) ||
                                                    field.Instance is { } holder && StructTypeKey(holder.Type) is not null &&
                                                    StructOperandOf(holder) is { IsReadOnly: true }),
                 IArrayElementReferenceOperation => (StructOperand.Element, false),

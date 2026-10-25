@@ -1,3 +1,4 @@
+using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
@@ -97,6 +98,37 @@ public sealed class AllocationsTests
 
         Assert.Equal(new Allocation(AllocationKind.LibraryBefore, DriverRole.None, null),
                      allocations.Of(Assert.Single(Slot(trace, DriverSynthesizer.KEEP_TYPE, "R"))));
+    }
+
+    [Fact]
+    public void An_object_an_inert_initializers_helper_made_is_the_librarys_before()
+    {
+        var (trace, allocations) = Run("public static class Factory { public static Box Make() => new Box(); } " +
+                                       "public static class Api { private static readonly Box Shared = Factory.Make(); public static Box Get() => Shared; }",
+                                       "M:Lib.Api.Get");
+        var made = Assert.Single(Slot(trace, DriverSynthesizer.KEEP_TYPE, "R"));
+        var helper = Assert.Single(trace.Run!.Heap!.Instances.Values, instance => instance.BodyId.EndsWith(":M:Lib.Factory.Make", StringComparison.Ordinal));
+
+        Assert.All(DriverExecutions.ForInstance(trace.Run.Executions, helper.Id, includeInert: true),
+                   execution => Assert.True(trace.Run.Executions!.IsInert(execution)));
+        Assert.Empty(DriverExecutions.ForInstance(trace.Run.Executions, helper.Id));
+        Assert.Equal(new Allocation(AllocationKind.LibraryBefore, DriverRole.None, null), allocations.Of(made));
+    }
+
+    [Fact]
+    public void An_object_made_by_an_inert_initializers_helper_and_by_setup_is_classified_as_with_running_initializers()
+    {
+        const string types = "public sealed class Factory { public Box Make() => new Box(); } " +
+                             "public sealed class Api { private static readonly Factory F = new Factory(); private static readonly Box Shared = F.Make(); public Api() { _ = F.Make(); } public Box Get() => Shared; }";
+        var (inert, inertAllocations) = Run(types, "M:Lib.Api.Get");
+        var (running, runningAllocations) = Run(types, "M:Lib.Api.Get", TypeInitializerTreatment.Run);
+        var helper = Assert.Single(inert.Run!.Heap!.Instances.Values, instance => instance.BodyId.EndsWith(":M:Lib.Factory.Make", StringComparison.Ordinal));
+        var membership = DriverExecutions.ForInstance(inert.Run.Executions, helper.Id, includeInert: true);
+
+        Assert.Contains(membership, execution => inert.Run.Executions!.IsInert(execution));
+        Assert.Contains(DriverExecutions.Own(DriverSynthesizer.SETUP), membership);
+        Assert.Equal(runningAllocations.Of(Assert.Single(Slot(running, DriverSynthesizer.KEEP_TYPE, "R"))),
+                     inertAllocations.Of(Assert.Single(Slot(inert, DriverSynthesizer.KEEP_TYPE, "R"))));
     }
 
     [Fact]
@@ -210,9 +242,11 @@ public sealed class AllocationsTests
         Assert.All(helpers, region => Assert.Equal(DriverRole.ArgumentValue, allocations.Of(region.Identity).Role));
     }
 
-    private static (GenerationTrace Trace, Allocations Allocations) Run(string types, string memberId)
+    private static (GenerationTrace Trace, Allocations Allocations) Run(string types, string memberId, TypeInitializerTreatment? initializers = null)
     {
-        var trace = Trace(types, memberId);
+        var library = Compile(PRELUDE + types + "\n}\n");
+        var trace = ModelGenerator.Trace(new GenerationRequest(ASSEMBLY, "1.0", memberId, null, null), library, CancellationToken.None,
+                                         initializers: initializers);
         Assert.True(trace.Run is { Stopped: false }, $"{trace.Answer.Reason}: {trace.Answer.Detail}");
         var run = trace.Run;
         var reachability = new HeapReachability(run.Heap!);

@@ -247,8 +247,8 @@ internal static class ModelEvals
     private static EvalAnswer Generate(GoldMember member, ImplementationAssemblies resolver)
     {
         var input = Inputs[member.Assembly];
-        var trace = ModelGenerator.Trace(new GenerationRequest(input.Assembly, input.Version, member.Id, input.Package, input.Framework), resolver,
-                                         CancellationToken.None);
+        var trace = ModelGenerator.TraceWithin(new GenerationRequest(input.Assembly, input.Version, member.Id, input.Package, input.Framework), resolver,
+                                         cancellationToken: CancellationToken.None);
         return new EvalAnswer(member, trace.Answer, trace.Driver is not null);
     }
 
@@ -406,6 +406,7 @@ internal static class ModelEvals
             json.WriteStringValue(code);
         json.WriteEndArray();
         json.WriteNumber("reachedBodies", answer.Generation.ReachedBodies);
+        json.WriteString("mode", answer.Generation.Mode);
         json.WriteEndObject();
     }
 

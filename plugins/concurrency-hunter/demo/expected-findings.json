@@ -2897,7 +2897,7 @@
     },
     {
       "id": "protobuf-parser-factory-at-parse/factory-runs-at-parse",
-      "phase": "5d-B4c",
+      "phase": "5d-C",
       "rule": "DCA1002",
       "confidence": "high",
       "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] },
@@ -2935,6 +2935,12 @@
       "id": "protobuf-parser-factory-at-parse/factory-fires-in-type-initializers",
       "phase": "5d-B4b",
       "until": "5d-B4c",
+      "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] }
+    },
+    {
+      "id": "protobuf-parser-factory-at-parse/descriptor-unseeded",
+      "phase": "5d-B4c",
+      "until": "5d-C",
       "resource": { "region": "static:Demo.Web.Cases.ProtobufParserFactoryAtParse.Tally", "accessPath": ["Created"] }
     },
     {

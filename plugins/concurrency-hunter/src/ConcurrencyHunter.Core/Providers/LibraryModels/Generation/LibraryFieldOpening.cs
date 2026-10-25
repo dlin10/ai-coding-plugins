@@ -14,6 +14,35 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 internal static class LibraryFieldOpening
 {
     private static readonly ConditionalWeakTable<CSharpCompilation, CSharpCompilation> Baselines = new();
+    private static readonly ConditionalWeakTable<SyntaxTree, CSharpCompilation> ReadOnlyBaselines = new();
+
+    /// <summary>The storage's readonly flag in the ordinary opened copy, even when recipe opening makes it writable.</summary>
+    /// <param name="symbol">The field or automatic property.</param>
+    internal static bool DeclaredReadOnly(ISymbol symbol)
+    {
+        var original = symbol.OriginalDefinition;
+        if (original.DeclaringSyntaxReferences.FirstOrDefault()?.SyntaxTree is { } tree &&
+            ReadOnlyBaselines.TryGetValue(tree, out var baseline) && original.GetDocumentationCommentId() is { } id)
+            original = DocumentationCommentId.GetFirstSymbolForDeclarationId(id, baseline) ?? original;
+        return original switch
+        {
+            IFieldSymbol field => field.IsReadOnly,
+            IPropertySymbol property => property.SetMethod is null,
+            _ => false
+        };
+    }
+
+    internal static (CSharpCompilation Compilation, IReadOnlySet<string> OpenedFields) OpenRecipe(CSharpCompilation shared,
+                                                                                                 CancellationToken cancellationToken)
+    {
+        var opened = Open(Unopened(shared), cancellationToken, recipe: true);
+        foreach (var tree in opened.Compilation.SyntaxTrees)
+        {
+            WorkCancellation.Check();
+            ReadOnlyBaselines.AddOrUpdate(tree, shared);
+        }
+        return opened;
+    }
 
     /// <summary>The compilation an opened copy was opened from, kept so that what a caller could call is judged as the library
     /// declares it; a compilation that was never opened is its own.</summary>
@@ -22,9 +51,9 @@ internal static class LibraryFieldOpening
         Baselines.TryGetValue(compilation, out var baseline) ? baseline : compilation;
 
     internal static (CSharpCompilation Compilation, IReadOnlySet<string> OpenedFields) Open(CSharpCompilation baseline,
-                                                                                           CancellationToken cancellationToken)
+                                                                                           CancellationToken cancellationToken, bool recipe = false)
     {
-        var plan = Plan.Create(baseline, cancellationToken);
+        var plan = Plan.Create(baseline, cancellationToken, recipe);
         var active = plan.Units.ToHashSet();
         var baselineErrors = Errors(baseline, cancellationToken);
         while (true)
@@ -88,7 +117,7 @@ internal static class LibraryFieldOpening
     {
         public IReadOnlyList<OpeningUnit> Units { get; } = units;
 
-        public static Plan Create(CSharpCompilation compilation, CancellationToken cancellationToken)
+        public static Plan Create(CSharpCompilation compilation, CancellationToken cancellationToken, bool recipe)
         {
             var trees = compilation.SyntaxTrees.ToArray();
             var units = new List<OpeningUnit>();
@@ -110,12 +139,14 @@ internal static class LibraryFieldOpening
                     {
                         WorkCancellation.Check();
                         if (model.GetTypeInfo(field.Declaration.Type, cancellationToken).Type is not { } fieldType ||
-                            !SeedableFields.Seed(fieldType) && !SeedableFields.Path(fieldType))
+                            !SeedableFields.Seed(fieldType) && !SeedableFields.Path(fieldType) &&
+                            !(recipe && field.Modifiers.Any(SyntaxKind.StaticKeyword) && HoldsObjects(fieldType)))
                         {
                             continue;
                         }
 
-                        var opened = OpenField(field, model, cancellationToken, SeedableFields.Seed(fieldType));
+                        var opened = OpenField(field, model, cancellationToken, SeedableFields.Seed(fieldType) ||
+                                               recipe && field.Modifiers.Any(SyntaxKind.StaticKeyword) && HoldsObjects(fieldType));
                         var own = Equivalent(field, opened) ? null : AddUnit(treeIndex, field, opened, units, unitByNode);
                         AddMember(field.Declaration.Variables.Select(variable => model.GetDeclaredSymbol(variable, cancellationToken)),
                                   field, own, type, treeIndex, model, units, unitByNode, members, cancellationToken);
@@ -125,12 +156,14 @@ internal static class LibraryFieldOpening
                     {
                         WorkCancellation.Check();
                         if (model.GetDeclaredSymbol(property, cancellationToken) is not { } propertySymbol ||
-                            !SeedableFields.Seed(propertySymbol.Type) && !SeedableFields.Path(propertySymbol.Type))
+                            !SeedableFields.Seed(propertySymbol.Type) && !SeedableFields.Path(propertySymbol.Type) &&
+                            !(recipe && propertySymbol.IsStatic && HoldsObjects(propertySymbol.Type)))
                         {
                             continue;
                         }
 
-                        var opened = OpenProperty(property, propertySymbol, SeedableFields.Seed(propertySymbol.Type));
+                        var opened = OpenProperty(property, propertySymbol, SeedableFields.Seed(propertySymbol.Type) ||
+                                                  recipe && propertySymbol.IsStatic && HoldsObjects(propertySymbol.Type));
                         var own = Equivalent(property, opened) ? null : AddUnit(treeIndex, property, opened, units, unitByNode);
                         AddMember([propertySymbol], property, own, type, treeIndex, model, units, unitByNode, members, cancellationToken);
                     }
@@ -327,6 +360,9 @@ internal static class LibraryFieldOpening
         return property.WithModifiers(OpenMemberModifiers(property.Modifiers, symbol.DeclaredAccessibility))
                        .WithAccessorList(property.AccessorList.WithAccessors(List(accessors)));
     }
+
+    private static bool HoldsObjects(ITypeSymbol type) =>
+        type.IsReferenceType && type.SpecialType != SpecialType.System_String || SeedableFields.Struct(type);
 
     private static bool IsAutoProperty(PropertyDeclarationSyntax property) =>
         !property.Modifiers.Any(SyntaxKind.AbstractKeyword) && !property.Modifiers.Any(SyntaxKind.ExternKeyword) &&

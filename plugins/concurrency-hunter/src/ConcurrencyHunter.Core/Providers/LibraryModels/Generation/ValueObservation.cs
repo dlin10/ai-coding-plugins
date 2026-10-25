@@ -73,7 +73,7 @@ internal sealed class ValueObservation
         {
             _checks.Check();
             if (!_heap.Instances.TryGetValue(edge.CallerInstance, out var caller) ||
-                _run.Executions?.InstanceExecutions.GetValueOrDefault(caller.Id)?.Any(inSetup) != true)
+                !DriverExecutions.ForInstance(_run.Executions, caller.Id).Any(inSetup))
             {
                 continue;
             }

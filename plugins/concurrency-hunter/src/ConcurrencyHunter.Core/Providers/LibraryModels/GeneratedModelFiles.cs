@@ -288,7 +288,7 @@ internal static class GeneratedModelFiles
     // R3: a file keeps nothing that depends on the run or the machine. timeout stands apart from these as its own outcome.
     private static readonly IReadOnlySet<string> KeptReasons = GenerationReasons.Ordered.Concat(ModelReasons.Ordered)
                                                                                  .Except([GenerationReasons.CORELIB, GenerationReasons.NO_IMPLEMENTATION,
-                                                                                          GenerationReasons.UNNAMED_MEMBER], StringComparer.Ordinal)
+                                                                                            GenerationReasons.UNNAMED_MEMBER, GenerationReasons.TIMEOUT], StringComparer.Ordinal)
                                                                                  .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>R3's recording rule: whether a file keeps a generation's outcome. It keeps a model, the refusals of the generator but

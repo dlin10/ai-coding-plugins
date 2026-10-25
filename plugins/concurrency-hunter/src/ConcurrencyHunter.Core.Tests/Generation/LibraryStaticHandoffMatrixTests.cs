@@ -84,7 +84,10 @@ public sealed class LibraryStaticHandoffMatrixTests(ClassCache cache) : IClassFi
         UnknownExecution,
 
         /// <summary>In a type initializer: the static constructor of a type of the library the member's call starts calls it.</summary>
-        TypeInitializer
+        TypeInitializer,
+
+        /// <summary>One helper instance runs in setup and in an inert type initializer.</summary>
+        SetupAndTypeInitializer
     }
 
     /// <summary>One matrix cell.</summary>
@@ -230,7 +233,8 @@ public sealed class LibraryStaticHandoffMatrixTests(ClassCache cache) : IClassFi
             Where.Call => actions.Count != 0 && actions.All(set => set.SetEquals([DriverSynthesizer.CALL])),
             Where.SetupOnly => actions.Count != 0 && actions.All(set => set.SetEquals([DriverSynthesizer.SETUP])),
             Where.UnknownExecution => actions.Count != 0 && actions.All(set => set.SetEquals([nameof(ExecutionKind.UnknownDelegateCall)])),
-            Where.TypeInitializer => actions.Count != 0 && actions.All(set => set.SetEquals([nameof(ExecutionKind.TypeInitializer)])),
+            Where.TypeInitializer => actions.Count != 0 && actions.All(set => set.SetEquals(["inert TypeInitializer"])),
+            Where.SetupAndTypeInitializer => actions.Any(set => set.SetEquals([DriverSynthesizer.SETUP, "inert TypeInitializer"])),
             _ => actions.Any(set => set.Contains(DriverSynthesizer.SETUP) && set.Contains(DriverSynthesizer.CALL))
         };
         return runs ? null : $"the place runs in {string.Join("; ", actions.Select(set => string.Join("+", set.Order(StringComparer.Ordinal))))}";
@@ -294,7 +298,7 @@ public sealed class LibraryStaticHandoffMatrixTests(ClassCache cache) : IClassFi
         var actions = heap.Instances.Values.Where(instance => instance.BodyId.Contains(place, StringComparison.Ordinal))
                           .Select(instance => (IReadOnlySet<string>)(analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>())
                                                                     .Select(execution => executions.TreeActionOf(execution) ??
-                                                                                         analysis.Execution(execution).Kind.ToString())
+                                                                                         (analysis.IsInert(execution) ? "inert " : "") + analysis.Execution(execution).Kind)
                                                                     .ToHashSet(StringComparer.Ordinal))
                           .ToArray();
         return new Result(trace.Answer, statics, argument, actions);
@@ -325,6 +329,14 @@ public sealed class LibraryStaticHandoffMatrixTests(ClassCache cache) : IClassFi
                 // A static method: its delegate captures nothing the unseen code could be handed besides the call it makes.
                 source.Append("        private static void Hand() { ").Append(Handoff(cell, "s_f")).Append(" }\n");
                 source.Append("        public void M() { Ext.Take(Hand); }\n");
+                break;
+            case Owner.Library when cell.Where == Where.SetupAndTypeInitializer:
+                source.Append("        private static ").Append(type).Append(" s_f;\n");
+                source.Append("        private static ").Append(cell.Type).Append(" s_receiver;\n");
+                source.Append("        public ").Append(cell.Type).Append("() { s_receiver = this; Hand(); }\n");
+                source.Append("        private void Hand() { ").Append(Handoff(cell, "s_f")).Append(" }\n");
+                source.Append("        private static class Init { static Init() { s_receiver.Hand(); } public static void Run() { } }\n");
+                source.Append("        public void M() { Init.Run(); }\n");
                 break;
             case Owner.Library when cell.Where == Where.TypeInitializer:
                 source.Append("        private static ").Append(type).Append(" s_f;\n");

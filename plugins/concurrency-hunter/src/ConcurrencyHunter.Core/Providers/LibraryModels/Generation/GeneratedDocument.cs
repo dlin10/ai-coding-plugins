@@ -97,6 +97,35 @@ public static class GeneratedDocument
         // Always one decimal, as G-6's examples write it: 0.0, not 0.
         json.WritePropertyName("seconds");
         json.WriteRawValue(Math.Round(generation.Seconds, 1).ToString("0.0", CultureInfo.InvariantCulture));
+        json.WriteString("mode", generation.Mode);
+        WriteStages(json, generation.Stages);
+        json.WriteStartArray("attempts");
+        foreach (var attempt in generation.Attempts)
+        {
+            WorkCancellation.Check();
+            json.WriteStartObject();
+            json.WriteString("mode", attempt.Mode);
+            json.WriteNumber("reachedBodies", attempt.ReachedBodies);
+            if (attempt.ConfirmationBodies is { } confirmation)
+                json.WriteNumber("confirmationBodies", confirmation);
+            else
+                json.WriteNull("confirmationBodies");
+            WriteStages(json, attempt.Stages);
+            json.WriteEndObject();
+        }
+        json.WriteEndArray();
+        json.WriteEndObject();
+    }
+
+    private static void WriteStages(Utf8JsonWriter json, IReadOnlyDictionary<string, double> stages)
+    {
+        json.WriteStartObject("stages");
+        foreach (var (stage, seconds) in stages)
+        {
+            WorkCancellation.Check();
+            json.WritePropertyName(stage);
+            json.WriteRawValue(Math.Round(seconds, 1).ToString("0.0", CultureInfo.InvariantCulture));
+        }
         json.WriteEndObject();
     }
 

@@ -154,7 +154,7 @@ public static partial class InterproceduralAccesses
                 // The unknown enumeration of a library sequence enumerates it even where no body of its own runs there (R5), and an
                 // execution running work without a body makes its unresolved call though it runs no body (question 145). An execution
                 // the input's filter refuses is not walked.
-                if ((input.Collects is null || input.Collects(execution.Id)) &&
+                if (!input.Executions.IsInert(execution.Id) && (input.Collects is null || input.Collects(execution.Id)) &&
                     (input.Executions.Entries.TryGetValue(execution.Id, out var entries) ||
                      execution is { Kind: ExecutionKind.UnknownEnumeration, Subject: { } subject } && input.Heap.LibrarySequences.ContainsKey(subject) ||
                      workHosts.Contains(execution.Id)))
@@ -514,7 +514,7 @@ public static partial class InterproceduralAccesses
                                                                         .GroupBy(item => item.Instance, StringComparer.Ordinal)
                                                                         .ToDictionary(group => group.Key, group => group.First().RegionId, StringComparer.Ordinal);
         private readonly Dictionary<string, TypeInitializerConstruction[]> _initializers =
-            input.Heap.TypeInitializers.Where(initializer => input.Heap.Instances.ContainsKey(initializer.InstanceId))
+            input.Heap.TypeInitializers.Where(initializer => !initializer.IsInert && input.Heap.Instances.ContainsKey(initializer.InstanceId))
                  .SelectMany(initializer => initializer.TriggeringInstances.Select(trigger => (Trigger: trigger, Initializer: initializer)))
                  .GroupBy(item => item.Trigger, StringComparer.Ordinal)
                  .ToDictionary(group => group.Key, group => group.Select(item => item.Initializer).ToArray(), StringComparer.Ordinal);
@@ -590,7 +590,8 @@ public static partial class InterproceduralAccesses
     /// <param name="graph">The walk's edges, followed breadth-first from each root.</param>
     private static Dictionary<string, List<Discovery>> Discoveries(InterproceduralInput input, WalkGraph graph)
     {
-        var targets = input.Executions.Executions.Where(execution => execution.Kind is ExecutionKind.LazyConstruction or ExecutionKind.TypeInitializer)
+        var targets = input.Executions.Executions.Where(execution => !input.Executions.IsInert(execution.Id) &&
+                                                                    execution.Kind is ExecutionKind.LazyConstruction or ExecutionKind.TypeInitializer)
                            .SelectMany(execution => input.Executions.Entries.GetValueOrDefault(execution.Id) ?? [])
                            .Where(entry => entry.Kind != ExecutionEntryKind.Root)
                            .Select(entry => entry.InstanceId)
@@ -4214,7 +4215,7 @@ public static partial class InterproceduralAccesses
             steps.Add(execution.RootId is not null
                 ? new CodeFlowStep("root", $"{RootDescriptor().Entry.Display} starts", RootDescriptor().Entry.Source)
                 : new CodeFlowStep("root", $"{execution.Display} starts", BodySource(entryInstance.BodyId) ?? accessSource));
-            if (entry.Kind is ExecutionEntryKind.Construction or ExecutionEntryKind.TypeInitializer)
+            if (!input.Executions.IsInert(execution.Id) && entry.Kind is ExecutionEntryKind.Construction or ExecutionEntryKind.TypeInitializer)
             {
                 var subject = entry.IntervalObject is { } interval && _heap.Regions.TryGetValue(interval, out var region) ? region.Display : entryInstance.BodyId;
                 steps.Add(new CodeFlowStep("construction", $"constructs {subject}", BodySource(entryInstance.BodyId) ?? accessSource));

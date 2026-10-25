@@ -85,6 +85,31 @@ Each of these was found by a wrong answer, not by design. SPEC TD-034b states th
 The recipe `prototype/engineprobe/Synth.cs` follows. Every step is decided from symbols of the decompiled library; no
 line is written per member.
 
+For non-CoreLib generation, `inert` keeps library initializer bodies and their heap effects without
+collecting their executions' accesses or probe firings. A final fate pass or holder confirmation
+over the 1,500-body bound restarts the whole member with `off` (ADR 0026). In that attempt the driver
+uses its own open library copy and writes a **recipe value** into every loaded closed library static
+storage whose type initializer does not run, before adding user-object seeds. The field and its
+closed declaring type identify the storage. Newly loaded storage, including another closing of a
+known field, repeats synthesis, seeding and confirmation to a fixed point.
+
+Static recipe mode uses constructors, factories, internal constructors, concrete library
+implementations of interfaces or abstract types, and shared static values of other assemblies.
+Every nested object-holding argument obeys that rule; a struct containing references must be built
+by a constructor or factory, never `default`. Non-holding arguments use ordinary defaults. A
+candidate needing a probe, driver subclass, delegate, expression tree, container or the same
+library's statics at any depth, including through a canned value, rolls back and the next source is
+tried. Exhaustion or an unwritable storage leaves the storage unseeded without refusing synthesis;
+an outside-setup read or write through it, directly or by reference, gives `incomplete` /
+`unseeded-read`. A distinct seeded closing is unaffected; merged or open storage overlaps the
+unseeded closing. The recipe's complete object graph has `LibraryBefore` origin, with the same
+mixed-creator rules as a running initializer. A recipe value is not a Seed; seeds add user objects
+on top. The `off` copy opens holding statics and auto-properties for writes while analysis sees the
+ordinary copy's readonly facts. Ordinary values below keep their existing recipe and seed rules.
+The recorded `inert` traversal edges also delimit the bodies scanned for static handoffs and work
+that an excluded initializer could start (`initializer-work-not-run`), even when `off` reaches the
+same helper through an action or recipe.
+
 1. **Resolve the member.** Roslyn's `DocumentationCommentId.CreateDeclarationId` appends `~ReturnType`; XML
    documentation and ILSpy's `IdStringProvider` do not (they add it only for `op_Implicit` and `op_Explicit`). Strip it
    before asking the decompiler. Every accessor — getter, setter, indexer accessor, event add or remove — is reached
@@ -120,7 +145,7 @@ line is written per member.
    an unbuildable witness return or `out` extern. The rule covers receivers, arguments, nested constructor and factory
    arguments, pair and task values, seeds, trigger and base-constructor arguments, concrete lambda returns and witness
    returns/`out` without a seed. Recipe structs containing references, including the value of `Nullable<T>`, remain
-   `default`; canned immutable values still prefer a public constructor to a static member. Seeds supply state (ADR 0013).
+   `default` outside the static recipe-value mode; canned immutable values still prefer a public constructor to a static member. Seeds supply state (ADR 0013).
    Receivers get depth 3, arguments depth 2. Polly shows why factories matter: `Policy` comes from `Policy.NoOp()`,
    `PolicyBuilder` from `Policy.Handle<Exception>()`.
    `IQueryable<T>` parameters get probes with witnesses; `Expression<TDelegate>` gets a source lambda converted to an

@@ -1,4 +1,5 @@
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Ir;
@@ -13,24 +14,38 @@ public static class SeedableFields
     /// <summary>The static storage loaded by the closure reached from a driver, keyed by its declaring type definition and name.</summary>
     /// <param name="run">The driver's pipeline run.</param>
     public static IReadOnlySet<(string Type, string Name)> LoadedStatics(ScopeRun run)
+        => LoadedStorage(run, closed: false);
+
+    /// <summary>The loaded static storage, preserving each constructed declaring type. All readers of recipe storage use this set.</summary>
+    /// <param name="run">The driver's pipeline run.</param>
+    public static IReadOnlySet<(string Type, string Name)> LoadedClosedStatics(ScopeRun run)
+        => LoadedStorage(run, closed: true);
+
+    private static IReadOnlySet<(string Type, string Name)> LoadedStorage(ScopeRun run, bool closed)
     {
         var loads = run.Executions?.Accesses.Where(access => access.Access.Kind == SummaryAccessKind.Load).ToArray() ?? [];
         // A load of a field of a struct a static field keeps loads that static's storage, which no field load names (R1).
         var fields = run.Reachable.Bodies.Values.SelectMany(body => body.Blocks).SelectMany(block => block.Operations)
-                        .OfType<IrLoadFieldOperation>().Select(load => load.Field)
-                        .Concat(loads.Select(access => access.Access.Field))
+                        .OfType<IrLoadFieldOperation>().Select(load => load.Field);
+        var instances = run.Heap?.Instances.Values.ToArray() ?? [];
+        var constructed = instances.SelectMany(instance => instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Load)
+            .SelectMany(access => access.Bases.SelectMany(StaticStorageOf).Prepend(access.Field))
+            .Where(field => field.IsStatic)
+            .Select(field => (ProgramIndex.Substitute($"{field.Assembly}:{field.ContainingTypeId}", instance.Substitution), field.Name)));
+        var references = loads.Select(access => access.Access.Field)
                         .Concat(loads.SelectMany(access => access.Access.Bases).SelectMany(StaticStorageOf))
-                        .Concat(ReferenceLoads(run));
+                        .Concat(ReferenceLoads(run, closed));
         // A struct a static field keeps loads that static's storage wherever a load reaches it, through a member called on the storage
         // or a reference to it too, where the load names the struct's own field: the static's slot is the first of the path (R1).
         var storages = loads.Where(access => access.RegionId is { } region && run.Heap?.Regions.TryGetValue(region, out var held) == true &&
                                              held.Kind == HeapRegionKind.Static && access.Slot.Contains(FieldSlot.PATH_SEPARATOR))
-                            .Select(access => FieldSlot.Root(access.Slot))
-                            .Select(root => (run.Program.Decompose(FieldSlot.DeclaringTypeKey(root)).DefinitionKey, FieldSlot.Name(root)));
-        return fields.Where(field => field.IsStatic)
-                     .Select(field => (run.Program.Decompose($"{field.Assembly}:{field.ContainingTypeId}").DefinitionKey, field.Name))
-                     .Concat(storages)
-                     .ToHashSet();
+                            .Select(access => (closed ? run.Heap!.Regions[access.RegionId].TypeKey! : FieldSlot.DeclaringTypeKey(FieldSlot.Root(access.Slot)),
+                                               FieldSlot.Name(FieldSlot.Root(access.Slot))));
+        var storagesLoaded = fields.Concat(references).Where(field => field.IsStatic)
+                     .Select(field => ($"{field.Assembly}:{field.ContainingTypeId}", field.Name))
+                     .Concat(closed ? constructed : []).Concat(storages);
+        return closed ? storagesLoaded.ToHashSet() :
+            storagesLoaded.Select(storage => (run.Program.Decompose(storage.Item1).DefinitionKey, storage.Item2)).ToHashSet();
     }
 
     /// <summary>The static storage a field, auto-property or field-like event declares, in the same form as
@@ -52,7 +67,7 @@ public static class SeedableFields
         };
     }
 
-    private static IEnumerable<IrFieldRef> ReferenceLoads(ScopeRun run)
+    private static IEnumerable<IrFieldRef> ReferenceLoads(ScopeRun run, bool closed)
     {
         if (run.Heap is not { } heap)
             yield break;
@@ -71,7 +86,8 @@ public static class SeedableFields
             switch (target)
             {
                 case ReferenceCell cell:
-                    yield return cell.Field;
+                    var key = ProgramIndex.Substitute($"{cell.Field.Assembly}:{cell.Field.ContainingTypeId}", instance.Substitution);
+                    yield return closed ? cell.Field with { ContainingTypeIdentity = key[(cell.Field.Assembly.Length + 1)..] } : cell.Field;
                     break;
                 case ReferenceCall call:
                     foreach (var edge in outgoing[(instance.Id, call.OperationId)])

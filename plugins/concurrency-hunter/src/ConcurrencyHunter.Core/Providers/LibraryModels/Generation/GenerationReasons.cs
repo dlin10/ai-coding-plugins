@@ -54,11 +54,14 @@ public static class GenerationReasons
     /// <summary>A probe or a value it reaches was touched where the analysis cannot see what happened.</summary>
     public const string UNKNOWN_TOUCH = "unknown-touch";
 
-    /// <summary>The driver could not seed a field the member read.</summary>
+    /// <summary>The driver could not seed a field the member read or wrote.</summary>
     public const string INCOMPLETE = "incomplete";
 
     /// <summary>The observed effect or value has no form in the library-model vocabulary.</summary>
     public const string VOCABULARY = "vocabulary";
+
+    /// <summary>The member's generation limit expired.</summary>
+    public const string TIMEOUT = "timeout";
 
     /// <summary>The reasons in the order the generator checks them (G-6); <c>driver-not-synthesized</c> stands twice, for a member kind
     /// the generator does not take and for a driver that could not be built. <c>unnamed-member</c> stands where the member found is
@@ -67,7 +70,7 @@ public static class GenerationReasons
     public static IReadOnlyList<string> Ordered { get; } =
     [
         CORELIB, NO_IMPLEMENTATION, REFERENCE_ASSEMBLY, LIBRARY_DOES_NOT_COMPILE, MEMBER_NOT_FOUND, UNNAMED_MEMBER, ACCESSOR, ENGINE_RECOGNIZED,
-        DRIVER_NOT_SYNTHESIZED, NOT_A_CANDIDATE, BODY_DOES_NOT_COMPILE, DRIVER_NOT_SYNTHESIZED, OVERRIDABLE, CLOSURE_BOUND, ANALYSIS_FAILED
+        DRIVER_NOT_SYNTHESIZED, NOT_A_CANDIDATE, BODY_DOES_NOT_COMPILE, DRIVER_NOT_SYNTHESIZED, OVERRIDABLE, CLOSURE_BOUND, ANALYSIS_FAILED, TIMEOUT
     ];
 }
 
@@ -77,7 +80,7 @@ public static class ModelReasons
     /// <summary>A probe or reachable value was touched where the analysis cannot see what happened.</summary>
     public const string UNKNOWN_TOUCH = "unknown-touch";
 
-    /// <summary>A field the member read could not be seeded.</summary>
+    /// <summary>A field the member read or wrote could not be seeded.</summary>
     public const string INCOMPLETE = "incomplete";
 
     /// <summary>The member wrote pre-existing library state outside a keeping chain.</summary>
@@ -105,6 +108,9 @@ public sealed record GenerationCause(string Reason, string Code, string Detail)
 /// reason; a member's answer names every case found, while its <c>modelReason</c> is the first reason in check order.</summary>
 public static class ModelCauses
 {
+    /// <summary><c>incomplete</c>: an initializer left out of the run may start work.</summary>
+    public const string INITIALIZER_WORK_NOT_RUN = "initializer-work-not-run";
+
     /// <summary><c>unknown-touch</c>: a probe, or a value reachable from one, was handed outside setup to a call the analysis does
     /// not follow; or so was an input — an argument, the receiver, a seed or what setup built into one — of a type that is not
     /// immutable.</summary>
@@ -133,12 +139,12 @@ public static class ModelCauses
     /// reflection —, so the call runs code the analysis does not see (<see cref="GenerationHandoffs.UnfollowedReceiverCalls"/>).</summary>
     public const string CALL_RECEIVER_UNFOLLOWED = "call-receiver-unfollowed";
 
-    /// <summary><c>incomplete</c>: the member read a field setup could not seed or did not reach.</summary>
+    /// <summary><c>incomplete</c>: the member read or wrote a field setup could not seed or did not reach.</summary>
     public const string UNSEEDED_READ = "unseeded-read";
 
     /// <summary><c>library-state</c>: the member stored into a library object that may have existed before the call, outside any
-    /// keeping chain. Looked for only when no <c>unknown-touch</c> or <c>incomplete</c> case is found, since it walks the keeping
-    /// paths of every such store.</summary>
+    /// keeping chain. Except for a static handoff established alongside possible work in an excluded initializer's scan, looked for
+    /// only when no <c>unknown-touch</c> or <c>incomplete</c> case is found, since it walks the keeping paths of every such store.</summary>
     public const string LIBRARY_STATE_STORE = "library-state-store";
 
     /// <summary><c>vocabulary</c>: what a witness returned was handed outside setup to a call the analysis does not follow.</summary>

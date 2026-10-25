@@ -1,4 +1,5 @@
 using ConcurrencyHunter.Analysis;
+using ConcurrencyHunter.CallGraph;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
@@ -10,6 +11,28 @@ namespace ConcurrencyHunter.Core.Tests.Generation;
 /// <summary>The handoffs, witness receipts and foreign accesses of a completed generator run.</summary>
 public sealed class GenerationHandoffsTests
 {
+    [Fact]
+    public void A_probe_an_inert_initializer_hands_to_unseen_code_is_not_handed()
+    {
+        const string types = "public static class Init { static Init() { Sink.Take(Cache.Last); } public static void Go() { } } " +
+                             "public static class Api { public static void Run(Action a) { Cache.Last = a; Init.Go(); } }";
+        const string member = "M:Lib.Api.Run(System.Action)";
+        var library = Compile(PRELUDE + types + "\n}\n");
+        var inert = ModelGenerator.Trace(new GenerationRequest(ASSEMBLY, "1.0", member, null, null), library, CancellationToken.None);
+        var running = ModelGenerator.Trace(new GenerationRequest(ASSEMBLY, "1.0", member, null, null), library, CancellationToken.None,
+                                           initializers: TypeInitializerTreatment.Run);
+        var probeBody = Allocations.ProbeBody(inert.Driver!.Parameters.Single(parameter => parameter.Name == "a").Probes
+                                                 .Single(probe => probe.Variant == DriverSynthesizer.CALL_VARIANT));
+        var probe = Assert.Single(inert.Run!.Heap!.Regions.Values, region => region.SiteBodyId == probeBody).Identity;
+        var (reachability, executions) = Context(inert, inert.Run!.Heap!);
+        var inertHandoffs = new GenerationHandoffs(inert.Driver!, inert.Run, executions, reachability);
+        var (runReachability, runExecutions) = Context(running, running.Run!.Heap!);
+        var runningHandoffs = new GenerationHandoffs(running.Driver!, running.Run, runExecutions, runReachability);
+
+        Assert.DoesNotContain(probe, inertHandoffs.HandedOutsideSetup);
+        Assert.Contains(Assert.Single(running.Run.Heap!.Regions.Values, region => region.SiteBodyId == probeBody).Identity, runningHandoffs.HandedOutsideSetup);
+    }
+
     [Fact]
     public void An_argument_of_an_unknown_call_is_handed()
     {

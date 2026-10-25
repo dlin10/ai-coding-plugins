@@ -633,7 +633,7 @@ public sealed class ValueProvenance
             _checks.Check(GenerationStage.ReadEffects);
             if (CalledMember(instance.BodyId) is not var (member, count))
                 continue;
-            var executions = _fate.Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal);
+            var executions = DriverExecutions.ForInstance(_fate.Analysis, instance.Id);
             if (!executions.Any(execution => _fate.Executions.InTree(execution, DriverSynthesizer.CALL)))
             {
                 if (executions.Any(execution => _fate.Executions.InTree(execution, DriverSynthesizer.ENUMERATE)))
@@ -1527,7 +1527,7 @@ public sealed class ValueProvenance
             Reachability = new HeapReachability(Heap, null, _stage);
             var result = Reachability.StaticField(HeapReachability.Slot(DriverSynthesizer.ASSEMBLY, DriverSynthesizer.KEEP_TYPE, "R"));
             Executions = new DriverExecutions(driver, Analysis, Reachability.From(result is null ? [] : Reachability.Targets(result)));
-            Allocations = new Allocations(driver, Heap, Analysis, Executions, Reachability, _stage);
+            Allocations = new Allocations(driver, Heap, Analysis, Executions, Reachability, _stage, run.Reachable.Bodies);
             Written = ReadWrittenEdges();
             _placed = ReadPlacedEdges();
             _placedSeeds = ReadPlacedSeeds();
@@ -1553,7 +1553,7 @@ public sealed class ValueProvenance
         /// <summary>The values setup placed in one argument's initial output slot, before additive call writes.</summary>
         /// <param name="field">The driver's output slot.</param>
         public IReadOnlySet<string> InitialValues(string field) => Heap.Instances.Values
-            .Where(instance => (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>()).Any(Executions.InSetup))
+            .Where(instance => DriverExecutions.ForInstance(Analysis, instance.Id).Any(Executions.InSetup))
             .SelectMany(instance => instance.Summary.Stores.Where(store => store.Field is
                 { IsStatic: true, Assembly: DriverSynthesizer.ASSEMBLY, ContainingType: DriverSynthesizer.DRIVER_TYPE } && store.Field.Name == field)
                                            .SelectMany(store => store.Values).SelectMany(value => Resolve(instance, value)))
@@ -1595,7 +1595,7 @@ public sealed class ValueProvenance
             foreach (var instance in Heap.Instances.Values)
             {
                 _checks.Check(GenerationStage.ReadEffects);
-                if (!(Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
+                if (!DriverExecutions.ForInstance(Analysis, instance.Id)
                              .Any(execution => ActionOf(execution) is { } action && (expectedActions is null || expectedActions.Contains(action))))
                 {
                     continue;
@@ -1629,7 +1629,7 @@ public sealed class ValueProvenance
             var roots = MemberInstances(DriverSynthesizer.CALL).Concat(MemberInstances(DriverSynthesizer.ENUMERATE))
                                                               .Select(instance => instance.Id).ToHashSet(StringComparer.Ordinal);
             return Heap.Instances.Values.Where(instance =>
-                (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
+                DriverExecutions.ForInstance(Analysis, instance.Id)
                          .Any(execution => Executions.InTree(execution, DriverSynthesizer.CALL) ||
                                            Executions.InTree(execution, DriverSynthesizer.ENUMERATE)))
                        .Any(instance => instance.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store)
@@ -1644,7 +1644,7 @@ public sealed class ValueProvenance
             var roots = MemberInstances(DriverSynthesizer.CALL).Concat(MemberInstances(DriverSynthesizer.ENUMERATE))
                                                               .Select(instance => instance.Id).ToHashSet(StringComparer.Ordinal);
             foreach (var instance in Heap.Instances.Values.Where(instance =>
-                (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
+                DriverExecutions.ForInstance(Analysis, instance.Id)
                          .Any(execution => Executions.InTree(execution, DriverSynthesizer.CALL) ||
                                            Executions.InTree(execution, DriverSynthesizer.ENUMERATE))))
             {
@@ -1936,7 +1936,7 @@ public sealed class ValueProvenance
 
         private IEnumerable<MethodInstance> StoreInstances(IReadOnlySet<string>? actions) => actions is null ? CallInstances() :
             _stage.Each(Heap.Instances.Values).Where(instance => IsLibraryBody(instance.BodyId) &&
-                (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
+                DriverExecutions.ForInstance(Analysis, instance.Id)
                              .Any(execution => ActionOf(execution) is { } action && actions.Contains(action)));
 
         // bounded: delegates once to the wrapped value, without re-entering this method.
@@ -1944,7 +1944,7 @@ public sealed class ValueProvenance
 
         /// <summary>The instances of library bodies that run in the member's call or enumeration, found on first use.</summary>
         public IEnumerable<MethodInstance> CallInstances() => _stage.Each(_callInstances ??= _stage.Each(Heap.Instances.Values).Where(instance =>
-            IsLibraryBody(instance.BodyId) && (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
+            IsLibraryBody(instance.BodyId) && DriverExecutions.ForInstance(Analysis, instance.Id)
                                                   .Any(execution => ActionOf(execution) is DriverSynthesizer.CALL or DriverSynthesizer.ENUMERATE)).ToArray());
 
         public bool Matches(MethodInstance instance, AbstractValue value, string region)
@@ -1999,7 +1999,7 @@ public sealed class ValueProvenance
         {
             var body = IrLowering.RootBodyId(_driver.Member);
             return Heap.Instances.Values.Where(instance => instance.BodyId == body && IsMemberEntry(instance) &&
-                (Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) ?? new HashSet<string>(StringComparer.Ordinal))
+                DriverExecutions.ForInstance(Analysis, instance.Id)
                          .Any(execution => Executions.InTree(execution, action))).ToArray();
         }
 
@@ -2220,7 +2220,7 @@ public sealed class ValueProvenance
                          .Concat(MemberInstances(DriverSynthesizer.ENUMERATE).Select(instance => instance.Id))
                          .ToHashSet(StringComparer.Ordinal);
             foreach (var instance in Heap.Instances.Values.Where(instance => IsLibraryBody(instance.BodyId) &&
-                (direct.Contains(instance.Id) || Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) is { } executions &&
+                (direct.Contains(instance.Id) || DriverExecutions.ForInstance(Analysis, instance.Id) is { } executions &&
                  executions.Any(execution => ActionOf(execution) is DriverSynthesizer.CALL or DriverSynthesizer.ENUMERATE))))
             {
                 _checks.Check(GenerationStage.ReadEffects);
@@ -2301,7 +2301,7 @@ public sealed class ValueProvenance
         private IReadOnlySet<WrittenEdge> ReadPlacedEdges()
         {
             var placed = new HashSet<WrittenEdge>();
-            var setupOnly = Heap.Instances.Values.Where(instance => Analysis.InstanceExecutions.GetValueOrDefault(instance.Id) is { Count: > 0 } executions &&
+            var setupOnly = Heap.Instances.Values.Where(instance => DriverExecutions.ForInstance(Analysis, instance.Id) is { Count: > 0 } executions &&
                                                                     executions.All(Executions.InSetup))
                                 .ToDictionary(instance => instance.Id, StringComparer.Ordinal);
             foreach (var access in Run.Collection?.Accesses ?? [])

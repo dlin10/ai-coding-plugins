@@ -41,9 +41,62 @@ internal enum GenerationStage
 /// <param name="cancellationToken">Cancels the generation.</param>
 /// <param name="reported">Told the stage and the ordinal of each check within that stage, before the check is made; 1 is the check at the
 /// stage's start, and the count goes on across the seeding loop's repeats. <c>null</c> in production.</param>
-internal sealed class GenerationChecks(CancellationToken cancellationToken, Action<GenerationStage, int>? reported = null)
+/// <param name="time">The generation's clock, or the system clock.</param>
+/// <param name="limit">The elapsed time at which the member is cut, or no limit.</param>
+internal sealed class GenerationChecks(CancellationToken cancellationToken, Action<GenerationStage, int>? reported = null,
+                                      TimeProvider? time = null, TimeSpan? limit = null)
 {
     private readonly int[] _ordinals = new int[Enum.GetValues<GenerationStage>().Length];
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+    private readonly long _started = (time ?? TimeProvider.System).GetTimestamp();
+    private readonly object _gate = new();
+    private readonly List<Dictionary<GenerationStage, double>> _stages = [new()];
+    private GenerationStage _stage = GenerationStage.Resolve;
+    private double _accounted;
+
+    internal double Seconds => Math.Round(_accounted, 1);
+
+    private double Elapsed => Math.Min(_time.GetElapsedTime(_started).TotalSeconds, limit?.TotalSeconds ?? double.PositiveInfinity);
+
+    // bounded: charges one interval to one stage under the stage lock.
+    private void Accrue()
+    {
+        var elapsed = Elapsed;
+        var stages = _stages[^1];
+        stages[_stage] = stages.GetValueOrDefault(_stage) + elapsed - _accounted;
+        _accounted = elapsed;
+    }
+
+    // bounded: opens one attempt's stage ledger under the stage lock.
+    internal void BeginAttempt()
+    {
+        lock (_gate)
+        {
+            Accrue();
+            _stages.Add(new());
+            _stage = GenerationStage.Synthesize;
+        }
+    }
+
+    // bounded: snapshots at most the member's two attempts and the finite GenerationStage enum, also after cancellation.
+    internal IReadOnlyList<IReadOnlyDictionary<string, double>> Snapshot()
+    {
+        lock (_gate)
+        {
+            Accrue();
+            // Round cumulative totals so the rounded parts still add up to the rounded generation time.
+            double total = 0, rounded = 0;
+            return _stages.Select(stages => (IReadOnlyDictionary<string, double>)stages.ToDictionary(pair =>
+                System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(pair.Key.ToString()), pair =>
+                {
+                    total += pair.Value;
+                    var next = Math.Round(total, 1);
+                    var seconds = Math.Round(next - rounded, 1);
+                    rounded = next;
+                    return seconds;
+                })).ToArray();
+        }
+    }
 
     /// <summary>The token the checks observe, for the calls that take one.</summary>
     public CancellationToken Token => cancellationToken;
@@ -54,6 +107,14 @@ internal sealed class GenerationChecks(CancellationToken cancellationToken, Acti
     // bounded: reports one stage check and forwards once to the work cancellation owner.
     public void Check(GenerationStage stage)
     {
+        lock (_gate)
+        {
+            if (_stage != stage)
+            {
+                Accrue();
+                _stage = stage;
+            }
+        }
         reported?.Invoke(stage, Interlocked.Increment(ref _ordinals[(int)stage]));
         WorkCancellation.Check();
         cancellationToken.ThrowIfCancellationRequested();

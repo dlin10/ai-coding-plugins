@@ -1,6 +1,7 @@
 using ConcurrencyHunter.Execution;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
+using ConcurrencyHunter.Ir;
 using Microsoft.CodeAnalysis;
 
 namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
@@ -73,6 +74,7 @@ public sealed record Allocation(AllocationKind Kind, DriverRole Role, string? Ac
 public sealed class Allocations
 {
     private const string LAMBDA_SEPARATOR = "#";
+    private const string RECIPE_INITIALIZER = "recipe:type-initializer";
 
     private readonly HeapSolution _heap;
     private readonly ExecutionAnalysis _executions;
@@ -88,6 +90,9 @@ public sealed class Allocations
     private readonly Dictionary<string, DriverTrigger> _triggers;
     private readonly string? _constructed;
     private readonly StageChecks _checks;
+    private readonly HashSet<int> _recipeOperations = [];
+    private readonly HashSet<string> _recipeInstances = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _ordinarySetupInstances = new(StringComparer.Ordinal);
 
     /// <summary>The origins of the objects of one driver run.</summary>
     /// <param name="driver">The driver.</param>
@@ -108,8 +113,9 @@ public sealed class Allocations
     /// <param name="driverExecutions">The driver's executions.</param>
     /// <param name="reachability">The run's reachability, for the driver's static fields.</param>
     /// <param name="checks">The stage's checks, which cancel the construction and each walk over the heap's call edges.</param>
+    /// <param name="bodies">The run's lowered bodies, when available.</param>
     internal Allocations(Driver driver, HeapSolution heap, ExecutionAnalysis executions, DriverExecutions driverExecutions,
-                         HeapReachability reachability, StageChecks checks)
+                         HeapReachability reachability, StageChecks checks, IReadOnlyDictionary<string, IrBody>? bodies = null)
     {
         _heap = heap;
         _executions = executions;
@@ -132,6 +138,44 @@ public sealed class Allocations
                              .Concat(driver.Triggers.Select(trigger => trigger.Action)).Distinct(StringComparer.Ordinal).ToArray();
         _triggers = driver.Triggers.ToDictionary(trigger => trigger.Action, StringComparer.Ordinal);
         _constructed = driver.Member.MethodKind == MethodKind.Constructor ? WithoutTypeArguments(SymbolNames.TypeKey(driver.Member.ContainingType)) : null;
+        if (driver.RecipeStatements.Count != 0)
+        {
+            var setup = driver.Compilation.GetTypeByMetadataName(DriverSynthesizer.DRIVER_TYPE)!.GetMembers(DriverSynthesizer.SETUP)
+                              .OfType<IMethodSymbol>().Single();
+            var body = bodies?.GetValueOrDefault(IrLowering.RootBodyId(setup)) ??
+                IrLowering.Lower(setup, driver.Compilation, Path.GetTempPath(), CancellationToken.None, LibraryModels.BuiltIn,
+                    fieldPropertySites: driver.SeedStatements.Concat(driver.RecipeStatements)
+                                              .Select(statement => (statement.Operation.Syntax.SyntaxTree, statement.Operation.Syntax.Span)).ToArray()).Body;
+            var spans = driver.RecipeStatements.Select(statement => statement.Operation.Syntax.GetLocation().GetLineSpan()).ToArray();
+            _recipeOperations.UnionWith(body.Blocks.SelectMany(block => block.Operations).Where(operation => spans.Any(span =>
+                operation.Provenance.Span.StartLine >= span.StartLinePosition.Line + 1 &&
+                operation.Provenance.Span.EndLine <= span.EndLinePosition.Line + 1)).Select(operation => operation.Id));
+            var edges = _checks.Each(heap.Edges).ToLookup(edge => edge.CallerInstance);
+            var roots = heap.Instances.Values.Where(instance => instance.BodyId == body.BodyId).Select(instance => instance.Id).ToArray();
+            foreach (var root in roots)
+            {
+                _checks.Check();
+                Walk(edges[root].Where(edge => _recipeOperations.Contains(edge.OperationId)).Select(edge => edge.CalleeInstance), _recipeInstances);
+                Walk(edges[root].Where(edge => !_recipeOperations.Contains(edge.OperationId)).Select(edge => edge.CalleeInstance), _ordinarySetupInstances);
+            }
+            _kinds[RECIPE_INITIALIZER] = ExecutionKind.TypeInitializer;
+
+            void Walk(IEnumerable<string> starts, HashSet<string> reached)
+            {
+                var pending = new Stack<string>(starts);
+                while (pending.TryPop(out var current))
+                {
+                    _checks.Check();
+                    if (!reached.Add(current))
+                        continue;
+                    foreach (var edge in edges[current])
+                    {
+                        _checks.Check();
+                        pending.Push(edge.CalleeInstance);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>The body id of a probe's factory, which a probe delegate's site names.</summary>
@@ -149,16 +193,15 @@ public sealed class Allocations
 
         var site = region.SiteBodyId;
         var creators = Creators(region, out var createdBy);
+        var executions = CreatorExecutions(region, includeInert: true);
         if (_constructed is not null && region.Kind == HeapRegionKind.Allocation && site == CallBody &&
             region.TypeKey is { } typeKey && WithoutTypeArguments(typeKey) == _constructed)
         {
             return new Allocation(AllocationKind.MemberObject, DriverRole.None, null);
         }
 
-        if (site is not null && site.StartsWith(_driverBodies, StringComparison.Ordinal))
+        if (site is not null && site.StartsWith(_driverBodies, StringComparison.Ordinal) && !IsRecipeOperation(region))
             return new Allocation(AllocationKind.Driver, DriverRoleOf(region, site), null);
-        var executions = creators.SelectMany(instance => _executions.InstanceExecutions.GetValueOrDefault(instance) ?? new HashSet<string>())
-                                 .ToHashSet(StringComparer.Ordinal);
         if (executions.Count != 0 && executions.All(_driverExecutions.InSetup))
             return new Allocation(AllocationKind.Driver, DriverRole.Setup, null);
         if (createdBy is null)
@@ -201,9 +244,8 @@ public sealed class Allocations
         var creators = Creators(region, out _);
         if (creators.Count == 0)
             return false;
-        var executions = creators.SelectMany(instance => _executions.InstanceExecutions.GetValueOrDefault(instance) ?? new HashSet<string>())
-                                 .ToArray();
-        if (executions.Length == 0 || executions.Any(_driverExecutions.InSetup))
+        var executions = CreatorExecutions(region);
+        if (executions.Count == 0 || executions.Any(_driverExecutions.InSetup))
             return false;
 
         return executions.Any(execution => _driverExecutions.Of(execution) is
@@ -216,8 +258,41 @@ public sealed class Allocations
     {
         if (!_heap.Regions.TryGetValue(regionId, out var region))
             return false;
-        return Creators(region, out _).SelectMany(instance =>
-            _executions.InstanceExecutions.GetValueOrDefault(instance) ?? new HashSet<string>()).Any(_driverExecutions.InSetup);
+        return CreatorExecutions(region).Any(_driverExecutions.InSetup);
+    }
+
+    /// <summary>Whether a recipe expression's construction path made an object, using the same creators as provenance.</summary>
+    /// <param name="regionId">The object.</param>
+    /// <param name="instances">The instances reached from this expression's calls.</param>
+    /// <param name="operations">The expression's operations in setup.</param>
+    internal bool CreatedByRecipe(string regionId, IReadOnlySet<string> instances, IReadOnlySet<int> operations)
+    {
+        if (!_heap.Regions.TryGetValue(regionId, out var region) || region.Kind != HeapRegionKind.Allocation)
+            return false;
+        if (region.SiteBodyId?.StartsWith(_driverBodies, StringComparison.Ordinal) == true)
+            return IsRecipeOperation(region) && region.SiteOperationId is { } operation && operations.Contains(operation);
+        return Creators(region, out _).Any(instances.Contains);
+    }
+
+    private bool IsRecipeOperation(HeapRegion region) =>
+        region.SiteBodyId == $"body:{DriverSynthesizer.ASSEMBLY}:M:{DriverSynthesizer.DRIVER_TYPE}.{DriverSynthesizer.SETUP}" &&
+        region.SiteOperationId is { } operation && _recipeOperations.Contains(operation);
+
+    private HashSet<string> CreatorExecutions(HeapRegion region, bool includeInert = false)
+    {
+        if (IsRecipeOperation(region))
+            return new HashSet<string>(StringComparer.Ordinal) { RECIPE_INITIALIZER };
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var creator in Creators(region, out _))
+        {
+            _checks.Check();
+            var recipe = _recipeInstances.Contains(creator);
+            result.UnionWith(DriverExecutions.ForInstance(_executions, creator, includeInert)
+                .Where(execution => !recipe || _ordinarySetupInstances.Contains(creator) || !_driverExecutions.InSetup(execution)));
+            if (recipe)
+                result.Add(RECIPE_INITIALIZER);
+        }
+        return result;
     }
 
     /// <summary>The trigger action and holder member that made a region, or <c>null</c> when no trigger tree made it.</summary>

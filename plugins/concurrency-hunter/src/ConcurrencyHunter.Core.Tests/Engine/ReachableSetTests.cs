@@ -7,7 +7,7 @@ using static ConcurrencyHunter.Core.Tests.Engine.EngineFixture;
 
 namespace ConcurrencyHunter.Core.Tests.Engine;
 
-public sealed class ReachableSetTests
+public sealed partial class ReachableSetTests
 {
     [Fact]
     public void Unreferenced_method_and_its_lambda_are_outside_the_set_and_counted()

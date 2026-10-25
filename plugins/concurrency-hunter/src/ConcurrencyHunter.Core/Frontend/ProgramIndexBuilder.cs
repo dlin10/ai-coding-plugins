@@ -184,7 +184,7 @@ public static class ProgramIndexBuilder
 
             fields.AddRange(type.GetMembers().OfType<IFieldSymbol>()
                                 .Where(field => !field.IsImplicitlyDeclared)
-                                .Select(field => new ProgramField(typeKey, field.Name, field.IsStatic, field.IsReadOnly,
+                                .Select(field => new ProgramField(typeKey, field.Name, field.IsStatic, LibraryFieldOpening.DeclaredReadOnly(field),
                                                                   SymbolNames.TypeKey(field.Type))));
             // A field-like event is the delegate field the compiler declares for it, which Roslyn does not list (ADR 0014).
             fields.AddRange(type.GetMembers().OfType<IEventSymbol>()

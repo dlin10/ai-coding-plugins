@@ -43,6 +43,9 @@ public sealed record SpawnOrigin(string Api, string Symbol, string BodyId, int O
 /// <param name="Subject">The region or closed type a construction builds, or null.</param>
 public sealed record ExecutionInstance(string Id, ExecutionKind Kind, string Display, InvocationPolicy Policy, string? RootId, string? Subject)
 {
+    /// <summary>Whether this execution keeps its walk membership and spawned work but collects no accesses.</summary>
+    public bool IsInert { get; init; }
+
     public string? ParentId { get; init; }
     public SpawnOrigin? Origin { get; init; }
     public string TreeRootId { get => field ?? RootId ?? Id; init; }
@@ -213,6 +216,10 @@ public sealed class ExecutionAnalysis
     }
 
     public IReadOnlyList<ExecutionInstance> Executions { get; }
+
+    /// <summary>Whether an execution is an inert type initializer.</summary>
+    /// <param name="executionId">The execution's id.</param>
+    public bool IsInert(string executionId) => _executions.GetValueOrDefault(executionId)?.IsInert == true;
 
     /// <summary>Each execution's entries, in order: a root's entry, then the constructor chains it runs, receiver first.</summary>
     public IReadOnlyDictionary<string, IReadOnlyList<ExecutionEntry>> Entries { get; }
@@ -759,11 +766,11 @@ public static class ExecutionModel
             foreach (var initializer in heap.TypeInitializers.Where(initializer => heap.Instances.ContainsKey(initializer.InstanceId)))
             {
                 CheckCancellation();
-                var execution = startupTypeInitializers.Contains(initializer.TypeKey)
+                var execution = !initializer.IsInert && startupTypeInitializers.Contains(initializer.TypeKey)
                     ? STARTUP
                     : Add(new ExecutionInstance($"type-initializer:{initializer.TypeKey}", ExecutionKind.TypeInitializer,
                                                 $"type initializer of {WholeProgram.DisplayType(initializer.TypeKey)}", AT_MOST_ONCE, null,
-                                                initializer.TypeKey));
+                                                initializer.TypeKey) { IsInert = initializer.IsInert });
                 Entry(execution, new ExecutionEntry(initializer.InstanceId, ExecutionEntryKind.TypeInitializer, $"static:{initializer.TypeKey}"));
             }
 
@@ -1624,7 +1631,7 @@ public static class ExecutionModel
                 foreach (var initializer in heap.TypeInitializers)
                 {
                     CheckCancellation();
-                    if (startupTypeInitializers.Contains(initializer.TypeKey) ||
+                    if (initializer.IsInert || startupTypeInitializers.Contains(initializer.TypeKey) ||
                         !initializer.TriggeringInstances.Any(instances.Contains) && !initializer.TriggeringRegions.Any(startupRegions.Contains))
                     {
                         continue;
@@ -2645,6 +2652,7 @@ public static class ExecutionModel
         private IReadOnlyList<CollectedAccess> Collect(IReadOnlySet<string> published)
         {
             var collected = new Dictionary<AccessKey, AccessRun>();
+            var collecting = Bits.Of(_executions.Values.Where(execution => !execution.IsInert).Select(execution => _ids.Number(execution.Id)));
             void Add(string instance, SummaryAccess access, string region, string slot, bool local, ulong[] executions)
             {
                 CheckCancellation();
@@ -2653,7 +2661,7 @@ public static class ExecutionModel
                 var key = new AccessKey(instance, access.OperationId, region, slot, local);
                 if (!collected.TryGetValue(key, out var run))
                     collected.Add(key, run = new AccessRun(access));
-                Bits.UnionWith(ref run.Executions, executions);
+                Bits.UnionWith(ref run.Executions, executions, collecting);
             }
 
             foreach (var (node, access, region, slot) in NodeAccesses)
@@ -2671,7 +2679,8 @@ public static class ExecutionModel
                 }
             }
 
-            return collected.OrderBy(pair => pair.Key.Instance, StringComparer.Ordinal).ThenBy(pair => pair.Key.Operation)
+            return collected.Where(pair => !Bits.IsEmpty(pair.Value.Executions))
+                            .OrderBy(pair => pair.Key.Instance, StringComparer.Ordinal).ThenBy(pair => pair.Key.Operation)
                             .ThenBy(pair => pair.Key.Region, StringComparer.Ordinal).ThenBy(pair => pair.Key.Slot, StringComparer.Ordinal)
                             .ThenBy(pair => pair.Key.Local)
                             .Select(pair => new CollectedAccess(_ids.Set(pair.Value.Executions), pair.Key.Instance, pair.Value.Access, pair.Key.Region,

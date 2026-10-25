@@ -74,8 +74,8 @@ internal static class WholeEntryEvals
     private static WholeEntryAnswer Generate(WholeEntryGold member, ImplementationAssemblies resolver)
     {
         var input = member.Input;
-        var trace = ModelGenerator.Trace(new GenerationRequest(input.Assembly, input.Version, member.Member, input.Package, input.Framework), resolver,
-                                         CancellationToken.None);
+        var trace = ModelGenerator.TraceWithin(new GenerationRequest(input.Assembly, input.Version, member.Member, input.Package, input.Framework), resolver,
+                                         cancellationToken: CancellationToken.None);
         return new WholeEntryAnswer(member, trace.Answer, trace.Driver is not null);
     }
 

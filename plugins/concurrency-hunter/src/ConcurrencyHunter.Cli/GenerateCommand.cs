@@ -17,7 +17,10 @@ internal static class GenerateCommand
     /// <param name="error">Where usage errors and failures are written.</param>
     /// <param name="resolver">Finds the implementation assembly; this process's when <c>null</c>. A parameter so tests can resolve
     /// against a fake install.</param>
-    internal static int Run(string[] args, TextWriter error, ImplementationAssemblies? resolver = null)
+    /// <param name="memberLimit">The member limit, or the server's limit; a test may pass a shorter limit.</param>
+    /// <param name="time">The limit and record clock, or the system clock.</param>
+    internal static int Run(string[] args, TextWriter error, ImplementationAssemblies? resolver = null,
+                            TimeSpan? memberLimit = null, TimeProvider? time = null)
     {
         Options options;
         try
@@ -33,8 +36,8 @@ internal static class GenerateCommand
 
         try
         {
-            var answer = ModelGenerator.Generate(new GenerationRequest(options.Assembly, options.Version, options.Member, options.Package, options.Framework),
-                                                 resolver ?? ImplementationAssemblies.ForThisProcess(), CancellationToken.None);
+            var answer = ModelGenerator.GenerateWithin(new GenerationRequest(options.Assembly, options.Version, options.Member, options.Package, options.Framework),
+                                                 resolver ?? ImplementationAssemblies.ForThisProcess(), memberLimit, time);
             File.WriteAllBytes(Path.GetFullPath(options.Out), GeneratedDocument.Write(answer));
             return ExitCode.Ok;
         }

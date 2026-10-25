@@ -368,34 +368,31 @@ public sealed class ModelEvalTests
     [RequiresModelEvalsFact]
     public void Message_parser_constructor_finishes_under_the_bound()
     {
-        // The constructor's trigger actions reach Protobuf's JSON parser; with the triggers no root of the fate run (A1), and a holder's
-        // confirmation run under the fate run's bound that collects accesses only in the driver's actions (A5, ADR 0025), the driver
-        // gets its answer — a fate, unknown-execution from the confirmation run, or closure-bound — in under a minute.
+        // Mode A keeps inert initializers; if its closure overflows, mode B retries without them. Both attempts share the 120 s limit.
         var input = Inputs["Google.Protobuf"];
         var request = new GenerationRequest(input.Assembly, input.Version, "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})", input.Package,
                                             input.Framework);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var clock = System.Diagnostics.Stopwatch.StartNew();
 
-        var answer = ModelGenerator.Generate(request, ImplementationAssemblies.ForThisProcess(), timeout.Token);
+        var answer = ModelGenerator.GenerateWithin(request, ImplementationAssemblies.ForThisProcess());
 
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(60), $"{clock.Elapsed.TotalSeconds:0.0} s");
+        Assert.True(clock.Elapsed < GenerationLimits.MEMBER, $"{clock.Elapsed.TotalSeconds:0.0} s");
         Assert.True(answer.Classified is { Count: > 0 } || answer.Reason == GenerationReasons.CLOSURE_BOUND, $"{answer.Reason}: {answer.Detail}");
     }
 
     [RequiresModelEvalsTheory]
     [InlineData("3.21.9")]
     [InlineData("3.30.2")]
-    public void Message_parser_holder_is_covered_and_its_confirmation_passes_the_bound(string version)
+    public void Message_parser_holder_is_covered_and_confirmed_with_initializers_left_out(string version)
     {
         // Both ParseFrom(ReadOnlySpan<byte>) are triggers, their span built from a seeded array, and object's own members are none, the
-        // holder being the constructor's result: the holder is covered. Its confirmation run passes the fate run's bound, and past it the
-        // factory's probe fires in the library's type initializers too (ADR 0025): the factory stays unknown-execution.
+        // holder being the constructor's result: the holder is covered. Inert initializers overflow confirmation's bound; leaving them
+        // out lets confirmation finish within the same bound and confirms the factory's result holder.
         var input = Inputs["Google.Protobuf"];
         var request = new GenerationRequest(input.Assembly, version, "M:Google.Protobuf.MessageParser`1.#ctor(System.Func{`0})", input.Package,
                                             input.Framework);
 
-        var trace = ModelGenerator.Trace(request, ImplementationAssemblies.ForThisProcess(), CancellationToken.None);
+        var trace = ModelGenerator.TraceWithin(request, ImplementationAssemblies.ForThisProcess());
 
         Assert.True(trace.Driver is not null, $"{trace.Answer.Reason}: {trace.Answer.Detail}");
         Assert.Empty(trace.Driver.Uncovered[FateClassifier.RESULT]);
@@ -404,9 +401,15 @@ public sealed class ModelEvalTests
         Assert.Contains("M:Google.Protobuf.MessageParser`1.ParseFrom(System.ReadOnlySpan{System.Byte})", triggers);
         Assert.Contains("M:Google.Protobuf.MessageParser.ParseFrom(System.ReadOnlySpan{System.Byte})", triggers);
         Assert.DoesNotContain(triggers, trigger => trigger.StartsWith("M:System.Object.", StringComparison.Ordinal));
-        Assert.True(trace.Confirmation is { Stopped: true }, "the confirmation run did not run or was not stopped");
-        Assert.True(trace.Confirmation.StoppedAtReachableBodies > 1500);
-        Assert.Equal(new ClassifiedFate(FateClassifier.UNKNOWN_EXECUTION, null), trace.Answer.Classified?["factory"]);
+        Assert.Equal("off", trace.Answer.Generation.Mode);
+        Assert.Equal(new[] { "inert", "off" }, trace.Answer.Generation.Attempts.Select(attempt => attempt.Mode));
+        Assert.True(trace.Answer.Generation.Attempts[0].ConfirmationBodies > 1500);
+        Assert.InRange(Assert.IsType<int>(trace.Answer.Generation.Attempts[1].ConfirmationBodies), 1, 1500);
+        Assert.Equal(new ClassifiedFate(FateClassifier.HOLDER, FateClassifier.RESULT), trace.Answer.Classified?["factory"]);
+        Assert.Null(trace.Answer.Model);
+        Assert.Equal(ModelReasons.INCOMPLETE, trace.Answer.ModelReason);
+        Assert.Contains(trace.Answer.Causes, cause => cause.Code == ModelCauses.UNSEEDED_READ &&
+                                                    cause.Detail.Contains("Google.Protobuf.JsonParser.NullValueDescriptor", StringComparison.Ordinal));
     }
 
     [RequiresModelEvalsFact]
