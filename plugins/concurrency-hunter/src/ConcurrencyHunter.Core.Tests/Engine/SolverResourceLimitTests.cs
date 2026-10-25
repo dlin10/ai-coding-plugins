@@ -37,14 +37,16 @@ public sealed class SolverResourceLimitTests
     }
 
     /// <summary>A query that needs more work than its limit answers <c>Unknown</c> for the limit, having used the whole of it,
-    /// and the safeguard did not stop it, so it is no safeguard stop.</summary>
+    /// and the safeguard did not stop it, so it is no safeguard stop. The shipped work limit runs under the generous safeguard:
+    /// under the shipped two seconds, a Z3 left a tenth of a core by a loaded machine reaches the safeguard first.</summary>
     [Fact]
     public void A_query_over_its_limit_answers_unknown_for_the_limit_and_is_no_safeguard_stop()
     {
         var hard = HardQuery();
+        var limit = Limit(SolverPolicy.QUERY_WORK);
 
-        var outcome = Decide(hard, SolverPolicy.QueryLimit);
-        var refined = RefineAs(hard, SolverPolicy.QueryLimit);
+        var outcome = Decide(hard, limit);
+        var refined = RefineAs(hard, limit);
 
         Assert.Equal(SolverAnswer.Unknown, outcome.Answer);
         Assert.Equal(SolverStop.ResourceLimit, outcome.Stop);

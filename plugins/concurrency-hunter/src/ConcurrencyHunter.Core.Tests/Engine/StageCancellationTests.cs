@@ -24,6 +24,10 @@ public sealed class StageCancellationTests
         [ScopeStep.Lowering] = ScopeStep.ReachableSet
     };
 
+    // The decompilation's workers come from the shared thread pool, which a full test run keeps busy: its queue can hold a
+    // worker back for many seconds. The wait bounds a hang, not the workers' speed.
+    private static readonly TimeSpan WorkerPatience = TimeSpan.FromMinutes(2);
+
     public static TheoryData<ScopeStep> Steps() => new(PipelineSteps);
 
     [Theory]
@@ -146,6 +150,9 @@ public sealed class StageCancellationTests
         var gate = new object();
         var firstTypes = new List<(int Thread, string Type)>();
         var printed = new List<(int Thread, string Type, bool AfterCancellation)>();
+        // A failed wait is recorded, not thrown: an assertion thrown in a worker would reach the test only wrapped in the
+        // parallel loop's AggregateException, under the name of the cancellation check.
+        var probeFailures = new List<string>();
         var starting = 0;
         var probe = new LibraryCompilationProbe
         {
@@ -157,12 +164,13 @@ public sealed class StageCancellationTests
                     lock (gate)
                         firstTypes.Add((Environment.CurrentManagedThreadId, type));
                     ready.Signal();
-                    Assert.True(ready.Wait(TimeSpan.FromSeconds(10)), "рабочие не работали параллельно");
+                    if (!ready.Wait(WorkerPatience))
+                        lock (gate)
+                            probeFailures.Add("рабочие не работали параллельно");
                 }
-                else
-                {
-                    Assert.True(cancelled.Wait(TimeSpan.FromSeconds(10)), "отмена не сработала после печати первого типа");
-                }
+                else if (!cancelled.Wait(WorkerPatience))
+                    lock (gate)
+                        probeFailures.Add("отмена не сработала после печати первого типа");
             },
             TypePrinted = type =>
             {
@@ -184,6 +192,7 @@ public sealed class StageCancellationTests
         var error = Record.Exception(() => LibraryCompilation.Compile(assembly, new HashSet<string>(), new GenerationChecks(token), probe));
         await FinishCompilations(ownership);
 
+        Assert.Empty(probeFailures);
         Assert.IsAssignableFrom<OperationCanceledException>(error);
         Assert.Single(ownership.Created);
         Assert.True(ready.IsSet, "рабочие не работали параллельно");
