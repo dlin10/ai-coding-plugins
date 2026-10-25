@@ -413,7 +413,8 @@ internal sealed class RunDirectory
 
     /// <summary>
     /// A raise is written with the ID it received and the finding itself, because the finding exists
-    /// nowhere else in the timeline: no critique carried it.
+    /// nowhere else in the timeline: no critique carried it. A plan revision closure ends its line
+    /// with the evidence it rested on, put on that one line.
     /// </summary>
     /// <param name="act">The act that applied the batch, for the entry's heading.</param>
     /// <param name="batch">The batch as the orchestrator sent it.</param>
@@ -422,7 +423,7 @@ internal sealed class RunDirectory
     public void AppendFlowDecisionBatch(string act, OrchestratorDecisionBatch batch, DecisionBatchResponse response, LedgerPhase phase) =>
         AppendFlowDecisionBatch(act, response, phase, batch.Decisions
             .OrderBy(decision => decision.FindingId, StringComparer.Ordinal)
-            .Select(decision => $"- {decision.FindingId} {decision.Action} ({decision.By}): {decision.Reason}")
+            .Select(decision => $"- {decision.FindingId} {decision.Action} ({decision.By}): {decision.Reason}{RevisionEvidence(decision)}")
             .Concat((batch.Raises ?? []).Zip(response.Result.RaisedFindingIds ?? [])
                 .SelectMany(raise => new[]
                 {
@@ -469,6 +470,17 @@ internal sealed class RunDirectory
         if (phase == LedgerPhase.CodeReview) AppendPendingFullGate(entry);
         AtomicFile.Append(FlowLogPath, entry.ToString());
     }
+
+    /// <summary>
+    /// What a plan revision closure rested on, for the end of its line in the timeline. The evidence
+    /// is put on that one line however many it spanned; any other decision's line is left as it was.
+    /// </summary>
+    /// <param name="decision">The decision as the orchestrator sent it.</param>
+    /// <returns>An em dash, <c>evidence:</c> and the evidence, or nothing for a decision that is no revision closure or carries none.</returns>
+    private static string RevisionEvidence(OrchestratorDecision decision) =>
+        decision.Evidence is { } evidence && DecisionLedger.NormalizeAction(decision.Action) == "addressedByRevision"
+            ? $" — evidence: {DecisionRecords.Flat(evidence)}"
+            : "";
 
     private static string Name<TEnum>(TEnum value) where TEnum : struct, Enum =>
         JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString());

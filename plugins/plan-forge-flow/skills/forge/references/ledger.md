@@ -23,7 +23,9 @@ that key and the exact byte-for-byte decisions for every retry of the same logic
 identity-keyed and has `findingId`, `action`, asserted `by`, and non-empty `reason`:
 
 - `defer` or `reject` settles an active unresolved ID;
-- `addressedByRevision` closes an active plan ID after the revised plan is ready;
+- `addressedByRevision` closes an active plan ID after the revised plan is ready; a blocker or major
+  also requires `evidence` — what the revision read, the class it listed and the test cell a wrong
+  implementation fails (`plan-review.md`, *Writing a revision*);
 - `hostVerified` closes an active code ID and also requires non-empty `evidence`;
 - `duplicateOf` closes the redundant active ID and also requires the canonical existing ID;
 - `accept` or `decline` answers a displayed reopening proposal; `accept` also carries the proposal's

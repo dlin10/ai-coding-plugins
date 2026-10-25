@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.63.0
+# Plan Forge Flow 0.65.0
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -19,6 +19,15 @@ A worker turn that tried commands and started none answered without reading the 
 answer is not used: the act fails, quoting the vendor, and no review round is spent.
 
 ## Workflow
+
+During the interview, when acceptance is an outcome on a real target — a finding confirmed or
+gone, a complete model, a measurement under a bound — Scout traces what it depends on and checks
+each dependency against the chosen mechanism. The Orchestrator shows the answer before the first
+draft. An unmet or unresolved dependency goes to the user: change the acceptance, change the
+mechanism, or choose a probe as task 1. Its gate tests the outcome itself; failure or inability to
+verify it stops the run before later tasks. If the user continues without Scout, the Orchestrator
+makes the same check. Refactors and docs without such an outcome skip it. The Impact pass on the
+drafted approach still follows.
 
 ![Plan Forge Flow workflow from planning through implementation and final review](assets/plan-forge-workflow.svg)
 

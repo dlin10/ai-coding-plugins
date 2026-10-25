@@ -1,6 +1,6 @@
-# Forge reference: Scout, the Impact pass and the Evidence check
+# Forge reference: Scout, feasibility, the Impact pass and the Evidence check
 
-Read it at the first broad reconnaissance need, before the Impact pass that precedes the first `forge.plan.write`, and before every Evidence check.
+Read it at the first broad reconnaissance need, for an outcome's feasibility question during the interview, before the Impact pass that precedes the first `forge.plan.write`, and before every Evidence check.
 
 ## Scout reconnaissance
 
@@ -9,14 +9,15 @@ write a plan: multi-module exploration, caller/writer discovery, dependency trac
 orientation. These are the broad triggers. Keep one or two targeted semantic lookups in the
 Orchestrator: they remain cheaper and clearer there. Use the local Roslyn or repository tools when
 the question has a narrow file, symbol, or caller boundary. Do not turn every local lookup into a
-Scout call. Scout has a second use point, the Impact pass below, which every plan gets.
+Scout call. Scout also checks feasibility during the interview when acceptance is an outcome on a
+real target, and makes the Impact pass below, which every plan gets.
 
 Scout is lazy and independent of the separate Critic and Builder selections. On the first broad need,
-make one just-in-time Scout selection round: call `forge.models`, offer up to three valid live/resolved
+feasibility question or Impact pass, make one just-in-time Scout selection round: call `forge.models`, offer up to three valid live/resolved
 Vendor/model/effort combinations, clearly mark exactly one **recommended** combination, and include
 the choice **continue without Scout**. Recommend the strongest combination the catalogue offers at high effort — judged by its position in the newest-first list, not by a remembered name — because the same selection serves the Impact pass, an exhaustive enumeration at which a weaker model invents test names. Do not silently select a Vendor or silently continue a session.
 Before the question, say in a sentence or two what Scout is for and what continuing without it
-costs: the Impact pass then falls to you.
+costs: the feasibility question, when needed, and the Impact pass then fall to you.
 A persisted decline suppresses later automatic Scout questions for this Run; enabling it later requires
 an explicit `forge.scout.select` call. Scout selection is independent of and may happen before or
 after final Critic/Builder selection; if the first need occurs before it, this Scout catalogue call
@@ -29,8 +30,8 @@ pass the answer as `fast` to `forge.scout.select`; it stays with the selection.
 Run Scout beside your own work wherever its answer is not needed yet: start the question with
 `forge.work.start` (`act: "scout"`, `question`, `sessionMode`), go on asking and writing, and poll
 and fetch it at the first step that needs the answer. A question whose answer the next question to
-the user waits on is a direct `forge.scout.run`. The orientation question is the first such job:
-start it with `sessionMode: fresh` right after the Scout selection, ask the opening questions
+the user waits on is a direct `forge.scout.run`. When orientation is needed, start its job with
+`sessionMode: fresh` right after the Scout selection, ask the opening questions
 `interview.md` names while it runs, and fetch it before the first question that needs the lay of
 the land.
 
@@ -54,7 +55,7 @@ the Orchestrator deliberately puts into a plan or task may reach those Workers.
 
 ### The Scout question
 
-Write every Scout question — orientation or impact — with these parts:
+Write every Scout question — orientation, feasibility or impact — with these parts:
 
 - **Goal** — what is going to change and why, in one or two sentences.
 - **Workspace and tooling** — which Roslyn MCP server and port serves this code, the absolute path
@@ -66,6 +67,41 @@ Write every Scout question — orientation or impact — with these parts:
 
 A question may run to 8,000 characters. Split an Impact pass by area into several questions when it
 names more than six Change points or they do not fit, and run the parts as fresh jobs side by side.
+
+### The feasibility question
+
+When acceptance is an outcome on a real target — a finding confirmed or gone, a model complete,
+a measurement under a bound — ask this question once the interview has named the target,
+acceptance and mechanism, before drafting and before the first `forge.plan.write`. Refactors and
+docs without such an outcome do not need it. This is a Scout need: use the same just-in-time
+selection round if none has been made. Use `forge.scout.run` with `sessionMode: fresh`, because the
+answer determines the next interview question; use `continue` only for a direct follow-up.
+
+Give Scout the exact target and revision, the observable acceptance, and the mechanism and
+constraints already decided in the interview. Include the Goal, Workspace and tooling, and
+Search scope above, then ask:
+
+```text
+Feasibility check for an acceptance outcome on a real target. Trace dependencies and report evidence;
+do not choose requirements, redesign the mechanism or edit files.
+
+Target and revision: <the concrete target and source revision>
+Acceptance: <the observable outcome, including mode or measurement conditions>
+Decided mechanism and constraints: <what the interview chose and what it excludes>
+
+1. What does this outcome depend on in the code? Trace the target's relevant paths and enumerate
+   the dependencies, including inputs or state the mechanism must supply.
+2. Does each dependency hold under the decided mechanism? For each, report holds, unmet or
+   cannot settle, with repository path:line or symbol evidence and the reason. Name missing
+   evidence explicitly; do not infer feasibility from a stop rule or from the intended outcome.
+```
+
+When the Run continues without Scout, make the same feasibility check yourself and record the
+scope and evidence with `forge.log.append`. An unresolved dependency stays unresolved. Show the
+answer and bring every unmet or unsettled dependency to the user through `asking.md` before the
+draft: change the acceptance, change the mechanism, or choose a probe first. Follow `interview.md`
+to settle and record the choice; `planning.md` gives the probe's shape. Scout supplies evidence,
+and the Orchestrator and user settle the requirements. The Impact pass still runs on the approach.
 
 ### The Impact pass
 
