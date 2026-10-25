@@ -20,7 +20,8 @@ namespace PlanForge.Vendors;
 /// <param name="LatencyP90">Nearest-rank ninetieth percentile AskAsync latency in milliseconds.</param>
 /// <param name="Duration">The elapsed call duration.</param>
 /// <param name="Complete">Whether every judgment has a persistent outcome.</param>
-/// <param name="StoppedBy">Unauthorized or forbidden, when either stopped dispatch.</param>
+/// <param name="StoppedBy">Unauthorized, forbidden or budget, when one stopped dispatch.</param>
+/// <param name="CostUsd">The reported input tokens at the Advisor's price, or null when not reported.</param>
 internal sealed record AdvisorUsageRecord(string At, string Event, string Advisor, string RequestedModel,
                                          [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? ServedModel,
                                          int Requests, int FailedRequests, int JudgmentsAsked,
@@ -30,15 +31,19 @@ internal sealed record AdvisorUsageRecord(string At, string Event, string Adviso
                                          [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] double? LatencyP50,
                                          [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] double? LatencyP90,
                                          string Duration, bool Complete,
-                                         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? StoppedBy)
+                                         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? StoppedBy,
+                                         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] decimal? CostUsd)
 {
+    /// <summary>The event kind every Advisor record carries.</summary>
+    internal const string EVENT = "advisor.usage";
+
     /// <summary>Captures final running progress without retaining item or plan content.</summary>
     /// <param name="progress">Progress available even when the mapper throws.</param>
     /// <param name="advisor">The service selected for the call.</param>
     public static AdvisorUsageRecord From(EvidenceMapProgress progress, IAdvisor advisor) =>
-        new(VendorAttempt.FormatLocalTimestamp(progress.At.ToLocalTime()), "advisor.usage", advisor.Id,
+        new(VendorAttempt.FormatLocalTimestamp(progress.At.ToLocalTime()), EVENT, advisor.Id,
             advisor.RequestedModel, progress.Result?.ServedModel, progress.Requests, progress.FailedRequests,
             progress.JudgmentsAsked, progress.InputTokens, progress.OutputTokens, progress.Result?.CacheHits ?? 0,
             progress.LatencyP50, progress.LatencyP90, VendorAttempt.FormatDuration(progress.Duration),
-            progress.Result?.Complete ?? false, progress.Result?.StoppedBy);
+            progress.Result?.Complete ?? false, progress.Result?.StoppedBy, progress.Result?.CostUsd);
 }

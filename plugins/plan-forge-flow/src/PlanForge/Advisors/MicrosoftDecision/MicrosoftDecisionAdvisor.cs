@@ -40,6 +40,9 @@ internal sealed class MicrosoftDecisionAdvisor : SystemOneAdvisor
     /// <summary>The stable Advisor identifier.</summary>
     public override string Id => "microsoft-decision";
 
+    /// <summary>The input price published for Microsoft-Decision-1 on 2026-10-09; output is unpriced.</summary>
+    public override decimal InputUsdPerMillion => 0.042m;
+
     /// <summary>The pacer this instance waits on: the process-wide one in production.</summary>
     internal QuotaPacer Pacer { get; }
 

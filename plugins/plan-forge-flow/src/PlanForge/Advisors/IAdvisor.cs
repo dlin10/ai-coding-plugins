@@ -14,6 +14,9 @@ internal interface IAdvisor
     /// <summary>The service's sizing, concurrency and timeout limits.</summary>
     AdvisorLimits Limits { get; }
 
+    /// <summary>The published price in USD per million input tokens; output is not priced.</summary>
+    decimal InputUsdPerMillion { get; }
+
     /// <summary>Measures the exact body that would be sent, in the service's limit unit.</summary>
     /// <param name="request">The state and ordered questions to measure.</param>
     AdviceSize Measure(AdviceRequest request);

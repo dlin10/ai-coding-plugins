@@ -103,7 +103,7 @@ internal sealed class PlanReview
         state = Reopen(run, state, "a review round ran", handed ? planDraft! : WrittenDraft(run) ?? string.Empty,
                        handed ? 0 : state.TasksCompleted, out _);
         var draft = TakeDraft(run, planDraft);
-        var evidenceMapWarning = EvidenceMapCurrency.Warning(run, state.ReviewRounds);
+        var evidenceMapWarning = EvidenceMapCurrency.Warning(run, state.ScoutAnswers);
 
         var round = state.ReviewRounds + 1;
         var systemPrompt = _prompts.LoadPlanReviewCritic(_vendor.Id);

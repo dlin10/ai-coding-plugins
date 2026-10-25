@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.62.0
+# Plan Forge Flow 0.63.0
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -28,7 +28,7 @@ answer is not used: the act fails, quoting the vendor, and no review round is sp
 | `forge.models` | Returns each vendor's model catalogue for the interview, newest first, with availability and the reason when a vendor is not usable, and the efforts each model offers at Fast speed |
 | `forge.scout.select` | Lazily records an exact Scout Vendor/model/effort/Fast selection or an explicit decision to continue without Scout |
 | `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `scout-answers.json`. A `continue` is refused while a Scout job runs |
-| `forge.evidence.map` | After the manual Evidence check, asks a configured Advisor in one call how Scout items and Orchestrator implications bear on the plan; returns flags and resumable progress, storing judgments in `evidence-map.json` |
+| `forge.evidence.map` | After the manual Evidence check, asks a configured Advisor in one call how Scout items and Orchestrator implications no complete map has judged bear on the plan; returns flags, resumable progress and the call's cost against the Run's Advisor budget, storing judgments in `evidence-map.json` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
 | `forge.plan.write` | Writes the first draft or a complete rewrite to `PLAN.md` and answers with its outline (null for blank plan text) and path, running no worker |
 | `forge.plan.outline` | Returns the current plan hash and snapshot targets with IDs, kinds, labels, hashes and character sizes, without plan text beyond labels |
@@ -215,11 +215,26 @@ calls again only when `complete` is false and not after a call whose `checkedThi
 checks new unchecked items by hand if incomplete.
 The map is never shown to the Critic, Builder or Scout and has no place in code review.
 
+A complete map judges each item once. Later calls ask only about items no complete map of the same
+Advisor and requested model has judged — the items of new Scout answers and new implications — and
+report the rest as `alreadyMapped`; a revised plan, changed requirements or reworded Change points
+do not send a judged item again. Another Advisor or model judges every item once more. The
+Orchestrator maps after the first draft and after each later Impact pass. To have a plan judged
+from scratch, delete `evidence-map.json`.
+
 Once a Run has used the map, `forge.plan.write`, `forge.plan.patch` and `forge.plan.review` answer
-with `evidenceMapWarning` when the plan has changed after a plan-review round that no complete map
-call has followed; a round that runs so also gets a `## Evidence map not current` Flow-log entry.
-A complete map records the plan hash it judged and the rounds run by then, so patches made in
-answer to a map before its round draw no warning. Nothing is refused.
+with `evidenceMapWarning` when a Scout answer arrived after the last complete map; a round that runs
+so also gets a `## Evidence map not current` Flow-log entry. A complete map records how many Scout
+answers it read. Nothing is refused.
+
+Every map result prices itself at the Advisor's published input price: `estimatedCostUsd`, what
+the requests it had to send measure before sending (UTF-8 bytes / 3, which Jev's reported input
+tokens exceeded by 3–5% on four real maps); `costUsd`, the input tokens it reported; and
+`runCostUsd`, every map call of the Run so far, read from `telemetry.json`. A Run's Advisor budget
+is 5 USD until the user names another as `budgetUsd`, which the Run keeps. A call whose estimate
+would take the Run past its budget sends nothing and answers `stoppedBy: "budget"`, and the
+Orchestrator asks the user whether to raise the budget or stop the map. The estimate covers the
+packed requests; a request-wide refusal split into one request per judgment is not re-estimated.
 
 Configure an Advisor in the environment inherited by the server process. Jev, id `jev`:
 
@@ -429,7 +444,10 @@ tokens include what the Worker's subagents and context compaction used.
 The file holds three kinds of record: `vendor.usage`, one per Worker attempt, as above,
 `orchestrator.usage`, one per Orchestrator phase, and `advisor.usage`, one per accepted Evidence
 map call. An Advisor record holds requested and served model, request/failure and judgment counts,
-reported tokens, cache hits, latency p50/p90, duration, completion and stop reason, with no content.
+reported tokens, cache hits, latency p50/p90, duration, completion, stop reason and `costUsd`, the
+reported input tokens at the Advisor's price, with no content. The Run's Advisor budget sums these
+costs; a record written before `costUsd` existed counts its input tokens at the current Advisor's
+price.
 Each such call also attempts one content-free `## Evidence map` entry in `flow_log.md`, including on
 cancellation or failure. Neither record changes the map's outcome if its own write fails.
 

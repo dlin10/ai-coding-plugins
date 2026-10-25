@@ -64,6 +64,7 @@ public sealed class EvidenceServedModelTests
         using var advisor = new JevAdvisor("test-key", "jev-1.13.0", handler);
         for (var call = 0; call < 2; call++)
         {
+            if (call == 1) run.ForgetMapping();
             var result = JsonNode.Parse(await ForgeTools.EvidenceMap(SessionRoots.None, run.Root, run.Run.RunId,
                 ["Change WidgetApi"], CancellationToken.None, run.Environment.GetValueOrDefault,
                 (_, _) => advisor, run.Clock))!;
@@ -104,6 +105,7 @@ public sealed class EvidenceServedModelTests
         else run.Advisor.Limits = run.Advisor.Limits with { MaxStatePlusQuestion = 0 };
         for (var call = 0; call < 2; call++)
         {
+            if (call == 1) run.ForgetMapping();
             var map = await run.Call();
             Assert.Null(map.Result.ServedModel);
             Assert.Null(run.Store().Latest!["servedModel"]);
@@ -133,6 +135,7 @@ public sealed class EvidenceServedModelTests
         };
         for (var call = 0; call < 2; call++)
         {
+            if (call == 1) run.ForgetMapping();
             var map = await run.Call();
             Assert.Equal(answeredFirst ? "A" : null, map.Result.ServedModel);
             Assert.Null(run.Store().Judgments.Values.Last().ServedModel);
@@ -156,6 +159,7 @@ public sealed class EvidenceServedModelTests
         run.Entries = [run.Entry(facts)];
         var sensitiveIndex = sensitiveFirst ? 0 : 1;
         await run.Call();
+        run.ForgetMapping();
         var cached = await run.Call();
         Assert.Equal("A", cached.Result.ServedModel);
         Assert.Equal(2, cached.Result.CacheHits);
@@ -163,6 +167,7 @@ public sealed class EvidenceServedModelTests
         Assert.Null(run.Store().Judgments[cached.Observation[sensitiveIndex].Judgments[0].Key].ServedModel);
         run.Entries = [run.Entry(facts.Append(MapperRun.External("another fact")).ToArray())];
         run.Advisor.Handler = (request, _) => Task.FromResult(FakeAdvisor.Answer(request, "B"));
+        run.ForgetMapping();
         var changed = await run.Call();
         Assert.Equal("B", changed.Result.ServedModel);
         var retained = changed.Observation[sensitiveIndex].Judgments[0];

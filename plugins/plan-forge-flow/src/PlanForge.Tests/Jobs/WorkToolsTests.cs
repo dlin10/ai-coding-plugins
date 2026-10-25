@@ -157,7 +157,7 @@ public sealed class WorkToolsTests : IDisposable
                         StringComparison.Ordinal);
         Assert.Contains("\"fix\"", JsonSerializer.Serialize(new ReviewFixResult(build, documents),
             ForgeToolJson.Default.ReviewFixResult), StringComparison.Ordinal);
-        var evidence = new EvidenceMapResult("fixture", "requested", null, false, 1, 0, 0, 1, null,
+        var evidence = new EvidenceMapResult("fixture", "requested", null, false, 1, 0, 0, 0, 1, null, 0m, null, null, null,
                                              new Dictionary<string, int> { ["unchecked"] = 1 }, [], [], "map.json");
         Assert.Contains("\"remaining\"", JsonSerializer.Serialize(evidence, ForgeToolJson.Default.EvidenceMapResult),
                         StringComparison.Ordinal);
