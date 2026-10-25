@@ -24,7 +24,15 @@ on:
       - '.github/workflows/build-plan-forge-flow.yml'
 
 jobs:
+  # The suite is CPU-bound and a runner has two physical cores, so it is split by test class over
+  # three runners. build/test-shards.json balances the classes by their measured time; the last shard
+  # takes whatever the file does not name.
   test:
+    name: test (shard ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: windows-latest
     defaults:
       run:
@@ -50,14 +58,19 @@ jobs:
       - run: dotnet build src/PlanForgeFlow.sln --configuration Release --no-restore
       # Integration tests drive the real vendor CLIs, none of which exist on a runner.
       # DIAGNOSTIC: per-test timings (trx) and every git process the suite starts (GIT_TRACE).
-      - run: dotnet test src/PlanForgeFlow.sln --configuration Release --no-build --no-restore --filter "Category!=Integration" --logger "trx;LogFileName=test.trx" --results-directory "${{ runner.temp }}/diag"
+      - name: Test shard ${{ matrix.shard }}
+        shell: pwsh
+        run: |
+          $filter = ./build/test-filter.ps1 -Shard ${{ matrix.shard }}
+          Write-Host "filter: $filter"
+          dotnet test src/PlanForgeFlow.sln --configuration Release --no-build --no-restore --filter $filter --logger "trx;LogFileName=shard-${{ matrix.shard }}.trx" --results-directory "${{ runner.temp }}/diag"
         env:
           GIT_TRACE: ${{ runner.temp }}\diag\git-trace.log
       - name: Upload test timings
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: test-timings
+          name: test-timings-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/diag
           if-no-files-found: warn
       - name: Verify exactly two solution projects
