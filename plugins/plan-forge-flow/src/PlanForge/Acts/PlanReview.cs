@@ -224,7 +224,7 @@ internal sealed class PlanReview
     /// <param name="run">The run whose plan is patched.</param>
     /// <param name="baseHash">The hash of the plan the edits were written against.</param>
     /// <param name="edits">The edits, against that plan's outline.</param>
-    /// <returns>The new outline, the changes, their sizes and the build progress the run keeps.</returns>
+    /// <returns>The new outline and shape, the changes, their sizes and the build progress the run keeps.</returns>
     public static PlanPatchOutcome Patch(RunDirectory run, string? baseHash, IReadOnlyList<PlanEdit?>? edits)
     {
         var sizes = PlanPatchSizes.Payload(edits);
@@ -256,17 +256,19 @@ internal sealed class PlanReview
         }
 
         var outline = PlanOutline.Of(patch.Plan);
+        var shape = PlanShape.Of(patch.Plan, outline);
         var beforeHash = PlanOutline.Hash(plan);
         try
         {
-            run.AppendFlowPlanPatched(beforeHash, outline.PlanHash, patch.Changes, sizes);
+            run.AppendFlowPlanPatched(beforeHash, outline.PlanHash, patch.Changes, sizes, shape);
         }
         catch (Exception)
         {
             throw new PlanPatchFailedException("failed_after_patch", sizes,
                 $"The plan was patched, but its Flow entry could not be written. The new plan hash is {outline.PlanHash}; read forge.plan.outline.");
         }
-        return new PlanPatchOutcome(beforeHash, outline, patch.Changes, sizes, tasksKept, FirstTaskOwed(patch.Plan, tasksKept));
+        return new PlanPatchOutcome(beforeHash, outline, shape, patch.Changes, sizes, tasksKept,
+                                    FirstTaskOwed(patch.Plan, tasksKept));
 
         PlanPatchRejectedException NoPlan() => new("no_plan", sizes,
             "Write the plan first with forge.plan.write before reading an outline or patching it.");
@@ -409,7 +411,7 @@ internal sealed class PlanReview
     }
 }
 
-internal sealed record PlanPatchOutcome(string BaseHash, PlanOutline Outline,
+internal sealed record PlanPatchOutcome(string BaseHash, PlanOutline Outline, PlanShape Shape,
                                         IReadOnlyList<PlanPatchChange> Changed, PlanPatchSizes Sizes,
                                         int TasksKept, int? FirstTaskOwed);
 

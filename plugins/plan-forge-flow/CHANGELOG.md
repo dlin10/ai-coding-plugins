@@ -1,5 +1,16 @@
 # Plan Forge Flow releases
 
+## 0.66.0
+
+Offer a plan split before the first review when the first draft's Approach is large. Issue #190;
+ADR 0048.
+
+- `forge.plan.write` and `forge.plan.patch` return plan shape measurements for total and section
+  characters, task sizes, R-items, and named test classes. The Flow log records each shape.
+- An Approach of at least 22,000 UTF-16 characters triggers an advisory split offer before round 1.
+  The Orchestrator names separable task groups and their sizes and requirements, while the user may
+  choose to review the full draft as written.
+
 ## 0.65.0
 
 Revisions read before they write, a major's closure carries evidence, and the Critic lists a class

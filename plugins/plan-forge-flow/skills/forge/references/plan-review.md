@@ -4,6 +4,11 @@ Read it before the first `forge.plan.review`, and again whenever plan review res
 
 ## Rounds, revision, and caps
 
+Before round 1, settle the first-draft split offer in `planning.md` when the first substantive
+`forge.plan.write` returned `shape.splitSuggested: true`. Do not send the Critic until the user
+chooses the narrower draft or **review as is**. A later `forge.plan.patch` also returns `shape` and
+records it in the Flow log; it does not turn an agreed review into an automatic split.
+
 Each `forge.plan.review` call runs exactly one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, declare
 `phase: "plan_revision"` as soon as the verdict arrives — after every `revise`, not only the first —
 then address the findings in the plan yourself — *Writing a revision* below says how — and run the

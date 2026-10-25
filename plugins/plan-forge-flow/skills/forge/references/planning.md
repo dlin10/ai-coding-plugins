@@ -194,6 +194,20 @@ you checked, what you decided for each and why: `Matrix check: Classify — valu
 execution, 11 values: matrix, task 4. ReasonOrder — one axis, 4 values: none.` When the plan
 introduces or changes no rule, the line says so.
 
+### First-draft shape and split offer
+
+The first `forge.plan.write` returns `shape` measured from the plan on disk and records it in the
+Flow log. Its `approachCharacters` includes the `## Approach` heading and its tasks; the task sizes
+come from the returned outline. `splitSuggested` is true when Approach reaches 22,000 UTF-16
+characters. This is an advisory threshold, not a refusal or an automatic split.
+
+Before the first `forge.plan.review`, when `splitSuggested` is true, propose a concrete split to the
+user. Name the separable tasks or task groups, their sizes from the outline, the R-items each serves,
+and any dependency that orders them. Offer **review as is** as the alternative and wait for the
+user's choice. If they choose a split, agree which part this Run will review, rewrite the draft for
+that part, and check its new shape before round 1; the other parts need their own Runs. If they
+choose review as is, continue with the full draft. A false `splitSuggested` needs no split question.
+
 ### The matrix task
 
 The critic judges a matrix task with the rest of the plan, so the plan spells it out:

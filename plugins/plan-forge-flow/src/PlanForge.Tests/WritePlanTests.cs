@@ -31,12 +31,10 @@ public sealed class WritePlanTests : IDisposable
     }
 
     /// <summary>
-    /// The two halves of the answer the issue asked for: the plan the moment it is on disk, and no
-    /// flow log — that file is first written by the first critique, and a path to a file that does
-    /// not exist is a dead link on the host this was written for.
+    /// The plan and its shape are visible as soon as the write completes, before a critic runs.
     /// </summary>
     [Fact]
-    public async Task The_written_plan_comes_back_as_a_document_with_no_flow_log_beside_it()
+    public async Task The_written_plan_comes_back_with_its_shape_in_the_flow_log()
     {
         var run = NewRun();
 
@@ -50,9 +48,10 @@ public sealed class WritePlanTests : IDisposable
                      JsonSerializer.Serialize(result.Outline, ForgeToolJson.Default.PlanOutline));
         Assert.Equal(run.PlanPath, result.Documents.Plan!.Path);
         Assert.Contains("watch it change", result.Documents.Plan.Next, StringComparison.Ordinal);
-        Assert.Null(result.Documents.FlowLog);
+        Assert.Equal(run.FlowLogPath, result.Documents.FlowLog!.Path);
+        Assert.Equal(Draft.Length, result.Shape.Characters);
+        Assert.Contains("## Plan written", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
         Assert.Equal(Draft, run.ReadPlan());
-        Assert.False(File.Exists(run.FlowLogPath));
     }
 
     [Fact]
@@ -65,6 +64,20 @@ public sealed class WritePlanTests : IDisposable
 
         Assert.Contains("planDraft", rejection.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(run.PlanPath));
+    }
+
+    [Fact]
+    public async Task A_failed_flow_entry_reports_that_the_plan_was_written()
+    {
+        var run = NewRun();
+        using var lockedFlow = new FileStream(run.FlowLogPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+
+        var error = await Assert.ThrowsAsync<IOException>(
+            () => ForgeTools.WritePlan(SessionRoots.None, _workspace, run.RunId, Draft, CancellationToken.None));
+
+        Assert.Equal(Draft, run.ReadPlan());
+        Assert.Contains(PlanOutline.Hash(Draft), error.Message, StringComparison.Ordinal);
+        Assert.Contains("read forge.plan.outline", error.Message, StringComparison.Ordinal);
     }
 
     private RunDirectory NewRun()

@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.65.0
+# Plan Forge Flow 0.66.0
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -39,9 +39,9 @@ drafted approach still follows.
 | `forge.scout.run` | Runs one bounded Scout question and returns its complete answer plus document metadata; the answer is also appended to `scout-answers.json`. A `continue` is refused while a Scout job runs |
 | `forge.evidence.map` | After the manual Evidence check, asks a configured Advisor in one call how Scout items and Orchestrator implications no complete map has judged bear on the plan; returns flags, resumable progress and the call's cost against the Run's Advisor budget, storing judgments in `evidence-map.json` |
 | `forge.instructions.set` | Records what the user wants this run's critic told and what they want its builder told, verbatim, for the acts to carry |
-| `forge.plan.write` | Writes the first draft or a complete rewrite to `PLAN.md` and answers with its outline (null for blank plan text) and path, running no worker |
+| `forge.plan.write` | Writes the first draft or a complete rewrite to `PLAN.md` and answers with its outline (null for blank plan text), shape, and document paths, running no worker |
 | `forge.plan.outline` | Returns the current plan hash and snapshot targets with IDs, kinds, labels, hashes and character sizes, without plan text beyond labels |
-| `forge.plan.patch` | Revises selected targets against the exact outline hash; answers with the new outline, change summary, character and UTF-8 byte sizes, and document paths, running no worker |
+| `forge.plan.patch` | Revises selected targets against the exact outline hash; answers with the new outline, shape, build progress, and document paths, running no worker. The Flow log records the changes and their character and UTF-8 byte sizes |
 | `forge.plan.review` | Applies typed plan decisions, then runs one round against the active plan-phase ledger projection |
 | `forge.plan.show` | Renders `PLAN.md` as a document in hosts that negotiate the MCP Apps UI extension, with the drift beside it, and answers with its `planHash` |
 | `forge.plan.confirm` | Approves `PLAN.md` as it stands, refusing it when `planHash` names another plan; applies final plan decisions on approval, refuses unresolved active plan IDs, then records approval and optional case-sensitive `fullGate=beforeNextRound\|final`; omission preserves timing/settings, explicit settings replace, empty settings clear. Approval resets the global gate failure, preserving attempts; approved false changes no PLAN/state/ledger or approval and accepts no decisions |
@@ -140,7 +140,11 @@ retry that same attempt, set and gate, while a completed retry returns its saved
 with current pending annotations. Background fetch keeps its historical completion snapshot.
 
 The plan is readable from the first round: `forge.plan.write` puts the first draft at `PLAN.md`
-and returns its outline and document path before review starts. Later revisions use
+and returns its outline, shape and document paths before review starts. The shape includes character
+counts for the full plan, Requirements, Approach and tasks, their ratio, and counts of R-items and
+named test classes. An Approach of at least 22,000 UTF-16 characters prompts the Orchestrator to
+offer a concrete split before round 1, with review of the draft as written as the other choice.
+The signal is advisory; the user chooses whether to split. Later revisions use
 `forge.plan.patch` for selected targets or `forge.plan.write` for a rewrite; each round reads the
 complete document with `planDraft` omitted. A patch uses the current plan hash and each target's
 ID and hash from `forge.plan.outline`. On a stale-base refusal, read the outline and redo the

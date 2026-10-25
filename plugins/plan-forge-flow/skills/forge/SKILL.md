@@ -43,8 +43,8 @@ and again whenever you resume it:
 | `references/asking.md` | before your first question to the user | Asking the user: one question per call, each explained, the recommendation first; Recording the answer |
 | `references/interview.md` | right after `forge.begin` | Act 1: the interview, the opening questions, the mode ladder, verification and feasibility; Choosing the vendor and model |
 | `references/scout.md` | at the first broad reconnaissance need, for feasibility during the interview, and before the Impact pass | Scout reconnaissance; The Scout question; The feasibility question; The Impact pass; The Evidence check |
-| `references/planning.md` | once the interview's decisions are settled | Writing the plan: requirements, gates, the Fix gate grammar, gate commands, the Approach; When the user chooses a probe first; The matrix check; The matrix task |
-| `references/plan-review.md` | before the first `forge.plan.review` | Rounds, revision, and caps; Writing a revision |
+| `references/planning.md` | once the interview's decisions are settled | Writing the plan: requirements, gates, the Fix gate grammar, gate commands, the Approach; When the user chooses a probe first; The matrix check; The matrix task; First-draft shape and split offer |
+| `references/plan-review.md` | before the first `forge.plan.review` | First-draft split decision; Rounds, revision, and caps; Writing a revision |
 | `references/ledger.md` | before your first decision batch | Decision ledger protocol |
 | `references/approval.md` | when the critique settles | Approval |
 | `references/build.md` | after approval | The gate decides the task; When the host times the call out |
@@ -130,7 +130,7 @@ The critic's selection goes to the two review tools, the builder's to `forge.bui
 
 Every worker act answers beside a `documents` object holding `flowLog` and `plan`, each with a
 `path` and what to do with it, and `decisions` once one is recorded. Surface the plan in the turn that wrote it and the Flow log from the
-first Scout outcome or critique on, and again after every worker act; link them, never paste the
+first Scout outcome, plan write, or critique on, and again after every worker act; link them, never paste the
 plan, and keep one line of narration per worker call.
 
 ## What is not enforced
