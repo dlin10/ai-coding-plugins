@@ -27,7 +27,8 @@ without `revision`:
   re-running for another reason.
 - `decisions` — the typed identity-keyed changes for this logical decision set. Use `defer` or
   `reject` only with a reason and asserted decision-maker; use `addressedByRevision` only after the
-  revised plan actually addresses that ID. Partial subsets are valid during review. The final
+  revised plan actually addresses that ID, and for a blocker or major with `evidence` (*Writing a
+  revision* says what goes in it). Partial subsets are valid during review. The final
   `forge.plan.confirm(approved: true)` is the postcondition that requires every active plan ID to
   be settled or closed.
 
@@ -96,27 +97,47 @@ whatever phase the run was in.
 Measured over thirteen runs, about half of the plan-review findings after round 1 sat in text a
 revision had written, rising to two thirds from round 6 on: a rule that arrived without its gate, a
 change made in one place and left standing in another, a claim about the code nobody had checked, a
-mechanism invented to answer one finding. Use `forge.plan.patch` when the revision changes some
-targets, and `forge.plan.write` when it rewrites the plan. Before either call that answers a
-critique, walk every change through these checks over the whole plan, including after a patch;
-the draft is ready when every change passes all six:
+mechanism invented to answer one finding. In a later ten-round run the Critic's claims held every
+time they were checked and the revisions' did not: 15 of the 16 later findings that cited the
+code pointed at lines nobody had read when the fix they hit was written, and 7 of the 9 claims a
+revision wrote without reading anything turned out false. So each check below is an act done
+before the patch — a read, a query, a search, a question — not a recollection. Use
+`forge.plan.patch` when the revision changes some targets, and `forge.plan.write` when it rewrites
+the plan. Before either call that answers a critique, walk every change through these checks over
+the whole plan, including after a patch; the draft is ready when every change passes all six:
 
 - **Gate with the rule.** A rule, requirement or step the revision adds or changes arrives with its
-  gate rows, its tests and the task steps that build it, in the same revision.
+  gate rows, its tests and the task steps that build it, in the same revision. For each clause of
+  the rule, name the test cell where a wrong implementation gives a different answer from a right
+  one: a test both would pass is no gate, and a negative clause — never, only, except — needs a
+  cell of its own.
 - **Every mention.** A term, rule, count, name or decision the revision changes is changed wherever
   the plan states it — requirements, tasks, gates, test lists, counts. Search the whole plan for
   every mention, not only the targets you edit.
-- **Evidence for claims.** Every claim the revision makes about the code — what exists today, a
-  name, a count, a behaviour — passes the Evidence check before it is written.
-- **The class, not the instance.** A finding that names one member of a class — one reader of a
-  value, one call form, one case of a rule — is answered for the whole class: list its members, by
-  references and callers where the class is code, and cover each one, or narrow the requirement in
-  words. Name the list in `revision`.
+- **Read before you write.** Every claim the revision makes about the code — what exists today, a
+  name, a reader list, a count, a behaviour, what a fixture does — is read in the code during this
+  revision, with Read or a Roslyn query, before the patch. A Scout answer says where to look; read
+  the lines it cites when the fix depends on them. The Evidence check weighs the plan against
+  Scout's answers, and a claim no answer holds passes it unseen, so it does not stand in for this.
+  A question you put to the user carries only claims you read: they choose on what its options say.
+- **The class, before the patch.** A finding that names one member of a class — one reader of a
+  value, one decider of a question, one call form, one case of a rule — is answered for the whole
+  class: before you write, run Roslyn `find_callers` or `find_references` on the symbol that
+  decides it, on a server that serves this workspace — a search for every use where none does —
+  list every member, and cover each one or narrow the requirement in words. A rule the
+  revision adds or changes gets the same query, because its twin deciders are where the next round
+  looks. Name the list and the query in `revision`.
 - **Mechanisms are the user's.** When the answer to a finding is a new mechanism — a pass, a state,
   a wrapper, a restart, a fixpoint — ask the user before writing it, with the simpler alternatives
   beside it.
 - **The findings' scope.** The revision changes what the findings name and what the checks above
   reach. A neighbouring case enters the plan when a critic raises it.
+
+Close each finding the revision answered with `addressedByRevision`. A blocker or major also carries
+`evidence`: one line saying what you read, the class you listed and the cell that fails for a wrong
+implementation — `read Ledger.cs:940-964; callers of Ledger.Close: Review, Confirm, Fix; cell
+major × no evidence`. The server refuses a blocker or major closed without
+it, and the Flow log prints the line beside the closure.
 
 On a stale-base refusal, read `forge.plan.outline` and redo the edits against its current hash;
 never resend the refused patch unchanged. A replay after a lost answer is a stale-base conflict,

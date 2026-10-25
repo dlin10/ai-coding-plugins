@@ -919,6 +919,7 @@ internal sealed class DecisionLedger
         var closures = new List<LedgerClosureDecision>();
         var accepted = new List<string>();
         var declined = new List<string>();
+        var unevidenced = new List<DecisionLedgerEntry>();
         var ids = new HashSet<string>(StringComparer.Ordinal);
         var snapshot = ReadSnapshot();
         var entries = snapshot.Entries.ToDictionary(entry => entry.FindingId, StringComparer.Ordinal);
@@ -956,8 +957,8 @@ internal sealed class DecisionLedger
                     if (phase != LedgerPhase.PlanReview)
                         throw new DecisionLedgerRequestException("addressedByRevision is only valid during plan review");
                     RequireActiveUnresolved(entry, phase, decision.FindingId);
-                    if (decision.Evidence is not null)
-                        throw new DecisionLedgerRequestException("addressedByRevision does not accept evidence");
+                    if (decision.Evidence is null && entry.Finding.Severity is "blocker" or "major")
+                        unevidenced.Add(entry);
                     closures.Add(new LedgerClosureDecision(decision.FindingId, LedgerClosureKind.Revision,
                                                            decisionMaker, decision.Reason));
                     accepted.Add(decision.FindingId);
@@ -1007,6 +1008,14 @@ internal sealed class DecisionLedger
             }
         }
 
+        if (unevidenced.Count > 0)
+            throw new DecisionLedgerRequestException(
+                "addressedByRevision needs evidence for "
+                + string.Join(", ", unevidenced.OrderBy(entry => entry.FindingId, StringComparer.Ordinal)
+                                               .Select(entry => $"{entry.Finding.Severity} {entry.FindingId}"))
+                + ": what the revision read (file:lines or a Roslyn query), the class it listed, "
+                + "and the test cell a wrong implementation fails");
+
         var raised = new List<Raise>();
         foreach (var raise in batch.Raises ?? [])
         {
@@ -1036,7 +1045,10 @@ internal sealed class DecisionLedger
 
     private sealed record Raise(Finding Finding, LedgerDecisionMaker By, string Reason);
 
-    private static string NormalizeAction(string action) => action switch
+    /// <summary>The ledger's name for an action, so an alias such as <c>revision</c> reads as <c>addressedByRevision</c>.</summary>
+    /// <param name="action">The action as the orchestrator sent it.</param>
+    /// <returns>The ledger's name for the action, or <paramref name="action"/> unchanged when the ledger knows none by it.</returns>
+    internal static string NormalizeAction(string action) => action switch
     {
         "defer" => "defer",
         "reject" => "reject",

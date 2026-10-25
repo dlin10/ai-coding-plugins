@@ -361,7 +361,7 @@ public sealed class PendingFullGateTransitionMatrixTests : IDisposable
 
     private static Finding Finding(string what) => new("major", "test.cs", what);
     private static OrchestratorDecision Decision(string action) => new("F-0001", action, "orchestrator", "reason",
-        action is "hostVerified" or "accept" ? "host command exited 0; attempt A" : null,
+        action is "hostVerified" or "accept" or "addressedByRevision" ? "host command exited 0; attempt A" : null,
         action == "duplicateOf" ? "F-0002" : null);
     private static BuildResult Passed() => new("done", [], new Verification("unavailable", "host gate"), "fixed",
         new GateRun("passed", "Fix gate", "exit 0", 0, "ok", 0.01, null));

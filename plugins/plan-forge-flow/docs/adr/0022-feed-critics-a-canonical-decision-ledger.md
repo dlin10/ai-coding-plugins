@@ -73,6 +73,11 @@ code-review entry of its own in a decision batch, and a fix attempt may carry th
 note after the verbatim findings. Both fields are optional and absent when unused, so the schema
 version stays 2.
 
+*Extended 2026-10-25 by [0047](0047-read-before-writing-a-revision.md).* A plan revision's closure
+of a blocker or major carries the Orchestrator's evidence, and the Flow log prints it with the
+decision. The decision shape already had the field and no persisted field changed, so the schema
+version stays 3.
+
 Pre-ledger Run folders are outside the supported scenario: there is no transcript migration,
 fallback reader or compatibility error path. Verification uses deterministic prompt-composition and
 UTF-8 byte-size tests rather than a live pre/post Vendor benchmark.

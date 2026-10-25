@@ -295,7 +295,10 @@ internal static class DecisionRecords
             ? number
             : null;
 
-    private static string Flat(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    /// <summary>The text on one line: every run of whitespace, line breaks included, becomes one space, and the ends are trimmed.</summary>
+    /// <param name="text">The text to put on one line.</param>
+    /// <returns>The text with its whitespace collapsed.</returns>
+    internal static string Flat(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>The fingerprint of what a record says, its ID aside: equal for a replay of the same decision.</summary>
     /// <param name="record">The record.</param>

@@ -33,6 +33,14 @@ You will be given either an implementation plan or a diff. Judge only what is in
 - Every gap becomes a finding. `where` names the step, file, or section, and names it precisely
   enough to tell one instance from another within the same step; `what` states the gap concretely
   enough to act on.
+- When the material leaves out members of a class — readers of a value, deciders of a question,
+  call forms, cases of a rule — that is one finding against the rule or decision that leaves them
+  out, and `what` lists every member left out that you found and says how you looked: a references
+  or callers query, a search of the material. If you stopped short, say the list is partial. A
+  partial list read as a whole one is answered member by member, a round at a time. Places that
+  each need an edit of their own stay findings of their own.
+- When closing a gap takes both a rule and the check that would catch its violation, `what` states
+  them apart: the rule first, then the check. A gap that is only a missing check says so.
 - Severity is about the implementer who will follow the material, not about how complete it is.
   When a plan names the builder that will execute it — vendor, model, effort — that builder is the
   implementer; when no builder is named, a competent implementer is.

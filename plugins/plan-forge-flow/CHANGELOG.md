@@ -1,5 +1,27 @@
 # Plan Forge Flow releases
 
+## 0.65.0
+
+Revisions read before they write, a major's closure carries evidence, and the Critic lists a class
+whole. ADR 0047; ADR 0022 extended.
+
+- *Writing a revision* in `plan-review.md` turns its checks into acts done before the patch. Each
+  clause of a new rule names the test cell a wrong implementation fails. Every claim about the code
+  is read with Read or a Roslyn query in that revision: a Scout answer is a pointer, and the
+  Evidence check never sees the Orchestrator's own claims. The class is listed with `find_callers`
+  or `find_references` before writing, and a question to the user carries only read claims.
+- `addressedByRevision` takes `evidence` and requires it for a blocker or major: what the revision
+  read, the class it listed and the failing cell. A batch missing it is refused once, naming every
+  such closure. The Flow log prints it beside the closure. Batches without evidence keep their
+  canonical bytes and digests.
+- In the critic contract, the members a rule leaves out are one finding against that rule. It lists
+  every member the Critic found and how it looked, or calls the list partial. Places that each need
+  an edit of their own stay separate findings. A finding that needs a rule and its check states them
+  apart.
+- Measured in Run `20261024-105628-872ce5`: 15 of the 16 later findings that cited the code pointed
+  at lines nobody had read when the fix they hit was written, and 7 of the 9 unread claims were
+  false.
+
 ## 0.64.0
 
 Check acceptance feasibility before the first draft. Issue #189.
