@@ -13,6 +13,8 @@ on:
   push:
     branches:
       - main
+      # DIAGNOSTIC: lets a push of this branch run the suite without a pull request.
+      - ci/diagnose-plan-forge-test-timing
     paths:
       - 'plugins/plan-forge-flow/**'
       - '.github/workflows/build-plan-forge-flow.yml'
@@ -32,10 +34,30 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      # DIAGNOSTIC (branch ci/diagnose-plan-forge-test-timing, not for main): what the runner is.
+      - name: Runner hardware
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed | Format-List
+          Get-CimInstance Win32_OperatingSystem | Select-Object @{n='FreeGB';e={[math]::Round($_.FreePhysicalMemory/1MB,1)}}, @{n='TotalGB';e={[math]::Round($_.TotalVisibleMemorySize/1MB,1)}} | Format-List
+          Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AntivirusEnabled | Format-List
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name, @{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+          # GIT_TRACE below appends to a file in here; git does not create the directory.
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/diag" | Out-Null
       - run: dotnet restore src/PlanForgeFlow.sln
       - run: dotnet build src/PlanForgeFlow.sln --configuration Release --no-restore
       # Integration tests drive the real vendor CLIs, none of which exist on a runner.
-      - run: dotnet test src/PlanForgeFlow.sln --configuration Release --no-build --no-restore --filter "Category!=Integration"
+      # DIAGNOSTIC: per-test timings (trx) and every git process the suite starts (GIT_TRACE).
+      - run: dotnet test src/PlanForgeFlow.sln --configuration Release --no-build --no-restore --filter "Category!=Integration" --logger "trx;LogFileName=test.trx" --results-directory "${{ runner.temp }}/diag"
+        env:
+          GIT_TRACE: ${{ runner.temp }}\diag\git-trace.log
+      - name: Upload test timings
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-timings
+          path: ${{ runner.temp }}/diag
+          if-no-files-found: warn
       - name: Verify exactly two solution projects
         shell: pwsh
         run: |
