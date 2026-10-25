@@ -36,8 +36,6 @@ public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
         var evaluations = new List<EvidenceEvaluation>();
         foreach (var plan in fixture.Labels.Keys)
         {
-            // Each plan starts with an independent store while progress remains pooled over every plan.
-            File.Delete(fixture.Run.EvidenceMapPath);
             var map = await fixture.Map(plan, advisor);
             var call = fixture.Progress[^1];
             output.WriteLine($"{plan} call: requests={call.Requests}, failed={call.FailedRequests}, "

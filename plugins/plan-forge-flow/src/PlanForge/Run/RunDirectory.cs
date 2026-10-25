@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -322,7 +323,8 @@ internal sealed class RunDirectory
                                        .Append("required: ").AppendLine(result.Required.ToString())
                                        .Append("checkedThisCall: ").AppendLine(result.CheckedThisCall.ToString())
                                        .Append("remaining: ").AppendLine(result.Remaining.ToString())
-                                       .Append("cacheHits: ").AppendLine(result.CacheHits.ToString());
+                                       .Append("cacheHits: ").AppendLine(result.CacheHits.ToString())
+                                       .Append("alreadyMapped: ").AppendLine(result.AlreadyMapped.ToString());
         foreach (var status in new[] { "contradiction", "unchecked", "context_only", "covered", "excluded", "uncertain", "no_candidates", "no_coverage_established" })
         {
             entry.Append(status).Append(": ").Append(result.Counts[status]);
@@ -335,9 +337,18 @@ internal sealed class RunDirectory
             entry.AppendLine();
         }
         entry.Append("notIndexedAnswers: ").AppendLine(string.Join(", ", result.NotIndexedAnswers))
-             .Append("complete: ").AppendLine(result.Complete ? "true" : "false").AppendLine();
-        AtomicFile.Append(FlowLogPath, entry.ToString());
+             .Append("complete: ").AppendLine(result.Complete ? "true" : "false");
+        if (result.StoppedBy is { } stopped) entry.Append("stoppedBy: ").AppendLine(stopped);
+        entry.Append("estimatedCostUsd: ").AppendLine(Usd(result.EstimatedCostUsd))
+             .Append("costUsd: ").AppendLine(result.CostUsd is { } cost ? Usd(cost) : "unknown");
+        if (result.RunCostUsd is { } run && result.BudgetUsd is { } budget)
+            entry.Append("runCostUsd: ").Append(Usd(run)).Append(" of budgetUsd ").AppendLine(Usd(budget));
+        AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
     }
+
+    /// <summary>Writes an amount the way the Flow log shows every cost: four decimals, invariant.</summary>
+    /// <param name="amount">The amount in USD.</param>
+    private static string Usd(decimal amount) => amount.ToString("F4", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The user-facing timeline of the delegated acts, one file for the orchestrator to surface in

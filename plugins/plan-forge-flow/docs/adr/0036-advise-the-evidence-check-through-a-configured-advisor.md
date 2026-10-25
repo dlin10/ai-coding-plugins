@@ -124,6 +124,12 @@ model drops that Advisor's judgments. The latest map and its counts live in the 
 adds a line to the Flow log and an `advisor.usage` record — requests, tokens, latency, cache use, no
 content — to the Telemetry file.
 
+> **Amended 2026-10-25 ([0046](0046-map-each-item-once-and-price-every-map.md)).** Re-asking the
+> whole map on every requirement change cost Run `20261024-105628-872ce5` USD 12.74 over nine maps,
+> eight of which raised nothing new. From 0.63.0 a complete map judges each item once per Advisor
+> and model, later calls ask only about items no complete map has judged, and every call is priced
+> against the Run's Advisor budget. Keys are unchanged and still serve an incomplete call's resume.
+
 ## Consequences
 
 A configured Advisor sends excerpts of the plan and of Scout answers from every repository forge

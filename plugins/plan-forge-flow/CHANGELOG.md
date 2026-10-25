@@ -1,5 +1,39 @@
 # Plan Forge Flow releases
 
+## 0.63.0
+
+The Evidence map judges each item once and prices every call. ADR 0046; ADR 0036 amended.
+
+- The systemone request body is written as UTF-8 instead of escaping every non-ASCII character as
+  `\uXXXX`, and is measured that way. A Cyrillic letter had counted as six bytes, so a Russian plan
+  reached the state-plus-question bound at a third of its real size: in Run
+  `20261024-105628-872ce5` every pair with a task was withheld as `too_large` from the third map on,
+  and up to 1,607 of 1,902 items came back unchecked. Jev and Microsoft-Decision-1 both change;
+  cache keys do not.
+- A complete map leaves the items it judged out of every later call by the same Advisor and
+  requested model. Their marks accumulate in `evidence-map.json` with the number of Scout answers
+  read; a later call asks only about the items of new Scout answers and new implications, and the
+  result and Flow log report the rest as `alreadyMapped`. A revised plan, changed requirements or
+  reworded Change points no longer send a judged item again. Another Advisor or model, or a map
+  written by an earlier version, judges every item once more. In that Run the old rule re-asked
+  every item on nine maps for USD 12.74, and eight of them raised nothing new.
+- `evidenceMapWarning` now names a Scout answer that arrived after the last complete map, instead
+  of a plan changed after a review round. The skill maps after the first draft and after each later
+  Impact pass, not before every round.
+- Every map result carries `estimatedCostUsd`, what its packed requests measure before sending at
+  the Advisor's price; `costUsd`, its reported input tokens priced; `runCostUsd`, the Run's Advisor
+  spending so far; and `budgetUsd`, the Run's Advisor budget, 5 USD until the user names another.
+  New optional argument `budgetUsd` (above 0, at most 1000) sets it, and the Run keeps it. A call
+  whose estimate would take the Run past its budget sends nothing and answers
+  `stoppedBy: "budget"`; the skill then asks the user. `advisor.usage` records carry `costUsd`, and
+  the Flow-log entry the estimate, the cost and the Run's spending against the budget.
+- Measured before deciding: Jev's reported input tokens were 1.03–1.05 times the measure on four
+  real maps, so a call can end a few percent above its estimate. Replayed through the tool, the
+  Run's first two maps cost USD 0.82 and 0.29 instead of 0.86 and 1.51. Dropping the requirements
+  and exclusions from the state saved 23–25% but moved 28–38%
+  of item statuses, against Jev's own 6–8% between two runs of one map, and raised 36–54% more
+  flags without recalling more of the findings the Orchestrator had accepted; it is not shipped.
+
 ## 0.62.0
 
 `forge.evidence.map` maps in one call. Issue #186; ADR 0036 amended.

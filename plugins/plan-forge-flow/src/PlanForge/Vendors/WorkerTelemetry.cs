@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using PlanForge.Advisors;
 using PlanForge.Diagnostics;
 using PlanForge.Infrastructure;
 
@@ -323,6 +324,41 @@ internal static class WorkerTelemetryFile
     public static void Append(string path, RunLog log, AdvisorUsageRecord record) =>
         Append(path, log, _ => record, added => added.At,
                TelemetryJson.Default.AdvisorUsageRecord, ("event", record.Event));
+
+    /// <summary>
+    /// What the Run's Evidence map calls have cost: each <c>advisor.usage</c> record's own <c>costUsd</c>, or, for a
+    /// record written before it carried one, its input tokens at the current Advisor's price. A file that does not read
+    /// is logged and counts nothing, as a failed write does.
+    /// </summary>
+    /// <param name="path">The Run's telemetry file.</param>
+    /// <param name="log">The diagnostic log for a failed read.</param>
+    /// <param name="advisor">The Advisor whose price stands in for a record without a cost.</param>
+    public static decimal AdvisorSpentUsd(string path, RunLog log, IAdvisor advisor)
+    {
+        if (!File.Exists(path)) return 0m;
+        try
+        {
+            using var document = Parse(AtomicFile.Read(path));
+            if (document.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("telemetry root must be a JSON array");
+            var spent = 0m;
+            foreach (var element in document.RootElement.EnumerateArray())
+            {
+                if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty("event", out var name)
+                    || !name.ValueEquals(AdvisorUsageRecord.EVENT)) continue;
+                if (element.TryGetProperty("costUsd", out var cost) && cost.ValueKind == JsonValueKind.Number)
+                    spent += cost.GetDecimal();
+                else if (element.TryGetProperty("inputTokens", out var input) && input.ValueKind == JsonValueKind.Number)
+                    spent += Math.Round(input.GetInt64() * advisor.InputUsdPerMillion / 1_000_000m, 4);
+            }
+            return spent;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException
+                                      or FormatException or InvalidOperationException)
+        {
+            log.Write("error", "telemetry", "telemetry.read.failed", ("error", error.GetType().Name));
+            return 0m;
+        }
+    }
 
     /// <summary>
     /// Where a record opened at <paramref name="at"/> goes: after the last element that opened no

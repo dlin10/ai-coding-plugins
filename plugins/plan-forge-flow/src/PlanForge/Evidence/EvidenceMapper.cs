@@ -1,7 +1,6 @@
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using PlanForge.Acts;
 using PlanForge.Advisors;
 using PlanForge.Orchestration;
 using PlanForge.Run;
@@ -37,19 +36,30 @@ internal sealed record EvidenceFlag(string Id, string Kind, string? Category, st
 /// <param name="ServedModel">The first fresh model, or the stored model when no fresh answer arrived.</param>
 /// <param name="Complete">Whether every judgment has a reusable outcome.</param>
 /// <param name="Required">Distinct required keys.</param>
+/// <param name="AlreadyMapped">Items left out because a complete map of this Advisor and model judged them.</param>
 /// <param name="CacheHits">Keys found in the store at the start.</param>
 /// <param name="CheckedThisCall">Keys given reusable outcomes during this call.</param>
 /// <param name="Remaining">Keys with a transient reason.</param>
-/// <param name="StoppedBy">Unauthorized or forbidden, if either stopped dispatch.</param>
+/// <param name="StoppedBy">Unauthorized, forbidden, or budget, if one stopped dispatch.</param>
+/// <param name="EstimatedCostUsd">What the requests this call had to send would cost, estimated before sending.</param>
+/// <param name="CostUsd">The reported input tokens of this call at the Advisor's price, or null when not reported.</param>
+/// <param name="RunCostUsd">The Run's Advisor spending including this call, or null when the call kept no budget.</param>
+/// <param name="BudgetUsd">The Run's Advisor budget, or null when the call kept none.</param>
 /// <param name="Counts">Item status counts, source-changed items and unavailable answer numbers.</param>
 /// <param name="Flags">Items requiring attention.</param>
 /// <param name="NotIndexedAnswers">Answer numbers unavailable to the map.</param>
 /// <param name="Path">The Evidence map file.</param>
 internal sealed record EvidenceMapResult(string Advisor, string RequestedModel, string? ServedModel,
-                                         bool Complete, int Required, int CacheHits, int CheckedThisCall,
-                                         int Remaining, string? StoppedBy, IReadOnlyDictionary<string, int> Counts,
+                                         bool Complete, int Required, int AlreadyMapped, int CacheHits, int CheckedThisCall,
+                                         int Remaining, string? StoppedBy, decimal EstimatedCostUsd, decimal? CostUsd,
+                                         decimal? RunCostUsd, decimal? BudgetUsd, IReadOnlyDictionary<string, int> Counts,
                                          IReadOnlyList<EvidenceFlag> Flags, IReadOnlyList<int> NotIndexedAnswers,
                                          string Path);
+
+/// <summary>What a call may spend: the Run's spending so far and the budget the user named in this call.</summary>
+/// <param name="SpentUsd">The Run's Advisor spending before this call.</param>
+/// <param name="NamedUsd">A budget the user named for this call and the rest of the Run, or null to keep the Run's.</param>
+internal sealed record EvidenceBudget(decimal SpentUsd, decimal? NamedUsd);
 
 /// <summary>A logical judgment's actual outcomes and their provenance.</summary>
 /// <param name="Key">The shared content key.</param>
@@ -116,6 +126,8 @@ internal sealed class EvidenceMapper
 {
     /// <summary>No request starts at or after this elapsed time; one already running finishes under the Advisor's own timeout.</summary>
     private static readonly TimeSpan CallBound = TimeSpan.FromSeconds(HostCall.MAX_SECONDS);
+    /// <summary>The Run's Advisor budget in USD until the user names another.</summary>
+    private const decimal DEFAULT_BUDGET_USD = 5m;
     /// <summary>The monotonic opening timestamp, including tool preflight.</summary>
     private readonly long started;
     /// <summary>The single prepared call, validated before records become due.</summary>
@@ -155,26 +167,39 @@ internal sealed class EvidenceMapper
                                            CancellationToken ct = default)
     {
         var index = EvidenceIndex.Of(entries, scoutAnswers, implications, workspaceRoot);
-        Prepare(plan, index, changePoints, advisor, path);
+        Prepare(plan, index, changePoints, advisor, path, scoutAnswers);
         return await MapPreparedAsync(ct).ConfigureAwait(false);
     }
 
-    /// <summary>Prepares and validates all map inputs once, without requests or final records.</summary>
+    /// <summary>
+    /// Prepares and validates all map inputs once, without requests or final records. Only items no complete map of this
+    /// Advisor and model has judged are asked: every item on the first map, later those of new Scout answers and new
+    /// implications.
+    /// </summary>
     /// <param name="plan">The complete current plan.</param>
     /// <param name="index">The validated items with their current locator checks.</param>
     /// <param name="changePoints">The Run's ordered Change points.</param>
     /// <param name="advisor">The selected, configured service.</param>
     /// <param name="path">The Run's Evidence map path.</param>
-    /// <param name="reviewRounds">The plan-review rounds the Run has run, recorded with the plan a complete map judged.</param>
+    /// <param name="scoutAnswers">The Scout answers the Run has consumed, recorded when the map completes.</param>
+    /// <param name="budget">The Run's spending and any budget the user named, or null to send without a budget.</param>
     public void Prepare(string plan, EvidenceIndex index, IReadOnlyList<string> changePoints, IAdvisor advisor, string path,
-                        int reviewRounds = 0)
+                        int scoutAnswers = 0, EvidenceBudget? budget = null)
     {
         var units = PlanUnits.Of(plan);
         var shared = EvidenceRubric.SharedState(units, changePoints);
+        var store = EvidenceStore.Load(path);
+        var judged = store.JudgedBy(advisor);
         var work = new Dictionary<string, Work>(StringComparer.Ordinal);
         var items = new List<ItemWork>();
+        var alreadyMapped = 0;
         foreach (var item in index.Items)
         {
+            if (judged.ContainsKey(EvidenceStore.ComparisonKey(item)))
+            {
+                alreadyMapped++;
+                continue;
+            }
             var candidates = CandidateSelection.Select(item, units, changePoints);
             var logical = new List<LogicalJudgment>();
             foreach (var judgment in EvidenceRubric.Judgments(item, candidates))
@@ -185,9 +210,10 @@ internal sealed class EvidenceMapper
             }
             items.Add(new(item, candidates, logical));
         }
-        var store = EvidenceStore.Load(path, work.ToDictionary(pair => pair.Key, pair => pair.Value.Judgment));
+        store.Verify(work.ToDictionary(pair => pair.Key, pair => pair.Value.Judgment));
+        var limit = budget is null ? (decimal?)null : budget.NamedUsd ?? store.BudgetUsd ?? DEFAULT_BUDGET_USD;
         prepared = new Call(advisor, path, shared, index, items, work, store, Progress,
-                            new EvidencePlanMark(PlanOutline.Hash(plan), reviewRounds));
+                            new EvidenceMapping(advisor.Id, advisor.RequestedModel, scoutAnswers), alreadyMapped, budget, limit);
     }
 
     /// <summary>Runs the validated call with its bound and accounting measured from its opening.</summary>
@@ -198,6 +224,7 @@ internal sealed class EvidenceMapper
         var advisor = session.Advisor;
         session.ReadCache();
         var queue = session.Pack();
+        session.CheckBudget();
         var running = new List<Task<Reply>>();
         var lastWrite = started;
         Exception? failure = null;
@@ -253,7 +280,7 @@ internal sealed class EvidenceMapper
     {
         var result = Progress.Result!;
         var latest = JsonSerializer.SerializeToNode(result, EvidenceMapperJson.Default.EvidenceMapResult)!.AsObject();
-        call.Store.Write(call.Work.Keys, latest, call.Marks, final && result.Complete, call.Plan);
+        call.Store.Write(call.Work.Keys, latest, call.Marks, final && result.Complete, call.Mapping, call.NamedBudget);
         storeWritten?.Invoke();
     }
 
@@ -347,15 +374,21 @@ internal sealed class EvidenceMapper
     /// <param name="work">The distinct required keys.</param>
     /// <param name="store">The validated persistence state.</param>
     /// <param name="progress">The externally readable call progress.</param>
-    /// <param name="plan">The plan this call judges, stored if the map completes.</param>
+    /// <param name="mapping">Who maps and how many Scout answers the call read, stored if the map completes.</param>
+    /// <param name="alreadyMapped">Items a complete map of this Advisor and model has judged, left out of the call.</param>
+    /// <param name="budget">The Run's spending and any budget the user named, or null to send without a budget.</param>
+    /// <param name="limit">The Run's budget this call keeps, or null without one.</param>
     private sealed class Call(IAdvisor advisor, string path, EvidenceSharedState shared, EvidenceIndex index,
                               IReadOnlyList<ItemWork> items, Dictionary<string, Work> work, EvidenceStore store,
-                              EvidenceMapProgress progress, EvidencePlanMark plan)
+                              EvidenceMapProgress progress, EvidenceMapping mapping, int alreadyMapped,
+                              EvidenceBudget? budget, decimal? limit)
     {
         /// <summary>The configured service used by the prepared call.</summary>
         public IAdvisor Advisor => advisor;
-        /// <summary>The plan this call judges.</summary>
-        public EvidencePlanMark Plan => plan;
+        /// <summary>Who maps and how many Scout answers the call read.</summary>
+        public EvidenceMapping Mapping => mapping;
+        /// <summary>A budget the user named in this call, kept for the Run.</summary>
+        public decimal? NamedBudget => budget?.NamedUsd;
         /// <summary>The current distinct keys.</summary>
         public Dictionary<string, Work> Work { get; } = work;
         /// <summary>The call's validated store.</summary>
@@ -370,6 +403,8 @@ internal sealed class EvidenceMapper
         private bool freshModel;
         /// <summary>The number of keys found when the call began.</summary>
         private int cacheHits;
+        /// <summary>The measured size of every packed request, in the Advisor's estimated tokens.</summary>
+        private long estimatedTokens;
 
         /// <summary>Loads cache outcomes before any request and chooses the stored fallback model.</summary>
         public void ReadCache()
@@ -401,11 +436,30 @@ internal sealed class EvidenceMapper
                     Save(part, Reasons(part.Judgment, skipped.Reason), null);
                 }
                 foreach (var request in packing.Requests)
+                {
+                    estimatedTokens += request.Size;
                     queue.Enqueue(new(request.Request, request.Judgments.Select(judgment =>
                         parts.Single(part => ReferenceEquals(part.Judgment, judgment))).ToArray()));
+                }
             }
             return queue;
         }
+
+        /// <summary>
+        /// Sends nothing when the packed requests would take the Run past its budget. The estimate is the measured size,
+        /// which Jev's reported input tokens exceeded by 3–5% on four real maps.
+        /// </summary>
+        public void CheckBudget()
+        {
+            if (budget is not null && budget.SpentUsd + EstimatedCostUsd > limit) StoppedBy = "budget";
+        }
+
+        /// <summary>The packed requests' estimated cost.</summary>
+        private decimal EstimatedCostUsd => Usd(estimatedTokens);
+
+        /// <summary>Prices input tokens at the Advisor's rate, rounded to a hundredth of a cent.</summary>
+        /// <param name="tokens">The input tokens.</param>
+        private decimal Usd(long tokens) => Math.Round(tokens * advisor.InputUsdPerMillion / 1_000_000m, 4);
 
         /// <summary>Applies one completion, splitting persistent request-wide failures into isolated requests.</summary>
         /// <param name="reply">The completed invocation.</param>
@@ -512,8 +566,10 @@ internal sealed class EvidenceMapper
             counts["notIndexedAnswers"] = index.NotIndexedAnswers.Count;
             var remaining = Work.Values.Count(part => part.Questions.Values.Any(outcome =>
                 outcome.Reason is { } reason && !EvidenceStore.IsPersistent(reason)));
-            progress.Result = new(advisor.Id, advisor.RequestedModel, servedModel, remaining == 0, Work.Count,
-                cacheHits, Work.Values.Count(part => part.Checked), remaining, StoppedBy, counts, flags, index.NotIndexedAnswers, path);
+            decimal? cost = progress.Requests == 0 ? 0m : progress.InputTokens is { } input ? Usd(input) : null;
+            progress.Result = new(advisor.Id, advisor.RequestedModel, servedModel, remaining == 0, Work.Count, alreadyMapped,
+                cacheHits, Work.Values.Count(part => part.Checked), remaining, StoppedBy, EstimatedCostUsd, cost,
+                budget is null ? null : budget.SpentUsd + (cost ?? 0m), limit, counts, flags, index.NotIndexedAnswers, path);
             progress.Observation = observations;
         }
     }

@@ -52,16 +52,34 @@ public sealed class JevAdvisorTests
         Assert.DoesNotContain(KEY, sent.Body);
     }
 
-    /// <summary>The exact sent bytes, JSON escaping included, so that a change of transport cannot alter them.</summary>
+    /// <summary>
+    /// The exact sent bytes, JSON escaping included, so that a change of transport cannot alter them. Non-ASCII and
+    /// HTML-sensitive text goes as written: an escape would triple Cyrillic in the bytes the size bounds measure.
+    /// </summary>
     [Fact]
     public async Task The_request_body_is_byte_for_byte_stable()
     {
         var handler = new StubHandler();
         using var advisor = new JevAdvisor(KEY, MODEL, handler);
-        await advisor.AskAsync(Request("<T> & \"q\" 世界\n"), CancellationToken.None);
-        Assert.Equal("{\"state\":{\"text\":\"\\u003CT\\u003E \\u0026 \\u0022q\\u0022 \\u4E16\\u754C\\n\"},\"model\":\"jev-1.13.0\","
+        await advisor.AskAsync(Request("<T> & \"q\" 世界 мир\n"), CancellationToken.None);
+        Assert.Equal("{\"state\":{\"text\":\"<T> & \\\"q\\\" 世界 мир\\n\"},\"model\":\"jev-1.13.0\","
                      + "\"questions\":{\"relevance\":{\"type\":\"choice\",\"instructions\":\"Does it apply?\","
                      + "\"criteria\":{\"yes\":\"It applies\",\"no\":\"It does not\"}}}}", Assert.Single(handler.Requests).Body);
+    }
+
+    /// <summary>
+    /// A Russian state the service's bound admits is not refused as too large. Run 20261024-105628-872ce5 sent a
+    /// 49 KB state that measured 98 KB once each Cyrillic letter became a six-byte escape, so every task pair was
+    /// withheld as too_large.
+    /// </summary>
+    [Fact]
+    public void A_cyrillic_state_is_measured_by_its_utf8_bytes()
+    {
+        var text = new string('ж', 30_000);
+        using var advisor = new JevAdvisor(KEY, MODEL, new StubHandler());
+        var size = advisor.Measure(Request(text));
+        Assert.InRange(size.StatePlusLargestQuestion, Encoding.UTF8.GetByteCount(text) / 3, Encoding.UTF8.GetByteCount(text) / 3 + 100);
+        Assert.True(size.StatePlusLargestQuestion <= advisor.Limits.MaxStatePlusQuestion);
     }
 
     /// <summary>The service's answers, distribution, confidence, model and usage are preserved.</summary>

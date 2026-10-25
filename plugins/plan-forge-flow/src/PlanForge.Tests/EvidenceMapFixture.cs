@@ -73,12 +73,17 @@ internal sealed class EvidenceMapFixture : IDisposable
     /// <param name="name">The asset's relative file name.</param>
     public static string Read(string name) => AtomicFile.Read(Path.Combine(Assets, name));
 
-    /// <summary>Maps a plan, retaining each call's progress for pooled evaluation.</summary>
+    /// <summary>
+    /// Maps a plan, retaining each call's progress for pooled evaluation. Each plan is its own scenario and starts from an
+    /// empty store, since a complete map leaves the items it judged out of every later call.
+    /// </summary>
     /// <param name="plan">The plan asset name.</param>
     /// <param name="advisor">The live or scripted Advisor, defaulting to the labels.</param>
     /// <param name="scoutAnswers">The consumed answer count, optionally including missing entries.</param>
-    public async Task<EvidenceMap> Map(string plan, IAdvisor? advisor = null, int scoutAnswers = 3)
+    /// <param name="keepStore">Whether to map against the store the previous call left.</param>
+    public async Task<EvidenceMap> Map(string plan, IAdvisor? advisor = null, int scoutAnswers = 3, bool keepStore = false)
     {
+        if (!keepStore) File.Delete(Run.EvidenceMapPath);
         Run.WritePlan(Read(plan));
         var mapper = new EvidenceMapper();
         try
@@ -110,6 +115,8 @@ internal sealed class LabelledAdvisor : IAdvisor
     public string RequestedModel => "fixture-1";
     /// <summary>The fake's unit is question count; packing and concurrency still run in production code.</summary>
     public AdvisorLimits Limits { get; } = new("questions", 64, 1, 64, 255, 8, TimeSpan.FromSeconds(30));
+    /// <summary>A scripted service costs nothing.</summary>
+    public decimal InputUsdPerMillion => 0m;
     /// <summary>Every request actually dispatched, useful for invalidation assertions.</summary>
     public List<AdviceRequest> Requests { get; } = [];
 

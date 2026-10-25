@@ -43,6 +43,7 @@ public sealed class DuplicateKeyMatrixTests
             if (cell.Read)
             {
                 await run.Call();
+                run.ForgetMapping();
                 run.Advisor.Requests.Clear();
                 run.Advisor.Handler = (_, _) => throw new InvalidOperationException("A stored key must not be requested.");
             }

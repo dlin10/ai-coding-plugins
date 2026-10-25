@@ -184,7 +184,8 @@ public sealed class EvidenceMetricsTests
     /// <summary>Builds a complete last-call envelope; metrics read the observation rather than its counts.</summary>
     /// <param name="items">The hand-built observation.</param>
     private static EvidenceMap Map(EvidenceItemObservation[] items) =>
-        new(new("test", "model", "model", true, 0, 0, 0, 0, null, new Dictionary<string, int>(), [], [], "unused"), items);
+        new(new("test", "model", "model", true, 0, 0, 0, 0, 0, null, 0m, null, null, null, new Dictionary<string, int>(), [], [],
+                "unused"), items);
 
     /// <summary>Builds an independent label with only the axes needed by an arithmetic example.</summary>
     /// <param name="id">The item identity.</param>

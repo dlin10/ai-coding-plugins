@@ -95,15 +95,37 @@ public sealed class EvidenceMapFixtureTests
         Assert.Equal(32, map.Observation.Count);
     }
 
-    /// <summary>Only the changed task's pairs are received on revision; every unchanged key comes from the store.</summary>
+    /// <summary>After a complete map a revision asks nothing: every item keeps the mark the map gave it.</summary>
+    [Fact]
+    public async Task A_revision_after_a_complete_map_asks_nothing()
+    {
+        using var fixture = new EvidenceMapFixture();
+        var before = await fixture.Map("plan-covered.md");
+        var advisor = new LabelledAdvisor(fixture, "plan-missing.md");
+        var after = await fixture.Map("plan-missing.md", advisor, keepStore: true);
+        Assert.Empty(advisor.Requests);
+        Assert.True(after.Result.Complete);
+        Assert.Equal(0, after.Result.Required);
+        Assert.Equal(before.Observation.Count, after.Result.AlreadyMapped);
+        Assert.Empty(after.Observation);
+        var marks = EvidenceStore.Load(fixture.Run.EvidenceMapPath).LastComplete;
+        Assert.Equal(before.Observation.Count, marks.Count);
+        Assert.All(before.Observation.Where(item => item.Id.StartsWith('A')), item => Assert.Equal(item.Status, marks[item.Id].Status));
+    }
+
+    /// <summary>
+    /// When nothing leaves items out — a map written before mappings existed — a revision asks only the changed task's
+    /// pairs; every unchanged key comes from the store.
+    /// </summary>
     [Fact]
     public async Task Revision_reuses_all_unchanged_judgments()
     {
         using var fixture = new EvidenceMapFixture();
         var before = await fixture.Map("plan-covered.md");
         var previous = before.Observation.SelectMany(item => item.Judgments).Select(judgment => judgment.Key).ToHashSet();
+        MapperRun.ForgetMapping(fixture.Run.EvidenceMapPath);
         var advisor = new LabelledAdvisor(fixture, "plan-missing.md");
-        var after = await fixture.Map("plan-missing.md", advisor);
+        var after = await fixture.Map("plan-missing.md", advisor, keepStore: true);
         var judgments = after.Observation.SelectMany(item => item.Judgments).ToArray();
         Assert.Contains(judgments, judgment => judgment.FromStore);
         Assert.Contains(judgments, judgment => !judgment.FromStore);
@@ -146,6 +168,8 @@ public sealed class EvidenceMapFixtureTests
         foreach (var plan in fixture.Labels.Keys)
         {
             var map = await fixture.Map(plan);
+            // The tool maps the same plan afresh: against the store the direct map left, it would ask nothing.
+            File.Delete(fixture.Run.EvidenceMapPath);
             using var result = JsonDocument.Parse(await ForgeTools.EvidenceMap(SessionRoots.None, fixture.Root,
                 fixture.Run.RunId, fixture.ChangePoints, CancellationToken.None, _ => null,
                 (_, _) => new LabelledAdvisor(fixture, plan), TimeProvider.System, implications: fixture.Implications));

@@ -169,11 +169,13 @@ external request is made and the Evidence check stays manual. `forge.evidence.ma
 the Orchestrator's manual Evidence check; `Evidence/` owns candidate selection, answer validation,
 status, content-addressed storage and resumable progress. The Evidence map and Scout report never
 become Critic, Builder or Scout input. A `covered` is advice and removes nothing. A complete map
-also stores the plan hash it judged and the review rounds run by then;
-`Evidence/EvidenceMapCurrency.cs` turns that into `evidenceMapWarning` on plan writes and
-plan-review rounds when a round has passed and the plan changed since. It warns only: the round,
-not the change alone, makes a map due, because patching in answer to a map before its round is
-the protocol.
+judges each item once per Advisor and model: its marks accumulate in `evidence-map.json` with the
+Scout answers it read, and a later call asks only about unmarked items — see
+[docs/adr/0046](docs/adr/0046-map-each-item-once-and-price-every-map.md).
+`Evidence/EvidenceMapCurrency.cs` turns a Scout answer no complete map has read into
+`evidenceMapWarning` on plan writes and plan-review rounds. It warns only: a new answer, not a
+changed plan, makes a map due. Every call is priced at `IAdvisor.InputUsdPerMillion` before it
+sends, and one that would take the Run past its Advisor budget sends nothing.
 
 Advisor credentials are read only from the environment when needed and never become tool arguments
 or results, exception messages, logs (`forge.log` or `flow_log.md`), telemetry or persisted Run
@@ -305,7 +307,8 @@ judgments, last-complete item marks and the latest map result; it is advisory, n
 `orchestrator.usage`, one per closed Orchestrator phase (`Orchestration/OrchestratorPhases.cs`), and
 `advisor.usage`, one per accepted Evidence map call, including cancellation or failure. The Advisor
 record keeps models, request/failure and judgment counts, reported tokens, cache hits, latency
-p50/p90, duration, completion and stop reason, with no content. Each accepted call attempts one
+p50/p90, duration, completion, stop reason and cost, with no content; the Run's Advisor budget is
+the sum of those costs. Each accepted call attempts one
 Flow-log entry and one usage record in finalization, even when storing the map fails; a record's
 own failure is logged and does not change the call's outcome or prevent the other record.
 Resumed-attempt growth reads `vendor.usage` records only, and no writer may disturb the other

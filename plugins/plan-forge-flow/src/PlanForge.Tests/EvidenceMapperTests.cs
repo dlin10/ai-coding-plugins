@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using PlanForge.Advisors;
 using PlanForge.Evidence;
 using PlanForge.Infrastructure;
@@ -136,6 +137,7 @@ public sealed class EvidenceMapperTests
         Assert.Equal("invalid_answer", Outcome(map, 0).Reason);
         Assert.True(map.Result.Complete);
         Assert.Single(run.Advisor.Requests);
+        run.ForgetMapping();
         Assert.Equal(2, (await run.Call()).Result.CacheHits);
         Assert.Single(run.Advisor.Requests);
     }
@@ -149,7 +151,10 @@ public sealed class EvidenceMapperTests
         var map = await run.Call();
         Assert.Equal("refused", Outcome(map, 0).Reason);
         Assert.Equal(2, run.Store().Judgments.Count);
-        Assert.True((await run.Call()).Result.Complete);
+        run.ForgetMapping();
+        var next = await run.Call();
+        Assert.True(next.Result.Complete);
+        Assert.Equal(2, next.Result.CacheHits);
         Assert.Single(run.Advisor.Requests);
     }
 
@@ -162,6 +167,7 @@ public sealed class EvidenceMapperTests
             ? question.Id.StartsWith("relationship:", StringComparison.Ordinal) ? FakeAdvisor.Valid(question, "contradicts") : new Refused()
             : FakeAdvisor.Valid(question);
         Assert.Equal("contradiction", Assert.Single((await run.Call()).Result.Flags).Status);
+        run.ForgetMapping();
         var next = await run.Call();
         Assert.Equal("contradiction", Assert.Single(next.Observation).Status);
         Assert.Single(run.Advisor.Requests);
@@ -378,6 +384,7 @@ public sealed class EvidenceMapperTests
         Assert.Single(run.Advisor.Requests);
         Assert.Null(run.Store().Judgments[map.Observation[0].Judgments[0].Key].ServedModel);
         Assert.Equal("A", run.Store().Judgments[map.Observation[1].Judgments[0].Key].ServedModel);
+        run.ForgetMapping();
         var next = await run.Call();
         Assert.True(next.Result.Complete);
         Assert.Equal("A", next.Result.ServedModel);
@@ -386,14 +393,94 @@ public sealed class EvidenceMapperTests
         Assert.Single(run.Advisor.Requests);
     }
 
-    /// <summary>Flag change is evaluated against the preceding complete map on every call.</summary>
+    /// <summary>A flag is compared with the mark an earlier complete map left for the same item.</summary>
     [Fact]
     public async Task Completed_flags_are_new_then_carried()
     {
         using var run = MapperRun.Plain(1);
         Assert.Equal("new", Assert.Single((await run.Call()).Result.Flags).Change);
+        run.ForgetMapping();
         Assert.Equal("carried", Assert.Single((await run.Call()).Result.Flags).Change);
         Assert.Equal("carried", run.Store().Latest!["flags"]![0]!["change"]!.GetValue<string>());
+    }
+
+    /// <summary>A complete map leaves the items it judged out of every later call, whatever the plan or Change points became.</summary>
+    [Fact]
+    public async Task A_complete_map_leaves_its_items_out_of_later_calls()
+    {
+        using var run = new MapperRun();
+        Assert.True((await run.Call()).Result.Complete);
+        run.Plan = MapperRun.TwoUnits;
+        run.ChangePoints = ["Change WidgetApi", "Rename WidgetApi"];
+        var next = await run.Call();
+        Assert.True(next.Result.Complete);
+        Assert.Equal(0, next.Result.Required);
+        Assert.Equal(1, next.Result.AlreadyMapped);
+        Assert.Empty(next.Observation);
+        Assert.Empty(next.Result.Flags);
+        Assert.Single(run.Advisor.Requests);
+        Assert.Equal(new EvidenceMapping("fixture", "requested-1", 1), run.Store().Mapped);
+    }
+
+    /// <summary>A new Scout answer is mapped alone, and its marks join those the earlier map left.</summary>
+    [Fact]
+    public async Task A_new_answer_is_mapped_alone_and_its_marks_join_the_earlier_ones()
+    {
+        using var run = new MapperRun();
+        await run.Call();
+        run.Entries = [run.Entries[0], run.Entry(MapperRun.External("WidgetCli requires verification")) with { Number = 2 }];
+        run.ScoutAnswers = 2;
+        var next = await run.Call();
+        Assert.Equal(1, next.Result.AlreadyMapped);
+        Assert.Equal("A2.confirmedFacts.1", Assert.Single(next.Observation).Id);
+        Assert.Equal(2, run.Advisor.Requests.Count);
+        var store = run.Store();
+        Assert.Equal(["A1.confirmedFacts.1", "A2.confirmedFacts.1"], store.LastComplete.Keys.Order());
+        Assert.Equal(new EvidenceMapping("fixture", "requested-1", 2), store.Mapped);
+    }
+
+    /// <summary>A new implication is mapped alone; one a complete map judged is left out like a Scout item.</summary>
+    [Fact]
+    public async Task A_new_implication_is_mapped_alone()
+    {
+        using var run = new MapperRun { Implications = [new("WidgetApi requires verification", ["A1.confirmedFacts.1"])] };
+        await run.Call();
+        run.Implications = [run.Implications[0], new("WidgetApi needs a test", ["A1.confirmedFacts.1"])];
+        var next = await run.Call();
+        Assert.Equal(2, next.Result.AlreadyMapped);
+        Assert.Equal("H2", Assert.Single(next.Observation).Id);
+    }
+
+    /// <summary>Another requested model judges every item again, and its marks replace the earlier ones.</summary>
+    [Fact]
+    public async Task Another_model_maps_every_item_again()
+    {
+        using var run = new MapperRun();
+        await run.Call();
+        run.Advisor.RequestedModel = "requested-2";
+        var next = await run.Call();
+        Assert.Equal(0, next.Result.AlreadyMapped);
+        Assert.Single(next.Observation);
+        Assert.Equal(2, run.Advisor.Requests.Count);
+        Assert.Equal("requested-2", run.Store().Mapped!.RequestedModel);
+    }
+
+    /// <summary>An incomplete map marks nothing, so the next call asks what it left and reuses what it stored.</summary>
+    [Fact]
+    public async Task An_incomplete_map_leaves_every_item_in_the_next_call()
+    {
+        using var run = MapperRun.Plain(2);
+        run.Advisor.Handler = (request, _) => run.Advisor.Requests.Count == 1 ? Task.FromResult(FakeAdvisor.Answer(request))
+            : throw new AdvisorException(AdvisorFailureKind.Unavailable);
+        Assert.False((await run.Call()).Result.Complete);
+        Assert.Null(run.Store().Mapped);
+        Assert.Empty(run.Store().LastComplete);
+        run.Advisor.Handler = null;
+        var next = await run.Call();
+        Assert.True(next.Result.Complete);
+        Assert.Equal(0, next.Result.AlreadyMapped);
+        Assert.Equal(1, next.Result.CacheHits);
+        Assert.Equal(3, run.Advisor.Requests.Count);
     }
 
     /// <summary>A malformed map is refused without requests or replacing the file.</summary>
@@ -532,6 +619,21 @@ internal sealed class MapperRun : IDisposable
     /// <summary>Loads the actual persisted file after a call.</summary>
     public EvidenceStore Store() => EvidenceStore.Load(Path);
 
+    /// <summary>Makes the next call judge every item again, as after a map written before mappings existed.</summary>
+    public void ForgetMapping() => ForgetMapping(Path);
+
+    /// <summary>
+    /// Drops the record of who made a store's marks, as a map written before 0.63.0 has none. The marks stay, so flags
+    /// still compare with them, and the next call asks every item again, from stored judgments where keys still match.
+    /// </summary>
+    /// <param name="path">The store to rewrite.</param>
+    public static void ForgetMapping(string path)
+    {
+        var file = JsonNode.Parse(AtomicFile.Read(path))!.AsObject();
+        Assert.True(file.Remove("mapped"));
+        AtomicFile.Write(path, file.ToJsonString());
+    }
+
     /// <summary>Records an answer with checks matching its current repository files.</summary>
     /// <param name="facts">Confirmed facts in their exact order.</param>
     public ScoutAnswerEntry Entry(params ScoutItem[] facts)
@@ -576,10 +678,12 @@ internal sealed class FakeAdvisor : IAdvisor
 {
     /// <summary>The fixture Advisor identity.</summary>
     public string Id => "fixture";
-    /// <summary>The pinned requested model, separate from the scripted served model.</summary>
-    public string RequestedModel => "requested-1";
+    /// <summary>The pinned requested model, separate from the scripted served model, changeable by the mapping tests.</summary>
+    public string RequestedModel { get; set; } = "requested-1";
     /// <summary>Limits can be narrowed independently by each test.</summary>
     public AdvisorLimits Limits { get; set; } = new("questions", 1000, 1000, 64, 255, 1, TimeSpan.FromSeconds(30));
+    /// <summary>A price per million of the fake's measure unit, set by the budget tests.</summary>
+    public decimal InputUsdPerMillion { get; set; }
     /// <summary>The requests in invocation order.</summary>
     public List<AdviceRequest> Requests { get; } = [];
     /// <summary>The response script, when the default question script is insufficient.</summary>

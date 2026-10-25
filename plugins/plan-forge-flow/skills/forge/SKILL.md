@@ -94,7 +94,7 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 | `forge.models` | — | At the first Scout need, and again right before the critic/builder vendor question. |
 | `forge.scout.select` | `enabled`, `vendor?`, `model?`, `effort?`, `fast?` | Once, at the first broad need; `enabled: false` continues without Scout. |
 | `forge.scout.run` | `question`, `sessionMode: "fresh" \| "continue"` | One Scout question whose answer the next question to the user waits on. |
-| `forge.evidence.map` | `changePoints: ["…"]`, `implications?: [{ text, derivedFrom: ["A1.confirmedFacts.1"] }]`, `advisor?` | After the manual Evidence check, when an Advisor is configured. |
+| `forge.evidence.map` | `changePoints: ["…"]`, `implications?: [{ text, derivedFrom: ["A1.confirmedFacts.1"] }]`, `advisor?`, `budgetUsd?` | After the manual Evidence check that follows the first draft or an Impact pass, when an Advisor is configured. |
 | `forge.instructions.set` | `criticInstructions?`, `builderInstructions?` — the user's words verbatim | End of the interview, only if either answer was not "no instructions". |
 | `forge.plan.write` | `planDraft` — the whole plan | The first draft and genuine rewrites. |
 | `forge.plan.outline` | — | The current `planHash` and targets `s0`, `s1`, … with `targetHash`. |
