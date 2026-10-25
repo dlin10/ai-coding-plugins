@@ -91,9 +91,11 @@ jobs:
       RELEASE_TAG: ${{ needs.decide.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
+      # Pinned to the SDK preinstalled on the image, as in build-plan-forge-flow.yml: `10.0.x`
+      # resolved to 10.0.403, which the image lacks, and its download answered HTTP 409.
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 10.0.402
       # The release proves its own artifact rather than trusting the run of
       # build-plan-forge-flow.yml beside it: on the merge path the two start together, so that
       # workflow has no verdict yet at the moment this would need one. Integration tests drive the
