@@ -68,6 +68,21 @@ choice in the Brief, with its label in the language of the plan and the paramete
 Pass timing on first confirm and gate on each fix; never repeat this interview between fixes.
 Without an explicit targeted choice, keep full verification.
 
+When settling acceptance and stop rules, distinguish an outcome on a real target — a finding
+confirmed or gone, a model complete, a measurement under a bound — from acceptance such as a
+refactor or documentation change. For an outcome, once the target, acceptance and mechanism are
+concrete, run the feasibility question in `scout.md` during the interview, before declaring
+`phase: "planning"` and before the first `forge.plan.write`. A stop rule alone does not establish
+that the outcome is reachable.
+
+Show the answer before drafting. For each unmet dependency or one the check cannot settle, ask
+the user through `asking.md` whether to change the acceptance, change the mechanism, or plan a
+probe first. Explain the dependency and its evidence, recommend an option with a reason, and wait
+for the answer; record it with `forge.decision.record`. Check the affected dependencies again when
+the acceptance or mechanism changes. The interview is settled only when they hold or the user
+has chosen a probe whose first task tests the outcome and stops the run if it fails
+(`planning.md`). Refactors and docs without an outcome on a real target need no feasibility question.
+
 When the interview has settled the decisions, declare `phase: "planning"`, sketch the approach and
 make its matrix check (`planning.md`), and start the Impact pass on it as a Scout job (`scout.md`).
 While it runs, choose the vendors and models — the whole of the "Choosing the vendor and model"

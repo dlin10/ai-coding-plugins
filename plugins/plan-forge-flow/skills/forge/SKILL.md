@@ -41,9 +41,9 @@ and again whenever you resume it:
 | File | Read it | It holds |
 |---|---|---|
 | `references/asking.md` | before your first question to the user | Asking the user: one question per call, each explained, the recommendation first; Recording the answer |
-| `references/interview.md` | right after `forge.begin` | Act 1: the interview, the opening questions, the mode ladder, the verification question; Choosing the vendor and model |
-| `references/scout.md` | at the first broad reconnaissance need, and before the Impact pass | Scout reconnaissance; The Scout question; The Impact pass; The Evidence check |
-| `references/planning.md` | once the interview's decisions are settled | Writing the plan: requirements, gates, the Fix gate grammar, gate commands, the Approach; The matrix check; The matrix task |
+| `references/interview.md` | right after `forge.begin` | Act 1: the interview, the opening questions, the mode ladder, verification and feasibility; Choosing the vendor and model |
+| `references/scout.md` | at the first broad reconnaissance need, for feasibility during the interview, and before the Impact pass | Scout reconnaissance; The Scout question; The feasibility question; The Impact pass; The Evidence check |
+| `references/planning.md` | once the interview's decisions are settled | Writing the plan: requirements, gates, the Fix gate grammar, gate commands, the Approach; When the user chooses a probe first; The matrix check; The matrix task |
 | `references/plan-review.md` | before the first `forge.plan.review` | Rounds, revision, and caps; Writing a revision |
 | `references/ledger.md` | before your first decision batch | Decision ledger protocol |
 | `references/approval.md` | when the critique settles | Approval |
@@ -68,7 +68,8 @@ Declare each phase as it begins with `forge.log.append`'s `phase`; `forge.begin`
 itself. The run moves through them in this order, back to `plan_revision` whenever the plan changes:
 
 1. **`interview`** — `forge.begin`, the mode question, the interview with the orientation Scout job
-   and the opening questions asked beside it, the verification question. `interview.md`.
+   and the opening questions asked beside it, verification, and feasibility for acceptance outcomes
+   on real targets. `interview.md`, `scout.md`.
 2. **`planning`** — declared once the interview's decisions are settled: the approach sketch and its
    matrix check, the Impact pass as a Scout job, and while it runs the critic and builder selections,
    `forge.instructions.set` and the requirements, gates and tasks; then its answer folded in,
@@ -92,7 +93,7 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 |---|---|---|
 | `forge.begin` | `workerTools?: ["<MCP server pattern>"]` — no `runId` | Once, first. Returns `runId`, `client`, `profile`, `advisors`. |
 | `forge.models` | — | At the first Scout need, and again right before the critic/builder vendor question. |
-| `forge.scout.select` | `enabled`, `vendor?`, `model?`, `effort?`, `fast?` | Once, at the first broad need; `enabled: false` continues without Scout. |
+| `forge.scout.select` | `enabled`, `vendor?`, `model?`, `effort?`, `fast?` | Once, at the first Scout need; `enabled: false` continues without Scout. |
 | `forge.scout.run` | `question`, `sessionMode: "fresh" \| "continue"` | One Scout question whose answer the next question to the user waits on. |
 | `forge.evidence.map` | `changePoints: ["…"]`, `implications?: [{ text, derivedFrom: ["A1.confirmedFacts.1"] }]`, `advisor?`, `budgetUsd?` | After the manual Evidence check that follows the first draft or an Impact pass, when an Advisor is configured. |
 | `forge.instructions.set` | `criticInstructions?`, `builderInstructions?` — the user's words verbatim | End of the interview, only if either answer was not "no instructions". |

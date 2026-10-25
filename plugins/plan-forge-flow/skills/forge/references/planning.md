@@ -143,9 +143,26 @@ State the builder's selection at the top of the plan, above `## Requirements`, i
 model, effort, and `Fast` when the user chose it. The critic judges the plan's depth against the
 builder named there.
 
+For an outcome on a real target, the interview's feasibility answer and the user's resolution of
+every unmet or unsettled dependency must precede drafting (`interview.md`, `scout.md`).
 The draft is not ready for its first `forge.plan.write` until the matrix check below and the Impact
 pass described under "Scout reconnaissance" have run against it, nor for its first review until the
 Evidence check has.
+
+### When the user chooses a probe first
+
+Make the probe ordinary task 1 under `## Approach`, after the usual plan review and approval.
+Name the target, the acceptance outcome and conditions, the decided mechanism, and the dependency
+it must settle. Include only the setup and implementation needed to test that outcome in task 1;
+do not put preparatory implementation tasks ahead of it.
+
+Task 1's executable **Gate** checks the acceptance outcome itself on the real target. Compiling,
+creating a fixture or passing unrelated tests is not that gate. The server runs it with the usual
+gate ownership. Make every later task conditional on its pass, and put the stop rule in both the
+Builder Brief and task 1: if the outcome fails or cannot be verified, stop the run there and show
+the evidence to the user. Do not automatically retry the probe, start task 2, weaken the acceptance
+or change the mechanism; a new direction needs the user's decision. `build.md` applies this stop
+before its ordinary retry rules. This uses an ordinary task and gate, with no new act or sandbox.
 
 ### The matrix check
 

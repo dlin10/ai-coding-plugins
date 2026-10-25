@@ -1,5 +1,19 @@
 # Plan Forge Flow releases
 
+## 0.64.0
+
+Check acceptance feasibility before the first draft. Issue #189.
+
+- When acceptance is an outcome on a real target, the interview asks Scout what that outcome
+  depends on and whether each dependency holds under the chosen mechanism. Unmet or unsettled
+  dependencies reach the user before drafting: change the acceptance, change the mechanism, or
+  choose a probe first.
+- A probe is ordinary task 1, whose gate checks the acceptance outcome itself. Failure or inability
+  to verify it stops the run before automatic retries or later tasks.
+- When the user continues without Scout, the Orchestrator makes the same feasibility check.
+  Refactors and documentation changes without an outcome on a real target do not need it; the
+  Impact pass still checks the drafted approach.
+
 ## 0.63.0
 
 The Evidence map judges each item once and prices every call. ADR 0046; ADR 0036 amended.
