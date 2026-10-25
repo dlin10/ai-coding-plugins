@@ -136,9 +136,9 @@ public sealed class ScoutSkillTests
     }
 
     [Fact]
-    public void Flow_log_appears_after_first_scout_or_critique()
+    public void Flow_log_appears_after_first_scout_plan_write_or_critique()
     {
-        Contains("first Scout outcome or first critique, whichever happens first", "surface its live path in that turn", Skill());
+        Contains("first Scout outcome, plan write, or critique on", Skill());
     }
 
     [Fact]

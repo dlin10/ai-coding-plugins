@@ -413,7 +413,7 @@ internal sealed class ForgeTools
     /// <param name="runId">The run whose plan is written.</param>
     /// <param name="planDraft">The complete current plan draft.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
-    [McpServerTool(Name = "forge.plan.write"), Description("Writes the complete plan draft to `PLAN.md` for the first draft or a rewrite, without running a critic. A local revision can use forge.plan.patch. Returns the outline computed from the plan read back after writing (null for blank plan text) and its path under `documents`; show the user that path, then review with `planDraft` omitted. A write over an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
+    [McpServerTool(Name = "forge.plan.write"), Description("Writes the complete plan draft to `PLAN.md` for the first draft or a rewrite, without running a critic. A local revision can use forge.plan.patch. Returns the outline (null for blank plan text) and `shape` computed from the plan read back after writing, records the shape in the Flow log, and returns both document paths under `documents`; show the user that path, then review with `planDraft` omitted. A write over an already-approved plan takes the approval back and resets the build progress; say so out loud when it happens.")]
     public static async Task<string> WritePlan(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
@@ -426,9 +426,18 @@ internal sealed class ForgeTools
             {
                 PlanReview.Write(run, planDraft);
                 var plan = run.ReadPlan();
-                var outline = PlanOutline.IsBlank(plan) ? null : PlanOutline.Of(plan);
+                var outline = PlanOutline.Of(plan);
+                var shape = PlanShape.Of(plan, outline);
+                try { run.AppendFlowPlanWritten(outline.PlanHash, shape); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                {
+                    throw new IOException($"The plan was written, but its Flow entry could not be written. " +
+                                          $"The new plan hash is {outline.PlanHash}; read forge.plan.outline.", error);
+                }
                 return Task.FromResult(EvidenceMapCurrency.Attach(
-                    JsonSerializer.Serialize(new PlanWriteResult(run.RunId, outline, Documents(run)), ForgeToolJson.Default.PlanWriteResult),
+                    JsonSerializer.Serialize(new PlanWriteResult(run.RunId, PlanOutline.IsBlank(plan) ? null : outline,
+                                                                 shape, Documents(run)),
+                                             ForgeToolJson.Default.PlanWriteResult),
                     EvidenceMapCurrency.Warning(run, run.ReadState().ScoutAnswers)));
             });
     }
@@ -464,7 +473,7 @@ internal sealed class ForgeTools
     /// <param name="baseHash">The plan hash from its current outline.</param>
     /// <param name="edits">The operations and exact target selectors against that outline.</param>
     /// <param name="ct">Cancels the call.</param>
-    [McpServerTool(Name = "forge.plan.patch"), Description("Revises local targets against baseHash from forge.plan.outline, with a required nonempty edits array. Each edit requires op, target ID and targetHash: replace, delete, insertBefore or insertAfter. Replace/insert require nonblank content; delete permits no content, even an empty string. Refuses the whole patch for no_plan, stale plan/target hash, missing edit/fields, unknown target/operation, invalid content, two replacements/deletions on one target, two insertions at the same position (including after X/before its successor), or insertion anchored on a deleted target. Refusals identify the edit index where applicable and change no protected file. All edits use one snapshot and apply independently of list order; untouched text is exact. Written line breaks become CRLF only when every existing break is CRLF and there is at least one, otherwise LF; append a final break if missing and keep supplied trailing blank lines. Insert a separator in that style between pieces only when the preceding piece lacks a final break. Remove leading byte-order marks from the complete result before checking, writing, hashing or measuring it. Refuses blank or identical results, and any result the build task parser rejects when the base parses, including unreadable/overflowing task numbers; no renumbering. A successful patch withdraws approval and forgets the Builder session before persisting the complete plan, but keeps the build progress before the first task whose text it changed. Task texts as the build parses them are compared by position, so changing, inserting or removing task k at or below the built count — prose inserted after task k joins it — sends the build back to k − 1 tasks, trimming their changed-file hand-over and dropping a pending gate failure; a patch changing no built task's text, such as one to the title, Requirements, Gates or unbuilt tasks, keeps it all. No Worker, gate, review round or cap change. Returns the new outline, tasksKept and firstTaskOwed (null when every task is built), and documents, with no plan text beyond labels; the Flow log records each change's op/target/label and the character and UTF-8 byte sizes (payload JSON, supplied text, plan before, removed, written excluding separators, plan after). Missing/blank plans require forge.plan.write. Before replacement failures leave the plan unchanged and say whether approval was withdrawn; a failure of the patch's Flow entry says the plan was patched and gives its new hash. There is no lock or multi-file transaction; the hash check and replacement are not atomic. A replay conflicts as stale: read forge.plan.outline and redo edits against its new hash; never resend the refused patch or infer success from equal text.")]
+    [McpServerTool(Name = "forge.plan.patch"), Description("Revises local targets against baseHash from forge.plan.outline, with a required nonempty edits array. Each edit requires op, target ID and targetHash: replace, delete, insertBefore or insertAfter. Replace/insert require nonblank content; delete permits no content, even an empty string. Refuses the whole patch for no_plan, stale plan/target hash, missing edit/fields, unknown target/operation, invalid content, two replacements/deletions on one target, two insertions at the same position (including after X/before its successor), or insertion anchored on a deleted target. Refusals identify the edit index where applicable and change no protected file. All edits use one snapshot and apply independently of list order; untouched text is exact. Written line breaks become CRLF only when every existing break is CRLF and there is at least one, otherwise LF; append a final break if missing and keep supplied trailing blank lines. Insert a separator in that style between pieces only when the preceding piece lacks a final break. Remove leading byte-order marks from the complete result before checking, writing, hashing or measuring it. Refuses blank or identical results, and any result the build task parser rejects when the base parses, including unreadable/overflowing task numbers; no renumbering. A successful patch withdraws approval and forgets the Builder session before persisting the complete plan, but keeps the build progress before the first task whose text it changed. Task texts as the build parses them are compared by position, so changing, inserting or removing task k at or below the built count — prose inserted after task k joins it — sends the build back to k − 1 tasks, trimming their changed-file hand-over and dropping a pending gate failure; a patch changing no built task's text, such as one to the title, Requirements, Gates or unbuilt tasks, keeps it all. No Worker, gate, review round or cap change. Returns the new outline, shape (including an advisory split suggestion), tasksKept and firstTaskOwed (null when every task is built), and documents, with no plan text beyond labels; the Flow log records the shape, each change's op/target/label and the character and UTF-8 byte sizes (payload JSON, supplied text, plan before, removed, written excluding separators, plan after). Missing/blank plans require forge.plan.write. Before replacement failures leave the plan unchanged and say whether approval was withdrawn; a failure of the patch's Flow entry says the plan was patched and gives its new hash. There is no lock or multi-file transaction; the hash check and replacement are not atomic. A replay conflicts as stale: read forge.plan.outline and redo edits against its new hash; never resend the refused patch or infer success from equal text.")]
     public static async Task<string> PatchPlan(SessionRoots roots,
                                                [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                                [Description("Run id from forge.begin.")] string runId,
@@ -487,7 +496,8 @@ internal sealed class ForgeTools
                 sizes = patch.Sizes;
                 outcome = "applied";
                 return Task.FromResult(EvidenceMapCurrency.Attach(JsonSerializer.Serialize(
-                    new PlanPatchResult(run.RunId, patch.Outline, patch.TasksKept, patch.FirstTaskOwed, Documents(run)),
+                    new PlanPatchResult(run.RunId, patch.Outline, patch.Shape, patch.TasksKept, patch.FirstTaskOwed,
+                                        Documents(run)),
                     ForgeToolJson.Default.PlanPatchResult), EvidenceMapCurrency.Warning(run, run.ReadState().ScoutAnswers)));
             }
             catch (PlanPatchRejectedException error)
@@ -1442,8 +1452,9 @@ internal sealed record ApproveResult(bool Approved, int TaskCount);
 /// <summary>The current plan file and its outline after forge.plan.write; forge.plan.patch updates the same document.</summary>
 /// <param name="RunId">The run whose plan was written.</param>
 /// <param name="Outline">The outline read back from disk, or null for blank plan text.</param>
+/// <param name="Shape">The draft's measurements and calibrated split suggestion.</param>
 /// <param name="Documents">The run's documents and display instructions.</param>
-internal sealed record PlanWriteResult(string RunId, PlanOutline? Outline, RunDocuments Documents);
+internal sealed record PlanWriteResult(string RunId, PlanOutline? Outline, PlanShape Shape, RunDocuments Documents);
 
 internal sealed record PlanOutlineResult(string RunId, PlanOutline Outline, RunDocuments Documents);
 
@@ -1454,10 +1465,11 @@ internal sealed record PlanOutlineResult(string RunId, PlanOutline Outline, RunD
 /// </summary>
 /// <param name="RunId">The run whose plan was patched.</param>
 /// <param name="Outline">The outline of the patched plan, whose hash the next patch or confirmation names.</param>
+/// <param name="Shape">The patched plan's measurements and calibrated split suggestion.</param>
 /// <param name="TasksKept">How many built tasks stay built: tasks 1 to this number.</param>
 /// <param name="FirstTaskOwed">The task the next build runs, or null when every task of the patched plan is built.</param>
 /// <param name="Documents">The run's documents and display instructions.</param>
-internal sealed record PlanPatchResult(string RunId, PlanOutline Outline, int TasksKept, int? FirstTaskOwed,
+internal sealed record PlanPatchResult(string RunId, PlanOutline Outline, PlanShape Shape, int TasksKept, int? FirstTaskOwed,
                                        RunDocuments Documents);
 
 /// <param name="Note">

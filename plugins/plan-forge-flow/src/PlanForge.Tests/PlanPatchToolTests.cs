@@ -69,7 +69,7 @@ public sealed class PlanPatchToolTests : IDisposable
 
         using var answer = JsonDocument.Parse(await Patch(run, outline.PlanHash, [Edit(outline)]));
 
-        Assert.Equal(["runId", "outline", "tasksKept", "firstTaskOwed", "documents"],
+        Assert.Equal(["runId", "outline", "shape", "tasksKept", "firstTaskOwed", "documents"],
                      answer.RootElement.EnumerateObject().Select(property => property.Name));
     }
 

@@ -41,6 +41,14 @@ public sealed class MatrixCheckSkillTests
     }
 
     [Fact]
+    public void A_large_first_draft_offers_a_concrete_split_before_round_one()
+    {
+        Contains("22,000 UTF-16", "separable tasks or task groups", "their sizes from the outline",
+                 "R-items each serves", "review as is", "wait for the user's choice",
+                 "Before round 1", "shape.splitSuggested: true", Skill());
+    }
+
+    [Fact]
     public void The_matrix_task_names_its_axes_exclusions_and_an_expectation_table_from_the_requirements()
     {
         Contains("### The matrix task", "The critic judges a matrix task with the rest of the plan",
