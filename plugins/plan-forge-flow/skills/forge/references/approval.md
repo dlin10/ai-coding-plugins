@@ -38,7 +38,7 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
 5. Pass what they answered to `forge.plan.confirm`, with the `planHash` of the plan they saw, the
    variables as `gateEnvironment` and any final plan decisions under one `decisionBatchId`. `builderRoots` is accepted for
    compatibility and does not control access. Use `addressedByRevision` for IDs the final revision
-   fixed and `duplicateOf` for redundant IDs. The
+   fixed, with `evidence` for a blocker or major, and `duplicateOf` for redundant IDs. The
    call refuses approval and lists every still-unresolved active plan ID. With a no answer, pass
    `approved: false` and no decisions; leave them for a later review or approved confirmation.
    Send the interview's `fullGate` on first approval. On subsequent confirmations omit it unless

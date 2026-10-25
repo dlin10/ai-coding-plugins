@@ -68,6 +68,7 @@ public sealed class ResumeCardTests : IDisposable
         Assert.Contains($"forge.plan.confirm {{ approved: true, planHash: \"{hash}\"", card, StringComparison.Ordinal);
         Assert.Contains("forge.plan.review { model: \"critic-x\", effort: \"xhigh\", vendor: \"codex\", fast: false, revision:", card, StringComparison.Ordinal);
         Assert.Contains("\"addressedByRevision\"", card, StringComparison.Ordinal);
+        Assert.Contains("evidence?: \"<required for accept, and for addressedByRevision of a blocker or major>\"", card, StringComparison.Ordinal);
         Assert.Contains($"Unresolved: {finding.FindingId}.", card, StringComparison.Ordinal);
         Assert.Contains($"of which active in plan review: {finding.FindingId}.", card, StringComparison.Ordinal);
         Assert.Contains("read references/plan-review.md, references/ledger.md, references/approval.md", card, StringComparison.Ordinal);
@@ -125,6 +126,7 @@ public sealed class ResumeCardTests : IDisposable
         Assert.Contains($"of which active in code review: {pending.FindingId}, {open.FindingId}.", card, StringComparison.Ordinal);
         Assert.Contains("forge.review.code { model: \"<the critic's model>\"", card, StringComparison.Ordinal);
         Assert.Contains("\"hostVerified\"", card, StringComparison.Ordinal);
+        Assert.Contains("evidence?: \"<required for hostVerified and accept>\"", card, StringComparison.Ordinal);
         Assert.Contains("raises?: [{ severity:", card, StringComparison.Ordinal);
         Assert.Contains("gate?: \"full\" | \"targeted\"", card, StringComparison.Ordinal);
         Assert.Contains("read references/code-review.md, references/ledger.md", card, StringComparison.Ordinal);

@@ -14,6 +14,9 @@ namespace PlanForge.Tests;
 
 public sealed class DecisionLedgerOrchestrationTests : IDisposable
 {
+    private const string REVISION_EVIDENCE = "read PLAN.md:12-20; class: every caller of Parse; cell: a wrong order fails";
+    private const string REVISION_EVIDENCE_ASK = "what the revision read (file:lines or a Roslyn query), the class it listed, "
+                                                 + "and the test cell a wrong implementation fails";
     private readonly string _workspace = Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
 
     public void Dispose()
@@ -162,7 +165,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("code"), LedgerPhase.CodeReview);
         Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
-            Batch(Decision("addressedByRevision", entry.FindingId)), LedgerPhase.CodeReview));
+            Batch(Decision("addressedByRevision", entry.FindingId, evidence: REVISION_EVIDENCE)), LedgerPhase.CodeReview));
     }
 
     [Fact]
@@ -503,7 +506,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("closed"), LedgerPhase.PlanReview);
-        ledger.Apply(Batch(Decision("addressedByRevision", entry.FindingId)), LedgerPhase.PlanReview);
+        ledger.Apply(Batch(Decision("addressedByRevision", entry.FindingId, evidence: REVISION_EVIDENCE)), LedgerPhase.PlanReview);
         Assert.DoesNotContain(ledger.Project(LedgerPhase.PlanReview), item => item.FindingId == entry.FindingId);
     }
 
@@ -544,7 +547,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
             ledger.Apply(Batch(Decision("defer", entry.FindingId)), phase);
 
         var response = ledger.Apply(Batch(Decision(action, entry.FindingId, by: "user",
-                                                   evidence: action is "hostVerified" or "accept" ? "evidence" : null,
+                                                   evidence: action is "hostVerified" or "accept" or "addressedByRevision" ? "evidence" : null,
                                                    duplicateOf: action == "duplicateOf" ? other.FindingId : null)),
                                     phase);
 
@@ -599,7 +602,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var ledger = Ledger();
         var entries = ledger.AddFindings([Finding("one"), Finding("two")], LedgerPhase.PlanReview);
-        ledger.Apply(Batch(Decision("addressedByRevision", entries[0].FindingId)), LedgerPhase.PlanReview);
+        ledger.Apply(Batch(Decision("addressedByRevision", entries[0].FindingId, evidence: REVISION_EVIDENCE)), LedgerPhase.PlanReview);
         Assert.Equal(entries[1].FindingId, Assert.Single(ledger.Snapshot.Entries).FindingId);
     }
 
@@ -806,7 +809,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("close"), LedgerPhase.PlanReview);
         Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
-            Batch(Decision("addressedByRevision", entry.FindingId, reason: "")), LedgerPhase.PlanReview));
+            Batch(Decision("addressedByRevision", entry.FindingId, reason: "", evidence: REVISION_EVIDENCE)), LedgerPhase.PlanReview));
     }
 
     [Fact]
@@ -849,9 +852,93 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     {
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("revision"), LedgerPhase.PlanReview);
-        ledger.Apply(Batch(Decision("addressedByRevision", entry.FindingId)), LedgerPhase.PlanReview);
+        ledger.Apply(Batch(Decision("addressedByRevision", entry.FindingId, evidence: REVISION_EVIDENCE)), LedgerPhase.PlanReview);
         Assert.Single(ledger.Snapshot.AppliedDecisionBatches);
         Assert.Empty(ledger.Snapshot.Entries);
+    }
+
+    [Theory]
+    [InlineData("blocker", "addressedByRevision")]
+    [InlineData("major", "addressedByRevision")]
+    [InlineData("major", "revision")]
+    public void A_revision_closure_of_a_blocker_or_major_without_evidence_is_refused(string severity, string action)
+    {
+        var ledger = Ledger();
+        var entry = ledger.AddFinding(new Finding(severity, "test.cs", "closed by revision"), LedgerPhase.PlanReview);
+        var batch = Batch(Decision(action, entry.FindingId));
+
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.ValidateOrchestratorBatch(batch, LedgerPhase.PlanReview));
+        var error = Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(batch, LedgerPhase.PlanReview));
+
+        Assert.Equal($"addressedByRevision needs evidence for {severity} {entry.FindingId}: {REVISION_EVIDENCE_ASK}", error.Message);
+        Assert.Equal(LedgerDisposition.Unresolved, Assert.Single(ledger.Snapshot.Entries).Disposition);
+        Assert.Empty(ledger.Snapshot.AppliedDecisionBatches);
+    }
+
+    [Fact]
+    public void A_batch_of_revision_closures_is_refused_once_naming_every_blocker_or_major_without_evidence()
+    {
+        var ledger = Ledger();
+        var entries = ledger.AddFindings([new Finding("major", "test.cs", "no evidence"),
+                                          new Finding("major", "test.cs", "evidence given"),
+                                          new Finding("minor", "test.cs", "wording"),
+                                          new Finding("blocker", "test.cs", "no evidence either")],
+                                         LedgerPhase.PlanReview);
+        var batch = Batch(Decision("addressedByRevision", entries[3].FindingId),
+                          Decision("addressedByRevision", entries[2].FindingId),
+                          Decision("addressedByRevision", entries[1].FindingId, evidence: REVISION_EVIDENCE),
+                          Decision("addressedByRevision", entries[0].FindingId));
+
+        var preflight = Assert.Throws<DecisionLedgerRequestException>(() => ledger.ValidateOrchestratorBatch(batch, LedgerPhase.PlanReview));
+        var error = Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(batch, LedgerPhase.PlanReview));
+
+        Assert.Equal($"addressedByRevision needs evidence for major {entries[0].FindingId}, blocker {entries[3].FindingId}: {REVISION_EVIDENCE_ASK}",
+                     error.Message);
+        Assert.Equal(error.Message, preflight.Message);
+        Assert.Equal(entries.Select(entry => entry.FindingId), ledger.Snapshot.Entries.Select(entry => entry.FindingId));
+        Assert.All(ledger.Snapshot.Entries, entry => Assert.Equal(LedgerDisposition.Unresolved, entry.Disposition));
+        Assert.Empty(ledger.Snapshot.AppliedDecisionBatches);
+    }
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData("read PLAN.md:3", " — evidence: read PLAN.md:3")]
+    public void A_revision_closure_of_a_minor_is_applied_with_or_without_evidence(string? evidence, string flowSuffix)
+    {
+        var run = NewRun("minor-revision");
+        var ledger = run.ReadDecisionLedger();
+        var entry = ledger.AddFinding(new Finding("minor", "test.cs", "wording"), LedgerPhase.PlanReview);
+        var batch = Batch(Decision("addressedByRevision", entry.FindingId, evidence: evidence));
+
+        var response = ledger.Apply(batch, LedgerPhase.PlanReview);
+        run.AppendFlowDecisionBatch("test", batch, response, LedgerPhase.PlanReview);
+
+        Assert.Equal("applied", response.Outcome);
+        Assert.Empty(ledger.Snapshot.Entries);
+        Assert.Contains($"- {entry.FindingId} addressedByRevision (orchestrator): reason{flowSuffix}{Environment.NewLine}",
+                        File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("blocker", "addressedByRevision")]
+    [InlineData("major", "addressedByRevision")]
+    [InlineData("major", "revision")]
+    public void A_revision_closure_with_evidence_is_applied_and_its_flow_line_carries_it(string severity, string action)
+    {
+        var run = NewRun("revision-evidence");
+        var ledger = run.ReadDecisionLedger();
+        var entry = ledger.AddFinding(new Finding(severity, "test.cs", "closed by revision"), LedgerPhase.PlanReview);
+        var batch = Batch(Decision(action, entry.FindingId,
+                                   evidence: "read PLAN.md:12-20\r\n\r\nclass: every caller of Parse\n\tcell: a wrong order fails\r\n"));
+
+        var response = ledger.Apply(batch, LedgerPhase.PlanReview);
+        run.AppendFlowDecisionBatch("test", batch, response, LedgerPhase.PlanReview);
+
+        Assert.Equal("applied", response.Outcome);
+        Assert.Empty(ledger.Snapshot.Entries);
+        var line = Assert.Single(File.ReadAllLines(run.FlowLogPath), text => text.StartsWith($"- {entry.FindingId} ", StringComparison.Ordinal));
+        Assert.Equal($"- {entry.FindingId} {action} (orchestrator): reason"
+                     + " — evidence: read PLAN.md:12-20 class: every caller of Parse cell: a wrong order fails", line);
     }
 
     [Fact]
@@ -976,6 +1063,20 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     }
 
     [Fact]
+    public void Flow_audit_adds_no_evidence_to_the_line_of_any_other_action()
+    {
+        var run = NewRun("flow-verified");
+        var ledger = run.ReadDecisionLedger();
+        var entry = ledger.AddFinding(Finding("verified"), LedgerPhase.CodeReview);
+        var batch = Batch(Decision("hostVerified", entry.FindingId, evidence: "gate passed"));
+
+        run.AppendFlowDecisionBatch("test", batch, ledger.Apply(batch, LedgerPhase.CodeReview), LedgerPhase.CodeReview);
+
+        var line = Assert.Single(File.ReadAllLines(run.FlowLogPath), text => text.StartsWith($"- {entry.FindingId} ", StringComparison.Ordinal));
+        Assert.Equal($"- {entry.FindingId} hostVerified (orchestrator): reason", line);
+    }
+
+    [Fact]
     public void Flow_audit_of_a_conflict_shows_the_saved_ids_not_the_rejected_decisions()
     {
         var run = NewRun("flow-conflict");
@@ -1032,7 +1133,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var result = JsonNode.Parse(await ForgeTools.ConfirmPlan(
             SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None, plan: run.ReadPlan(),
             decisions: new OrchestratorDecisionBatch("final-close", [
-                Decision("addressedByRevision", entry.FindingId)
+                Decision("addressedByRevision", entry.FindingId, evidence: REVISION_EVIDENCE)
             ])))!;
         Assert.True(result["approved"]!.GetValue<bool>());
         Assert.True(run.ReadState().Approved);
@@ -1078,7 +1179,8 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
 
         await Assert.ThrowsAsync<ArgumentRejectedException>(() => ForgeTools.ConfirmPlan(
             SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
-            decisions: Batch(Decision("addressedByRevision", entry.FindingId)), planHash: "0000000000000000"));
+            decisions: Batch(Decision("addressedByRevision", entry.FindingId, evidence: REVISION_EVIDENCE)),
+            planHash: "0000000000000000"));
 
         Assert.Equal(before, File.ReadAllBytes(run.DecisionLedgerPath));
         Assert.False(run.ReadState().Approved);

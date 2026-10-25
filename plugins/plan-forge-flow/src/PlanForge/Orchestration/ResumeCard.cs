@@ -311,7 +311,9 @@ internal static class ResumeCard
     private static string Decisions(string closure, string raises = "") =>
         "decisions?: { decisionBatchId: \"<a new id per logical set; the same id and bytes on a retry>\", "
         + $"decisions: [{{ findingId: \"F-0001\", action: \"defer\" | \"reject\" | \"{closure}\" | \"duplicateOf\" | \"accept\" | \"decline\", "
-        + $"by: \"user\" | \"orchestrator\", reason: \"...\", duplicateOf?: \"F-...\", evidence?: \"...\" }}]{raises} }}";
+        + "by: \"user\" | \"orchestrator\", reason: \"...\", duplicateOf?: \"F-...\", evidence?: \"<required for "
+        + (closure == "addressedByRevision" ? "accept, and for addressedByRevision of a blocker or major" : "hostVerified and accept")
+        + $">\" }}]{raises} }}";
 
     private static string? Text(JsonElement fields, string name) =>
         fields.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
