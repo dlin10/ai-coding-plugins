@@ -29,6 +29,11 @@ Declare `phase: "build"` before each build act — `forge.build.next`, or
 `forge.work.start` with act `build.next` — a retry of the same task included, so each record holds one
 attempt at one task.
 
+For a probe-first plan (`planning.md`), task 1's acceptance gate must pass before any later task.
+If the outcome fails or cannot be verified, stop the run and show the evidence to the user; do not
+apply the automatic retries below. Declare `phase: "done"` with the run unfinished. A new direction
+requires the user's decision, and a changed plan goes through revision and approval.
+
 Read `gate.outcome` first:
 
 - **`passed`** — the task counts, whatever the builder said about its own verification, and whatever
