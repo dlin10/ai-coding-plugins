@@ -271,6 +271,22 @@ public sealed class EvidenceRubricTests
         Assert.Equal([2, 1], packed.Requests.Select(request => request.Judgments.Count));
     }
 
+    /// <summary>Each packed request carries its own measured size, whether a split or the size limit closed it.</summary>
+    [Fact]
+    public void Every_packed_request_carries_its_measure()
+    {
+        var judgments = EvidenceRubric.Judgments(Item(), [Unit(), Unit("s2", text: "next"), Unit("s3", text: "third")]);
+        var advisor = new ByteAdvisor(maxQuestions: 3);
+        var firstTwo = new AdviceRequest(EvidenceRubric.State(Shared(), EvidenceRubric.Item(Item())),
+                                         [.. judgments[0].Questions, .. judgments[1].Questions]);
+        var bySize = EvidenceRubric.Pack(new ByteAdvisor(maxTotal: advisor.Measure(firstTwo).Total), Shared(), Item(), judgments);
+        foreach (var packed in new[] { EvidenceRubric.Pack(advisor, Shared(), Item(), judgments), bySize })
+        {
+            Assert.True(packed.Requests.Count > 1);
+            Assert.All(packed.Requests, request => Assert.Equal(advisor.Measure(request.Request).Total, request.Size));
+        }
+    }
+
     /// <summary>A relevance judgment too large alone is never sent.</summary>
     [Fact]
     public void Relevance_too_large_by_total_is_unchecked()
@@ -682,6 +698,9 @@ public sealed class EvidenceRubricTests
 
         /// <summary>The independently configurable wire limits.</summary>
         public AdvisorLimits Limits { get; }
+
+        /// <summary>Packing never prices a request.</summary>
+        public decimal InputUsdPerMillion => 0m;
 
         /// <summary>Counts the whole body and separately serializes state and every individual question.</summary>
         /// <param name="request">The exact request to measure.</param>

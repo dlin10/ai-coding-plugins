@@ -196,6 +196,9 @@ public sealed class AdvisorDiscoveryMatrixTests
         /// <summary>Selection never reads request limits.</summary>
         public AdvisorLimits Limits => throw new NotSupportedException();
 
+        /// <summary>Selection never prices a request.</summary>
+        public decimal InputUsdPerMillion => throw new NotSupportedException();
+
         /// <summary>Selection never measures a request.</summary>
         /// <param name="request">The forbidden request.</param>
         public AdviceSize Measure(AdviceRequest request) => throw new NotSupportedException();

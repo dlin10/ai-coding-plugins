@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -54,6 +55,9 @@ internal abstract class SystemOneAdvisor : IAdvisor, IDisposable
     /// <summary>The stable Advisor identifier.</summary>
     public abstract string Id { get; }
 
+    /// <summary>The service's published price in USD per million input tokens.</summary>
+    public abstract decimal InputUsdPerMillion { get; }
+
     /// <summary>The model requested on every attempt.</summary>
     public string RequestedModel { get; }
 
@@ -68,11 +72,12 @@ internal abstract class SystemOneAdvisor : IAdvisor, IDisposable
     public AdviceSize Measure(AdviceRequest request)
     {
         var body = Body(request);
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(body, SystemOneJson.Default.SystemOneRequest);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(body, SystemOneJson.Wire.SystemOneRequest);
         using var state = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(state)) request.State.WriteTo(writer, SystemOneJson.Default.Options);
+        using (var writer = new Utf8JsonWriter(state, new JsonWriterOptions { Encoder = SystemOneJson.Wire.Options.Encoder }))
+            request.State.WriteTo(writer, SystemOneJson.Wire.Options);
         var largest = body.Questions.Values.Select(question =>
-            JsonSerializer.SerializeToUtf8Bytes(question, SystemOneJson.Default.SystemOneQuestion).Length).DefaultIfEmpty(0).Max();
+            JsonSerializer.SerializeToUtf8Bytes(question, SystemOneJson.Wire.SystemOneQuestion).Length).DefaultIfEmpty(0).Max();
         return new(EstimatedTokens(bytes.Length), EstimatedTokens(checked((int)state.Length + largest)));
     }
 
@@ -85,7 +90,7 @@ internal abstract class SystemOneAdvisor : IAdvisor, IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
         try
         {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(Body(request), SystemOneJson.Default.SystemOneRequest);
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(Body(request), SystemOneJson.Wire.SystemOneRequest);
             for (var attempt = 0; ; attempt++)
             {
                 timeout.Token.ThrowIfCancellationRequested();
@@ -211,4 +216,12 @@ internal sealed record SystemOneUsage([property: JsonPropertyName("input_tokens"
 [JsonSerializable(typeof(SystemOneRequest))]
 [JsonSerializable(typeof(SystemOneQuestion))]
 [JsonSerializable(typeof(SystemOneResponse))]
-internal sealed partial class SystemOneJson : JsonSerializerContext;
+internal sealed partial class SystemOneJson : JsonSerializerContext
+{
+    /// <summary>
+    /// For the request body and its measurement: non-ASCII and HTML-sensitive text as written, not <c>\uXXXX</c>. The
+    /// service reads the decoded text, and an escape would make the size bounds see a Cyrillic letter as six bytes.
+    /// </summary>
+    internal static SystemOneJson Wire =>
+        field ??= new(new JsonSerializerOptions(Default.Options) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+}

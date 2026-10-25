@@ -271,16 +271,19 @@ internal sealed class ForgeTools
     /// <param name="ct">Caller cancellation, propagated after persistence and records.</param>
     /// <param name="advisor">The configured Advisor id, or null to select the sole configured Advisor.</param>
     /// <param name="implications">Optional obligations derived from existing Scout items.</param>
-    [McpServerTool(Name = "forge.evidence.map"), Description("Advises the manual Evidence check through a configured Advisor and maps in one call. Call again only when complete is false, and not after a call whose checkedThisCall is zero. Supply all Change points and optional implications citing Scout item ids. A credential is never an argument: configuration comes only from the server process environment.")]
+    /// <param name="budgetUsd">A Run budget the user named, or null to keep the Run's.</param>
+    [McpServerTool(Name = "forge.evidence.map"), Description("Advises the manual Evidence check through a configured Advisor and maps in one call. Asks only about items no complete map of this Advisor has judged: every item the first time, then the items of new Scout answers and new implications. Call again only when complete is false, and not after a call whose checkedThisCall is zero unless it stopped for the budget and the user raised it. Supply all Change points and optional implications citing Scout item ids. A credential is never an argument: configuration comes only from the server process environment.")]
     public static Task<string> EvidenceMap(SessionRoots roots,
                                             [Description("Absolute path to the workspace root.")] string workspaceRoot,
                                             [Description("Run id from forge.begin.")] string runId,
                                             [Description("All Run Change points: 1-200 non-blank strings, each at most 2000 characters.")] string[] changePoints,
                                             CancellationToken ct,
                                             [Description("Configured Advisor id; omit when exactly one is configured.")] string? advisor = null,
-                                            [Description("At most 500 derived obligations, each with text and 1-20 existing Scout item ids in derivedFrom.")] EvidenceImplication[]? implications = null) =>
+                                            [Description("At most 500 derived obligations, each with text and 1-20 existing Scout item ids in derivedFrom.")] EvidenceImplication[]? implications = null,
+                                            [Description("The Run's Advisor budget in USD, above 0 and at most 1000, kept for the Run. Pass only an amount the user named; omit to keep the Run's, 5 until one is named.")] decimal? budgetUsd = null) =>
         EvidenceMap(roots, workspaceRoot, runId, changePoints, ct, Environment.GetEnvironmentVariable,
-                    (environment, id) => AdvisorCatalog.Default.Select(environment, id), TimeProvider.System, advisor, implications);
+                    (environment, id) => AdvisorCatalog.Default.Select(environment, id), TimeProvider.System, advisor, implications,
+                    budgetUsd);
 
     /// <summary>Runs the tool with local configuration, service construction and time seams.</summary>
     /// <param name="roots">The host's session roots.</param>
@@ -293,18 +296,20 @@ internal sealed class ForgeTools
     /// <param name="clock">The clock for the call's bound and usage.</param>
     /// <param name="advisor">An optional explicit Advisor id.</param>
     /// <param name="implications">Optional derived obligations.</param>
+    /// <param name="budgetUsd">A Run budget the user named, or null to keep the Run's.</param>
     internal static async Task<string> EvidenceMap(SessionRoots roots, string workspaceRoot, string runId,
                                                     string[] changePoints, CancellationToken ct,
                                                     Func<string, string?> environment,
                                                     Func<Func<string, string?>, string?, IAdvisor> advisorFactory,
                                                     TimeProvider clock, string? advisor = null,
-                                                    EvidenceImplication[]? implications = null)
+                                                    EvidenceImplication[]? implications = null, decimal? budgetUsd = null)
     {
         var mapper = new EvidenceMapper(clock);
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.evidence.map",
             [("advisor", advisor), ("changePoints", changePoints?.Length.ToString(CultureInfo.InvariantCulture)),
-             ("implications", implications?.Length.ToString(CultureInfo.InvariantCulture))], async () =>
+             ("implications", implications?.Length.ToString(CultureInfo.InvariantCulture)),
+             ("budgetUsd", budgetUsd?.ToString(CultureInfo.InvariantCulture))], async () =>
             {
                 if (!EvidenceMaps.TryAdd(run.Path, 0))
                     throw new ArgumentRejectedException("an Evidence map is already running for this Run");
@@ -313,6 +318,8 @@ internal sealed class ForgeTools
                     var plan = File.Exists(run.PlanPath) ? run.ReadPlan() : null;
                     if (string.IsNullOrWhiteSpace(plan))
                         throw new ArgumentRejectedException("forge.evidence.map requires a non-blank PLAN.md");
+                    if (budgetUsd is <= 0 or > 1000)
+                        throw new ArgumentRejectedException("budgetUsd must be above 0 and at most 1000");
                     if (changePoints is null || changePoints.Length == 0)
                         throw new ArgumentRejectedException("changePoints must contain 1-200 entries");
                     if (changePoints.Length > 200)
@@ -331,7 +338,12 @@ internal sealed class ForgeTools
                     try { items = EvidenceIndex.Of(entries, state.ScoutAnswers, implications, state.WorkspaceRoot); }
                     catch (JsonException) { throw new ArgumentRejectedException("scout-answers.json is malformed"); }
                     var selected = advisorFactory(environment, advisor);
-                    try { mapper.Prepare(plan, items, changePoints, selected, run.EvidenceMapPath, state.ReviewRounds); }
+                    var spent = WorkerTelemetryFile.AdvisorSpentUsd(run.TelemetryPath, run.Log, selected);
+                    try
+                    {
+                        mapper.Prepare(plan, items, changePoints, selected, run.EvidenceMapPath, state.ScoutAnswers,
+                                       new EvidenceBudget(spent, budgetUsd));
+                    }
                     catch (JsonException) { throw new ArgumentRejectedException("evidence-map.json is malformed"); }
 
                     EvidenceMapResult mapped;
@@ -417,7 +429,7 @@ internal sealed class ForgeTools
                 var outline = PlanOutline.IsBlank(plan) ? null : PlanOutline.Of(plan);
                 return Task.FromResult(EvidenceMapCurrency.Attach(
                     JsonSerializer.Serialize(new PlanWriteResult(run.RunId, outline, Documents(run)), ForgeToolJson.Default.PlanWriteResult),
-                    EvidenceMapCurrency.Warning(run, run.ReadState().ReviewRounds)));
+                    EvidenceMapCurrency.Warning(run, run.ReadState().ScoutAnswers)));
             });
     }
 
@@ -476,7 +488,7 @@ internal sealed class ForgeTools
                 outcome = "applied";
                 return Task.FromResult(EvidenceMapCurrency.Attach(JsonSerializer.Serialize(
                     new PlanPatchResult(run.RunId, patch.Outline, patch.TasksKept, patch.FirstTaskOwed, Documents(run)),
-                    ForgeToolJson.Default.PlanPatchResult), EvidenceMapCurrency.Warning(run, run.ReadState().ReviewRounds)));
+                    ForgeToolJson.Default.PlanPatchResult), EvidenceMapCurrency.Warning(run, run.ReadState().ScoutAnswers)));
             }
             catch (PlanPatchRejectedException error)
             {

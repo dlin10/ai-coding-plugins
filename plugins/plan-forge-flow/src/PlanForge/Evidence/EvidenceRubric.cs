@@ -33,7 +33,8 @@ internal sealed record EvidenceJudgment(string Kind, IReadOnlyList<ChoiceQuestio
 /// <summary>A request and the judgments whose answers it accounts for.</summary>
 /// <param name="Request">The exact state and ordered questions to measure and send.</param>
 /// <param name="Judgments">The indivisible judgments in request order.</param>
-internal sealed record EvidenceRequest(AdviceRequest Request, IReadOnlyList<EvidenceJudgment> Judgments);
+/// <param name="Size">The whole request's measured size, in the Advisor's limit unit.</param>
+internal sealed record EvidenceRequest(AdviceRequest Request, IReadOnlyList<EvidenceJudgment> Judgments, int Size);
 
 /// <summary>A judgment withheld before any Advisor request.</summary>
 /// <param name="Judgment">The judgment that could not be packed.</param>
@@ -163,6 +164,7 @@ internal static class EvidenceRubric
 
         var state = State(shared, rubricItem);
         var current = new List<EvidenceJudgment>();
+        var currentSize = 0;
         foreach (var judgment in judgments)
         {
             if (Sensitive(judgment.Questions.SelectMany(question =>
@@ -182,15 +184,17 @@ internal static class EvidenceRubric
                 continue;
             }
             var combined = new AdviceRequest(state, current.SelectMany(part => part.Questions).Concat(judgment.Questions).ToArray());
-            if (current.Count > 0 && (combined.Questions.Count > advisor.Limits.MaxQuestions
-                                     || advisor.Measure(combined).Total > advisor.Limits.MaxTotal))
+            var tooMany = combined.Questions.Count > advisor.Limits.MaxQuestions;
+            var combinedSize = current.Count > 0 && !tooMany ? advisor.Measure(combined).Total : 0;
+            if (current.Count > 0 && (tooMany || combinedSize > advisor.Limits.MaxTotal))
             {
-                requests.Add(Request(state, current));
+                requests.Add(Request(state, current, currentSize));
                 current.Clear();
             }
             current.Add(judgment);
+            currentSize = current.Count == 1 ? size.Total : combinedSize;
         }
-        if (current.Count > 0) requests.Add(Request(state, current));
+        if (current.Count > 0) requests.Add(Request(state, current, currentSize));
         return new(requests, uncheckedJudgments);
     }
 
@@ -232,8 +236,9 @@ internal static class EvidenceRubric
     /// <summary>Copies a packed judgment list so later packing cannot alter a completed request.</summary>
     /// <param name="state">The canonical object state shared by these judgments.</param>
     /// <param name="judgments">The current packed judgments.</param>
-    private static EvidenceRequest Request(JsonObject state, IReadOnlyList<EvidenceJudgment> judgments) =>
-        new(new(state, judgments.SelectMany(judgment => judgment.Questions).ToArray()), judgments.ToArray());
+    /// <param name="size">The packed request's measured size.</param>
+    private static EvidenceRequest Request(JsonObject state, IReadOnlyList<EvidenceJudgment> judgments, int size) =>
+        new(new(state, judgments.SelectMany(judgment => judgment.Questions).ToArray()), judgments.ToArray(), size);
 
     /// <summary>Checks each plain string independently so JSON escaping cannot hide an assignment.</summary>
     /// <param name="strings">Every string that could be sent in this scope.</param>

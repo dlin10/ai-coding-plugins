@@ -461,6 +461,8 @@ internal sealed class StoreAdvisor : IAdvisor
     public string RequestedModel { get; set; } = "model-1";
     /// <summary>The byte and count limits, adjustable at boundary cells.</summary>
     public AdvisorLimits Limits { get; set; } = new("bytes", int.MaxValue, int.MaxValue, 64, 255, 1, TimeSpan.FromSeconds(30));
+    /// <summary>The store tests never price a request.</summary>
+    public decimal InputUsdPerMillion => 0m;
     /// <summary>The number of calls actually sent to the fake service.</summary>
     public int Requests { get; private set; }
     /// <summary>The outcome factory for each question.</summary>

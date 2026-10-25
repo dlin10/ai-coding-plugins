@@ -25,6 +25,9 @@ internal sealed class JevAdvisor : SystemOneAdvisor
     /// <summary>The stable Advisor identifier.</summary>
     public override string Id => "jev";
 
+    /// <summary>The price TypeSafe published for jev-1.13.0 on 2026-10-19; output is free.</summary>
+    public override decimal InputUsdPerMillion => 0.042m;
+
     /// <summary>Sends the credential as a bearer token.</summary>
     /// <param name="message">The attempt's request.</param>
     protected override void Authenticate(HttpRequestMessage message) =>

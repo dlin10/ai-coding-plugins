@@ -130,12 +130,15 @@ shadow-mode advice: a `covered` excuses nothing and removes no manual check.
 1. Call `forge.evidence.map` with every Change point of the Run's Impact passes and your
    implications. Each implication has `text` and `derivedFrom`, the existing Scout item IDs it
    rests on (`A{number}.{category}.{position}`, with positions starting at 1). The server keeps
-   judgments and the latest result in `evidence-map.json`.
+   judgments, the items complete maps have judged and the latest result in `evidence-map.json`.
+   A complete map judges each item once: a later call asks only about items no complete map of
+   the same Advisor and model has judged — those of new Scout answers and new implications — and
+   counts the rest as `alreadyMapped`.
 2. One call maps the whole map. Call again only when `complete` is false, and not after a call
-   whose `checkedThisCall` is 0. Keep the Change-point list the same from call to call until an
-   Impact pass adds Change points, then append those.
+   whose `checkedThisCall` is 0 unless step 5 says so. Keep the Change-point list the same from
+   call to call until an Impact pass adds Change points, then append those.
    Only while the list would otherwise pass 200, merge related Change points into one entry each.
-   A changed list re-asks the whole map. If merging related ones cannot bring it to 200, make no
+   If merging related ones cannot bring it to 200, make no
    further map call in this Run: log `Evidence map: stopped, N Change points` with
    `forge.log.append`, tell the user, and rely on the manual Evidence check alone from then on,
    as with no configured Advisor.
@@ -145,21 +148,32 @@ shadow-mode advice: a `covered` excuses nothing and removes no manual check.
    names or run a probe, and patch the plan with what that showed. Never answer one by writing
    into the plan that the code is unaffected or works as before without such a check — a Critic
    tests that claim, and an untested one comes back as a finding. Log one line
-   `Evidence map: raised N, already handled M, new K` with `forge.log.append`, adding
+   `Evidence map: raised N, already handled M, new K, $C (Run $R of $B)` with `forge.log.append`,
+   the call's `costUsd`, `runCostUsd` and `budgetUsd`, adding
    "incomplete" when the map did not complete and the not-indexed answer numbers when there are
    any. Not-indexed answers are evidence the map could not read:
    tell the user their numbers and make sure the manual Evidence check covered them, from the
    complete answers received in Scout results or from an earlier version's `SCOUT.md`, which you
    read yourself — the server never does.
-4. Before every later plan-review round, call the map again the same way and take up only `new`
-   flags. When the map did not complete, check every `new` unchecked item by hand. A revision
+4. After every later Impact pass, before the review that follows it, call the map again the same
+   way: it asks only about the new answers' items and new implications. Take up their flags. A
+   revision with no new Scout answer needs no map call: the map does not judge an item again
+   against a changed plan, and the manual Evidence check stays yours. When the map did not
+   complete, check every `new` unchecked item by hand. A revision
    with a new Change point gets its Impact pass and manual Evidence check before its review.
    Once the Run has used the map, `forge.plan.write`, `forge.plan.patch` and `forge.plan.review`
-   answer with `evidenceMapWarning` when the plan has changed after a review round that no
-   complete map call has followed, and a round that runs so also records it in the Flow log.
-   Patches you make in answer to a map before its round draw no warning. A warning means this
-   step is due: call the map before the next round. If you stopped the map under step 2, the
-   warning repeats; tell the user once and go on.
+   answer with `evidenceMapWarning` when a Scout answer arrived after the last complete map,
+   and a round that runs so also records it in the Flow log. A warning means this
+   step is due: call the map before the next round. If you stopped the map under step 2 or 5,
+   the warning repeats; tell the user once and go on.
+5. Every result prices itself: `estimatedCostUsd` is what the call had to send, measured before
+   sending; `costUsd` what it reported; `runCostUsd` the Run's Advisor spending so far; and
+   `budgetUsd` the Run's Advisor budget, 5 USD until the user names another. When the Run's
+   spending and a call's estimate together would pass the budget, the call sends nothing and
+   answers `stoppedBy: "budget"`. Tell the user the three amounts and ask whether to raise the
+   budget or stop the map for this Run. On a raise, call again with `budgetUsd` set to the amount
+   they named; the Run keeps it. On a stop, log `Evidence map: stopped, budget` with
+   `forge.log.append` and rely on the manual Evidence check alone from then on.
 
 The Evidence map is never shown to the Critic, Builder or Scout and has no place in code review.
 Each accepted map call attempts to write an `## Evidence map` Flow-log entry and an `advisor.usage`

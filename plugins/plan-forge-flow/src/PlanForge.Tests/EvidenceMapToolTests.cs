@@ -234,8 +234,9 @@ public sealed class EvidenceMapToolTests
     {
         using var run = new EvidenceToolRun();
         var result = JsonNode.Parse(await run.Call())!.AsObject();
-        Assert.Equal(["advisor", "requestedModel", "servedModel", "complete", "required", "cacheHits", "checkedThisCall",
-                      "remaining", "stoppedBy", "counts", "flags", "notIndexedAnswers", "path", "documents"], result.Select(pair => pair.Key));
+        Assert.Equal(["advisor", "requestedModel", "servedModel", "complete", "required", "alreadyMapped", "cacheHits",
+                      "checkedThisCall", "remaining", "stoppedBy", "estimatedCostUsd", "costUsd", "runCostUsd", "budgetUsd",
+                      "counts", "flags", "notIndexedAnswers", "path", "documents"], result.Select(pair => pair.Key));
         Assert.True(result["complete"]!.GetValue<bool>());
         Assert.Equal(run.Run.EvidenceMapPath, result["path"]!.GetValue<string>());
         Assert.Equal(run.Run.FlowLogPath, result["documents"]!["flowLog"]!["path"]!.GetValue<string>());
@@ -254,12 +255,82 @@ public sealed class EvidenceMapToolTests
         await run.Call();
         var flow = AtomicFile.Read(run.Run.FlowLogPath);
         foreach (var line in new[] { "## Evidence map", "Advisor: fixture", "Requested model: requested-1", "Served model: A",
-            "required: 2", "checkedThisCall: 2", "remaining: 0", "cacheHits: 0", "uncertain: 1 (new 1, carried 0)",
-            "notIndexedAnswers: 2", "complete: true" }) Assert.Contains(line, flow);
+            "required: 2", "checkedThisCall: 2", "remaining: 0", "cacheHits: 0", "alreadyMapped: 0", "uncertain: 1 (new 1, carried 0)",
+            "notIndexedAnswers: 2", "complete: true", "estimatedCostUsd: 0.0000", "costUsd: unknown",
+            "runCostUsd: 0.0000 of budgetUsd 5.0000" }) Assert.Contains(line, flow);
+        Assert.DoesNotContain("stoppedBy", flow);
         Assert.DoesNotContain(EvidenceToolRun.ItemMarker, flow);
         Assert.DoesNotContain(EvidenceToolRun.PlanMarker, flow);
         await run.Call();
+        Assert.Contains("alreadyMapped: 1", AtomicFile.Read(run.Run.FlowLogPath));
+        run.ForgetMapping();
+        await run.Call();
         Assert.Contains("uncertain: 1 (new 0, carried 1)", AtomicFile.Read(run.Run.FlowLogPath));
+    }
+
+    /// <summary>A map the budget cannot pay for sends nothing and says what it would cost; a named budget lets it run and stays.</summary>
+    [Fact]
+    public async Task A_map_over_the_budget_sends_nothing_until_the_user_names_a_larger_one()
+    {
+        using var run = new EvidenceToolRun();
+        run.Advisor.InputUsdPerMillion = 3_000_000m;
+        var stopped = JsonNode.Parse(await run.Call())!;
+        Assert.Empty(run.Advisor.Requests);
+        Assert.Equal("budget", stopped["stoppedBy"]!.GetValue<string>());
+        Assert.False(stopped["complete"]!.GetValue<bool>());
+        Assert.Equal(0, stopped["checkedThisCall"]!.GetValue<int>());
+        Assert.Equal(9m, stopped["estimatedCostUsd"]!.GetValue<decimal>());
+        Assert.Equal(0m, stopped["runCostUsd"]!.GetValue<decimal>());
+        Assert.Equal(5m, stopped["budgetUsd"]!.GetValue<decimal>());
+        Assert.Contains("stoppedBy: budget", AtomicFile.Read(run.Run.FlowLogPath));
+        Assert.Equal("budget", Assert.Single(run.Records()).GetProperty("stoppedBy").GetString());
+
+        var raised = JsonNode.Parse(await run.Call(budgetUsd: 10m))!;
+        Assert.True(raised["complete"]!.GetValue<bool>());
+        Assert.Null(raised["stoppedBy"]);
+        Assert.Equal(10m, raised["budgetUsd"]!.GetValue<decimal>());
+        Assert.Equal(10m, EvidenceStore.Load(run.Run.EvidenceMapPath).BudgetUsd);
+        Assert.Single(run.Advisor.Requests);
+    }
+
+    /// <summary>
+    /// The Run's earlier map calls count against the budget: their recorded cost, or, for a record without one, their
+    /// input tokens at the current Advisor's price.
+    /// </summary>
+    [Fact]
+    public async Task Earlier_calls_count_against_the_budget()
+    {
+        using var run = new EvidenceToolRun();
+        run.Advisor.InputUsdPerMillion = 3_000_000m;
+        AtomicFile.Write(run.Run.TelemetryPath, """
+            [{"at":"1960-01-01 00:00:00","event":"advisor.usage","advisor":"fixture","inputTokens":1},
+             {"at":"1960-01-01 00:00:01","event":"advisor.usage","advisor":"fixture","inputTokens":7,"costUsd":1.5},
+             {"at":"1960-01-01 00:00:02","event":"vendor.usage","inputTokens":1000}]
+            """);
+        var stopped = JsonNode.Parse(await run.Call(budgetUsd: 10m))!;
+        Assert.Equal("budget", stopped["stoppedBy"]!.GetValue<string>());
+        Assert.Equal(4.5m, stopped["runCostUsd"]!.GetValue<decimal>());
+        Assert.Empty(run.Advisor.Requests);
+
+        run.Advisor.Handler = (request, _) => Task.FromResult(FakeAdvisor.Answer(request) with { Usage = new(3, 1) });
+        var paid = JsonNode.Parse(await run.Call(budgetUsd: 20m))!;
+        Assert.True(paid["complete"]!.GetValue<bool>());
+        Assert.Equal(9m, paid["costUsd"]!.GetValue<decimal>());
+        Assert.Equal(13.5m, paid["runCostUsd"]!.GetValue<decimal>());
+        Assert.Equal(9m, run.Records().Last(record => record.GetProperty("event").GetString() == "advisor.usage")
+                             .GetProperty("costUsd").GetDecimal());
+    }
+
+    /// <summary>A budget is a positive amount of at most 1000 dollars.</summary>
+    /// <param name="budget">The invalid amount.</param>
+    [Theory]
+    [InlineData(0.0)]
+    [InlineData(-1.0)]
+    [InlineData(1000.01)]
+    public async Task A_budget_outside_its_range_is_refused_before_requests_or_records(double budget)
+    {
+        using var run = new EvidenceToolRun();
+        await run.Refused("budgetUsd", budgetUsd: (decimal)budget);
     }
 
     /// <summary>A status that is never flagged still reports the result's count, without a change split.</summary>
@@ -295,7 +366,8 @@ public sealed class EvidenceMapToolTests
         await run.Call();
         var usage = Assert.Single(run.Records(), record => record.GetProperty("event").GetString() == "advisor.usage");
         Assert.Equal(["at", "event", "advisor", "requestedModel", "servedModel", "requests", "failedRequests", "judgmentsAsked",
-                      "inputTokens", "outputTokens", "cacheHits", "latencyP50", "latencyP90", "duration", "complete", "stoppedBy"],
+                      "inputTokens", "outputTokens", "cacheHits", "latencyP50", "latencyP90", "duration", "complete", "stoppedBy",
+                      "costUsd"],
                      usage.EnumerateObject().Select(property => property.Name));
         Assert.Equal(VendorAttempt.FormatLocalTimestamp(DateTimeOffset.UnixEpoch.ToLocalTime()), usage.GetProperty("at").GetString());
         Assert.Equal(1, usage.GetProperty("requests").GetInt32());
@@ -305,6 +377,7 @@ public sealed class EvidenceMapToolTests
         Assert.Equal(3, usage.GetProperty("outputTokens").GetInt64());
         Assert.Equal(250, usage.GetProperty("latencyP50").GetDouble());
         Assert.Equal(250, usage.GetProperty("latencyP90").GetDouble());
+        Assert.Equal(0m, usage.GetProperty("costUsd").GetDecimal());
         Assert.Contains(run.Records(), record => record.GetProperty("event").GetString() == "vendor.usage" && record.GetProperty("inputTokens").GetInt64() == 17);
         Assert.Contains(run.Records(), record => record.GetProperty("event").GetString() == "orchestrator.usage");
     }
@@ -452,7 +525,7 @@ public sealed class EvidenceMapToolTests
         var tool = McpServerTool.Create(typeof(ForgeTools).GetMethod(nameof(ForgeTools.EvidenceMap))!,
             options: new McpServerToolCreateOptions { Services = services, SerializerOptions = ToolArgumentJson.ArgumentOptions });
         var schema = tool.ProtocolTool.InputSchema;
-        Assert.Equal(["workspaceRoot", "runId", "changePoints", "advisor", "implications"],
+        Assert.Equal(["workspaceRoot", "runId", "changePoints", "advisor", "implications", "budgetUsd"],
                      schema.GetProperty("properties").EnumerateObject().Select(property => property.Name));
         Assert.Equal(["workspaceRoot", "runId", "changePoints"],
                      schema.GetProperty("required").EnumerateArray().Select(property => property.GetString()));
@@ -502,27 +575,33 @@ internal sealed class EvidenceToolRun : IDisposable
     /// <param name="changePoints">Change points, or the fixture's matching default.</param>
     /// <param name="advisor">An explicit Advisor selection.</param>
     /// <param name="implications">Optional derived obligations.</param>
+    /// <param name="budgetUsd">A Run budget the user named.</param>
     public Task<string> Call(CancellationToken ct = default, string[]? changePoints = null, string? advisor = null,
-                             EvidenceImplication[]? implications = null) =>
+                             EvidenceImplication[]? implications = null, decimal? budgetUsd = null) =>
         ForgeTools.EvidenceMap(SessionRoots.None, Root, Run.RunId, changePoints ?? ["Change WidgetApi"], ct,
             Environment.GetValueOrDefault, (environment, id) => { Catalog.Select(environment, id); return Advisor; },
-            Clock, advisor, implications);
+            Clock, advisor, implications, budgetUsd);
 
     /// <summary>Asserts refusal without any network dispatch or final records.</summary>
     /// <param name="message">The required diagnostic fragment.</param>
     /// <param name="changePoints">Optional invalid Change points.</param>
     /// <param name="advisor">Optional explicit Advisor selection.</param>
     /// <param name="implications">Optional invalid implications.</param>
+    /// <param name="budgetUsd">An optional invalid budget.</param>
     public async Task Refused(string message, string[]? changePoints = null, string? advisor = null,
-                              EvidenceImplication[]? implications = null)
+                              EvidenceImplication[]? implications = null, decimal? budgetUsd = null)
     {
-        var error = await Record.ExceptionAsync(() => Call(changePoints: changePoints, advisor: advisor, implications: implications));
+        var error = await Record.ExceptionAsync(() => Call(changePoints: changePoints, advisor: advisor, implications: implications,
+                                                           budgetUsd: budgetUsd));
         Assert.NotNull(error);
         Assert.Contains(message, error.Message);
         Assert.Empty(Advisor.Requests);
         Assert.False(File.Exists(Run.FlowLogPath));
         Assert.Empty(Records());
     }
+
+    /// <summary>Makes the next call judge every item again, as after a map written before mappings existed.</summary>
+    public void ForgetMapping() => MapperRun.ForgetMapping(Run.EvidenceMapPath);
 
     /// <summary>Seeds an empty valid store so an Advisor response can lock its final replacement.</summary>
     public void SeedMap() => EvidenceStore.Load(Run.EvidenceMapPath).Write([], new(), new Dictionary<string, EvidenceItemMark>(), false);

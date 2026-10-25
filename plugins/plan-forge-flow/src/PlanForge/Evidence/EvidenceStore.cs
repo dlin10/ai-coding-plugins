@@ -20,32 +20,36 @@ internal sealed record StoredEvidenceJudgment([property: JsonRequired] string Ki
                                               [property: JsonRequired] string? ServedModel,
                                               [property: JsonRequired] IReadOnlyDictionary<string, EvidenceQuestionOutcome> Questions);
 
-/// <summary>The last complete map's comparison mark for an item.</summary>
+/// <summary>A complete map's comparison mark for an item it judged.</summary>
 /// <param name="Status">The R12 item status.</param>
 /// <param name="SourceChanged">Whether the source had changed since the Scout answer.</param>
 internal sealed record EvidenceItemMark([property: JsonRequired] string Status,
                                        [property: JsonRequired] bool SourceChanged);
 
-/// <summary>The plan the most recent complete map judged, and when in the Run it judged it.</summary>
-/// <param name="PlanHash">The plan's outline hash, as <c>forge.plan.outline</c> reports it.</param>
-/// <param name="ReviewRounds">The plan-review rounds the Run had run when the map completed.</param>
-internal sealed record EvidencePlanMark([property: JsonRequired] string PlanHash,
-                                        [property: JsonRequired] int ReviewRounds);
+/// <summary>Who judged the marked items, and how far into the Run's Scout answers the latest complete map read.</summary>
+/// <param name="Advisor">The Advisor id of every complete map behind the marks.</param>
+/// <param name="RequestedModel">The model those maps requested.</param>
+/// <param name="ScoutAnswers">The Scout answers the Run had consumed when the latest complete map ran.</param>
+internal sealed record EvidenceMapping([property: JsonRequired] string Advisor,
+                                       [property: JsonRequired] string RequestedModel,
+                                       [property: JsonRequired] int ScoutAnswers);
 
 /// <summary>The whole, atomically replaced Evidence map file.</summary>
 /// <param name="Schema">The file schema, currently 1.</param>
 /// <param name="Judgments">Reusable outcomes by content-addressed key.</param>
-/// <param name="LastComplete">Comparison marks from the most recent complete map.</param>
+/// <param name="LastComplete">Every item a complete map of <paramref name="Mapped"/>'s Advisor has judged, with its mark.</param>
 /// <param name="Latest">The latest result without documents; never used for cache decisions.</param>
-/// <param name="LastCompletePlan">
-/// The plan the most recent complete map judged; null before one completed, and in a file written
-/// before the mark existed.
+/// <param name="Mapped">
+/// Who made the marks; null before a map completed, and in a file written before the mapping existed, whose
+/// marks are then judged again.
 /// </param>
+/// <param name="BudgetUsd">The Run's Advisor budget the user named, or null for the default.</param>
 internal sealed record EvidenceStoreFile([property: JsonRequired] int Schema,
                                          [property: JsonRequired] Dictionary<string, StoredEvidenceJudgment> Judgments,
                                          [property: JsonRequired] Dictionary<string, EvidenceItemMark> LastComplete,
                                          [property: JsonRequired] JsonObject? Latest,
-                                         EvidencePlanMark? LastCompletePlan = null);
+                                         EvidenceMapping? Mapped = null,
+                                         decimal? BudgetUsd = null);
 
 /// <summary>The implication comparison identity, independent of its positional H id.</summary>
 /// <param name="Text">The implication's exact text.</param>
@@ -76,14 +80,17 @@ internal sealed class EvidenceStore
     /// <summary>Exposes stored judgments for served-model invalidation by the mapper.</summary>
     public IReadOnlyDictionary<string, StoredEvidenceJudgment> Judgments => file.Judgments;
 
-    /// <summary>The previous complete map's comparison marks.</summary>
+    /// <summary>The marks of every item the mapping Advisor has judged in a complete map.</summary>
     public IReadOnlyDictionary<string, EvidenceItemMark> LastComplete => file.LastComplete;
 
     /// <summary>The last persisted result, retained only for reporting.</summary>
     public JsonObject? Latest => file.Latest;
 
-    /// <summary>The plan the most recent complete map judged, or null when none has completed.</summary>
-    public EvidencePlanMark? LastCompletePlan => file.LastCompletePlan;
+    /// <summary>Who made the marks and the Scout answers the latest complete map read, or null when none has completed.</summary>
+    public EvidenceMapping? Mapped => file.Mapped;
+
+    /// <summary>The Run's Advisor budget the user named, or null for the default.</summary>
+    public decimal? BudgetUsd => file.BudgetUsd;
 
     /// <summary>Loads structural state and validates all used answers against their current questions.</summary>
     /// <param name="path">The Run's evidence-map.json path.</param>
@@ -98,12 +105,27 @@ internal sealed class EvidenceStore
                 : new EvidenceStoreFile(SCHEMA, new(StringComparer.Ordinal), new(StringComparer.Ordinal), null);
             Validate(file);
             var store = new EvidenceStore(path, file);
-            if (required is not null)
-                foreach (var (key, judgment) in required) store.Find(key, judgment);
+            if (required is not null) store.Verify(required);
             return store;
         }
         catch (JsonException) { throw Malformed(); }
     }
+
+    /// <summary>Refuses a stored answer that does not fit the question now asked under its key.</summary>
+    /// <param name="required">Current distinct judgment keys and their questions.</param>
+    public void Verify(IReadOnlyDictionary<string, EvidenceJudgment> required)
+    {
+        foreach (var (key, judgment) in required) Find(key, judgment);
+    }
+
+    /// <summary>
+    /// The items a complete map of this Advisor and model has judged, which later calls leave alone; none when the marks
+    /// were made by another or by a file that did not record who made them.
+    /// </summary>
+    /// <param name="advisor">The Advisor of the current call.</param>
+    public IReadOnlyDictionary<string, EvidenceItemMark> JudgedBy(IAdvisor advisor) =>
+        file.Mapped is { } mapped && mapped.Advisor == advisor.Id && mapped.RequestedModel == advisor.RequestedModel
+            ? file.LastComplete : new Dictionary<string, EvidenceItemMark>();
 
     /// <summary>Finds a reusable judgment, refusing incompatible answers before they can be used.</summary>
     /// <param name="key">The current judgment's content-addressed key.</param>
@@ -144,22 +166,32 @@ internal sealed class EvidenceStore
     public string Change(EvidenceItem item, EvidenceItemMark mark) =>
         file.LastComplete.TryGetValue(ComparisonKey(item), out var previous) && previous == mark ? "carried" : "new";
 
-    /// <summary>Writes only current keys and replaces comparison marks only for a complete map.</summary>
+    /// <summary>
+    /// Writes only current keys, and for a complete map adds the call's marks to those of the same Advisor and model,
+    /// or replaces the marks of any other.
+    /// </summary>
     /// <param name="required">All distinct judgment keys required by the current call.</param>
     /// <param name="latest">The current result without documents, including transient reasons.</param>
-    /// <param name="currentItems">Current item comparison keys and their marks.</param>
+    /// <param name="currentItems">The call's item comparison keys and their marks.</param>
     /// <param name="complete">Whether every judgment has a reusable outcome.</param>
-    /// <param name="plan">The plan this call judged, recorded only when the map is complete.</param>
+    /// <param name="mapping">Who mapped and how many Scout answers the call read, recorded only when the map is complete.</param>
+    /// <param name="budgetUsd">A budget the user named in this call, or null to keep the stored one.</param>
     public void Write(IEnumerable<string> required, JsonObject latest,
                       IReadOnlyDictionary<string, EvidenceItemMark> currentItems, bool complete,
-                      EvidencePlanMark? plan = null)
+                      EvidenceMapping? mapping = null, decimal? budgetUsd = null)
     {
         var keys = new HashSet<string>(required, StringComparer.Ordinal);
+        var marks = file.LastComplete;
+        if (complete)
+        {
+            var same = file.Mapped is { } mapped && mapping is not null
+                       && mapped.Advisor == mapping.Advisor && mapped.RequestedModel == mapping.RequestedModel;
+            marks = same ? new(file.LastComplete, StringComparer.Ordinal) : new(StringComparer.Ordinal);
+            foreach (var (key, mark) in currentItems) marks[key] = mark;
+        }
         var next = new EvidenceStoreFile(SCHEMA,
             file.Judgments.Where(entry => keys.Contains(entry.Key)).ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal),
-            complete ? new(currentItems, StringComparer.Ordinal) : file.LastComplete,
-            latest.DeepClone().AsObject(),
-            complete ? plan : file.LastCompletePlan);
+            marks, latest.DeepClone().AsObject(), complete ? mapping : file.Mapped, budgetUsd ?? file.BudgetUsd);
         Validate(next);
         AtomicFile.Write(path, JsonSerializer.Serialize(next, EvidenceStoreJson.Default.EvidenceStoreFile));
         file = next;
@@ -220,9 +252,10 @@ internal sealed class EvidenceStore
         foreach (var mark in file.LastComplete.Values)
             if (mark is null || mark.Status is not ("contradiction" or "unchecked" or "context_only" or "covered"
                 or "excluded" or "uncertain" or "no_candidates" or "no_coverage_established")) throw Malformed();
-        if (file.LastCompletePlan is { } plan
-            && (plan.PlanHash is not { Length: 16 } || plan.PlanHash.Any(character => !char.IsAsciiHexDigitLower(character))
-                || plan.ReviewRounds < 0)) throw Malformed();
+        if (file.Mapped is { } mapped
+            && (string.IsNullOrWhiteSpace(mapped.Advisor) || string.IsNullOrWhiteSpace(mapped.RequestedModel) || mapped.ScoutAnswers < 0))
+            throw Malformed();
+        if (file.BudgetUsd is <= 0) throw Malformed();
     }
 
     /// <summary>Checks structure, answered model identity and distributions using the rubric's per-question answer rules.</summary>
