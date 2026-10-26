@@ -76,6 +76,86 @@ public sealed class PlanPatchTests
     }
 
     [Fact]
+    public void An_edit_replaces_one_exact_match_and_may_delete_text()
+    {
+        var result = Apply(Plan, Find(Plan, 2, "R1", "Requirement one"),
+            Find(Plan, 1, "carefully", ""));
+
+        Assert.Contains("## Requirements\nRequirement one\n", result.Plan, StringComparison.Ordinal);
+        Assert.Contains("Build .\n", result.Plan, StringComparison.Ordinal);
+        Assert.Equal(new[] { "edit", "edit" }, result.Changes.Select(change => change.Op));
+    }
+
+    [Theory]
+    [InlineData("missing", 0)]
+    [InlineData("e", 3)]
+    public void An_edit_refuses_zero_or_multiple_matches(string find, int count)
+    {
+        var error = Reject(Plan, "match_count", Find(Plan, 2, find, "new"));
+
+        Assert.Contains("target s2", error.Message, StringComparison.Ordinal);
+        Assert.Contains($"{count} matches", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Edits_on_one_target_apply_in_order()
+    {
+        var result = Apply(Plan, Find(Plan, 2, "R1", "First requirement"),
+            Find(Plan, 2, "First requirement", "Final requirement"));
+
+        Assert.Contains("## Requirements\nFinal requirement\n", result.Plan, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_edit_and_an_insertion_after_its_target_can_share_a_patch()
+    {
+        var result = Apply(Plan, Find(Plan, 2, "R1", "Revised"),
+            Edit(Plan, 2, "insertAfter", "## Notes\nAdded"));
+
+        Assert.Contains("## Requirements\nRevised\n## Notes\nAdded\n## Approach", result.Plan, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_edit_keeps_stale_base_and_target_hash_refusals()
+    {
+        var edit = Find(Plan, 2, "R1", "Revised");
+        var staleBase = Assert.Throws<PlanPatchRejectedException>(() => PlanPatch.Apply(Plan, "0000000000000000", [edit]));
+        var staleTarget = Reject(Plan, "stale_target", edit with { TargetHash = "0000000000000000" });
+
+        Assert.Equal("stale_base", staleBase.Reason);
+        Assert.Contains(PlanOutline.Hash(Plan), staleBase.Message, StringComparison.Ordinal);
+        Assert.Contains("target s2", staleTarget.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_edit_requires_a_nonempty_find_and_a_replace_value()
+    {
+        var valid = Find(Plan, 2, "R1", "Revised");
+        Reject(Plan, "invalid_edit", valid with { Find = "" });
+        Reject(Plan, "invalid_edit", valid with { Replace = null });
+        Reject(Plan, "invalid_edit", valid with { Content = "ignored" });
+        Reject(Plan, "invalid_edit", Edit(Plan, 2) with { Find = "R1", Replace = "Revised" });
+    }
+
+    [Fact]
+    public void An_edit_conflicts_with_a_whole_target_replace()
+    {
+        Reject(Plan, "conflicting_edits", Find(Plan, 2, "R1", "Revised"),
+            Edit(Plan, 2, "replace", "## Requirements\nRewritten"));
+    }
+
+    [Fact]
+    public void Edit_sizes_count_the_matching_and_replacement_text()
+    {
+        var result = Apply(Plan, Find(Plan, 2, "R1", "Longer"));
+
+        AssertSize("R1Longer", result.Sizes.Supplied);
+        AssertSize("R1", result.Sizes.Removed);
+        AssertSize("Longer", result.Sizes.Written);
+        AssertSize(result.Plan, result.Sizes.PlanAfter);
+    }
+
+    [Fact]
     public void An_unknown_target_is_refused()
     {
         Reject(Plan, "unknown_target", Edit(Plan, 0) with { Target = "s99" });
@@ -233,6 +313,12 @@ public sealed class PlanPatchTests
     {
         var target = PlanOutline.Of(plan).Targets[index];
         return new PlanEdit(op, target.Id, target.Hash, op == "delete" ? null : content);
+    }
+
+    internal static PlanEdit Find(string plan, int index, string find, string replace)
+    {
+        var target = PlanOutline.Of(plan).Targets[index];
+        return new PlanEdit("edit", target.Id, target.Hash, Find: find, Replace: replace);
     }
 
     internal static PlanPatchResult Apply(string plan, params PlanEdit?[] edits) =>

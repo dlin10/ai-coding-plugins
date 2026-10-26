@@ -1,11 +1,24 @@
-name: Build Plan Forge Flow
+name: Plan Forge Flow
 
-# A branch push and its pull request are the same commit, and an unfiltered `push` matches every
-# ref — tags included, which re-ran this whole suite on a commit `main` had just tested. Restricting
-# push to the default branch leaves each commit checked once: on its pull request, then on the merge.
+# One workflow from a pull request to a release, so a release is published only by the run whose
+# tests it follows. `test` runs the fast suite on every pull request and every merge to main;
+# `decide` works out whether the manifest's version has a release yet; `publish` packages the plugin
+# and, when `decide` says so on a merge or a tag, creates the tag and the GitHub release.
 #
-# Both jobs below build and package one plugin, so `paths` holds them to it: a README edit or a
-# change under another plugin has nothing here to check. The filter is not quite complete: the root
+# Three ways in. A pull request tests and packages but never publishes. A merge to main carrying a
+# version no tag knows yet cuts its own release. A tag pushed by hand still cuts one, which is the
+# escape hatch when an upload failed and the release has to be re-cut. The tag path has to end in
+# this same run: a tag pushed from here under GITHUB_TOKEN does not start another workflow, so
+# splitting "tag" and "release" into two workflows would leave the tag standing with nothing behind
+# it.
+#
+# A branch push and its pull request are the same commit, and an unfiltered `push` matches every
+# ref. Restricting `branches` to the default branch leaves each commit checked once: on its pull
+# request, then on the merge. `tags` is the one other ref, for the manual re-cut above.
+#
+# `paths` holds the branch events to this plugin: a README edit or a change under another plugin has
+# nothing here to check. It does not hold back a tag push — GitHub does not evaluate path filters for
+# tags — which is exactly what the manual path needs. The filter is not quite complete: the root
 # plugins/Directory.Packages.props feeds this build too, and is listed below for it, while
 # global.json and Directory.Build.props still live inside the plugin, not at the repository root.
 # Adding required status checks would break this: a filtered workflow never reports, and a required
@@ -14,6 +27,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'plan-forge-flow-v*'
     paths:
       - 'plugins/plan-forge-flow/**'
       - 'plugins/Directory.Packages.props'
@@ -23,6 +38,9 @@ on:
       - 'plugins/plan-forge-flow/**'
       - 'plugins/Directory.Packages.props'
       - '.github/workflows/build-plan-forge-flow.yml'
+
+permissions:
+  contents: read
 
 jobs:
   # The suite is CPU-bound and a runner has two physical cores, so it is split by test class over
@@ -62,25 +80,103 @@ jobs:
           if (-not ($projects -match 'PlanForge.csproj')) { throw 'server project missing' }
           if (-not ($projects -match 'PlanForge.Tests.csproj')) { throw 'test project missing' }
 
-  publish:
-    needs: test
+  # Needs nothing, so it runs beside the shards: a tag that disagrees with the manifest fails in
+  # seconds rather than after the suite. On a pull request its answer is computed and then unused,
+  # because `publish` publishes only from a merge or a tag.
+  decide:
     runs-on: windows-latest
     defaults:
       run:
         working-directory: plugins/plan-forge-flow
+    outputs:
+      cut: ${{ steps.decide.outputs.cut }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      # A tag that disagrees with the manifest should cost seconds rather than a full publish, and
+      # the release it would cut is named after the tag while the asset inside is named after the
+      # manifest.
+      #
+      # On the merge path there is no tag to disagree with, so the question is the other one — has
+      # this version been released already? The tag's absence is what "the version was bumped"
+      # means here. Reading the bump that way rather than diffing the merge commit keeps the answer
+      # idempotent (a re-run releases nothing twice) and self-healing (a merge that slipped through
+      # without a release is caught by the next push), and avoids having to decide which parent of
+      # a merge commit the previous version came from.
+      #
+      # The manifest is read rather than spelled out, and one manifest is enough: validate-plugins
+      # already refuses a plugin whose host manifests disagree on the version.
+      - name: Decide the version, and whether there is a release to cut
+        id: decide
+        shell: pwsh
+        run: |
+          $version = (Get-Content .codex-plugin/plugin.json -Raw | ConvertFrom-Json).version
+          $tag = "plan-forge-flow-v$version"
+
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            if ('${{ github.ref_name }}' -ne $tag) {
+              throw "Tag ${{ github.ref_name }} disagrees with manifest version $version; expected $tag"
+            }
+            $cut = $true
+          }
+          else {
+            # ls-remote rather than the API: it answers with an empty line and exit code 0 when the
+            # tag is absent, so "not released yet" stays a value instead of a failed step.
+            $existing = git ls-remote --tags origin "refs/tags/$tag" | Out-String
+            $cut = [string]::IsNullOrWhiteSpace($existing)
+            if (-not $cut) { Write-Host "$tag is already released; nothing to cut." }
+            else { Write-Host "$tag does not exist yet; cutting it from ${{ github.sha }}." }
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "cut=$($cut.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  # Packaging runs on every event, so a pull request proves the bundle still builds; only the last
+  # step publishes, and only from a merge or a tag that `decide` said to cut.
+  publish:
+    needs: [test, decide]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    # Two merges in quick succession must not race to create the same tag. A pull request gets a
+    # group of its own: it never publishes, so it has nothing to queue behind.
+    concurrency:
+      group: plan-forge-flow-${{ github.event_name == 'pull_request' && github.run_id || 'release' }}
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: plugins/plan-forge-flow
+    env:
+      PLUGIN_VERSION: ${{ needs.decide.outputs.version }}
+      RELEASE_TAG: ${{ needs.decide.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.402
-      - name: Publish and package win-x64
+      - name: Build win-x64 local-marketplace bundle
         shell: pwsh
-        run: ./build/package.ps1 -OutputRoot "$env:GITHUB_WORKSPACE/artifacts/win-x64"
-      - name: Check archive exists
+        run: ./build/package.ps1 -OutputRoot "$env:GITHUB_WORKSPACE/release-artifacts" -InstallBinaries
+      - name: Check the bundle and the executable exist
         shell: pwsh
         run: |
-          # Read, never spelled out: package.ps1 names the archive after the manifest version, so a
+          # Read from the manifest, never spelled out: package.ps1 names the archive after it, so a
           # literal here turns every version bump into a red build one commit later.
-          $expected = "plan-forge-flow-$((Get-Content .codex-plugin/plugin.json -Raw | ConvertFrom-Json).version)-win-x64.zip"
-          $archive = @(Get-ChildItem "$env:GITHUB_WORKSPACE/artifacts/win-x64" -Filter '*.zip' -File)
-          if ($archive.Count -ne 1 -or $archive[0].Name -ne $expected) { throw "Expected exactly $expected" }
+          $expected = "plan-forge-flow-$env:PLUGIN_VERSION-win-x64.zip"
+          $assets = @(Get-ChildItem "$env:GITHUB_WORKSPACE/release-artifacts" -Filter '*.zip' -File)
+          if ($assets.Count -ne 1 -or $assets[0].Name -ne $expected) { throw "Expected exactly $expected" }
+          # The bare executable rides next to the bundle: bin/planforge-launcher.ps1 downloads it
+          # by this exact asset name, so renaming it here breaks every fresh install.
+          if (-not (Test-Path 'bin/win-x64/planforge.exe' -PathType Leaf)) { throw 'package.ps1 -InstallBinaries did not leave bin/win-x64/planforge.exe' }
+      - name: Publish GitHub Release assets
+        if: github.event_name != 'pull_request' && needs.decide.outputs.cut == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $assets = Get-ChildItem "$env:GITHUB_WORKSPACE/release-artifacts" -Filter '*.zip' -File
+          # --target names the commit the tag is created at on the merge path; on the manual path the
+          # tag already exists and gh ignores it.
+          gh release create $env:RELEASE_TAG $assets.FullName bin/win-x64/planforge.exe --target ${{ github.sha }} --title "Plan Forge Flow $env:RELEASE_TAG" --generate-notes

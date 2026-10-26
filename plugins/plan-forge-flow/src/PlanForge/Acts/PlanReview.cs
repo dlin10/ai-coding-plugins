@@ -84,7 +84,8 @@ internal sealed class PlanReview
         {
             try
             {
-                ledger.ValidateOrchestratorBatch(orchestratorDecisions, LedgerPhase.PlanReview);
+                ledger.ValidateOrchestratorBatch(orchestratorDecisions, LedgerPhase.PlanReview,
+                                                 string.IsNullOrWhiteSpace(planDraft) ? WrittenDraft(run) : planDraft);
             }
             catch (DecisionLedgerRequestException error)
             {
@@ -112,7 +113,7 @@ internal sealed class PlanReview
         {
             try
             {
-                var decisionResult = ledger.Apply(orchestratorDecisions, LedgerPhase.PlanReview);
+                var decisionResult = ledger.Apply(orchestratorDecisions, LedgerPhase.PlanReview, draft);
                 run.AppendFlowDecisionBatch("Plan review", orchestratorDecisions, decisionResult, LedgerPhase.PlanReview);
                 decisionResult.ThrowIfConflict();
             }
@@ -122,6 +123,7 @@ internal sealed class PlanReview
                 throw;
             }
         }
+        ledger.BuilderNotes(draft);
         // Both reach a vendor through the plan and ledger projection. A secret pasted into either
         // is one the orchestrator is about to hand over, so both are guarded the same way.
         // The worker tools come from forge.begin because this critic runs before anything is

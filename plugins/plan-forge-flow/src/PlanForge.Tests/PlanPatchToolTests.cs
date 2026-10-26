@@ -193,8 +193,10 @@ public sealed class PlanPatchToolTests : IDisposable
     [Theory]
     [InlineData("title")]
     [InlineData("requirements")]
+    [InlineData("requirements edited")]
     [InlineData("gates")]
     [InlineData("unbuilt task")]
+    [InlineData("unbuilt task edited")]
     [InlineData("last task deleted")]
     [InlineData("task appended")]
     public async Task A_patch_that_changes_no_built_task_keeps_the_progress(string change)
@@ -227,6 +229,7 @@ public sealed class PlanPatchToolTests : IDisposable
     /// </summary>
     [Theory]
     [InlineData("task 2 rewritten", 1)]
+    [InlineData("task 2 edited", 1)]
     [InlineData("task 1 rewritten", 0)]
     [InlineData("prose after task 1", 0)]
     [InlineData("task inserted at 2", 1)]
@@ -623,6 +626,21 @@ public sealed class PlanPatchToolTests : IDisposable
         AssertNoBodies(flow);
     }
 
+    [Fact]
+    public async Task An_edit_records_a_bounded_find_and_replace_in_the_flow_log()
+    {
+        var run = NewRun();
+        var target = PlanOutline.Of(Plan).Targets.First(item => item.Kind == "task");
+        var replacement = new string('x', 100);
+        await Patch(run, PlanOutline.Hash(Plan),
+            [new PlanEdit("edit", target.Id, target.Hash, Find: FirstBody, Replace: replacement)]);
+
+        var flow = File.ReadAllText(run.FlowLogPath);
+        Assert.Contains($"edit {target.Id}: {target.Label} — \"{FirstBody}\" → \"{replacement[..80]}…\"", flow,
+                        StringComparison.Ordinal);
+        Assert.DoesNotContain(replacement, flow, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("applied")]
     [InlineData("no_plan")]
@@ -705,15 +723,24 @@ public sealed class PlanPatchToolTests : IDisposable
             return new PlanEdit(op, target.Id, target.Hash, content);
         }
 
+        PlanEdit In(string label, string find, string replace)
+        {
+            var target = outline.Targets.Single(target => target.Label == label);
+            return new PlanEdit("edit", target.Id, target.Hash, Find: find, Replace: replace);
+        }
+
         return change switch
         {
             "title" => [At("# Export plan", "replace", "# Updated exporter\nUpdated exporter brief.\n\n")],
             "requirements" => [At("## Requirements", "replace", "## Requirements\n\n- Orders export hourly.\n\n")],
+            "requirements edited" => [In("## Requirements", "nightly", "hourly")],
             "gates" => [At("## Gates", "replace", "## Gates\n\n- G1 the suite and the linter pass.\n")],
             "unbuilt task" => [At("3. Notify subscribers.", "replace", "3. Notify every subscriber.\n\n")],
+            "unbuilt task edited" => [In("3. Notify subscribers.", "Notify", "Alert")],
             "last task deleted" => [At("4. Archive snapshots.", "delete", null)],
             "task appended" => [At("## Gates", "insertBefore", "5. Compress archives.\n\n")],
             "task 2 rewritten" => [At("2. Publish orders.", "replace", "2. Publish signed orders.\n\n")],
+            "task 2 edited" => [In("2. Publish orders.", "Publish", "Release")],
             "task 1 rewritten" => [At("1. Snapshot orders.", "replace", "1. Snapshot paid orders.\n\n")],
             "prose after task 1" => [At("1. Snapshot orders.", "insertAfter", "Keep the snapshot read-only.\n\n")],
             "task inserted at 2" =>

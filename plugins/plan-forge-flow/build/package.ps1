@@ -227,6 +227,10 @@ function Test-PublishedServer([string]$Executable) {
         if ($planPatch.inputSchema.properties.edits.type -ne 'array') {
             throw 'forge.plan.patch publishes edits as something other than an array'
         }
+        $editProperties = @($planPatch.inputSchema.properties.edits.items.properties.PSObject.Properties.Name)
+        foreach ($field in @('op', 'target', 'targetHash', 'content', 'find', 'replace')) {
+            if ($editProperties -notcontains $field) { throw "forge.plan.patch edit schema is missing $field" }
+        }
         $planOutline = $tools | Where-Object { $_.name -eq 'forge.plan.outline' } | Select-Object -First 1
         $planOutlineProperties = @($planOutline.inputSchema.properties.PSObject.Properties.Name | Sort-Object)
         if (($planOutlineProperties -join ',') -ne 'runId,workspaceRoot') {
@@ -291,6 +295,11 @@ function Test-PublishedServer([string]$Executable) {
         $planReviewProperties = @($planReview.inputSchema.properties.PSObject.Properties.Name)
         if ($planReviewProperties -notcontains 'decisions') {
             throw 'forge.plan.review schema is missing decisions'
+        }
+        foreach ($tool in @($planReview, $confirm)) {
+            if (($tool.inputSchema | ConvertTo-Json -Depth 100 -Compress) -notmatch '"forTasks"') {
+                throw "$($tool.name) decision schema is missing forTasks"
+            }
         }
         $codeReview = $tools | Where-Object { $_.name -eq 'forge.review.code' } | Select-Object -First 1
         $codeReviewProperties = @($codeReview.inputSchema.properties.PSObject.Properties.Name)

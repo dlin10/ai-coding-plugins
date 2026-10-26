@@ -331,7 +331,7 @@ public sealed class ToolSurfaceTests
         var edits = properties.GetProperty("edits");
         Assert.Equal("array", edits.GetProperty("type").GetString());
         var items = edits.GetProperty("items");
-        Assert.Equal(["op", "target", "targetHash", "content"],
+        Assert.Equal(["op", "target", "targetHash", "content", "find", "replace"],
                      items.GetProperty("properties").EnumerateObject().Select(property => property.Name));
     }
 
