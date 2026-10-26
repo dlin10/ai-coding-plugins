@@ -56,6 +56,138 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
     }
 
     [Fact]
+    public async Task A_minor_builder_note_settles_plan_confirmation()
+    {
+        var run = await NewToolRunAsync("note-confirm");
+        var finding = run.ReadDecisionLedger().AddFinding(
+            new Finding("minor", "Requirements R1", "Check the empty input case."), LedgerPhase.PlanReview);
+        var batch = Batch(new OrchestratorDecision(finding.FindingId, "builderNote", "orchestrator",
+                                                   "The builder can infer the implementation.", ForTasks: [1]));
+
+        await ForgeTools.ConfirmPlan(SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None,
+                                     decisions: batch);
+
+        Assert.True(run.ReadState().Approved);
+        var saved = Assert.Single(run.ReadDecisionLedger().Snapshot.Entries);
+        Assert.Equal(LedgerDisposition.BuilderNote, saved.Disposition);
+        Assert.Equal([1], saved.Decision!.ForTasks);
+        var status = JsonNode.Parse(await ForgeTools.Status(SessionRoots.None, _workspace, run.RunId,
+                                                           CancellationToken.None))!;
+        Assert.Equal(finding.FindingId, status["ledger"]!["builderNoteFindingIds"]![0]!.GetValue<string>());
+        Assert.Contains("for tasks 1", File.ReadAllText(run.FlowLogPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Builder_notes_reject_major_findings_and_missing_task_routing()
+    {
+        const string plan = "# Plan\n\n## Approach\n\n1. Work.\n";
+        var ledger = Ledger();
+        var major = ledger.AddFinding(Finding("must enter the plan"), LedgerPhase.PlanReview);
+        var minor = ledger.AddFinding(new Finding("minor", "Gates G1", "Check timeout."), LedgerPhase.PlanReview);
+
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
+            Batch(new OrchestratorDecision(major.FindingId, "builderNote", "orchestrator", "too large", ForTasks: [1])),
+            LedgerPhase.PlanReview, plan));
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
+            Batch(new OrchestratorDecision(minor.FindingId, "builderNote", "orchestrator", "no route")),
+            LedgerPhase.PlanReview, plan));
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
+            Batch(new OrchestratorDecision(minor.FindingId, "builderNote", "orchestrator", "wrong task", ForTasks: [2])),
+            LedgerPhase.PlanReview, plan));
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
+            Batch(new OrchestratorDecision(minor.FindingId, "builderNote", "orchestrator", "duplicate route", ForTasks: [1, 1])),
+            LedgerPhase.PlanReview, plan));
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
+            Batch(new OrchestratorDecision(minor.FindingId, "builderNote", "orchestrator", "wrong phase", ForTasks: [1])),
+            LedgerPhase.CodeReview, plan));
+        Assert.All(ledger.Snapshot.Entries, entry => Assert.Equal(LedgerDisposition.Unresolved, entry.Disposition));
+    }
+
+    [Fact]
+    public async Task A_task_list_change_makes_a_builder_note_stale_at_confirmation()
+    {
+        var run = await NewToolRunAsync("note-stale");
+        var originalPlan = run.ReadPlan();
+        var finding = run.ReadDecisionLedger().AddFinding(
+            new Finding("minor", "Approach task 1", "Check the empty input case."), LedgerPhase.PlanReview);
+        run.ReadDecisionLedger().Apply(Batch(new OrchestratorDecision(
+            finding.FindingId, "builderNote", "orchestrator", "Builder can handle it.", ForTasks: [1])),
+            LedgerPhase.PlanReview, originalPlan);
+        run.WritePlan(originalPlan.Replace("1. Work.", "1. New first task.\n2. Work.", StringComparison.Ordinal));
+
+        var error = await Assert.ThrowsAsync<DecisionLedgerRequestException>(() =>
+            ForgeTools.ConfirmPlan(SessionRoots.None, _workspace, run.RunId, true, CancellationToken.None));
+
+        Assert.Contains("stale", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(finding.FindingId, error.Message, StringComparison.Ordinal);
+        Assert.False(run.ReadState().Approved);
+    }
+
+    [Fact]
+    public async Task A_review_round_refuses_stale_notes_before_starting_the_critic()
+    {
+        var run = NewRun("note-stale-review");
+        var finding = run.ReadDecisionLedger().AddFinding(
+            new Finding("minor", "Approach", "Check empty input."), LedgerPhase.PlanReview);
+        run.ReadDecisionLedger().Apply(Batch(new OrchestratorDecision(
+            finding.FindingId, "builderNote", "orchestrator", "Builder can handle it.", ForTasks: [1])),
+            LedgerPhase.PlanReview, run.ReadPlan());
+        run.WritePlan(run.ReadPlan().Replace("1. Work.", "1. New work.\n2. Work.", StringComparison.Ordinal));
+        var critic = new RecordingVendor("codex");
+
+        await Assert.ThrowsAsync<DecisionLedgerRequestException>(() =>
+            new PlanReview(critic, new PromptLibrary(RepositoryPrompts()))
+                .ReviewAsync(run, null, new Selection("critic", null), null, null, false,
+                             CancellationToken.None));
+
+        Assert.Empty(critic.Sessions);
+    }
+
+    [Fact]
+    public void A_stale_note_can_be_reopened_and_routed_again()
+    {
+        const string originalPlan = "# Plan\n\n## Approach\n\n1. Work.\n";
+        const string revisedPlan = "# Plan\n\n## Approach\n\n1. New work.\n2. Work.\n";
+        var ledger = Ledger();
+        var finding = ledger.AddFinding(new Finding("minor", "Approach", "Check empty input."), LedgerPhase.PlanReview);
+        ledger.Apply(Batch(new OrchestratorDecision(finding.FindingId, "builderNote", "orchestrator",
+                                                    "Builder can handle it.", ForTasks: [1])), LedgerPhase.PlanReview, originalPlan);
+        Assert.Single(ledger.BuilderNotes("# Revised title\n\n## Approach\n\n1. Work.\n"));
+        Assert.Throws<DecisionLedgerRequestException>(() => ledger.BuilderNotes(revisedPlan));
+
+        ledger.Apply(Batch(Decision("accept", finding.FindingId, evidence: "task 1 was split")), LedgerPhase.PlanReview);
+        ledger.Apply(Batch(new OrchestratorDecision(finding.FindingId, "builderNote", "orchestrator",
+                                                    "Now belongs to the second task.", ForTasks: [2])),
+                     LedgerPhase.PlanReview, revisedPlan);
+
+        var note = Assert.Single(ledger.BuilderNotes(revisedPlan));
+        Assert.Equal([2], note.Decision!.ForTasks);
+    }
+
+    [Fact]
+    public void Code_review_can_propose_reopening_an_unmet_builder_note()
+    {
+        const string plan = "# Plan\n\n## Approach\n\n1. Work.\n";
+        var ledger = Ledger();
+        var finding = ledger.AddFinding(new Finding("minor", "Approach", "Check empty input."), LedgerPhase.PlanReview);
+        ledger.Apply(Batch(new OrchestratorDecision(finding.FindingId, "builderNote", "orchestrator",
+                                                    "Builder can handle it.", ForTasks: [1])), LedgerPhase.PlanReview, plan);
+
+        var critique = ledger.IngestCritique(new VendorCritique
+        {
+            Verdict = "approve", Findings = [], Summary = "The note was missed.", UnresolvedAssessments = [],
+            Reopenings = [new ReopeningProposal(finding.FindingId, "The diff has no empty-input check.")]
+        }, LedgerPhase.CodeReview);
+        ledger.Apply(Batch(Decision("accept", finding.FindingId, evidence: "The diff has no empty-input check.")),
+                     LedgerPhase.CodeReview);
+
+        Assert.Single(critique.Reopenings!);
+        var reopened = Assert.Single(ledger.Snapshot.Entries);
+        Assert.Equal(LedgerDisposition.Unresolved, reopened.Disposition);
+        Assert.Equal(LedgerPhaseNames.CODE_REVIEW, reopened.ActivePhase);
+    }
+
+    [Fact]
     public async Task Review_code_tool_refuses_an_unapproved_run_before_vendor_start()
     {
         var run = NewRun("code-tool", approved: false);

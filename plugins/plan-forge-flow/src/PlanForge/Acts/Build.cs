@@ -37,6 +37,8 @@ internal sealed class Build
 
         var task = tasks[state.TasksCompleted];
         var gate = PlanGates.TaskGate(task.Text);
+        var notes = run.ReadDecisionLedger().BuilderNotes(plan)
+            .Where(entry => entry.Decision!.ForTasks!.Contains(task.Number)).ToArray();
 
         // Which session this turn belongs to is settled before the prompt is composed, because the
         // user's instructions go to a builder exactly once: the turn that starts a session carries
@@ -45,7 +47,7 @@ internal sealed class Build
         var scope = BuilderSession.TaskScope(task.Number);
         var resumeToken = BuilderSession.ResumeToken(state, _vendor.Id, scope);
 
-        var prompt = Compose(task, tasks.Count, gate, state.PendingGateFailure,
+        var prompt = Compose(task, tasks.Count, gate, notes, state.PendingGateFailure,
                              resumeToken is null ? state.BuilderInstructions : null,
                              resumeToken is null ? state.TaskChanges : null);
         SensitiveInput.Guard(prompt, $"task {task.Number}");
@@ -114,6 +116,7 @@ internal sealed class Build
     /// <param name="task">The task to build.</param>
     /// <param name="total">How many tasks the plan has, for the task's heading.</param>
     /// <param name="gate">The parsed executable task gate, or null for a condition or absent gate.</param>
+    /// <param name="notes">Plan-review notes routed to this task.</param>
     /// <param name="pendingGateFailure">What the last gate or turn left owing, or null when nothing is.</param>
     /// <param name="instructions">The user's builder instructions, for a fresh session only.</param>
     /// <param name="earlier">
@@ -121,7 +124,8 @@ internal sealed class Build
     /// them, and the files on disk are their result.
     /// </param>
     /// <returns>The prompt text.</returns>
-    private static string Compose(PlanTask task, int total, GateCommand? gate, string? pendingGateFailure,
+    private static string Compose(PlanTask task, int total, GateCommand? gate,
+                                  IReadOnlyList<DecisionLedgerEntry> notes, string? pendingGateFailure,
                                   string? instructions, IReadOnlyList<TaskChange>? earlier)
     {
         var prompt = new StringBuilder();
@@ -140,6 +144,15 @@ internal sealed class Build
         prompt.Append("# Task ").Append(task.Number).Append(" of ").Append(total).AppendLine()
               .AppendLine()
               .AppendLine(task.Text);
+
+        if (notes.Count > 0)
+        {
+            prompt.AppendLine().AppendLine("# Notes from plan review").AppendLine();
+            foreach (var note in notes)
+                prompt.Append("- ").Append(note.FindingId).Append(" | ").Append(note.Finding.Where)
+                      .Append(" — ").AppendLine(note.Finding.What)
+                      .Append("  Reason: ").AppendLine(note.Decision!.Reason);
+        }
 
         if (gate is not null)
             prompt.AppendLine()

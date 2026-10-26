@@ -8,9 +8,9 @@ where a check belongs to no single task, a `## Gates` section of its own. All of
 review, not only the tasks.
 
 The decision-ledger projection contains only entries whose current `activePhase` is `plan_review`.
-Assess every displayed unresolved ID exactly once. A displayed deferred or rejected ID remains
-settled unless you return a reopening proposal with concrete current-plan evidence; the proposal is
-for the Orchestrator to accept or decline and changes nothing by itself.
+Assess every displayed unresolved ID exactly once. A displayed deferred, rejected, or `builder_note`
+ID remains settled unless you return a reopening proposal with concrete current-plan evidence;
+the proposal is for the Orchestrator to accept or decline and changes nothing by itself.
 
 Judge the complete brief:
 

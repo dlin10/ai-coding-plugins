@@ -2,8 +2,8 @@ In code review you are judging a diff against the approved plan supplied with it
 that material are its files, then the plan's tasks, then its gates.
 
 The code-review input also contains the current decision-ledger projection. It includes settled
-plan-review decisions and active code-review entries, including a plan-origin finding accepted for
-reopening into code review. That entry keeps `origin=plan_review` and has
+plan-review decisions, checkable Builder notes, and active code-review entries, including a
+plan-origin finding accepted for reopening into code review. That entry keeps `origin=plan_review` and has
 `activePhase=code_review`. The projection excludes closed entries and plan-review findings still
 unresolved in their original phase.
 Assess every unresolved ID in that projection exactly once. If a settled ID should be reconsidered,
@@ -35,3 +35,6 @@ The plan's scope was settled with the user before the diff existed, and it is no
 - When the decision-ledger projection shows the orchestrator deferred or rejected a finding with a
   reason, that finding is settled for this run. Do not re-raise it unless the diff has since made it
   concretely worse; use a reopening proposal with evidence when reconsideration is warranted.
+- A displayed `builder_note` is a minor plan finding handed to the Builder for its named tasks.
+  Check whether the diff addresses it. If it does not, propose reopening that ID with concrete
+  evidence instead of raising the same gap as a new finding.

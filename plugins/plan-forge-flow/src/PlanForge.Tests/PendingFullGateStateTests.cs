@@ -35,7 +35,7 @@ public sealed class PendingFullGateStateTests : IDisposable
 
         var summary = JsonNode.Parse(JsonSerializer.Serialize(ledger.Summary, ForgeToolJson.Default.LedgerSummary))!.ToJsonString();
         Assert.Equal("{\"unresolvedFindingIds\":[\"F-0001\",\"F-0002\",\"F-0003\",\"F-0004\"]," +
-                     "\"deferredFindingIds\":[],\"rejectedFindingIds\":[]," +
+                     "\"deferredFindingIds\":[],\"rejectedFindingIds\":[],\"builderNoteFindingIds\":[]," +
                      "\"planReviewActiveFindingIds\":[],\"codeReviewActiveFindingIds\":[\"F-0001\",\"F-0002\",\"F-0003\",\"F-0004\"]," +
                      "\"pendingFullGateFindingIds\":[\"F-0001\",\"F-0002\",\"F-0003\"]," +
                      "\"pendingFullGateAttempts\":[{\"fixAttemptId\":\"a-attempt\",\"findingIds\":[\"F-0003\"]}," +
@@ -60,6 +60,7 @@ public sealed class PendingFullGateStateTests : IDisposable
     {
         var ledger = Ledger();
         var summary = JsonNode.Parse(JsonSerializer.Serialize(ledger.Summary, ForgeToolJson.Default.LedgerSummary))!;
+        Assert.Equal("[]", summary["builderNoteFindingIds"]!.ToJsonString());
         Assert.Equal("[]", summary["pendingFullGateFindingIds"]!.ToJsonString());
         Assert.Equal("[]", summary["pendingFullGateAttempts"]!.ToJsonString());
         var result = Passed();

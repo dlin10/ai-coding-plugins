@@ -275,7 +275,7 @@ public sealed class DecisionLedgerSkillTests
             Assert.True(SchemaFor(method).GetProperty("properties").TryGetProperty("decisions", out _), $"{method} is missing decisions");
 
         var decisionSchema = SchemaFor(nameof(ForgeTools.ReviewPlan)).GetRawText();
-        foreach (var property in new[] { "decisionBatchId", "decisions", "findingId", "action", "by", "reason", "evidence", "duplicateOf" })
+        foreach (var property in new[] { "decisionBatchId", "decisions", "findingId", "action", "by", "reason", "evidence", "duplicateOf", "forTasks" })
             Assert.Contains(property, decisionSchema, StringComparison.Ordinal);
 
         var fixSchema = SchemaFor(nameof(ForgeTools.ReviewFix)).GetRawText();
@@ -320,7 +320,8 @@ public sealed class DecisionLedgerSkillTests
     public void Package_contract_still_requires_twenty_two_tools_and_new_schema_fields()
     {
         var package = Read("build", "package.ps1");
-        Contains("if ($tools.Count -ne 22)", "forge.plan.review schema is missing decisions", "forge.review.fix schema is missing", "fixFindingIds", package);
+        Contains("if ($tools.Count -ne 22)", "forge.plan.review schema is missing decisions",
+                 "decision schema is missing forTasks", "forge.review.fix schema is missing", "fixFindingIds", package);
     }
 
     private static string Description(string methodName)

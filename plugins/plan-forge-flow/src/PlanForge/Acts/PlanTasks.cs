@@ -8,8 +8,8 @@ internal sealed record PlanTask(int Number, string Text);
 internal sealed record PlanTaskLayout(int Start, int End, IReadOnlyList<int> TaskStarts);
 
 /// <summary>
-/// Splits an approved plan into the tasks the Builder works one at a time. Ported from the old
-/// CanonicalText, minus the content hashing — nothing downstream binds to a plan hash any more.
+/// Splits an approved plan into the tasks the Builder works one at a time. A fingerprint of the
+/// task list keeps plan-review builder notes from following a different task after a revision.
 /// </summary>
 internal static partial class PlanTasks
 {
@@ -73,6 +73,9 @@ internal static partial class PlanTasks
 
         return tasks;
     }
+
+    internal static string TaskListHash(string plan) => PlanOutline.Hash(string.Concat(
+        Parse(plan).Select(task => task.Text.Length.ToString(CultureInfo.InvariantCulture) + ":" + task.Text)));
 
     /// <summary>
     /// The first task whose text differs between two versions of a plan, which is where a build of the
