@@ -6,11 +6,12 @@ using PlanForge.Mcp;
 
 namespace PlanForge.Acts;
 
-internal sealed record PlanEdit(string? Op, string? Target, string? TargetHash, string? Content = null);
+internal sealed record PlanEdit(string? Op, string? Target, string? TargetHash, string? Content = null,
+                                string? Find = null, string? Replace = null);
 
 internal enum PlanValueKind { Hash, Id, Operation }
 
-internal sealed record PlanPatchChange(string Op, string Target, string Label);
+internal sealed record PlanPatchChange(string Op, string Target, string Label, string? Find = null, string? Replace = null);
 
 internal sealed record PlanPatchResult(string Plan, IReadOnlyList<PlanPatchChange> Changes, PlanPatchSizes Sizes);
 
@@ -23,7 +24,7 @@ internal sealed record PlanPatchSizes(PlanPatchSize PayloadSize, PlanPatchSize S
     public static PlanPatchSizes Payload(IReadOnlyList<PlanEdit?>? edits) =>
         new(Measure(JsonSerializer.Serialize(edits, (JsonTypeInfo<IReadOnlyList<PlanEdit?>?>)
             ToolArgumentJson.ArgumentOptions.GetTypeInfo(typeof(IReadOnlyList<PlanEdit?>)))),
-            Measure(string.Concat(edits?.Select(edit => edit?.Content) ?? [])));
+            Measure(string.Concat(edits?.Select(edit => edit?.Op == "edit" ? edit.Find + edit.Replace : edit?.Content) ?? [])));
 
     internal PlanPatchSizes Before(string plan) => this with { PlanBefore = Measure(plan) };
 
@@ -78,20 +79,24 @@ internal static class PlanPatch
             var name = $"Edit {index}, target {Shown(edit?.Target, PlanValueKind.Id)}";
             if (edit is null || edit.Op is null || edit.Target is null || edit.TargetHash is null)
                 throw Reject("invalid_edit", $"{name}: the edit, operation, ID and target hash are required.");
-            if (edit.Op is not ("replace" or "delete" or "insertBefore" or "insertAfter"))
+            if (edit.Op is not ("replace" or "delete" or "insertBefore" or "insertAfter" or "edit"))
                 throw Reject("invalid_edit", $"{name}: unsupported operation {Shown(edit.Op, PlanValueKind.Operation)}.");
             var target = outline.Targets.ToList().FindIndex(target => target.Id == edit.Target);
             if (target < 0) throw Reject("unknown_target", $"{name}: the target is not in the current outline.");
             if (edit.TargetHash != outline.Targets[target].Hash)
                 throw Reject("stale_target", $"{name}: target hash {Shown(edit.TargetHash, PlanValueKind.Hash)} " +
                     $"is not current ({outline.Targets[target].Hash}); read forge.plan.outline.");
-            if (edit.Op == "delete" ? edit.Content is not null : string.IsNullOrWhiteSpace(edit.Content))
+            if (edit.Op == "edit" ? edit.Content is not null || string.IsNullOrEmpty(edit.Find) || edit.Replace is null
+                : edit.Op == "delete" ? edit.Content is not null : string.IsNullOrWhiteSpace(edit.Content))
                 throw Reject("invalid_edit", $"{name}: {Shown(edit.Op, PlanValueKind.Operation)} " +
-                    (edit.Op == "delete" ? "must have no content." : "requires non-blank content."));
+                    (edit.Op == "edit" ? "requires non-empty find and a replace value, with no content."
+                        : edit.Op == "delete" ? "must have no content." : "requires non-blank content."));
+            if (edit.Op != "edit" && (edit.Find is not null || edit.Replace is not null))
+                throw Reject("invalid_edit", $"{name}: find and replace are only valid for edit.");
             validated.Add((edit, target, index));
         }
 
-        var mutations = new Dictionary<int, PlanEdit>();
+        var mutations = new Dictionary<int, List<(PlanEdit Edit, int Index)>>();
         var insertions = new Dictionary<int, PlanEdit>();
         foreach (var (edit, target, index) in validated)
         {
@@ -102,11 +107,16 @@ internal static class PlanPatch
                 if (!insertions.TryAdd(position, edit))
                     throw Reject("conflicting_edits", $"{name}: two insertions occupy the same position.");
             }
-            else if (!mutations.TryAdd(target, edit))
-                throw Reject("conflicting_edits", $"{name}: two edits replace or delete the same target.");
+            else if (mutations.TryGetValue(target, out var existing))
+            {
+                if (edit.Op != "edit" || existing[0].Edit.Op != "edit")
+                    throw Reject("conflicting_edits", $"{name}: a replace or delete conflicts with another mutation on this target.");
+                existing.Add((edit, index));
+            }
+            else mutations.Add(target, [(edit, index)]);
         }
         foreach (var (edit, target, index) in validated)
-            if (IsInsertion(edit) && mutations.TryGetValue(target, out var mutation) && mutation.Op == "delete")
+            if (IsInsertion(edit) && mutations.TryGetValue(target, out var mutation) && mutation[0].Edit.Op == "delete")
                 throw Reject("conflicting_edits", $"Edit {index}, target {Shown(edit.Target, PlanValueKind.Id)}: " +
                     "an insertion is anchored on a deleted target.");
 
@@ -121,9 +131,31 @@ internal static class PlanPatch
             if (index == outline.Targets.Count) break;
             var target = outline.Targets[index];
             var original = plan.Substring(target.Start, target.Length);
-            if (!mutations.TryGetValue(index, out var mutation)) pieces.Add(original);
+            if (!mutations.TryGetValue(index, out var mutationsForTarget)) pieces.Add(original);
+            else if (mutationsForTarget[0].Edit.Op == "edit")
+            {
+                var current = original;
+                foreach (var (edit, editIndex) in mutationsForTarget)
+                {
+                    var matches = 0;
+                    var matchAt = -1;
+                    for (var start = 0; (start = current.IndexOf(edit.Find!, start, StringComparison.Ordinal)) >= 0; start++)
+                    {
+                        matches++;
+                        matchAt = start;
+                    }
+                    if (matches != 1)
+                        throw Reject("match_count", $"Edit {editIndex}, target {Shown(edit.Target, PlanValueKind.Id)}: " +
+                            $"find has {matches} matches in the current target text; it must match exactly once.");
+                    current = current[..matchAt] + edit.Replace + current[(matchAt + edit.Find!.Length)..];
+                    removed.Append(edit.Find);
+                    written.Append(edit.Replace);
+                }
+                pieces.Add(current);
+            }
             else
             {
+                var mutation = mutationsForTarget[0].Edit;
                 removed.Append(original);
                 if (mutation.Op == "replace") AddWritten(mutation.Content!);
             }
@@ -143,7 +175,8 @@ internal static class PlanPatch
             throw Reject("shape_broken", $"The patch would break the task shape: {failure}.");
 
         var changes = validated.Select(item => new PlanPatchChange(item.Edit.Op!, item.Edit.Target!,
-            outline.Targets[item.Target].Label)).ToArray();
+            outline.Targets[item.Target].Label, item.Edit.Op == "edit" ? item.Edit.Find : null,
+            item.Edit.Op == "edit" ? item.Edit.Replace : null)).ToArray();
         return new PlanPatchResult(after, changes, sizes);
 
         PlanPatchRejectedException Reject(string reason, string message) => new(reason, sizes, message);
@@ -167,7 +200,7 @@ internal static class PlanPatch
         {
             PlanValueKind.Hash => value.Length == 16 && value.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f'),
             PlanValueKind.Id => value.Length > 1 && value[0] == 's' && value[1..].All(character => character is >= '0' and <= '9'),
-            _ => value is "replace" or "delete" or "insertBefore" or "insertAfter"
+            _ => value is "replace" or "delete" or "insertBefore" or "insertAfter" or "edit"
         };
         return valid ? value : $"a malformed {name} of {value.Length} characters";
     }

@@ -653,7 +653,12 @@ internal sealed class RunDirectory
                                        .Append("Plan hash: ").Append(baseHash).Append(" → ").AppendLine(planHash)
                                        .AppendLine();
         foreach (var change in changes)
-            entry.Append("- ").Append(change.Op).Append(' ').Append(change.Target).Append(": ").AppendLine(change.Label);
+        {
+            entry.Append("- ").Append(change.Op).Append(' ').Append(change.Target).Append(": ").Append(change.Label);
+            if (change.Op == "edit")
+                entry.Append(" — ").Append(Preview(change.Find!)).Append(" → ").Append(Preview(change.Replace!));
+            entry.AppendLine();
+        }
         entry.AppendLine();
         AppendPlanShape(entry, shape);
         entry.AppendLine();
@@ -661,6 +666,9 @@ internal sealed class RunDirectory
             entry.Append(name).Append(": ").Append(size.Characters).Append(" characters, ")
                  .Append(size.Utf8Bytes).AppendLine(" UTF-8 bytes");
         AtomicFile.Append(FlowLogPath, entry.AppendLine().ToString());
+
+        static string Preview(string text) => JsonSerializer.Serialize(text.Length > 80 ? text[..80] + "…" : text,
+                                                              ForgeJson.Readable.String);
     }
 
     private static void AppendPlanShape(StringBuilder entry, PlanShape shape)
@@ -1088,6 +1096,7 @@ internal sealed class ArgumentRejectedException(string message) : Exception(mess
 // shape needs a source-generated contract.
 [JsonSourceGenerationOptions(WriteIndented = true, PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(RunState))]
+[JsonSerializable(typeof(string))]
 internal sealed partial class ForgeJson : JsonSerializerContext
 {
     /// <summary>For the file a person opens: non-ASCII text as written, not <c>\uXXXX</c>.</summary>
