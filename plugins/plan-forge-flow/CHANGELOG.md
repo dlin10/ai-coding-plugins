@@ -1,5 +1,14 @@
 # Plan Forge Flow releases
 
+## 0.67.0
+
+Hand minor plan-review findings to the Builder without expanding the plan. Issue #191.
+
+- A `builderNote` decision settles a minor plan finding for confirmation and names the tasks that
+  receive its finding and Orchestrator reason. Blockers and majors cannot become Builder notes.
+- A change to the plan's task list makes existing notes stale until the Orchestrator reopens and
+  binds them to the current tasks. Code review shows notes as checks against the diff.
+
 ## 0.66.0
 
 Offer a plan split before the first review when the first draft's Approach is large. Issue #190;

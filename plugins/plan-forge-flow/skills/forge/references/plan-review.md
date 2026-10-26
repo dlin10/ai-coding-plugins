@@ -31,11 +31,19 @@ without `revision`:
   critic's; no worker ever reads it. Say so plainly when a round changed nothing and you are
   re-running for another reason.
 - `decisions` — the typed identity-keyed changes for this logical decision set. Use `defer` or
-  `reject` only with a reason and asserted decision-maker; use `addressedByRevision` only after the
+  `reject` only with a reason and asserted decision-maker; use `builderNote` for an unresolved minor
+  with a reason and explicit `forTasks` task numbers; use `addressedByRevision` only after the
   revised plan actually addresses that ID, and for a blocker or major with `evidence` (*Writing a
   revision* says what goes in it). Partial subsets are valid during review. The final
   `forge.plan.confirm(approved: true)` is the postcondition that requires every active plan ID to
   be settled or closed.
+
+Prefer `builderNote` when a competent Builder would infer a minor finding's remedy while implementing
+the named tasks. The note reaches only those tasks, carrying the finding's `where` and `what` and
+your reason. Name tasks explicitly even for a finding in Requirements or Gates; do not send it to
+every task by default. A blocker or major still belongs in the revised plan, not in a Builder note.
+If a later plan write or patch changes the task list, the note is stale: accept reopening the ID,
+then give it a new `builderNote` decision with current task numbers before confirmation.
 
 The optional `deferred` narrative remains Flow-only compatibility text. It never settles an ID and
 never reaches the Critic; authoritative deferrals and rejections are typed `decisions`.

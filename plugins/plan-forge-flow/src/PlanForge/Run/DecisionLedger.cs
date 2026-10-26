@@ -29,7 +29,8 @@ internal enum LedgerDisposition
 {
     Unresolved,
     Deferred,
-    Rejected
+    Rejected,
+    BuilderNote
 }
 
 [JsonConverter(typeof(StrictSnakeCaseEnumConverter<LedgerDecisionMaker>))]
@@ -84,8 +85,8 @@ internal sealed record DecisionLedgerSnapshot(
 /// <param name="Origin">The phase the finding was raised in; it never changes.</param>
 /// <param name="ActivePhase">The phase whose critic is shown the entry now; an accepted reopening moves it.</param>
 /// <param name="Finding">The finding, verbatim.</param>
-/// <param name="Disposition">Unresolved, deferred or rejected.</param>
-/// <param name="Decision">Who settled the entry and why, while it is deferred or rejected.</param>
+/// <param name="Disposition">Unresolved, deferred, rejected or a builder note.</param>
+/// <param name="Decision">Who settled the entry and why, while it is deferred, rejected or a builder note.</param>
 /// <param name="Reopening">Who reopened a settled entry, why, and on what evidence.</param>
 /// <param name="Raised">
 /// Who put the entry into the ledger and why, when it was the orchestrator's raise rather than a
@@ -108,7 +109,11 @@ internal sealed record DecisionLedgerEntry(
 internal sealed record LedgerDecisionData(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
     [property: JsonPropertyOrder(1)] LedgerDecisionMaker By,
-    [property: JsonPropertyOrder(2)] string Reason);
+    [property: JsonPropertyOrder(2)] string Reason,
+    [property: JsonPropertyOrder(3), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<int>? ForTasks = null,
+    [property: JsonPropertyOrder(4), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? TaskListHash = null);
 
 internal sealed record LedgerReopeningData(
     [property: JsonPropertyOrder(0)] string DecisionBatchId,
@@ -121,7 +126,11 @@ internal sealed record LedgerDispositionDecision(
     [property: JsonPropertyOrder(0)] string FindingId,
     [property: JsonPropertyOrder(1)] LedgerDisposition Disposition,
     [property: JsonPropertyOrder(2)] LedgerDecisionMaker By,
-    [property: JsonPropertyOrder(3)] string Reason);
+    [property: JsonPropertyOrder(3)] string Reason,
+    [property: JsonPropertyOrder(4), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<int>? ForTasks = null,
+    [property: JsonPropertyOrder(5), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? TaskListHash = null);
 
 internal sealed record LedgerReopeningDecision(
     [property: JsonPropertyOrder(0)] string FindingId,
@@ -145,13 +154,23 @@ internal sealed record DecisionBatchRequest(
     IReadOnlyList<LedgerClosureDecision> Closures);
 
 /// <summary>The decision DTO the orchestrator sends through the MCP surface.</summary>
+/// <param name="FindingId">The finding to decide.</param>
+/// <param name="Action">The disposition, reopening or closure to apply.</param>
+/// <param name="By">Who made the decision.</param>
+/// <param name="Reason">Why the decision was made.</param>
+/// <param name="Evidence">Evidence required for some closures and reopenings.</param>
+/// <param name="DuplicateOf">The target finding for a duplicate closure.</param>
+/// <param name="ForTasks">Task numbers that receive a minor plan-review builder note.</param>
 internal sealed record OrchestratorDecision(
     [property: JsonPropertyOrder(0)] string FindingId,
     [property: JsonPropertyOrder(1)] string Action,
     [property: JsonPropertyOrder(2)] string By,
     [property: JsonPropertyOrder(3)] string Reason,
     [property: JsonPropertyOrder(4)] string? Evidence = null,
-    [property: JsonPropertyOrder(5)] string? DuplicateOf = null);
+    [property: JsonPropertyOrder(5)] string? DuplicateOf = null,
+    [property: JsonPropertyOrder(6), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull),
+               Description("For builderNote only: nonempty task numbers in the current plan's Approach that receive the minor finding and reason. Required even when the finding concerns Requirements or Gates.")]
+    IReadOnlyList<int>? ForTasks = null);
 
 /// <summary>
 /// A finding the orchestrator puts into the ledger itself, code review only: a place a fix left
@@ -192,6 +211,7 @@ internal sealed record LedgerSummary(
     IReadOnlyList<string> UnresolvedFindingIds,
     IReadOnlyList<string> DeferredFindingIds,
     IReadOnlyList<string> RejectedFindingIds,
+    IReadOnlyList<string> BuilderNoteFindingIds,
     IReadOnlyList<string> PlanReviewActiveFindingIds,
     IReadOnlyList<string> CodeReviewActiveFindingIds,
     IReadOnlyList<string> PendingFullGateFindingIds,
@@ -331,7 +351,19 @@ internal sealed class DecisionLedger
             if (entry.PendingFullGateAttemptId is { } attemptId)
                 output.Append("  pending full host verification: targeted attempt ").AppendLine(attemptId);
             if (entry.Decision is { } decision)
-                output.Append("  decision: ").Append(DecisionMakerName(decision.By)).Append(" — ").AppendLine(decision.Reason);
+            {
+                if (entry.Disposition == LedgerDisposition.BuilderNote)
+                {
+                    output.Append("  builder note for ")
+                          .Append(decision.ForTasks!.Count == 1 ? "task " : "tasks ")
+                          .Append(string.Join(", ", decision.ForTasks))
+                          .Append(": ").AppendLine(decision.Reason);
+                    if (phase == LedgerPhase.CodeReview)
+                        output.AppendLine("  Check against the diff; propose reopening this ID with evidence if the note was missed.");
+                }
+                else
+                    output.Append("  decision: ").Append(DecisionMakerName(decision.By)).Append(" — ").AppendLine(decision.Reason);
+            }
             if (entry.Reopening is { } reopening)
                 output.Append("  reopening: ").Append(DecisionMakerName(reopening.By)).Append(" — ").Append(reopening.Reason)
                       .Append("; evidence: ").AppendLine(reopening.Evidence);
@@ -352,6 +384,8 @@ internal sealed class DecisionLedger
                        .Select(entry => entry.FindingId).ToArray(),
                 entries.Where(entry => entry.Disposition == LedgerDisposition.Rejected)
                        .Select(entry => entry.FindingId).ToArray(),
+                entries.Where(entry => entry.Disposition == LedgerDisposition.BuilderNote)
+                       .Select(entry => entry.FindingId).ToArray(),
                 entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.PLAN_REVIEW)
                        .Select(entry => entry.FindingId).ToArray(),
                 entries.Where(entry => entry.ActivePhase == LedgerPhaseNames.CODE_REVIEW)
@@ -365,6 +399,22 @@ internal sealed class DecisionLedger
                            group.Select(entry => entry.FindingId).OrderBy(id => id, StringComparer.Ordinal).ToArray()))
                        .ToArray());
         }
+    }
+
+    internal IReadOnlyList<DecisionLedgerEntry> BuilderNotes(string plan)
+    {
+        var notes = ReadSnapshot().Entries.Where(entry => entry.Disposition == LedgerDisposition.BuilderNote).ToArray();
+        if (notes.Length == 0) return notes;
+
+        var taskListHash = PlanTasks.TaskListHash(plan);
+        var stale = notes.Where(entry => entry.Decision!.TaskListHash != taskListHash)
+                         .Select(entry => entry.FindingId).ToArray();
+        if (stale.Length > 0)
+            throw new DecisionLedgerRequestException(
+                $"builder notes are stale after a task-list change: {string.Join(", ", stale)}. "
+                + "Reopen each ID and set builderNote again with current forTasks before approval.");
+
+        return notes;
     }
 
     /// <summary>Renders only the unresolved code entries named by a fix attempt.</summary>
@@ -497,7 +547,7 @@ internal sealed class DecisionLedger
         }
     }
 
-    internal DecisionBatchResponse Apply(OrchestratorDecisionBatch batch, LedgerPhase phase)
+    internal DecisionBatchResponse Apply(OrchestratorDecisionBatch batch, LedgerPhase phase, string? plan = null)
     {
         var digest = Digest(CanonicalBytes(batch));
         lock (Gate())
@@ -512,7 +562,7 @@ internal sealed class DecisionLedger
             }
         }
 
-        var request = NormalizeOrchestratorBatch(batch, phase, out var acceptedIds, out var declinedIds, out var raises);
+        var request = NormalizeOrchestratorBatch(batch, phase, plan, out var acceptedIds, out var declinedIds, out var raises);
         var operations = request.Decisions.Count + request.Reopenings.Count + request.Closures.Count;
         if (operations + raises.Count == 0)
         {
@@ -596,7 +646,7 @@ internal sealed class DecisionLedger
         }
     }
 
-    internal void ValidateOrchestratorBatch(OrchestratorDecisionBatch batch, LedgerPhase phase)
+    internal void ValidateOrchestratorBatch(OrchestratorDecisionBatch batch, LedgerPhase phase, string? plan = null)
     {
         var digest = Digest(CanonicalBytes(batch));
         lock (Gate())
@@ -611,7 +661,7 @@ internal sealed class DecisionLedger
             }
         }
 
-        var request = NormalizeOrchestratorBatch(batch, phase, out _, out _, out _);
+        var request = NormalizeOrchestratorBatch(batch, phase, plan, out _, out _, out _);
         if (request.Decisions.Count + request.Reopenings.Count + request.Closures.Count == 0) return;
 
         lock (Gate())
@@ -666,7 +716,7 @@ internal sealed class DecisionLedger
             var unresolved = projection.Where(entry => entry.Disposition == LedgerDisposition.Unresolved)
                                       .Select(entry => entry.FindingId).ToHashSet(StringComparer.Ordinal);
             var settled = projection.Where(entry => entry.Disposition is LedgerDisposition.Deferred
-                                                    or LedgerDisposition.Rejected)
+                                                    or LedgerDisposition.Rejected or LedgerDisposition.BuilderNote)
                                     .Select(entry => entry.FindingId).ToHashSet(StringComparer.Ordinal);
 
             ValidateAssessments(critique.UnresolvedAssessments, unresolved);
@@ -816,7 +866,8 @@ internal sealed class DecisionLedger
             entries[decision.FindingId] = entry with
             {
                 Disposition = decision.Disposition,
-                Decision = new LedgerDecisionData(payload.DecisionBatchId, decision.By, decision.Reason),
+                Decision = new LedgerDecisionData(payload.DecisionBatchId, decision.By, decision.Reason,
+                                                  decision.ForTasks, decision.TaskListHash),
                 PendingFullGateAttemptId = null
             };
         }
@@ -901,7 +952,7 @@ internal sealed class DecisionLedger
     private static DecisionLedgerSnapshot EmptySnapshot() => new(CURRENT_SCHEMA_VERSION, 1, [], [], []);
 
     private DecisionBatchRequest NormalizeOrchestratorBatch(OrchestratorDecisionBatch batch,
-                                                            LedgerPhase phase,
+                                                            LedgerPhase phase, string? plan,
                                                             out IReadOnlyList<string> acceptedIds,
                                                             out IReadOnlyList<string> declinedIds,
                                                             out IReadOnlyList<Raise> raises)
@@ -950,6 +1001,23 @@ internal sealed class DecisionLedger
                     dispositions.Add(new LedgerDispositionDecision(decision.FindingId,
                         action == "defer" ? LedgerDisposition.Deferred : LedgerDisposition.Rejected,
                         decisionMaker, decision.Reason));
+                    accepted.Add(decision.FindingId);
+                    break;
+
+                case "builderNote":
+                    if (phase != LedgerPhase.PlanReview)
+                        throw new DecisionLedgerRequestException("builderNote is only valid during plan review");
+                    RequireActiveUnresolved(entry, phase, decision.FindingId);
+                    if (entry.Finding.Severity != "minor")
+                        throw new DecisionLedgerRequestException($"builderNote requires a minor finding: {decision.FindingId} is {entry.Finding.Severity}");
+                    if (plan is null)
+                        throw new DecisionLedgerRequestException("builderNote requires the current plan");
+                    var noteTasks = PlanTasks.Parse(plan);
+                    var forTasks = NormalizeForTasks(decision.ForTasks);
+                    if (forTasks.Any(number => number > noteTasks.Count))
+                        throw new DecisionLedgerRequestException($"builderNote forTasks must name tasks 1..{noteTasks.Count}");
+                    dispositions.Add(new LedgerDispositionDecision(decision.FindingId, LedgerDisposition.BuilderNote,
+                        decisionMaker, decision.Reason, forTasks, PlanTasks.TaskListHash(plan)));
                     accepted.Add(decision.FindingId);
                     break;
 
@@ -1052,6 +1120,7 @@ internal sealed class DecisionLedger
     {
         "defer" => "defer",
         "reject" => "reject",
+        "builderNote" => "builderNote",
         "addressedByRevision" or "revision" => "addressedByRevision",
         "hostVerified" or "verifiedClosure" => "hostVerified",
         "duplicateOf" => "duplicateOf",
@@ -1072,7 +1141,8 @@ internal sealed class DecisionLedger
             ? entry.ActivePhase == LedgerPhaseNames.PLAN_REVIEW
             : entry.ActivePhase == LedgerPhaseNames.CODE_REVIEW
               || (entry.Origin == LedgerPhaseNames.PLAN_REVIEW && entry.Disposition != LedgerDisposition.Unresolved);
-        if (!visible || entry.Disposition is not LedgerDisposition.Deferred and not LedgerDisposition.Rejected)
+        if (!visible || entry.Disposition is not LedgerDisposition.Deferred and not LedgerDisposition.Rejected
+                        and not LedgerDisposition.BuilderNote)
             throw new DecisionLedgerRequestException($"finding '{findingId}' is not a settled {PhaseName(phase)} projection entry");
     }
 
@@ -1090,6 +1160,15 @@ internal sealed class DecisionLedger
         return ids.OrderBy(id => id, StringComparer.Ordinal).ToArray();
     }
 
+    private static int[] NormalizeForTasks(IReadOnlyList<int>? forTasks)
+    {
+        if (forTasks is not { Count: > 0 })
+            throw new DecisionLedgerRequestException("builderNote requires nonempty forTasks");
+        if (forTasks.Any(number => number < 1) || forTasks.Distinct().Count() != forTasks.Count)
+            throw new DecisionLedgerRequestException("builderNote forTasks must contain distinct positive task numbers");
+        return forTasks.Order().ToArray();
+    }
+
     private static DecisionBatchPayload ValidateAndNormalize(DecisionBatchRequest request)
     {
         if (request is null) throw new DecisionLedgerRequestException("decision batch must not be null");
@@ -1104,9 +1183,17 @@ internal sealed class DecisionLedger
         {
             if (decision is null) throw new DecisionLedgerRequestException("decisions must not contain null");
             ValidateFindingId(decision.FindingId);
-            if (decision.Disposition is not LedgerDisposition.Deferred and not LedgerDisposition.Rejected)
+            if (decision.Disposition is not LedgerDisposition.Deferred and not LedgerDisposition.Rejected
+                                        and not LedgerDisposition.BuilderNote)
                 throw new DecisionLedgerRequestException($"unsupported disposition '{decision.Disposition}'");
             ValidateDecision(decision.By, decision.Reason);
+            if (decision.Disposition == LedgerDisposition.BuilderNote)
+            {
+                NormalizeForTasks(decision.ForTasks);
+                RequireText(decision.TaskListHash, "builderNote taskListHash");
+            }
+            else if (decision.ForTasks is not null || decision.TaskListHash is not null)
+                throw new DecisionLedgerRequestException("only builderNote accepts forTasks and taskListHash");
         }
 
         foreach (var reopening in request.Reopenings)
@@ -1149,13 +1236,17 @@ internal sealed class DecisionLedger
                 throw new DecisionLedgerRequestException($"finding '{decision.FindingId}' does not exist");
             if (entry.Disposition != LedgerDisposition.Unresolved)
                 throw new DecisionLedgerRequestException($"finding '{decision.FindingId}' is not unresolved");
+            if (decision.Disposition == LedgerDisposition.BuilderNote
+                && (entry.Origin != LedgerPhaseNames.PLAN_REVIEW || entry.Finding.Severity != "minor"))
+                throw new DecisionLedgerRequestException($"builderNote requires a minor plan-review finding: {decision.FindingId}");
         }
 
         foreach (var reopening in payload.Reopenings)
         {
             if (!entries.TryGetValue(reopening.FindingId, out var entry))
                 throw new DecisionLedgerRequestException($"finding '{reopening.FindingId}' does not exist");
-            if (entry.Disposition is not LedgerDisposition.Deferred and not LedgerDisposition.Rejected)
+            if (entry.Disposition is not LedgerDisposition.Deferred and not LedgerDisposition.Rejected
+                                     and not LedgerDisposition.BuilderNote)
                 throw new DecisionLedgerRequestException($"finding '{reopening.FindingId}' is not settled");
             if (entry.Origin == LedgerPhaseNames.CODE_REVIEW && reopening.ActivePhase != LedgerPhaseNames.CODE_REVIEW)
                 throw new DecisionLedgerRequestException("a code-review finding cannot reopen into plan review");
@@ -1204,10 +1295,20 @@ internal sealed class DecisionLedger
             if (!Enum.IsDefined(entry.Disposition))
                 throw new DecisionLedgerStateException($"unsupported disposition '{entry.Disposition}'");
 
-            if (entry.Disposition is LedgerDisposition.Deferred or LedgerDisposition.Rejected)
+            if (entry.Disposition is LedgerDisposition.Deferred or LedgerDisposition.Rejected
+                or LedgerDisposition.BuilderNote)
             {
                 if (entry.Decision is null) throw new DecisionLedgerStateException("settled entry needs a decision");
                 ValidateDecisionData(entry.Decision);
+                if (entry.Disposition == LedgerDisposition.BuilderNote)
+                {
+                    if (entry.Origin != LedgerPhaseNames.PLAN_REVIEW || entry.Finding.Severity != "minor")
+                        throw new DecisionLedgerStateException("builder note must be a minor plan-review finding");
+                    NormalizeForTasks(entry.Decision.ForTasks);
+                    RequireText(entry.Decision.TaskListHash, "builder note taskListHash");
+                }
+                else if (entry.Decision.ForTasks is not null || entry.Decision.TaskListHash is not null)
+                    throw new DecisionLedgerStateException("only a builder note has task routing");
             }
             else if (entry.Decision is not null && entry.Reopening is null)
             {
@@ -1301,6 +1402,14 @@ internal sealed class DecisionLedger
                 throw new DecisionLedgerRequestException($"finding '{decision.FindingId}' appears more than once");
             RequireText(decision.Action, "decision action");
             ValidateDecision(decision.By, decision.Reason);
+            if (NormalizeAction(decision.Action) == "builderNote")
+            {
+                NormalizeForTasks(decision.ForTasks);
+                if (decision.Evidence is not null || decision.DuplicateOf is not null)
+                    throw new DecisionLedgerRequestException("builderNote does not accept evidence or duplicateOf");
+            }
+            else if (decision.ForTasks is not null)
+                throw new DecisionLedgerRequestException("forTasks is only valid for builderNote");
         }
     }
 
@@ -1483,6 +1592,7 @@ internal sealed class DecisionLedger
         LedgerDisposition.Unresolved => "unresolved",
         LedgerDisposition.Deferred => "deferred",
         LedgerDisposition.Rejected => "rejected",
+        LedgerDisposition.BuilderNote => "builder_note",
         _ => throw new DecisionLedgerStateException($"unsupported disposition '{disposition}'")
     };
 

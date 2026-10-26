@@ -75,6 +75,27 @@ public sealed class DecisionLedgerPromptTests : IDisposable
     }
 
     [Fact]
+    public void Code_projection_presents_builder_notes_as_checkable_notes()
+    {
+        const string plan = "# Plan\n\n## Approach\n\n1. Work.\n";
+        var ledger = Ledger();
+        var finding = ledger.AddFinding(new Finding("minor", "Requirements R1", "Check empty input."),
+                                        LedgerPhase.PlanReview);
+        ledger.Apply(new OrchestratorDecisionBatch("note", [
+            new OrchestratorDecision(finding.FindingId, "builderNote", "orchestrator",
+                                     "Builder can infer this.", ForTasks: [1])
+        ]), LedgerPhase.PlanReview, plan);
+
+        var prompt = ledger.RenderProjection(LedgerPhase.CodeReview);
+
+        Assert.Contains($"{finding.FindingId} | origin=plan_review", prompt, StringComparison.Ordinal);
+        Assert.Contains("disposition=builder_note", prompt, StringComparison.Ordinal);
+        Assert.Contains("builder note for task 1", prompt, StringComparison.Ordinal);
+        Assert.Contains("Check against the diff", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("  decision: ", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Code_projection_includes_a_reopened_plan_origin_entry()
     {
         var ledger = Ledger();

@@ -567,6 +567,35 @@ public sealed class BuildTests : IDisposable
         Assert.Equal(["src/Second.cs"], changes[1].FilesChanged);
     }
 
+    [Fact]
+    public async Task A_plan_review_note_reaches_only_its_named_builder_task()
+    {
+        const string plan = "# Toy plan\n\n## Approach\n\n1. First task.\n2. Second task.\n3. Third task.\n";
+        var run = NewRun("fake", "", plan);
+        var finding = run.ReadDecisionLedger().AddFinding(
+            new Finding("minor", "Requirements R1", "Check the empty input case."), LedgerPhase.PlanReview);
+        run.ReadDecisionLedger().Apply(new OrchestratorDecisionBatch("note-third-task", [
+            new OrchestratorDecision(finding.FindingId, "builderNote", "orchestrator",
+                                     "The builder can cover this while implementing the parser.", ForTasks: [3])
+        ]), LedgerPhase.PlanReview, plan);
+        run.WriteState(run.ReadState() with { TasksCompleted = 1 });
+        var vendor = new RecordingVendor("fake");
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "checked"), "built"));
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "checked"), "built"));
+        var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
+
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+        await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
+
+        Assert.DoesNotContain("Notes from plan review", vendor.Sessions[0].PromptText, StringComparison.Ordinal);
+        var taskThree = vendor.Sessions[1].PromptText;
+        Assert.Contains("# Notes from plan review", taskThree, StringComparison.Ordinal);
+        Assert.Contains(finding.FindingId, taskThree, StringComparison.Ordinal);
+        Assert.Contains("Requirements R1", taskThree, StringComparison.Ordinal);
+        Assert.Contains("Check the empty input case.", taskThree, StringComparison.Ordinal);
+        Assert.Contains("The builder can cover this while implementing the parser.", taskThree, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// A task counts only when it is done, and only a done task has changes to hand over: a retry
     /// records nothing, and the task it retries is recorded once.

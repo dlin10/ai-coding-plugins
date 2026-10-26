@@ -423,7 +423,9 @@ internal sealed class RunDirectory
     public void AppendFlowDecisionBatch(string act, OrchestratorDecisionBatch batch, DecisionBatchResponse response, LedgerPhase phase) =>
         AppendFlowDecisionBatch(act, response, phase, batch.Decisions
             .OrderBy(decision => decision.FindingId, StringComparer.Ordinal)
-            .Select(decision => $"- {decision.FindingId} {decision.Action} ({decision.By}): {decision.Reason}{RevisionEvidence(decision)}")
+            .Select(decision => $"- {decision.FindingId} {decision.Action} ({decision.By})"
+                                + (decision.ForTasks is { Count: > 0 } tasks ? $" for tasks {string.Join(", ", tasks)}" : "")
+                                + $": {decision.Reason}{RevisionEvidence(decision)}")
             .Concat((batch.Raises ?? []).Zip(response.Result.RaisedFindingIds ?? [])
                 .SelectMany(raise => new[]
                 {

@@ -292,6 +292,11 @@ function Test-PublishedServer([string]$Executable) {
         if ($planReviewProperties -notcontains 'decisions') {
             throw 'forge.plan.review schema is missing decisions'
         }
+        foreach ($tool in @($planReview, $confirm)) {
+            if (($tool.inputSchema | ConvertTo-Json -Depth 100 -Compress) -notmatch '"forTasks"') {
+                throw "$($tool.name) decision schema is missing forTasks"
+            }
+        }
         $codeReview = $tools | Where-Object { $_.name -eq 'forge.review.code' } | Select-Object -First 1
         $codeReviewProperties = @($codeReview.inputSchema.properties.PSObject.Properties.Name)
         foreach ($parameter in @('model', 'effort', 'vendor', 'userGrantedRound')) {

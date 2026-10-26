@@ -116,9 +116,10 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 
 `decisions`, on `forge.plan.review`, `forge.plan.confirm` and `forge.review.fix`, is one object, not an
 array: `{ decisionBatchId: "<new per logical set, reused on a retry>", decisions: [{ findingId,
-action, by: "user" | "orchestrator", reason, evidence?, duplicateOf? }], raises?: [{ severity, where,
+action, by: "user" | "orchestrator", reason, evidence?, duplicateOf?, forTasks?: [<task numbers>] }], raises?: [{ severity, where,
 what, by, reason }] }`. Actions are `defer`, `reject`, `duplicateOf`, `accept` and `decline`, plus
-`addressedByRevision` in plan review and `hostVerified` in code review; `hostVerified` and an
+`addressedByRevision` and minor-only `builderNote` in plan review, and `hostVerified` in code review;
+`builderNote` needs `forTasks`, while `hostVerified` and an
 `addressedByRevision` of a blocker or major need `evidence`. Raises belong to a
 decisions-only `forge.review.fix`. `ledger.md` has the rules.
 
