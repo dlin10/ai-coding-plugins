@@ -93,7 +93,8 @@ call:
 - `forge.plan.patch` keeps every built task before the first task whose text it changes. A patch to
   the title, Requirements, Gates or a task not yet built keeps them all; a patch that changes,
   inserts or removes task k — or adds prose after task k, which the build reads as part of it —
-  keeps tasks 1 to k − 1 and rebuilds from k. Its answer says how many it kept in `tasksKept` and
+  keeps tasks 1 to k − 1 and rebuilds from k. An `edit` within task k counts as a text change.
+  Its answer says how many it kept in `tasksKept` and
   which task the builder will run next in `firstTaskOwed`.
 - `forge.plan.write`, and a round you handed a draft to, reset the build progress to zero: a whole
   draft says nothing about which tasks it left alone. Use them only for genuine rewrites.
@@ -116,7 +117,9 @@ code pointed at lines nobody had read when the fix they hit was written, and 7 o
 revision wrote without reading anything turned out false. So each check below is an act done
 before the patch — a read, a query, a search, a question — not a recollection. Use
 `forge.plan.patch` when the revision changes some targets, and `forge.plan.write` when it rewrites
-the plan. Before either call that answers a critique, walk every change through these checks over
+the plan. For a small change within a target, prefer `edit` with a unique `find` over replacing the
+whole target; use `replace` when the target's text changes throughout. Before either call that
+answers a critique, walk every change through these checks over
 the whole plan, including after a patch; the draft is ready when every change passes all six:
 
 - **Gate with the rule.** A rule, requirement or step the revision adds or changes arrives with its

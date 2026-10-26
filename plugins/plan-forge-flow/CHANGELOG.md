@@ -1,5 +1,16 @@
 # Plan Forge Flow releases
 
+## 0.68.0
+
+Edit text inside a plan target without resending the whole target. Issue #192.
+
+- `forge.plan.patch` accepts `edit` with a unique exact `find` and a `replace` string, including an
+  empty replacement. Edits apply in order, and a missing or repeated match refuses the patch with
+  the target and match count. Whole-target `replace` remains available.
+- The Flow log shows each edit as a truncated `find → replace` summary. Edits to built tasks keep
+  the same rebuild boundary as whole-target replacements; plan-review guidance prefers `edit` for
+  small changes.
+
 ## 0.67.0
 
 Hand minor plan-review findings to the Builder without expanding the plan. Issue #191.

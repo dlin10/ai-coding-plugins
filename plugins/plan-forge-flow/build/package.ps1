@@ -227,6 +227,10 @@ function Test-PublishedServer([string]$Executable) {
         if ($planPatch.inputSchema.properties.edits.type -ne 'array') {
             throw 'forge.plan.patch publishes edits as something other than an array'
         }
+        $editProperties = @($planPatch.inputSchema.properties.edits.items.properties.PSObject.Properties.Name)
+        foreach ($field in @('op', 'target', 'targetHash', 'content', 'find', 'replace')) {
+            if ($editProperties -notcontains $field) { throw "forge.plan.patch edit schema is missing $field" }
+        }
         $planOutline = $tools | Where-Object { $_.name -eq 'forge.plan.outline' } | Select-Object -First 1
         $planOutlineProperties = @($planOutline.inputSchema.properties.PSObject.Properties.Name | Sort-Object)
         if (($planOutlineProperties -join ',') -ne 'runId,workspaceRoot') {
