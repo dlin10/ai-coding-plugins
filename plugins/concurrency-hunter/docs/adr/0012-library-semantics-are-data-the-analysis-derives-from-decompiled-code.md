@@ -212,7 +212,10 @@ The decision is how the run generates:
 - The generator reads the ASP.NET Core shared framework, as the implementation of its own members and as
   a reference of the packages built on it.
 - Inside a generation, a call of another library's member that has no model stays opaque: generation
-  does not follow dependencies yet. That is run B4b's, after the generator's precision.
+  does not follow dependencies yet. That is run B4b's, after the generator's precision. Superseded by
+  [ADR 0027](0027-the-run-generates-in-rounds-and-a-generation-takes-its-dependencies-models.md): a
+  generation takes its dependencies' built-in and generated models, and the run generates in rounds the
+  members its models make reachable.
 
 Rejected: generating only where `.concurrency-hunter/models/` exists. It changes no one's run, but no
 team gets a model it did not ask for. Rejected: generating in memory and writing only where the folder

@@ -137,6 +137,9 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
 | `CH_ENGINE_BENCH`, `CH_ENGINE_BENCH_LABEL` | Set by `bench-corelib.ps1` for its own invocation. |
 | `CONCURRENCYHUNTER_REQUIRE_E2E=1` | Set by `package.ps1`. Makes the end-to-end tests fail, rather than pass empty, when the published exe is absent. |
 
+On the owner's machine `CH_ESHOP_ROOT` is always `C:\Dev\eShopOnContainers`: use that value, in gates
+and runs alike, without asking for it.
+
 Set `CH_ESHOP_ROOT` before any change that can move the engine's output: without it the eShop tests
 skip, `dotnet test` stays green, and only `check-test-baseline.ps1` and `package.ps1` notice. The
 suite restores the demo (`DemoWorkspace.EnsureRestoredAsync`) but never eShop. With its

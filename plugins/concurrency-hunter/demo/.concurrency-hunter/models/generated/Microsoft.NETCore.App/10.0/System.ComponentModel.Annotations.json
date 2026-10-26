@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "System.ComponentModel.Annotations",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.ComponentModel.DataAnnotations.ValidationContext.#ctor(System.Object)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.DataAnnotations.ValidationResult.get_ErrorMessage",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "unseeded-read"
+        ]
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.DataAnnotations.Validator.TryValidateObject(System.Object,System.ComponentModel.DataAnnotations.ValidationContext,System.Collections.Generic.ICollection{System.ComponentModel.DataAnnotations.ValidationResult},System.Boolean)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-graph-cells",
+          "enumeration-write",
+          "probe-handed-to-unseen",
+          "unseeded-read",
+          "unsupported-store"
+        ]
+      }
+    }
+  ]
+}

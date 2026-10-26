@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "System.ComponentModel",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.IServiceProvider.GetService(System.Type)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.IServiceProvider.GetService(System.Type) is claimed by the service-call recognizer",
+        "causes": []
+      }
+    }
+  ]
+}

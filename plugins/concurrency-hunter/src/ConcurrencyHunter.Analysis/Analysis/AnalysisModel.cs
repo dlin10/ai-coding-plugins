@@ -136,14 +136,14 @@ public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, i
     public IReadOnlyList<GenerationRefusal> GenerationRefusals { get; init; } = [];
 }
 
-/// <summary>One generation target of a scope that no generated model describes: a library member reached through a direct opaque call,
+/// <summary>One generation target of a scope that no generated model describes: a library member reached through a call in any analysis,
 /// with the generated file that answers for it. One member reached through two file keys is two items.</summary>
 /// <param name="Member">The member as the report shows it.</param>
 /// <param name="MemberId">The member's declaration id, the id the generated files name it by.</param>
 /// <param name="FileKey">The key of the generated file that answers for the member: its path below the generated folder, or, for a package
 /// whose implementation is not on disk, the package's id and version alone.</param>
 /// <param name="Cause">Why no generated model describes the member: a word of the generator's, <c>timeout</c>, <c>budget</c>,
-/// <c>failed</c>, <c>no-implementation</c>, <c>not-applicable</c>, <c>not-generated</c> or <c>reached-through-model</c>.</param>
+/// <c>failed</c>, <c>no-implementation</c>, <c>not-applicable</c> or <c>not-generated</c>.</param>
 public sealed record GenerationRefusal(string Member, string MemberId, string FileKey, string Cause);
 
 /// <summary>A generation target that a run which generates would have generated but a read-only run did not: no layer describes the member
@@ -167,7 +167,17 @@ public sealed record StepTiming(string Step, double Seconds);
 
 /// <summary>How large one scope's analysis was: reachable bodies, bodies with a summary, heap regions and instances, and the
 /// non-construction-local accesses pairing ran over.</summary>
-public sealed record ScopeSize(string ScopeId, int ReachableBodies, int Summaries, int Regions, int Instances, int Accesses);
+/// <param name="ScopeId">The scope.</param>
+/// <param name="ReachableBodies">The reachable bodies of its last analysis.</param>
+/// <param name="Summaries">The summaries built by its last analysis.</param>
+/// <param name="Regions">The heap regions of its last analysis.</param>
+/// <param name="Instances">The heap instances of its last analysis.</param>
+/// <param name="Accesses">The non-construction-local accesses of its last analysis.</param>
+public sealed record ScopeSize(string ScopeId, int ReachableBodies, int Summaries, int Regions, int Instances, int Accesses)
+{
+    /// <summary>The number of analyses of the scope, including the first analysis without the generated layer.</summary>
+    public int Analyses { get; init; } = 1;
+}
 
 public sealed record AnalysisResult(IReadOnlyList<ProcessScope> Scopes, IReadOnlyList<ExecutionRootDescriptor> Roots,
                                     IReadOnlyList<Access> Accesses, IReadOnlyList<Finding> Findings,

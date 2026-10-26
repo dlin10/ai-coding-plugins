@@ -61,6 +61,47 @@ public sealed class GenerationTargetTests : IDisposable
     }
 
     [Fact]
+    public void A_dependency_of_a_library_compilation_gets_the_file_key_the_program_computes()
+    {
+        var shared = _install.SharedFramework("6.0.5");
+        _install.SharedFramework("8.0.5");
+        var packageImage = Image("// net6.0");
+        var asset = ReferenceScopes.AddAsset(_install, PACKAGE, "1.0.0", "net6.0", PACKAGE, packageImage);
+        ReferenceScopes.AddAsset(_install, PACKAGE, "1.0.0", "net8.0", PACKAGE, Image("// net8.0"));
+        const string FRAMEWORK_ASSEMBLY = "System.Fixture";
+        const string FRAMEWORK_API = "namespace Framework { public static class Api { public static void Run(System.Action callback) { } } }";
+        var frameworkImage = EmittedAssemblies.Image(FRAMEWORK_ASSEMBLY, ReferenceScopes.VERSION_ATTRIBUTE + FRAMEWORK_API);
+        var frameworkPath = Path.Combine(shared, FRAMEWORK_ASSEMBLY + ".dll");
+        File.WriteAllBytes(frameworkPath, frameworkImage);
+        var program = ReferenceScopes.Compile("public static class App { }", [.. ReferenceScopes.Runtime(_install, 6),
+            ReferenceScopes.Reference(packageImage, asset),
+            ReferenceScopes.Reference(frameworkImage, ReferenceScopes.PackFile(_install, 6, "Microsoft.NETCore.App.Ref", FRAMEWORK_ASSEMBLY + ".dll"))]);
+        // A generator compilation has implementation references, without a reference pack. Its request, rather than the host, selects net6.0.
+        var library = ReferenceScopes.Compile("public static class Library { }", [.. ReferenceScopes.Runtime(_install, null),
+            ReferenceScopes.Reference(packageImage, asset), ReferenceScopes.Reference(frameworkImage, frameworkPath)]);
+
+        foreach (var type in new[] { "Acme.Api", "Framework.Api" })
+        {
+            var programTarget = Assert.IsType<GenerationTarget>(GenerationTargets.Of(Run(program, type), program, _install.Resolver(), CancellationToken.None));
+            var dependency = Assert.IsType<GenerationTarget>(GenerationTargets.Of(Run(library, type), library, _install.Resolver(), CancellationToken.None, 6));
+
+            Assert.Equal(programTarget.Key, dependency.Key);
+            Assert.Equal(programTarget.Request, dependency.Request);
+            if (type == "Acme.Api")
+            {
+                Assert.Equal(AssemblyFile.Read(asset)!.Mvid, dependency.Key.Mvid);
+                Assert.Equal("net6.0", dependency.Request.Framework);
+            }
+            else
+            {
+                Assert.Equal("Microsoft.NETCore.App", dependency.Key.Framework);
+                Assert.Equal(6, dependency.Key.Major);
+                Assert.Equal("6.0", dependency.Request.Version);
+            }
+        }
+    }
+
+    [Fact]
     public void Types_of_one_assembly_forwarded_apart_get_their_own_answers_in_either_order()
     {
         _install.SharedFramework("8.0.5");

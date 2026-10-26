@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "Microsoft.AspNetCore.Hosting.Abstractions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.HostingStartupAttribute.get_HostingStartupType",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Hosting.HostingStartupAttribute.get_HostingStartupType",
+        "assemblies": [
+          "Microsoft.AspNetCore.Hosting.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.IHostingStartup.Configure(Microsoft.AspNetCore.Hosting.IWebHostBuilder)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Hosting.IHostingStartup.Configure(Microsoft.AspNetCore.Hosting.IWebHostBuilder) is abstract; M:Microsoft.AspNetCore.Hosting.IHostingStartup.Configure(Microsoft.AspNetCore.Hosting.IWebHostBuilder) is an interface member; only a default could fill the Microsoft.AspNetCore.Hosting.IHostingStartup of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureAppConfiguration(System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.Configuration.IConfigurationBuilder})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureAppConfiguration(System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.Configuration.IConfigurationBuilder}) is abstract; M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureAppConfiguration(System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.Configuration.IConfigurationBuilder}) is an interface member; only a default could fill the Microsoft.AspNetCore.Hosting.IWebHostBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureServices(System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.DependencyInjection.IServiceCollection})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureServices(System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.DependencyInjection.IServiceCollection}) is abstract; M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureServices(System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Microsoft.Extensions.DependencyInjection.IServiceCollection}) is an interface member; only a default could fill the Microsoft.AspNetCore.Hosting.IWebHostBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureServices(System.Action{Microsoft.Extensions.DependencyInjection.IServiceCollection})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureServices(System.Action{Microsoft.Extensions.DependencyInjection.IServiceCollection}) is abstract; M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureServices(System.Action{Microsoft.Extensions.DependencyInjection.IServiceCollection}) is an interface member; only a default could fill the Microsoft.AspNetCore.Hosting.IWebHostBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.UseSetting(System.String,System.String)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.UseSetting(System.String,System.String) is abstract; M:Microsoft.AspNetCore.Hosting.IWebHostBuilder.UseSetting(System.String,System.String) is an interface member; only a default could fill the Microsoft.AspNetCore.Hosting.IWebHostBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.get_WebRootFileProvider",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.get_WebRootFileProvider is abstract; M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.get_WebRootFileProvider is an interface member; only a default could fill the Microsoft.AspNetCore.Hosting.IWebHostEnvironment of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.get_WebRootPath",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.get_WebRootPath is abstract; M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.get_WebRootPath is an interface member; only a default could fill the Microsoft.AspNetCore.Hosting.IWebHostEnvironment of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.set_WebRootFileProvider(Microsoft.Extensions.FileProviders.IFileProvider)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.set_WebRootFileProvider(Microsoft.Extensions.FileProviders.IFileProvider) is abstract; M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.set_WebRootFileProvider(Microsoft.Extensions.FileProviders.IFileProvider) is an interface member; only a default could fill the Microsoft.AspNetCore.Hosting.IWebHostEnvironment of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.set_WebRootPath(System.String)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.set_WebRootPath(System.String) is abstract; M:Microsoft.AspNetCore.Hosting.IWebHostEnvironment.set_WebRootPath(System.String) is an interface member; only a default could fill the Microsoft.AspNetCore.Hosting.IWebHostEnvironment of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderContext.#ctor",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderContext.#ctor",
+        "assemblies": [
+          "Microsoft.AspNetCore.Hosting.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderContext.get_Configuration",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderContext.get_HostingEnvironment",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderContext.set_Configuration(Microsoft.Extensions.Configuration.IConfiguration)",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderContext.set_Configuration(Microsoft.Extensions.Configuration.IConfiguration)",
+        "assemblies": [
+          "Microsoft.AspNetCore.Hosting.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderContext.set_HostingEnvironment(Microsoft.AspNetCore.Hosting.IWebHostEnvironment)",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderContext.set_HostingEnvironment(Microsoft.AspNetCore.Hosting.IWebHostEnvironment)",
+        "assemblies": [
+          "Microsoft.AspNetCore.Hosting.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      }
+    }
+  ]
+}

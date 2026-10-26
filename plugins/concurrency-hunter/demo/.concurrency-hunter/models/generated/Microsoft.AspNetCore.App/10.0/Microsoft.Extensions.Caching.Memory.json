@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "38b1e51e38b7f49a4fd59450ac310853571100a4bd15c794c25d037473168051",
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
   "assembly": {
     "name": "Microsoft.Extensions.Caching.Memory",
     "version": "10.0.0.0",

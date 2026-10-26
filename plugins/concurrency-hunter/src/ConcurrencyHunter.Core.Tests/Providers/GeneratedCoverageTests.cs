@@ -72,7 +72,7 @@ public sealed class GeneratedCoverageTests : IDisposable
         StoredTimeout,
         StoredRefusalOfUnavailableTarget,
         UnavailableWithoutAnswer,
-        ReachedThroughModel,
+        RunModelNotKept,
         NoAnswer,
         GeneratedModel,
         GeneratedModelNotApplicable,
@@ -100,7 +100,7 @@ public sealed class GeneratedCoverageTests : IDisposable
         // A stored answer settles the member whether or not its implementation is on disk.
         [Situation.StoredRefusalOfUnavailableTarget] = ("unknown-touch", "unknown-touch"),
         [Situation.UnavailableWithoutAnswer] = ("no-implementation", "no-implementation"),
-        [Situation.ReachedThroughModel] = ("reached-through-model", "reached-through-model"),
+        [Situation.RunModelNotKept] = (null, "not-generated"),
         [Situation.NoAnswer] = ("budget", "not-generated"),
         // A read-only run generates nothing, so whatever a generation would have answered is not its answer.
         [Situation.GeneratedModel] = (null, "not-generated"),
@@ -462,7 +462,7 @@ public sealed class GeneratedCoverageTests : IDisposable
             Situation.StoredTimeout => new TargetStanding(Refused(GenerationOutcome.TIMEOUT), false),
             Situation.StoredRefusalOfUnavailableTarget => new TargetStanding(Refused(ModelReasons.UNKNOWN_TOUCH), true),
             Situation.UnavailableWithoutAnswer => new TargetStanding(StoredGeneratedAnswer.Absent, true),
-            Situation.ReachedThroughModel => new TargetStanding(StoredGeneratedAnswer.Absent, false, ReachedThroughModel: true),
+            Situation.RunModelNotKept => Generated(GeneratedModelAnswer.OfModel(model), applies: true),
             Situation.NoAnswer => new TargetStanding(StoredGeneratedAnswer.Absent, false),
             Situation.GeneratedModel => Generated(GeneratedModelAnswer.OfModel(model), applies: true),
             Situation.GeneratedModelNotApplicable => Generated(GeneratedModelAnswer.OfModel(model)),

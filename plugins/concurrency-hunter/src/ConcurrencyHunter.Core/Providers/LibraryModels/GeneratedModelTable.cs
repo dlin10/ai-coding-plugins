@@ -68,6 +68,16 @@ internal sealed class GeneratedModelTable
             : StoredGeneratedAnswer.Absent;
     }
 
+    /// <summary>The canonical bytes of the model applied to a member, or <c>null</c> when no model applies.</summary>
+    /// <param name="compilation">The compilation the call is in.</param>
+    /// <param name="definition">The call's member: its original definition.</param>
+    /// <param name="lookupId">The declaration id lowering looks up.</param>
+    internal string? AppliedModelText(Compilation compilation, IMethodSymbol definition, string lookupId) =>
+        _views.TryGetValue(compilation, out var view) && view.KeyOf(definition) is { } key &&
+        view.Answers.TryGetValue((key, lookupId), out var placed) && SymbolEqualityComparer.Default.Equals(placed.Definition, definition)
+            ? placed.ModelText
+            : null;
+
     private static void Place(Compilation compilation, CompilationView view, GeneratedFileKey key, GeneratedModelEntry entry, IMethodSymbol definition,
                               List<string> diagnostics)
     {
@@ -93,7 +103,8 @@ internal sealed class GeneratedModelTable
         // The file's entries and the run's own answers are added one after the other and may name one member twice: a model that applies
         // is never replaced by an entry that does not.
         if (!view.Answers.TryGetValue((key, lookupId), out var existing) || existing.Answer.Kind != StoredGeneratedKind.Model)
-            view.Answers[(key, lookupId)] = new PlacedAnswer(definition, answer);
+            view.Answers[(key, lookupId)] = new PlacedAnswer(definition, answer,
+                answer.Kind == StoredGeneratedKind.Model ? GeneratedModelFiles.ModelText(entry) : null);
     }
 
     /// <summary>The model of an entry that applies, as a library model of the generated layer: the entry's own words, under the id a
@@ -116,7 +127,8 @@ internal sealed class GeneratedModelTable
     /// <summary>A stored answer with the member it was stored for: a call meets the answer of its own member only.</summary>
     /// <param name="Definition">The member.</param>
     /// <param name="Answer">The answer.</param>
-    private sealed record PlacedAnswer(IMethodSymbol Definition, StoredGeneratedAnswer Answer);
+    /// <param name="ModelText">The canonical bytes when the model applies, otherwise <c>null</c>.</param>
+    private sealed record PlacedAnswer(IMethodSymbol Definition, StoredGeneratedAnswer Answer, string? ModelText);
 
     /// <summary>What one compilation of the scope sees: the file of each of its mapped types and the answers of those files.</summary>
     private sealed class CompilationView

@@ -5,16 +5,13 @@ using Microsoft.CodeAnalysis;
 namespace ConcurrencyHunter.Analysis;
 
 /// <summary>What a scope knows about one generation target in the compilation of one call that reaches it (R5): the answer a generated file
-/// holds for it, whether its implementation is on disk, what the run's own generation of it came to, and whether only the analysis with the
-/// generated layer reaches it.</summary>
+/// holds for it, whether its implementation is on disk, and what the run's own generation of it came to.</summary>
 /// <param name="Stored">What the generated file of the call's own target says about the member in the call's compilation.</param>
 /// <param name="ImplementationMissing">Whether the target's implementation is not on disk: nothing can be generated for it.</param>
 /// <param name="Generated">The answer this run's generation of the target came to, or <c>null</c> when it generated nothing for it.</param>
 /// <param name="GeneratedModelApplies">For a model <paramref name="Generated"/> holds: whether it applies in the call's compilation.</param>
-/// <param name="ReachedThroughModel">Whether the call exists only in the analysis with the generated layer, so that the run did not take its
-/// member for a candidate.</param>
 internal readonly record struct TargetStanding(StoredGeneratedAnswer Stored, bool ImplementationMissing, GeneratedModelAnswer? Generated = null,
-                                               bool GeneratedModelApplies = false, bool ReachedThroughModel = false);
+                                               bool GeneratedModelApplies = false);
 
 /// <summary>A call that reaches a generation target: the member it calls, the target and what the scope knows of the target there.</summary>
 /// <param name="Definition">The called member's original definition.</param>
@@ -34,16 +31,12 @@ internal static class GenerationCauses
     /// another, or in none.</summary>
     internal const string NOT_APPLICABLE = "not-applicable";
 
-    /// <summary>The cause of a target only the analysis with the generated layer reaches: the run does not generate it, and no file
-    /// answers for it.</summary>
-    internal const string REACHED_THROUGH_MODEL = "reached-through-model";
-
     /// <summary>Why no generated model describes a call, or <c>null</c> when one does. A stored answer decides first: a model that applies
     /// describes the call, one that does not is <see cref="NOT_APPLICABLE"/>, a refusal is its reason word. Without a stored answer a
     /// target whose implementation is not on disk is <c>no-implementation</c>; otherwise a <see cref="ModelGeneration.Generate"/> run's own
     /// answer decides (a model, or the word of its refusal: <c>timeout</c>, <c>budget</c>, <c>failed</c> or the generator's), then
-    /// <see cref="REACHED_THROUGH_MODEL"/> for a member the run did not take for a candidate, and last, for a read-only run,
-    /// <see cref="NOT_GENERATED"/>. The generated layer is off under <see cref="ModelGeneration.None"/>, which has no cause.</summary>
+    /// <see cref="NOT_GENERATED"/> for a read-only run or <c>budget</c> for a generating run with no answer.
+    /// The generated layer is off under <see cref="ModelGeneration.None"/>, which has no cause.</summary>
     /// <param name="mode">What the analysis does with the generated layer.</param>
     /// <param name="standing">What the scope knows of the target in the call's compilation.</param>
     internal static string? Of(ModelGeneration mode, TargetStanding standing)
@@ -70,8 +63,6 @@ internal static class GenerationCauses
                 : standing.GeneratedModelApplies ? null : NOT_APPLICABLE;
         }
 
-        if (standing.ReachedThroughModel)
-            return REACHED_THROUGH_MODEL;
         return mode == ModelGeneration.ReadOnly ? NOT_GENERATED : GenerationOutcome.BUDGET;
     }
 

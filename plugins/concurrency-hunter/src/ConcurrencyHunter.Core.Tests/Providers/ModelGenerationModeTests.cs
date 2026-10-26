@@ -213,7 +213,7 @@ public sealed class ModelGenerationModeTests : IDisposable
         var library = Emitted("Fixture.Created");
         LibraryCompilationResult? during = null;
 
-        _ = await Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, token) =>
+        _ = await Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, dependencies, token) =>
         {
             during = LibraryCompilation.Compile(library, token);
             return Model(request);
@@ -232,7 +232,7 @@ public sealed class ModelGenerationModeTests : IDisposable
         LibraryCompilationResult? during = null;
         using var cancel = new CancellationTokenSource();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, token) =>
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, dependencies, token) =>
         {
             during = LibraryCompilation.Compile(library, token);
             cancel.Cancel();
@@ -251,7 +251,7 @@ public sealed class ModelGenerationModeTests : IDisposable
         LibraryCompilationResult? during = null;
 
         // The generation is done; the analysis with its model is what fails, on the scope's second pairing.
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, token) =>
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, dependencies, token) =>
         {
             during = LibraryCompilation.Compile(library, token);
             return Model(request);
@@ -269,7 +269,7 @@ public sealed class ModelGenerationModeTests : IDisposable
         var library = Emitted("Fixture.Throws");
         LibraryCompilationResult? during = null;
 
-        var result = await Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, token) =>
+        var result = await Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, dependencies, token) =>
         {
             during = LibraryCompilation.Compile(library, token);
             throw new InvalidOperationException("the generator broke after it compiled");
@@ -288,7 +288,7 @@ public sealed class ModelGenerationModeTests : IDisposable
         var before = LibraryCompilation.Compile(library, CancellationToken.None);
         LibraryCompilationResult? during = null;
 
-        _ = await Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, token) =>
+        _ = await Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, dependencies, token) =>
         {
             during = LibraryCompilation.Compile(library, token);
             return Model(request);
@@ -314,7 +314,7 @@ public sealed class ModelGenerationModeTests : IDisposable
         LibraryCompilationResult? created = null;
         LibraryCompilationResult? during = null;
 
-        _ = await Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, token) =>
+        _ = await Run(Solution("Acme.Api.Touch(_state);"), ModelGeneration.Generate, (request, dependencies, token) =>
         {
             during = LibraryCompilation.Compile(own, token);
             go.Set();
@@ -357,7 +357,7 @@ public sealed class ModelGenerationModeTests : IDisposable
 
         foreach (var mode in new[] { ModelGeneration.ReadOnly, ModelGeneration.None })
         {
-            _ = await Run(solution, mode, (request, token) =>
+            _ = await Run(solution, mode, (request, dependencies, token) =>
             {
                 Assert.Fail("A run that does not generate called the generator.");
                 return Model(request);
@@ -375,17 +375,17 @@ public sealed class ModelGenerationModeTests : IDisposable
     /// <param name="generator">The generator call; a model with no effects for any member when omitted.</param>
     /// <param name="token">The run's token.</param>
     /// <param name="pairing">The pairing of each scope's accesses; the analyzer's, counting the analyses, when omitted.</param>
-    private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, CancellationToken, GeneratedAnswer>? generator = null,
+    private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? generator = null,
                                      CancellationToken token = default,
                                      Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis>? pairing = null)
     {
-        generator ??= (request, _) => Model(request);
+        generator ??= (request, _, _) => Model(request);
         return PhaseOneAnalyzer.AnalyzeAsync(solution, ROOT_DIRECTORY, _repository, ProviderRegistry.BuiltIn, pairing ?? Counted, AnalysisLimits.Default,
                                              Z3ConstraintSolver.Create,
-                                             new GenerationSetup(mode, _install.Resolver(), (request, cancellation) =>
+                                             new GenerationSetup(mode, _install.Resolver(), (request, dependencies, cancellation) =>
                                              {
                                                  _requested.Add(request.MemberId);
-                                                 return generator(request, cancellation);
+                                                 return generator(request, dependencies, cancellation);
                                              }), token);
     }
 

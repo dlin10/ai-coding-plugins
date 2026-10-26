@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "38b1e51e38b7f49a4fd59450ac310853571100a4bd15c794c25d037473168051",
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
   "assembly": {
     "name": "Microsoft.Extensions.Hosting",
     "version": "10.0.0.0",
@@ -18,6 +18,17 @@
           "probe-handed-to-unseen",
           "result-unnamed",
           "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilder.#ctor(Microsoft.Extensions.Hosting.HostApplicationBuilderSettings)",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "unseeded-read",
           "value-unobserved"
         ]
       }
@@ -42,6 +53,46 @@
       }
     },
     {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilder.ConfigureContainer``1(Microsoft.Extensions.DependencyInjection.IServiceProviderFactory{``0},System.Action{``0})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "probe-accessed-elsewhere",
+          "probe-handed-to-unseen",
+          "unseeded-read",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilder.get_Configuration",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-unresolved",
+          "unseeded-read",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilder.get_Environment",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-unnamed",
+          "unseeded-read",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
       "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilder.get_Services",
       "refusal": {
         "reason": "unknown-touch",
@@ -51,6 +102,88 @@
           "probe-handed-to-unseen",
           "result-several-objects",
           "unseeded-read"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilderSettings.#ctor",
+      "model": {
+        "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilderSettings.#ctor",
+        "assemblies": [
+          "Microsoft.Extensions.Hosting"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilderSettings.set_ApplicationName(System.String)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilderSettings.set_Args(System.String[])",
+      "model": {
+        "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilderSettings.set_Args(System.String[])",
+        "assemblies": [
+          "Microsoft.Extensions.Hosting"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilderSettings.set_Configuration(Microsoft.Extensions.Configuration.ConfigurationManager)",
+      "model": {
+        "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilderSettings.set_Configuration(Microsoft.Extensions.Configuration.ConfigurationManager)",
+        "assemblies": [
+          "Microsoft.Extensions.Hosting"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilderSettings.set_ContentRootPath(System.String)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostApplicationBuilderSettings.set_EnvironmentName(System.String)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "value-unobserved"
         ]
       }
     }

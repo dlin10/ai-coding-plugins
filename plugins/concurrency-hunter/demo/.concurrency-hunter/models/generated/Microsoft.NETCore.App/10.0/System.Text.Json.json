@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "System.Text.Json",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Text.Json.JsonEncodedText.Encode(System.String,System.Text.Encodings.Web.JavaScriptEncoder)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-several-objects",
+          "unsupported-store"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-graph-cells",
+          "argument-graph-write",
+          "argument-member-unseen",
+          "call-receiver-unfollowed",
+          "enumeration-write",
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "result-unresolved",
+          "unproven-reference-store",
+          "unseeded-read",
+          "unsupported-store",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializerOptions.#ctor(System.Text.Json.JsonSerializerOptions)",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializerOptions.GetTypeInfo(System.Type)",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializerOptions.get_Converters",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.Serialization.JsonConverter`1.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Text.Json.Serialization.JsonConverter`1.#ctor is not public; M:System.Text.Json.Serialization.JsonConverter`1.#ctor constructs an abstract type",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.Serialization.JsonSerializerContext.#ctor(System.Text.Json.JsonSerializerOptions)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Text.Json.Serialization.JsonSerializerContext.#ctor(System.Text.Json.JsonSerializerOptions) is not public; M:System.Text.Json.Serialization.JsonSerializerContext.#ctor(System.Text.Json.JsonSerializerOptions) constructs an abstract type",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.Serialization.JsonSerializerContext.get_Options",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    }
+  ]
+}

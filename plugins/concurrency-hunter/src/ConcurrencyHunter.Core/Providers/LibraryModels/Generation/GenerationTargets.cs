@@ -11,15 +11,16 @@ internal enum NoTargetReason
     /// <summary>The member's signature carries a function-pointer type (<see cref="FunctionPointers"/>); no declaration id names it.</summary>
     FunctionPointer,
 
-    /// <summary>The member has source in the scope.</summary>
+    /// <summary>The member has source in the scope or in the generated assembly's library copy.</summary>
     Source,
 
     /// <summary>The member's metadata reference is in neither a package's <c>lib</c> or <c>ref</c> folder under the NuGet packages root nor
-    /// a shared framework's reference pack; another folder of a package, such as <c>runtimes/&lt;rid&gt;/lib</c>, is one too.</summary>
+    /// a shared framework's reference pack or, in a generator compilation, its implementation folder; another folder of a package,
+    /// such as <c>runtimes/&lt;rid&gt;/lib</c>, is one too.</summary>
     OtherPath,
 
     /// <summary>A package member of a compilation that references no <c>Microsoft.NETCore.App</c> reference pack, so no target framework
-    /// chooses its asset.</summary>
+    /// chooses its asset, and no generation context supplies one.</summary>
     NoFrameworkPack,
 
     /// <summary>A member of <c>System.Private.CoreLib</c>.</summary>
@@ -81,14 +82,18 @@ internal static class GenerationTargets
     /// <summary>What a call's member comes to. The checks that need no disk come first, the function-pointer rule before anything is
     /// resolved; then the implementation is found, and the member's declaring type is read from its exported types. A package member is
     /// requested with the compilation's target framework, the <c>net&lt;major&gt;.0</c> folder of its <c>Microsoft.NETCore.App.Ref</c>
-    /// references, so the resolver picks that framework's asset and not the host's.</summary>
+    /// references, or the request's major in a generator compilation, so the resolver picks that framework's asset and not the host's.
+    /// A generator compilation also recognizes the shared frameworks' implementation folders as framework origins.</summary>
     /// <param name="method">The method, constructor, operator or accessor a call names.</param>
     /// <param name="compilation">The compilation the call is in.</param>
     /// <param name="resolver">Finds the implementation assembly; its dotnet root and packages folder say where references come from.</param>
     /// <param name="cancellationToken">Stops the resolution: checked before and between the resolver's calls and passed to each.</param>
+    /// <param name="generationFrameworkMajor">The request's framework major, supplied only for compilations built by the generator;
+    /// <c>null</c> for a program compilation.</param>
+    /// <param name="typeOrigins">An optional cache of resolved origins and file keys; every member's identity is checked separately.</param>
     /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
     internal static GenerationTargetAnswer Of(IMethodSymbol method, Compilation compilation, ImplementationAssemblies resolver,
-                                              CancellationToken cancellationToken)
+                                              CancellationToken cancellationToken, int? generationFrameworkMajor = null, TypeOrigins? typeOrigins = null)
     {
         WorkCancellation.Check();
         cancellationToken.ThrowIfCancellationRequested();
@@ -101,38 +106,75 @@ internal static class GenerationTargets
         var assembly = definition.ContainingAssembly;
         var origin = compilation.GetMetadataReference(assembly) is PortableExecutableReference { FilePath: { } file } &&
                      ImplementationAssemblies.IsAssemblyName(assembly.Name)
-            ? OriginOf(file, resolver)
+            ? OriginOf(file, resolver, generationFrameworkMajor is not null)
             : null;
         if (origin is null)
             return new NoGenerationTarget(NoTargetReason.OtherPath);
-        var major = origin is PackageOrigin ? FrameworkMajor(compilation, resolver) : null;
+        var major = origin is PackageOrigin ? generationFrameworkMajor ?? FrameworkMajor(compilation, resolver) : null;
         if (origin is PackageOrigin && major is null)
             return new NoGenerationTarget(NoTargetReason.NoFrameworkPack);
         if (definition.GetDocumentationCommentId() is not { } memberId || DocumentationCommentId.CreateDeclarationId(definition) is not { } lookupId ||
             !NamesOnly(definition, memberId, compilation))
             return new NoGenerationTarget(NoTargetReason.AmbiguousId);
 
-        var version = assembly.Identity.Version;
-        WorkCancellation.Check();
-        cancellationToken.ThrowIfCancellationRequested();
-        switch (origin)
+        var declaring = definition.ContainingType.OriginalDefinition;
+        if (typeOrigins is not null && typeOrigins.Answers.TryGetValue((compilation, declaring), out var cached))
+            return cached.ForMember(memberId, lookupId);
+
+        var answer = ResolveType();
+        typeOrigins?.Answers.Add((compilation, declaring), TypeOrigin.Of(answer));
+        return answer;
+
+        GenerationTargetAnswer ResolveType()
         {
-            case PackageOrigin package:
-                var id = PackageId(package, resolver);
-                if (id is null)
-                    return new NoGenerationTarget(NoTargetReason.OtherPath);
-                var request = new GenerationRequest(assembly.Name, package.Version.Normalized, memberId, id, $"net{major}.0");
-                var opened = resolver.Resolve(request.AssemblyName, request.Version, request.PackageId, request.Framework, cancellationToken);
-                return Answer(opened, request, lookupId, mvid => GeneratedFileKey.ForPackage(assembly.Name, version, id, package.Version.Normalized, mvid),
-                              definition.ContainingType, cancellationToken);
-            case FrameworkOrigin framework:
-                var frameworkRequest = new GenerationRequest(assembly.Name, $"{framework.Major}.0", memberId, null, null);
-                var found = resolver.Resolve(frameworkRequest.AssemblyName, frameworkRequest.Version, null, null, cancellationToken);
-                return Answer(found, frameworkRequest, lookupId, _ => GeneratedFileKey.ForFramework(assembly.Name, version, framework.Name, framework.Major),
-                              definition.ContainingType, cancellationToken);
-            default:
-                throw new UnreachableException($"Unknown origin {origin}.");
+            var version = assembly.Identity.Version;
+            WorkCancellation.Check();
+            cancellationToken.ThrowIfCancellationRequested();
+            switch (origin)
+            {
+                case PackageOrigin package:
+                    var id = PackageId(package, resolver);
+                    if (id is null)
+                        return new NoGenerationTarget(NoTargetReason.OtherPath);
+                    var request = new GenerationRequest(assembly.Name, package.Version.Normalized, memberId, id, $"net{major}.0");
+                    var opened = resolver.Resolve(request.AssemblyName, request.Version, request.PackageId, request.Framework, cancellationToken);
+                    return Answer(opened, request, lookupId, mvid => GeneratedFileKey.ForPackage(assembly.Name, version, id, package.Version.Normalized, mvid),
+                                  definition.ContainingType, cancellationToken);
+                case FrameworkOrigin framework:
+                    var frameworkRequest = new GenerationRequest(assembly.Name, $"{framework.Major}.0", memberId, null, null);
+                    var found = resolver.Resolve(frameworkRequest.AssemblyName, frameworkRequest.Version, null, null, cancellationToken);
+                    return Answer(found, frameworkRequest, lookupId, _ => GeneratedFileKey.ForFramework(assembly.Name, version, framework.Name, framework.Major),
+                                  definition.ContainingType, cancellationToken);
+                default:
+                    throw new UnreachableException($"Unknown origin {origin}.");
+            }
         }
+    }
+
+    /// <summary>The resolved origin and file key per compilation and declaring type; member identities are never cached.</summary>
+    internal sealed class TypeOrigins
+    {
+        internal Dictionary<(Compilation Compilation, INamedTypeSymbol Type), TypeOrigin> Answers { get; } = new();
+    }
+
+    /// <summary>The part of a target shared by a type's members.</summary>
+    /// <param name="Key">The generated file, or null for a type that is no target.</param>
+    /// <param name="Request">The implementation request without a member identity, or null when it cannot be generated.</param>
+    /// <param name="Reason">Why the type is no target.</param>
+    /// <param name="Detail">What implementation is missing.</param>
+    internal sealed record TypeOrigin(GeneratedFileKey? Key, GenerationRequest? Request, NoTargetReason? Reason, string? Detail)
+    {
+        internal static TypeOrigin Of(GenerationTargetAnswer answer) => answer switch
+        {
+            GenerationTarget target => new(target.Key, target.Request with { MemberId = "" }, null, null),
+            UnavailableGenerationTarget target => new(target.Key, null, null, target.Detail),
+            NoGenerationTarget target => new(null, null, target.Reason, null),
+            _ => throw new UnreachableException($"Unknown target {answer}.")
+        };
+
+        internal GenerationTargetAnswer ForMember(string memberId, string lookupId) => Request is { } request
+            ? new GenerationTarget(memberId, lookupId, Key!, request with { MemberId = memberId })
+            : Key is { } key ? new UnavailableGenerationTarget(memberId, lookupId, key, Detail!) : new NoGenerationTarget(Reason!.Value);
     }
 
     /// <summary>Whether a member's declaration id resolves, in the compilation, to exactly one member of its assembly, this one: Roslyn
@@ -229,11 +271,12 @@ internal static class GenerationTargets
     }
 
     /// <summary>Where a metadata reference comes from: a package's <c>lib</c> or <c>ref</c> folder under the packages folder, a shared
-    /// framework's reference pack under the dotnet root, or neither (<c>null</c>). <c>\</c> and <c>/</c> mean the same, however they are
-    /// mixed.</summary>
+    /// framework's reference pack under the dotnet root, or neither (<c>null</c>). In a generator compilation the two supported shared
+    /// frameworks' implementation folders are origins too. <c>\</c> and <c>/</c> mean the same, however they are mixed.</summary>
     /// <param name="file">The reference's path.</param>
     /// <param name="resolver">Says where the packages folder and the dotnet root are.</param>
-    private static Origin? OriginOf(string file, ImplementationAssemblies resolver)
+    /// <param name="generationCompilation">Whether shared framework implementation references are targets of a generation.</param>
+    private static Origin? OriginOf(string file, ImplementationAssemblies resolver, bool generationCompilation = false)
     {
         var path = Segments(file);
         if (Below(path, Segments(resolver.PackagesFolder)) is { Count: >= 4 } package &&
@@ -247,6 +290,14 @@ internal static class GenerationTargets
                 return new FrameworkOrigin(NETCORE_PACK, NETCORE_FRAMEWORK, major);
             if (string.Equals(pack[0], ASPNETCORE_PACK, StringComparison.OrdinalIgnoreCase))
                 return new FrameworkOrigin(ASPNETCORE_PACK, ASPNETCORE_FRAMEWORK, major);
+        }
+        if (generationCompilation && Below(path, [.. Segments(resolver.DotnetRoot), "shared"]) is { Count: 3 } shared &&
+            PackageVersion.TryParse(shared[1], out var patch) && patch.Parts[0] > 0)
+        {
+            if (string.Equals(shared[0], NETCORE_FRAMEWORK, StringComparison.OrdinalIgnoreCase))
+                return new FrameworkOrigin(null, NETCORE_FRAMEWORK, patch.Parts[0]);
+            if (string.Equals(shared[0], ASPNETCORE_FRAMEWORK, StringComparison.OrdinalIgnoreCase))
+                return new FrameworkOrigin(null, ASPNETCORE_FRAMEWORK, patch.Parts[0]);
         }
 
         return null;
@@ -289,9 +340,10 @@ internal static class GenerationTargets
     /// <param name="Version">The package version the folder names.</param>
     private sealed record PackageOrigin(string Folder, string VersionFolder, PackageVersion Version) : Origin;
 
-    /// <summary>A shared framework's reference pack.</summary>
-    /// <param name="Pack">The reference pack, <c>Microsoft.NETCore.App.Ref</c> or <c>Microsoft.AspNetCore.App.Ref</c>.</param>
-    /// <param name="Name">The shared framework the pack stands for.</param>
-    /// <param name="Major">The major of the pack's <c>net&lt;major&gt;.0</c> folder.</param>
-    private sealed record FrameworkOrigin(string Pack, string Name, int Major) : Origin;
+    /// <summary>A shared framework's reference pack or implementation folder.</summary>
+    /// <param name="Pack">The reference pack, <c>Microsoft.NETCore.App.Ref</c> or <c>Microsoft.AspNetCore.App.Ref</c>;
+    /// <c>null</c> for an implementation folder.</param>
+    /// <param name="Name">The shared framework.</param>
+    /// <param name="Major">The major of the pack's <c>net&lt;major&gt;.0</c> folder or the implementation's patch folder.</param>
+    private sealed record FrameworkOrigin(string? Pack, string Name, int Major) : Origin;
 }

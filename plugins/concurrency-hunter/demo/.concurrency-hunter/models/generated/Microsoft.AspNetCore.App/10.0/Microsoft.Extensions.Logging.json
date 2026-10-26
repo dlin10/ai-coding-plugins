@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "Microsoft.Extensions.Logging",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions.AddLogging(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "enumeration-without-sequence",
+          "probe-handed-to-unseen",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions.AddLogging(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.Extensions.Logging.ILoggingBuilder})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "enumeration-without-sequence",
+          "probe-handed-to-unseen",
+          "value-unnamed",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.FilterLoggingBuilderExtensions.AddFilter``1(Microsoft.Extensions.Logging.ILoggingBuilder,System.Func{Microsoft.Extensions.Logging.LogLevel,System.Boolean})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-accessed-elsewhere",
+          "probe-handed-to-unseen",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerFactoryOptions.set_ActivityTrackingOptions(Microsoft.Extensions.Logging.ActivityTrackingOptions)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerFilterRule.#ctor(System.String,System.String,System.Nullable{Microsoft.Extensions.Logging.LogLevel},System.Func{System.String,System.String,Microsoft.Extensions.Logging.LogLevel,System.Boolean})",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggingBuilderExtensions.Configure(Microsoft.Extensions.Logging.ILoggingBuilder,System.Action{Microsoft.Extensions.Logging.LoggerFactoryOptions})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS0433 The type 'LoggingBuilderExtensions' exists in both 'Microsoft.Extensions.Logging, Version=10.0.0.0, Culture=neutral, PublicKeyToken=null' and 'Microsoft.Extensions.Logging.Configuration, Version=10.0.0.0, Culture=neutral, PublicKeyToken=adb9793829ddae60'; CS0433 The type 'LoggingBuilderExtensions' exists in both 'Microsoft.Extensions.Logging, Version=10.0.0.0, Culture=neutral, PublicKeyToken=null' and 'Microsoft.Extensions.Logging.Configuration, Version=10.0.0.0, Culture=neutral, PublicKeyToken=adb9793829ddae60'; CS0433 The type 'LoggingBuilderExtensions' exists in both 'Microsoft.Extensions.Logging, Version=10.0.0.0, Culture=neutral, PublicKeyToken=null' and 'Microsoft.Extensions.Logging.Configuration, Version=10.0.0.0, Culture=neutral, PublicKeyToken=adb9793829ddae60'",
+        "causes": []
+      }
+    }
+  ]
+}

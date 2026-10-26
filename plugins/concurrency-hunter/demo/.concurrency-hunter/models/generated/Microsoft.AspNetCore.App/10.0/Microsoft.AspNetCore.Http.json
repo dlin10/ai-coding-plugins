@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "Microsoft.AspNetCore.Http",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.ApplicationBuilder.#ctor(System.IServiceProvider)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "kept-user-object",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.ApplicationBuilder.#ctor(System.IServiceProvider,System.Object)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "kept-user-object",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.ApplicationBuilder.Build",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS1955 Non-invocable member 'Seed_2' cannot be used like a method.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.ApplicationBuilder.Use(System.Func{Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.RequestDelegate})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS1955 Non-invocable member 'Seed_2' cannot be used like a method.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.ApplicationBuilder.get_Properties",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS1955 Non-invocable member 'Seed_2' cannot be used like a method.",
+        "causes": []
+      }
+    }
+  ]
+}

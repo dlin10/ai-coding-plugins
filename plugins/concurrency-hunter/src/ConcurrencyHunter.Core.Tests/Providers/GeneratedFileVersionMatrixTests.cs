@@ -291,7 +291,7 @@ public sealed class GeneratedFileVersionMatrixTests
                 var atRead = before;
                 var reads = 0;
                 var requested = new List<string>();
-                var setup = new GenerationSetup(cell.Mode, install.Resolver(), (request, _) =>
+                var setup = new GenerationSetup(cell.Mode, install.Resolver(), (request, _, _) =>
                 {
                     requested.Add(request.MemberId);
                     return Model(request);

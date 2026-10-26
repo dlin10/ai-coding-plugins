@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "System.Diagnostics.DiagnosticSource",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Diagnostics.ActivitySource.#ctor(System.String)",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "unseeded-read",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Diagnostics.DiagnosticListener.#ctor(System.String)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "unseeded-read",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Diagnostics.DiagnosticListener.IsEnabled",
+      "model": {
+        "member": "M:System.Diagnostics.DiagnosticListener.IsEnabled",
+        "assemblies": [
+          "System.Diagnostics.DiagnosticSource"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {
+          "this": [
+            "reads-deep"
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:System.Diagnostics.DiagnosticListener.IsEnabled(System.String)",
+      "refusal": {
+        "reason": "overridable",
+        "detail": "M:System.Diagnostics.DiagnosticListener.IsEnabled(System.String) is an override not sealed in System.Diagnostics.DiagnosticListener, which is not sealed: a call may run another type's override, which the driver does not analyse",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Diagnostics.DiagnosticSource.Write``1(System.String,``0)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "receiver-member-unseen"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Diagnostics.DistributedContextPropagator.get_Current",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-several-objects"
+        ]
+      }
+    }
+  ]
+}

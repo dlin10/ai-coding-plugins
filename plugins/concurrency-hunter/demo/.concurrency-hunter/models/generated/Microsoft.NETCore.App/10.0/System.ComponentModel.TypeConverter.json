@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "38b1e51e38b7f49a4fd59450ac310853571100a4bd15c794c25d037473168051",
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
   "assembly": {
     "name": "System.ComponentModel.TypeConverter",
     "version": "10.0.0.0",
@@ -10,7 +10,119 @@
   },
   "members": [
     {
+      "member": "M:System.ComponentModel.AttributeCollection.#ctor(System.Attribute[])",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.AttributeCollection.GetEnumerator",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.AttributeCollection.get_Count",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.MemberDescriptor.get_Attributes",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.MemberDescriptor.get_Name",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.PropertyDescriptor.GetValue(System.Object)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.PropertyDescriptor.get_PropertyType",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.PropertyDescriptorCollection.GetEnumerator",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.PropertyDescriptorCollection.get_Count",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.TypeConverter.CanConvertFrom(System.Type)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.TypeConverter.ConvertFromInvariantString(System.String)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.TypeDescriptor.GetAttributes(System.Type)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
       "member": "M:System.ComponentModel.TypeDescriptor.GetClassName(System.Object)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.TypeDescriptor.GetConverter(System.Type)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.TypeDescriptor.GetProperties(System.Type)",
       "refusal": {
         "reason": "engine-recognized",
         "detail": "M:System.Timers.Timer.get_AutoReset is claimed by the timer recognizer",

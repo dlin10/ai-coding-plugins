@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "Microsoft.Extensions.FileProviders.Abstractions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.FileProviders.NullFileProvider.#ctor",
+      "model": {
+        "member": "M:Microsoft.Extensions.FileProviders.NullFileProvider.#ctor",
+        "assemblies": [
+          "Microsoft.Extensions.FileProviders.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    }
+  ]
+}

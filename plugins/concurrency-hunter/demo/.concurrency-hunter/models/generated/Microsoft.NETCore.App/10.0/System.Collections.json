@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "System.Collections",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Collections.Generic.LinkedListNode`1.get_Value",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.LinkedListNode`1.set_Value(`0)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.LinkedList`1.#ctor",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.LinkedList`1.AddLast(`0)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.LinkedList`1.Clear",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.LinkedList`1.Enumerator.MoveNext",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.LinkedList`1.Enumerator.get_Current",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.LinkedList`1.GetEnumerator",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.LinkedList`1.get_Count",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.Stack`1.#ctor",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.Stack`1.Peek",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.Stack`1.Pop",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.Stack`1.Push(`0)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    }
+  ]
+}

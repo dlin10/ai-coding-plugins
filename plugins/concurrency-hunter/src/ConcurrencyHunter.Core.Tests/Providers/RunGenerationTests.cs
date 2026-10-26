@@ -55,7 +55,7 @@ public sealed class RunGenerationTests : IDisposable
     public void Undescribed_member_is_generated()
     {
         var alpha = Candidate(Project(), "Alpha");
-        var subject = Subject((request, _) =>
+        var subject = Subject((request, _, _) =>
         {
             _clock.Advance(Seconds(7));
             return ModelAnswer(request);
@@ -76,7 +76,7 @@ public sealed class RunGenerationTests : IDisposable
 
         // The same call reached twice is one member: one generation.
         _calls.Clear();
-        var again = Subject((request, _) => ModelAnswer(request));
+        var again = Subject((request, _, _) => ModelAnswer(request));
         again.Generate(LibraryModels.BuiltIn, [Candidate(Project("3.0.0"), "Beta"), Candidate(Project("3.0.0"), "Beta")]);
         Assert.Equal(["Beta"], Called);
     }
@@ -89,7 +89,7 @@ public sealed class RunGenerationTests : IDisposable
         ReferenceScopes.AddAsset(_install, PACKAGE, "1.0.0", "net462", PACKAGE, image);
         var alpha = Candidate(Compile(image, "1.0.0", "net8.0"), "Alpha");
         Assert.IsType<UnavailableGenerationTarget>(alpha.Target);
-        var subject = Subject((request, _) => ModelAnswer(request));
+        var subject = Subject((request, _, _) => ModelAnswer(request));
 
         subject.Generate(LibraryModels.BuiltIn, [alpha]);
         subject.EndScope();
@@ -124,7 +124,7 @@ public sealed class RunGenerationTests : IDisposable
         // Alpha's model applies; Beta's is valid and applies to no version of the package; Gamma's entry is invalid, a refusal of a word no file keeps.
         WriteFile(alpha.Target.Key, ModelEntry(alpha.Target.MemberId), ModelEntry(beta.Target.MemberId, major: 2),
                   Raw(gamma.Target.MemberId, "refusal", """{"reason":"budget","detail":"","causes":[]}"""));
-        var subject = Subject((request, _) => ModelAnswer(request));
+        var subject = Subject((request, _, _) => ModelAnswer(request));
 
         subject.Generate(LibraryModels.BuiltIn, [alpha, beta, gamma, delta]);
         subject.EndScope();
@@ -151,7 +151,7 @@ public sealed class RunGenerationTests : IDisposable
                   Raw(alpha.Target.MemberId, "refusal", """{"reason":"unknown-touch","detail":"a probe was handed on","causes":["probe-handed-to-unseen"]}"""),
                   Raw(beta.Target.MemberId, "refusal", """{"reason":"timeout","detail":"too slow","causes":[]}"""));
         var before = StoredEntries(alpha.Target.Key);
-        var subject = Subject((request, _) => ModelAnswer(request));
+        var subject = Subject((request, _, _) => ModelAnswer(request));
 
         subject.Generate(LibraryModels.BuiltIn, [alpha, beta, gamma]);
         subject.EndScope();
@@ -206,7 +206,7 @@ public sealed class RunGenerationTests : IDisposable
     {
         var project = Project();
         var (alpha, beta) = (Candidate(project, "Alpha"), Candidate(project, "Beta"));
-        var subject = Subject((request, token) => Name(request) == "Alpha" ? RunUntilCut(token) : ModelAnswer(request),
+        var subject = Subject((request, dependencies, token) => Name(request) == "Alpha" ? RunUntilCut(token) : ModelAnswer(request),
                               runLimit: Seconds(1000), memberLimit: Seconds(60));
 
         subject.Generate(LibraryModels.BuiltIn, [alpha, beta]);
@@ -221,7 +221,7 @@ public sealed class RunGenerationTests : IDisposable
         Assert.Equal(GenerationOutcome.TIMEOUT, file.Entries[alpha.Target.MemberId].Refusal!.Reason);
         Assert.NotNull(file.Entries[beta.Target.MemberId].Model);
         _calls.Clear();
-        Subject((request, _) => ModelAnswer(request)).Generate(LibraryModels.BuiltIn, [alpha]);
+        Subject((request, _, _) => ModelAnswer(request)).Generate(LibraryModels.BuiltIn, [alpha]);
         Assert.Empty(_calls);
     }
 
@@ -294,7 +294,7 @@ public sealed class RunGenerationTests : IDisposable
 
         // Nothing was kept for them, so a later run, with a budget of its own, tries them.
         _calls.Clear();
-        Subject((request, _) => ModelAnswer(request), runLimit: Seconds(100), memberLimit: Seconds(60)).Generate(LibraryModels.BuiltIn, [alpha, beta, gamma, delta]);
+        Subject((request, _, _) => ModelAnswer(request), runLimit: Seconds(100), memberLimit: Seconds(60)).Generate(LibraryModels.BuiltIn, [alpha, beta, gamma, delta]);
         Assert.Equal(["Beta", "Delta", "Gamma"], Called);
     }
 
@@ -304,7 +304,7 @@ public sealed class RunGenerationTests : IDisposable
         var project = Project();
         var (alpha, beta, gamma) = (Candidate(project, "Alpha"), Candidate(project, "Beta"), Candidate(project, "Gamma"));
         using var run = new CancellationTokenSource();
-        var subject = Subject((request, token) =>
+        var subject = Subject((request, dependencies, token) =>
         {
             if (Name(request) == "Beta")
             {
@@ -327,7 +327,7 @@ public sealed class RunGenerationTests : IDisposable
 
         // Whatever a generation throws once the run is cancelled is the cancellation's, not a failure.
         using var second = new CancellationTokenSource();
-        var failing = Subject((_, _) =>
+        var failing = Subject((_, _, _) =>
         {
             second.Cancel();
             throw new InvalidOperationException("torn down");
@@ -339,7 +339,7 @@ public sealed class RunGenerationTests : IDisposable
         _calls.Clear();
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
-        Assert.ThrowsAny<OperationCanceledException>(() => Subject((request, _) => ModelAnswer(request), token: cancelled.Token)
+        Assert.ThrowsAny<OperationCanceledException>(() => Subject((request, _, _) => ModelAnswer(request), token: cancelled.Token)
                                                                .Generate(LibraryModels.BuiltIn, [alpha]));
         Assert.Empty(_calls);
     }
@@ -350,7 +350,7 @@ public sealed class RunGenerationTests : IDisposable
         var alpha = Candidate(Project(), "Alpha");
         using var cancellation = new CancellationTokenSource();
         var checksAfterCancellation = 0;
-        var subject = Subject((_, token) =>
+        var subject = Subject((_, _, token) =>
         {
             cancellation.Cancel();
             Assert.True(token.IsCancellationRequested);
@@ -373,7 +373,7 @@ public sealed class RunGenerationTests : IDisposable
     {
         var project = Project();
         var (alpha, beta, gamma) = (Candidate(project, "Alpha"), Candidate(project, "Beta"), Candidate(project, "Gamma"));
-        var subject = Subject((request, _) => Name(request) switch
+        var subject = Subject((request, _, _) => Name(request) switch
         {
             "Alpha" => throw new InvalidOperationException("boom"),
             // Neither the member's token nor the run's raised this one.
@@ -397,7 +397,7 @@ public sealed class RunGenerationTests : IDisposable
     public void Member_met_in_two_scopes_is_generated_once()
     {
         var (alpha, beta) = (Candidate(Project(), "Alpha"), Candidate(Project(), "Beta"));
-        var subject = Subject((request, _) => Name(request) == "Beta" ? throw new InvalidOperationException("boom") : ModelAnswer(request));
+        var subject = Subject((request, _, _) => Name(request) == "Beta" ? throw new InvalidOperationException("boom") : ModelAnswer(request));
         subject.Generate(LibraryModels.BuiltIn, [alpha, beta]);
         subject.EndScope();
         Assert.Equal(["Alpha", "Beta"], Called);
@@ -417,7 +417,7 @@ public sealed class RunGenerationTests : IDisposable
 
         // A later run tries what was not kept, and only that.
         _calls.Clear();
-        Subject((request, _) => ModelAnswer(request)).Generate(LibraryModels.BuiltIn, [alpha, beta]);
+        Subject((request, _, _) => ModelAnswer(request)).Generate(LibraryModels.BuiltIn, [alpha, beta]);
         Assert.Equal(["Beta"], Called);
     }
 
@@ -443,8 +443,8 @@ public sealed class RunGenerationTests : IDisposable
     /// <summary>The generator call of a run: spends the seconds a member is told to, then answers with a model; any other member is run
     /// until it is cut.</summary>
     /// <param name="spend">The seconds each member named spends before it answers.</param>
-    private Func<GenerationRequest, CancellationToken, GeneratedAnswer> Spending(params (string Member, int Duration)[] spend) =>
-        (request, token) =>
+    private Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> Spending(params (string Member, int Duration)[] spend) =>
+        (request, dependencies, token) =>
         {
             if (spend.FirstOrDefault(item => item.Member == Name(request)) is not { Member: not null } found)
                 return RunUntilCut(token);
@@ -475,12 +475,12 @@ public sealed class RunGenerationTests : IDisposable
     /// <param name="runLimit">The run's limit; a thousand seconds when omitted.</param>
     /// <param name="memberLimit">The member's limit; a minute when omitted.</param>
     /// <param name="token">The run's token.</param>
-    private RunGeneration Subject(Func<GenerationRequest, CancellationToken, GeneratedAnswer> generate, TimeSpan? runLimit = null, TimeSpan? memberLimit = null,
+    private RunGeneration Subject(Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> generate, TimeSpan? runLimit = null, TimeSpan? memberLimit = null,
                                   CancellationToken token = default) =>
-        new(_repository, token, runLimit ?? Seconds(1000), memberLimit ?? Seconds(60), _clock, (request, cancellation) =>
+        new(_repository, token, runLimit ?? Seconds(1000), memberLimit ?? Seconds(60), _clock, (request, dependencies, cancellation) =>
         {
             _calls.Add(request);
-            return generate(request, cancellation);
+            return generate(request, dependencies, cancellation);
         });
 
     /// <summary>The members one scope's step generates, in the order it generated them.</summary>
@@ -489,7 +489,7 @@ public sealed class RunGenerationTests : IDisposable
     private string[] Run(LibraryModels models, params GenerationCandidate[] candidates)
     {
         var start = _calls.Count;
-        var subject = Subject((request, _) => ModelAnswer(request));
+        var subject = Subject((request, _, _) => ModelAnswer(request));
         subject.Generate(models, candidates);
         subject.EndScope();
         return _calls.Skip(start).Select(Name).ToArray();

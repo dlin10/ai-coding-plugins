@@ -59,7 +59,7 @@ public sealed class DemoGeneratedModelsTests
         {
             Assert.True(loaded.Coverage.LoadComplete, $"Missing demo projects: {string.Join(", ", loaded.Coverage.MissingProjects)}");
             _ = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, demoDirectory, repositoryRoot,
-                                                    new GenerationSetup(ModelGeneration.Generate, Generator: (request, _) =>
+                                                    new GenerationSetup(ModelGeneration.Generate, Generator: (request, _, _) =>
                                                     {
                                                         requested.Add(request.MemberId);
                                                         throw new InvalidOperationException($"The generator was called for {request.MemberId}.");

@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "Microsoft.Extensions.DependencyInjection",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "analysis-failed",
+        "detail": "the engine threw KeyNotFoundException: The given key '(alloc|body:Microsoft.Extensions.DependencyInjection:M:Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory.CreateArgumentCallSites(Microsoft.Extensions.DependencyInjection.ServiceLookup.ServiceIdentifier,System.Type,Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteChain,System.Reflection.ParameterInfo[],System.Boolean)#114|Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ConstantCallSite|alloc|body:Microsoft.Extensions.DependencyInjection:M:Microsoft.Extensions.DependencyInjection.ServiceProvider.#ctor(System.Collections.Generic.ICollection{Microsoft.Extensions.DependencyInjection.ServiceDescriptor},Microsoft.Extensions.DependencyInjection.ServiceProviderOptions)#11|Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory|alloc|body:Microsoft.Extensions.DependencyInjection:M:Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(Microsoft.Extensions.DependencyInjection.IServiceCollection,Microsoft.Extensions.DependencyInjection.ServiceProviderOptions)#4|Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceProvider|body:Microsoft.Extensions.DependencyInjection:M:Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(Microsoft.Extensions.DependencyInjection.IServiceCollection)#1&Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ServiceCallSite.Cache/Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ResultCache.Key, Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ServiceCacheKey.ServiceIdentifier/Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ServiceIdentifier.ServiceKey)' was not present in the dictionary.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(Microsoft.Extensions.DependencyInjection.IServiceCollection,Microsoft.Extensions.DependencyInjection.ServiceProviderOptions)",
+      "refusal": {
+        "reason": "analysis-failed",
+        "detail": "the engine threw KeyNotFoundException: The given key '(alloc|body:Microsoft.Extensions.DependencyInjection:M:Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory.CreateArgumentCallSites(Microsoft.Extensions.DependencyInjection.ServiceLookup.ServiceIdentifier,System.Type,Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteChain,System.Reflection.ParameterInfo[],System.Boolean)#114|Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ConstantCallSite|alloc|body:Microsoft.Extensions.DependencyInjection:M:Microsoft.Extensions.DependencyInjection.ServiceProvider.#ctor(System.Collections.Generic.ICollection{Microsoft.Extensions.DependencyInjection.ServiceDescriptor},Microsoft.Extensions.DependencyInjection.ServiceProviderOptions)#11|Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory|alloc|body:Microsoft.Extensions.DependencyInjection:M:Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(Microsoft.Extensions.DependencyInjection.IServiceCollection,Microsoft.Extensions.DependencyInjection.ServiceProviderOptions)#4|Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceProvider|body:ConcurrencyHunter.ModelDriver:M:ModelDriver.V_Call#2&Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ServiceCallSite.Cache/Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ResultCache.Key, Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ServiceCacheKey.ServiceIdentifier/Microsoft.Extensions.DependencyInjection:Microsoft.Extensions.DependencyInjection.ServiceLookup.ServiceIdentifier.ServiceKey)' was not present in the dictionary.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderOptions.#ctor",
+      "model": {
+        "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderOptions.#ctor",
+        "assemblies": [
+          "Microsoft.Extensions.DependencyInjection"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderOptions.set_ValidateOnBuild(System.Boolean)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.ServiceProviderOptions.set_ValidateScopes(System.Boolean)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    }
+  ]
+}

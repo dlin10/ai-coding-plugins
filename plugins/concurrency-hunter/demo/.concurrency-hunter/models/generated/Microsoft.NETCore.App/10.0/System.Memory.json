@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "System.Memory",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Buffers.IBufferWriter`1.Advance(System.Int32)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Buffers.IBufferWriter`1.Advance(System.Int32) is abstract; M:System.Buffers.IBufferWriter`1.Advance(System.Int32) is an interface member; only a default could fill the System.Buffers.IBufferWriter<T> of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Buffers.IBufferWriter`1.GetSpan(System.Int32)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Buffers.IBufferWriter`1.GetSpan(System.Int32) is abstract; M:System.Buffers.IBufferWriter`1.GetSpan(System.Int32) is an interface member; only a default could fill the System.Buffers.IBufferWriter<T> of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.#ctor(`0[])",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "struct-storage-write"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.Enumerator.MoveNext",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "struct-storage-write",
+          "unseeded-read"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.Enumerator.get_Current",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unresolved",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.GetEnumerator",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.Slice(System.Int64,System.Int64)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-several-objects"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.Slice(System.SequencePosition,System.SequencePosition)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-several-objects"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.TryGet(System.SequencePosition@,System.ReadOnlyMemory{`0}@,System.Boolean)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-several-objects",
+          "struct-reference-write",
+          "struct-storage-write"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.get_First",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.get_IsSingleSegment",
+      "model": {
+        "member": "M:System.Buffers.ReadOnlySequence`1.get_IsSingleSegment",
+        "assemblies": [
+          "System.Memory"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:System.Buffers.ReadOnlySequence`1.get_Length",
+      "model": {
+        "member": "M:System.Buffers.ReadOnlySequence`1.get_Length",
+        "assemblies": [
+          "System.Memory"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:System.SequencePosition.#ctor(System.Object,System.Int32)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "struct-storage-write"
+        ]
+      }
+    },
+    {
+      "member": "M:System.SequencePosition.GetInteger",
+      "model": {
+        "member": "M:System.SequencePosition.GetInteger",
+        "assemblies": [
+          "System.Memory"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:System.SequencePosition.GetObject",
+      "model": {
+        "member": "M:System.SequencePosition.GetObject",
+        "assemblies": [
+          "System.Memory"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "result": "[this]"
+      }
+    }
+  ]
+}

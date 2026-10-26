@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "System.Text.Encodings.Web",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Text.Encodings.Web.JavaScriptEncoder.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Text.Encodings.Web.JavaScriptEncoder.#ctor is not public; M:System.Text.Encodings.Web.JavaScriptEncoder.#ctor constructs an abstract type",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Encodings.Web.JavaScriptEncoder.get_Default",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.Encodings.Web.TextEncoder.EncodeUtf8(System.ReadOnlySpan{System.Byte},System.Span{System.Byte},System.Int32@,System.Int32@,System.Boolean)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "utf8Source needs a value of System.ReadOnlySpan<byte>, a ref-like or pointer type; utf8Destination needs a value of System.Span<byte>, a ref-like or pointer type",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Encodings.Web.TextEncoder.FindFirstCharacterToEncodeUtf8(System.ReadOnlySpan{System.Byte})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "utf8Text needs a value of System.ReadOnlySpan<byte>, a ref-like or pointer type",
+        "causes": []
+      }
+    }
+  ]
+}

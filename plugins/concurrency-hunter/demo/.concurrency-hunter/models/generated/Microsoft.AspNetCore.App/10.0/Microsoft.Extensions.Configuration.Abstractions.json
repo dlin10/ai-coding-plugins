@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "Microsoft.Extensions.Configuration.Abstractions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.Configuration.ConfigurationExtensions.Add``1(Microsoft.Extensions.Configuration.IConfigurationBuilder,System.Action{``0})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfiguration.GetSection(System.String)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfiguration.GetSection(System.String) is abstract; M:Microsoft.Extensions.Configuration.IConfiguration.GetSection(System.String) is an interface member; only a default could fill the Microsoft.Extensions.Configuration.IConfiguration of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfiguration.get_Item(System.String)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfiguration.get_Item(System.String) is abstract; M:Microsoft.Extensions.Configuration.IConfiguration.get_Item(System.String) is an interface member; only a default could fill the Microsoft.Extensions.Configuration.IConfiguration of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfigurationBuilder.Add(Microsoft.Extensions.Configuration.IConfigurationSource)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfigurationBuilder.Add(Microsoft.Extensions.Configuration.IConfigurationSource) is abstract; M:Microsoft.Extensions.Configuration.IConfigurationBuilder.Add(Microsoft.Extensions.Configuration.IConfigurationSource) is an interface member; only a default could fill the Microsoft.Extensions.Configuration.IConfigurationBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfigurationBuilder.Build",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfigurationBuilder.Build is abstract; M:Microsoft.Extensions.Configuration.IConfigurationBuilder.Build is an interface member; only a default could fill the Microsoft.Extensions.Configuration.IConfigurationBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfigurationBuilder.get_Properties",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfigurationBuilder.get_Properties is abstract; M:Microsoft.Extensions.Configuration.IConfigurationBuilder.get_Properties is an interface member; only a default could fill the Microsoft.Extensions.Configuration.IConfigurationBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfigurationProvider.Load",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfigurationProvider.Load is abstract; M:Microsoft.Extensions.Configuration.IConfigurationProvider.Load is an interface member; only a default could fill the Microsoft.Extensions.Configuration.IConfigurationProvider of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfigurationProvider.Set(System.String,System.String)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfigurationProvider.Set(System.String,System.String) is abstract; M:Microsoft.Extensions.Configuration.IConfigurationProvider.Set(System.String,System.String) is an interface member; only a default could fill the Microsoft.Extensions.Configuration.IConfigurationProvider of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfigurationProvider.TryGet(System.String,System.String@)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfigurationProvider.TryGet(System.String,System.String@) is abstract; M:Microsoft.Extensions.Configuration.IConfigurationProvider.TryGet(System.String,System.String@) is an interface member; only a default could fill the Microsoft.Extensions.Configuration.IConfigurationProvider of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfigurationSection.get_Path",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfigurationSection.get_Path is abstract; M:Microsoft.Extensions.Configuration.IConfigurationSection.get_Path is an interface member",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfigurationSection.get_Value",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfigurationSection.get_Value is abstract; M:Microsoft.Extensions.Configuration.IConfigurationSection.get_Value is an interface member",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.IConfigurationSource.Build(Microsoft.Extensions.Configuration.IConfigurationBuilder)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Configuration.IConfigurationSource.Build(Microsoft.Extensions.Configuration.IConfigurationBuilder) is abstract; M:Microsoft.Extensions.Configuration.IConfigurationSource.Build(Microsoft.Extensions.Configuration.IConfigurationBuilder) is an interface member; only a default could fill the Microsoft.Extensions.Configuration.IConfigurationSource of Recv",
+        "causes": []
+      }
+    }
+  ]
+}

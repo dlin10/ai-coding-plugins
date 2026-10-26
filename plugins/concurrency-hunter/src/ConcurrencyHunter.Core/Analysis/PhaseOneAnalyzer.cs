@@ -248,49 +248,67 @@ public static class PhaseOneAnalyzer
                 scopePairs = PairWithGaps(run, pairing);
             Record(timings, PAIRING, step);
 
-            // The generated layer (R1, R2, R5): the analysis above had none. When it describes a call of the scope, the scope is analysed again
-            // with it, and that analysis is the scope's.
+            // Each round answers the latest analysis's targets; a change in applied models asks for another analysis.
             var (pairsRemoved, generatedInRun) = (0, 0);
+            var analyses = 1;
             IReadOnlyList<GenerationRefusal> refusals = [];
-            IReadOnlyList<string> generationDiagnostics = [];
+            var generationDiagnostics = new List<string>();
             if (pass is not null)
             {
-                var generationCandidates = pass.Candidates(run, compilations);
-                var layer = pass.Prepare(models, generationCandidates);
-                wanted.UnionWith(pass.Wanted(models, generationCandidates));
-                generationDiagnostics = [.. pass.TakeDiagnostics(), .. layer.Diagnostics];
-                generatedInRun = pass.GeneratedInRun(generationCandidates);
-                var reached = pass.Reached(models, layer, generationCandidates, throughModel: false).ToList();
-                if (layer.Describes)
+                var firstPairs = scopePairs.Pairs.Select(PairIdentity.Of).ToHashSet(StringComparer.Ordinal);
+                var all = new Dictionary<(Compilation Compilation, string Assembly, string MemberId), GenerationCandidate>();
+                ScopeLayer? previous = null;
+                while (true)
                 {
-                    var second = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models.WithGenerated(layer.Table), limits,
-                                                   lowered, null, cancellationToken);
-                    Debug.Assert(!second.Stopped, "the analysis run passes no reachable-body limit");
-                    AddTimes(timings, second);
-                    step.Restart();
-                    PairAnalysis secondPairs;
-                    using (WorkCancellation.Outside())
-                        secondPairs = PairWithGaps(second, pairing);
-                    Record(timings, PAIRING, step);
-                    pairsRemoved = scopePairs.Pairs.Select(PairIdentity.Of).Distinct(StringComparer.Ordinal)
-                                             .Except(secondPairs.Pairs.Select(PairIdentity.Of), StringComparer.Ordinal)
-                                             .Count();
-                    // A target only the analysis with the generated layer reaches is neither generated nor kept in this run.
-                    var generated = generationCandidates.Select(candidate => (candidate.Target.MemberId, candidate.Target.Key)).ToHashSet();
-                    reached.AddRange(pass.Reached(models, layer, pass.Candidates(second, compilations)
-                                                                     .Where(candidate => !generated.Contains((candidate.Target.MemberId, candidate.Target.Key))),
-                                                  throughModel: true));
-                    (run, scopePairs) = (second, secondPairs);
-                }
+                    WorkCancellation.Check();
+                    foreach (var candidate in pass.Candidates(run, compilations))
+                    {
+                        WorkCancellation.Check();
+                        var key = (candidate.Compilation, candidate.Member.ContainingAssembly.Name, candidate.Target.MemberId);
+                        all[key] = all.TryGetValue(key, out var earlier)
+                            ? earlier with { HandedDelegate = earlier.HandedDelegate || candidate.HandedDelegate }
+                            : candidate;
+                    }
 
-                refusals = GenerationCauses.Items(pass.Mode, reached);
+                    var generationCandidates = all.Values.ToArray();
+                    var layer = pass.Prepare(models, generationCandidates);
+                    wanted.UnionWith(pass.Wanted(models, generationCandidates));
+                    generationDiagnostics.AddRange(pass.TakeDiagnostics());
+                    generationDiagnostics.AddRange(layer.Diagnostics);
+                    var changed = (previous is not null || layer.Describes) && generationCandidates.Any(candidate =>
+                    {
+                        var definition = (candidate.Member.ReducedFrom ?? candidate.Member).OriginalDefinition;
+                        var before = previous?.Table.AppliedModelText(candidate.Compilation, definition, candidate.Target.LookupId);
+                        var after = layer.Table.AppliedModelText(candidate.Compilation, definition, candidate.Target.LookupId);
+                        return !string.Equals(before, after, StringComparison.Ordinal);
+                    });
+                    if (!changed && pass.HasWork)
+                        continue;
+                    if (!changed)
+                    {
+                        generatedInRun = pass.GeneratedInRun(generationCandidates);
+                        refusals = GenerationCauses.Items(pass.Mode, pass.Reached(models, layer, generationCandidates));
+                        break;
+                    }
+
+                    previous = layer;
+                    run = ScopePipeline.Run(scope.Id, compilations, projectFiles, rootDirectory, registry, models.WithGenerated(layer.Table), limits,
+                                            lowered, null, cancellationToken);
+                    analyses++;
+                    AddTimes(timings, run);
+                    step.Restart();
+                    using (WorkCancellation.Outside())
+                        scopePairs = PairWithGaps(run, pairing);
+                    Record(timings, PAIRING, step);
+                }
+                pairsRemoved = firstPairs.Except(scopePairs.Pairs.Select(PairIdentity.Of), StringComparer.Ordinal).Count();
             }
 
             Debug.Assert(!run.Stopped, "the analysis run passes no reachable-body limit");
             diagnostics.AddRange(run.DiscoveryDiagnostics);
             diagnostics.AddRange(outOfRange);
             diagnostics.AddRange(run.LoweringDiagnostics);
-            diagnostics.AddRange(generationDiagnostics);
+            diagnostics.AddRange(generationDiagnostics.Distinct(StringComparer.Ordinal));
             var collection = run.Collection;
             // The solver is the last filter (TD-091): what the cheap ones left, asked one candidate at a time and within the
             // run's solver budget (ADR 0021). A solver that never started answers every question Unknown (ADR 0004).
@@ -300,7 +318,7 @@ public static class PhaseOneAnalyzer
             diagnostics.AddRange(refined.Traces.Select(trace => $"solver: {trace}"));
             Record(timings, SOLVER, step);
             sizes.Add(new ScopeSize(scope.Id, run.Heap.ReachableBodies.Count, run.Summaries.Built, run.Heap.Regions.Count,
-                                    run.Heap.Instances.Count, collection.Accesses.Count(access => !access.IsConstructionLocal)));
+                                    run.Heap.Instances.Count, collection.Accesses.Count(access => !access.IsConstructionLocal)) { Analyses = analyses });
 
             roots.AddRange(run.Roots);
             accesses.AddRange(collection.Accesses);
@@ -403,7 +421,7 @@ public static class PhaseOneAnalyzer
         return pairs with { Pairs = GapDecisions.Mark(pairs.Pairs, run.Interprocedural, run.Collection.Coverage.Gaps) };
     }
 
-    /// <summary>Adds the time of each step of a scope's analysis to the totals: a scope analysed twice adds both.</summary>
+    /// <summary>Adds the time of each step of a scope's analysis to the totals over all its analyses.</summary>
     /// <param name="timings">The totals by step.</param>
     /// <param name="run">The scope's analysis.</param>
     private static void AddTimes(Dictionary<string, TimeSpan> timings, ScopeRun run)

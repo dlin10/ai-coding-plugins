@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "System.Text.RegularExpressions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Text.RegularExpressions.Capture.get_Value",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.RegularExpressions.Group.get_Success",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.RegularExpressions.GroupCollection.get_Item(System.String)",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.RegularExpressions.Match.get_Groups",
+      "refusal": {
+        "reason": "overridable",
+        "detail": "M:System.Text.RegularExpressions.Match.get_Groups is virtual in System.Text.RegularExpressions.Match, which is not sealed: a call may run another type's override, which the driver does not analyse",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.RegularExpressions.Regex.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Text.RegularExpressions.Regex.#ctor is not public",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.RegularExpressions.Regex.#ctor(System.String,System.Text.RegularExpressions.RegexOptions)",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.RegularExpressions.Regex.Match(System.String)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "callback-value-in-library-call",
+          "callback-value-read",
+          "callback-value-written",
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "receiver-member-unseen",
+          "result-keeps-receiver",
+          "result-several-objects",
+          "unseeded-read",
+          "value-unnamed",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Text.RegularExpressions.RegexRunnerFactory.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Text.RegularExpressions.RegexRunnerFactory.#ctor is not public; M:System.Text.RegularExpressions.RegexRunnerFactory.#ctor constructs an abstract type",
+        "causes": []
+      }
+    }
+  ]
+}

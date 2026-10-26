@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "Microsoft.AspNetCore.Server.Kestrel.Transport.Quic",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.AspNetCore.Hosting.WebHostBuilderQuicExtensions.UseQuic(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.QuicTransportOptions})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "probe-handed-to-unseen",
+          "result-several-objects",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.QuicTransportOptions.set_DefaultCloseErrorCode(System.Int64)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Server.Kestrel.Transport.Quic.QuicTransportOptions.set_DefaultStreamErrorCode(System.Int64)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    }
+  ]
+}

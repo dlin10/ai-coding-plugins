@@ -22,7 +22,7 @@ namespace ConcurrencyHunter.Core.Tests.Providers;
 /// calls reach that no layer describes generated, and the scope analysed again when the layer then describes one of its calls. A fake generator
 /// and a package in a fake NuGet layout stand for the real ones; the application is a controller that reads a state and a hosted service that
 /// hands it to the library.</summary>
-public sealed class RunGenerationPassTests : IDisposable
+public sealed partial class RunGenerationPassTests : IDisposable
 {
     private const string PACKAGE = "Acme.Lib";
     private const string LIBRARY_MEMBERS = """
@@ -320,7 +320,7 @@ public sealed class RunGenerationPassTests : IDisposable
         // The file reads well when the run starts; a moment before the run writes it, something opens it without sharing.
         try
         {
-            var result = await Run(solution, ModelGeneration.Generate, (request, token) =>
+            var result = await Run(solution, ModelGeneration.Generate, (request, dependencies, token) =>
             {
                 held ??= new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None);
                 return Model(request);
@@ -350,7 +350,7 @@ public sealed class RunGenerationPassTests : IDisposable
     }
 
     [Fact]
-    public async Task Member_reached_only_through_a_model_is_listed_reached_through_model()
+    public async Task Member_reached_only_through_a_model_is_generated_and_applied()
     {
         var solution = Solution("Acme.Api.Same(new Key(), _state);", extra: """
             public sealed class Key
@@ -363,11 +363,145 @@ public sealed class RunGenerationPassTests : IDisposable
 
         var result = await Run(solution, ModelGeneration.Generate, generator);
 
-        // `Poke` is called by an override the model of `Same` makes reachable: the first analysis never met it, so it is neither generated nor kept.
+        // `Same` reaches the override in the second analysis; the next round answers `Poke` and the third analysis applies it.
+        Assert.Equal(["M:Acme.Api.Same(System.Object,System.Object)", "M:Acme.Api.Poke(System.Object)"], _requested);
+        Assert.Empty(Assert.Single(result.Coverage).GenerationRefusals);
+        Assert.Equal((2, 2), (Counter(result, CoverageCounters.KNOWN_CALL_GENERATED), Counter(result, CoverageCounters.GENERATED_IN_RUN)));
+        Assert.Equal(3, _analyses);
+        Assert.Equal(3, Assert.Single(result.ScopeSizes).Analyses);
+    }
+
+    [Fact]
+    public async Task ReadOnly_applies_the_stored_model_of_a_member_reached_through_a_model()
+    {
+        var image = Emit(PACKAGE, LibrarySource(LIBRARY_MEMBERS) +
+                                  "namespace Acme { public static class Other { public static void Poke(object value) { } } }");
+        Store(image, "Same", ModelWithEquals);
+        Store(image, "M:Acme.Other.Poke(System.Object)", Model);
+
+        // The same file was already read for `Api`; the later round must still map the newly reached declaring type `Other`.
+        var solution = Solution("Acme.Api.Same(new Key(), _state);", image, extra: """
+            public sealed class Key
+            {
+                public override bool Equals(object? other) { Acme.Other.Poke(other!); return true; }
+                public override int GetHashCode() => 1;
+            }
+            """);
+        var result = await Run(solution, ModelGeneration.ReadOnly);
+
+        Assert.Empty(_requested);
+        Assert.Equal(2, Counter(result, CoverageCounters.KNOWN_CALL_GENERATED));
+        Assert.Equal(0, Counter(result, CoverageCounters.GENERATED_IN_RUN));
+        Assert.Empty(Assert.Single(result.Coverage).GenerationRefusals);
+        Assert.Empty(result.GenerationWanted);
+        Assert.Equal(3, _analyses);
+    }
+
+    [Fact]
+    public async Task Chain_of_two_models_is_analysed_three_times()
+    {
+        var result = await Run(Chain(), ModelGeneration.Generate, Answering(("Same", ModelWithEquals)));
+
+        Assert.Equal(3, _analyses);
+        Assert.Equal(3, Assert.Single(result.ScopeSizes).Analyses);
+        Assert.Equal(2, _requested.Count);
+        Assert.Equal(2, Counter(result, CoverageCounters.KNOWN_CALL_GENERATED));
+    }
+
+    [Fact]
+    public async Task Budget_spent_before_a_member_reached_through_a_model_leaves_it_budget()
+    {
+        var clock = new FakeClock();
+        var result = await Run(Chain(), ModelGeneration.Generate, (request, _, _) =>
+        {
+            clock.Advance(RunGeneration.RUN_LIMIT);
+            return ModelWithEquals(request);
+        }, time: clock);
+
         Assert.Equal(["M:Acme.Api.Same(System.Object,System.Object)"], _requested);
         var item = Assert.Single(Assert.Single(result.Coverage).GenerationRefusals);
-        Assert.Equal(("M:Acme.Api.Poke(System.Object)", GenerationCauses.REACHED_THROUGH_MODEL), (item.MemberId, item.Cause));
+        Assert.Equal(("M:Acme.Api.Poke(System.Object)", "budget"), (item.MemberId, item.Cause));
+        Assert.Equal(2, _analyses);
+        Assert.Equal(1, Counter(result, CoverageCounters.GENERATED_IN_RUN));
+    }
+
+    [Fact]
+    public async Task Refused_member_reached_through_a_model_ends_the_rounds()
+    {
+        var result = await Run(Chain(), ModelGeneration.Generate, Answering(("Same", ModelWithEquals), ("Poke", Refusal)));
+
+        Assert.Equal(2, _analyses);
+        Assert.Equal(2, _requested.Count);
+        var item = Assert.Single(Assert.Single(result.Coverage).GenerationRefusals);
+        Assert.Equal(("M:Acme.Api.Poke(System.Object)", GenerationReasons.DRIVER_NOT_SYNTHESIZED), (item.MemberId, item.Cause));
         Assert.Equal(1, Counter(result, CoverageCounters.KNOWN_CALL_GENERATED));
+    }
+
+    [Fact]
+    public async Task Removed_pairs_compare_the_first_and_the_last_analysis()
+    {
+        var solution = Chain(work: "Acme.Api.Touch(_state); Acme.Api.Same(new Key(), _state);");
+        var off = await Run(solution, ModelGeneration.None);
+        _analyses = 0;
+
+        var result = await Run(solution, ModelGeneration.Generate, Answering(("Same", ModelWithEquals)));
+
+        Assert.Equal(3, _analyses);
+        Assert.NotEmpty(off.Findings);
+        Assert.Empty(result.Findings);
+        Assert.Equal(off.Findings.Count, Counter(result, CoverageCounters.PAIRS_REMOVED_GENERATED));
+    }
+
+    [Fact]
+    public async Task Target_answered_in_a_later_round_has_one_coverage_item()
+    {
+        var result = await Run(Chain(), ModelGeneration.Generate, Answering(("Same", ModelWithEquals)));
+
+        Assert.Equal(1, _requested.Count(id => id == "M:Acme.Api.Poke(System.Object)"));
+        Assert.Equal(2, Counter(result, CoverageCounters.GENERATED_IN_RUN));
+        Assert.Equal(2, Counter(result, CoverageCounters.KNOWN_CALL_GENERATED));
+        Assert.Empty(Assert.Single(result.Coverage).GenerationRefusals);
+    }
+
+    [Fact]
+    public async Task ReadOnly_lists_a_target_reached_through_a_model_as_wanted()
+    {
+        var image = Library("main");
+        Store(image, "Same", ModelWithEquals);
+
+        var result = await Run(Chain(image), ModelGeneration.ReadOnly);
+
+        Assert.Empty(_requested);
+        var wanted = Assert.Single(result.GenerationWanted);
+        Assert.Equal(("M:Acme.Api.Poke(System.Object)", KeyOf(image).Text), (wanted.MemberId, wanted.FileKey));
+        var refusal = Assert.Single(Assert.Single(result.Coverage).GenerationRefusals);
+        Assert.Equal((wanted.MemberId, "not-generated"), (refusal.MemberId, refusal.Cause));
+        Assert.Equal(2, _analyses);
+    }
+
+    [Fact]
+    public async Task Call_first_reached_with_a_stored_model_of_its_type_is_a_target()
+    {
+        var image = Library("main");
+        Store(image, "Poke", Model);
+        var solution = Chain(image);
+
+        var result = await Run(solution, ModelGeneration.Generate, Answering(("Same", ModelWithEquals)));
+
+        Assert.Equal(["M:Acme.Api.Same(System.Object,System.Object)"], _requested);
+        Assert.Equal((2, 1), (Counter(result, CoverageCounters.KNOWN_CALL_GENERATED), Counter(result, CoverageCounters.GENERATED_IN_RUN)));
+        Assert.Empty(Assert.Single(result.Coverage).GenerationRefusals);
+        Assert.Equal(2, _analyses);
+
+        // Both calls are already known in this analysis; `Poke` must still join the round's targets.
+        var compilation = (await solution.Projects.Single().GetCompilationAsync())!;
+        var table = new GeneratedModelTable();
+        table.MapType(compilation, compilation.GetTypeByMetadataName("Acme.Api")!, KeyOf(image));
+        Assert.Empty(table.AddFile(GeneratedModelFiles.Read(_repository, KeyOf(image))));
+        var run = ScopePipeline.Run("Fixture", [compilation], [(compilation, null)], ROOT_DIRECTORY, ProviderRegistry.BuiltIn,
+                                    LibraryModels.BuiltIn.WithGenerated(table), AnalysisLimits.Default, new(), null, CancellationToken.None);
+        using var pass = GenerationPass.Create(new GenerationSetup(ModelGeneration.ReadOnly, _install.Resolver()), _repository, CancellationToken.None)!;
+        Assert.Contains(pass.Candidates(run, [compilation]), candidate => candidate.Target.MemberId == "M:Acme.Api.Poke(System.Object)");
     }
 
     [Fact]
@@ -477,21 +611,47 @@ public sealed class RunGenerationPassTests : IDisposable
     /// <param name="generator">The generator call; a model with no effects for any member when omitted.</param>
     /// <param name="token">The run's token.</param>
     /// <param name="install">The install target resolution reads, or the fixture's.</param>
-    private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, CancellationToken, GeneratedAnswer>? generator = null,
-                                     CancellationToken token = default, ImplementationAssemblies? install = null)
+    /// <param name="time">The clock generation budgets use, or the system clock.</param>
+    private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? generator = null,
+                                     CancellationToken token = default, ImplementationAssemblies? install = null, TimeProvider? time = null)
     {
-        generator ??= (request, _) => Model(request);
+        generator ??= (request, _, _) => Model(request);
         return PhaseOneAnalyzer.AnalyzeAsync(solution, ROOT_DIRECTORY, _repository, ProviderRegistry.BuiltIn, Counted, AnalysisLimits.Default,
                                              Z3ConstraintSolver.Create,
-                                             new GenerationSetup(mode, install ?? _install.Resolver(), (request, cancellation) =>
+                                             new GenerationSetup(mode, install ?? _install.Resolver(), (request, dependencies, cancellation) =>
                                              {
                                                  _requested.Add(request.MemberId);
-                                                 return generator(request, cancellation);
-                                             }), token);
+                                                 return generator(request, dependencies, cancellation);
+                                             }, Time: time), token);
     }
 
     private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, GeneratedAnswer> generator) =>
-        Run(solution, mode, (request, _) => generator(request));
+        Run(solution, mode, (request, _, _) => generator(request));
+
+    /// <summary>A call whose model reaches an override that calls a second library member.</summary>
+    /// <param name="image">The library asset, or the fixture's default asset.</param>
+    /// <param name="work">The service's statements, or a single call of <c>Same</c>.</param>
+    private Solution Chain(byte[]? image = null, string work = "Acme.Api.Same(new Key(), _state);") =>
+        Solution(work, image, extra: """
+            public sealed class Key
+            {
+                public override bool Equals(object? other) { Acme.Api.Poke(other!); return true; }
+                public override int GetHashCode() => 1;
+            }
+            """);
+
+    /// <summary>Stores an answer for one member of the library before the run starts.</summary>
+    /// <param name="image">The asset whose file holds the answer.</param>
+    /// <param name="member">The member's name.</param>
+    /// <param name="answer">The answer to store.</param>
+    private void Store(byte[] image, string member, Func<GenerationRequest, GeneratedAnswer> answer)
+    {
+        var id = member.StartsWith("M:", StringComparison.Ordinal) ? member
+            : member == "Same" ? "M:Acme.Api.Same(System.Object,System.Object)" : $"M:Acme.Api.{member}(System.Object)";
+        var generated = answer(new GenerationRequest(PACKAGE, "1.0.0", id, PACKAGE, "net8.0"));
+        var key = KeyOf(image);
+        Assert.Empty(GeneratedModelFiles.Write(GeneratedModelFiles.Read(_repository, key), [GeneratedModelAnswer.OfModel(generated.Model!)], CancellationToken.None));
+    }
 
     private PairAnalysis Counted(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
     {
@@ -501,8 +661,8 @@ public sealed class RunGenerationPassTests : IDisposable
 
     /// <summary>A generator that answers each member by its name, and with a model for a member it was told nothing about.</summary>
     /// <param name="answers">The answer for each member name.</param>
-    private static Func<GenerationRequest, CancellationToken, GeneratedAnswer> Answering(params (string Member, Func<GenerationRequest, GeneratedAnswer> Answer)[] answers) =>
-        (request, _) => (answers.FirstOrDefault(item => request.MemberId.StartsWith("M:Acme.Api." + item.Member + "(", StringComparison.Ordinal)).Answer ?? Model)(request);
+    private static Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> Answering(params (string Member, Func<GenerationRequest, GeneratedAnswer> Answer)[] answers) =>
+        (request, _, _) => (answers.FirstOrDefault(item => request.MemberId.StartsWith("M:Acme.Api." + item.Member + "(", StringComparison.Ordinal)).Answer ?? Model)(request);
 
     /// <summary>The application: a controller that reads a state, and a hosted service that runs the work.</summary>
     /// <param name="work">The statements of the service's <c>ExecuteAsync</c>.</param>

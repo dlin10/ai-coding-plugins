@@ -30,7 +30,7 @@ internal static class MetricsCommand
     private const string LOAD = "load";
     private const string RENDER = "render";
     // 1.1 added the ordering counters to each coverage entry, 1.2 the callees of its semantic gaps.
-    private const string SCHEMA_VERSION = "1.2";
+    private const string SCHEMA_VERSION = "1.3";
     private const double DETERMINISTIC_SECONDS_LIMIT = 90;
     private const double PEAK_RSS_GB_LIMIT = 4;
     private const double BYTES_PER_MB = 1024d * 1024d;
@@ -116,7 +116,7 @@ internal static class MetricsCommand
             DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture),
             new MachineInfo(Environment.ProcessorCount, Math.Round(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / BYTES_PER_GB, 1)),
             new LimitsInfo(limits.MaxAccessPathDepth, limits.MaxContextsPerMethod, limits.MaxSccIterations),
-            new TimingsInfo(steps, totalSeconds),
+            new TimingsInfo(steps, totalSeconds, analysis.ScopeSizes.Select(size => new ScopeAnalyses(size.ScopeId, size.Analyses)).ToArray()),
             Math.Round(peak / BYTES_PER_MB, 1),
             Counts(loaded, analysis),
             Coverage(analysis),
@@ -283,7 +283,9 @@ internal sealed record LimitsInfo(int Depth, int Contexts, int Scc);
 
 internal sealed record StepSeconds(string Step, double Seconds);
 
-internal sealed record TimingsInfo(IReadOnlyList<StepSeconds> Steps, double TotalSeconds);
+internal sealed record TimingsInfo(IReadOnlyList<StepSeconds> Steps, double TotalSeconds, IReadOnlyList<ScopeAnalyses> Analyses);
+
+internal sealed record ScopeAnalyses(string Scope, int Count);
 
 internal sealed record PairCountsInfo(int Comparisons, long CartesianBound, int LargestBucket, int Buckets, IReadOnlyDictionary<string, int> Skips,
                                       int Suppressed, int Candidates);

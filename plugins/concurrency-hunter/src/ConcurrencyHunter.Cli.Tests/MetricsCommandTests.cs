@@ -61,12 +61,13 @@ public sealed class MetricsCommandTests
         Assert.Equal(["schemaVersion", "target", "revision", "workingTreeClean", "engineVersion", "recordedAt", "machine", "limits", "timings",
                       "peakWorkingSetMb", "counts", "coverage", "targets"],
                      Names(root));
-        Assert.Equal("1.2", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("1.3", root.GetProperty("schemaVersion").GetString());
         Assert.Equal(BuildInfo.Version, root.GetProperty("engineVersion").GetString());
         Assert.True(DateTimeOffset.TryParse(root.GetProperty("recordedAt").GetString(), out _));
         Assert.Equal(["logicalProcessors", "memoryGb"], Names(root.GetProperty("machine")));
         Assert.Equal(["depth", "contexts", "scc"], Names(root.GetProperty("limits")));
-        Assert.Equal(["steps", "totalSeconds"], Names(root.GetProperty("timings")));
+        Assert.Equal(["steps", "totalSeconds", "analyses"], Names(root.GetProperty("timings")));
+        Assert.All(root.GetProperty("timings").GetProperty("analyses").EnumerateArray(), item => Assert.Equal(["scope", "count"], Names(item)));
         var steps = root.GetProperty("timings").GetProperty("steps").EnumerateArray().ToArray();
         Assert.Equal(STEPS, steps.Select(step => step.GetProperty("step").GetString()));
         Assert.All(steps, step => Assert.True(step.GetProperty("seconds").GetDouble() >= 0));
@@ -80,6 +81,42 @@ public sealed class MetricsCommandTests
         Assert.Equal(["deterministicSeconds", "peakRssGb"], Names(root.GetProperty("targets")));
         Assert.All(root.GetProperty("targets").EnumerateObject(), target => Assert.Equal(["limit", "actual", "met"], Names(target.Value)));
         Assert.True(root.GetProperty("peakWorkingSetMb").GetDouble() > 0);
+    }
+
+    [Fact]
+    public async Task Analyses_name_every_scope_and_count_the_first_analysis()
+    {
+        using var directory = new TemporaryDirectory();
+        var target = directory.Write("Fixture.slnx", "<Solution />");
+        Task<LoadedTarget> Load(string _, CancellationToken token)
+        {
+            var options = new FixtureOptions
+            {
+                ProjectOutputKinds = new Dictionary<string, Microsoft.CodeAnalysis.OutputKind>
+                {
+                    ["A"] = Microsoft.CodeAnalysis.OutputKind.ConsoleApplication,
+                    ["B"] = Microsoft.CodeAnalysis.OutputKind.ConsoleApplication
+                }
+            };
+            const string main = "public static class Program { public static void Main() { } }";
+            var solution = FixtureSolution.CreateProjects(options, ("B", "Case.cs", CONTROLLER + main), ("B", "Startup.cs", STARTUP),
+                                                                    ("A", "Case.cs", CONTROLLER + main), ("A", "Startup.cs", STARTUP));
+            return Task.FromResult(new LoadedTarget(solution, 2, 2, [], new NoOwner()));
+        }
+
+        var (measurement, analysis) = await MetricsCommand.MeasureAsync(target, AnalysisLimits.Default, Load, ModelGeneration.None, CancellationToken.None);
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(measurement, MetricsJsonContext.Default.Measurement));
+        var analyses = json.RootElement.GetProperty("timings").GetProperty("analyses").EnumerateArray().ToArray();
+
+        Assert.Equal(["A", "B"], analysis.Scopes.Select(scope => scope.Id));
+        Assert.Equal(analysis.Scopes.Select(scope => scope.Id), analyses.Select(item => item.GetProperty("scope").GetString()));
+        Assert.All(analyses, item => Assert.Equal(1, item.GetProperty("count").GetInt32()));
+        Assert.Equal([1, 1], analysis.ScopeSizes.Select(size => size.Analyses));
+
+        var (demo, demoAnalysis) = await DEMO.Value;
+        Assert.Equal(demoAnalysis.Scopes.Select(scope => scope.Id), demo.Timings.Analyses.Select(item => item.Scope));
+        Assert.Equal(demoAnalysis.ScopeSizes.Select(size => size.Analyses), demo.Timings.Analyses.Select(item => item.Count));
+        Assert.All(demo.Timings.Analyses, item => Assert.True(item.Count >= 1));
     }
 
     [Fact]

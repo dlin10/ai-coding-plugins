@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 2,
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "assembly": {
+    "name": "Microsoft.Extensions.Configuration.FileExtensions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.Configuration.FileConfigurationExtensions.SetFileProvider(Microsoft.Extensions.Configuration.IConfigurationBuilder,Microsoft.Extensions.FileProviders.IFileProvider)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "callback-value-in-library-call",
+          "probe-handed-to-unseen",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.FileConfigurationSource.ResolveFileProvider",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "unseeded-read",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.FileConfigurationSource.set_FileProvider(Microsoft.Extensions.FileProviders.IFileProvider)",
+      "model": {
+        "member": "M:Microsoft.Extensions.Configuration.FileConfigurationSource.set_FileProvider(Microsoft.Extensions.FileProviders.IFileProvider)",
+        "assemblies": [
+          "Microsoft.Extensions.Configuration.FileExtensions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.FileConfigurationSource.set_Optional(System.Boolean)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.FileConfigurationSource.set_Path(System.String)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Configuration.FileConfigurationSource.set_ReloadOnChange(System.Boolean)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    }
+  ]
+}

@@ -3,15 +3,16 @@
 Writes the demo's committed generated models, demo/.concurrency-hunter/models/generated/.
 
 .DESCRIPTION
-Builds the executable in Release, then runs `metrics --target demo/Demo.slnx --generation on`, which generates the model of every
-library member the demo's direct opaque calls reach that no layer describes and writes it below the repository root. The project
-entries named in $STRIPPED_MEMBERS are taken out of demo/.concurrency-hunter/models/demo.json for that run, because a project entry
+Builds the executable in Release, then runs `metrics --target demo/Demo.slnx --generation on`, which answers the targets of the demo's
+scope calls from every generation round, plus the dependency members generation reaches, and writes final answers below the repository root.
+The project entries named in $STRIPPED_MEMBERS are taken out of demo/.concurrency-hunter/models/demo.json for that run, because a project entry
 that makes a member opaque keeps the member from being a generation target; the file is put back byte for byte in a `finally`, whatever
 the run does, from a copy kept in scratch/.
 
-The run is refused when it left a member at `budget`: such a member was cut by the run's limit, its answer depends on the machine and
-would not be written. A second run, `--generation read`, then checks that the committed files are enough: it is refused when it lists a
-generation target with the cause `not-generated`, a member a generating run would have generated.
+The run is refused when coverage left a target of a scope call at `budget`: such a member was cut by the run's limit, its answer depends on
+the machine and would not be written. Dependency members do not appear in scope coverage. A second run, `--generation read`, then
+checks that the committed files are enough: it is refused when it lists a target of a scope call with the cause `not-generated`, including
+a target whose nonfinal answer was not saved by the generating run.
 
 Exit code: 0 when the files are written and a run that only reads them would generate nothing, 1 otherwise.
 #>

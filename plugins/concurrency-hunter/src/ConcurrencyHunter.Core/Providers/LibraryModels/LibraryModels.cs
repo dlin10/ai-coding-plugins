@@ -1,3 +1,4 @@
+using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
 
 namespace ConcurrencyHunter.Providers.LibraryModels;
@@ -140,6 +141,7 @@ public sealed class LibraryModels
     private readonly Dictionary<string, LibraryModel[]> _projectMembers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ImmutableLibraryType> _types = new(StringComparer.Ordinal);
     private readonly GeneratedModelTable? _generated;
+    private readonly DependencyModels? _dependencies;
 
     public LibraryModels(IEnumerable<LibraryModel> members, IEnumerable<ImmutableLibraryType> immutableTypes)
     {
@@ -173,7 +175,7 @@ public sealed class LibraryModels
         ImmutableTypes = _types.Values.ToArray();
     }
 
-    private LibraryModels(LibraryModels builtIn, IEnumerable<LibraryModel> project) : this(builtIn.Members, builtIn.ImmutableTypes)
+    internal LibraryModels(LibraryModels builtIn, IEnumerable<LibraryModel> project) : this(builtIn.Members, builtIn.ImmutableTypes)
     {
         var projectMembers = project.ToArray();
         foreach (var group in projectMembers.GroupBy(member => member.Id, StringComparer.Ordinal))
@@ -201,6 +203,18 @@ public sealed class LibraryModels
     /// lowered with it is not one lowered without.</summary>
     /// <param name="generated">The scope's generated layer.</param>
     internal LibraryModels WithGenerated(GeneratedModelTable generated) => new(this, generated);
+
+    /// <summary>The models a generation reads: built-in entries outside its own assembly and the dependency source, without project entries.</summary>
+    /// <param name="dependencies">The generation's dependency layer.</param>
+    internal LibraryModels WithDependencies(DependencyModels dependencies) => new(this, dependencies);
+
+    private LibraryModels(LibraryModels source, DependencyModels dependencies)
+        : this(source.Members.Where(model => model.Layer == ModelLayer.BuiltIn &&
+                                            model.Assemblies.All(range => range.AssemblyName != dependencies.AssemblyName)),
+               source.ImmutableTypes.Where(type => type.Assemblies.All(range => range.AssemblyName != dependencies.AssemblyName)))
+    {
+        _dependencies = dependencies;
+    }
 
     /// <summary>The built-in library models, read from the seven embedded files once per process.</summary>
     public static LibraryModels BuiltIn { get; } = LoadBuiltIn();
@@ -252,6 +266,8 @@ public sealed class LibraryModels
     public LibraryMatch? Find(IMethodSymbol method, Compilation? compilation = null)
     {
         var definition = (method.ReducedFrom ?? method).OriginalDefinition;
+        if (_dependencies is not null && definition.ContainingAssembly.Name == _dependencies.AssemblyName)
+            return null;
         if (DocumentationCommentId.CreateDeclarationId(definition) is not { } id)
             return null;
         var project = ProjectMatch(definition, id);
@@ -261,6 +277,8 @@ public sealed class LibraryModels
         var stored = _generated is not null && compilation is not null && !FunctionPointers.In(definition)
             ? _generated.Lookup(compilation, definition, id)
             : null;
+        if (_dependencies is not null && compilation is not null && builtIn is not { Kind: LibraryMatchKind.Known or LibraryMatchKind.Opaque })
+            stored = _dependencies.Read(definition, compilation, id);
         var decision = GeneratedLayer.Decide(project, builtIn, stored ?? StoredGeneratedAnswer.Absent,
                                              stored is null ? GenerationOrigin.NotATarget : GenerationOrigin.Available);
         return decision.Layer switch

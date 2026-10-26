@@ -11,11 +11,13 @@ namespace ConcurrencyHunter.Analysis;
 /// <param name="Install">The install implementations are resolved from, or <c>null</c> for this process's.</param>
 /// <param name="Generator">The generator call, or <c>null</c> for the model generator over <paramref name="Install"/>.</param>
 /// <param name="BeforeFileRead">A test hook before a writer re-reads a generated file under its lock.</param>
+/// <param name="Time">The clock generation budgets use, or <c>null</c> for the system clock.</param>
 internal sealed record GenerationSetup(ModelGeneration Mode, ImplementationAssemblies? Install = null,
-                                       Func<GenerationRequest, CancellationToken, GeneratedAnswer>? Generator = null, Action? BeforeFileRead = null);
+                                       Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? Generator = null, Action? BeforeFileRead = null,
+                                       TimeProvider? Time = null);
 
-/// <summary>A run's dealings with the generated layer, scope by scope (R1, R2, R4, R5): which library members a scope's direct opaque calls
-/// reach and which of them are generation targets, the generated layer a scope's second analysis reads, and what each target stands for
+/// <summary>A run's dealings with the generated layer, scope by scope (R1, R2, R4, R5): which library members a scope's calls
+/// reach and which of them are generation targets, the generated layer each analysis reads, and what each target stands for
 /// in the scope's coverage. The target of a call is looked up once per compilation and member for the whole run. Disposing the pass at the
 /// end of the run releases the library compilations the run's own generations created, however the run ended (R12).</summary>
 internal sealed class GenerationPass : IDisposable
@@ -33,8 +35,8 @@ internal sealed class GenerationPass : IDisposable
     {
         Mode = setup.Mode;
         _install = setup.Install ?? ImplementationAssemblies.ForThisProcess();
-        _generation = new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RUN_LIMIT, RunGeneration.MEMBER_LIMIT, TimeProvider.System,
-                                        setup.Generator ?? ((request, token) => ModelGenerator.Generate(request, _install, token)));
+        _generation = new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RUN_LIMIT, RunGeneration.MEMBER_LIMIT, setup.Time ?? TimeProvider.System,
+                                        setup.Generator ?? ((request, dependencies, token) => ModelGenerator.Generate(request, _install, token, dependencies)));
         _cancellationToken = cancellationToken;
         _beforeFileRead = setup.BeforeFileRead;
     }
@@ -45,6 +47,9 @@ internal sealed class GenerationPass : IDisposable
     /// <summary>The time spent inside generations so far.</summary>
     internal TimeSpan Spent => _generation.Spent;
 
+    /// <summary>Whether another generation round has work even if the scope needs no new analysis yet.</summary>
+    internal bool HasWork => Mode == ModelGeneration.Generate && _generation.HasWork;
+
     /// <summary>The pass of a run, or <c>null</c> when the generated layer is off.</summary>
     /// <param name="setup">What the run does with the generated layer.</param>
     /// <param name="repositoryRoot">The repository root whose generated files the run reads and writes.</param>
@@ -52,13 +57,13 @@ internal sealed class GenerationPass : IDisposable
     internal static GenerationPass? Create(GenerationSetup setup, string repositoryRoot, CancellationToken cancellationToken) =>
         setup.Mode == ModelGeneration.None ? null : new GenerationPass(setup, repositoryRoot, cancellationToken);
 
-    /// <summary>The library members a scope's direct opaque calls reach and that are generation targets (R1): every opaque call of a
-    /// reachable summary that is not known, mapped through the call operation of its body to the target it names, and resolved in the
+    /// <summary>The library members a scope's calls reach and that are generation targets (R1): every opaque or generated-layer call of a
+    /// reachable summary, mapped through the call operation of its body to the target it names, and resolved in the
     /// compilation the body belongs to. A call has a target only when its declaration id names exactly one method of that assembly whose own
     /// id it is, and the member carries no function-pointer type: Roslyn writes nothing for a function-pointer type, so <c>M:P.F()</c> is
     /// both the id of <c>F(delegate*&lt;void&gt;)</c> and what finds a parameterless <c>F()</c>. A member is a candidate once per compilation,
     /// handed a delegate when a delegate is created as the argument of any of its reached calls; this is the one place that flag is read.</summary>
-    /// <param name="run">The scope's analysis without the generated layer.</param>
+    /// <param name="run">The scope's latest analysis.</param>
     /// <param name="compilations">The scope's compilations.</param>
     /// <exception cref="OperationCanceledException">The run's token fired.</exception>
     internal IReadOnlyList<GenerationCandidate> Candidates(ScopeRun run, IReadOnlyList<Compilation> compilations)
@@ -69,7 +74,7 @@ internal sealed class GenerationPass : IDisposable
             WorkCancellation.Check();
             _cancellationToken.ThrowIfCancellationRequested();
             var summary = group.First().Summary;
-            var opaque = summary.OpaqueCalls.Where(call => !call.IsKnown).ToArray();
+            var opaque = summary.OpaqueCalls.Where(call => !call.IsKnown || call.Library?.Layer == IrModelLayer.Generated).ToArray();
             if (opaque.Length == 0 || !run.Reachable.Bodies.TryGetValue(summary.BodyId, out var body) || CompilationOf(summary.BodyId, compilations) is not { } compilation)
                 continue;
 
@@ -97,8 +102,8 @@ internal sealed class GenerationPass : IDisposable
         return found.Values.ToArray();
     }
 
-    /// <summary>Generates what the scope's candidates call for, within the run's budget, when the run generates, writes what a file keeps,
-    /// and builds the generated layer the scope's second analysis reads.</summary>
+    /// <summary>Generates what the scope's candidates and dependency views call for, within the run's budget, writes final answers,
+    /// and builds the generated layer of this round.</summary>
     /// <param name="models">The scope's models without the generated layer.</param>
     /// <param name="candidates">The scope's candidates, from <see cref="Candidates"/>.</param>
     /// <exception cref="OperationCanceledException">The run's token fired.</exception>
@@ -141,8 +146,7 @@ internal sealed class GenerationPass : IDisposable
     /// <param name="models">The scope's models without the generated layer.</param>
     /// <param name="layer">The scope's generated layer.</param>
     /// <param name="candidates">The candidates.</param>
-    /// <param name="throughModel">Whether only the analysis with the generated layer reaches them.</param>
-    internal IReadOnlyList<ReachedTarget> Reached(LibraryModels models, ScopeLayer layer, IEnumerable<GenerationCandidate> candidates, bool throughModel)
+    internal IReadOnlyList<ReachedTarget> Reached(LibraryModels models, ScopeLayer layer, IEnumerable<GenerationCandidate> candidates)
     {
         var reached = new List<ReachedTarget>();
         foreach (var candidate in candidates)
@@ -154,7 +158,7 @@ internal sealed class GenerationPass : IDisposable
             var stored = layer.Table.Lookup(candidate.Compilation, definition, candidate.Target.LookupId) ?? StoredGeneratedAnswer.Absent;
             reached.Add(new ReachedTarget(definition, candidate.Target,
                                           new TargetStanding(stored, candidate.Target is UnavailableGenerationTarget, _generation.AnswerOf(candidate.Target),
-                                                             stored.Kind == StoredGeneratedKind.Model, throughModel)));
+                                                             stored.Kind == StoredGeneratedKind.Model)));
         }
 
         return reached;

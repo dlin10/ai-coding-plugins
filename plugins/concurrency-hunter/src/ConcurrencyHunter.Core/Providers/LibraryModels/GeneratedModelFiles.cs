@@ -463,6 +463,35 @@ internal static class GeneratedModelFiles
         return Check(displayPath, new RawEntry(answer.Member, document.RootElement), out var entry) is null ? entry : null;
     }
 
+    /// <summary>The canonical model entry text, using the file writer's representation. Ordinal equality of this text compares its UTF-8
+    /// bytes, regardless of the parsed entries' object identities or dictionary insertion order. A refusal has no model text.</summary>
+    /// <param name="entry">The file-form answer.</param>
+    internal static string? ModelText(GeneratedModelEntry entry)
+    {
+        if (entry.Model is not { } model)
+            return null;
+        var versions = model.Versions ?? (new Version(0, 0, 0, 0), new Version(1, 0, 0, 0));
+        var library = new LibraryModel(model.Member,
+            model.Assemblies.Select(assembly => new SupportedAssemblyVersion(assembly, versions.Item1, versions.Item2)).ToArray(),
+            model.Effects)
+        {
+            Result = model.Result, Fates = model.Fates, Keeps = model.Keeps, Outputs = model.Outputs, Stores = model.Stores, Calls = model.Calls
+        };
+        var written = ModelEntryWriter.Write(library);
+        if (model.Versions is null)
+            written.Remove("versions");
+        using var stream = new MemoryStream();
+        using (var json = new Utf8JsonWriter(stream, WriterOptions))
+        {
+            json.WriteStartObject();
+            json.WriteString("member", entry.Member);
+            json.WritePropertyName("model");
+            written.WriteTo(json);
+            json.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     /// <summary>Adds answers to a file. Under a mutex every writer of the file takes, it re-reads the file, keeps every entry it finds
     /// and adds or replaces only the members these answers name; an answer a file does not keep (<see cref="Keeps"/>) is left out. The
     /// result is written deterministically by atomic replacement, and not at all when its bytes are the file's. An unreadable file is

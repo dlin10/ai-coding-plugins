@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "38b1e51e38b7f49a4fd59450ac310853571100a4bd15c794c25d037473168051",
+  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
   "assembly": {
     "name": "Microsoft.Extensions.Options",
     "version": "10.0.0.0",
@@ -9,6 +9,106 @@
     "major": 10
   },
   "members": [
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.OptionsBuilderExtensions.ValidateOnStart``1(Microsoft.Extensions.Options.OptionsBuilder{``0})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-accessed-elsewhere",
+          "probe-handed-to-unseen",
+          "unseeded-read"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.AddOptions(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "enumeration-without-sequence",
+          "probe-handed-to-unseen",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.AddOptions``1(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-unnamed",
+          "unseeded-read",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.Configure``1(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{``0})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "enumeration-without-sequence",
+          "probe-handed-to-unseen",
+          "unseeded-read",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.PostConfigure``1(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{``0})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "enumeration-without-sequence",
+          "probe-handed-to-unseen",
+          "unseeded-read",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Options.ConfigureOptions`1.#ctor(System.Action{`0})",
+      "model": {
+        "member": "M:Microsoft.Extensions.Options.ConfigureOptions`1.#ctor(System.Action{`0})",
+        "assemblies": [
+          "Microsoft.Extensions.Options"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "action": {
+            "fate": "holder",
+            "holder": "result",
+            "inputs": [
+              [
+                "holder-arg:0"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Options.IOptions`1.get_Value",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.Options.IOptions`1.get_Value is abstract; M:Microsoft.Extensions.Options.IOptions`1.get_Value is an interface member; only a default could fill the Microsoft.Extensions.Options.IOptions<TOptions> of Recv",
+        "causes": []
+      }
+    },
     {
       "member": "M:Microsoft.Extensions.Options.Options.Create``1(``0)",
       "model": {

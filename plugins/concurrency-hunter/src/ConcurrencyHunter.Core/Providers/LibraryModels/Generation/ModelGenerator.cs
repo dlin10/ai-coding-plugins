@@ -84,6 +84,9 @@ public sealed record GeneratedAnswer(int SchemaVersion, string Member, Generatio
     /// <summary>Every case the generation found against the model entry, one per code, sorted by code; empty when the member has a
     /// model or was not classified. <see cref="ModelReason"/> is the first reason in check order among them.</summary>
     public IReadOnlyList<GenerationCause> Causes { get; init; } = [];
+
+    /// <summary>The raw answers of the called dependencies, ordered by member and file key; not part of G-6 or the generated file.</summary>
+    internal IReadOnlyList<DependencyView> DependencyViews { get; init; } = [];
 }
 
 /// <summary>An answer with the driver and the engine run behind it, for tests.</summary>
@@ -163,6 +166,20 @@ public static class ModelGenerator
     /// <exception cref="ArgumentException">The version or the framework does not parse.</exception>
     public static GeneratedAnswer Generate(GenerationRequest request, ImplementationAssemblies resolver, CancellationToken cancellationToken) =>
         Trace(request, resolver, cancellationToken).Answer;
+
+    /// <summary>The answer for one member using the dependency answers already available in its run.</summary>
+    /// <param name="request">The member asked for.</param>
+    /// <param name="resolver">Finds the implementation assembly.</param>
+    /// <param name="cancellationToken">Cancels the generation.</param>
+    /// <param name="dependencyAnswers">The run's dependency source, or null for built-in models only.</param>
+    internal static GeneratedAnswer Generate(GenerationRequest request, ImplementationAssemblies resolver, CancellationToken cancellationToken,
+                                             DependencyAnswers? dependencyAnswers)
+    {
+        using var work = WorkCancellation.Enter(cancellationToken);
+        GenerationChecks checks = new(WorkCancellation.Token);
+        var facts = new Facts(request, checks);
+        return Resolve(facts, resolver, checks, dependencyAnswers).Answer;
+    }
 
     /// <summary>Generates one member within one limit covering all its attempts; an expired limit is a timeout answer.</summary>
     /// <param name="request">The member asked for.</param>
@@ -245,7 +262,7 @@ public static class ModelGenerator
         return Resolve(facts, resolver, checks);
     }
 
-    private static GenerationTrace Resolve(Facts facts, ImplementationAssemblies resolver, GenerationChecks checks)
+    private static GenerationTrace Resolve(Facts facts, ImplementationAssemblies resolver, GenerationChecks checks, DependencyAnswers? dependencyAnswers = null)
     {
         checks.Check(GenerationStage.Resolve);
         var request = facts.Request;
@@ -262,6 +279,8 @@ public static class ModelGenerator
 
         if (resolution.Reason is { } reason)
             return facts.Refused(reason, resolution.Detail);
+        if (dependencyAnswers is not null && ImplementationAssemblies.TryParseFramework(resolution.Framework!, out var major))
+            facts.Dependencies = new DependencyModels(resolver, request.AssemblyName, major, dependencyAnswers);
         var library = LibraryCompilation.Compile(resolution.Assembly!, checks);
         return Classify(facts, library, checks);
     }
@@ -334,7 +353,7 @@ public static class ModelGenerator
             first = Attempt(facts, library, checks, models, confirmationCollectsEverything, TypeInitializerTreatment.Off,
                             inertRuns, []);
         }
-        return first with { Answer = first.Answer with { Generation = facts.Record() } };
+        return first with { Answer = first.Answer with { Generation = facts.Record(), DependencyViews = facts.Dependencies?.Views ?? [] } };
     }
 
     /// <summary>Only the final fate pass and the confirmation decide whether an attempt overflowed.</summary>
@@ -352,10 +371,12 @@ public static class ModelGenerator
         var rejectedRecipes = new HashSet<string>(StringComparer.Ordinal);
         var lowered = new Dictionary<(Compilation Compilation, string BodyId, LibraryModels Models), IrLoweredMethod?>();
         var dropped = new SortedSet<string>(StringComparer.Ordinal);
+        models ??= ModelsOutside(library.Compilation!.AssemblyName!);
+        if (facts.Dependencies is { } dependencies)
+            models = models.WithDependencies(dependencies);
         while (true)
         {
             checks.Check(GenerationStage.Synthesize);
-            models ??= ModelsOutside(library.Compilation!.AssemblyName!);
             var trace = AttemptPass(facts, library, checks, models, confirmationCollectsEverything, treatment, inertRuns, passes, recipeStatics,
                                     rejectedRecipes, lowered, dropped);
             if (trace.Confirmation is not null)
@@ -894,6 +915,7 @@ public static class ModelGenerator
         }
 
         public GenerationRequest Request { get; } = request;
+        public DependencyModels? Dependencies { get; set; }
         public Driver? Driver { get; set; }
         public GenerationImplementation? Implementation { get; set; }
         public string? Framework { get; set; }
