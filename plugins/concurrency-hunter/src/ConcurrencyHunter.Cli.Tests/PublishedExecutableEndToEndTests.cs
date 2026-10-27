@@ -8,14 +8,24 @@ using Xunit.Abstractions;
 
 namespace ConcurrencyHunter.Cli.Tests;
 
-public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
+public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output) : IDisposable
 {
     private const string REQUIRE_VARIABLE = "CONCURRENCYHUNTER_REQUIRE_E2E";
+    private const string BUNDLE_EXTRACT_VARIABLE = "DOTNET_BUNDLE_EXTRACT_BASE_DIR";
     private const string ENUMERABLE_ALL =
         "M:System.Linq.Enumerable.All``1(System.Collections.Generic.IEnumerable{``0},System.Func{``0,System.Boolean})";
     private static readonly TimeSpan HANDSHAKE_TIMEOUT = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan ANALYSIS_TIMEOUT = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan PUBLISH_TIMEOUT = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Where the single-file host unpacks every executable this test starts. The host names each build's folder by its content
+    /// and nothing removes it, so a start that leaves it in the shared <c>%TEMP%\.net</c> adds about 50 MB per build. A command
+    /// that starts an executable goes through <see cref="RunAsync"/> or <see cref="PublishedServer"/>, which hand this folder on.
+    /// </summary>
+    private readonly string _bundleExtraction = Directory.CreateTempSubdirectory("concurrency-hunter-bundle-").FullName;
+
+    public void Dispose() => Directory.Delete(_bundleExtraction, true);
 
     [Fact]
     public async Task Published_server_lists_exactly_the_five_tools_with_only_json_rpc_on_stdout()
@@ -23,7 +33,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
         if (SkipUnlessPublished(out var executable))
             return;
 
-        await using var server = new PublishedServer(executable, ["mcp"], output);
+        await using var server = new PublishedServer(executable, ["mcp"], output, _bundleExtraction);
         await InitializeAsync(server);
         server.Send(new { jsonrpc = "2.0", id = 2, method = "tools/list" });
         var response = await server.ReadResponseAsync("tools/list", HANDSHAKE_TIMEOUT);
@@ -49,7 +59,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             Path.Combine(Path.GetDirectoryName(executable)!, "..", "concurrency-hunter-launcher.cmd"));
         Assert.True(File.Exists(launcher), $"The launcher the manifests name is missing: {launcher}");
 
-        await using var server = new PublishedServer("cmd.exe", ["/d", "/c", launcher], output);
+        await using var server = new PublishedServer("cmd.exe", ["/d", "/c", launcher], output, _bundleExtraction);
         await InitializeAsync(server);
         server.Send(new { jsonrpc = "2.0", id = 2, method = "tools/list" });
         var response = await server.ReadResponseAsync("tools/list", HANDSHAKE_TIMEOUT);
@@ -80,6 +90,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
                 executable,
                 ["mcp"],
                 output,
+                _bundleExtraction,
                 new Dictionary<string, string?> { ["LOCALAPPDATA"] = localApplicationData });
             await InitializeAsync(server);
 
@@ -306,7 +317,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
                 start.Environment["NUGET_PACKAGES"] = denied["nuget"];
                 start.Environment["APPDATA"] = denied["appdata"];
                 start.Environment["LOCALAPPDATA"] = denied["localappdata"];
-                start.Environment["DOTNET_BUNDLE_EXTRACT_BASE_DIR"] = extract;
+                start.Environment[BUNDLE_EXTRACT_VARIABLE] = extract;
                 start.Environment["HTTP_PROXY"] = "http://127.0.0.1:9";
                 start.Environment["HTTPS_PROXY"] = "http://127.0.0.1:9";
             });
@@ -325,6 +336,21 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             if (Directory.Exists(directory))
                 Directory.Delete(directory, true);
         }
+    }
+
+    /// <summary>
+    /// The tests give the executable a folder of their own to unpack into, so a run leaves no copy of it in the shared
+    /// <c>%TEMP%\.net</c>. <c>--version</c> is the cheapest start that still makes the host unpack.
+    /// </summary>
+    [Fact]
+    public async Task Published_executable_unpacks_into_the_folder_the_test_gives_it()
+    {
+        if (SkipUnlessPublished(out var executable))
+            return;
+
+        await RunAsync(executable, ["--version"], HANDSHAKE_TIMEOUT);
+
+        Assert.NotEmpty(Directory.EnumerateFiles(_bundleExtraction, "concurrency-hunter.dll", SearchOption.AllDirectories));
     }
 
     /// <summary>Publishes the executable into a folder of its own.</summary>
@@ -353,7 +379,8 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
     private static int Counter(JsonElement counters, string name) =>
         counters.TryGetProperty(name, out var value) ? value.GetInt32() : 0;
 
-    /// <summary>Runs a command to completion, failing with everything it printed when it does not succeed.</summary>
+    /// <summary>Runs a command to completion, failing with everything it printed when it does not succeed. An executable it
+    /// starts unpacks into the test's own extraction folder, unless <paramref name="configure"/> names another.</summary>
     /// <param name="fileName">The program.</param>
     /// <param name="arguments">Its arguments.</param>
     /// <param name="timeout">How long it may run.</param>
@@ -368,6 +395,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
         };
         foreach (var argument in arguments)
             start.ArgumentList.Add(argument);
+        start.Environment[BUNDLE_EXTRACT_VARIABLE] = _bundleExtraction;
         configure?.Invoke(start);
 
         using var process = Process.Start(start)!;
@@ -473,7 +501,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
         private readonly Task<string> _standardError;
         private bool _completed;
 
-        internal PublishedServer(string fileName, IReadOnlyList<string> arguments, ITestOutputHelper output,
+        internal PublishedServer(string fileName, IReadOnlyList<string> arguments, ITestOutputHelper output, string bundleExtraction,
                                  IReadOnlyDictionary<string, string?>? environment = null)
         {
             _output = output;
@@ -488,6 +516,7 @@ public sealed class PublishedExecutableEndToEndTests(ITestOutputHelper output)
             };
             foreach (var argument in arguments)
                 startInfo.ArgumentList.Add(argument);
+            startInfo.Environment[BUNDLE_EXTRACT_VARIABLE] = bundleExtraction;
             if (environment is not null)
             {
                 foreach (var variable in environment)

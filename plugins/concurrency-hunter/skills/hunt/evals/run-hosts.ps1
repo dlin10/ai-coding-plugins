@@ -130,75 +130,88 @@ exit $LASTEXITCODE
 $shell = (Get-Process -Id $PID).Path
 $hosts = @($Hosts | Select-Object -Unique)
 $runs = @{}
-foreach ($name in $hosts) {
-    $wrapper = Join-Path $logs "$name.invoke.ps1"
-    Set-Content -LiteralPath $wrapper -Value $wrappers[$name] -Encoding utf8
-    $output = Join-Path $logs "$name.out.log"
-    $errors = Join-Path $logs "$name.err.log"
-    Remove-Item -LiteralPath $output, $errors -Force -ErrorAction SilentlyContinue
-    $arguments = @('-NoProfile', '-NonInteractive', '-File', "`"$wrapper`"", '-Demo', "`"$demo`"", '-Plugin', "`"$plugin`"",
-                   '-Tools', ($TOOLS -join ','))
-    $invokedAt = [DateTimeOffset]::UtcNow
-    $process = Start-Process -FilePath $shell -ArgumentList $arguments -WorkingDirectory $demo -NoNewWindow -PassThru `
-                             -RedirectStandardOutput $output -RedirectStandardError $errors
-    # Touching the handle now keeps ExitCode readable after the process exits.
-    $null = $process.Handle
-    $runs[$name] = [pscustomobject]@{ Process = $process; InvokedAt = $invokedAt; Output = $output; Errors = $errors; TimedOut = $false }
-    Write-Output "run-hosts: started $name (pid $($process.Id)); logs in $logs"
+# The executable a host's MCP server starts unpacks itself into %TEMP%\.net, and nothing removes the copy of about 50 MB
+# that each build leaves there. The hosts inherit a folder of this run to unpack into instead, as package.ps1 gives its
+# children one; it is removed when they are done, and the caller's DOTNET_BUNDLE_EXTRACT_BASE_DIR is restored.
+$previousBundleExtractRoot = $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR
+$bundleExtractDirectory = [IO.Directory]::CreateTempSubdirectory('concurrency-hunter-bundle-')
+try {
+    $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = $bundleExtractDirectory.FullName
+    foreach ($name in $hosts) {
+        $wrapper = Join-Path $logs "$name.invoke.ps1"
+        Set-Content -LiteralPath $wrapper -Value $wrappers[$name] -Encoding utf8
+        $output = Join-Path $logs "$name.out.log"
+        $errors = Join-Path $logs "$name.err.log"
+        Remove-Item -LiteralPath $output, $errors -Force -ErrorAction SilentlyContinue
+        $arguments = @('-NoProfile', '-NonInteractive', '-File', "`"$wrapper`"", '-Demo', "`"$demo`"", '-Plugin', "`"$plugin`"",
+                       '-Tools', ($TOOLS -join ','))
+        $invokedAt = [DateTimeOffset]::UtcNow
+        $process = Start-Process -FilePath $shell -ArgumentList $arguments -WorkingDirectory $demo -NoNewWindow -PassThru `
+                                 -RedirectStandardOutput $output -RedirectStandardError $errors
+        # Touching the handle now keeps ExitCode readable after the process exits.
+        $null = $process.Handle
+        $runs[$name] = [pscustomobject]@{ Process = $process; InvokedAt = $invokedAt; Output = $output; Errors = $errors; TimedOut = $false }
+        Write-Output "run-hosts: started $name (pid $($process.Id)); logs in $logs"
+    }
+
+    foreach ($name in $hosts) {
+        $run = $runs[$name]
+        $remaining = $run.InvokedAt + $HOST_TIMEOUT - [DateTimeOffset]::UtcNow
+        $milliseconds = [Math]::Max(0, [int]$remaining.TotalMilliseconds)
+        if (-not $run.Process.WaitForExit($milliseconds)) {
+            $run.TimedOut = $true
+            $run.Process.Kill($true)
+            $run.Process.WaitForExit()
+        }
+    }
+
+    foreach ($name in $hosts) {
+        $run = $runs[$name]
+        $text = @($run.Output, $run.Errors | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join "`n"
+        $found = [regex]::Matches($text, $RUN_ID_PATTERN)
+        $runId = if ($found.Count -eq 0) { $null } else { $found[$found.Count - 1].Groups[1].Value }
+        $bundle = $null
+        if ($runId -and (Test-Path -LiteralPath $runsRoot)) {
+            $bundle = @(Get-ChildItem -LiteralPath $runsRoot -Directory |
+                ForEach-Object { Join-Path $_.FullName $runId } |
+                Where-Object { Test-Path -LiteralPath (Join-Path $_ 'report.md') }) | Select-Object -First 1
+        }
+
+        if ($bundle) {
+            $status = 'complete'
+            $reason = "bundle $runId"
+        }
+        elseif ($name -eq 'cursor' -and ($text.Contains('usage limit') -or $text.Contains('Named models unavailable'))) {
+            $status = 'skipped'
+            $reason = if ($text.Contains('usage limit')) { 'Cursor reported a usage limit.' } else { 'Cursor reported that named models are unavailable.' }
+        }
+        else {
+            $status = 'failed'
+            $exit = if ($run.TimedOut) { "killed after $($HOST_TIMEOUT.TotalMinutes) minutes" } else { "exited $($run.Process.ExitCode)" }
+            $reason = if (-not $runId) { "No run id in the output; the host $exit." }
+                      else { "Run $runId has no bundle under $runsRoot; the host $exit." }
+        }
+
+        $hostDirectory = Join-Path $evals $name
+        New-Item -ItemType Directory -Force -Path $hostDirectory | Out-Null
+        $record = [ordered]@{
+            status = $status
+            reason = $reason
+            runId = $runId
+            bundle = $bundle
+            invokedAt = $run.InvokedAt.ToString('o')
+        }
+        if ($status -eq 'complete') {
+            $record.digest = Digest $bundle
+        }
+        $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $hostDirectory 'run.json') -Encoding utf8
+        Write-Output "run-hosts: $name $status - $reason"
+    }
 }
-
-foreach ($name in $hosts) {
-    $run = $runs[$name]
-    $remaining = $run.InvokedAt + $HOST_TIMEOUT - [DateTimeOffset]::UtcNow
-    $milliseconds = [Math]::Max(0, [int]$remaining.TotalMilliseconds)
-    if (-not $run.Process.WaitForExit($milliseconds)) {
-        $run.TimedOut = $true
-        $run.Process.Kill($true)
-        $run.Process.WaitForExit()
-    }
-}
-
-foreach ($name in $hosts) {
-    $run = $runs[$name]
-    $text = @($run.Output, $run.Errors | Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Content -LiteralPath $_ -Raw }) -join "`n"
-    $found = [regex]::Matches($text, $RUN_ID_PATTERN)
-    $runId = if ($found.Count -eq 0) { $null } else { $found[$found.Count - 1].Groups[1].Value }
-    $bundle = $null
-    if ($runId -and (Test-Path -LiteralPath $runsRoot)) {
-        $bundle = @(Get-ChildItem -LiteralPath $runsRoot -Directory |
-            ForEach-Object { Join-Path $_.FullName $runId } |
-            Where-Object { Test-Path -LiteralPath (Join-Path $_ 'report.md') }) | Select-Object -First 1
-    }
-
-    if ($bundle) {
-        $status = 'complete'
-        $reason = "bundle $runId"
-    }
-    elseif ($name -eq 'cursor' -and ($text.Contains('usage limit') -or $text.Contains('Named models unavailable'))) {
-        $status = 'skipped'
-        $reason = if ($text.Contains('usage limit')) { 'Cursor reported a usage limit.' } else { 'Cursor reported that named models are unavailable.' }
-    }
-    else {
-        $status = 'failed'
-        $exit = if ($run.TimedOut) { "killed after $($HOST_TIMEOUT.TotalMinutes) minutes" } else { "exited $($run.Process.ExitCode)" }
-        $reason = if (-not $runId) { "No run id in the output; the host $exit." }
-                  else { "Run $runId has no bundle under $runsRoot; the host $exit." }
-    }
-
-    $hostDirectory = Join-Path $evals $name
-    New-Item -ItemType Directory -Force -Path $hostDirectory | Out-Null
-    $record = [ordered]@{
-        status = $status
-        reason = $reason
-        runId = $runId
-        bundle = $bundle
-        invokedAt = $run.InvokedAt.ToString('o')
-    }
-    if ($status -eq 'complete') {
-        $record.digest = Digest $bundle
-    }
-    $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $hostDirectory 'run.json') -Encoding utf8
-    Write-Output "run-hosts: $name $status - $reason"
+finally {
+    $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = $previousBundleExtractRoot
+    # Delete only this run's absolute temporary directory, never the caller's extraction cache.
+    Remove-Item -LiteralPath $bundleExtractDirectory.FullName -Recurse -Force -ErrorAction Stop
 }
 
 exit 0

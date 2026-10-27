@@ -99,7 +99,11 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   exe open, and the publish fails with access denied until its MCP server stops.
 - `build/package.ps1` and `build/check-test-baseline.ps1` isolate .NET bundle extraction in a unique
   temporary directory inherited by their child processes, remove it in `finally`, and restore the
-  caller's `DOTNET_BUNDLE_EXTRACT_BASE_DIR`. Direct `dotnet test` calls do not use this isolation.
+  caller's `DOTNET_BUNDLE_EXTRACT_BASE_DIR`. `PublishedExecutableEndToEndTests` extracts each test's
+  bundle into a folder of its own and deletes it with the test, so a direct `dotnet test` and the
+  gates leave nothing in `%TEMP%\.net`. `run-hosts.ps1` isolates the hosts it starts the same way,
+  which reaches a host's MCP server only if the host passes its environment on; a host session
+  started by hand still extracts into `%TEMP%\.net`, one copy per build.
 - `build/test-bundle-extraction.ps1` checks both wrappers' child environment, cleanup on success and
   failure, exit status, and preservation of the caller's extraction cache without running a build.
 - `build/bench-corelib.ps1 -Label <name>` appends one CoreLib engine measurement to
