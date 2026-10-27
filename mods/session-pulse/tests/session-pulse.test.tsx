@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import type { ModelUsage, On, SessionRateLimit, TurnUsage } from 'claude-code'
+import type { ModelUsage, On, TurnUsage } from 'claude-code'
 
 import { autoLabel, learnTtl, parseHours, warmsWord } from '../hooks/format'
 
@@ -44,7 +44,9 @@ const TOGGLE = {
 
 type World = {
   usage: TurnUsage | null
-  rateLimits: SessionRateLimit[]
+  // How long a request takes to its first chunk, then to its end.
+  prefillMs: number
+  streamMs: number
   forks: number
   forkRead: number
   opened: string[]
@@ -52,10 +54,11 @@ type World = {
   asked: number
 }
 
-function world(on: On, store: Record<string, unknown> = {}) {
+function world(on: On) {
   const state: World = {
     usage: null,
-    rateLimits: [],
+    prefillMs: 0,
+    streamMs: 0,
     forks: 0,
     forkRead: 80_000,
     opened: [],
@@ -63,18 +66,9 @@ function world(on: On, store: Record<string, unknown> = {}) {
     asked: 0,
   }
   const clock = mock.clock(on, { now: START })
-  // The store every session of the mod shares; a test writes to it as another session would.
-  const kept: Record<string, unknown> = { ...store }
-  on('store.get', ($, e) => ({ value: kept[e.key] }))
-  on('store.set', ($, e) => {
-    kept[e.key] = e.value
-    return { value: undefined }
-  })
+  mock.store(on)
   on('session.start', ($, e) => ({ cwd: e.cwd }))
-  on('session.usage', () => ({
-    value: { startedAt: START, context: { window: 200_000 }, rateLimits: state.rateLimits },
-  }))
-  on('session.measure', ($, e) => ({ changed: [...e.changed] }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('ui.toast', () => ({ value: undefined }))
   on('ui.open', ($, e) => {
@@ -86,6 +80,9 @@ function world(on: On, store: Record<string, unknown> = {}) {
     return { value: undefined }
   })
   on('turn.step', async function* ($, e) {
+    if (state.prefillMs > 0) await clock.sleep(state.prefillMs)
+    yield { kind: 'text', index: 0, text: 'ok' }
+    if (state.streamMs > 0) await clock.sleep(state.streamMs)
     return {
       turnId: e.turnId,
       index: e.index,
@@ -110,7 +107,7 @@ function world(on: On, store: Record<string, unknown> = {}) {
     return { deny: 'the mod asks in a dialog of its own' }
   })
 
-  return { state, clock, kept }
+  return { state, clock }
 }
 
 async function start($: Engine) {
@@ -125,6 +122,25 @@ async function step($: Engine, index = 0, agentId?: string) {
   return stream.result
 }
 
+/** A main-thread or subagent request that streams `output` tokens, timed on the world's clock. */
+async function streamedStep(
+  $: Engine,
+  { state, clock }: ReturnType<typeof world>,
+  output: number,
+  prefillMs: number,
+  streamMs: number,
+  index = 0,
+  agentId?: string,
+) {
+  state.usage = { ...usage(79_000, 2_000), output_tokens: output }
+  state.prefillMs = prefillMs
+  state.streamMs = streamMs
+  const done = step($, index, agentId)
+  await clock.advance(prefillMs)
+  await clock.advance(streamMs)
+  await done
+}
+
 function usage(read: number, write: number): TurnUsage {
   return {
     model: 'claude-test',
@@ -135,44 +151,22 @@ function usage(read: number, write: number): TurnUsage {
   }
 }
 
-describe('limits', () => {
-  test('the band shows each window, and the five-hour reset', async ($, on) => {
-    const { state } = world(on)
+describe('band', () => {
+  test('a narrowing band shortens the cache bar before it drops it, and keeps the speed', async ($, on) => {
+    const w = world(on)
     await start($)
-    state.rateLimits = [
-      { kind: 'five_hour', percentUsed: 3, resetsAt: new Date(START + 182 * MINUTE).toISOString() },
-      { kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() },
-    ]
-    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
+    await streamedStep($, w, 100, 0, 1_000)
 
-    for (const surface of ['terminal', 'desktop'] as const) {
-      const ui = await $.ui.mount({ ...BAND, surface })
-      expect(await ui.find({ text: /^5h ░░░░░░░░ 3% resets in 3h 2m$/ })).toBeDefined()
-      expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
-      await ui.unmount()
-    }
-  })
-
-  test('a narrowing band shortens the bars before it drops them', async ($, on) => {
-    const { state } = world(on)
-    await start($)
-    state.usage = usage(79_000, 2_000)
-    await step($)
-    state.rateLimits = [
-      { kind: 'five_hour', percentUsed: 4, resetsAt: new Date(START + 287 * MINUTE).toISOString() },
-      { kind: 'seven_day', percentUsed: 34, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() },
+    // The text takes 48 cells, the speed's 20 among them; the bar takes its width and a space.
+    const rows: Array<[number, RegExp]> = [
+      [57, /^████████ 60 min$/],
+      [54, /^█████ 60 min$/],
+      [51, /^60 min$/],
     ]
-    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
-
-    // The text alone takes 60 cells; each of the three bars takes its width and a space.
-    const rows: Array<[number, RegExp, RegExp, RegExp]> = [
-      [87, /^████████ 60 min$/, /^5h ░░░░░░░░ 4% resets in 4h 47m$/, /^week ███░░░░░ 34%$/],
-      [76, /^████ 60 min$/, /^5h ░░░░ 4% resets in 4h 47m$/, /^week █░░░ 34%$/],
-      [71, /^60 min$/, /^5h 4% resets in 4h 47m$/, /^week 34%$/],
-    ]
-    for (const [bodyColumns, ...texts] of rows) {
+    for (const [bodyColumns, text] of rows) {
       const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
-      for (const text of texts) expect(await ui.find({ text })).toBeDefined()
+      expect(await ui.find({ text })).toBeDefined()
+      expect(await ui.find({ text: /^Avg speed 100 tok\/s$/ })).toBeDefined()
       await ui.unmount()
     }
   })
@@ -188,59 +182,6 @@ describe('limits', () => {
       expect(spread[0]?.children.at(-1)).toMatchObject({ type: 'Button', props: { key: 'auto' } })
       await ui.unmount()
     }
-  })
-
-  test('a reading shares the windows with every session of the mod', async ($, on) => {
-    const { state, clock, kept } = world(on)
-    await start($)
-    state.rateLimits = [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }]
-    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
-
-    expect(kept.limits).toEqual({ at: clock.now(), windows: state.rateLimits })
-  })
-
-  test('an idle session takes the newer windows another session read', async ($, on) => {
-    const { clock, kept } = world(on)
-    await start($)
-    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-    expect(await ui.find({ text: /^week/ })).toBeUndefined()
-
-    kept.limits = {
-      at: clock.now() + 1,
-      windows: [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }],
-    }
-    await clock.advance(5_000)
-    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
-
-    kept.limits = { at: 0, windows: [] }
-    await clock.advance(5_000)
-    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
-  })
-
-  test('a fresh session starts from the windows the store holds', async ($, on) => {
-    world(on, {
-      limits: {
-        at: START - MINUTE,
-        windows: [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }],
-      },
-    })
-    await start($)
-
-    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
-  })
-
-  test('a reload before the first reading keeps the windows the band showed', async ($, on) => {
-    const { state } = world(on)
-    await start($)
-    state.rateLimits = [{ kind: 'seven_day', percentUsed: 44, resetsAt: new Date(START + 4 * 24 * HOUR).toISOString() }]
-    await $.session.measure({ context: { window: 200_000 }, rateLimits: state.rateLimits, changed: ['rateLimits'] })
-
-    state.rateLimits = []
-    await start($)
-
-    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-    expect(await ui.find({ text: /^week ████░░░░ 44%$/ })).toBeDefined()
   })
 })
 
@@ -321,6 +262,37 @@ describe('cache', () => {
     state.usage = usage(0, 51_000)
     await step($, 3)
     expect(await ui.find({ text: /^████████ 60 min$/ })).toBeDefined()
+  })
+})
+
+describe('speed', () => {
+  test('counts output tokens over streaming time, summed over the main thread', async ($, on) => {
+    const w = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ text: /tok\/s/ })).toBeUndefined()
+
+    // 100 tokens in 2 s of streaming; the 3 s before the first chunk do not count.
+    await streamedStep($, w, 100, 3_000, 2_000)
+    expect(await ui.find({ text: /^Avg speed 50 tok\/s$/ })).toBeDefined()
+
+    // 400 more in 3 s: 500 in 5 s, not the mean of 50 and 133.
+    await streamedStep($, w, 400, 1_000, 3_000, 1)
+    expect(await ui.find({ text: /^Avg speed 100 tok\/s$/ })).toBeDefined()
+
+    await streamedStep($, w, 1_000, 1_000, 1_000, 0, 'a1')
+    expect(await ui.find({ text: /^Avg speed 100 tok\/s$/ })).toBeDefined()
+  })
+
+  test('/clear starts the count over', async ($, on) => {
+    const w = world(on)
+    await start($)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await streamedStep($, w, 100, 1_000, 2_000)
+    expect(await ui.find({ text: /^Avg speed 50 tok\/s$/ })).toBeDefined()
+
+    await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+    expect(await ui.find({ text: /tok\/s/ })).toBeUndefined()
   })
 })
 

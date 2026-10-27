@@ -1,20 +1,21 @@
-# Session Pulse 0.3.4
+# Session Pulse 0.4.0
 
-A Claude Code mod that keeps the session's cost in view above the prompt and keeps the prompt cache from
-going cold while you are away.
+A Claude Code mod that shows above the prompt how long the prompt cache stays warm and how fast the
+model writes, and keeps the cache from going cold while you are away.
 
 ```
-cache   ██░░░░░░ 18 min  5h ░░░░░░░░ 3% resets in 3h 2m  week ████░░░░ 44%          [Auto Warm]
+cache   ██░░░░░░ 18 min  Avg speed 112 tok/s                                     [Auto Warm]
 ```
 
 ## The row
 
-- **The countdown and the limits.** How much of the prompt cache's life is left, counted from the main
-  conversation's last request (blue, orange once a quarter of it is left, `cold` once it has gone); the
-  five-hour window's share and time to reset; the weekly window's share. The limits are the ones the
-  status line gets from the API's rate-limit headers, so off a subscription there are none. They are the
-  account's, so every session of the mod shares the newest reading through the mod's store: an idle,
-  resumed or new session shows what another session last read, within five seconds.
+- **The countdown.** How much of the prompt cache's life is left, counted from the main conversation's
+  last request (blue, orange once a quarter of it is left, `cold` once it has gone). A narrowing band
+  shortens the bar, then drops it and keeps the minutes.
+- **Avg speed.** The main conversation's output tokens per second this session: every request's
+  output tokens over the time from its first streamed chunk to its end, summed over the requests. The
+  wait before the first chunk is the prompt being read, which grows with the conversation, so it is
+  left out. It appears after the first answer and starts over on `/clear`; subagents do not count.
 - **Auto Warm** opens a small dialog of the mod's own asking how long to keep the cache warm —
   `1 h (1 warm-up)`, `2 h (2 warm-ups)`, `4 h`, `8 h`, or a number of hours typed under **Other** (no
   field on mobile); **Cancel** or Esc closes it — then warms the cache two minutes before each cooling
