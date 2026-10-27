@@ -1,14 +1,54 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 - 2026-10-27
 
-- **The MSBuild loader, the response envelope, text fitting, diagnostic fragmentation, exit codes
-  and version reading now live in `plugins/Common`**, as `Common.Roslyn` and `Common.Mcp` (root
-  `docs/adr/0001`). 21 of their tests moved with them into `Common.Tests`, and
-  `build/test-baseline.txt` was re-recorded to 684 cases with both behaviour snapshots untouched.
-  The build invariants and package versions moved to `plugins/Directory.Build.props` and
-  `plugins/Directory.Packages.props`; `build/package.ps1` and `build/check-test-baseline.ps1` are
-  now wrappers over `plugins/Common/build/`.
+- **The launcher uses the `cachedet.exe` it has already downloaded, and removes a download it cannot
+  place.** A start used to fetch the release again, about 46 MB, whenever the executable was not
+  bundled. It then moved the download over the cached executable; while another server was running
+  that executable the move failed, the launcher went on to run the cached one, and the download
+  stayed behind as `cachedet.<n>.download`: one copy per start. The cached executable is now run as
+  it is, and a failed move takes the same cleanup path as a failed fetch. `build/test-launcher.ps1`
+  covers a cold cache, repeated launches, a running cached executable, a bundled executable, a
+  picks up the fixed launcher only with a new version.
+- **`System.Security.Cryptography.Pkcs` is pinned to 10.0.13.** `Microsoft.Data.SqlClient` 7.0.2
+  pulls in 9.0.13, which NuGet audit reports as open to a denial of service (CVE-2026-84008 and
+  CVE-2026-70162, both published on 13 October). Audit warnings are errors here, so a fresh restore
+  failed until the pin took the package to the first patched version.
+
+## 0.4.0 - 2026-09-05
+
+- Added runtime verification, built into the server rather than driven through third-party MCP servers,
+  so a cached value is sampled, compared and redacted before a byte of it becomes a tool result
+  `verify` section and either `--verify` or `"auto": true`.
+- Verification observes and never suppresses: it reports `refuted`, `possible` or `not_verifiable`
+  beside a finding and never changes its confidence or whether it is reported (`docs/adr/0012`).
+- Only field comparison refutes. The age of an entry never does, because `EXPIRE` extends a deadline
+  long after the value was written and a handler may read a row, wait, and only then write what it
+  already had — so age contributes the `possible` signal and nothing stronger.
+- The Redis reader sends only `SCAN`, `TYPE`, `GET`, `HGET`, `TTL` and `OBJECT IDLETIME` through a
+  single seam a test inspects, walks the keyspace with a raw `SCAN` rather than `KEYS` under a budget of
+  50 iterations or 5 seconds, and refuses a connection string that disables `INFO` because the client
+  then writes a probe key of its own.
+- **Guarded an array-valued attribute argument.** `AttributeTemplate` read the first constructor
+  argument's `Value` without checking its kind, and an array-valued argument — `[AcceptVerbs(...)]` in
+  Orchard Core, `[FormValueRequired(...)]` in nopCommerce — threw and took the whole index down with it.
+  Both repositories now index end to end.
+- **The call graph walk is breadth-first, and its output no longer depends on load order**
+  at and expanded a method again whenever a later path reached it from higher up — recording every edge
+  `Solution.Projects` nor `SymbolFinder.FindImplementationsAsync` specifies its order, so four runs over
+  one clean Orchard Core checkout gave four different edge counts. Every method is now expanded exactly
+  once, at its shortest distance from an entry point, and five consecutive runs agree on every count.
+- Added `cachedet metrics`: load and coverage measurement, labelled `role` and `efwrite` samples with
+  `cache_api` recognizer files.
+- Measured the corpora. nopCommerce indexes in 95 s over 33/33 projects and Orchard Core in 159 s over
+  227/227, both complete, where both previously reached an hour of CPU time. Coverage rose with the walk
+  fix, which removed sites the old numbers counted twice: Orchard 0.338 to 0.389, nopCommerce 0.013 to
+  0.023.
+- Measured the EF write heuristic on eShopOnContainers, for the reasons in `docs/adr/0013`: ten labelled
+- **The `role` classifier is not measured.** Its sample came back with zero candidates against a target
+  of thirty: eShopOnContainers' whole recognised cache surface is three `IDatabase` call sites keyed on
+  runtime variables, so no key carries a template to classify. Only the reason is recorded, not a number,
+  and phase 5 carries the debt — see `docs/cache-detective-spec.md` §12.
 - **A form of entry point is a finder, not a branch** (`docs/adr/0019`). `AddTypeEntryPoints` decided
   seven kinds of entry point as seven consecutive branches in one method, so adding an eighth meant
   editing that method — the one thing the rest of this project is built not to require, since
@@ -241,47 +281,6 @@
   restored. It now says what is true: the branchy value collapses to one parameter and the statement around
   it keeps its literals, so an `UPDATE`'s table and write survive; what is not done is parsing once per
   value and uniting the results.
-
-## 0.4.0 - 2026-09-05
-
-- Added runtime verification, built into the server rather than driven through third-party MCP servers,
-  so a cached value is sampled, compared and redacted before a byte of it becomes a tool result
-  (`docs/adr/0011`). A `runtime-verifier` subagent calls one tool of it, and a scan verifies only with a
-  `verify` section and either `--verify` or `"auto": true`.
-- Verification observes and never suppresses: it reports `refuted`, `possible` or `not_verifiable`
-  beside a finding and never changes its confidence or whether it is reported (`docs/adr/0012`).
-- Only field comparison refutes. The age of an entry never does, because `EXPIRE` extends a deadline
-  long after the value was written and a handler may read a row, wait, and only then write what it
-  already had — so age contributes the `possible` signal and nothing stronger.
-- The Redis reader sends only `SCAN`, `TYPE`, `GET`, `HGET`, `TTL` and `OBJECT IDLETIME` through a
-  single seam a test inspects, walks the keyspace with a raw `SCAN` rather than `KEYS` under a budget of
-  50 iterations or 5 seconds, and refuses a connection string that disables `INFO` because the client
-  then writes a probe key of its own.
-- **Guarded an array-valued attribute argument.** `AttributeTemplate` read the first constructor
-  argument's `Value` without checking its kind, and an array-valued argument — `[AcceptVerbs(...)]` in
-  Orchard Core, `[FormValueRequired(...)]` in nopCommerce — threw and took the whole index down with it.
-  Both repositories now index end to end.
-- **The call graph walk is breadth-first, and its output no longer depends on load order**
-  (`docs/adr/0014`). The depth-first walk kept a memo of the shallowest depth each method had been seen
-  at and expanded a method again whenever a later path reached it from higher up — recording every edge
-  below it, and every cache operation and `unresolved` row in it, a second time. Neither
-  `Solution.Projects` nor `SymbolFinder.FindImplementationsAsync` specifies its order, so four runs over
-  one clean Orchard Core checkout gave four different edge counts. Every method is now expanded exactly
-  once, at its shortest distance from an entry point, and five consecutive runs agree on every count.
-- Added `cachedet metrics`: load and coverage measurement, labelled `role` and `efwrite` samples with
-  accuracy and false-positive rate, `--compare` against a pinned corpus revision, and declared
-  `cache_api` recognizer files.
-- Measured the corpora. nopCommerce indexes in 95 s over 33/33 projects and Orchard Core in 159 s over
-  227/227, both complete, where both previously reached an hour of CPU time. Coverage rose with the walk
-  fix, which removed sites the old numbers counted twice: Orchard 0.338 to 0.389, nopCommerce 0.013 to
-  0.023.
-- Measured the EF write heuristic on eShopOnContainers, for the reasons in `docs/adr/0013`: ten labelled
-  write sites, accuracy 1.0 and a false-positive rate of 0.0. The sample is small because the corpus
-  holds ten candidates, not because ten were chosen.
-- **The `role` classifier is not measured.** Its sample came back with zero candidates against a target
-  of thirty: eShopOnContainers' whole recognised cache surface is three `IDatabase` call sites keyed on
-  runtime variables, so no key carries a template to classify. Only the reason is recorded, not a number,
-  and phase 5 carries the debt — see `docs/cache-detective-spec.md` §12.
 
 ## 0.3.0 - 2026-09-04
 

@@ -1,20 +1,8 @@
-import type { CacheReading, Limit } from '../types'
+import type { CacheReading, Speed } from '../types'
 
 export const MINUTE = 60_000
 export const FIVE_MINUTES = 5 * MINUTE
 export const ONE_HOUR = 60 * MINUTE
-
-const KIND_LABELS: Record<string, string> = {
-  five_hour: '5h',
-  seven_day: 'week',
-  seven_day_opus: 'week Opus',
-  seven_day_sonnet: 'week Sonnet',
-  spend_limit: 'spend',
-}
-
-export function kindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind
-}
 
 export function bar(fraction: number, width = 8): string {
   const filled = Math.round(Math.min(1, Math.max(0, fraction)) * width)
@@ -22,25 +10,13 @@ export function bar(fraction: number, width = 8): string {
 }
 
 /**
- * The widest bar, up to eight cells, with which `bars` of them, each with its
- * space, fit beside `textCells` of text in `columns`: a narrowing band shortens
- * the bars before it drops them. 0, no bars, when not even three-cell ones fit.
+ * The widest bar, up to eight cells, that fits with its space beside
+ * `textCells` of text in `columns`: a narrowing band shortens the bar before it
+ * drops it. 0, no bar, when not even a three-cell one fits.
  */
-export function barCells(columns: number, textCells: number, bars: number): number {
-  const cells = Math.min(8, Math.floor((columns - textCells) / bars) - 1)
+export function barCells(columns: number, textCells: number): number {
+  const cells = Math.min(8, columns - textCells - 1)
   return cells >= 3 ? cells : 0
-}
-
-/** "2h 59m", "18m", "<1m": a span rounded down to the minute. */
-export function humanSpan(ms: number): string {
-  if (ms < MINUTE) return '<1m'
-  const minutes = Math.floor(ms / MINUTE)
-  const days = Math.floor(minutes / 1440)
-  const hours = Math.floor((minutes % 1440) / 60)
-  const rest = minutes % 60
-  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`
-  if (hours > 0) return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`
-  return `${rest}m`
 }
 
 /** What is left of the cache, rounded up: "18 min" until the last minute. */
@@ -52,15 +28,14 @@ export function ttlLabel(ttlMs: number): string {
   return ttlMs >= ONE_HOUR ? '1 hour' : `${Math.round(ttlMs / MINUTE)} minutes`
 }
 
-export function resetsIn(limit: Limit, now: number): string | undefined {
-  if (limit.resetsAt === undefined) return undefined
-  const at = Date.parse(limit.resetsAt)
-  return Number.isNaN(at) ? undefined : humanSpan(Math.max(0, at - now))
-}
-
 /** The prefix the cache held after the request: what the next one reads or writes again. */
 export function cachedPrefix(cache: CacheReading): number {
   return cache.read + cache.write
+}
+
+/** Whole output tokens per second of streaming; undefined before anything has streamed. */
+export function tokensPerSecond(speed: Speed): number | undefined {
+  return speed.ms > 0 ? Math.round((speed.tokens * 1000) / speed.ms) : undefined
 }
 
 /** How long before the cache goes cold auto-warming sends its warm. */

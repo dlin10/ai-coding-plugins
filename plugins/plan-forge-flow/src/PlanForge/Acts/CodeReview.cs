@@ -17,6 +17,13 @@ namespace PlanForge.Acts;
 /// </summary>
 internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewGit git)
 {
+    /// <summary>
+    /// What a refusal by path tells the orchestrator it can do. The pathspec is the one way past it,
+    /// and what the critic is not handed is the user's call, as with an oversized round.
+    /// </summary>
+    private const string ExcludeAdvice =
+        "If the file holds no secret, ask the user and pass its path in `excludePaths`: the round then leaves it out.";
+
     /// <summary>Set when the round's Fast turn was served at standard speed for part of it.</summary>
     internal string? SpeedWarning { get; private set; }
 
@@ -180,14 +187,23 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
     /// The guard covers exactly the set of paths whose contents are sent, which is why it takes the
     /// same pathspec as the diff. A sensitive <em>name</em> under an excluded path — an ADR called
     /// <c>0005-token-rotation.md</c>, say — is not a leak, because that file's contents never reach
-    /// a vendor, and aborting the run over it would refuse a legitimate name for no gain.
+    /// a vendor, and aborting the run over it would refuse a legitimate name for no gain. A JSON or
+    /// YAML file named only by a keyword is not refused by its name either: its lines are read, and
+    /// the round is refused if they hold a secret. See <see cref="SensitiveInput.IsDecidedByContent"/>.
     /// </summary>
+    /// <param name="window">The review window.</param>
     private static void GuardChangedPaths(ReviewWindow window)
     {
         foreach (var path in window.ChangedPaths)
         {
-            if (SensitiveInput.IsSensitivePath(path))
-                throw new SensitiveContentException($"the diff touches {path}, which");
+            if (SensitiveInput.IsSensitivePath(path) && !SensitiveInput.IsDecidedByContent(path))
+                throw new SensitiveContentException($"the diff touches {path}, which", advice: ExcludeAdvice);
+        }
+
+        foreach (var file in window.Files.Where(file => SensitiveInput.IsDecidedByContent(file.Path)))
+        {
+            if (SensitiveInput.FindInStructuredFile(file.Diff) is { } location)
+                throw new SensitiveContentException($"the diff touches {file.Path}, which", location, ExcludeAdvice);
         }
     }
 

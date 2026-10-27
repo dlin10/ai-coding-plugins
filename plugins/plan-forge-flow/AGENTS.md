@@ -322,7 +322,8 @@ a later server process closes the phase from it — see
 ## What is checked, and what is not
 
 Only two things are prevented, both irreversible: secrets leaving for another model
-(`Review/SensitiveInput.cs` guards every prompt and refuses a diff touching a sensitive path), and
+(`Review/SensitiveInput.cs` guards every prompt and refuses a diff touching a sensitive path, except
+a JSON or YAML file named only by a keyword, whose lines it reads instead), and
 writes escaping the run folder (one containment check in `RunDirectory`, which also refuses a
 non-absolute `workspaceRoot`). Note that the secret regex runs over diffs as well as file contents,
 so its leading character class must keep matching the `+` of an added line.

@@ -1,5 +1,3 @@
-export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
-
 export type CacheReading = {
   /** When the request that last read or wrote the cache was sent, in `$.clock.now()` ms. */
   at: number
@@ -9,14 +7,17 @@ export type CacheReading = {
   uncached: number
 }
 
+/** The main thread's output tokens and the milliseconds they streamed in, summed over its requests. */
+export type Speed = { tokens: number; ms: number }
+
 /** Auto-warming: on until `until`, `done` of `total` warms sent. */
 export type AutoWarm = { until: number; done: number; total: number }
 
 declare module 'claude-code' {
   interface PluginState {
     'session-pulse': {
-      limits: Limit[]
       cache: CacheReading | null
+      speed: Speed
       ttlMs: number
       isTtlLearned: boolean
       now: number
