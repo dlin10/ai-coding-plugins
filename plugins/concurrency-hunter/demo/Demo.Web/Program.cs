@@ -32,6 +32,9 @@ using Demo.Web.Cases.StructBoxedByPattern;
 using Demo.Web.Cases.StructDeconstructedInPlace;
 using Demo.Web.Cases.StructDeconstructedThroughInterface;
 using Demo.Web.Cases.PairValueReadFromField;
+using Demo.Web.Cases.ExclusiveBranchSeeding;
+using Demo.Web.Cases.SpawnPerItemInForEach;
+using Demo.Web.Cases.ExceptionLeavesSpawningHelper;
 // Only a list of calls: every registration, endpoint and startup write lives in its case file, so no
 // two cases share a line here that the analysis could mistake for shared state.
 using Demo.Web.Cases.ActionSelfOverlap;
@@ -438,7 +441,10 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddProjectOpaqueSwitchesOffGenerated()
                 .AddKeptCallbackStaysUnknown()
                 .AddPollyExecuteInvokesDelegate()
-                .AddPollyCircuitBreakerCallbackAtExecute();
+                .AddPollyCircuitBreakerCallbackAtExecute()
+                .AddExclusiveBranchSeeding()
+                .AddSpawnPerItemInForEach()
+                .AddExceptionLeavesSpawningHelper();
 
 var app = builder.Build();
 

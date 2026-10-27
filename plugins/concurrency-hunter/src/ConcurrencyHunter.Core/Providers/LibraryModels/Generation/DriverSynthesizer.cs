@@ -1382,7 +1382,7 @@ public static class DriverSynthesizer
             if (type is INamedTypeSymbol delegateType && TypeShape.Of(type) == TypeShapeKind.Delegate)
             {
                 if (_seedTypes.TryGetValue(type, out var factory))
-                    return $"{factory}()";
+                    return $"{DRIVER_TYPE}.{factory}()";
                 factory = Unique($"Seed_{_seedTypes.Count}");
                 _seedTypes[type] = factory;
                 _seedTypeKeys.Add(type);
@@ -1391,7 +1391,8 @@ public static class DriverSynthesizer
                 // Internal: the delegate's signature may name a type only the friend sees.
                 _types.Add($"internal unsafe sealed class {factory} {{ {MethodWitness("public ", invoke)} }}");
                 _methods.Add($"internal static {(HasPointer(invoke) ? "unsafe " : "")}{R(type)} {factory}() => new {factory}().Invoke;");
-                return $"{factory}()";
+                // Qualified: a witness writes the value inside a driver class of its own, where the bare name finds the seed's class.
+                return $"{DRIVER_TYPE}.{factory}()";
             }
             if (type is not INamedTypeSymbol named || named.TypeKind == TypeKind.Interface && !Implementable(named) ||
                 named.TypeKind == TypeKind.Class && named.SpecialType != SpecialType.System_Object && !Derivation.CanDerive(named))

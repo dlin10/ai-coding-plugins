@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
   "assembly": {
     "name": "System.Net.Quic",
     "version": "10.0.0.0",

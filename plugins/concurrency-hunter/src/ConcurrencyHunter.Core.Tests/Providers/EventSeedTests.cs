@@ -21,7 +21,7 @@ public sealed class EventSeedTests
         var seeds = trace.Driver!.SeedStatements.Where(seed => seed.Path == PATH).ToArray();
         Assert.NotEmpty(seeds);
         Assert.All(seeds, seed => Assert.True(seed.Operation is IEventAssignmentOperation { Adds: true }, seed.Operation.Syntax.ToString()));
-        Assert.Contains("Recv_Call).Changed += Seed_", Setup(trace.Driver));
+        Assert.Contains($"Recv_Call).Changed += {DriverSynthesizer.DRIVER_TYPE}.Seed_", Setup(trace.Driver));
         Assert.DoesNotContain(PATH, trace.Driver.Unseeded);
         Assert.DoesNotContain(PATH, Effects(trace).UnreachedSeeds);
     }
@@ -63,7 +63,7 @@ public sealed class EventSeedTests
 
         var seed = Assert.Single(trace.Driver!.SeedStatements, seed => seed.Path == PATH);
         Assert.IsAssignableFrom<IEventAssignmentOperation>(seed.Operation);
-        Assert.Contains("global::Lib.Bus.Raised += Seed_", Setup(trace.Driver));
+        Assert.Contains($"global::Lib.Bus.Raised += {DriverSynthesizer.DRIVER_TYPE}.Seed_", Setup(trace.Driver));
         Assert.DoesNotContain(PATH, Effects(trace).UnreachedSeeds);
     }
 
@@ -118,7 +118,7 @@ public sealed class EventSeedTests
 
         // The struct's storage is the receiver field's, which setup subscribes to in place (R8).
         Assert.Contains(trace.Driver!.SeedStatements, seed => seed.Path == PATH && seed.Operation is IEventAssignmentOperation { Adds: true });
-        Assert.Contains("Recv_Call.Changed += Seed_", Setup(trace.Driver));
+        Assert.Contains($"Recv_Call.Changed += {DriverSynthesizer.DRIVER_TYPE}.Seed_", Setup(trace.Driver));
         Assert.DoesNotContain(PATH, trace.Driver.Unseeded);
         Assert.DoesNotContain(PATH, Effects(trace).UnreachedSeeds);
         Assert.NotEqual(GenerationReasons.INCOMPLETE, Effects(trace).Reason);

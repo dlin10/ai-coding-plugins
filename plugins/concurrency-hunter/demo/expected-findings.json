@@ -2905,6 +2905,61 @@
         { "symbol": "Demo.Web.Cases.ProtobufParserFactoryAtParse.Msg..cctor()", "operation": "read-modify-write" },
         { "symbol": "Demo.Web.Cases.ProtobufParserFactoryAtParse.Msg..cctor()", "operation": "read-modify-write" }
       ]
+    },
+    {
+      "id": "exclusive-branch-seeding/sequential-unawaited",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ExclusiveBranchSeeding.SeedingWorker@Singleton", "accessPath": ["Detached"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ExclusiveBranchSeeding.SeedingWorker.DetachAsync()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ExclusiveBranchSeeding.SeedingWorker.DetachAsync()", "operation": "write" }
+      ]
+    },
+    {
+      "id": "spawn-per-item-in-for-each",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.SpawnPerItemInForEach.ItemsWorker@Singleton", "accessPath": ["Last"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SpawnPerItemInForEach.ItemsWorker.Publish(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SpawnPerItemInForEach.ItemsWorker.Publish(int)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "spawn-per-item-in-for-each/write-before-spawn",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.SpawnPerItemInForEach.ItemsWorker@Singleton", "accessPath": ["Marker"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SpawnPerItemInForEach.ItemsWorker.Mark(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SpawnPerItemInForEach.ItemsWorker.Stamp(int)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "spawn-per-item-in-for-each/spawn-self",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.SpawnPerItemInForEach.ItemsWorker@Singleton", "accessPath": ["Marker"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.SpawnPerItemInForEach.ItemsWorker.Stamp(int)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.SpawnPerItemInForEach.ItemsWorker.Stamp(int)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "exception-leaves-spawning-helper",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.ExceptionLeavesSpawningHelper.FallbackWorker@Singleton", "accessPath": ["Outcome"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ExceptionLeavesSpawningHelper.FallbackWorker.Work()", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.ExceptionLeavesSpawningHelper.FallbackWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [
@@ -3533,6 +3588,11 @@
       "id": "readonly-struct-past-depth-bound",
       "phase": "5d",
       "resource": {"region": "di:Demo.Web.Cases.ReadonlyStructPastDepthBound.Leaf@Singleton", "accessPath": ["*"]}
+    },
+    {
+      "id": "exclusive-branch-seeding",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.ExclusiveBranchSeeding.SeedingWorker@Singleton", "accessPath": ["Seeded"] }
     }
   ]
 }

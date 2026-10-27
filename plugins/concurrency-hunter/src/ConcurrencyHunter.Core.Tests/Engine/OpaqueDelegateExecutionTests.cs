@@ -77,6 +77,16 @@ public sealed class OpaqueDelegateExecutionTests
     }
 
     [Fact]
+    public void Lambda_handed_from_exclusive_branches_does_not_pair_with_itself()
+    {
+        var run = Run("if (stoppingToken.CanBeCanceled) Hand(); else Hand(); void Hand() => Opaque.Lib.Run(() => _state.Count = 1);", action: "return Ok();");
+
+        var execution = Assert.Single(UnknownExecutions(run));
+        Assert.Equal(new InvocationPolicy(Multiplicity.Repeated, SelfOverlap.Serialized, ""), execution.Policy);
+        Assert.Empty(run.PairsOn("Count"));
+    }
+
+    [Fact]
     public void Lambda_handed_at_two_sites_pairs_with_itself_in_its_unknown_execution()
     {
         var run = Run("Action work = () => _state.Count = 1; Opaque.Lib.Run(work); Opaque.Lib.Later(work);", action: "return Ok();");

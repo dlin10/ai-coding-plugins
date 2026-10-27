@@ -1368,7 +1368,8 @@ internal sealed class HappensBefore
     /// One execution's interprocedural control flow over the body segments it runs: a node before each operation and at each block's
     /// end, plus an entry and an exit per segment. Passing an operation is an edge; an operation that may throw has an edge to each
     /// handler of its block, except a join that throws only after completion; a call descends into its callees and returns only to its
-    /// own site, with a summary edge when a callee can complete. A prefix leaves its body at its first await.
+    /// own site, with a summary edge when a callee can complete. A call that runs a delegate 0..n times (SPEC TD-034a) may run it again
+    /// from where it stands. A prefix leaves its body at its first await.
     /// </summary>
     internal sealed class Flow
     {
@@ -1379,10 +1380,19 @@ internal sealed class HappensBefore
         private readonly int[] _entry;
         private readonly int[] _exit;
         private readonly int[] _exitVisit;
+        private readonly int[] _visitOf;
         private readonly Dictionary<(string Instance, int Operation), List<int>> _operationNodes = [];
         private readonly Dictionary<(string Instance, BodySegment Segment), int> _visitIndex = [];
         private readonly HashSet<int> _unresolved = [];
         private readonly HashSet<int> _escapes = [];
+
+        /// <summary>The calls that may run a delegate again before they return: a known call's <c>invoke-now</c> delegate, an
+        /// enumeration's <c>iterator</c> delegate, the delegate of a member of the collection table
+        /// (<see cref="HeapSolution.RepeatedRuns"/>).</summary>
+        private readonly HashSet<int> _repeating = [];
+
+        /// <summary>Where an exception that leaves a visit goes on, by the visit, as <see cref="Thrown"/> works it out.</summary>
+        private readonly Dictionary<int, (int Node, bool Ascend)[]> _thrown = [];
         private readonly List<int> _starts = [];
         private readonly Dictionary<string, HashSet<int>> _completing = new(StringComparer.Ordinal);
         private readonly Action? _checkCancellation;
@@ -1443,10 +1453,20 @@ internal sealed class HappensBefore
                 _exitVisit[_exit[index]] = index;
             }
 
+            _visitOf = new int[total];
+            for (var index = 0; index < visits.Count; index++)
+            {
+                CheckCancellation();
+                Array.Fill(_visitOf, index, offsets[index], _exit[index] + 1 - offsets[index]);
+            }
+
             var callees = steps.GroupBy(step => (step.Caller, step.CallerSegment, step.OperationId))
                           .ToDictionary(group => group.Key,
                                         group => group.Select(step => _visitIndex.TryGetValue((step.Callee, step.CalleeSegment), out var callee) ? callee : -1)
                                                       .Where(callee => callee >= 0).Distinct().ToArray());
+            var repeated = steps.Where(step => heap.RepeatedRuns.Contains((step.Caller, step.OperationId, step.Callee)))
+                                .Select(step => (step.Caller, step.CallerSegment, step.OperationId))
+                                .ToHashSet();
 
             for (var index = 0; index < visits.Count; index++)
             {
@@ -1501,6 +1521,8 @@ internal sealed class HappensBefore
                             // without passing anything the called bodies pass.
                             if (heap.UnresolvedCallTargets.Contains((visit.InstanceId, operation.Id)))
                                 _unresolved.Add(node);
+                            if (repeated.Contains((visit.InstanceId, visit.Segment, operation.Id)))
+                                _repeating.Add(node);
                         }
                         else if (visit.Segment == BodySegment.Prefix && operation is IrAwaitOperation)
                         {
@@ -1626,6 +1648,27 @@ internal sealed class HappensBefore
             return !firstNodes.Any(node => reach[node]);
         }
 
+        /// <summary>Whether a valid path leads from one of the points, past its operation, to one of them again: one run of the execution
+        /// passes the operation more than once, around a loop, through a recursion, by a second call of a body that holds it or by a call
+        /// that runs a delegate again. The path follows <see cref="Reach"/>'s rules, from where the operation leads.</summary>
+        /// <param name="points">The points of one operation, one per instance of its body.</param>
+        internal bool Repeats(IReadOnlyCollection<PointKey> points)
+        {
+            var targets = points.SelectMany(Nodes).ToHashSet();
+            if (targets.Count == 0)
+                return false;
+            var none = new HashSet<int>();
+            var completing = Completing(none);
+            var starts = new Stack<(int Node, bool Ascend)>();
+            foreach (var target in targets)
+            {
+                CheckCancellation();
+                Expand(target, true, none, completing, starts);
+            }
+            var reach = Reach($"repeats:{string.Join(";", targets.Order())}", starts, none);
+            return targets.Any(target => reach[target]);
+        }
+
         internal bool Dominates(PointKey join, PointKey point)
         {
             CheckCancellation();
@@ -1712,13 +1755,23 @@ internal sealed class HappensBefore
             return true;
         }
 
-        /// <summary>The nodes valid paths reach from the starts without passing a cut operation: a descent into a callee returns only through
-        /// the summary edge of its own site, and an ascent from a start's own body returns to any site calling it.</summary>
+        /// <summary>The nodes valid paths reach from the starts without passing a cut operation, by <see cref="Expand"/>'s steps.</summary>
         /// <param name="key">The key.</param>
         /// <param name="starts">The starts.</param>
-        /// <param name="ascend">The ascend.</param>
+        /// <param name="ascend">Whether a path may leave the body of a start through a site calling it.</param>
         /// <param name="cut">The cut.</param>
         private bool[] Reach(string key, IEnumerable<int> starts, bool ascend, IReadOnlySet<int> cut)
+        {
+            CheckCancellation();
+            return Reach(key, starts.Select(start => (start, ascend)), cut);
+        }
+
+        /// <summary>The nodes valid paths reach from the starts, each start saying whether a path may leave its body through a site calling
+        /// it, without passing a cut operation, by <see cref="Expand"/>'s steps.</summary>
+        /// <param name="key">The key the answer is kept under.</param>
+        /// <param name="starts">The starts.</param>
+        /// <param name="cut">The cut.</param>
+        private bool[] Reach(string key, IEnumerable<(int Node, bool Ascend)> starts, IReadOnlySet<int> cut)
         {
             if (_reach.TryGetValue(key, out var cached))
                 return cached;
@@ -1726,44 +1779,105 @@ internal sealed class HappensBefore
             var completing = Completing(cut);
             var reached = new bool[_pass.Length];
             var seen = new HashSet<(int, bool)>();
-            var pending = new Stack<(int Node, bool Ascend)>(starts.Select(start => (start, ascend)));
+            var pending = new Stack<(int Node, bool Ascend)>(starts);
             while (pending.TryPop(out var item))
             {
                 CheckCancellation();
                 if (!seen.Add(item))
                     continue;
-                var (node, up) = item;
-                reached[node] = true;
-                if (_pass[node] >= 0 && !cut.Contains(node))
-                    pending.Push((_pass[node], up));
-                foreach (var next in _plain[node])
-                {
-                    CheckCancellation();
-                    pending.Push((next, up));
-                }
-                if (_calls.TryGetValue(node, out var called))
-                {
-                    foreach (var callee in called)
-                    {
-                        CheckCancellation();
-                        pending.Push((_entry[callee], false));
-                    }
-                    if (!cut.Contains(node) && (_unresolved.Contains(node) || called.Any(completing.Contains)))
-                        pending.Push((node + 1, up));
-                }
-
-                if (up && _exitVisit[node] is var visit and >= 0)
-                {
-                    foreach (var site in _callers[visit])
-                    {
-                        CheckCancellation();
-                        pending.Push((site + 1, true));
-                    }
-                }
+                reached[item.Node] = true;
+                Expand(item.Node, item.Ascend, cut, completing, pending);
             }
 
             _reach.Add(key, reached);
             return reached;
+        }
+
+        /// <summary>The steps a valid path takes from a node: passing its operation unless the cut holds it, to a handler of its block, into a
+        /// callee and, through the summary edge of its own site, past the call when a callee can complete, and into the call's delegate
+        /// again where the call may run it again. A path that leaves a body it may leave returns to any site calling it, and to that site
+        /// again where it may run the body again; an exception that leaves such a body goes on as <see cref="Thrown"/> says.</summary>
+        /// <param name="node">The node.</param>
+        /// <param name="up">Whether the path may leave the node's body through a site calling it.</param>
+        /// <param name="cut">The operations the path may not pass.</param>
+        /// <param name="completing">The segments whose exit their entry reaches without passing the cut.</param>
+        /// <param name="pending">Receives the steps.</param>
+        private void Expand(int node, bool up, IReadOnlySet<int> cut, HashSet<int> completing, Stack<(int Node, bool Ascend)> pending)
+        {
+            if (_pass[node] >= 0 && !cut.Contains(node))
+                pending.Push((_pass[node], up));
+            foreach (var next in _plain[node])
+            {
+                CheckCancellation();
+                pending.Push((next, up));
+            }
+            if (_calls.TryGetValue(node, out var called))
+            {
+                foreach (var callee in called)
+                {
+                    CheckCancellation();
+                    pending.Push((_entry[callee], false));
+                }
+                if (!cut.Contains(node) && (_unresolved.Contains(node) || called.Any(completing.Contains)))
+                    pending.Push((node + 1, up));
+                if (_repeating.Contains(node))
+                    pending.Push((node, up));
+            }
+
+            if (!up)
+                return;
+            if (_exitVisit[node] is var visit and >= 0)
+            {
+                foreach (var site in _callers[visit])
+                {
+                    CheckCancellation();
+                    pending.Push((site + 1, true));
+                    if (_repeating.Contains(site))
+                        pending.Push((site, true));
+                }
+            }
+            if (_escapes.Contains(node))
+            {
+                foreach (var next in Thrown(_visitOf[node]))
+                {
+                    CheckCancellation();
+                    pending.Push(next);
+                }
+            }
+        }
+
+        /// <summary>Where an exception that leaves a visit goes on: to the handlers of every site calling the visit, to the site again where
+        /// its call may run the visit again, and from a site whose block has no handler on out of that site's visit in turn.</summary>
+        /// <param name="visit">The visit the exception leaves.</param>
+        private (int Node, bool Ascend)[] Thrown(int visit)
+        {
+            if (_thrown.TryGetValue(visit, out var cached))
+                return cached;
+
+            var targets = new List<(int Node, bool Ascend)>();
+            var left = new HashSet<int> { visit };
+            var pending = new Stack<int>([visit]);
+            while (pending.TryPop(out var current))
+            {
+                CheckCancellation();
+                foreach (var site in _callers[current])
+                {
+                    CheckCancellation();
+                    foreach (var handler in _plain[site])
+                    {
+                        CheckCancellation();
+                        targets.Add((handler, true));
+                    }
+                    if (_repeating.Contains(site))
+                        targets.Add((site, true));
+                    if (_escapes.Contains(site) && left.Add(_visitOf[site]))
+                        pending.Push(_visitOf[site]);
+                }
+            }
+
+            cached = targets.Distinct().ToArray();
+            _thrown.Add(visit, cached);
+            return cached;
         }
 
         /// <summary>The segments whose exit their entry reaches without passing a cut operation, with callees summarized.</summary>

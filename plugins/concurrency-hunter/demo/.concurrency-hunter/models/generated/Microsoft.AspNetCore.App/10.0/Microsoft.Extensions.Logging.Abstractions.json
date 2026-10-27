@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
   "assembly": {
     "name": "Microsoft.Extensions.Logging.Abstractions",
     "version": "10.0.0.0",
@@ -15,6 +15,56 @@
         "reason": "driver-not-synthesized",
         "detail": "M:Microsoft.Extensions.Logging.ILoggingBuilder.get_Services is abstract; M:Microsoft.Extensions.Logging.ILoggingBuilder.get_Services is an interface member; only a default could fill the Microsoft.Extensions.Logging.ILoggingBuilder of Recv",
         "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LogDefineOptions.#ctor",
+      "model": {
+        "member": "M:Microsoft.Extensions.Logging.LogDefineOptions.#ctor",
+        "assemblies": [
+          "Microsoft.Extensions.Logging.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LogDefineOptions.set_SkipEnabledCheck(System.Boolean)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerMessage.Define``1(Microsoft.Extensions.Logging.LogLevel,Microsoft.Extensions.Logging.EventId,System.String,Microsoft.Extensions.Logging.LogDefineOptions)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store",
+          "result-several-objects",
+          "unsupported-store",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Logging.LoggerMessage.Define``5(Microsoft.Extensions.Logging.LogLevel,Microsoft.Extensions.Logging.EventId,System.String,Microsoft.Extensions.Logging.LogDefineOptions)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store",
+          "result-several-objects",
+          "unsupported-store",
+          "value-unobserved"
+        ]
       }
     }
   ]

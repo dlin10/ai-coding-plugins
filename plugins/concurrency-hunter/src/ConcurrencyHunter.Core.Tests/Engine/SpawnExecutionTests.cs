@@ -149,6 +149,95 @@ public sealed class SpawnExecutionTests
         Assert.True(SpawnedWriting(run, "Value").OverlapsItself);
     }
 
+    /// <summary>Two calls on branches no run takes together pass the site once: the spawn runs at most once, as with one call.</summary>
+    [Fact]
+    public void Helper_spawning_once_called_from_exclusive_branches_runs_at_most_once()
+    {
+        var run = Analyze(Worker("if (stoppingToken.CanBeCanceled) Start(); else Start();", "private void Start() => Task.Run(() => Value = 1);"));
+
+        var spawned = SpawnedWriting(run, "Value");
+        Assert.Equal(new InvocationPolicy(Multiplicity.AtMostOnce, SelfOverlap.Serialized, ""), spawned.Policy);
+        Assert.DoesNotContain(run.PairsOn("Value"), pair => pair.First.ExecutionId == pair.Second.ExecutionId);
+    }
+
+    /// <summary>The shape of a seeding helper: the tail of a waited async call, reached from both branches of one <c>if</c>, runs once.</summary>
+    [Fact]
+    public void Waited_async_call_from_exclusive_branches_runs_its_tail_at_most_once()
+    {
+        var run = Analyze(Worker("if (stoppingToken.CanBeCanceled) Seed(); else Seed();",
+                                 "private void Seed() => SeedAsync().Wait(); private async Task SeedAsync() { await Task.Yield(); Value = 1; }"));
+
+        Assert.False(SpawnedWriting(run, "Value").OverlapsItself);
+        Assert.Empty(run.PairsOn("Value"));
+    }
+
+    [Fact]
+    public void Helper_spawning_once_called_from_exclusive_branches_inside_a_loop_overlaps_itself()
+    {
+        var run = Analyze(Worker("for (var index = 0; index < 2; index++) { if (stoppingToken.CanBeCanceled) Start(); else Start(); }",
+                                 "private void Start() => Task.Run(() => Value = 1);"));
+
+        Assert.True(SpawnedWriting(run, "Value").OverlapsItself);
+    }
+
+    /// <summary>An exception that leaves the helper after its spawn reaches the caller's handler, which spawns again.</summary>
+    [Fact]
+    public void Helper_spawning_once_called_again_from_a_catch_overlaps_itself()
+    {
+        var run = Analyze(Worker("try { Start(); } catch (InvalidOperationException) { Start(); }",
+                                 "private void Start() { Task.Run(() => Value = 1); Throw(); } private static void Throw() => throw new InvalidOperationException();"));
+
+        Assert.True(SpawnedWriting(run, "Value").OverlapsItself);
+    }
+
+    /// <summary>A known call runs an <c>invoke-now</c> delegate 0..n times (SPEC TD-034a): one run of the worker starts the work once
+    /// per item, and the starts overlap.</summary>
+    [Fact]
+    public void Spawn_in_a_list_for_each_delegate_overlaps_itself()
+    {
+        var run = Analyze(Worker("new System.Collections.Generic.List<int> { 1, 2 }.ForEach(item => Task.Run(() => Value = item));"));
+
+        var spawned = SpawnedWriting(run, "Value");
+        Assert.True(spawned.OverlapsItself);
+        Assert.Contains(run.PairsOn("Value"), pair => pair.First.ExecutionId == spawned.Id && pair.Second.ExecutionId == spawned.Id);
+    }
+
+    /// <summary>An enumeration runs an <c>iterator</c> delegate once per element: the copy that enumerates the sequence starts the work
+    /// more than once.</summary>
+    [Fact]
+    public void Spawn_in_a_select_delegate_a_copy_enumerates_overlaps_itself()
+    {
+        var run = Analyze(Worker("System.Linq.Enumerable.ToList(System.Linq.Enumerable.Select(new[] { 1, 2 }, item => Task.Run(() => Value = item)));"));
+
+        Assert.True(SpawnedWriting(run, "Value").OverlapsItself);
+    }
+
+    [Fact]
+    public void Spawn_in_a_select_delegate_a_foreach_enumerates_overlaps_itself()
+    {
+        var run = Analyze(Worker("foreach (var task in System.Linq.Enumerable.Select(new[] { 1, 2 }, item => Task.Run(() => Value = item))) { }"));
+
+        Assert.True(SpawnedWriting(run, "Value").OverlapsItself);
+    }
+
+    /// <summary>Each run of an async lambda a known call runs leaves a tail behind it: the tails of two items overlap.</summary>
+    [Fact]
+    public void Tail_of_an_async_lambda_a_list_for_each_runs_overlaps_itself()
+    {
+        var run = Analyze(Worker("new System.Collections.Generic.List<int> { 1, 2 }.ForEach(async item => { await Task.Yield(); Value = item; });"));
+
+        Assert.True(SpawnedWriting(run, "Value").OverlapsItself);
+    }
+
+    /// <summary>A delegate the worker invokes itself runs once per invocation, as a call of its target would.</summary>
+    [Fact]
+    public void Spawn_in_a_delegate_the_worker_invokes_once_runs_at_most_once()
+    {
+        var run = Analyze(Worker("Action start = () => Task.Run(() => Value = 1); start();"));
+
+        Assert.False(SpawnedWriting(run, "Value").OverlapsItself);
+    }
+
     [Fact]
     public void Unawaited_interface_call_with_an_async_implementation_is_a_spawn()
     {

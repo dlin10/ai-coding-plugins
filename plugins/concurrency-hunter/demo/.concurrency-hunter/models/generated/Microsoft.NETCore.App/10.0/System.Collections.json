@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
   "assembly": {
     "name": "System.Collections",
     "version": "10.0.0.0",
@@ -90,6 +90,30 @@
       }
     },
     {
+      "member": "M:System.Collections.Generic.Stack`1.Enumerator.MoveNext",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.Stack`1.Enumerator.get_Current",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.Stack`1.GetEnumerator",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
       "member": "M:System.Collections.Generic.Stack`1.Peek",
       "refusal": {
         "reason": "engine-recognized",
@@ -107,6 +131,22 @@
     },
     {
       "member": "M:System.Collections.Generic.Stack`1.Push(`0)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.Stack`1.TryPop(`0@)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.Generic.Stack`1.get_Count",
       "refusal": {
         "reason": "engine-recognized",
         "detail": "M:System.Collections.Generic.LinkedList`1.get_Count is claimed by the collections recognizer",

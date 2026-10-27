@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
+  "assembly": {
+    "name": "System.Security.Claims",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Security.Claims.ClaimsPrincipal.#ctor",
+      "model": {
+        "member": "M:System.Security.Claims.ClaimsPrincipal.#ctor",
+        "assemblies": [
+          "System.Security.Claims"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    }
+  ]
+}

@@ -3,37 +3,37 @@
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 385,
+    "roots": 388,
     "rootsPerProvider": {
       "aspnetcore": 170,
-      "hosting": 215
+      "hosting": 218
     },
-    "reachableBodies": 1561,
-    "summaries": 1561,
-    "regions": 1096,
-    "instances": 1614,
-    "accesses": 1918,
+    "reachableBodies": 1584,
+    "summaries": 1584,
+    "regions": 1113,
+    "instances": 1637,
+    "accesses": 1942,
     "pairs": {
-      "comparisons": 2037,
-      "cartesianBound": 895792,
+      "comparisons": 2056,
+      "cartesianBound": 915982,
       "largestBucket": 8,
-      "buckets": 844,
+      "buckets": 855,
       "skips": {
         "confined": 23,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 71,
-        "no-overlap": 382,
+        "no-overlap": 386,
         "ordered": 54,
-        "read-read": 1194,
+        "read-read": 1204,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 289
+      "candidates": 294
     },
-    "findings": 267,
-    "occurrences": 286,
-    "groups": 215,
+    "findings": 272,
+    "occurrences": 291,
+    "groups": 219,
     "fingerprints": [
       "006126d59d446beb",
       "00c0f9fbc81a0228",
@@ -91,6 +91,7 @@
       "3aacb552320e24b0",
       "3b3cb21a0be99d2a",
       "3b8ef83bb3f43421",
+      "3b9907170740a9b6",
       "4162bafca2e44019",
       "43faca4c23ba863b",
       "466506e077bfa620",
@@ -130,6 +131,7 @@
       "63130a58ff958b92",
       "644c6073c130aa6a",
       "64bdde19a43fcdbd",
+      "6550e63e3ffecca9",
       "65578825ba5049a3",
       "6662a1b0dee56033",
       "687f86f10b06fac5",
@@ -226,6 +228,7 @@
       "af5eac9010c6daf5",
       "afb2328274e72b56",
       "afe1beea221354c6",
+      "b0ae60640bc7c00e",
       "b3015545d26764ec",
       "b3e61e5ae6739424",
       "b47351dfaefa4142",
@@ -235,6 +238,7 @@
       "b7735141a4dbaa1b",
       "b7781a14e16807d3",
       "b7923638effff8ea",
+      "b89c147e157c41ed",
       "b8a4c95102a37579",
       "b9060ca5ce16cf5b",
       "b9e1134c5f63eff9",
@@ -301,7 +305,8 @@
       "f6f47a3be9cd8f5e",
       "fa80453e1156d2b0",
       "fd00541eeae2ce38",
-      "ff6af698a226ea8c"
+      "ff6af698a226ea8c",
+      "ff73d454ba7938ac"
     ]
   },
   "coverage": [
@@ -309,25 +314,25 @@
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
         "aspnetcore": 170,
-        "hosting": 214
+        "hosting": 217
       },
-      "accesses": 1338,
+      "accesses": 1353,
       "counters": {
         "delegate-to-opaque": 12,
         "element-operation": 37,
         "generated-in-run": 0,
-        "known-call": 331,
-        "known-call-built-in": 324,
+        "known-call": 333,
+        "known-call-built-in": 326,
         "known-call-generated": 3,
         "known-call-project": 4,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 17,
         "opaque-by-project": 2,
-        "opaque-call": 1308,
+        "opaque-call": 1330,
         "out-of-range-call": 0,
         "pairs-removed-generated": 1,
-        "reachable-bodies": 1558,
+        "reachable-bodies": 1581,
         "scc-budget-exceeded": 0,
         "semantic-gap": 19,
         "solver-available": 1,
@@ -335,18 +340,18 @@
         "solver-sat": 17,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
-        "unproven-reference": 218,
+        "unproven-reference": 219,
         "unresolved-base": 33,
         "unresolved-locator": 2,
         "unsupported-operation": 24,
         "wildcard-access": 9
       },
       "ordering": {
-        "spawn-sites": 64,
+        "spawn-sites": 69,
         "timers-disabled": 1,
         "timers-one-shot": 5,
         "timers-periodic": 7,
-        "unproven-joins": 50
+        "unproven-joins": 52
       },
       "semanticGaps": [
         "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",
@@ -398,7 +403,7 @@
         {
           "member": "M:Microsoft.AspNetCore.Builder.GrpcEndpointRouteBuilderExtensions.MapGrpcService\u0060\u00601(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
           "file": "Grpc.AspNetCore.Server/2.71.0/d97c8a76-b299-4045-a880-e98791e0722a.json",
-          "cause": "driver-not-synthesized"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(System.String[])",

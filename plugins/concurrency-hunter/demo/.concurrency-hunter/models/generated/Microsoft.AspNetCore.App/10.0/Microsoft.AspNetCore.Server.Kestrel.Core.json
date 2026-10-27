@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
   "assembly": {
     "name": "Microsoft.AspNetCore.Server.Kestrel.Core",
     "version": "10.0.0.0",
@@ -12,8 +12,8 @@
     {
       "member": "M:Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Configure(Microsoft.Extensions.Configuration.IConfiguration,System.Boolean)",
       "refusal": {
-        "reason": "driver-not-synthesized",
-        "detail": "the driver does not compile: CS1955 Non-invocable member 'Seed_2' cannot be used like a method.; CS1955 Non-invocable member 'Seed_4' cannot be used like a method.; CS1955 Non-invocable member 'Seed_42' cannot be used like a method.",
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
         "causes": []
       }
     }

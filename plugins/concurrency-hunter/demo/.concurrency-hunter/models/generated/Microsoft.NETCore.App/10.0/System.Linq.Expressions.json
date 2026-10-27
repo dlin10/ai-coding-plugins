@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 2,
+  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
+  "assembly": {
+    "name": "System.Linq.Expressions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Linq.Expressions.Expression.Call(System.Linq.Expressions.Expression,System.Reflection.MethodInfo,System.Linq.Expressions.Expression[])",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "callback-value-in-library-call",
+          "probe-handed-to-unseen",
+          "reference-value-unobserved",
+          "result-several-objects",
+          "unproven-reference-store",
+          "unsupported-store",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression.Call(System.Reflection.MethodInfo,System.Collections.Generic.IEnumerable{System.Linq.Expressions.Expression})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "callback-value-in-library-call",
+          "probe-handed-to-unseen",
+          "result-several-objects",
+          "unproven-reference-store",
+          "unsupported-store",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression.Constant(System.Object,System.Type)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store",
+          "result-several-objects",
+          "unsupported-store"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression.Convert(System.Linq.Expressions.Expression,System.Type)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-several-objects",
+          "unsupported-store",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression.Lambda``1(System.Linq.Expressions.Expression,System.Linq.Expressions.ParameterExpression[])",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "callback-value-in-library-call",
+          "probe-handed-to-unseen",
+          "result-several-objects",
+          "unsupported-store",
+          "value-unnamed",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression.Parameter(System.Type,System.String)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store",
+          "result-several-objects",
+          "unsupported-store",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression`1.Compile",
+      "refusal": {
+        "reason": "closure-bound",
+        "detail": "the reachable set reached 3051 bodies, over 1500",
+        "causes": []
+      }
+    }
+  ]
+}

@@ -190,6 +190,7 @@ public static partial class WholeProgram
             internal TrackedSet<(DelegateSite Site, DelegateRun Run)> DelegateRuns { get; } = [];
             internal TrackedSet<DelegateSite> UnseenDelegates { get; } = [];
             internal TrackedSet<(DelegateSite Site, string Callee)> FateRuns { get; } = [];
+            internal TrackedSet<(string Caller, int Operation, string Callee)> RepeatedRuns { get; } = [];
 
             internal void Union(RebuiltState other)
             {
@@ -206,6 +207,7 @@ public static partial class WholeProgram
                 DelegateRuns.UnionWith(other.DelegateRuns);
                 UnseenDelegates.UnionWith(other.UnseenDelegates);
                 FateRuns.UnionWith(other.FateRuns);
+                RepeatedRuns.UnionWith(other.RepeatedRuns);
                 foreach (var pair in other.Handoffs)
                 {
                     WorkCancellation.Check();
@@ -234,7 +236,8 @@ public static partial class WholeProgram
                 SameMap(UnresolvedWorkInputs, other.UnresolvedWorkInputs) && StartupDelegates.SequenceEqual(other.StartupDelegates) &&
                 IteratorEnumerations.SequenceEqual(other.IteratorEnumerations) && DelegateSites.SequenceEqual(other.DelegateSites) &&
                 DelegateRuns.SequenceEqual(other.DelegateRuns) && UnseenDelegates.SequenceEqual(other.UnseenDelegates) &&
-                FateRuns.SequenceEqual(other.FateRuns) && Handoffs.Keys.SequenceEqual(other.Handoffs.Keys) &&
+                FateRuns.SequenceEqual(other.FateRuns) && RepeatedRuns.SequenceEqual(other.RepeatedRuns) &&
+                Handoffs.Keys.SequenceEqual(other.Handoffs.Keys) &&
                 Handoffs.All(pair => pair.Value.Sites.SequenceEqual(other.Handoffs[pair.Key].Sites) &&
                                      pair.Value.Callees.SequenceEqual(other.Handoffs[pair.Key].Callees));
 

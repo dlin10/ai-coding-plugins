@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
   "assembly": {
     "name": "Microsoft.AspNetCore.Http.Abstractions",
     "version": "10.0.0.0",
@@ -10,34 +10,48 @@
   },
   "members": [
     {
-      "member": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Build",
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_Metadata",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "enumeration-without-sequence",
+          "receiver-member-unseen",
+          "result-several-objects"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.set_DisplayName(System.String)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.IEndpointConventionBuilder.Add(System.Action{Microsoft.AspNetCore.Builder.EndpointBuilder})",
       "refusal": {
         "reason": "driver-not-synthesized",
-        "detail": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Build is abstract; M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Build is an interface member; only a default could fill the Microsoft.AspNetCore.Builder.IApplicationBuilder of Recv",
+        "detail": "M:Microsoft.AspNetCore.Builder.IEndpointConventionBuilder.Add(System.Action{Microsoft.AspNetCore.Builder.EndpointBuilder}) is abstract; M:Microsoft.AspNetCore.Builder.IEndpointConventionBuilder.Add(System.Action{Microsoft.AspNetCore.Builder.EndpointBuilder}) is an interface member; only a default could fill the Microsoft.AspNetCore.Builder.IEndpointConventionBuilder of Recv",
         "causes": []
       }
     },
     {
-      "member": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Use(System.Func{Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.RequestDelegate})",
+      "member": "M:Microsoft.AspNetCore.Http.HttpContext.get_Features",
       "refusal": {
         "reason": "driver-not-synthesized",
-        "detail": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Use(System.Func{Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.RequestDelegate}) is abstract; M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Use(System.Func{Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.RequestDelegate}) is an interface member; only a default could fill the Microsoft.AspNetCore.Builder.IApplicationBuilder of Recv",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpContext.get_Features is abstract",
         "causes": []
       }
     },
     {
-      "member": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_Properties",
+      "member": "M:Microsoft.AspNetCore.Http.HttpContext.get_Request",
       "refusal": {
         "reason": "driver-not-synthesized",
-        "detail": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_Properties is abstract; M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_Properties is an interface member; only a default could fill the Microsoft.AspNetCore.Builder.IApplicationBuilder of Recv",
-        "causes": []
-      }
-    },
-    {
-      "member": "M:Microsoft.AspNetCore.Builder.RunExtensions.Run(Microsoft.AspNetCore.Builder.IApplicationBuilder,Microsoft.AspNetCore.Http.RequestDelegate)",
-      "refusal": {
-        "reason": "driver-not-synthesized",
-        "detail": "the driver does not compile: CS1955 Non-invocable member 'Seed_6' cannot be used like a method.; CS1955 Non-invocable member 'Seed_6' cannot be used like a method.",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpContext.get_Request is abstract",
         "causes": []
       }
     },
@@ -47,6 +61,122 @@
         "reason": "driver-not-synthesized",
         "detail": "M:Microsoft.AspNetCore.Http.HttpContext.get_RequestAborted is abstract",
         "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpContext.get_Response",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpContext.get_Response is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpMethods.IsOptions(System.String)",
+      "refusal": {
+        "reason": "not-a-candidate",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpMethods.IsOptions(System.String) has no receiver, parameter or result that can hold a user object",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpRequest.get_Headers",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpRequest.get_Headers is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpRequest.get_Method",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpRequest.get_Method is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpRequest.get_Path",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpRequest.get_Path is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpRequest.get_RouteValues",
+      "refusal": {
+        "reason": "overridable",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpRequest.get_RouteValues is virtual in Microsoft.AspNetCore.Http.HttpRequest, which is not sealed: a call may run another type's override, which the driver does not analyse",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponse.get_HasStarted",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.get_HasStarted is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponse.get_Headers",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.get_Headers is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponse.get_HttpContext",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.get_HttpContext is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponse.set_ContentType(System.String)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.set_ContentType(System.String) is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponse.set_StatusCode(System.Int32)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.set_StatusCode(System.Int32) is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.PathString.get_Value",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Http.PathString.get_Value",
+        "assemblies": [
+          "Microsoft.AspNetCore.Http.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.get_Item(System.String)",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "unseeded-read",
+          "value-unnamed",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
       }
     }
   ]

@@ -389,6 +389,82 @@ public sealed class HappensBeforeTests
         Assert.False(Overlap(run, "F", "G"));
     }
 
+    // ---- an exception leaving a callee ----
+
+    /// <summary>The exception that leaves the spawning helper reaches the caller's handler while the work runs: the handler's write is
+    /// no write before the spawn.</summary>
+    [Fact]
+    public void Write_in_a_catch_an_exception_out_of_the_spawning_helper_reaches_overlaps_the_work()
+    {
+        var run = Analyze(Worker("try { Spawn(); } catch (InvalidOperationException) { P1(); }",
+                                 "private void Spawn() { Task.Run(() => F()); Throw(); } " +
+                                 "private static void Throw() => throw new InvalidOperationException();"));
+
+        Assert.True(Overlap(run, "P1", "F"));
+    }
+
+    [Fact]
+    public void Write_in_a_catch_a_conditional_throw_out_of_the_spawning_helper_reaches_overlaps_the_work()
+    {
+        var run = Analyze(Worker("try { Spawn(_flag); } catch (InvalidOperationException) { P1(); }",
+                                 "private readonly bool _flag; private void Spawn(bool fail) { Task.Run(() => F()); if (fail) Throw(); } " +
+                                 "private static void Throw() => throw new InvalidOperationException();"));
+
+        Assert.True(Overlap(run, "P1", "F"));
+    }
+
+    /// <summary>A handler only an exception before the spawning call reaches still runs before the work.</summary>
+    [Fact]
+    public void Write_in_a_catch_before_the_spawning_helper_does_not_overlap_the_work()
+    {
+        var run = Analyze(Worker("try { Throw(); } catch (InvalidOperationException) { P1(); } Spawn();",
+                                 "private void Spawn() => Task.Run(() => F()); " +
+                                 "private static void Throw() => throw new InvalidOperationException();"));
+
+        Assert.False(Overlap(run, "P1", "F"));
+    }
+
+    // ---- a delegate a call runs 0..n times ----
+
+    /// <summary>A known call may run an <c>invoke-now</c> delegate again (SPEC TD-034a): the write of one item follows the spawn of
+    /// another, and the spawns overlap, as in the <c>foreach</c> form.</summary>
+    [Fact]
+    public void Write_before_a_spawn_in_a_list_for_each_delegate_overlaps_the_work_of_another_item()
+    {
+        var run = Analyze(Worker("new System.Collections.Generic.List<int> { 1, 2 }.ForEach(item => { P1(); Task.Run(() => F()); });"));
+
+        Assert.True(Overlap(run, "P1", "F"));
+        Assert.True(Overlap(run, "F", "F"));
+    }
+
+    [Fact]
+    public void Write_before_a_spawn_in_a_foreach_loop_overlaps_the_work_of_another_item()
+    {
+        var run = Analyze(Worker("foreach (var item in new[] { 1, 2 }) { P1(); Task.Run(() => F()); }"));
+
+        Assert.True(Overlap(run, "P1", "F"));
+        Assert.True(Overlap(run, "F", "F"));
+    }
+
+    /// <summary>A write before the known call precedes every run of its delegate.</summary>
+    [Fact]
+    public void Write_before_a_list_for_each_does_not_overlap_the_work_its_delegate_spawns()
+    {
+        var run = Analyze(Worker("P1(); new System.Collections.Generic.List<int> { 1, 2 }.ForEach(item => Task.Run(() => F()));"));
+
+        Assert.False(Overlap(run, "P1", "F"));
+    }
+
+    /// <summary>A spawn joined inside a delegate a call runs again is a spawn in a loop: no join holds for every start, and the write
+    /// after the call keeps the pair, as <see cref="Helper_joining_its_own_spawn_called_in_a_loop_keeps_the_pair"/> does.</summary>
+    [Fact]
+    public void Spawn_joined_inside_a_list_for_each_delegate_keeps_the_pair_with_the_write_after_the_call()
+    {
+        var run = Analyze(Worker("new System.Collections.Generic.List<int> { 1, 2 }.ForEach(item => Task.Run(() => F()).Wait()); P1();"));
+
+        Assert.True(Overlap(run, "P1", "F"));
+    }
+
     // ---- identity ----
 
     [Fact]

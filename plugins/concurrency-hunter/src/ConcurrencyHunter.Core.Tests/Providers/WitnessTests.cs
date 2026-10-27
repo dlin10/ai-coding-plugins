@@ -399,6 +399,30 @@ public sealed class WitnessTests
     }
 
     [Theory]
+    [InlineData("Action Make();", "")]
+    [InlineData("Action Value { get; }", "_ = user.Value;")]
+    [InlineData("bool TryTake(out Action value);", "_ = user.TryTake(out _);")]
+    [InlineData("Task<Action> MakeAsync();", "_ = user.MakeAsync();")]
+    [InlineData("Action[] MakeAll();", "_ = user.MakeAll();")]
+    [InlineData("Func<Action> Make();", "_ = user.Make();")]
+    public void A_delegate_seed_a_driver_class_writes_comes_from_its_factory_in_ModelDriver(string member, string use)
+    {
+        var trace = Trace($"public interface IUser {{ {member} }} public static class Api {{ public static void Run(IUser user) {{ {use} }} }}",
+                          "M:Lib.Api.Run(Lib.IUser)");
+
+        // A probe class implements every member of its interface, so the witness is written whether the member calls it or not.
+        Assert.True(trace.Driver is not null, $"{trace.Answer.Reason}: {trace.Answer.Detail}");
+        var tree = trace.Driver.Compilation.SyntaxTrees.Single();
+        var model = trace.Driver.Compilation.GetSemanticModel(tree);
+        var calls = tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>()
+                        .Select(call => (Class: call.Ancestors().OfType<ClassDeclarationSyntax>().First().Identifier.Text,
+                                         Method: model.GetSymbolInfo(call).Symbol as IMethodSymbol))
+                        .Where(call => call.Method is not null && trace.Driver.SeedFactories.Contains(call.Method.Name)).ToArray();
+        Assert.Contains(calls, call => call.Class != DriverSynthesizer.DRIVER_TYPE);
+        Assert.All(calls, call => Assert.Equal(DriverSynthesizer.DRIVER_TYPE, call.Method!.ContainingType.Name));
+    }
+
+    [Theory]
     [InlineData("public abstract class User { public abstract Hidden Value { get; } }", "Lib.User")]
     [InlineData("public interface IUser { Hidden Value { get; } }", "Lib.IUser")]
     [InlineData("public abstract class User { public abstract Hidden this[object key] { get; } }", "Lib.User")]

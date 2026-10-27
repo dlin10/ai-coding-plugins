@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "6ca3d85f1cdc1fdb55ce1e5b08762d623363b30505713723d7c088ee106c97f2",
+  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
   "assembly": {
     "name": "Microsoft.AspNetCore.Routing",
     "version": "10.0.0.0",
@@ -9,6 +9,14 @@
     "major": 10
   },
   "members": [
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.Map(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,Microsoft.AspNetCore.Http.RequestDelegate)",
+      "refusal": {
+        "reason": "library-does-not-compile",
+        "detail": "ASP0029",
+        "causes": []
+      }
+    },
     {
       "member": "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)",
       "refusal": {
@@ -26,7 +34,7 @@
       }
     },
     {
-      "member": "M:Microsoft.AspNetCore.Builder.EndpointRoutingApplicationBuilderExtensions.UseEndpoints(Microsoft.AspNetCore.Builder.IApplicationBuilder,System.Action{Microsoft.AspNetCore.Routing.IEndpointRouteBuilder})",
+      "member": "M:Microsoft.AspNetCore.Routing.HttpMethodMetadata.get_HttpMethods",
       "refusal": {
         "reason": "library-does-not-compile",
         "detail": "ASP0029",
@@ -34,7 +42,7 @@
       }
     },
     {
-      "member": "M:Microsoft.AspNetCore.Builder.EndpointRoutingApplicationBuilderExtensions.UseRouting(Microsoft.AspNetCore.Builder.IApplicationBuilder)",
+      "member": "M:Microsoft.AspNetCore.Routing.IEndpointRouteBuilder.get_ServiceProvider",
       "refusal": {
         "reason": "library-does-not-compile",
         "detail": "ASP0029",
@@ -42,7 +50,7 @@
       }
     },
     {
-      "member": "M:Microsoft.AspNetCore.Routing.EndpointDataSource.#ctor",
+      "member": "M:Microsoft.AspNetCore.Routing.Patterns.RoutePattern.get_RawText",
       "refusal": {
         "reason": "library-does-not-compile",
         "detail": "ASP0029",
@@ -51,14 +59,6 @@
     },
     {
       "member": "M:Microsoft.AspNetCore.Routing.RouteOptions.SetParameterPolicy``1(System.String)",
-      "refusal": {
-        "reason": "library-does-not-compile",
-        "detail": "ASP0029",
-        "causes": []
-      }
-    },
-    {
-      "member": "M:Microsoft.Extensions.DependencyInjection.RoutingServiceCollectionExtensions.AddRouting(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
       "refusal": {
         "reason": "library-does-not-compile",
         "detail": "ASP0029",

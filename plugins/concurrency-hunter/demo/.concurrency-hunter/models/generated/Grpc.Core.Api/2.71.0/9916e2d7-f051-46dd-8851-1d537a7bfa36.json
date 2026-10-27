@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 2,
+  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
+  "assembly": {
+    "name": "Grpc.Core.Api",
+    "version": "2.0.0.0",
+    "mvid": "9916e2d7-f051-46dd-8851-1d537a7bfa36",
+    "package": "Grpc.Core.Api",
+    "packageVersion": "2.71.0"
+  },
+  "members": [
+    {
+      "member": "M:Grpc.Core.IMethod.get_Name",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Grpc.Core.IMethod.get_Name is abstract; M:Grpc.Core.IMethod.get_Name is an interface member; only a default could fill the Grpc.Core.IMethod of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Grpc.Core.IMethod.get_ServiceName",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Grpc.Core.IMethod.get_ServiceName is abstract; M:Grpc.Core.IMethod.get_ServiceName is an interface member; only a default could fill the Grpc.Core.IMethod of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Grpc.Core.IMethod.get_Type",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Grpc.Core.IMethod.get_Type is abstract; M:Grpc.Core.IMethod.get_Type is an interface member; only a default could fill the Grpc.Core.IMethod of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Grpc.Core.Status.#ctor(Grpc.Core.StatusCode,System.String)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "struct-storage-write"
+        ]
+      }
+    },
+    {
+      "member": "M:Grpc.Core.Status.get_Detail",
+      "model": {
+        "member": "M:Grpc.Core.Status.get_Detail",
+        "assemblies": [
+          "Grpc.Core.Api"
+        ],
+        "versions": {
+          "minimum": "2.0.0.0",
+          "maximumExclusive": "2.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:Grpc.Core.Status.get_StatusCode",
+      "model": {
+        "member": "M:Grpc.Core.Status.get_StatusCode",
+        "assemblies": [
+          "Grpc.Core.Api"
+        ],
+        "versions": {
+          "minimum": "2.0.0.0",
+          "maximumExclusive": "2.0.0.1"
+        },
+        "effects": {}
+      }
+    }
+  ]
+}

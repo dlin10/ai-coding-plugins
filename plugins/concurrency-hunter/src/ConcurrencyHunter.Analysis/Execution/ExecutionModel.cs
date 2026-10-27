@@ -1423,20 +1423,49 @@ public static class ExecutionModel
             scope.Reachable.Bodies[origin.BodyId].Blocks.SelectMany(block => block.Operations)
                  .First(operation => operation.Id == origin.OperationId).Provenance.Span;
 
-        /// <summary>Whether a site runs at most once per run of an execution: no loop holds it, and the execution's call graph has at most one
-        /// path to its body, none through a recursion or a call inside a loop.</summary>
+        /// <summary>Whether a site runs at most once per run of an execution: no valid path of the execution leads from the site back to it,
+        /// around a loop, through a recursion, into a second call of a body holding it or through a call that runs a delegate 0..n times,
+        /// exceptional paths included, so two calls on branches no run takes together pass it once. One call path that none of these
+        /// repeats is passed once on any reading, so the count of call paths answers first and only a count over one asks the execution's
+        /// flow.</summary>
         /// <param name="execution">The execution.</param>
-        /// <param name="bodyId">The bodyId.</param>
-        /// <param name="operationId">The operationId.</param>
+        /// <param name="bodyId">The body holding the site.</param>
+        /// <param name="operationId">The site's operation.</param>
         private bool SiteOnce(string execution, string bodyId, int operationId)
         {
-            if (InCycle(bodyId, operationId))
-                return false;
+            if (OnePath(execution, bodyId, operationId))
+                return true;
+            var points = (_visitsByExecution.GetValueOrDefault(execution) ?? [])
+                         .Where(visit => heap.Instances.TryGetValue(visit.InstanceId, out var instance) && instance.BodyId == bodyId)
+                         .Select(visit => new HappensBefore.PointKey(visit.InstanceId, operationId, false))
+                         .Distinct()
+                         .ToArray();
+            return points.Length != 0 && !FlowOf(execution).Repeats(points);
+        }
 
+        /// <summary>Whether a call step runs its callee 0..n times before the call returns: a known call's <c>invoke-now</c> delegate, an
+        /// enumeration's <c>iterator</c> delegate, the delegate of a member of the collection table (SPEC TD-034a, ADR 0010).</summary>
+        /// <param name="step">The call step.</param>
+        private bool Repeated(ExecutionStep step) => heap.RepeatedRuns.Contains((step.Caller, step.OperationId, step.Callee));
+
+        /// <summary>Whether no loop holds a site and the execution's call graph has at most one path to its body, none through a recursion,
+        /// a call inside a loop or a call that runs a delegate 0..n times, and the site itself is no such call.</summary>
+        /// <param name="execution">The execution.</param>
+        /// <param name="bodyId">The body holding the site.</param>
+        /// <param name="operationId">The site's operation.</param>
+        private bool OnePath(string execution, string bodyId, int operationId)
+        {
             var steps = _steps.GetValueOrDefault(execution) ?? [];
+            if (InCycle(bodyId, operationId) ||
+                steps.Any(step => step.OperationId == operationId && Repeated(step) && heap.Instances[step.Caller].BodyId == bodyId))
+            {
+                return false;
+            }
+
             var entries = (_entries.GetValueOrDefault(execution) ?? []).Select(entry => entry.InstanceId).ToHashSet(StringComparer.Ordinal);
             var incoming = steps.GroupBy(step => step.Callee, StringComparer.Ordinal)
-                                .ToDictionary(group => group.Key, group => group.Select(step => (step.Caller, step.OperationId)).Distinct().ToArray(),
+                                .ToDictionary(group => group.Key,
+                                              group => group.Select(step => (step.Caller, step.OperationId, Repeated: Repeated(step))).Distinct().ToArray(),
                                               StringComparer.Ordinal);
             var nodes = entries.Concat(incoming.Keys).ToHashSet(StringComparer.Ordinal);
             var counts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -1449,10 +1478,10 @@ public static class ExecutionModel
                 {
                     CheckCancellation();
                     var total = entries.Contains(node) ? 1 : 0;
-                    foreach (var (caller, operation) in incoming.GetValueOrDefault(node) ?? [])
+                    foreach (var (caller, operation, repeated) in incoming.GetValueOrDefault(node) ?? [])
                     {
                         CheckCancellation();
-                        total += counts.GetValueOrDefault(caller) * (InCycle(heap.Instances[caller].BodyId, operation) ? 2 : 1);
+                        total += counts.GetValueOrDefault(caller) * (repeated || InCycle(heap.Instances[caller].BodyId, operation) ? 2 : 1);
                     }
                     total = Math.Min(total, 2);
                     if (total != counts.GetValueOrDefault(node))

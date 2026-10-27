@@ -446,6 +446,12 @@ public sealed class HeapSolution
     public IReadOnlyDictionary<string, IReadOnlySet<DelegateSite>> FateRuns { get; init; } =
         new Dictionary<string, IReadOnlySet<DelegateSite>>(StringComparer.Ordinal);
 
+    /// <summary>The call edges that run a delegate 0..n times before the call returns (SPEC TD-034a): a known call's <c>invoke-now</c>
+    /// delegate at the call, a library sequence's <c>iterator</c> delegate where a consumer enumerates it, and the delegate a member of
+    /// the collection table runs where the call stands (ADR 0010). Each run is a call of the delegate at that site, so the site may pass
+    /// anything the delegate does more than once.</summary>
+    public IReadOnlySet<(string Caller, int Operation, string Callee)> RepeatedRuns { get; init; } = new HashSet<(string, int, string)>();
+
     /// <summary>The awaits and <c>Unwrap()</c> calls whose value may come from such an origin: a task they read may complete with an object
     /// the heap cannot name (<see cref="SummaryValue.Completions"/>).</summary>
     public IReadOnlySet<(string Instance, int Operation)> UnfollowedCompletions { get; init; } = new HashSet<(string, int)>();
@@ -1705,6 +1711,7 @@ public static partial class WholeProgram
                 FateRuns = _rebuilding.FateRuns.GroupBy(item => item.Callee, StringComparer.Ordinal)
                                       .ToDictionary(group => group.Key, group => (IReadOnlySet<DelegateSite>)group.Select(item => item.Site).ToHashSet(),
                                                     StringComparer.Ordinal),
+                RepeatedRuns = _rebuilding.RepeatedRuns.ToHashSet(),
                 UnresolvedCallTargets = _instances.Values
                                                   .SelectMany(instance => instance.UnresolvedCallTargets.Select(operation => (instance.Id, operation)))
                                                   .ToTrackedSet(),
@@ -3673,6 +3680,8 @@ public static partial class WholeProgram
                     foreach (var callee in callees)
                     {
                         CheckCancellation();
+                        // A member visits the cells one at a time and runs the delegate for each, 0..n times before it returns.
+                        _rebuilding.RepeatedRuns.Add((caller.Id, call.OperationId, callee.Id));
                         foreach (var holder in holders)
                         {
                             CheckCancellation();
@@ -3998,8 +4007,8 @@ public static partial class WholeProgram
         }
 
         /// <summary>A consumer enumerates what it is handed where it stands, in its own execution (R5): a library sequence runs its
-        /// iterator delegates and enumerates its sources there, and a user iterator is enumerated there instead of in an unknown
-        /// enumeration.</summary>
+        /// iterator delegates there, 0..n times, and enumerates its sources there, and a user iterator is enumerated there instead of in
+        /// an unknown enumeration.</summary>
         /// <param name="consumer">The consumer.</param>
         /// <param name="operationId">The operationId.</param>
         /// <param name="regions">The regions.</param>
@@ -4019,6 +4028,7 @@ public static partial class WholeProgram
                         CheckCancellation();
                         Add(_instances[callee].Requests, consumer.Requests);
                         AddEdge((consumer.Id, operationId, callee, "delegate"));
+                        _rebuilding.RepeatedRuns.Add((consumer.Id, operationId, callee));
                     }
 
                     // A delegate no body the run has resolves is an unresolved dispatch at each enumeration, as a call of it there would be.
@@ -4141,8 +4151,8 @@ public static partial class WholeProgram
             AddEdge((caller.Id, operationId, callee.Id, "points-to"));
         }
 
-        /// <summary>An <c>invoke-now</c> delegate runs as a call of it at the site would, in the caller's execution and under its locks;
-        /// what it returns is no part of what the call returns unless the model's result says so.</summary>
+        /// <summary>An <c>invoke-now</c> delegate runs as a call of it at the site would, in the caller's execution and under its locks,
+        /// 0..n times before the call returns; what it returns is no part of what the call returns unless the model's result says so.</summary>
         /// <param name="caller">The calling instance.</param>
         /// <param name="invocation">The delegate invocation.</param>
         /// <param name="callee">The instance the delegate runs.</param>
@@ -4156,6 +4166,7 @@ public static partial class WholeProgram
             }
 
             AddEdge((caller.Id, invocation.OperationId, callee.Id, "delegate"));
+            _rebuilding.RepeatedRuns.Add((caller.Id, invocation.OperationId, callee.Id));
         }
 
         /// <summary>What one run of each delegate a model may name the returns of gives back at a known call, and which of them may give
