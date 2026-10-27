@@ -13,6 +13,41 @@ public sealed class CodeReviewTests : IDisposable
 {
     private const string Plan = "## Approach\n\n1. **Change tracked.txt.** Verified by inspection.\n";
 
+    /// <summary>
+    /// A library model as concurrency-hunter's generator wrote it for
+    /// <c>Microsoft.Extensions.Configuration.UserSecrets</c>: a hash beside a key, and strings that
+    /// stand alone on their lines in an array.
+    /// </summary>
+    private const string GeneratedModel = """
+        {
+          "schemaVersion": 2,
+          "generator": "e67eee3e02f7314f0fad7f17243ea570c8bea8d9af0e36df7012b0d1cb9171c4",
+          "assembly": {
+            "name": "Microsoft.Extensions.Configuration.UserSecrets",
+            "version": "10.0.0.0",
+            "mvid": null,
+            "framework": "Microsoft.AspNetCore.App",
+            "major": 10
+          },
+          "members": [
+            {
+              "member": "M:Microsoft.Extensions.Configuration.UserSecretsConfigurationExtensions.AddUserSecrets(Microsoft.Extensions.Configuration.IConfigurationBuilder,System.Reflection.Assembly,System.Boolean,System.Boolean)",
+              "refusal": {
+                "reason": "unknown-touch",
+                "detail": "",
+                "causes": [
+                  "argument-member-unseen",
+                  "probe-handed-to-unseen",
+                  "unsupported-store",
+                  "value-unobserved",
+                  "witness-value-handed"
+                ]
+              }
+            }
+          ]
+        }
+        """;
+
     private readonly string _repo = Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
     private readonly GitClient _git;
     private string _baselineHead = "baseline";
@@ -363,6 +398,72 @@ public sealed class CodeReviewTests : IDisposable
             NewReview(critic, git).ReviewAsync(NewRun(), new Selection("critic-model", null), false, CancellationToken.None));
 
         Assert.Empty(critic.Sessions);
+    }
+
+    /// <summary>
+    /// A generated library model is named for the library, and the one for
+    /// <c>Microsoft.Extensions.Configuration.UserSecrets</c> refused every round that touched it
+    /// although it holds no secret: issue #200. A JSON file named only by a keyword is read instead.
+    /// </summary>
+    [Fact]
+    public async Task A_json_file_named_for_a_secret_is_read_and_reaches_the_critic()
+    {
+        const string path = "models/Microsoft.Extensions.Configuration.UserSecrets.json";
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct, path);
+        await WriteFileAsync(path, GeneratedModel, ct);
+
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "looks good"));
+
+        var critique = await NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), false, ct);
+
+        Assert.Equal("approve", critique.Verdict);
+        var session = Assert.Single(critic.Sessions);
+        Assert.Contains(path, session.PromptText, StringComparison.Ordinal);
+        Assert.Contains("argument-member-unseen", session.PromptText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// What reading the file is for: a secret on a line with nothing beside it, which the content
+    /// rule cannot see because no name says it is one. The refusal locates the line and says how to
+    /// go on, and never names the value.
+    /// </summary>
+    [Fact]
+    public async Task A_secret_standing_alone_in_a_json_file_named_for_one_aborts_the_review()
+    {
+        var ct = CancellationToken.None;
+        await InitialCommitAsync(ct, "config/tokens.json");
+        await WriteFileAsync("config/tokens.json", "[\n  \"sk-Lq83Hd0PzX7vNm41RbTuKcWy\"\n]\n", ct);
+
+        var critic = new RecordingVendor("claude");
+
+        var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            NewReview(critic).ReviewAsync(NewRun(), new Selection("critic-model", null), false, ct));
+
+        Assert.Contains("diff touches config/tokens.json", error.Message, StringComparison.Ordinal);
+        Assert.Contains("line 2", error.Message, StringComparison.Ordinal);
+        Assert.Contains("`excludePaths`", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-Lq83", error.Message, StringComparison.Ordinal);
+        Assert.Empty(critic.Sessions);
+    }
+
+    /// <summary>
+    /// A name that stays refused tells the orchestrator the one way past it, and that the user decides:
+    /// the pathspec takes the file out of the critic's view, so the round runs without it.
+    /// </summary>
+    [Fact]
+    public async Task A_refusal_by_path_says_how_to_let_the_path_through()
+    {
+        var critic = new RecordingVendor("claude");
+        var git = new ReviewGit(["config/password.txt"], string.Empty);
+
+        var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
+            NewReview(critic, git).ReviewAsync(NewRun(), new Selection("critic-model", null), false, CancellationToken.None));
+
+        Assert.Contains("diff touches config/password.txt", error.Message, StringComparison.Ordinal);
+        Assert.Contains("ask the user", error.Message, StringComparison.Ordinal);
+        Assert.Contains("`excludePaths`", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

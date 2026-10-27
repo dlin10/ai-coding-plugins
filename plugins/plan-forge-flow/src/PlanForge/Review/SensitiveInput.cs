@@ -10,14 +10,51 @@ namespace PlanForge.Review;
 /// </summary>
 internal static partial class SensitiveInput
 {
+    /// <summary>
+    /// Whether the name of <paramref name="path"/> marks it sensitive. For a file that is
+    /// <see cref="IsDecidedByContent"/> that is a reason to read it, not a verdict.
+    /// </summary>
+    /// <param name="path">The changed path, as git names it.</param>
     public static bool IsSensitivePath(string path)
     {
         var normalized = path.Replace('\\', '/');
-        return SensitiveName().IsMatch(normalized)
-               || IsNamedForASecret(normalized)
-               || SensitiveLocation().IsMatch(normalized)
-               || KeyMaterialExtension().IsMatch(path);
+        return IsKnownSecretFile(normalized) || IsNamedForASecret(normalized);
     }
+
+    /// <summary>
+    /// Whether <paramref name="path"/> is marked sensitive by a keyword in its name alone — or an SSH
+    /// key's name, see <see cref="SshKeyName"/> — and is JSON or YAML, so its lines are read instead
+    /// of the name refusing it. A name says what a file is about, and for a generated model it is the
+    /// library: <c>Microsoft.Extensions.Configuration.UserSecrets.json</c> holds no secret, and the
+    /// generator hash in it changed with every engine edit and refused every code-review round that
+    /// touched it, issue #200. What the name rule is for is a secret on a line with nothing beside
+    /// it, as in <c>tokens.json</c>, and that is what the read is for: <see cref="FindInStructuredFile"/>
+    /// withholds a value that stands alone, on top of the content rule. A value with a key beside it is
+    /// left to the content rule, which reads the key. Withholding it regardless would refuse nearly
+    /// every model — measured on the 76 JSON files of concurrency-hunter's demo, 2026-10-27, 206 values of
+    /// the shape of a secret stand beside a key, the generator hash in 75 files, member ids and GUIDs
+    /// among them, and none stands alone. What this gives up is a secret under a key that does not say
+    /// so, <c>"auth": "ghp_…"</c>, in a file whose name does, and one shorter than the content rule's
+    /// twenty characters; and that is the trade: a refused round costs the run a question to the user
+    /// every time, and the same secret in <c>settings.json</c> was never guarded by name. XML is not
+    /// read, because neither rule can: the content rule starts at a line's first token, and an
+    /// element's text sits between tags. A file known to hold secrets — <c>secrets.json</c>,
+    /// <c>appsettings.Production.json</c> — key material and a sensitive location keep the name as
+    /// the verdict.
+    /// </summary>
+    /// <param name="path">The changed path, as git names it.</param>
+    public static bool IsDecidedByContent(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        return IsNamedForASecret(normalized) && StructuredExtension().IsMatch(normalized) && !IsKnownSecretFile(normalized);
+    }
+
+    /// <summary>Whether a file is known to hold secrets whatever its lines say: by its name, its location or its kind.</summary>
+    /// <param name="normalized">The path with forward slashes.</param>
+    private static bool IsKnownSecretFile(string normalized) =>
+        SensitiveName().IsMatch(normalized)
+        || SensitiveLocation().IsMatch(normalized)
+        || KeyMaterialExtension().IsMatch(normalized);
 
     /// <summary>
     /// Whether a secret keyword in the path — or an SSH key's name, see <see cref="SshKeyName"/> —
@@ -28,14 +65,16 @@ internal static partial class SensitiveInput
     /// <see cref="Guard"/> line by line, and a secret written in code is assigned to a name that says
     /// so, which is the form that rule reads. Everything else keeps the keyword, a directory's
     /// included — data, config, text, an unknown extension or none — because there a secret can sit
-    /// on a line with nothing beside it, as in <c>tokens.json</c> or <c>api-token</c>, and the path
-    /// is all there is to go on. Matching the keyword as a whole word was the other way to narrow
-    /// it, and it does not reach far enough: <c>token_cache.py</c> and <c>Token.cs</c> are whole
-    /// words. What this gives up is a secret in a source file that is neither assigned to a
+    /// on a line with nothing beside it, as in <c>tokens.txt</c> or <c>api-token</c>, and the path
+    /// is all there is to go on, JSON and YAML aside: their lines are read, see
+    /// <see cref="IsDecidedByContent"/>. Matching the keyword as a whole word was the other way
+    /// to narrow it, and it does not reach far enough: <c>token_cache.py</c> and <c>Token.cs</c>
+    /// are whole words. What this gives up is a secret in a source file that is neither assigned to a
     /// secret-sounding name nor key material — a bearer string in a header table, say — and that is
     /// the trade: a false refusal costs a round and a rename in production code, and the same secret
     /// in <c>Program.cs</c> was never guarded by name.
     /// </summary>
+    /// <param name="path">The changed path with forward slashes.</param>
     private static bool IsNamedForASecret(string path) =>
         (SecretPathKeyword().IsMatch(path) || SshKeyName().IsMatch(path)) && !SourceExtension().IsMatch(path);
 
@@ -48,7 +87,12 @@ internal static partial class SensitiveInput
     /// cannot be told from a false positive, which is what issue #88 cost a run — the check had to
     /// be replayed by hand to find the line, and the fix was to rename a local in production code.
     /// </summary>
-    private static Hit? Find(string content)
+    /// <param name="content">A diff, or any text.</param>
+    /// <param name="bareValues">
+    /// Whether a value that stands alone on its line, with nothing beside it, is withheld too:
+    /// what <see cref="FindInStructuredFile"/> reads a file named for a secret for.
+    /// </param>
+    private static Hit? Find(string content, bool bareValues = false)
     {
         string? path = null;
         int? fileLine = null;
@@ -73,27 +117,20 @@ internal static partial class SensitiveInput
 
             // Outside a diff there is no file to count in, so the count is of the text as handed over.
             var number = fileLine ?? textLine;
+            var marked = fileLine is not null;
             if (fileLine is { } next && !line.StartsWith('-')) fileLine = next + 1;
 
             if (PrivateKey().IsMatch(line) || AwsAccessKey().IsMatch(line)) return new Hit(number, path, null);
+
+            if (bareValues && BareValueOf(line, marked) is { } alone && IsSecretShaped(alone))
+                return new Hit(number, path, null);
 
             if (line.Length > 4096 || !SecretKeyword().IsMatch(line)) continue;
 
             var match = SecretAssignment().Match(DeclarationPrefix().Replace(line, string.Empty));
             if (!match.Success || !SecretKeyword().IsMatch(match.Groups[1].Value)) continue;
 
-            var value = match.Groups[2].Value;
-            if (IsExpression(value)) continue;
-
-            var classes = new[]
-            {
-                value.Any(char.IsLower),
-                value.Any(char.IsUpper),
-                value.Any(char.IsDigit),
-                value.Any(character => "+/=_-".Contains(character, StringComparison.Ordinal))
-            }.Count(present => present);
-
-            if (classes >= 3 || LongHex().IsMatch(value)) return new Hit(number, path, match.Groups[1].Value);
+            if (IsSecretShaped(match.Groups[2].Value)) return new Hit(number, path, match.Groups[1].Value);
         }
 
         return null;
@@ -113,11 +150,57 @@ internal static partial class SensitiveInput
     private static bool IsExpression(string value) =>
         value.IndexOfAny(['(', ')', '[', ']']) >= 0 || DottedPath().IsMatch(value);
 
+    /// <summary>
+    /// Whether a literal reads as a secret rather than a name: it is not an expression, and it is a
+    /// long hex run or has three of the four kinds of character. The one test the content rule and
+    /// the read of a value that stands alone share, so they cannot disagree about what a secret
+    /// looks like.
+    /// </summary>
+    /// <param name="value">The literal, with its quotes off.</param>
+    private static bool IsSecretShaped(string value)
+    {
+        if (IsExpression(value)) return false;
+
+        var classes = new[]
+        {
+            value.Any(char.IsLower),
+            value.Any(char.IsUpper),
+            value.Any(char.IsDigit),
+            value.Any(character => "+/=_-".Contains(character, StringComparison.Ordinal))
+        }.Count(present => present);
+
+        return classes >= 3 || LongHex().IsMatch(value);
+    }
+
+    /// <summary>
+    /// The value on a line that has nothing beside it, or null. Brackets, list dashes, one pair of
+    /// quotes and a trailing comma are not something beside it; a key, a space or a colon is, so a
+    /// pair, a sentence and a URL are never one.
+    /// </summary>
+    /// <param name="line">A line of a diff or of a file.</param>
+    /// <param name="marked">Whether the line opens with the diff's own <c>+</c>, <c>-</c> or space.</param>
+    private static string? BareValueOf(string line, bool marked)
+    {
+        if (line.Length > 4096) return null;
+
+        var match = BareValue().Match(marked && line.Length > 0 ? line[1..] : line);
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
     /// <summary>Refuses to send <paramref name="text"/> onward. Called at every vendor boundary.</summary>
     public static void Guard(string text, string what)
     {
         if (Find(text) is { } hit) throw new SensitiveContentException(what, Where(hit));
     }
+
+    /// <summary>
+    /// Where a changed file that is <see cref="IsDecidedByContent"/> holds a secret, or null: the first
+    /// line the content rule withholds, or a value that stands alone on its line and has the shape of
+    /// one, see <see cref="IsSecretShaped"/>. The place is the file's own line, and never the value.
+    /// </summary>
+    /// <param name="diff">The file's block of the review window's diff.</param>
+    public static string? FindInStructuredFile(string diff) =>
+        Find(diff, bareValues: true) is { } hit ? Where(hit with { Path = null }) : null;
 
     private static string Where(Hit hit)
     {
@@ -151,6 +234,9 @@ internal static partial class SensitiveInput
     [GeneratedRegex(@"\.(cs|fs|vb|razor|cshtml|ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|scala|rb|php|swift|c|h|cc|cpp|hpp|m|mm)$", RegexOptions.IgnoreCase)]
     private static partial Regex SourceExtension();
 
+    [GeneratedRegex(@"\.(json|ya?ml)$", RegexOptions.IgnoreCase)]
+    private static partial Regex StructuredExtension();
+
     [GeneratedRegex(@"(?:^|[\\/])(?:\.docker[\\/]config\.json|\.kube[\\/]config)$", RegexOptions.IgnoreCase)]
     private static partial Regex SensitiveLocation();
 
@@ -177,6 +263,14 @@ internal static partial class SensitiveInput
     [GeneratedRegex("^[a-f0-9]{32,}$", RegexOptions.IgnoreCase)]
     private static partial Regex LongHex();
 
+    /// <summary>
+    /// A line with nothing beside its value, see <see cref="BareValueOf"/>: one run of at least twenty
+    /// characters, the content rule's own minimum, with no space, quote, comma, semicolon, colon or
+    /// bracket in it.
+    /// </summary>
+    [GeneratedRegex(@"^[\s\[{]*(?:-\s+)*[""']?([^\s""',;:\[\]{}]{20,})[""']?[\s,\]}]*$")]
+    private static partial Regex BareValue();
+
     /// <summary>The new side of a unified diff's file header, which is the path whose contents are being sent.</summary>
     [GeneratedRegex(@"^\+\+\+ (?:b/)?(.+)$")]
     private static partial Regex FileHeader();
@@ -190,6 +284,11 @@ internal static partial class SensitiveInput
     private static partial Regex DottedPath();
 }
 
-internal sealed class SensitiveContentException(string what, string? where = null)
+/// <summary>A refusal to send text onward, written for the orchestrator that has to act on it.</summary>
+/// <param name="what">What was refused, as the noun phrase the message goes on from.</param>
+/// <param name="where">Where the withheld value sits, or null. Never the value.</param>
+/// <param name="advice">What the orchestrator can do about the refusal, or null.</param>
+internal sealed class SensitiveContentException(string what, string? where = null, string? advice = null)
     : Exception($"{what} contains withheld sensitive content, so it was not sent to the vendor"
-                + (where is { Length: > 0 } ? $" ({where})" : string.Empty));
+                + (where is { Length: > 0 } ? $" ({where})" : string.Empty)
+                + (advice is { Length: > 0 } ? $". {advice}" : string.Empty));

@@ -80,6 +80,207 @@ public sealed class SafetyTests
     [InlineData("id_rsa.pub")]
     public void Still_names_an_ssh_key(string path) => Assert.True(SensitiveInput.IsSensitivePath(path));
 
+    /// <summary>
+    /// Issue #200: the name of a JSON or YAML file says what it is about — a library called
+    /// <c>UserSecrets</c>, a workflow that rotates tokens — so its lines are read instead of the name
+    /// refusing the round. The name still names it, which is all <c>IsSensitivePath</c> answers.
+    /// </summary>
+    /// <param name="path">A changed JSON or YAML path marked sensitive by a keyword alone.</param>
+    [Theory]
+    [InlineData("plugins/concurrency-hunter/demo/.concurrency-hunter/models/generated/Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Configuration.UserSecrets.json")]
+    [InlineData("models/System.IdentityModel.Tokens.Jwt.json")]
+    [InlineData("config/tokens.json")]
+    [InlineData("secrets/prod.json")]
+    [InlineData(".github/workflows/rotate-tokens.yml")]
+    [InlineData("config/Password-Rules.YAML")]
+    [InlineData("src/id_mapping.json")]
+    [InlineData("config\\tokens.json")]
+    public void Reads_a_json_or_yaml_file_named_for_a_secret_instead_of_refusing_it(string path)
+    {
+        Assert.True(SensitiveInput.IsSensitivePath(path));
+        Assert.True(SensitiveInput.IsDecidedByContent(path));
+    }
+
+    /// <summary>
+    /// The other half: what is not JSON or YAML keeps the name as the verdict — XML included, which
+    /// neither rule can read — and so does a file known to hold secrets, key material and a sensitive
+    /// location, whatever its extension.
+    /// </summary>
+    /// <param name="path">A changed path marked sensitive.</param>
+    [Theory]
+    [InlineData("secret.txt")]
+    [InlineData("password.txt")]
+    [InlineData(".git-credentials")]
+    [InlineData("deploy/api-token")]
+    [InlineData("credentials")]
+    [InlineData("docs/token-rotation.md")]
+    [InlineData("lib/Microsoft.Extensions.Configuration.UserSecrets.xml")]
+    [InlineData("config/secrets.json")]
+    [InlineData("deploy/secret.yaml")]
+    [InlineData("src/appsettings.Production.json")]
+    [InlineData("deploy/service-account.json")]
+    [InlineData("certs/token.pem")]
+    [InlineData("keys/id_rsa.pub")]
+    public void Keeps_the_name_as_the_verdict_for_other_files_and_known_secret_files(string path)
+    {
+        Assert.True(SensitiveInput.IsSensitivePath(path));
+        Assert.False(SensitiveInput.IsDecidedByContent(path));
+    }
+
+    /// <summary>A path the name does not mark has nothing to decide: JSON alone is not enough.</summary>
+    /// <param name="path">A changed path the name does not mark.</param>
+    [Theory]
+    [InlineData("config/app.json")]
+    [InlineData("src/Program.cs")]
+    [InlineData("docs/adr/0002-mcp-server-surface-without-enforcement.md")]
+    public void Has_nothing_to_decide_for_a_path_the_name_does_not_mark(string path)
+    {
+        Assert.False(SensitiveInput.IsSensitivePath(path));
+        Assert.False(SensitiveInput.IsDecidedByContent(path));
+    }
+
+    /// <summary>
+    /// The change that filed issue #200, as git renders it: the generator hash of a generated model, a
+    /// 64-digit hex string beside a key, which a rule that withheld a long hex value wherever it
+    /// stands would refuse.
+    /// </summary>
+    [Fact]
+    public void Finds_nothing_in_the_one_line_change_to_a_generated_model()
+    {
+        var diff = """
+                   diff --git a/models/Microsoft.Extensions.Configuration.UserSecrets.json b/models/Microsoft.Extensions.Configuration.UserSecrets.json
+                   --- a/models/Microsoft.Extensions.Configuration.UserSecrets.json
+                   +++ b/models/Microsoft.Extensions.Configuration.UserSecrets.json
+                   @@ -1,6 +1,6 @@
+                    {
+                      "schemaVersion": 2,
+                   -  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
+                   +  "generator": "e67eee3e02f7314f0fad7f17243ea570c8bea8d9af0e36df7012b0d1cb9171c4",
+                      "assembly": {
+                        "name": "Microsoft.Extensions.Configuration.UserSecrets",
+                        "version": "10.0.0.0",
+                   """;
+
+        Assert.Null(SensitiveInput.FindInStructuredFile(diff));
+    }
+
+    /// <summary>
+    /// The same kind of model written fresh, as a run that creates one does: every line is an
+    /// addition. What the rule must pass is here — a hash, a GUID and a member id beside keys, and
+    /// names that stand alone in an array, kebab-case words and a dotted identifier.
+    /// </summary>
+    [Fact]
+    public void Finds_nothing_in_a_generated_model_written_as_a_new_file()
+    {
+        var model = """
+                    {
+                      "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
+                      "assembly": {
+                        "name": "Microsoft.Extensions.Configuration.UserSecrets",
+                        "mvid": "601a02d3-9487-45ce-a28b-99b5cb103efd"
+                      },
+                      "members": [
+                        {
+                          "member": "M:System.Buffers.ReadOnlySequence`1.get_IsSingleSegment",
+                          "refusal": {
+                            "causes": [
+                              "argument-member-unseen",
+                              "probe-handed-to-unseen",
+                              "witness-value-handed",
+                              "Microsoft.Extensions.Configuration.UserSecrets"
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                    """;
+
+        Assert.Null(SensitiveInput.FindInStructuredFile(AsNewFile("models/UserSecrets.json", model)));
+    }
+
+    /// <summary>
+    /// What a name stands alone for is not a secret: a URL has a colon, a sentence has spaces, a short
+    /// word is short, and a kebab-case name has two kinds of character.
+    /// </summary>
+    [Fact]
+    public void Leaves_a_url_a_sentence_and_a_name_standing_alone_alone()
+    {
+        var list = "urls:\n"
+                   + "  - https://example.com/a1B2c3D4e5F6g7H8i9J0\n"
+                   + "  - a sentence of plain words standing here\n"
+                   + "  - argument-member-unseen\n"
+                   + "  - short\n";
+
+        Assert.Null(SensitiveInput.FindInStructuredFile(AsNewFile("ci/rotate-tokens.yml", list)));
+    }
+
+    /// <summary>
+    /// What reading the file is for: a secret on a line with nothing beside it, which the content rule
+    /// cannot see because no name says it is one. A bracket, a list dash, quotes and a trailing comma
+    /// are not something beside it. The place is the file's line, and the value is never named.
+    /// </summary>
+    /// <param name="content">The file's contents.</param>
+    /// <param name="line">The line the value stands on.</param>
+    [Theory]
+    [InlineData("[\n  \"sk-Lq83Hd0PzX7vNm41RbTuKcWy\"\n]\n", 2)]
+    [InlineData("[\n  \"first\",\n  \"9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c\",\n  \"last\"\n]\n", 3)]
+    [InlineData("[\n  \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r\"\n]\n", 2)]
+    [InlineData("tokens:\n  - sk-Lq83Hd0PzX7vNm41RbTuKcWy\n", 2)]
+    [InlineData("tokens:\n  - \"acme_aB3dE5gH7jK9mN1pQ3sT5vX7zB9dF1hJ3kL5\"\n", 2)]
+    [InlineData("certificate: |\n  MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n", 2)]
+    public void Withholds_a_secret_standing_alone_on_its_line(string content, int line) =>
+        Assert.Equal($"line {line}", SensitiveInput.FindInStructuredFile(AsNewFile("config/tokens.json", content)));
+
+    /// <summary>
+    /// A diff sends more than its added lines, so the read does too: a removed line is read, its
+    /// marker taken off first, and so is a list item, whose own dash follows the marker.
+    /// </summary>
+    [Fact]
+    public void Reads_the_removed_and_added_lines_of_a_diff_past_their_markers()
+    {
+        var removed = """
+                      diff --git a/config/tokens.json b/config/tokens.json
+                      --- a/config/tokens.json
+                      +++ b/config/tokens.json
+                      @@ -1,3 +1,2 @@
+                       [
+                      -  "sk-Lq83Hd0PzX7vNm41RbTuKcWy",
+                         "ordinary"
+                       ]
+                      """;
+        var added = """
+                    diff --git a/ci/rotate-tokens.yml b/ci/rotate-tokens.yml
+                    --- a/ci/rotate-tokens.yml
+                    +++ b/ci/rotate-tokens.yml
+                    @@ -3,2 +3,3 @@
+                       - first
+                    +  - sk-Lq83Hd0PzX7vNm41RbTuKcWy
+                       - last
+                    """;
+
+        Assert.Equal("line 2", SensitiveInput.FindInStructuredFile(removed));
+        Assert.Equal("line 4", SensitiveInput.FindInStructuredFile(added));
+    }
+
+    /// <summary>The content rule is read with it: a secret beside a key that says so is withheld, and its field is named.</summary>
+    [Fact]
+    public void Withholds_what_the_content_rule_withholds_and_names_the_field()
+    {
+        var settings = "{\n  \"api_key\": \"sk-Lq83Hd0PzX7vNm41RbTuKcWy\"\n}\n";
+
+        Assert.Equal("line 2, assigned to `api_key`", SensitiveInput.FindInStructuredFile(AsNewFile("config/app.json", settings)));
+    }
+
+    /// <summary>A file's contents as the new-file diff the review window holds for an untracked file.</summary>
+    /// <param name="path">The file's path.</param>
+    /// <param name="content">The file's contents.</param>
+    private static string AsNewFile(string path, string content)
+    {
+        var lines = content.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
+        return $"diff --git a/{path} b/{path}\nnew file mode 100644\n--- /dev/null\n+++ b/{path}\n@@ -0,0 +1,{lines.Length} @@\n"
+               + string.Join('\n', lines.Select(line => "+" + line));
+    }
+
     [Fact]
     public void Refuses_a_prompt_carrying_a_secret()
     {
