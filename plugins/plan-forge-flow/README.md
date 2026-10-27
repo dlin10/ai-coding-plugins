@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.68.0
+# Plan Forge Flow 0.68.1
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -574,8 +574,10 @@ Two checks survive, both against irreversible harm:
 - **Secrets leaving for another model.** Every prompt is inspected before it is handed to a vendor,
   and a sensitive path is refused by name across the set that is actually sent — the same pathspec
   the diff uses, so a sensitive name under an excluded documentation path is not refused, because
-  its contents never leave. Workers run in the workspace and can still read files omitted from the
-  filtered diff; see [`docs/adr/0004`](docs/adr/0004-documentation-written-during-the-interview.md).
+  its contents never leave. A JSON or YAML file named only by a keyword is read instead of refused:
+  it stops the round when a line of it holds a secret, or a value stands alone on its line. Workers
+  run in the workspace and can still read files omitted from the filtered diff; see
+  [`docs/adr/0004`](docs/adr/0004-documentation-written-during-the-interview.md).
 - **Writes staying inside the run.** One containment test on the run id, instead of six guards.
 
 - **A task's gate, where it is a command.** After every builder turn the server runs the command

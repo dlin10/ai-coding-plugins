@@ -1,5 +1,25 @@
 # Plan Forge Flow releases
 
+## 0.68.1
+
+A JSON or YAML file whose name only carries a secret keyword is read instead of refusing the whole
+code-review round. Issue #200.
+
+- The name rule (`secret`, `token`, `password`, `credential`, or an `id_` SSH-key name) refused any
+  such file whatever it held, so concurrency-hunter's generated model of
+  `Microsoft.Extensions.Configuration.UserSecrets` refused every round that touched it, and its
+  generator hash changes with every engine edit. For `.json`, `.yaml` and `.yml` the round now reads
+  the file's lines: the content rule as before, and a value that stands alone on its line, an array
+  element or a list item with no key beside it, when it is a long hex run or has three kinds of
+  character. `tokens.json` and `secrets/prod.json` are read the same way.
+- A value with a key beside it is left to the content rule, which reads the key. A generated model
+  carries hashes, GUIDs and member ids beside keys, 206 of them in the demo's 76 files and none
+  standing alone, so withholding them would refuse nearly every model. The trade: a secret under a
+  key that does not say so, in a file whose name does, is no longer refused by name.
+- Still refused by name: every other extension, XML included, the files known to hold secrets
+  (`secrets.json`, `appsettings.Production.json`, `.env`), key material and sensitive locations.
+- A refusal by path now says how to go on: ask the user, then pass the path in `excludePaths`.
+
 ## 0.68.0
 
 Edit text inside a plan target without resending the whole target. Issue #192.
