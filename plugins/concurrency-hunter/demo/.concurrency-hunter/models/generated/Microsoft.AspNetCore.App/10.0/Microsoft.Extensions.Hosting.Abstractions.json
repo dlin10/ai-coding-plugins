@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
+  "generator": "92aa58d648be68f3ac69d2ba5128632568fedd000d3a8f45b9210abb2bf3656f",
   "assembly": {
     "name": "Microsoft.Extensions.Hosting.Abstractions",
     "version": "10.0.0.0",
@@ -34,7 +34,167 @@
       }
     },
     {
+      "member": "M:Microsoft.Extensions.Hosting.HostBuilderContext.#ctor(System.Collections.Generic.IDictionary{System.Object,System.Object})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostBuilderContext.get_Configuration",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostBuilderContext.get_HostingEnvironment",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostBuilderContext.get_Properties",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostBuilderContext.set_Configuration(Microsoft.Extensions.Configuration.IConfiguration)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostBuilderContext.set_HostingEnvironment(Microsoft.Extensions.Hosting.IHostEnvironment)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.HostEnvironmentEnvExtensions.IsDevelopment(Microsoft.Extensions.Hosting.IHostEnvironment)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
       "member": "M:Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions.Run(Microsoft.Extensions.Hosting.IHost)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHost.get_Services",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostBuilder.ConfigureAppConfiguration(System.Action{Microsoft.Extensions.Hosting.HostBuilderContext,Microsoft.Extensions.Configuration.IConfigurationBuilder})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostBuilder.ConfigureHostConfiguration(System.Action{Microsoft.Extensions.Configuration.IConfigurationBuilder})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostBuilder.ConfigureServices(System.Action{Microsoft.Extensions.Hosting.HostBuilderContext,Microsoft.Extensions.DependencyInjection.IServiceCollection})",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostBuilder.get_Properties",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostEnvironment.get_ApplicationName",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostEnvironment.get_ContentRootFileProvider",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostEnvironment.get_ContentRootPath",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostEnvironment.get_EnvironmentName",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostEnvironment.set_ApplicationName(System.String)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostEnvironment.set_ContentRootFileProvider(Microsoft.Extensions.FileProviders.IFileProvider)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostEnvironment.set_ContentRootPath(System.String)",
+      "refusal": {
+        "reason": "engine-recognized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Hosting.IHostEnvironment.set_EnvironmentName(System.String)",
       "refusal": {
         "reason": "engine-recognized",
         "detail": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService``1(Microsoft.Extensions.DependencyInjection.IServiceCollection) is claimed by the di-registration recognizer",

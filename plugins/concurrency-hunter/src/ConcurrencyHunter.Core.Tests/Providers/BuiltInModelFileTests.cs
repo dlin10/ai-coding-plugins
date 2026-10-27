@@ -1,4 +1,5 @@
 using System.Text;
+using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers.LibraryModels;
 using Xunit;
 
@@ -39,10 +40,12 @@ public sealed class BuiltInModelFileTests
     /// in order with their values sorted, and absent inputs as one empty list per parameter of the delegate.</summary>
     /// <param name="member">The model whose vocabulary is printed.</param>
     private static string Vocabulary(LibraryModel member) =>
+        (member.Receiver is { } receiver ? $" | receiver={receiver}" : "") +
         (member.Result is { } result ? $" | result={result}" : "") +
         (member.Fates.Count == 0 ? "" : " | fates=" + string.Join(';', member.Fates.OrderBy(fate => fate.Parameter, StringComparer.Ordinal).Select(fate =>
             $"{fate.Parameter}:{LibraryFate.Text(fate.Kind)}" +
             (fate.Holder is { } holder ? "/" + (holder == LibraryHolderKind.Result ? "result" : "this") : "") +
+            (fate.Runs != RunRelation.Concurrent ? "/" + LibraryFate.Text(fate.Runs) : "") +
             string.Concat((fate.Inputs ?? Enumerable.Repeat<IReadOnlyList<LibraryValue>>([], ModelVocabularyTests.DelegateArity(member.Id, fate.Parameter)))
                               .Select(input => "[" + string.Join(',', input.Select(value => value.ToString()).Order(StringComparer.Ordinal)) + "]"))))) +
         (member.Stores.Count == 0 ? "" : " | stores=" + string.Join(';', member.Stores.OrderBy(store => store.Key, StringComparer.Ordinal)

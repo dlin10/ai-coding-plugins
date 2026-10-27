@@ -377,6 +377,12 @@ makes no gap; an array created at the call to carry its arguments — a `params`
 creation in the argument's place — is judged by its elements.
 _Avoid_: unresolved (cache-detective's word for a different mechanism), unknown call, hole
 
+**Deciding gap**:
+A **Semantic gap** that decides one of a **Finding**'s checks, as the relationships below say. A
+**Library model** applies before the analysis, so a call one answers is never a gap and never a
+deciding gap; a gap that decides no check is still a semantic gap.
+_Avoid_: blocking gap, critical gap, material gap (materiality ranks gaps; it does not decide checks)
+
 **Gap packet**:
 The bounded question the server hands the skill for one semantic gap: the call sites, the symbols,
 the candidate targets, the constraints and the reason.
@@ -396,7 +402,8 @@ _Avoid_: severity, priority, blocking
 **Coverage**:
 The report's account of what the run analyzed and what it could not: loaded and skipped projects,
 unsupported bodies, the operations inside reached bodies it could not lower, semantic gaps by
-materiality, which **Library models** applied from which
+materiality, each **Deciding gap** with the findings it decides, the check it decides in each and its
+call sites, which **Library models** applied from which
 **Model layer**, and how many pairs each non-manual layer removed.
 _Avoid_: scope, completeness score
 
@@ -410,7 +417,10 @@ itself, one of its elements, a new collection holding them, a **Library sequence
 when enumerated, a new object of its return type, or a **Kept object**; what it assigns to its `out`
 and `ref` arguments; what it leaves with the object it is called on; and for each delegate it
 receives, that delegate's **Delegate fate**. What a model does not say the member returns or
-assigns is nothing the program can reach. A model belongs to exactly one **Model layer**.
+assigns is nothing the program can reach. A model belongs to exactly one **Model layer**. It holds
+for every object its member is called on, unless it names a receiver type: then it applies only at
+a call whose receiver expression has that type or a type derived from it, and elsewhere the member is
+what it would be without that model.
 _Avoid_: library semantics table, built-in semantics, stub, annotation
 
 **Model layer**:
@@ -446,7 +456,11 @@ keeps it, as removing an event handler or comparing two delegates does. A fate a
 handed — an argument of the call, the elements of one, what another delegate returned, a new object
 the library made for it — and whether
 what the delegate returns is part of what the call returns; what it does not name, the delegate is
-handed nothing known.
+handed nothing known. An `invoke-now` fate also says how the delegate's runs relate: `concurrent`,
+where the call promises no order between them, which is what a fate that names no relation means;
+`sequential`, one run at a time, each finishing with everything it waited for before the next one
+starts; or `sequential-awaited`, for a delegate that returns a task, sequential, and the call awaits
+the task each run returns before the next run starts and before the call itself completes.
 _Avoid_: callback kind, invocation mode, effect (an effect is what happens to an argument)
 
 **Library sequence**:
@@ -674,7 +688,7 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Kept object** has the **Ownership** of what reaches it through its keeper: kept by a shared
   library object, or by keepers the analysis cannot tell apart, it is shared, even when the
   execution that created it is the only one that touches it directly.
-- A **Library model** from the generated or the AI **Model layer** may remove pairs the **Unknown effect** of the same call would have made; **Coverage** counts, per layer, the pairs it removed. No model proves protection or happens-before.
+- A **Library model** from the generated or the AI **Model layer** may remove pairs the **Unknown effect** of the same call would have made; **Coverage** counts, per layer, the pairs it removed. No model proves protection, and the only happens-before a model proves is the `sequential-awaited` relation of a built-in or project model: waiting for such a call's task waits for the task of every run of its delegate, and those tasks never overlap one another.
 - The **Model generator** follows the **Open-world rule**: a delegate is `invoke-now` only when it ran during the call and nothing keeps it afterwards, and an object is a **Holder** only when it keeps the delegate and one of its own members was seen running it; from then on the delegate runs wherever any member of the holder runs, not only at the calls the **Driver** happened to observe.
 - A write or read through a reference — a ref-returning indexer, a ref local or return, an `out` or `ref` argument — is an **Access** to the location the reference names; one whose location the analysis cannot trace is counted in **Coverage** and never dropped.
 - An **Execution root** belongs to one or more **Process scopes**; two **Accesses** form a **Candidate** only inside one **Process scope**.
@@ -746,8 +760,9 @@ _Avoid_: baseline, exclusion, ignore, whitelist
   it on a failure. A **Holder** runs its delegate wherever any of its members runs.
 - "AI does not suppress deterministic findings" (PRD G6) could be read as forbidding any model from
   a non-manual layer to remove a pair the **Unknown effect** made. Resolved: generated and AI models
-  may remove such pairs, and **Coverage** counts them per layer; no model proves protection or
-  happens-before, and a project model can override any other.
+  may remove such pairs, and **Coverage** counts them per layer; no model proves protection, only a
+  built-in or project model's `sequential-awaited` relation proves happens-before, and a project
+  model can override any other.
 - A member of a **Recognized type** that no recognizer understands — `List<T>.Reverse()`,
   `HashSet<T>.UnionWith` — could be read as touching nothing, because the engine owns its type.
   Resolved by a probe: a `foreach` over a shared list met no `Reverse`, `Sort()`, `InsertRange`,

@@ -4,7 +4,10 @@ This decision amends [ADR 0012](0012-library-semantics-are-data-the-analysis-der
 run builds a generated layer, [ADR 0024](0024-a-library-model-holds-for-every-receiver-of-its-member.md), which makes a
 library model hold for every receiver of its member, and
 [ADR 0027](0027-the-run-generates-in-rounds-and-a-generation-takes-its-dependencies-models.md), which has the run generate
-in rounds. The run stops generating models. What it cannot settle, it resolves only for the gaps that decide a finding:
+in rounds, and the rule that a model proves no order (PRD FR-21, SPEC TD-034a,
+[ADR 0013](0013-a-driver-seeds-what-a-program-could-have-put-there.md)): a built-in or project record's `sequential-awaited`
+relation proves that waiting for the call's task waits for the task of every run, and that those tasks never overlap one
+another; a model still proves no protection, and a generated model no order. The run stops generating models. What it cannot settle, it resolves only for the gaps that decide a finding:
 through a curated record, an analysis of the library's body at the call site, or an AI answer, in that order. The model
 generator stays, out of the run.
 
@@ -45,7 +48,9 @@ narrowing. With ADR 0028 it reads the member's original text.
   the call sites. Only those gaps get the resolution below. The other gaps stay counted in coverage.
 - **The ladder.** At each call site of a deciding gap, the first rung that answers settles it:
   1. **A record.** A project record wins over a built-in one. A record may name the receiver type it holds for; it then
-     applies only where the receiver's type is that type or derives from it.
+     applies only where the static type of the receiver expression at the call site is that type or derives from it. The
+     model for a call is chosen before the heap is solved, and a library factory such as Polly's `WaitAndRetryAsync` makes
+     no object of a known type there, so the static type is the one the call site always has.
   2. **The library's body at the call site.** The callee's body, compiled as ADR 0028 compiles a library, is analysed in the
      scope with that call's receiver and arguments. What the library keeps follows the open-world rule. The bodies and the
      time spent on one call site are bounded; past the bound, or when the analysis leaves the call unknown, the next rung
@@ -64,7 +69,8 @@ narrowing. With ADR 0028 it reads the member's original text.
   records for the owner to review, as [ADR 0022](0022-the-owner-regenerates-the-built-in-corelib-models-from-a-recorded-commit.md)
   has the owner do for CoreLib.
 - **Coverage.** Coverage names each deciding gap with the findings it decides and the rung that answered it, and counts the
-  pairs each rung removed.
+  pairs each rung removed. A record applies before the analysis, as every library model does, so a call it answers is never
+  a gap and no deciding gap names the record; the rung is named for the rungs that answer after the analysis.
 
 Rejected: generating in the run. It spends its budget on members that decide nothing, and a model that must hold for every
 receiver cannot settle a member whose behaviour depends on the receiver. Rejected: analysing every opaque call at its site.
@@ -76,12 +82,17 @@ true.
 
 ## Consequences
 
-- Two prerequisites come first. Records and AI answers need the vocabulary of runs. Analysing a loop that awaits each run at
-  its call site needs an engine that binds a join to the pass that spawned the work; that amends
-  [ADR 0008](0008-ordering-is-a-happens-before-graph-trusted-inside-one-instance-tree.md) and is decided with the run that
-  builds it.
-- On eShop, two `sequential-awaited` records keyed by `RetryPolicy` and `AsyncRetryPolicy` are expected to leave the 2 real
-  findings out of 36. The 2 of 36 was measured with records that read the delegate as running once.
+- Two prerequisites come first. Records and AI answers need the vocabulary of runs. A `sequential` relation and a loop that
+  awaits each run at its call site both need an engine that binds a join to the pass that spawned the work: a delegate a
+  retry runs often waits for work it starts itself, as eShop's seeding does with `SeedAsync(...).Wait()`, and a join is
+  proved only for work started once. That amends
+  [ADR 0008](0008-ordering-is-a-happens-before-graph-trusted-inside-one-instance-tree.md) and is decided with the engine
+  change that builds it. Without it a `sequential` relation orders nothing that `concurrent` leaves unordered.
+- On eShop, a `sequential` record keyed by `RetryPolicy` and a `sequential-awaited` one keyed by `AsyncRetryPolicy`, read
+  with a join bound to its pass, are expected to leave the 2 real findings out of 36; `Execute(Action)` runs a delegate that
+  returns no task, so there is nothing for it to await. The 2 of 36 was measured with records that read the delegate as
+  running once. Read as `concurrent`, the same records turn the 30 seeding findings High: the gap that held them at Medium is
+  answered, and the seeding's waits inside each run still prove no join.
 - A run loses the 900 s generation budget. Analysis at the call site and AI spend only on deciding gaps.
 - What the call-site analysis reuses from the generator: the library compilation (ADR 0028), the open-world rule and seeds,
   and the engine's handling of library code. Driver synthesis, probes and fate classification stay with the offline

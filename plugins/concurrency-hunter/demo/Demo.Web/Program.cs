@@ -10,6 +10,8 @@ using Demo.Web.Cases.GenericNullableFilledByUnseenWrite;
 using Demo.Web.Cases.ReadonlyStructPastDepthBound;
 using Demo.Web.Cases.ProjectModelKeptObject;
 using Demo.Web.Cases.ProjectModelTryGetValue;
+using Demo.Web.Cases.ProjectModelAwaitedRuns;
+using Demo.Web.Cases.ProjectModelReceiverType;
 using Demo.Web.Cases.AwaitedResultShared;
 using Demo.Web.Cases.TaskRunResultShared;
 using Demo.Web.Cases.CompletionSourceHandoff;
@@ -444,7 +446,9 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddPollyCircuitBreakerCallbackAtExecute()
                 .AddExclusiveBranchSeeding()
                 .AddSpawnPerItemInForEach()
-                .AddExceptionLeavesSpawningHelper();
+                .AddExceptionLeavesSpawningHelper()
+                .AddProjectModelAwaitedRuns()
+                .AddProjectModelReceiverType();
 
 var app = builder.Build();
 

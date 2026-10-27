@@ -188,6 +188,7 @@ public static class PhaseOneAnalyzer
         var accesses = new List<Access>();
         var pairs = new List<AccessPair>();
         var coverage = new List<ScopeCoverage>();
+        var gapSources = new Dictionary<string, IReadOnlyDictionary<OperationSite, SourceSpan>>(StringComparer.Ordinal);
         var comparisons = 0;
         var cartesianBound = 0;
         var buckets = 0;
@@ -334,6 +335,9 @@ public static class PhaseOneAnalyzer
                 WorkCancellation.Check();
                 pairSkips[reason] = pairSkips.GetValueOrDefault(reason) + count;
             }
+            gapSources[scope.Id] = collection.Coverage.Gaps.SelectMany(gap => gap.Sites).Distinct().ToDictionary(site => site,
+                site => run.Reachable.Bodies[site.BodyId].Blocks.SelectMany(block => block.Operations)
+                           .Single(operation => operation.Id == site.OperationId).Provenance.Span);
             coverage.Add(new ScopeCoverage(scope.Id, run.RootsPerProvider, diagnostics, run.Index.Registrations.Count,
                                            Merged(collection.Coverage.Counters, refined.Counters, modelRejections.Count, generatedInRun, pairsRemoved))
             {
@@ -364,6 +368,7 @@ public static class PhaseOneAnalyzer
         timings[GENERATION] = pass?.Spent ?? TimeSpan.Zero;
         step.Restart();
         var conflicts = ConflictFindings.Create(pairs, accesses, cancellationToken);
+        coverage = coverage.Select(scope => scope with { DecidingGaps = DecidingGaps.Build(scope, conflicts.Findings, gapSources[scope.ScopeId]) }).ToList();
         Record(timings, FINDINGS, step);
         var providers = registry.Providers
                                 .Select(provider => new ProviderSummary(

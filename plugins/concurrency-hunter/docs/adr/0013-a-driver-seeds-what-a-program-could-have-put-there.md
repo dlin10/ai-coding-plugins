@@ -63,3 +63,6 @@ the field being private is analysed with the field written from outside. Seeds w
 reaches, so the 1500-body closure bound is hit sooner, and a library with many user-typed fields
 seeds many witnesses. A seed's deep read misses what a user callback writes to the value it is
 handed, exactly as the built-in models do; a model never proves protection or order (TD-034a).
+Amended by [ADR 0029](0029-a-deciding-gap-is-answered-by-a-record-the-call-site-or-ai.md): a built-in
+or project model's `sequential-awaited` relation proves the order of its delegate's runs; a generated
+model still proves none.

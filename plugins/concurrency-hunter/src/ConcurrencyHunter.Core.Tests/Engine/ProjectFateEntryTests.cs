@@ -2,6 +2,7 @@ using System.Text;
 using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
+using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Reporting;
 using Microsoft.CodeAnalysis;
@@ -143,6 +144,38 @@ public sealed class ProjectFateEntryTests
     }
 
     [Fact]
+    public async Task Fated_entries_differing_only_in_runs_disagree()
+    {
+        using var repo = new Repository();
+        repo.Model(File(Entry("Lib.Each", """ "effects":{},"fates":{"action":{"fate":"invoke-now"}}"""),
+                        Entry("Lib.Each", """ "effects":{},"fates":{"action":{"fate":"invoke-now","runs":"sequential"}}"""),
+                        NEIGHBOUR));
+        var result = await Run(repo, WORK + " Fates.Lib.Each(new[] { \"a\" }, text => _state.Count++);");
+
+        Assert.Equal(2, Counter(result, CoverageCounters.MODEL_ENTRY_REJECTED));
+        Assert.Equal(1, Counter(result, CoverageCounters.OPAQUE_BY_PROJECT));
+        Assert.Contains(Assert.Single(result.Coverage).Diagnostics, diagnostic => diagnostic.Contains("disagree", StringComparison.Ordinal));
+        var model = Assert.Single(Resolve(repo).Members, member => member.Id == Id("Lib.Each"));
+        Assert.True(model.DeclaredOpaque);
+        Assert.Empty(model.Fates);
+    }
+
+    [Fact]
+    public async Task Explicit_concurrent_runs_is_alike_to_none()
+    {
+        using var repo = new Repository();
+        repo.Model(File(Entry("Lib.Each", """ "effects":{},"fates":{"action":{"fate":"invoke-now"}}"""),
+                        Entry("Lib.Each", """ "effects":{},"fates":{"action":{"fate":"invoke-now","runs":"concurrent"}}"""),
+                        NEIGHBOUR));
+        var result = await Run(repo);
+
+        Assert.Equal(0, Counter(result, CoverageCounters.MODEL_ENTRY_REJECTED));
+        var model = Assert.Single(Resolve(repo).Members, member => member.Id == Id("Lib.Each"));
+        Assert.False(model.DeclaredOpaque);
+        Assert.Equal(RunRelation.Concurrent, Assert.Single(model.Fates).Runs);
+    }
+
+    [Fact]
     public async Task Di_factory_is_rejected_until_the_generator()
     {
         using var repo = new Repository();
@@ -173,7 +206,7 @@ public sealed class ProjectFateEntryTests
     [InlineData("iterator without a sequence", """ "effects":{},"fates":{"action":{"fate":"iterator"}}""", "needs a sequence")]
     [InlineData("result not a string", """ "effects":{},"result":["arg:source"]""", "result must be a string")]
     [InlineData("opaque with fates", """ "opaque":true,"fates":{}""", "go only with effects")]
-    [InlineData("unknown fate property", """ "effects":{},"fates":{"action":{"fate":"invoke-now","runs":"now"}}""", "unknown property 'runs'")]
+    [InlineData("unknown fate property", """ "effects":{},"fates":{"action":{"fate":"invoke-now","order":"now"}}""", "unknown property 'order'")]
     [InlineData("fate key that is no name", """ "effects":{},"fates":{"action!":{"fate":"invoke-now"}}""", "keyed by parameter names")]
     public async Task Rejected_project_fate_entries(string name, string decision, string reason)
     {

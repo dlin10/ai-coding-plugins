@@ -43,7 +43,7 @@ public sealed class KeptVocabularyTests
         var match = new LibraryModels([member], []).Find(method);
         Assert.Equal("[kept:cache]", match!.Result!.ToString());
         Assert.Single(match.Keeps["cache"]);
-        Assert.Null(LibraryVocabulary.Member(member.Result, member.Fates, method, compilation, member.Effects, member.Stores, member.Outputs, member.Keeps));
+        Assert.Null(LibraryVocabulary.Member(member.Result, member.Fates, method, compilation, member.Effects, member.Stores, member.Outputs, member.Keeps, member.Receiver));
     }
 
     [Fact]

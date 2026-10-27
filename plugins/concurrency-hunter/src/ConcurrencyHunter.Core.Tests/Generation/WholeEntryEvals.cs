@@ -170,7 +170,7 @@ internal static class EffectEvals
     {
         var versions = entry.Versions ?? (new Version(0, 0, 0, 0), new Version(int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue));
         return new LibraryModel(entry.Member,
-            entry.Assemblies.Select(assembly => new SupportedAssemblyVersion(assembly, versions.Item1, versions.Item2)).ToArray(), entry.Effects)
+            entry.Assemblies.Select(assembly => new SupportedAssemblyVersion(assembly, versions.Item1, versions.Item2)).ToArray(), entry.Effects, Receiver: entry.Receiver)
         {
             Result = entry.Result,
             Fates = entry.Fates,

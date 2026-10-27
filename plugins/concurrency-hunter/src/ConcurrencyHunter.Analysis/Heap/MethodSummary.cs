@@ -395,6 +395,9 @@ public sealed record SummaryAccess(int OperationId, SummaryAccessKind Kind, IrFi
                                    IrProvenance Provenance, IReadOnlyList<HeldLockValue> HeldLocks, int? ReadModifyWriteOf,
                                    IReadOnlySet<AbstractValue> Values, IReadOnlySet<ValueDependency> Dependencies)
 {
+    /// <summary>The full origin of a stored value, null for an access that does not store a value.</summary>
+    public SummaryValue? StoredValue { get; init; }
+
     /// <summary>The readonly root fields excluded from an ordinary unknown effect's wildcard write. Reads and reflection exclude none.</summary>
     internal IReadOnlySet<string> WildcardExclusions { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 
@@ -671,6 +674,9 @@ public sealed record CallArgument(int ParameterOrdinal, IReadOnlySet<AbstractVal
 
     /// <inheritdoc cref="SummaryValue.Completions"/>
     public IReadOnlySet<int> Completions { get; init; } = new HashSet<int>();
+
+    /// <inheritdoc cref="SummaryValue.CompletedCalls"/>
+    public IReadOnlySet<(int Call, int Depth)> CompletedCalls { get; init; } = new HashSet<(int, int)>();
 }
 
 /// <summary>One element of an array or collection expression a call creates in an argument's place, judged as an operand of its own:
@@ -783,6 +789,9 @@ public sealed record SummaryReferenceAccess(int OperationId, SummaryAccessKind K
                                             IrProvenance Provenance, IReadOnlyList<HeldLockValue> HeldLocks,
                                             IReadOnlySet<ValueDependency> Dependencies)
 {
+    /// <summary>The full origin of a stored value, null for an access that does not store a value.</summary>
+    public SummaryValue? StoredValue { get; init; }
+
     public IReadOnlyList<SummaryPredicate> Conditions { get; init; } = [];
     public int? ReadModifyWriteOf { get; init; }
 

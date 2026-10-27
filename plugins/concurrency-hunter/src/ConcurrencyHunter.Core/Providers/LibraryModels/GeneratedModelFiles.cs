@@ -473,7 +473,7 @@ internal static class GeneratedModelFiles
         var versions = model.Versions ?? (new Version(0, 0, 0, 0), new Version(1, 0, 0, 0));
         var library = new LibraryModel(model.Member,
             model.Assemblies.Select(assembly => new SupportedAssemblyVersion(assembly, versions.Item1, versions.Item2)).ToArray(),
-            model.Effects)
+            model.Effects, Receiver: model.Receiver)
         {
             Result = model.Result, Fates = model.Fates, Keeps = model.Keeps, Outputs = model.Outputs, Stores = model.Stores, Calls = model.Calls
         };
@@ -799,6 +799,10 @@ internal static class GeneratedModelFiles
             return null;
         }
 
+        if (model.ValueKind == JsonValueKind.Object && (model.TryGetProperty("receiver", out _) ||
+            model.TryGetProperty("fates", out var fates) && fates.ValueKind == JsonValueKind.Object &&
+            fates.EnumerateObject().Any(fate => fate.Value.ValueKind == JsonValueKind.Object && fate.Value.TryGetProperty("runs", out _))))
+            return "a generated model carries neither receiver nor runs.";
         var project = ProjectModelFiles.Read(displayPath, Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"models\":[" + model.GetRawText() + "]}"));
         if (project.Rejections.Count != 0)
             return project.Rejections[0].Reason;

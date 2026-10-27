@@ -59,8 +59,10 @@ internal sealed class HappensBefore
     private readonly Dictionary<(string Caller, int Operation), SpawnSite> _spawnSites;
     private readonly Dictionary<string, List<string>> _handles = new(StringComparer.Ordinal);
     private readonly HashSet<string> _asyncHandles = new(StringComparer.Ordinal);
+    private readonly IReadOnlyList<ExecutionModel.AwaitedCall> _awaitedCalls;
     private readonly Dictionary<string, Flow> _plainFlows = new(StringComparer.Ordinal);
     private readonly HashSet<(string Instance, int Operation)> _proving = [];
+    private readonly HashSet<(string Instance, int Operation)> _provingBindings = [];
     private readonly HashSet<(string Task, int Depth)> _provingTasks = [];
     private readonly Dictionary<string, bool> _quietEvents = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<string>> _enumerated = new(StringComparer.Ordinal);
@@ -92,7 +94,8 @@ internal sealed class HappensBefore
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionEntry>> entries,
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionVisit>> visits,
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionStep>> steps, IReadOnlyList<SpawnAnchor> anchors,
-                           IReadOnlyDictionary<string, string> tails, IReadOnlySet<string> duringStartup, CancellationToken cancellationToken)
+                           IReadOnlyDictionary<string, string> tails, IReadOnlySet<string> duringStartup,
+                           IReadOnlyList<ExecutionModel.AwaitedCall> awaitedCalls, CancellationToken cancellationToken)
     {
         _constructionToken = cancellationToken;
         _context = _global;
@@ -105,6 +108,7 @@ internal sealed class HappensBefore
         _steps = steps;
         _tails = tails;
         _duringStartup = duringStartup;
+        _awaitedCalls = awaitedCalls;
         _spawnSites = heap.Spawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
         var asyncSites = heap.AsyncSpawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
         var timerSites = heap.TimerCallbacks.ToDictionary(site => (site.CallerInstance, site.OperationId));
@@ -481,8 +485,12 @@ internal sealed class HappensBefore
             ? (_anchors.GetValueOrDefault(execution) ?? []).Where(anchor => anchor.Kind != SpawnAnchorKind.Timer || SpawnedOnce(anchor.ChildId))
             : [];
 
-    private static PointKey AnchorPoint(SpawnAnchor anchor) =>
-        new(anchor.CallerInstance, anchor.OperationId, anchor.Kind == SpawnAnchorKind.AsyncReturn);
+    /// <summary>A spawn's position in its parent. A sequential-awaited call starts its continuations before the call's repeated
+    /// delegate prefixes have all returned: a later run's prefix may still meet an earlier run's continuation.</summary>
+    /// <param name="anchor">The spawn anchor.</param>
+    private PointKey AnchorPoint(SpawnAnchor anchor) =>
+        new(anchor.CallerInstance, anchor.OperationId, anchor.Kind == SpawnAnchorKind.AsyncReturn &&
+            !_awaitedCalls.Any(call => call.Instance == anchor.CallerInstance && call.Operation == anchor.OperationId && call.Execution == anchor.ExecutionId));
 
     /// <summary>What follows an execution's end: its trusted joins, its trusted continuations, the tail of its async work and, for startup,
     /// the start of every execution that cannot start before startup ends.</summary>
@@ -598,6 +606,11 @@ internal sealed class HappensBefore
                 }
 
                 AtResumptions(candidates, execution, resumed);
+                foreach (var call in _awaitedCalls.Where(call => call.Execution == execution && call.Task is null))
+                {
+                    CheckCancellation();
+                    candidates.Add(new Candidate(execution, new PointKey(call.Instance, call.Operation, false), call.Continuations, true));
+                }
                 if (Once(execution))
                 {
                     foreach (var anchor in _anchors.GetValueOrDefault(execution) ?? [])
@@ -846,7 +859,9 @@ internal sealed class HappensBefore
                 foreach (var (memberInstance, member) in members)
                 {
                     CheckCancellation();
-                    if (ProveHandle(execution, memberInstance, member, join.OperationId) is { } target)
+                    if (ProveCallTask(execution, memberInstance, member, join.OperationId) is { } continuations)
+                        targets.AddRange(continuations);
+                    else if (ProveHandle(execution, memberInstance, member, join.OperationId) is { } target)
                         targets.Add(target);
                     else
                         proven = false;
@@ -855,7 +870,9 @@ internal sealed class HappensBefore
                 continue;
             }
 
-            if (ProveHandle(execution, instance, handle, join.OperationId) is { } single)
+            if (ProveCallTask(execution, instance, handle, join.OperationId) is { } runs)
+                targets.AddRange(runs);
+            else if (ProveHandle(execution, instance, handle, join.OperationId) is { } single)
                 targets.Add(single);
             else
                 proven = false;
@@ -1098,37 +1115,94 @@ internal sealed class HappensBefore
         return SpawnedOnce(target) && !IsComposite(target) ? target : null;
     }
 
+    /// <summary>Every continuation a curated call's own task waits for, with the same source proof as an async call's handle.
+    /// Unlike a spawn handle it names all runs of the delegate, whose continuation execution may be repeated.</summary>
+    /// <param name="execution">The waiting execution.</param>
+    /// <param name="instance">The instance expressing the handle.</param>
+    /// <param name="handle">The handle value.</param>
+    /// <param name="operation">The wait operation.</param>
+    private IReadOnlyList<string>? ProveCallTask(string execution, MethodInstance instance, SummaryValue handle, int operation)
+    {
+        if (_awaitedCalls.Count == 0)
+            return null;
+        var regions = handle.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
+        if (regions is not [var region])
+            return null;
+        var calls = _awaitedCalls.Where(call => call.Task == region).ToArray();
+        if (calls.Length == 0 || _heap.CallTasks.Any(producer => producer.Value == region &&
+            !calls.Any(call => call.Instance == producer.Key.Instance && call.Operation == producer.Key.Operation)))
+        {
+            return null;
+        }
+        return SourcesExcused(execution, instance, handle, region, operation)
+            ? calls.SelectMany(call => call.Continuations).Distinct(StringComparer.Ordinal).ToArray()
+            : null;
+    }
+
     /// <summary>Whether every unknown source of a value that resolves to one region is one that cannot be another object: a field read
     /// before its first write, when the field holds only that region and a store of it precedes the operation on every path, or an
-    /// async call's result, when the region is that call's handle and every call the value comes from returns that same handle. A value
+    /// async or curated call's result, when the region is that call's own task and every call the value comes from returns that task. A value
     /// that is a task's completion is excused only where no task its await reads may complete with an object the heap cannot name.</summary>
     /// <param name="execution">The execution proving the value.</param>
     /// <param name="instance">The instance expressing the value.</param>
     /// <param name="value">The value.</param>
     /// <param name="region">The one region it resolves to.</param>
     /// <param name="operation">The operation it is judged at.</param>
-    private bool SourcesExcused(string execution, MethodInstance instance, SummaryValue value, string region, int operation) =>
+    /// <param name="allowNull">Whether a boundary may also carry null, which names no other task.</param>
+    private bool SourcesExcused(string execution, MethodInstance instance, SummaryValue value, string region, int operation, bool allowNull = false) =>
         !value.Completions.Any(completion => _heap.UnfollowedCompletions.Contains((instance.Id, completion))) &&
         value.UnknownSources.All(source => source switch
         {
             UnknownSource.FieldBeforeWrite => FieldStoreDominates(execution, instance, value, region, operation),
-            UnknownSource.SourceCall => _asyncHandles.Contains(region) && CallsReturn(execution, instance, value, region),
-            UnknownSource.Parameter => BoundToRegion(instance, value, region),
+            UnknownSource.SourceCall => (_asyncHandles.Contains(region) || _heap.CallTasks.Values.Contains(region)) &&
+                                        CallsReturn(execution, instance, value, region),
+            UnknownSource.Parameter => BoundToRegion(execution, instance, value, region),
+            UnknownSource.Null => allowNull,
             _ => false
         });
 
-    /// <summary>Whether every parameter the value comes from binds, in this instance, to that one region and nothing else. A summary
-    /// cannot name what a parameter holds, which is why it records the parameter as an unknown source; the instance the call site
-    /// made can, so a handle handed to a callee is as proven there as one it read from a field (R4).</summary>
+    /// <summary>Whether every parameter binds to that one region, and every argument of every binding call has no unexcused source.</summary>
+    /// <param name="execution">The execution proving the value.</param>
     /// <param name="instance">The instance whose parameter bindings are read.</param>
     /// <param name="value">The value.</param>
     /// <param name="region">The one region it resolves to.</param>
-    private static bool BoundToRegion(MethodInstance instance, SummaryValue value, string region)
+    private bool BoundToRegion(string execution, MethodInstance instance, SummaryValue value, string region)
     {
         var parameters = value.Values.OfType<ParameterValue>().ToArray();
-        return parameters.Length != 0 &&
-               parameters.All(parameter => instance.Parameters.TryGetValue(parameter.Ordinal, out var bound) &&
-                                           bound.Count == 1 && bound.Contains(region));
+        var bindings = _heap.Edges.Where(edge => edge.CalleeInstance == instance.Id).ToArray();
+        return parameters.Length != 0 && bindings.Length != 0 && parameters.All(parameter =>
+            instance.Parameters.TryGetValue(parameter.Ordinal, out var bound) && bound.Count == 1 && bound.Contains(region) &&
+            bindings.All(edge => _heap.Instances.TryGetValue(edge.CallerInstance, out var caller) &&
+                caller.Summary.Calls.FirstOrDefault(call => call.OperationId == edge.OperationId)?.Arguments
+                    .FirstOrDefault(argument => argument.ParameterOrdinal == parameter.Ordinal) is { } argument &&
+                BindingExcused(execution, caller, new SummaryValue(argument.Values, argument.UnknownSources)
+                {
+                    SourceCalls = argument.SourceCalls,
+                    Completions = argument.Completions,
+                    CompletedCalls = argument.CompletedCalls
+                }, region, edge.OperationId)));
+    }
+
+    /// <summary>Whether a value crossing a parameter or field boundary can name only that region or null, with every source excused.
+    /// The boundary's operation guards recursive parameter and field bindings.</summary>
+    /// <param name="execution">The execution proving the value.</param>
+    /// <param name="instance">The instance expressing the crossing value.</param>
+    /// <param name="value">The value crossing the boundary.</param>
+    /// <param name="region">The only task region allowed.</param>
+    /// <param name="operation">The binding call or field store.</param>
+    private bool BindingExcused(string execution, MethodInstance instance, SummaryValue value, string region, int operation)
+    {
+        if (!_provingBindings.Add((instance.Id, operation)))
+            return false;
+        try
+        {
+            return value.Values.SelectMany(item => _heap.Resolve(instance.Id, item)).All(item => item == region) &&
+                   SourcesExcused(execution, instance, value, region, operation, allowNull: true);
+        }
+        finally
+        {
+            _provingBindings.Remove((instance.Id, operation));
+        }
     }
 
     /// <summary>Whether every call a value comes from returns that region and nothing else; a call whose result the heap does not follow
@@ -1146,7 +1220,8 @@ internal sealed class HappensBefore
 
     /// <summary>Whether every body the call may run gives that handle with an origin it can account for itself: the regions of a call
     /// result name the objects the returned values point to, not the null or the field before its first write they may also be. An async
-    /// body gives its call the task the call makes, which its returns complete; so its returns account for the completion of its task,
+    /// body or a curated sequential-awaited call gives its call the task it makes. An async body's returns complete that task;
+    /// so its returns account for the completion of its task,
     /// one consumption fewer, never for the task itself. A non-async body's returns are what the call gives, consumed as often.</summary>
     /// <param name="execution">The execution proving the value.</param>
     /// <param name="instance">The instance making the call.</param>
@@ -1155,6 +1230,8 @@ internal sealed class HappensBefore
     /// <param name="depth">How many times the value consumed the call's task.</param>
     private bool ReturnsExcused(string execution, MethodInstance instance, int call, string region, int depth)
     {
+        if (depth == 0 && _heap.CallTasks.TryGetValue((instance.Id, call), out var task) && task == region)
+            return true;
         if (!_proving.Add((instance.Id, call)))
             return false;
 
@@ -1256,42 +1333,66 @@ internal sealed class HappensBefore
 
     private bool FieldStoreDominates(string execution, MethodInstance instance, SummaryValue handle, string region, int joinOperation)
     {
+        // All writes must preserve the handle, and the waiting execution must store it on every path.
         var paths = handle.Values.OfType<PathValue>().ToArray();
-        if (paths.Length == 0 || paths.Any(path => path.Segments.Count != 1 || PathValue.IsStorage(path.Segments[0]) || path.Segments[0] == PathValue.WILDCARD))
+        if (paths.Length == 0 || paths.Any(path => path.Segments.Count == 0 ||
+            path.Segments.Any(segment => PathValue.IsStorage(segment) || segment == PathValue.WILDCARD)))
             return false;
 
         var join = new PointKey(instance.Id, joinOperation, false);
         foreach (var path in paths)
         {
             CheckCancellation();
-            var slot = path.Segments[0];
-            var bases = _heap.Resolve(instance.Id, path.Base).ToHashSet(StringComparer.Ordinal);
+            var slot = path.Segments[^1];
+            var receiver = path.Segments.Count == 1 ? path.Base : new PathValue(path.Base, path.Segments.Take(path.Segments.Count - 1).ToArray());
+            var bases = _heap.Resolve(instance.Id, receiver).ToHashSet(StringComparer.Ordinal);
             if (bases.Count == 0 || bases.Any(@base => !_heap.PointsTo(@base, slot).SetEquals([region])))
                 return false;
 
             var stores = new List<PointKey>();
-            foreach (var visit in _visits.GetValueOrDefault(execution) ?? [])
+            foreach (var writer in _heap.Instances.Values)
             {
                 CheckCancellation();
-                if (!_heap.Instances.TryGetValue(visit.InstanceId, out var writer))
-                    continue;
-                foreach (var store in writer.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store && FieldSlot.Key(access.Field) == slot))
+                foreach (var store in FieldStores(writer, bases, slot))
                 {
                     CheckCancellation();
-                    if (_segments.Runs(writer.BodyId, visit.Segment, store.OperationId) &&
-                        store.Bases.SelectMany(value => _heap.Resolve(writer.Id, value)).Any(bases.Contains))
+                    if (store.Value is null || !BindingExcused(execution, writer, store.Value, region, store.Operation))
+                        return false;
+                    if (store.Value.Values.SelectMany(value => _heap.Resolve(writer.Id, value)).Contains(region) &&
+                        (_visits.GetValueOrDefault(execution) ?? []).Any(visit => visit.InstanceId == writer.Id &&
+                            _segments.Runs(writer.BodyId, visit.Segment, store.Operation)))
                     {
-                        stores.Add(new PointKey(writer.Id, store.OperationId, false));
+                        stores.Add(new PointKey(writer.Id, store.Operation, false));
                     }
                 }
             }
 
             var flow = PlainFlow(execution);
-            if (!stores.Any(store => flow.Dominates(store, join)))
+            if (!flow.Dominates(stores, join))
                 return false;
         }
 
         return true;
+    }
+
+    /// <summary>Every direct or reference store into a field of the named receivers, with the stored value's full origin.</summary>
+    /// <param name="writer">The writing instance.</param>
+    /// <param name="bases">The receivers of the field read.</param>
+    /// <param name="slot">The field's slot.</param>
+    private IEnumerable<(int Operation, SummaryValue? Value)> FieldStores(MethodInstance writer, IReadOnlySet<string> bases, string slot)
+    {
+        foreach (var store in writer.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store && FieldSlot.Key(access.Field) == slot))
+        {
+            CheckCancellation();
+            if (store.Bases.SelectMany(value => _heap.Resolve(writer.Id, value)).Any(bases.Contains))
+                yield return (store.OperationId, store.StoredValue);
+        }
+        foreach (var store in writer.Summary.ReferenceAccesses.Where(access => access.Kind == SummaryAccessKind.Store))
+        {
+            CheckCancellation();
+            if (store.Targets.SelectMany(target => _heap.ReferenceLocations(writer.Id, target)).Any(location => location.Slot == slot && bases.Contains(location.Region)))
+                yield return (store.OperationId, store.StoredValue);
+        }
     }
 
     // ---- intra-execution order ----

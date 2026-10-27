@@ -15,7 +15,10 @@ the loop call's return; the end of an antecedent to the start of its continuatio
 `DisposeAsync` or `Dispose(WaitHandle)` wait; the end of startup to the start of everything startup
 did not start itself or through its descendants. A spawned execution's start and end bound its own
 points, never the work it spawns in turn. Two accesses are ordered when a path joins them in either
-direction.
+direction. Amended by [ADR 0029](0029-a-deciding-gap-is-answered-by-a-record-the-call-site-or-ai.md):
+the end of the task each run of a `sequential-awaited` delegate returns, to a wait of the task its call
+returns, when that call is made once by an execution that runs once; like a `Parallel` loop's return,
+the join waits for all of the runs.
 
 A path is trusted only when every edge on it holds for every instance it connects, which is what an
 instance tree guarantees. A spawn edge holds for every instance of what it starts when the spawning

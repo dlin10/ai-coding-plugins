@@ -77,6 +77,19 @@ public sealed record FindingOccurrence(AccessRoot RootA, AccessRoot RootB, IRead
 
 /// <summary>A pair of access sites on one resource under one rule (ADR 0007). <see cref="AccessA"/> and <see cref="AccessB"/> are the
 /// pair the evidence comes from; <see cref="Occurrences"/> lists the first three of <see cref="OccurrenceCount"/>.</summary>
+/// <param name="FindingId">The finding's id within the run.</param>
+/// <param name="Fingerprint">The stable identity of the finding's rule, resource and access sites.</param>
+/// <param name="GroupId">The group containing the finding.</param>
+/// <param name="RuleId">The conflict rule the pair satisfies.</param>
+/// <param name="Resource">The shared resource the accesses meet on.</param>
+/// <param name="AccessA">The first access of the evidence pair.</param>
+/// <param name="AccessB">The second access of the evidence pair.</param>
+/// <param name="ProtectionResult">The evidence pair's protection verdict.</param>
+/// <param name="Confidence">The score, components and label of the best occurrence.</param>
+/// <param name="ConcurrencyEvidence">Why the two executions may overlap.</param>
+/// <param name="Scenario">The finding's deterministic scenario.</param>
+/// <param name="Uncertainty">The uncertainties across all occurrences.</param>
+/// <param name="Evidence">The evidence available to a narrative.</param>
 public sealed record Finding(string FindingId, string Fingerprint, string GroupId, string RuleId, AccessResource Resource,
                              Access AccessA, Access AccessB, string ProtectionResult,
                              FindingConfidence Confidence, IReadOnlyList<string> ConcurrencyEvidence,
@@ -93,6 +106,9 @@ public sealed record Finding(string FindingId, string Fingerprint, string GroupI
     /// <summary>The callees of the semantic gaps that decide a check of one of its occurrences (TD-039): what its uncertainty names,
     /// and what a narrative may name.</summary>
     public IReadOnlyList<string> GapCallees { get; init; } = [];
+
+    /// <summary>The checks each callee decides across all occurrences, including those not listed; not part of findings.json.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> GapChecks { get; init; } = new Dictionary<string, IReadOnlyList<string>>();
 }
 
 /// <summary>Findings of one rule on one object: the same scope and resource identity. Two singleton registrations
@@ -128,6 +144,9 @@ public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, i
 
     /// <summary>The scope's semantic gaps, in materiality order (TD-039a).</summary>
     public IReadOnlyList<SemanticGap> Gaps { get; init; } = [];
+
+    /// <summary>The semantic gaps that decide a check of a finding of this scope, with those findings and their checks.</summary>
+    public IReadOnlyList<DecidingGap> DecidingGaps { get; init; } = [];
     public IReadOnlyList<string> LoweredNotReached { get; init; } = [];
     public IReadOnlyList<string> OutsideLoweredSet { get; init; } = [];
 
@@ -135,6 +154,17 @@ public sealed record ScopeCoverage(string ScopeId, IReadOnlyDictionary<string, i
     /// of file key, each with the cause that says why.</summary>
     public IReadOnlyList<GenerationRefusal> GenerationRefusals { get; init; } = [];
 }
+
+/// <summary>A semantic gap that decides a check of a finding in its scope.</summary>
+/// <param name="Callee">The semantic gap's callee.</param>
+/// <param name="Findings">The findings it decides, in ordinal fingerprint order, with their decided checks.</param>
+/// <param name="CallSites">The gap's own call sites as target-relative paths and line numbers, without duplicates.</param>
+public sealed record DecidingGap(string Callee, IReadOnlyList<DecidingGapFinding> Findings, IReadOnlyList<string> CallSites);
+
+/// <summary>The checks one semantic gap decides across all occurrences of one finding.</summary>
+/// <param name="Fingerprint">The finding's fingerprint.</param>
+/// <param name="DecidedChecks">The decided checks in operation, overlap, protection order.</param>
+public sealed record DecidingGapFinding(string Fingerprint, [property: JsonPropertyName("checks")] IReadOnlyList<string> DecidedChecks);
 
 /// <summary>One generation target of a scope that no generated model describes: a library member reached through a call in any analysis,
 /// with the generated file that answers for it. One member reached through two file keys is two items.</summary>

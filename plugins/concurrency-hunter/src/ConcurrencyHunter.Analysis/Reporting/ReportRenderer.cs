@@ -214,6 +214,22 @@ public static class ReportRenderer
                 }
             }
 
+            if (coverage.DecidingGaps.Count != 0)
+            {
+                Line("  - Deciding gaps:");
+                foreach (var gap in coverage.DecidingGaps)
+                {
+                    WorkCancellation.Check();
+                    Line($"    - {gap.Callee}");
+                    foreach (var finding in gap.Findings)
+                    {
+                        WorkCancellation.Check();
+                        Line($"      - {finding.Fingerprint}: {string.Join(", ", finding.DecidedChecks)}");
+                    }
+                    Line($"      - Call sites: {string.Join(", ", gap.CallSites)}");
+                }
+            }
+
             var ungenerated = Items(coverage.GenerationRefusals.Select(item => $"{item.Member} ({item.Cause}, {item.FileKey})"));
             Line($"  - Members without a generated model: {ungenerated}");
             Line($"  - Lowered but not reached (inventory, not counted against coverage): {Items(coverage.LoweredNotReached)}");

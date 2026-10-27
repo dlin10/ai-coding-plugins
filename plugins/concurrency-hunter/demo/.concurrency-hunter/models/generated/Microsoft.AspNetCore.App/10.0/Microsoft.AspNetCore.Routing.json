@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
+  "generator": "92aa58d648be68f3ac69d2ba5128632568fedd000d3a8f45b9210abb2bf3656f",
   "assembly": {
     "name": "Microsoft.AspNetCore.Routing",
     "version": "10.0.0.0",
@@ -34,6 +34,30 @@
       }
     },
     {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointRoutingApplicationBuilderExtensions.UseEndpoints(Microsoft.AspNetCore.Builder.IApplicationBuilder,System.Action{Microsoft.AspNetCore.Routing.IEndpointRouteBuilder})",
+      "refusal": {
+        "reason": "library-does-not-compile",
+        "detail": "ASP0029",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointRoutingApplicationBuilderExtensions.UseRouting(Microsoft.AspNetCore.Builder.IApplicationBuilder)",
+      "refusal": {
+        "reason": "library-does-not-compile",
+        "detail": "ASP0029",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.EndpointDataSource.#ctor",
+      "refusal": {
+        "reason": "library-does-not-compile",
+        "detail": "ASP0029",
+        "causes": []
+      }
+    },
+    {
       "member": "M:Microsoft.AspNetCore.Routing.HttpMethodMetadata.get_HttpMethods",
       "refusal": {
         "reason": "library-does-not-compile",
@@ -59,6 +83,14 @@
     },
     {
       "member": "M:Microsoft.AspNetCore.Routing.RouteOptions.SetParameterPolicy``1(System.String)",
+      "refusal": {
+        "reason": "library-does-not-compile",
+        "detail": "ASP0029",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.RoutingServiceCollectionExtensions.AddRouting(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
       "refusal": {
         "reason": "library-does-not-compile",
         "detail": "ASP0029",

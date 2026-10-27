@@ -416,6 +416,13 @@ public sealed record IrLibraryCall(string MemberId, bool InRange, IReadOnlyList<
     /// a holder of the result stands inside.</summary>
     public int ReturnTaskDepth { get; init; }
 
+    /// <summary>Whether the member returns a Task or ValueTask, including the non-generic forms.</summary>
+    public bool ReturnsTask { get; init; }
+
+    /// <summary>Whether the curated record makes the call's own task, with or without a model result.</summary>
+    public bool CreatesCallTask => InRange && !DeclaredOpaque && ReturnsTask && Layer is IrModelLayer.BuiltIn or IrModelLayer.Project &&
+                                   Fates.Any(fate => fate is { Kind: IrFateKind.InvokeNow, Runs: RunRelation.SequentialAwaited });
+
     /// <summary>The ordinals of the parameters whose argument the model names the elements of in its inputs or its result, outside a
     /// <c>sequence(…)</c> a value builds: the call enumerates each once (R3). What a built sequence names the elements of, that sequence
     /// enumerates where it is enumerated (R5).</summary>
@@ -581,13 +588,18 @@ public enum IrFateKind { InvokeNow, Iterator, Holder, Startup, UnknownExecution,
 
 public enum IrHolderKind { Result, This }
 
+/// <summary>How the runs of a delegate relate to one another and to the call that invokes them.</summary>
+public enum RunRelation { Concurrent, Sequential, SequentialAwaited }
+
 /// <summary>The fate of the delegate bound to the parameter with <see cref="ParameterOrdinal"/>: one input list per parameter of its
 /// <c>Invoke</c>, each the values that parameter is handed, possibly none.</summary>
 /// <param name="ParameterOrdinal">The ordinal of the parameter the delegate is bound to.</param>
 /// <param name="Kind">Where the delegate runs.</param>
 /// <param name="Holder">What holds the delegate for a <see cref="IrFateKind.Holder"/> fate, otherwise null.</param>
 /// <param name="Inputs">The values each parameter of the delegate's <c>Invoke</c> is handed.</param>
-public sealed record IrLibraryFate(int ParameterOrdinal, IrFateKind Kind, IrHolderKind? Holder, IReadOnlyList<IReadOnlyList<IrModelValue>> Inputs);
+/// <param name="Runs">The relation between the delegate's runs.</param>
+public sealed record IrLibraryFate(int ParameterOrdinal, IrFateKind Kind, IrHolderKind? Holder, IReadOnlyList<IReadOnlyList<IrModelValue>> Inputs,
+                                   RunRelation Runs = RunRelation.Concurrent);
 
 /// <summary>A member a known call runs on the objects <see cref="On"/> names, in the caller's execution: each method of
 /// <see cref="MethodIds"/>, dispatched on those objects, runs where a source type implements it, its parameters handed the values of

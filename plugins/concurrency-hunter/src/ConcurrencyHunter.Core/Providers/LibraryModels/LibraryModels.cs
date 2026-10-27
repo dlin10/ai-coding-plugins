@@ -38,8 +38,9 @@ public sealed record LibraryEffect(LibraryEffectKind Kind, string Parameter)
 /// <param name="Layer">The model's layer.</param>
 /// <param name="DeclaredOpaque">Whether the entry makes the member opaque.</param>
 /// <param name="ResolvedVersion">The assembly version a project entry resolved in.</param>
+/// <param name="Receiver">The receiver type's declaration id, or null for every receiver.</param>
 public sealed record LibraryModel(string Id, IReadOnlyList<SupportedAssemblyVersion> Assemblies, IReadOnlyList<LibraryEffect> Effects,
-                                  ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false, Version? ResolvedVersion = null)
+                                  ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false, Version? ResolvedVersion = null, string? Receiver = null)
 {
     public LibraryResult? Result { get; init; }
     public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
@@ -76,8 +77,9 @@ public enum LibraryMatchKind
 /// <param name="Range">The model's supported version range.</param>
 /// <param name="Layer">The model's layer.</param>
 /// <param name="DeclaredOpaque">Whether a project entry declares the member opaque.</param>
+/// <param name="Receiver">The receiver type's declaration id, or null for every receiver.</param>
 public sealed record LibraryMatch(LibraryMatchKind Kind, string MemberId, IReadOnlyList<LibraryEffect> Effects, AssemblyIdentity Assembly,
-                                  SupportedAssemblyVersion Range, ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false)
+                                  SupportedAssemblyVersion Range, ModelLayer Layer = ModelLayer.BuiltIn, bool DeclaredOpaque = false, string? Receiver = null)
 {
     public LibraryResult? Result { get; init; }
     public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
@@ -137,7 +139,7 @@ public sealed class LibraryModels
         "Microsoft.Extensions.DependencyInjection.AsyncServiceScope"
     };
 
-    private readonly Dictionary<string, LibraryModel> _members = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LibraryModel[]> _members = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LibraryModel[]> _projectMembers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ImmutableLibraryType> _types = new(StringComparer.Ordinal);
     private readonly GeneratedModelTable? _generated;
@@ -145,7 +147,9 @@ public sealed class LibraryModels
 
     public LibraryModels(IEnumerable<LibraryModel> members, IEnumerable<ImmutableLibraryType> immutableTypes)
     {
-        foreach (var member in members)
+        var memberRecords = members.ToArray();
+        var keys = new HashSet<(string Id, string? Receiver)>();
+        foreach (var member in memberRecords)
         {
             WorkCancellation.Check();
             Check(member.Id, member.Assemblies);
@@ -159,8 +163,13 @@ public sealed class LibraryModels
                     throw new LibraryModelException($"{member.Id} declares {effect.Kind} of '{effect.Parameter}' twice.");
             }
 
-            if (!_members.TryAdd(member.Id, member))
+            if (!keys.Add((member.Id, member.Receiver)))
                 throw new LibraryModelException($"{member.Id} is described twice.");
+        }
+        foreach (var group in memberRecords.GroupBy(member => member.Id, StringComparer.Ordinal))
+        {
+            WorkCancellation.Check();
+            _members.Add(group.Key, group.ToArray());
         }
 
         foreach (var type in immutableTypes)
@@ -171,7 +180,7 @@ public sealed class LibraryModels
                 throw new LibraryModelException($"{type.Id} is described twice.");
         }
 
-        Members = _members.Values.ToArray();
+        Members = memberRecords;
         ImmutableTypes = _types.Values.ToArray();
     }
 
@@ -263,16 +272,17 @@ public sealed class LibraryModels
     /// <param name="method">The called method.</param>
     /// <param name="compilation">The compilation the call is in; without it the generated layer, which is kept per compilation, is not
     /// consulted.</param>
-    public LibraryMatch? Find(IMethodSymbol method, Compilation? compilation = null)
+    /// <param name="receiverType">The static type of the receiver expression; null admits only records without a receiver key.</param>
+    public LibraryMatch? Find(IMethodSymbol method, Compilation? compilation = null, ITypeSymbol? receiverType = null)
     {
         var definition = (method.ReducedFrom ?? method).OriginalDefinition;
         if (_dependencies is not null && definition.ContainingAssembly.Name == _dependencies.AssemblyName)
             return null;
         if (DocumentationCommentId.CreateDeclarationId(definition) is not { } id)
             return null;
-        var project = ProjectMatch(definition, id);
+        var project = ProjectMatch(definition, id, receiverType);
         // A project entry describes the call whatever else does, so the built-in layer is read only without one.
-        var builtIn = project is null ? BuiltInMatch(definition, id) : null;
+        var builtIn = project is null ? BuiltInMatch(definition, id, receiverType) : null;
         // Whether a mapped target can be generated is the run's question, asked with the target it computed: the layer is all Find reads.
         var stored = _generated is not null && compilation is not null && !FunctionPointers.In(definition)
             ? _generated.Lookup(compilation, definition, id)
@@ -291,23 +301,71 @@ public sealed class LibraryModels
         };
     }
 
-    private LibraryMatch? ProjectMatch(IMethodSymbol definition, string id)
+    private LibraryMatch? ProjectMatch(IMethodSymbol definition, string id, ITypeSymbol? receiverType)
     {
         if (!_projectMembers.TryGetValue(id, out var projectMembers))
             return null;
-        var project = projectMembers.FirstOrDefault(member => member.ResolvedVersion == definition.ContainingAssembly.Identity.Version &&
+        var project = projectMembers.Where(member => member.ResolvedVersion == definition.ContainingAssembly.Identity.Version &&
             member.Assemblies.Any(range => range.AssemblyName == definition.ContainingAssembly.Identity.Name &&
                                            range.Contains(definition.ContainingAssembly.Identity.Version)));
-        return project is null ? null : Match(project, definition.ContainingAssembly, id);
+        return SelectRecord(project, definition, id, receiverType);
     }
 
-    private LibraryMatch? BuiltInMatch(IMethodSymbol definition, string id)
+    private LibraryMatch? BuiltInMatch(IMethodSymbol definition, string id, ITypeSymbol? receiverType)
     {
-        if (_members.TryGetValue(id, out var member))
-            return Match(member, definition.ContainingAssembly, id);
+        if (_members.TryGetValue(id, out var members) && SelectRecord(members, definition, id, receiverType) is { } match)
+            return match;
         if (ImmutableTypeOf(definition.ContainingType) is not { } type || !IsImmutableShape(definition))
             return null;
         return Match(RangeOf(type, definition.ContainingAssembly), definition.ContainingAssembly, id, []);
+    }
+
+    /// <summary>Selects a layer's applicable record by receiver specificity, after assembly and version filtering. Incomparable keys
+    /// leave the call opaque in that layer, so no weaker layer can answer it.</summary>
+    /// <param name="records">The records of one member and layer.</param>
+    /// <param name="definition">The called member's definition.</param>
+    /// <param name="id">The member's declaration id.</param>
+    /// <param name="receiverType">The static type of its receiver expression, or null.</param>
+    private static LibraryMatch? SelectRecord(IEnumerable<LibraryModel> records, IMethodSymbol definition, string id, ITypeSymbol? receiverType)
+    {
+        WorkCancellation.Check();
+        var assembly = definition.ContainingAssembly;
+        var types = ReceiverTypes(receiverType).Where(type => SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, assembly)).ToArray();
+        var applicable = records.Select(record => (Record: record, Match: Match(record, assembly, id),
+                                                   Key: types.FirstOrDefault(type => DocumentationCommentId.CreateDeclarationId(type.OriginalDefinition) == record.Receiver)))
+                                .Where(item => item.Match is not null && (item.Record.Receiver is null || item.Key is not null)).ToArray();
+        // A record outside the assembly's version range cannot compete with a record inside it.
+        var inRange = applicable.Where(item => item.Match!.Kind != LibraryMatchKind.OutOfRange).ToArray();
+        if (inRange.Length == 0)
+            return applicable.FirstOrDefault().Match;
+        var candidates = inRange;
+        var keyed = candidates.Where(item => item.Key is not null).ToArray();
+        if (keyed.Length == 0)
+            return candidates.FirstOrDefault().Match;
+        var winner = keyed.FirstOrDefault(item => keyed.All(other => ReceiverTypes(item.Key)
+            .Any(type => SymbolEqualityComparer.Default.Equals(type.OriginalDefinition, other.Key!.OriginalDefinition))));
+        if (winner.Match is not null)
+            return winner.Match;
+        var first = keyed[0].Match!;
+        return new LibraryMatch(LibraryMatchKind.Opaque, id, [], assembly.Identity, first.Range, first.Layer, DeclaredOpaque: true);
+    }
+
+    /// <summary>The receiver and its supertypes, with constructed types compared through their definitions.</summary>
+    /// <param name="type">The receiver or key type, or null.</param>
+    private static IEnumerable<ITypeSymbol> ReceiverTypes(ITypeSymbol? type)
+    {
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            WorkCancellation.Check();
+            yield return current;
+        }
+        if (type is null)
+            yield break;
+        foreach (var implemented in type.AllInterfaces)
+        {
+            WorkCancellation.Check();
+            yield return implemented;
+        }
     }
 
     /// <summary>The assemblies of built-in models that <paramref name="compilation"/> references at a version outside their range, one per
@@ -316,7 +374,7 @@ public sealed class LibraryModels
     /// <param name="compilation">The compilation whose referenced assemblies are checked.</param>
     public IEnumerable<(AssemblyIdentity Assembly, SupportedAssemblyVersion Range)> OutOfRangeReferences(Compilation compilation)
     {
-        var named = _members.Values.SelectMany(member => member.Assemblies)
+        var named = _members.Values.SelectMany(members => members).SelectMany(member => member.Assemblies)
                            .Concat(ImmutableTypes.SelectMany(type => type.Assemblies))
                            .DistinctBy(range => range.AssemblyName, StringComparer.Ordinal)
                            .ToArray();
@@ -420,7 +478,7 @@ public sealed class LibraryModels
     {
         WorkCancellation.Check();
         return Match(RangeOf(model.Assemblies, assembly), assembly, id, model.Effects, model.Layer, model.DeclaredOpaque) is { } match
-                ? match with { Result = model.Result, Fates = model.Fates, Stores = model.Stores, Outputs = model.Outputs, Keeps = model.Keeps, Calls = model.Calls }
+                ? match with { Result = model.Result, Fates = model.Fates, Stores = model.Stores, Outputs = model.Outputs, Keeps = model.Keeps, Calls = model.Calls, Receiver = model.Receiver }
                 : null;
     }
 
@@ -432,7 +490,7 @@ public sealed class LibraryModels
             return null;
         var kind = !range.Contains(assembly!.Identity.Version) ? LibraryMatchKind.OutOfRange :
                    declaredOpaque ? LibraryMatchKind.Opaque : LibraryMatchKind.Known;
-        return new LibraryMatch(kind, id, effects, assembly!.Identity, range, layer, declaredOpaque);
+        return new LibraryMatch(kind, id, effects, assembly!.Identity, range, layer, declaredOpaque && kind != LibraryMatchKind.OutOfRange);
     }
 
     private static SupportedAssemblyVersion? RangeOf(IReadOnlyList<SupportedAssemblyVersion> ranges, IAssemblySymbol? assembly) =>

@@ -1809,15 +1809,15 @@ public static class IrLowering
                 // The `Current` of a `foreach` enumeration that hands back a reference is the cell the iteration variable binds, which the
                 // summary names by the collection enumerated: the getter's result is that reference (R1).
                 case IPropertyReferenceOperation property when IsReferenceCurrent(property):
-                    return MarkReference(CallGetter(property, LowerValue(property.Instance!), LowerArguments(property.Arguments)));
+                    return MarkReference(CallGetter(property, LowerValue(property.Instance!), LowerArguments(property.Arguments, property.Instance?.Type)));
                 // A property or an indexer whose getter hands back a reference is called on its receiver's storage, as a member of a struct
                 // kept there is (R1).
                 case IPropertyReferenceOperation property when HandsBackReference(property):
                 {
                     var getter = property.Property.GetMethod!;
                     int? receiver = property.Instance is null ? null : LowerStructOperand(property.Instance, StructUse.MemberCall, getter.IsReadOnly);
-                    var arguments = LowerArguments(property.Arguments);
-                    var address = MarkReference(AddCall(property, getter, receiver, arguments, property.Type));
+                    var arguments = LowerArguments(property.Arguments, property.Instance?.Type);
+                    var address = MarkReference(AddCall(property, getter, receiver, arguments, property.Type, receiverType: property.Instance?.Type));
                     _operations[^1] = AnnotateLibraryCall(AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property)), getter,
                                                           property.Arguments, arguments);
                     return address;
@@ -2108,7 +2108,7 @@ public static class IrLowering
             {
                 // The long form writes through the setter, which C# allows only on storage that is not read-only.
                 int? receiver = property.Instance is null ? null : LowerStructOperand(property.Instance, StructUse.MemberCall);
-                var arguments = LowerArguments(property.Arguments);
+                var arguments = LowerArguments(property.Arguments, property.Instance?.Type);
                 var read = CallGetter(property, receiver, arguments);
                 return (read, (written, source, transformation) => CallSetter(property, receiver, arguments, written, source, transformation));
             }
@@ -2177,7 +2177,7 @@ public static class IrLowering
             var tupleValue = sourceValue ?? (deconstruct is { IsExtensionMethod: false, ReducedFrom: null }
                 ? LowerStructOperand(source!, StructUse.MemberCall, deconstruct.IsReadOnly)
                 : LowerValue(source!));
-            var outputs = deconstruct is not null ? CallDeconstruct(deconstruction, deconstruct, tupleValue) : null;
+            var outputs = deconstruct is not null ? CallDeconstruct(deconstruction, deconstruct, tupleValue, source?.Type) : null;
             for (var index = 0; index < targetTuple.Elements.Length; index++)
             {
                 CheckCancellation();
@@ -2227,7 +2227,7 @@ public static class IrLowering
             return element;
         }
 
-        private int[] CallDeconstruct(IOperation source, IMethodSymbol method, int input)
+        private int[] CallDeconstruct(IOperation source, IMethodSymbol method, int input, ITypeSymbol? receiverType)
         {
             method = method.ReducedFrom ?? method;
             var extension = method.IsExtensionMethod;
@@ -2248,7 +2248,7 @@ public static class IrLowering
             }
 
             _operations.Add(Call(null, method, extension ? null : input, new LoweredArguments(values, ordinals, results),
-                                 Provenance(source, "deconstruction-call")));
+                                 Provenance(source, "deconstruction-call"), extension ? null : receiverType));
             return results.OrderBy(pair => pair.Key).Select(pair => pair.Value).ToArray();
         }
 
@@ -2534,7 +2534,7 @@ public static class IrLowering
                 return Unknown(property, "unsupported");
             int? receiver = property.Instance is null ? null
                 : LowerStructOperand(property.Instance, StructUse.MemberCall, property.Property.GetMethod.IsReadOnly);
-            return CallGetter(property, receiver, LowerArguments(property.Arguments));
+            return CallGetter(property, receiver, LowerArguments(property.Arguments, property.Instance?.Type));
         }
 
         /// <summary>The call of a property's getter on a receiver and arguments already lowered, with a library model's effects bound
@@ -2545,7 +2545,7 @@ public static class IrLowering
         private int CallGetter(IPropertyReferenceOperation property, int? receiver, LoweredArguments arguments)
         {
             var getter = property.Property.GetMethod!;
-            var value = AddCall(property, getter, receiver, arguments, property.Type);
+            var value = AddCall(property, getter, receiver, arguments, property.Type, receiverType: property.Instance?.Type);
             _operations[^1] = AnnotateLibraryCall(AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(property)), getter,
                                                   property.Arguments, arguments);
             AnnotateBclCall(property, getter, (IrCallOperation)_operations[^1], property.Arguments, arguments);
@@ -2559,7 +2559,7 @@ public static class IrLowering
                 return Unknown(source, "unsupported");
             int? receiver = property.Instance is null ? null
                 : LowerStructOperand(property.Instance, StructUse.MemberCall, property.Property.SetMethod.IsReadOnly);
-            return CallSetter(property, receiver, LowerArguments(property.Arguments), value, source, transformation);
+            return CallSetter(property, receiver, LowerArguments(property.Arguments, property.Instance?.Type), value, source, transformation);
         }
 
         /// <summary>The call of a property's setter with <paramref name="value"/> on a receiver and arguments already lowered, with a
@@ -2579,7 +2579,7 @@ public static class IrLowering
                 Values = [.. arguments.Values, value],
                 Ordinals = [.. arguments.Ordinals, setter.Parameters.Length - 1]
             };
-            _operations.Add(AnnotateLibraryCall(AsBaseCall(Call(null, setter, receiver, arguments, Provenance(source, transformation)), IsVirtualAccess(property)),
+            _operations.Add(AnnotateLibraryCall(AsBaseCall(Call(null, setter, receiver, arguments, Provenance(source, transformation), property.Instance?.Type), IsVirtualAccess(property)),
                                                 setter, property.Arguments, arguments));
             if (receiver is int timer && Bcl.TypeOf(setter) == Bcl.TIMERS_TIMER && property.Property.Name is "AutoReset" or "Enabled")
             {
@@ -2854,7 +2854,7 @@ public static class IrLowering
                 case IPropertyReferenceOperation { Property.SetMethod: { } setter } property:
                 {
                     int? receiver = property.Instance is null ? null : LowerStructOperand(property.Instance, StructUse.MemberCall, setter.IsReadOnly);
-                    var arguments = LowerArguments(property.Arguments);
+                    var arguments = LowerArguments(property.Arguments, property.Instance?.Type);
                     return (written, source, transformation) => CallSetter(property, receiver, arguments, written, source, transformation);
                 }
                 case IArrayElementReferenceOperation element:
@@ -2920,9 +2920,10 @@ public static class IrLowering
                 return LowerPairCreation(invocation, constructor);
 
             int? receiver = invocation.Instance is null ? null : LowerStructOperand(invocation.Instance, StructUse.MemberCall, method.IsReadOnly);
-            var arguments = LowerArguments(invocation.Arguments);
+            var receiverType = method.IsStatic || method.IsExtensionMethod ? null : invocation.Instance?.Type;
+            var arguments = LowerArguments(invocation.Arguments, receiverType);
             var result = AddCall(invocation, method, receiver, arguments, invocation.Type,
-                                 ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken), IsAwaitedImmediately(invocation));
+                                 ServiceCalls.Of(invocation, _context.Compilation, _cancellationToken), IsAwaitedImmediately(invocation), receiverType);
             if (method.ReturnsByRef || method.ReturnsByRefReadonly)
                 MarkReference(result);
             var call = AsBaseCall((IrCallOperation)_operations[^1], invocation.IsVirtual);
@@ -2936,7 +2937,7 @@ public static class IrLowering
             if (receiver is int configured && method.Name == "ConfigureAwait" && Bcl.IsTask(method.ContainingType, withValueTask: true))
                 _configuredTasks[result] = configured;
             AnnotateBclCall(invocation, method, call, invocation.Arguments, arguments);
-            WriteOpaqueOuts(method, invocation.Arguments, arguments);
+            WriteOpaqueOuts(method, invocation.Arguments, arguments, receiverType);
             return asAddress || !(method.ReturnsByRef || method.ReturnsByRefReadonly)
                 ? result : LowerReferenceLoad(result, invocation);
         }
@@ -2946,12 +2947,14 @@ public static class IrLowering
         /// <param name="method">The body-less member being called.</param>
         /// <param name="operations">The argument operations at the call site.</param>
         /// <param name="arguments">Their lowered values and output versions.</param>
-        private void WriteOpaqueOuts(IMethodSymbol method, IEnumerable<IArgumentOperation> operations, LoweredArguments arguments)
+        /// <param name="receiverType">The static type of the receiver expression, or null for a static call or constructor.</param>
+        private void WriteOpaqueOuts(IMethodSymbol method, IEnumerable<IArgumentOperation> operations, LoweredArguments arguments,
+                                     ITypeSymbol? receiverType = null)
         {
             if (method.DeclaringSyntaxReferences.Length != 0 && !method.IsExtern && !_context.IsLeftOut(method))
                 return;
 
-            var model = _context.LibraryModels.Find(method, _context.Compilation);
+            var model = _context.LibraryModels.Find(method, _context.Compilation, receiverType);
             bool HasOutput(IArgumentOperation argument) => model is { Kind: LibraryMatchKind.Known } && model.Outputs.ContainsKey(argument.Parameter!.Name);
             foreach (var argument in operations.Where(argument => argument.Parameter?.RefKind == RefKind.Out ||
                                                                   argument.Parameter?.RefKind == RefKind.Ref && HasOutput(argument)))
@@ -2982,13 +2985,13 @@ public static class IrLowering
 
         private int AddCall(IOperation source, IMethodSymbol method, int? receiver,
                             LoweredArguments arguments, ITypeSymbol? resultType, IrServiceCall? serviceCall = null,
-                            bool awaited = false)
+                            bool awaited = false, ITypeSymbol? receiverType = null)
         {
             int? result = resultType is null || resultType.SpecialType == SpecialType.System_Void
                 ? null
                 : AddTemporary(resultType);
             var role = EnumerationRoleOf(source, method);
-            var call = Call(result, method, receiver, arguments, Provenance(source, "call"));
+            var call = Call(result, method, receiver, arguments, Provenance(source, "call"), receiverType);
             _operations.Add(call with
             {
                 ServiceCall = serviceCall,
@@ -3442,7 +3445,7 @@ public static class IrLowering
                 return Unknown(assignment, "unsupported", receiver is int value ? [value, handler] : [handler]);
 
             var arguments = LoweredArguments.None with { Values = [handler], Ordinals = [0] };
-            var result = AddCall(assignment, accessor, receiver, arguments, null);
+            var result = AddCall(assignment, accessor, receiver, arguments, null, receiverType: reference.Instance?.Type);
             _operations[^1] = AnnotateLibraryCall(AsBaseCall((IrCallOperation)_operations[^1], IsVirtualAccess(reference)), accessor, [], arguments);
             return result;
         }
@@ -3472,7 +3475,7 @@ public static class IrLowering
         }
 
         private IrCallOperation Call(int? result, IMethodSymbol method, int? receiver, LoweredArguments arguments,
-                                     IrProvenance provenance)
+                                     IrProvenance provenance, ITypeSymbol? receiverType = null)
         {
             if (method.MethodKind == MethodKind.Constructor)
                 _context.RecordMetadataSupertypes(method.ContainingType);
@@ -3490,8 +3493,8 @@ public static class IrLowering
                 Collection = collection,
                 // A call through an interface is decided by the object its receiver points to, which only the heap knows: it carries
                 // what it is on each kind of object (ADR 0010, amendment of the phase 5b third run).
-                Implementations = collection is null && nestedId is null ? Collections.ImplementationsOf(method, _context.Compilation, _context.LibraryModels) : [],
-                Library = nestedId is null ? LibraryCalls.Of(method, _context.LibraryModels, _context.Compilation) : null,
+                Implementations = collection is null && nestedId is null ? Collections.ImplementationsOf(method, _context.Compilation, _context.LibraryModels, receiverType) : [],
+                Library = nestedId is null ? LibraryCalls.Of(method, _context.LibraryModels, _context.Compilation, receiverType) : null,
                 IsGroupingKey = nestedId is null && method.Name == "get_Key" && Bcl.TypeName(method.ContainingType) == "System.Linq.IGrouping`2",
                 IsRecognized = nestedId is null && IsRecognized(method),
                 // Provisional: a recognizer that models the call takes it back (question 144).
@@ -3770,7 +3773,8 @@ public static class IrLowering
         /// <c>ref</c> or <c>out</c>, keyed by the parameter it binds. A <c>ref</c> local or parameter passed on is written through
         /// and gets no version (<see cref="SsaPlan.DefinesVersion"/>): what the call writes there is a result of its own.</summary>
         /// <param name="arguments">The arguments to lower in evaluation order.</param>
-        private LoweredArguments LowerArguments(IEnumerable<IArgumentOperation> arguments)
+        /// <param name="receiverType">The static type of the receiver expression, or null for a static call or constructor.</param>
+        private LoweredArguments LowerArguments(IEnumerable<IArgumentOperation> arguments, ITypeSymbol? receiverType = null)
         {
             var values = new List<int>();
             var ordinals = new List<int>();
@@ -3787,7 +3791,7 @@ public static class IrLowering
                 }
 
                 var output = argument.Parameter is { RefKind: RefKind.Ref or RefKind.Out } parameter &&
-                             _context.LibraryModels.Find((IMethodSymbol)parameter.ContainingSymbol, _context.Compilation) is { Kind: LibraryMatchKind.Known } model &&
+                             _context.LibraryModels.Find((IMethodSymbol)parameter.ContainingSymbol, _context.Compilation, receiverType) is { Kind: LibraryMatchKind.Known } model &&
                              model.Outputs.ContainsKey(parameter.Name);
                 var passed = argument.Parameter?.RefKind is RefKind.Ref or RefKind.Out ? RefArgumentSymbol(argument) : null;
                 if (passed is not null && SsaPlan.DefinesVersion(passed, binds: false))
@@ -4270,7 +4274,7 @@ public static class IrLowering
                         StoreSymbol(declared, Designated(recursive, input), recursive, "pattern-designation");
                     var positional = recursive.DeconstructionSubpatterns.Length == 0 ? [] :
                         recursive.DeconstructSymbol is IMethodSymbol method
-                            ? CallDeconstruct(recursive, method, input)
+                            ? CallDeconstruct(recursive, method, input, recursive.MatchedType)
                             : recursive.DeconstructionSubpatterns.Select((part, index) =>
                                 TupleElement(recursive, input, part.InputType, index)).ToArray();
                     var positionalTests = recursive.DeconstructionSubpatterns.Select((part, index) => LowerPattern(part, positional[index])).ToArray();
@@ -4360,7 +4364,7 @@ public static class IrLowering
                 return length;
             }
             return list.LengthSymbol is IPropertySymbol { GetMethod: { } getter } property
-                ? AddCall(list, getter, input, LoweredArguments.None, property.Type)
+                ? AddCall(list, getter, input, LoweredArguments.None, property.Type, receiverType: list.InputType)
                 : Unknown(list, "pattern-test", [input]);
         }
 
@@ -4387,7 +4391,7 @@ public static class IrLowering
                 return result;
             }
             return list.IndexerSymbol is IPropertySymbol { GetMethod: { } getter } property
-                ? AddCall(list, getter, input, new LoweredArguments([index], [0], new Dictionary<int, int>()), property.Type)
+                ? AddCall(list, getter, input, new LoweredArguments([index], [0], new Dictionary<int, int>()), property.Type, receiverType: list.InputType)
                 : Unknown(list, "pattern-test", [input]);
         }
 
@@ -4399,9 +4403,9 @@ public static class IrLowering
             var rest = slice.SliceSymbol switch
             {
                 IMethodSymbol method => AddCall(slice, method, input,
-                    new LoweredArguments([start, length], [0, 1], new Dictionary<int, int>()), method.ReturnType),
+                    new LoweredArguments([start, length], [0, 1], new Dictionary<int, int>()), method.ReturnType, receiverType: slice.InputType),
                 IPropertySymbol { GetMethod: { } getter } property => AddCall(slice, getter, input,
-                    new LoweredArguments([PatternRange(slice, start, length)], [0], new Dictionary<int, int>()), property.Type),
+                    new LoweredArguments([PatternRange(slice, start, length)], [0], new Dictionary<int, int>()), property.Type, receiverType: slice.InputType),
                 _ => input
             };
             return LowerPattern(slice.Pattern, rest);
@@ -5918,7 +5922,9 @@ public static class IrLowering
         /// <param name="method">The interface member called.</param>
         /// <param name="compilation">The compilation providing interface maps and array members.</param>
         /// <param name="libraryModels">The scoped models, or the built-in models when omitted.</param>
-        internal static IReadOnlyList<IrImplementation> ImplementationsOf(IMethodSymbol method, Compilation compilation, LibraryModels? libraryModels = null)
+        /// <param name="receiverType">The static type of the source receiver expression, or null.</param>
+        internal static IReadOnlyList<IrImplementation> ImplementationsOf(IMethodSymbol method, Compilation compilation, LibraryModels? libraryModels = null,
+                                                                         ITypeSymbol? receiverType = null)
         {
             if (method is not { IsStatic: false, ContainingType: { TypeKind: TypeKind.Interface } called })
                 return [];
@@ -5943,7 +5949,7 @@ public static class IrLowering
                 WorkCancellation.Check();
                 var array = compilation.CreateArrayTypeSymbol(compilation.GetSpecialType(SpecialType.System_Object), rank);
                 if (array.AllInterfaces.Any(@interface => SymbolEqualityComparer.Default.Equals(@interface.OriginalDefinition, called.OriginalDefinition)) &&
-                    ArrayMember(method, called, rank, compilation, libraryModels ?? LibraryModels.BuiltIn) is { } member)
+                    ArrayMember(method, called, rank, compilation, libraryModels ?? LibraryModels.BuiltIn, receiverType) is { } member)
                 {
                     implementations.Add(member with { Kind = kind });
                 }
@@ -6076,8 +6082,9 @@ public static class IrLowering
         /// <param name="rank">The rank of the receiver array.</param>
         /// <param name="compilation">The compilation resolving the direct member.</param>
         /// <param name="libraryModels">The scoped models, with project precedence.</param>
+        /// <param name="receiverType">The static type of the source receiver expression, or null.</param>
         private static IrImplementation? ArrayMember(IMethodSymbol method, INamedTypeSymbol called, int rank, Compilation compilation,
-                                                    LibraryModels libraryModels)
+                                                    LibraryModels libraryModels, ITypeSymbol? receiverType)
         {
             var generic = called.IsGenericType;
             if (method.Name == "CopyTo" && Bcl.TypeName(called) is "System.Collections.ICollection" or "System.Collections.Generic.ICollection`1" ||
@@ -6086,7 +6093,7 @@ public static class IrLowering
                 var direct = compilation.GetSpecialType(SpecialType.System_Array).GetMembers(method.Name).OfType<IMethodSymbol>()
                     .Single(candidate => method.Name == "Clear" ? candidate.Parameters.Length == 1 :
                         candidate.Parameters.Length == 2 && candidate.Parameters[1].Type.SpecialType == SpecialType.System_Int32);
-                if (LibraryCalls.Of(direct, libraryModels, compilation) is not { } library)
+                if (LibraryCalls.Of(direct, libraryModels, compilation, receiverType) is not { } library)
                     return null;
                 return new IrImplementation("", new IrCollectionCall(SymbolNames.Method(direct), IrCollectionEffect.None, IrCollectionEffect.None, null, false))
                 {
@@ -6116,11 +6123,11 @@ public static class IrLowering
     /// bound to the ordinal of the parameter it names; a member of this compilation is never the library's.</summary>
     private static class LibraryCalls
     {
-        internal static IrLibraryCall? Of(IMethodSymbol method, LibraryModels libraryModels, Compilation compilation)
+        internal static IrLibraryCall? Of(IMethodSymbol method, LibraryModels libraryModels, Compilation compilation, ITypeSymbol? receiverType)
         {
             var definition = (method.ReducedFrom ?? method).OriginalDefinition;
             if (LibraryModels.IsDeclaredInRun(definition) ||
-                libraryModels.Find(definition, compilation) is not { } match)
+                libraryModels.Find(definition, compilation, receiverType) is not { } match)
                 return null;
             // The parameters as the call names them: what an argument's elements are depends on the type arguments it was given.
             var typed = method.ReducedFrom is null ? method : definition;
@@ -6155,7 +6162,7 @@ public static class IrLowering
                     null => null,
                     _ => throw new UnreachableException($"Unknown holder kind {fate.Holder}.")
                 }, inputs.Select((input, index) => (IReadOnlyList<IrModelValue>)input.Select(value =>
-                                      Value(typed, value, invoke.Parameters[index].Type)).ToArray()).ToArray());
+                                      Value(typed, value, invoke.Parameters[index].Type)).ToArray()).ToArray(), fate.Runs);
             }).ToArray();
             return new IrLibraryCall(match.MemberId, match.Kind == LibraryMatchKind.Known, effects,
                                      match.Layer switch
@@ -6193,7 +6200,9 @@ public static class IrLowering
                     : SymbolNames.TypeKey(Completion(method.ReturnType, match.Result?.TaskDepth ??
                                                                          (match.Fates.Any(fate => fate.Holder == LibraryHolderKind.Result)
                                                                              ? TaskTypes.Depth(method.ReturnType) : 0))),
-                ReturnTaskDepth = method.MethodKind == MethodKind.Constructor || method.ReturnsVoid ? 0 : TaskTypes.Depth(method.ReturnType)
+                ReturnTaskDepth = method.MethodKind == MethodKind.Constructor || method.ReturnsVoid ? 0 : TaskTypes.Depth(method.ReturnType),
+                ReturnsTask = method.MethodKind != MethodKind.Constructor &&
+                              (TaskTypes.IsValueless(method.ReturnType) || TaskTypes.CompletionType(method.ReturnType) is not null)
             };
         }
 

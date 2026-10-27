@@ -35,7 +35,12 @@ public sealed class ModelVocabularyTests
     [Fact]
     public void Every_built_in_fate_and_result_fits_its_member()
     {
-        var described = LibraryModels.BuiltIn.Members.Where(member => member.Fates.Count != 0 || member.Result is not null ||
+        Assert.Equal(CarriedByTheFiles(), CheckMembers(LibraryModels.BuiltIn.Members));
+    }
+
+    private static int CheckMembers(IEnumerable<LibraryModel> members)
+    {
+        var described = members.Where(member => member.Receiver is not null || member.Fates.Count != 0 || member.Result is not null ||
             member.Effects.Any(effect => effect.Kind == LibraryEffectKind.WriteCells) || member.Stores.Count != 0 || member.Outputs.Count != 0 || member.Keeps.Count != 0).ToArray();
 
         Assert.All(described, member =>
@@ -43,9 +48,31 @@ public sealed class ModelVocabularyTests
             var methods = Resolve(member.Id);
             Assert.NotEmpty(methods);
             Assert.All(methods, method => Assert.Null(LibraryVocabulary.Member(member.Result, member.Fates, method, Fixture.Value,
-                member.Effects, member.Stores, member.Outputs, member.Keeps)));
+                member.Effects, member.Stores, member.Outputs, member.Keeps, member.Receiver)));
         });
-        Assert.Equal(CarriedByTheFiles(), described.Length);
+        return described.Length;
+    }
+
+    [Theory]
+    [InlineData("M:System.IO.TextWriter.Write(System.Object)", "T:System.IO.StringWriter", true)]
+    [InlineData("M:System.IO.TextWriter.Write(System.Object)", "T:System.IO.MissingWriter", false)]
+    [InlineData("M:System.IO.TextWriter.Write(System.Object)", "T:Newtonsoft.Json.JsonConvert", false)]
+    [InlineData("M:System.IO.TextWriter.Write(System.Object)", "T:System.Text.StringBuilder", false)]
+    [InlineData("M:System.String.IsNullOrEmpty(System.String)", "T:System.String", false)]
+    [InlineData("M:System.IO.TextWriter.Write(System.Object)", null, true)]
+    public void Built_in_receiver_records_are_checked_against_metadata(string member, string? receiver, bool accepted)
+    {
+        var entry = receiver is null ? "" : ",\"receiver\":\"" + receiver + "\"";
+        var bytes = Encoding.UTF8.GetBytes(BUILT_IN.Replace("M:A.B.Run", member).Replace("ENTRY", entry));
+        var table = BuiltInModelReader.Read(bytes);
+        if (accepted)
+        {
+            Assert.Equal(receiver is null ? 0 : 1, CheckMembers(table.Members));
+        }
+        else
+        {
+            Assert.ThrowsAny<Xunit.Sdk.XunitException>(() => CheckMembers(table.Members));
+        }
     }
 
     [Fact]
@@ -183,7 +210,7 @@ public sealed class ModelVocabularyTests
     [InlineData("result not a string", ""","result":1""", "Invalid built-in library model")]
     [InlineData("result that does not parse", ""","result":"list(arg:a)" """, "does not parse")]
     [InlineData("repeated fate property", ""","fates":{"f":{"fate":"invoke-now","fate":"invoke-now"}}""", "Repeated JSON property 'fate'")]
-    [InlineData("unknown fate property", ""","fates":{"f":{"fate":"invoke-now","runs":"now"}}""", "Invalid built-in library model")]
+    [InlineData("unknown fate property", ""","fates":{"f":{"fate":"invoke-now","order":"now"}}""", "Invalid built-in library model")]
     [InlineData("fate key that is no name", ""","fates":{"action!":{"fate":"invoke-now"}}""", "keyed by parameter names")]
     public void Refused_built_in_fate_entries(string name, string entry, string reason)
     {
@@ -192,7 +219,7 @@ public sealed class ModelVocabularyTests
         Assert.Contains(reason, error.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>The entries of the seven embedded files that carry a result or a fate.</summary>
+    /// <summary>The embedded entries whose vocabulary needs checking against the member metadata.</summary>
     private static int CarriedByTheFiles()
     {
         var assembly = typeof(LibraryModels).Assembly;
@@ -202,7 +229,7 @@ public sealed class ModelVocabularyTests
             using var stream = assembly.GetManifestResourceStream(name)!;
             using var document = JsonDocument.Parse(stream);
             count += document.RootElement.GetProperty("models").EnumerateArray().Count(entry =>
-                entry.TryGetProperty("result", out _) ||
+                entry.TryGetProperty("receiver", out _) || entry.TryGetProperty("result", out _) ||
                 entry.TryGetProperty("fates", out var fates) && fates.EnumerateObject().Any() ||
                 entry.TryGetProperty("stores", out _) || entry.TryGetProperty("outputs", out _) || entry.TryGetProperty("keeps", out _) ||
                 entry.GetProperty("effects").EnumerateObject().Any(effect => effect.Value.EnumerateArray().Any(kind => kind.GetString() == "writes-cells")));

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "94d7f8f3ef2ad5d446da8d0a822f46ead8691190a95f1a40a3f02b03ff80f748",
+  "generator": "92aa58d648be68f3ac69d2ba5128632568fedd000d3a8f45b9210abb2bf3656f",
   "assembly": {
     "name": "Microsoft.AspNetCore.Http.Abstractions",
     "version": "10.0.0.0",
@@ -32,6 +32,38 @@
       }
     },
     {
+      "member": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Build",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Build is abstract; M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Build is an interface member; only a default could fill the Microsoft.AspNetCore.Builder.IApplicationBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Use(System.Func{Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.RequestDelegate})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Use(System.Func{Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.RequestDelegate}) is abstract; M:Microsoft.AspNetCore.Builder.IApplicationBuilder.Use(System.Func{Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.RequestDelegate}) is an interface member; only a default could fill the Microsoft.AspNetCore.Builder.IApplicationBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_ApplicationServices",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_ApplicationServices is abstract; M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_ApplicationServices is an interface member; only a default could fill the Microsoft.AspNetCore.Builder.IApplicationBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_Properties",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_Properties is abstract; M:Microsoft.AspNetCore.Builder.IApplicationBuilder.get_Properties is an interface member; only a default could fill the Microsoft.AspNetCore.Builder.IApplicationBuilder of Recv",
+        "causes": []
+      }
+    },
+    {
       "member": "M:Microsoft.AspNetCore.Builder.IEndpointConventionBuilder.Add(System.Action{Microsoft.AspNetCore.Builder.EndpointBuilder})",
       "refusal": {
         "reason": "driver-not-synthesized",
@@ -40,10 +72,83 @@
       }
     },
     {
+      "member": "M:Microsoft.AspNetCore.Builder.RunExtensions.Run(Microsoft.AspNetCore.Builder.IApplicationBuilder,Microsoft.AspNetCore.Http.RequestDelegate)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "probe-handed-to-unseen"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.UseMiddlewareExtensions.UseMiddleware``1(Microsoft.AspNetCore.Builder.IApplicationBuilder,System.Object[])",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "probe-handed-to-unseen",
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.Endpoint.get_DisplayName",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "unseeded-read"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.Endpoint.get_RequestDelegate",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-several-objects"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointHttpContextExtensions.GetEndpoint(Microsoft.AspNetCore.Http.HttpContext)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-unresolved",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpContext.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpContext.#ctor is not public; M:Microsoft.AspNetCore.Http.HttpContext.#ctor constructs an abstract type",
+        "causes": []
+      }
+    },
+    {
       "member": "M:Microsoft.AspNetCore.Http.HttpContext.get_Features",
       "refusal": {
         "reason": "driver-not-synthesized",
         "detail": "M:Microsoft.AspNetCore.Http.HttpContext.get_Features is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpContext.get_Items",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpContext.get_Items is abstract",
         "causes": []
       }
     },
@@ -108,6 +213,14 @@
       "refusal": {
         "reason": "overridable",
         "detail": "M:Microsoft.AspNetCore.Http.HttpRequest.get_RouteValues is virtual in Microsoft.AspNetCore.Http.HttpRequest, which is not sealed: a call may run another type's override, which the driver does not analyse",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponse.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.#ctor is not public; M:Microsoft.AspNetCore.Http.HttpResponse.#ctor constructs an abstract type",
         "causes": []
       }
     },

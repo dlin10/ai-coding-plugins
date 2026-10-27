@@ -114,7 +114,7 @@ internal sealed class GeneratedModelTable
     /// <param name="lookupId">The declaration id a call is looked up by.</param>
     private static LibraryModel ModelOf(ProjectModelEntry model, IMethodSymbol definition, string lookupId) =>
         new(lookupId, [ProjectModelResolver.Range(model, definition.ContainingAssembly)], model.Effects, ModelLayer.Generated, false,
-            definition.ContainingAssembly.Identity.Version)
+            definition.ContainingAssembly.Identity.Version, model.Receiver)
         {
             Result = model.Result,
             Fates = model.Fates,

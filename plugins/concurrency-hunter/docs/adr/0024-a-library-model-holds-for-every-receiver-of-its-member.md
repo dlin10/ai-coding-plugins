@@ -68,6 +68,9 @@ race between the action and `OnOpened`. Finding that race needs the same per-rec
 - A call on a receiver the program composed — a pipeline, a client built from options — keeps the
   widest fate its member allows for any receiver. Precision for one particular composition lies
   beyond the first version, and `polly-execute-invokes-delegate` documents the limit until then.
+  Amended by [ADR 0029](0029-a-deciding-gap-is-answered-by-a-record-the-call-site-or-ai.md): a
+  record may name the receiver type it holds for, and then applies only where the static type of
+  the receiver expression at the call site is that type or derives from it.
 - `polly-circuit-breaker-callback-at-execute` guards against the false positive a later run would
   raise if it saw `OnOpened`'s execution without the executor's order.
 - The Protobuf case's replacement carries `until: 5d-B4b`, so the run order gains B4b.

@@ -599,6 +599,14 @@ public static class ExecutionModel
     /// <param name="delegateRegion">The delegate region.</param>
     public static string UnknownDelegateCallId(string delegateRegion) => $"unknown-delegate-call:{delegateRegion}";
 
+    /// <summary>A call whose record orders every run's continuation, under the once-running caller threshold.</summary>
+    /// <param name="Instance">The instance making the call.</param>
+    /// <param name="Operation">The call operation.</param>
+    /// <param name="Execution">The execution making the call.</param>
+    /// <param name="Task">The call's own task, or null for a member returning no task.</param>
+    /// <param name="Continuations">The executions continuing the delegate's runs.</param>
+    internal sealed record AwaitedCall(string Instance, int Operation, string Execution, string? Task, IReadOnlyList<string> Continuations);
+
     private sealed class Builder(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken, ExecutionWalkOrder? walkOrder)
     {
         internal int WalkVisits { get; private set; }
@@ -812,6 +820,12 @@ public static class ExecutionModel
 
             FinishSpawnedExecutions();
             FinishUnknownDelegateCalls();
+            var awaitedCalls = AwaitedCalls();
+            foreach (var continuation in awaitedCalls.SelectMany(call => call.Continuations).Distinct(StringComparer.Ordinal))
+            {
+                CheckCancellation();
+                _executions[continuation] = _executions[continuation] with { Policy = SERIALIZED };
+            }
 
             // Ownership reads which executions reach a region, which publication does not change; publication in turn asks whether
             // the object handed to an unresolved call is shared (R2).
@@ -821,7 +835,7 @@ public static class ExecutionModel
             var executions = _executions.Values.OrderBy(execution => execution.Id, StringComparer.Ordinal).ToArray();
             var entries = _entries.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionEntry>)pair.Value, StringComparer.Ordinal);
             var order = new HappensBefore(scope, heap, _segments, executions.ToDictionary(execution => execution.Id, StringComparer.Ordinal), entries,
-                                          _visitsByExecution, _steps, _anchors.ToArray(), _tails, DuringStartup(), cancellationToken);
+                                          _visitsByExecution, _steps, _anchors.ToArray(), _tails, DuringStartup(), awaitedCalls, cancellationToken);
             var timerSites = _timerKinds.Select(pair => new TimerSiteCoverage(new OperationSite(pair.Key.BodyId, pair.Key.OperationId), Counter(pair.Value)))
                                         .OrderBy(site => site.Site.BodyId, StringComparer.Ordinal)
                                         .ThenBy(site => site.Site.OperationId)
@@ -1215,6 +1229,107 @@ public static class ExecutionModel
             }
         }
 
+        /// <summary>The single owner of both sequential-awaited effects: only a curated call made once by one once-running execution,
+        /// with exactly one delegate supplying its continuation site, created in the calling body and having only async targets.</summary>
+        private IReadOnlyList<AwaitedCall> AwaitedCalls()
+        {
+            var result = new List<AwaitedCall>();
+            foreach (var group in heap.DelegateReturns.GroupBy(pair => (pair.Key.Instance, pair.Key.Operation)))
+            {
+                CheckCancellation();
+                if (!_asyncSpawns.TryGetValue(group.Key, out var site))
+                    continue;
+                var instance = heap.Instances[group.Key.Instance];
+                var body = scope.Reachable.Bodies[instance.BodyId];
+                var call = body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
+                               .FirstOrDefault(call => call.Id == group.Key.Operation);
+                if (call?.Library is not { InRange: true, DeclaredOpaque: false, Layer: IrModelLayer.BuiltIn or IrModelLayer.Project } library)
+                    continue;
+                var delegates = group.Where(pair => library.Fates.Any(fate => fate.ParameterOrdinal == pair.Key.Ordinal && fate.Kind == IrFateKind.InvokeNow) &&
+                                                    pair.Value.Runs.Any(run => site.Callees.Contains(run.Callee))).ToArray();
+                if (delegates is not [var candidate] || candidate.Value.Unseen || candidate.Value.Runs.Count == 0 ||
+                    candidate.Value.Runs.Any(run => run.Task is null ||
+                        !heap.RunRelations.Contains((group.Key.Instance, group.Key.Operation, run.Callee, RunRelation.SequentialAwaited))))
+                {
+                    continue;
+                }
+
+                // A holder can run another delegate at the same continuation site, including the candidate's own target.
+                // Both effects require this one delegate to account for every continuation and every recorded run there.
+                if (!candidate.Value.Runs.Select(run => run.Callee).ToHashSet(StringComparer.Ordinal).SetEquals(site.Callees) ||
+                    heap.RunRelations.Any(run => run.Caller == group.Key.Instance && run.Operation == group.Key.Operation &&
+                                                 site.Callees.Contains(run.Callee) && run.Relation != RunRelation.SequentialAwaited))
+                {
+                    continue;
+                }
+
+                if (call.ArgumentAt(candidate.Key.Ordinal) is not int argument || !CreatedDelegate(body, argument))
+                {
+                    continue;
+                }
+
+                var executions = _visitsByExecution.Where(pair => pair.Value.Any(visit => visit.InstanceId == instance.Id &&
+                                                     _segments.Runs(instance.BodyId, visit.Segment, call.Id)))
+                                                  .Select(pair => pair.Key).ToArray();
+                if (executions is not [var execution] || !RunsOnce(execution) || !SiteOnce(execution, body.BodyId, call.Id, afterCall: true))
+                    continue;
+                var continuations = _anchors.Where(anchor => anchor.ExecutionId == execution && anchor.CallerInstance == instance.Id &&
+                                                             anchor.OperationId == call.Id && anchor.Kind == SpawnAnchorKind.AsyncReturn)
+                                            .Select(anchor => anchor.ChildId).Distinct(StringComparer.Ordinal).ToArray();
+                if (continuations.Length == 0 || library.ReturnsTask && !heap.CallTasks.ContainsKey((instance.Id, call.Id)))
+                    continue;
+                result.Add(new AwaitedCall(instance.Id, call.Id, execution, heap.CallTasks.GetValueOrDefault((instance.Id, call.Id)), continuations));
+            }
+            return result;
+        }
+
+        /// <summary>Whether only delegate creations define a value in this body, through assignments and phi inputs. A field,
+        /// parameter, call result or combination is no creation even where its points-to set contains the same delegate regions.</summary>
+        /// <param name="body">The body making the call.</param>
+        /// <param name="argument">The delegate argument's value.</param>
+        private bool CreatedDelegate(IrBody body, int argument)
+        {
+            var definitions = body.Blocks.SelectMany(block => block.Operations)
+                                  .SelectMany(operation => operation.DefinedValues.Select(value => (value, operation)))
+                                  .ToLookup(pair => pair.value, pair => pair.operation);
+            var pending = new Stack<int>();
+            var seen = new HashSet<int>();
+            var created = false;
+            pending.Push(argument);
+            while (pending.TryPop(out var value))
+            {
+                CheckCancellation();
+                if (!seen.Add(value))
+                    continue;
+                var defining = definitions[value].ToArray();
+                if (defining.Length == 0)
+                    return false;
+                foreach (var operation in defining)
+                {
+                    CheckCancellation();
+                    switch (operation)
+                    {
+                        case IrCreateDelegateOperation:
+                            created = true;
+                            break;
+                        case IrAssignOperation assign:
+                            pending.Push(assign.SourceValue);
+                            break;
+                        case IrPhiOperation { Inputs.Count: > 0 } phi:
+                            foreach (var input in phi.Inputs)
+                            {
+                                CheckCancellation();
+                                pending.Push(input.Value);
+                            }
+                            break;
+                        default:
+                            return false;
+                    }
+                }
+            }
+            return created;
+        }
+
         /// <summary>The delegate regions an unknown call of a delegate runs: those handed to unresolved calls or run by a known call's
         /// <c>unknown-execution</c> fate, and those a call outside startup runs by a <c>startup</c> fate.</summary>
         private IEnumerable<string> HandedRegions() => _handoffs.Keys.Concat(_fateHandings.Keys).Distinct(StringComparer.Ordinal);
@@ -1431,13 +1546,14 @@ public static class ExecutionModel
         /// <param name="execution">The execution.</param>
         /// <param name="bodyId">The body holding the site.</param>
         /// <param name="operationId">The site's operation.</param>
-        private bool SiteOnce(string execution, string bodyId, int operationId)
+        /// <param name="afterCall">Whether to count returns of the call, rather than the delegate runs inside it.</param>
+        private bool SiteOnce(string execution, string bodyId, int operationId, bool afterCall = false)
         {
-            if (OnePath(execution, bodyId, operationId))
+            if (OnePath(execution, bodyId, operationId, afterCall))
                 return true;
             var points = (_visitsByExecution.GetValueOrDefault(execution) ?? [])
                          .Where(visit => heap.Instances.TryGetValue(visit.InstanceId, out var instance) && instance.BodyId == bodyId)
-                         .Select(visit => new HappensBefore.PointKey(visit.InstanceId, operationId, false))
+                         .Select(visit => new HappensBefore.PointKey(visit.InstanceId, operationId, afterCall))
                          .Distinct()
                          .ToArray();
             return points.Length != 0 && !FlowOf(execution).Repeats(points);
@@ -1453,11 +1569,12 @@ public static class ExecutionModel
         /// <param name="execution">The execution.</param>
         /// <param name="bodyId">The body holding the site.</param>
         /// <param name="operationId">The site's operation.</param>
-        private bool OnePath(string execution, string bodyId, int operationId)
+        /// <param name="afterCall">Whether the site is the call's return, outside its repeated delegate runs.</param>
+        private bool OnePath(string execution, string bodyId, int operationId, bool afterCall = false)
         {
             var steps = _steps.GetValueOrDefault(execution) ?? [];
             if (InCycle(bodyId, operationId) ||
-                steps.Any(step => step.OperationId == operationId && Repeated(step) && heap.Instances[step.Caller].BodyId == bodyId))
+                !afterCall && steps.Any(step => step.OperationId == operationId && Repeated(step) && heap.Instances[step.Caller].BodyId == bodyId))
             {
                 return false;
             }

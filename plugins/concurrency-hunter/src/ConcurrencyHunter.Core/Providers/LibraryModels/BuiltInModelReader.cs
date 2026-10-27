@@ -54,10 +54,10 @@ internal static class BuiltInModelReader
                     }
                 }
                 var (result, fates, stores, outputs, keeps) = LibraryVocabulary.Entry(entry.Result, (entry.Fates ?? []).Select(fate =>
-                    new RawFate(fate.Key, fate.Value.Fate, fate.Value.Holder, fate.Value.Inputs)).ToArray(), effects, entry.Stores, entry.Outputs, entry.Keeps);
+                    new RawFate(fate.Key, fate.Value.Fate, fate.Value.Holder, fate.Value.Inputs, fate.Value.Runs)).ToArray(), effects, entry.Stores, entry.Outputs, entry.Keeps, entry.Receiver);
                 var calls = LibraryVocabulary.Calls((entry.Calls ?? []).Select(call => new RawCall(call.Member, call.On, call.Inputs)).ToArray(), fates);
                 members.Add(new LibraryModel(entry.Member, assemblies.Select(name => new SupportedAssemblyVersion(name, version.Value.Minimum,
-                                                                                                          version.Value.Maximum)).ToArray(), effects)
+                                                                                                          version.Value.Maximum)).ToArray(), effects, Receiver: entry.Receiver)
                 {
                     Result = result,
                     Fates = fates,
@@ -159,6 +159,7 @@ internal sealed class ModelFile
 internal sealed class ModelEntry
 {
     public string? Member { get; set; }
+    public string? Receiver { get; set; }
     public string[]? Assemblies { get; set; }
     public ModelVersionRange? Versions { get; set; }
     public Dictionary<string, string[]>? Effects { get; set; }
@@ -186,6 +187,7 @@ internal sealed class ModelFateEntry
 {
     public string? Fate { get; set; }
     public string? Holder { get; set; }
+    public string? Runs { get; set; }
     public string[][]? Inputs { get; set; }
     public string? Note { get; set; }
 }

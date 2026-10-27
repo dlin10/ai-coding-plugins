@@ -12,6 +12,55 @@ public sealed class HappensBeforeTests
 {
     // ---- task joins ----
 
+    [Theory]
+    [InlineData("Task.CompletedTask")]
+    [InlineData("Task.Delay(1)")]
+    public void Conditional_argument_to_a_helper_keeps_the_spawn_handle_join_unproven(string alternative)
+    {
+        var run = Analyze(Worker("var t = Task.Run(() => F()); await Drain(_flag ? t : " + alternative + ");",
+                                 "private readonly bool _flag; private async Task Drain(Task task) { await task; P1(); }"));
+
+        Assert.True(Overlap(run, "P1", "F"));
+        Assert.Contains(run.Execution.Analysis.UnprovenJoins, site => site.BodyId.EndsWith("Worker.Drain(System.Threading.Tasks.Task)", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("Task.CompletedTask")]
+    [InlineData("Task.Delay(1)")]
+    public void Conditional_value_in_one_field_store_keeps_the_spawn_handle_join_unproven(string alternative)
+    {
+        var run = Analyze(Worker("var t = Task.Run(() => F()); _work = _flag ? t : " + alternative + "; await _work; P1();",
+                                 "private Task _work; private readonly bool _flag;"));
+
+        Assert.True(Overlap(run, "P1", "F"));
+        Assert.Contains(run.Execution.Analysis.UnprovenJoins, site => site.BodyId.EndsWith("Worker.ExecuteAsync(System.Threading.CancellationToken)", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Field_overwrite_after_the_task_store_keeps_the_spawn_handle_join_unproven(bool conditional)
+    {
+        var overwrite = conditional ? "if (_flag) { _work = Task.Delay(1); }" : "_work = Task.Delay(1);";
+        var run = Analyze(Worker("var t = Task.Run(() => F()); _work = t; " + overwrite + " await _work; P1();",
+                                 "private Task _work; private readonly bool _flag;"));
+
+        Assert.True(Overlap(run, "P1", "F"));
+        Assert.Contains(run.Execution.Analysis.UnprovenJoins, site => site.BodyId.EndsWith("Worker.ExecuteAsync(System.Threading.CancellationToken)", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("await Drain(t);", "private async Task Drain(Task task) { await task; P1(); }")]
+    [InlineData("var copy = t; await copy; P1();", "")]
+    [InlineData("_work = null; _work = t; await _work; P1();", "private Task _work;")]
+    [InlineData("if (_flag) _work = t; else _work = t; await _work; P1();", "private Task _work; private readonly bool _flag;")]
+    public void Excused_parameter_local_and_field_values_keep_the_spawn_handle_join_proven(string body, string members)
+    {
+        var run = Analyze(Worker("var t = Task.Run(() => F()); " + body, members));
+
+        Assert.False(Overlap(run, "P1", "F"));
+    }
+
     [Fact]
     public void Parent_write_before_the_spawn_does_not_overlap_the_work()
     {

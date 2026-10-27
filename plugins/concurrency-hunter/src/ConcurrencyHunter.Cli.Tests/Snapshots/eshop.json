@@ -131,7 +131,8 @@
         "Microsoft.Extensions.DependencyInjection.SwaggerGenServiceCollectionExtensions.AddSwaggerGen(IServiceCollection, Action\u003CSwaggerGenOptions\u003E)",
         "System.Security.Claims.ClaimsPrincipal.FindFirst(Predicate\u003CClaim\u003E)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "Catalog.API",
@@ -187,7 +188,125 @@
         "Polly.AsyncRetrySyntax.WaitAndRetryAsync(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)",
         "Polly.Policy.Execute(Action)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": [
+        {
+          "callee": "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
+          "findings": [
+            {
+              "fingerprint": "020af98477b9c07e",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "086eba3900afcb49",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "1e5bd5536c7dc835",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "2bc8e4764d749252",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "2bf02d78f0eeab8b",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "4d3db3d49896fe32",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "55d5db2f01f68b10",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "581ca7502849d0e2",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "70996fb674ab46b4",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "9ffbf4d2f2c60470",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "ab1f6dfbec3a58df",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "b14a88c5e02edb8e",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "be100a47f042fa90",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "c3742921240a68bf",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "c66125b488af2df1",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "e2b9ea8272a6f507",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "e76b88a032d0217e",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "fec73e1c4a519de6",
+              "checks": [
+                "overlap"
+              ]
+            }
+          ],
+          "callSites": [
+            "Services/Catalog/Catalog.API/Infrastructure/CatalogContextSeed.cs:11"
+          ]
+        }
+      ]
     },
     {
       "scopeId": "Identity.API",
@@ -238,7 +357,8 @@
         "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
         "Polly.AsyncRetrySyntax.WaitAndRetryForeverAsync(PolicyBuilder, Func\u003Cint, TimeSpan\u003E, Action\u003CException, int, TimeSpan\u003E)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "Mobile.Shopping.HttpAggregator",
@@ -293,7 +413,8 @@
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
         "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "Ordering.API",
@@ -347,7 +468,113 @@
         "Polly.Policy.Execute(Action)",
         "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": [
+        {
+          "callee": "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
+          "findings": [
+            {
+              "fingerprint": "1cd86b1f9dc88b8c",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "1ed177fa6479677c",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "271725babe72922b",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "3b1f06183b0a9f43",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "41c21c6f6eeea16a",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "54c29f126fa4f806",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "6ddeba16ecc60320",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "90bb0d1df684bc73",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "b2ec53b17b587b83",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "b333834b5e6dda11",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "d895f2d196672612",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "d9de2ebaeff5e7bf",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "e2f90b13e3a22ff2",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "ebf363b7f8f114c6",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "edb1e535bb0b6443",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "fd3c9a1de47e689c",
+              "checks": [
+                "overlap"
+              ]
+            }
+          ],
+          "callSites": [
+            "Services/Ordering/Ordering.API/Infrastructure/OrderingContextSeed.cs:11"
+          ]
+        }
+      ]
     },
     {
       "scopeId": "Ordering.BackgroundTasks",
@@ -397,7 +624,8 @@
         "System.Reflection.AssemblyName.get_Name()",
         "System.Threading.CancellationToken.Register(Action)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "Ordering.SignalrHub",
@@ -450,7 +678,8 @@
         "Microsoft.Extensions.DependencyInjection.JwtBearerExtensions.AddJwtBearer(AuthenticationBuilder, Action\u003CJwtBearerOptions\u003E)",
         "Microsoft.Extensions.DependencyInjection.PolicyServiceCollectionExtensions.AddAuthorization(IServiceCollection, Action\u003CAuthorizationOptions\u003E)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "Payment.API",
@@ -496,7 +725,8 @@
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
         "Microsoft.Extensions.DependencyInjection.HealthChecksBuilderDelegateExtensions.AddCheck(IHealthChecksBuilder, string, Func\u003CHealthCheckResult\u003E, IEnumerable\u003Cstring\u003E, TimeSpan?)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "Web.Shopping.HttpAggregator",
@@ -551,7 +781,8 @@
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
         "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "WebMVC",
@@ -596,7 +827,8 @@
       "semanticGaps": [
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "WebSPA",
@@ -643,7 +875,8 @@
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureLogging(IWebHostBuilder, Action\u003CWebHostBuilderContext, ILoggingBuilder\u003E)",
         "Serilog.SerilogWebHostBuilderExtensions.UseSerilog(IWebHostBuilder, Action\u003CWebHostBuilderContext, LoggerConfiguration\u003E, bool, bool)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "WebStatus",
@@ -688,7 +921,8 @@
       "semanticGaps": [
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "WebhookClient",
@@ -733,7 +967,8 @@
       "semanticGaps": [
         "Microsoft.AspNetCore.Mvc.ControllerBase.Ok(object)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     },
     {
       "scopeId": "Webhooks.API",
@@ -781,7 +1016,8 @@
         "Polly.Policy.Execute(Action)",
         "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
       ],
-      "generationRefusals": []
+      "generationRefusals": [],
+      "decidingGaps": []
     }
   ]
 }

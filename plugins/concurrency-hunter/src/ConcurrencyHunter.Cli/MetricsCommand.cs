@@ -30,7 +30,7 @@ internal static class MetricsCommand
     private const string LOAD = "load";
     private const string RENDER = "render";
     // 1.1 added the ordering counters to each coverage entry, 1.2 the callees of its semantic gaps.
-    private const string SCHEMA_VERSION = "1.3";
+    private const string SCHEMA_VERSION = "1.4";
     private const double DETERMINISTIC_SECONDS_LIMIT = 90;
     private const double PEAK_RSS_GB_LIMIT = 4;
     private const double BYTES_PER_MB = 1024d * 1024d;
@@ -162,7 +162,7 @@ internal static class MetricsCommand
                                                                scope.Gaps.Select(gap => gap.Callee).Order(StringComparer.Ordinal).ToArray(),
                                                                // The members no generated model describes, in the order the scope lists them.
                                                                scope.GenerationRefusals.Select(item => new GenerationRefusalMeasurement(item.MemberId, item.FileKey, item.Cause))
-                                                                    .ToArray()))
+                                                                    .ToArray(), scope.DecidingGaps))
                 .ToArray();
 
     internal static async Task<LoadedTarget> LoadWithMsBuildAsync(string path, CancellationToken cancellationToken)
@@ -296,7 +296,8 @@ internal sealed record MeasurementCounts(int ProjectsExpected, int ProjectsLoade
 
 internal sealed record ScopeMeasurement(string ScopeId, IReadOnlyDictionary<string, int> RootsPerProvider, int Accesses,
                                         IReadOnlyDictionary<string, int> Counters, IReadOnlyDictionary<string, int> Ordering,
-                                        IReadOnlyList<string> SemanticGaps, IReadOnlyList<GenerationRefusalMeasurement> GenerationRefusals);
+                                        IReadOnlyList<string> SemanticGaps, IReadOnlyList<GenerationRefusalMeasurement> GenerationRefusals,
+                                        IReadOnlyList<DecidingGap> DecidingGaps);
 
 /// <summary>A generation target of a scope that no generated model describes, as a measurement records it.</summary>
 /// <param name="Member">The member's declaration id, the id the generated files name it by.</param>

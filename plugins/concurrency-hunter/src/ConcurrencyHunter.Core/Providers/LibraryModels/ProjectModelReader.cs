@@ -6,7 +6,7 @@ namespace ConcurrencyHunter.Providers.LibraryModels;
 
 internal sealed record ProjectModelEntry(string Path, int Position, string Member, IReadOnlyList<string> Assemblies,
                                          (Version Minimum, Version Maximum)? Versions, IReadOnlyList<LibraryEffect> Effects,
-                                         bool Opaque)
+                                         bool Opaque, string? Receiver = null)
 {
     public LibraryResult? Result { get; init; }
     public IReadOnlyList<LibraryFate> Fates { get; init; } = [];
@@ -186,7 +186,10 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
     private static ProjectModelEntry ParseEntry(JsonElement entry, string path, int position, IReadOnlyList<string>? defaults,
                                                 (Version Minimum, Version Maximum)? defaultVersions)
     {
-        Properties(entry, ["member", "assemblies", "versions", "effects", "result", "fates", "stores", "outputs", "keeps", "calls", "opaque", "note"]);
+        Properties(entry, ["member", "receiver", "assemblies", "versions", "effects", "result", "fates", "stores", "outputs", "keeps", "calls", "opaque", "note"]);
+        var receiver = entry.TryGetProperty("receiver", out var receiverValue) ?
+            receiverValue.ValueKind == JsonValueKind.String ? receiverValue.GetString() :
+            throw new FormatException("receiver must be a string.") : null;
         if (!entry.TryGetProperty("member", out var memberValue) || memberValue.ValueKind != JsonValueKind.String ||
             memberValue.GetString() is not { } member ||
             !BuiltInModelReader.IsMemberId(member) && !IsPattern(member))
@@ -290,9 +293,9 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
                 rawKeeps.Add(keep.Name, keep.Value.EnumerateArray().Select(value => value.GetString()!).ToArray());
             }
         }
-        var (result, parsedFates, stores, outputs, keeps) = LibraryVocabulary.Entry(hasResult ? resultValue.GetString() : null, fates, effects, rawStores, rawOutputs, rawKeeps);
+        var (result, parsedFates, stores, outputs, keeps) = LibraryVocabulary.Entry(hasResult ? resultValue.GetString() : null, fates, effects, rawStores, rawOutputs, rawKeeps, receiver);
         var calls = hasCalls ? LibraryVocabulary.Calls(Calls(callsValue), parsedFates) : [];
-        return new ProjectModelEntry(path, position, member, assemblies, versions, effects, hasOpaque)
+        return new ProjectModelEntry(path, position, member, assemblies, versions, effects, hasOpaque, receiver)
         {
             Result = result,
             Fates = parsedFates,
@@ -331,7 +334,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
 
     private static RawFate Fate(JsonProperty fate)
     {
-        Properties(fate.Value, ["fate", "holder", "inputs", "note"]);
+        Properties(fate.Value, ["fate", "holder", "runs", "inputs", "note"]);
         string? Text(string name) => !fate.Value.TryGetProperty(name, out var value) ? null :
                                      value.ValueKind == JsonValueKind.String ? value.GetString() :
                                      throw new FormatException($"fate of '{fate.Name}': {name} must be a string.");
@@ -347,7 +350,7 @@ internal sealed record ProjectModelFiles(IReadOnlyList<ProjectModelEntry> Entrie
                                                                                                  .Select(value => value.GetString()!).ToArray())
                                 .ToList();
         }
-        return new RawFate(fate.Name, Text("fate"), Text("holder"), inputs);
+        return new RawFate(fate.Name, Text("fate"), Text("holder"), inputs, Text("runs"));
     }
 
     private static void Properties(JsonElement element, string[]? allowed)

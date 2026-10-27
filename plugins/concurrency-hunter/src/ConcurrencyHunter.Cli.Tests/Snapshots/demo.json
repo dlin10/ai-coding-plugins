@@ -3,37 +3,37 @@
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 388,
+    "roots": 391,
     "rootsPerProvider": {
       "aspnetcore": 170,
-      "hosting": 218
+      "hosting": 221
     },
-    "reachableBodies": 1584,
-    "summaries": 1584,
-    "regions": 1113,
-    "instances": 1637,
-    "accesses": 1942,
+    "reachableBodies": 1599,
+    "summaries": 1599,
+    "regions": 1128,
+    "instances": 1653,
+    "accesses": 1967,
     "pairs": {
-      "comparisons": 2056,
-      "cartesianBound": 915982,
+      "comparisons": 2084,
+      "cartesianBound": 941879,
       "largestBucket": 8,
-      "buckets": 855,
+      "buckets": 865,
       "skips": {
         "confined": 23,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 71,
-        "no-overlap": 386,
-        "ordered": 54,
-        "read-read": 1204,
+        "no-overlap": 390,
+        "ordered": 56,
+        "read-read": 1225,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "suppressed": 17,
-      "candidates": 294
+      "candidates": 295
     },
-    "findings": 272,
-    "occurrences": 291,
-    "groups": 219,
+    "findings": 273,
+    "occurrences": 292,
+    "groups": 220,
     "fingerprints": [
       "006126d59d446beb",
       "00c0f9fbc81a0228",
@@ -243,6 +243,7 @@
       "b9060ca5ce16cf5b",
       "b9e1134c5f63eff9",
       "bc9d90e7f9fff06e",
+      "bd85810cb48e4264",
       "bda8f12f8f43d6a4",
       "bdb16ea449cce859",
       "bf0b4a252795b6d0",
@@ -314,44 +315,44 @@
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
         "aspnetcore": 170,
-        "hosting": 217
+        "hosting": 220
       },
-      "accesses": 1353,
+      "accesses": 1372,
       "counters": {
         "delegate-to-opaque": 12,
         "element-operation": 37,
         "generated-in-run": 0,
-        "known-call": 333,
-        "known-call-built-in": 326,
-        "known-call-generated": 3,
-        "known-call-project": 4,
+        "known-call": 340,
+        "known-call-built-in": 330,
+        "known-call-generated": 4,
+        "known-call-project": 6,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 17,
-        "opaque-by-project": 2,
-        "opaque-call": 1330,
+        "opaque-by-project": 3,
+        "opaque-call": 1348,
         "out-of-range-call": 0,
         "pairs-removed-generated": 1,
-        "reachable-bodies": 1581,
+        "reachable-bodies": 1596,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 19,
+        "semantic-gap": 20,
         "solver-available": 1,
         "solver-queries": 21,
         "solver-sat": 17,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
-        "unproven-reference": 219,
-        "unresolved-base": 33,
+        "unproven-reference": 223,
+        "unresolved-base": 34,
         "unresolved-locator": 2,
-        "unsupported-operation": 24,
+        "unsupported-operation": 26,
         "wildcard-access": 9
       },
       "ordering": {
-        "spawn-sites": 69,
+        "spawn-sites": 70,
         "timers-disabled": 1,
         "timers-one-shot": 5,
         "timers-periodic": 7,
-        "unproven-joins": 52
+        "unproven-joins": 53
       },
       "semanticGaps": [
         "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",
@@ -366,6 +367,7 @@
         "System.ComponentModel.TypeDescriptor.GetClassName(object)",
         "System.Console.Write(object)",
         "System.Console.WriteLine(object)",
+        "System.IO.TextWriter.Write(object)",
         "System.Random.NextBytes(System.Byte[])",
         "System.Reflection.FieldInfo.SetValue(object, object)",
         "System.Runtime.InteropServices.CollectionsMarshal.SetCount\u003CT\u003E(List\u003Cstring\u003E, int)",
@@ -581,6 +583,16 @@
           "cause": "unknown-touch"
         },
         {
+          "member": "M:Polly.Retry.RetryStrategyOptions.#ctor",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "vocabulary"
+        },
+        {
+          "member": "M:Polly.RetryResiliencePipelineBuilderExtensions.AddRetry(Polly.ResiliencePipelineBuilder,Polly.Retry.RetryStrategyOptions)",
+          "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
+          "cause": "unknown-touch"
+        },
+        {
           "member": "M:System.Collections.Concurrent.ConcurrentBag\u00601.#ctor",
           "file": "Microsoft.NETCore.App/10.0/System.Collections.Concurrent.json",
           "cause": "engine-recognized"
@@ -730,6 +742,265 @@
           "file": "Microsoft.NETCore.App/10.0/System.ComponentModel.TypeConverter.json",
           "cause": "engine-recognized"
         }
+      ],
+      "decidingGaps": [
+        {
+          "callee": "System.Reflection.FieldInfo.SetValue(object, object)",
+          "findings": [
+            {
+              "fingerprint": "75b09a54272b6539",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "881ba7bf79890d62",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "8d3067442f6c70e2",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "ab4098f66c35d018",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "ca42cdc7bd27fd18",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "f2bc3a6a0fef4ff9",
+              "checks": [
+                "operation"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/GenericNullableFilledByUnseenWrite.cs:28",
+            "Demo.Web/Cases/MetadataBaseNullableFilledByUnseenWrite.cs:24",
+            "Demo.Web/Cases/NullableFilledByUnseenWrite.cs:28"
+          ]
+        },
+        {
+          "callee": "System.Console.WriteLine(object)",
+          "findings": [
+            {
+              "fingerprint": "060ed9e8d33d76c3",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "0c99a46fa78a7e1a",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "34e840c7a707dbc5",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "7faca75deac3abf7",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "a560ec199fe59856",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "e9fec193f3551e0c",
+              "checks": [
+                "operation"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/GapMaterialityOrder.cs:38",
+            "Demo.Web/Cases/GapMaterialityOrder.cs:41",
+            "Demo.Web/Cases/GapMaterialityOrder.cs:44"
+          ]
+        },
+        {
+          "callee": "System.Threading.CancellationToken.Register(Action)",
+          "findings": [
+            {
+              "fingerprint": "22409f3959f84fe7",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "a0a00611df8f4181",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "d238723a190b0698",
+              "checks": [
+                "overlap"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/KeptCallbackStaysUnknown.cs:23",
+            "Demo.Web/Cases/UnknownLibraryCapturesDelegate.cs:23"
+          ]
+        },
+        {
+          "callee": "Polly.ResiliencePipeline.Execute\u003CTResult\u003E(Func\u003Cint\u003E)",
+          "findings": [
+            {
+              "fingerprint": "687f86f10b06fac5",
+              "checks": [
+                "overlap"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/PollyExecuteInvokesDelegate.cs:34"
+          ]
+        },
+        {
+          "callee": "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Task\u003Cint\u003E\u003E)",
+          "findings": [
+            {
+              "fingerprint": "601a2642cbab2ba1",
+              "checks": [
+                "overlap"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/OpaqueTaskSource.cs:32"
+          ]
+        },
+        {
+          "callee": "Microsoft.Extensions.Options.Options.Create\u003CTOptions\u003E(Settings)",
+          "findings": [
+            {
+              "fingerprint": "4f1d8500c62063c7",
+              "checks": [
+                "operation"
+              ]
+            },
+            {
+              "fingerprint": "54878bdf1f5005e9",
+              "checks": [
+                "operation"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/ProjectOpaqueSwitchesOffGenerated.cs:31"
+          ]
+        },
+        {
+          "callee": "System.Console.Write(object)",
+          "findings": [
+            {
+              "fingerprint": "ab66ff4ab2a6dfa0",
+              "checks": [
+                "operation"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/GapMaterialityOrder.cs:47"
+          ]
+        },
+        {
+          "callee": "System.IO.TextWriter.Write(object)",
+          "findings": [
+            {
+              "fingerprint": "bd85810cb48e4264",
+              "checks": [
+                "operation"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/ProjectModelReceiverType.cs:36"
+          ]
+        },
+        {
+          "callee": "System.Random.NextBytes(System.Byte[])",
+          "findings": [
+            {
+              "fingerprint": "7501e843b12608a0",
+              "checks": [
+                "operation"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/SpawnBodylessWork.cs:18"
+          ]
+        },
+        {
+          "callee": "System.Runtime.InteropServices.CollectionsMarshal.SetCount\u003CT\u003E(List\u003Cstring\u003E, int)",
+          "findings": [
+            {
+              "fingerprint": "88f686c572789f17",
+              "checks": [
+                "operation"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/UnknownCallModelNotNoop.cs:23"
+          ]
+        },
+        {
+          "callee": "System.Text.Json.JsonSerializer.SerializeToUtf8Bytes\u003CTValue\u003E(Payload, JsonSerializerOptions)",
+          "findings": [
+            {
+              "fingerprint": "e021f6ef56e624b8",
+              "checks": [
+                "operation"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/ProjectModelOverridesBuiltIn.cs:32"
+          ]
+        },
+        {
+          "callee": "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Timer\u003E)",
+          "findings": [
+            {
+              "fingerprint": "aca96e6ccc892fc6",
+              "checks": [
+                "overlap"
+              ]
+            },
+            {
+              "fingerprint": "fd00541eeae2ce38",
+              "checks": [
+                "overlap"
+              ]
+            }
+          ],
+          "callSites": [
+            "Demo.Web/Cases/MixedSourceTimer.cs:30"
+          ]
+        }
       ]
     },
     {
@@ -804,7 +1075,8 @@
           "file": "Microsoft.AspNetCore.App/10.0/Microsoft.Extensions.Hosting.Abstractions.json",
           "cause": "engine-recognized"
         }
-      ]
+      ],
+      "decidingGaps": []
     }
   ]
 }

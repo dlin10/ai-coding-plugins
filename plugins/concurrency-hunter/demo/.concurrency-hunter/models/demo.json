@@ -45,6 +45,26 @@
         "getHashCode": { "fate": "holder", "holder": "result", "inputs": [["holder-arg:0"]] }
       },
       "note": "The project-model-holder-fate case: the comparer keeps both delegates and runs them wherever one of its members is called."
+    },
+    {
+      "member": "M:Polly.ResiliencePipeline.ExecuteAsync(System.Func{System.Threading.CancellationToken,System.Threading.Tasks.ValueTask},System.Threading.CancellationToken)~System.Threading.Tasks.ValueTask",
+      "assemblies": ["Polly.Core"],
+      "versions": { "minimum": "8.0.0.0", "maximumExclusive": "9.0.0.0" },
+      "effects": {},
+      "fates": { "callback": { "fate": "invoke-now", "runs": "sequential-awaited" } }
+    },
+    {
+      "member": "M:System.IO.TextWriter.Write(System.Object)",
+      "assemblies": ["System.Runtime", "System.Private.CoreLib"],
+      "versions": { "minimum": "8.0.0.0", "maximumExclusive": "11.0.0.0" },
+      "receiver": "T:System.IO.StringWriter",
+      "effects": { "value": ["reads-deep"] }
+    },
+    {
+      "member": "M:System.IO.TextWriter.Write(System.Object)",
+      "assemblies": ["System.Runtime", "System.Private.CoreLib"],
+      "versions": { "minimum": "8.0.0.0", "maximumExclusive": "11.0.0.0" },
+      "opaque": true
     }
   ]
 }

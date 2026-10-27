@@ -191,6 +191,8 @@ public static partial class WholeProgram
             internal TrackedSet<DelegateSite> UnseenDelegates { get; } = [];
             internal TrackedSet<(DelegateSite Site, string Callee)> FateRuns { get; } = [];
             internal TrackedSet<(string Caller, int Operation, string Callee)> RepeatedRuns { get; } = [];
+            internal TrackedSet<(string Caller, int Operation, string Callee, RunRelation Relation)> RunRelations { get; } = [];
+            internal TrackedMap<(string Instance, int Operation), RegionRef> CallTasks { get; } = [];
 
             internal void Union(RebuiltState other)
             {
@@ -208,6 +210,12 @@ public static partial class WholeProgram
                 UnseenDelegates.UnionWith(other.UnseenDelegates);
                 FateRuns.UnionWith(other.FateRuns);
                 RepeatedRuns.UnionWith(other.RepeatedRuns);
+                RunRelations.UnionWith(other.RunRelations);
+                foreach (var pair in other.CallTasks)
+                {
+                    WorkCancellation.Check();
+                    CallTasks[pair.Key] = pair.Value;
+                }
                 foreach (var pair in other.Handoffs)
                 {
                     WorkCancellation.Check();
@@ -237,6 +245,7 @@ public static partial class WholeProgram
                 IteratorEnumerations.SequenceEqual(other.IteratorEnumerations) && DelegateSites.SequenceEqual(other.DelegateSites) &&
                 DelegateRuns.SequenceEqual(other.DelegateRuns) && UnseenDelegates.SequenceEqual(other.UnseenDelegates) &&
                 FateRuns.SequenceEqual(other.FateRuns) && RepeatedRuns.SequenceEqual(other.RepeatedRuns) &&
+                RunRelations.SequenceEqual(other.RunRelations) && CallTasks.SequenceEqual(other.CallTasks) &&
                 Handoffs.Keys.SequenceEqual(other.Handoffs.Keys) &&
                 Handoffs.All(pair => pair.Value.Sites.SequenceEqual(other.Handoffs[pair.Key].Sites) &&
                                      pair.Value.Callees.SequenceEqual(other.Handoffs[pair.Key].Callees));

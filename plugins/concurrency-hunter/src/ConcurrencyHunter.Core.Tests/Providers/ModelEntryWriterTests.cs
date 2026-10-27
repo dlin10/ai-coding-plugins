@@ -1,4 +1,5 @@
 using System.Text;
+using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
@@ -20,6 +21,7 @@ public sealed class ModelEntryWriterTests
 
             Assert.Empty(files.Rejections);
             Assert.Equal(model.Id, entry.Member);
+            Assert.Equal(model.Receiver, entry.Receiver);
             Assert.Equal(model.Assemblies.Select(range => range.AssemblyName).Order(StringComparer.Ordinal),
                          entry.Assemblies.Order(StringComparer.Ordinal));
             var versions = Assert.NotNull(entry.Versions);
@@ -95,12 +97,15 @@ public sealed class ModelEntryWriterTests
     [Fact]
     public void Entry_and_fate_properties_have_the_fixed_order()
     {
-        var entry = ModelEntryWriter.Write(Model(reverse: false));
+        var model = Model(reverse: false) with { Receiver = "T:Example.Api" };
+        // A holder has no runs in a valid record; including both here pins the writer's relative property order.
+        model = model with { Fates = [model.Fates[0] with { Runs = RunRelation.SequentialAwaited }] };
+        var entry = ModelEntryWriter.Write(model);
         var fate = entry["fates"]!["callback"]!.AsObject();
 
-        Assert.Equal(["member", "assemblies", "versions", "effects", "result", "fates", "stores", "outputs", "keeps"],
+        Assert.Equal(["member", "receiver", "assemblies", "versions", "effects", "result", "fates", "stores", "outputs", "keeps"],
                      entry.Select(property => property.Key));
-        Assert.Equal(["fate", "holder", "inputs"], fate.Select(property => property.Key));
+        Assert.Equal(["fate", "holder", "runs", "inputs"], fate.Select(property => property.Key));
     }
 
     [Fact]

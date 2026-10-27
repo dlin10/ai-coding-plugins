@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ConcurrencyHunter.Ir;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -18,8 +19,9 @@ public enum LibraryHolderKind { Result, This }
 /// <param name="Kind">Where the delegate runs.</param>
 /// <param name="Holder">The holder of a holder fate, otherwise null.</param>
 /// <param name="Inputs">The values handed to each delegate parameter, or null for no known inputs.</param>
+/// <param name="Runs">The relation between the delegate's runs.</param>
 public sealed record LibraryFate(string Parameter, LibraryFateKind Kind, LibraryHolderKind? Holder,
-                                 IReadOnlyList<IReadOnlyList<LibraryValue>>? Inputs)
+                                 IReadOnlyList<IReadOnlyList<LibraryValue>>? Inputs, RunRelation Runs = RunRelation.Concurrent)
 {
     internal static string Text(LibraryFateKind kind) => kind switch
     {
@@ -30,6 +32,14 @@ public sealed record LibraryFate(string Parameter, LibraryFateKind Kind, Library
         LibraryFateKind.UnknownExecution => "unknown-execution",
         LibraryFateKind.NotRun => "not-run",
         _ => throw new UnreachableException($"Unknown fate kind {kind}.")
+    };
+
+    internal static string Text(RunRelation runs) => runs switch
+    {
+        RunRelation.Concurrent => "concurrent",
+        RunRelation.Sequential => "sequential",
+        RunRelation.SequentialAwaited => "sequential-awaited",
+        _ => throw new UnreachableException($"Unknown run relation {runs}.")
     };
 }
 
@@ -201,7 +211,8 @@ internal sealed record RawCall(string? Member, string? On, IReadOnlyList<IReadOn
 /// <param name="Fate">The fate's text, or null when absent.</param>
 /// <param name="Holder">The holder's text, or null when absent.</param>
 /// <param name="Inputs">The value texts handed to each delegate parameter, or null when absent.</param>
-internal sealed record RawFate(string Parameter, string? Fate, string? Holder, IReadOnlyList<IReadOnlyList<string>>? Inputs);
+/// <param name="Runs">The run relation's text, or null when absent.</param>
+internal sealed record RawFate(string Parameter, string? Fate, string? Holder, IReadOnlyList<IReadOnlyList<string>>? Inputs, string? Runs = null);
 
 /// <summary>The rules of the model file format (ADR 0012): the entry step, which needs only the file, and the member step, which
 /// needs the member's symbol. Each refusal is a <see cref="FormatException"/> or a reason naming what breaks the rule.</summary>
@@ -231,11 +242,14 @@ internal static class LibraryVocabulary
     /// <param name="rawStores">The values written into each target's cells.</param>
     /// <param name="rawOutputs">The result forms assigned to output parameters.</param>
     /// <param name="rawKeeps">The values kept by each keeper.</param>
+    /// <param name="receiver">The receiver type's declaration id, or null for every receiver.</param>
     internal static (LibraryResult? Result, IReadOnlyList<LibraryFate> Fates, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Stores,
                      IReadOnlyDictionary<string, LibraryResult> Outputs, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> Keeps) Entry(
         string? resultText, IReadOnlyList<RawFate> raw, IReadOnlyList<LibraryEffect> effects, IReadOnlyDictionary<string, string[]>? rawStores,
-        IReadOnlyDictionary<string, string>? rawOutputs = null, IReadOnlyDictionary<string, string[]>? rawKeeps = null)
+        IReadOnlyDictionary<string, string>? rawOutputs = null, IReadOnlyDictionary<string, string[]>? rawKeeps = null, string? receiver = null)
     {
+        if (receiver is not null && DeclarationId.Parse(receiver) is not { IsType: true })
+            throw new FormatException("receiver must be a T: declaration id.");
         LibraryResult? result = null;
         if (resultText is not null && (result = LibraryResult.Parse(resultText)) is null)
             throw new FormatException($"result '{resultText}' does not parse.");
@@ -269,10 +283,19 @@ internal static class LibraryVocabulary
             };
             if (kind == LibraryFateKind.NotRun && fate.Inputs is not null)
                 throw new FormatException($"fate of '{fate.Parameter}': not-run carries no inputs.");
+            if (fate.Runs is not null && kind != LibraryFateKind.InvokeNow)
+                throw new FormatException($"fate of '{fate.Parameter}': runs goes only with invoke-now.");
+            var runs = fate.Runs switch
+            {
+                null or "concurrent" => RunRelation.Concurrent,
+                "sequential" => RunRelation.Sequential,
+                "sequential-awaited" => RunRelation.SequentialAwaited,
+                _ => throw new FormatException($"fate of '{fate.Parameter}': unknown runs '{fate.Runs}'.")
+            };
             var inputs = fate.Inputs?.Select(input => (IReadOnlyList<LibraryValue>)input.Select(text =>
                              LibraryValue.Parse(text) ?? throw new FormatException($"fate of '{fate.Parameter}': input '{text}' does not parse."))
                          .ToArray()).ToArray();
-            if (!fates.TryAdd(fate.Parameter, new LibraryFate(fate.Parameter, kind, holder, inputs)))
+            if (!fates.TryAdd(fate.Parameter, new LibraryFate(fate.Parameter, kind, holder, inputs, runs)))
                 throw new FormatException($"fates name '{fate.Parameter}' twice.");
         }
 
@@ -541,14 +564,16 @@ internal static class LibraryVocabulary
     /// <param name="stores">The entry's stores.</param>
     /// <param name="outputs">The entry's output assignments.</param>
     /// <param name="keeps">The entry's keepers and kept values.</param>
+    /// <param name="receiver">The receiver type's declaration id, or null for every receiver.</param>
     internal static string? Member(LibraryResult? result, IReadOnlyList<LibraryFate> fates, IMethodSymbol method, Compilation compilation,
                                    IReadOnlyList<LibraryEffect>? effects = null, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>>? stores = null,
-                                   IReadOnlyDictionary<string, LibraryResult>? outputs = null, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>>? keeps = null)
+                                   IReadOnlyDictionary<string, LibraryResult>? outputs = null, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>>? keeps = null,
+                                   string? receiver = null)
     {
         try
         {
             new MemberCheck(result, fates, method, compilation, effects ?? [], stores ?? new Dictionary<string, IReadOnlyList<LibraryValue>>(),
-                            outputs ?? new Dictionary<string, LibraryResult>(), keeps ?? new Dictionary<string, IReadOnlyList<LibraryValue>>()).Run();
+                            outputs ?? new Dictionary<string, LibraryResult>(), keeps ?? new Dictionary<string, IReadOnlyList<LibraryValue>>(), receiver).Run();
             return null;
         }
         catch (Refusal refusal)
@@ -580,7 +605,7 @@ internal static class LibraryVocabulary
         foreach (var a in fatesA)
         {
             WorkCancellation.Check();
-            if (fatesB.FirstOrDefault(fate => fate.Parameter == a.Parameter) is not { } b || a.Kind != b.Kind || a.Holder != b.Holder)
+            if (fatesB.FirstOrDefault(fate => fate.Parameter == a.Parameter) is not { } b || a.Kind != b.Kind || a.Holder != b.Holder || a.Runs != b.Runs)
                 return false;
             var count = Math.Max(a.Inputs?.Count ?? 0, b.Inputs?.Count ?? 0);
             for (var index = 0; index < count; index++)
@@ -606,7 +631,8 @@ internal static class LibraryVocabulary
 
     private sealed class MemberCheck(LibraryResult? result, IReadOnlyList<LibraryFate> fates, IMethodSymbol method, Compilation compilation,
                                     IReadOnlyList<LibraryEffect> effects, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> stores,
-                                    IReadOnlyDictionary<string, LibraryResult> outputs, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> keeps)
+                                    IReadOnlyDictionary<string, LibraryResult> outputs, IReadOnlyDictionary<string, IReadOnlyList<LibraryValue>> keeps,
+                                    string? receiver = null)
     {
         /// <summary>Checks that every value of the calls names what the member has.</summary>
         /// <param name="calls">The entry's calls.</param>
@@ -630,6 +656,8 @@ internal static class LibraryVocabulary
 
         internal void Run()
         {
+            if (receiver is not null)
+                CheckReceiver(receiver);
             if (HolderResultRefusal(result, fates) is { } holderRefusal)
                 throw new Refusal(holderRefusal);
             if (keeps.ContainsKey("result") && KeepsResultRefusal(result, fates) is { } keepsRefusal)
@@ -676,6 +704,8 @@ internal static class LibraryVocabulary
             {
                 WorkCancellation.Check();
                 var invoke = ((INamedTypeSymbol)method.Parameters.First(candidate => candidate.Name == fate.Parameter).Type).DelegateInvokeMethod!;
+                if (fate.Runs == RunRelation.SequentialAwaited && !TaskTypes.IsValueless(invoke.ReturnType) && TaskTypes.CompletionType(invoke.ReturnType) is null)
+                    throw new Refusal($"sequential-awaited needs a task-returning delegate; '{fate.Parameter}' returns {invoke.ReturnType.ToDisplayString()}.");
                 if (fate.Inputs is { } inputs && inputs.Count != invoke.Parameters.Length)
                     throw new Refusal($"inputs of '{fate.Parameter}' name {inputs.Count} parameters; its delegate takes {invoke.Parameters.Length}.");
                 if (fate.Holder == LibraryHolderKind.This && (method.IsStatic || method.MethodKind == MethodKind.Constructor))
@@ -723,8 +753,40 @@ internal static class LibraryVocabulary
                     throw new Refusal(outputRefusal);
                 CheckResult(output.Value, parameter.Type);
             }
+            if (result is not null && result.Kind != LibraryResultKind.Task &&
+                (TaskTypes.IsValueless(method.ReturnType) || TaskTypes.CompletionType(method.ReturnType) is not null) &&
+                fates.Any(fate => fate.Runs == RunRelation.SequentialAwaited))
+                throw new Refusal("a task-returning member with sequential-awaited takes only task(…) or no result.");
             if (result is not null)
                 CheckMemberResult(result, method.ReturnType);
+        }
+
+        /// <summary>Checks that a receiver key names a type in the member's assembly on which the instance member exists.</summary>
+        /// <param name="id">The receiver type's declaration id.</param>
+        private void CheckReceiver(string id)
+        {
+            if (method.IsStatic || method.MethodKind == MethodKind.Constructor || method.IsExtensionMethod)
+                throw new Refusal("receiver needs an instance member that is neither a constructor nor an extension method.");
+            if (DeclarationId.Parse(id) is not { IsType: true })
+                throw new Refusal("receiver must be a T: declaration id.");
+            var types = DocumentationCommentId.GetSymbolsForDeclarationId(id, compilation).OfType<INamedTypeSymbol>()
+                .Where(type => SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, method.ContainingAssembly)).ToArray();
+            if (types.Length == 0)
+                throw new Refusal("receiver must name a type declared in the member's assembly.");
+            var declaring = method.ContainingType.OriginalDefinition;
+            foreach (var type in types)
+            {
+                WorkCancellation.Check();
+                if (type.AllInterfaces.Any(candidate => SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, declaring)))
+                    return;
+                for (var current = type; current is not null; current = current.BaseType)
+                {
+                    WorkCancellation.Check();
+                    if (SymbolEqualityComparer.Default.Equals(current.OriginalDefinition, declaring))
+                        return;
+                }
+            }
+            throw new Refusal("receiver must be the declaring type, derive from it or implement it.");
         }
 
         /// <summary>Checks a member's result against what it returns: a task's result is <c>task(X)</c>, X checked against what the

@@ -74,7 +74,8 @@ internal sealed class GenerationPass : IDisposable
             WorkCancellation.Check();
             _cancellationToken.ThrowIfCancellationRequested();
             var summary = group.First().Summary;
-            var opaque = summary.OpaqueCalls.Where(call => !call.IsKnown || call.Library?.Layer == IrModelLayer.Generated).ToArray();
+            var opaque = summary.OpaqueCalls.Where(call => !call.IsKnown && call.Library?.DeclaredOpaque != true ||
+                                                           call.Library?.Layer == IrModelLayer.Generated).ToArray();
             if (opaque.Length == 0 || !run.Reachable.Bodies.TryGetValue(summary.BodyId, out var body) || CompilationOf(summary.BodyId, compilations) is not { } compilation)
                 continue;
 

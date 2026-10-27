@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ConcurrencyHunter.Ir;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 
 namespace ConcurrencyHunter.Providers.LibraryModels;
@@ -39,6 +40,8 @@ internal static class ModelEntryWriter
                                                .OrderBy(group => group.Key, StringComparer.Ordinal),
                                    group => group.Key, group => group.Select(effect => Effect(effect.Kind)), checks)
         };
+        if (model.Receiver is { } receiver)
+            entry.Insert(1, "receiver", JsonValue.Create(receiver));
         if (model.Result is { } result)
             entry["result"] = ResultText(result);
         if (model.Fates.Count != 0)
@@ -51,6 +54,8 @@ internal static class ModelEntryWriter
                 var value = new JsonObject { ["fate"] = LibraryFate.Text(fate.Kind) };
                 if (fate.Holder is { } holder)
                     value["holder"] = holder == LibraryHolderKind.Result ? "result" : "this";
+                if (fate.Runs != RunRelation.Concurrent)
+                    value["runs"] = LibraryFate.Text(fate.Runs);
                 if (fate.Inputs is { Count: > 0 } inputs && inputs.Any(input => input.Count != 0))
                     value["inputs"] = new JsonArray(inputs.Select(input => TextArray(input.Select(item => item.Canonical))).ToArray());
                 fates[fate.Parameter] = value;

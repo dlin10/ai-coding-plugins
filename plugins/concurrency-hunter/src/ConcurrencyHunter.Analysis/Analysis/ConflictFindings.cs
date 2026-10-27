@@ -325,7 +325,13 @@ internal static class ConflictFindings
             Occurrences = listed,
             PathFeasibility = candidate.Feasibility,
             GapCallees = folded.Occurrences.SelectMany(occurrence => occurrence.GapChecks).Select(check => check.Callee)
-                               .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray()
+                               .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
+            GapChecks = folded.Occurrences.SelectMany(occurrence => occurrence.GapChecks)
+                              .GroupBy(check => check.Callee, StringComparer.Ordinal).OrderBy(group => group.Key, StringComparer.Ordinal)
+                              .ToDictionary(group => group.Key,
+                                            group => (IReadOnlyList<string>)group.Select(check => check.Component).Distinct(StringComparer.Ordinal)
+                                                                               .Order(StringComparer.Ordinal).ToArray(),
+                                            StringComparer.Ordinal)
         };
     }
 

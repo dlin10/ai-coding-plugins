@@ -102,7 +102,7 @@ internal static class ProjectModelResolver
         }
 
         var models = new List<LibraryModel>();
-        foreach (var group in accepted.GroupBy(item => (item.Id, item.Range.AssemblyName, item.ResolvedVersion)))
+        foreach (var group in accepted.GroupBy(item => (item.Id, item.Range.AssemblyName, item.ResolvedVersion, item.Entry.Receiver)))
         {
             WorkCancellation.Check();
             var first = group.First().Entry;
@@ -117,7 +117,7 @@ internal static class ProjectModelResolver
             }
             models.Add(new LibraryModel(group.Key.Id, group.Select(item => item.Range).Distinct().ToArray(),
                                         conflict ? [] : first.Effects, ModelLayer.Project, conflict || first.Opaque,
-                                        group.Key.ResolvedVersion)
+                                        group.Key.ResolvedVersion, first.Receiver)
             {
                 Result = conflict ? null : first.Result,
                 Fates = conflict ? [] : first.Fates,
@@ -178,7 +178,7 @@ internal static class ProjectModelResolver
                entry.Versions is { } range && (method.ContainingAssembly.Identity.Version < range.Minimum ||
                                                 method.ContainingAssembly.Identity.Version >= range.Maximum) ?
                    "assembly version is outside the entry's versions." :
-               LibraryVocabulary.Member(entry.Result, entry.Fates, method, compilation, entry.Effects, entry.Stores, entry.Outputs, entry.Keeps) is { } refusal ? refusal :
+               LibraryVocabulary.Member(entry.Result, entry.Fates, method, compilation, entry.Effects, entry.Stores, entry.Outputs, entry.Keeps, entry.Receiver) is { } refusal ? refusal :
                LibraryVocabulary.MemberCalls(entry.Calls, method, compilation) is { } callRefusal ? callRefusal :
                entry.Effects.Any(effect => effect.Parameter != "this" && method.Parameters.All(parameter => parameter.Name != effect.Parameter)) ?
                    "an effect names a missing parameter." : null;

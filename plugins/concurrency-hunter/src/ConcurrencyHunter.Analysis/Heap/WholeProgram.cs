@@ -380,6 +380,7 @@ public sealed class HeapSolution
     private readonly Func<string, IrFieldRef, string> _staticRegion;
     private readonly Func<string, IReadOnlyList<string>> _fieldsOf;
     private readonly Func<string, IReadOnlySet<string>> _delegateCaptures;
+    private readonly Func<string, ReferenceTarget, IReadOnlyList<(string Region, string Slot)>> _referenceLocations;
 
     internal HeapSolution(IReadOnlyDictionary<string, HeapRegion> regions, IReadOnlyDictionary<string, MethodInstance> instances,
                           IReadOnlyList<CallEdge> edges, IReadOnlyList<TypeInitializerConstruction> typeInitializers,
@@ -389,12 +390,14 @@ public sealed class HeapSolution
                           Func<string, AbstractValue, IReadOnlySet<string>> resolve, Func<string, string, IReadOnlySet<string>> load,
                           IReadOnlyDictionary<string, string> rootInstances,
                           Func<string, IrFieldRef, string> staticRegion, Func<string, IReadOnlyList<string>> fieldsOf,
-                          Func<string, IReadOnlySet<string>> delegateCaptures)
+                          Func<string, IReadOnlySet<string>> delegateCaptures,
+                          Func<string, ReferenceTarget, IReadOnlyList<(string Region, string Slot)>>? referenceLocations = null)
     {
         RootInstances = rootInstances;
         _staticRegion = staticRegion;
         _fieldsOf = fieldsOf;
         _delegateCaptures = delegateCaptures;
+        _referenceLocations = referenceLocations ?? ((_, _) => []);
         Regions = regions;
         Instances = instances;
         Edges = edges;
@@ -451,6 +454,13 @@ public sealed class HeapSolution
     /// the collection table runs where the call stands (ADR 0010). Each run is a call of the delegate at that site, so the site may pass
     /// anything the delegate does more than once.</summary>
     public IReadOnlySet<(string Caller, int Operation, string Callee)> RepeatedRuns { get; init; } = new HashSet<(string, int, string)>();
+
+    /// <summary>The relations of delegates run directly by known calls; held delegates and enumerations keep their usual reading.</summary>
+    public IReadOnlySet<(string Caller, int Operation, string Callee, RunRelation Relation)> RunRelations { get; init; } =
+        new HashSet<(string, int, string, RunRelation)>();
+
+    /// <summary>The own task of each built-in or project sequential-awaited call, including calls with no model result.</summary>
+    public IReadOnlyDictionary<(string Instance, int Operation), string> CallTasks { get; init; } = new Dictionary<(string, int), string>();
 
     /// <summary>The awaits and <c>Unwrap()</c> calls whose value may come from such an origin: a task they read may complete with an object
     /// the heap cannot name (<see cref="SummaryValue.Completions"/>).</summary>
@@ -632,6 +642,12 @@ public sealed class HeapSolution
     /// <param name="value">The abstract value.</param>
     public IReadOnlySet<string> Resolve(string instanceId, AbstractValue value) =>
         value is RegionValue region ? new HashSet<string>(StringComparer.Ordinal) { region.RegionId } : _resolve(instanceId, value);
+
+    /// <summary>The solved storage locations a reference names, including bindings of ref parameters and ref returns.</summary>
+    /// <param name="instanceId">The instance expressing the reference.</param>
+    /// <param name="target">The reference target.</param>
+    internal IReadOnlyList<(string Region, string Slot)> ReferenceLocations(string instanceId, ReferenceTarget target) =>
+        _referenceLocations(instanceId, target);
 
     /// <summary>The regions a field of a region points to, including what open regions of its group store. The field is a slot key
     /// as <see cref="FieldsOf"/> gives it, <c>[]</c>, or a bare field name, which joins the slots of every declaring type with that
@@ -1658,7 +1674,9 @@ public static partial class WholeProgram
                 }),
                 Query((string identity) => Intern(identity) is var regionId && _delegates.ContainsKey(regionId)
                                                ? Identities(Captures(regionId))
-                                               : new TrackedSet<string>(StringComparer.Ordinal)))
+                                               : new TrackedSet<string>(StringComparer.Ordinal)),
+                Query((string instanceId, ReferenceTarget target) => (IReadOnlyList<(string, string)>)ReferenceLocations(_instances[instanceId], target)
+                    .Select(location => (location.Region.Identity, location.Slot)).ToArray()))
             {
                 ExecutionEdges = executionEdges.OrderBy(edge => edge.CallerInstance, StringComparer.Ordinal).ThenBy(edge => edge.OperationId)
                                               .ThenBy(edge => edge.CalleeInstance, StringComparer.Ordinal).ToArray(),
@@ -1712,6 +1730,8 @@ public static partial class WholeProgram
                                       .ToDictionary(group => group.Key, group => (IReadOnlySet<DelegateSite>)group.Select(item => item.Site).ToHashSet(),
                                                     StringComparer.Ordinal),
                 RepeatedRuns = _rebuilding.RepeatedRuns.ToHashSet(),
+                RunRelations = _rebuilding.RunRelations.ToHashSet(),
+                CallTasks = _rebuilding.CallTasks.ToDictionary(pair => pair.Key, pair => pair.Value.Identity),
                 UnresolvedCallTargets = _instances.Values
                                                   .SelectMany(instance => instance.UnresolvedCallTargets.Select(operation => (instance.Id, operation)))
                                                   .ToTrackedSet(),
@@ -3834,7 +3854,7 @@ public static partial class WholeProgram
                         switch (fate.Kind)
                         {
                             case IrFateKind.InvokeNow:
-                                RunNow(caller, invocation, callee);
+                                RunNow(caller, invocation, callee, fate.Runs);
                                 break;
                             case IrFateKind.Iterator when sequence is not null:
                                 if (sequence.Callees.Add(callee.Id))
@@ -3883,6 +3903,12 @@ public static partial class WholeProgram
 
             if (library.Result is { } result)
                 ModelResult(caller, call, result, returns, sequence, new ResultDestination(null, library.ResultTypeKey));
+            if (library.CreatesCallTask)
+            {
+                if (library.Result is null)
+                    ResultSlot(caller, call, 1, unfollowed: false);
+                _rebuilding.CallTasks[(caller.Id, call.OperationId)] = TaskRegion(caller, call.OperationId);
+            }
             foreach (var output in library.Outputs.OrderBy(output => output.Key))
             {
                 CheckCancellation();
@@ -4156,7 +4182,8 @@ public static partial class WholeProgram
         /// <param name="caller">The calling instance.</param>
         /// <param name="invocation">The delegate invocation.</param>
         /// <param name="callee">The instance the delegate runs.</param>
-        private void RunNow(InstanceState caller, CallTransfer invocation, InstanceState callee)
+        /// <param name="relation">How the record relates this delegate's runs; concurrent for held delegates.</param>
+        private void RunNow(InstanceState caller, CallTransfer invocation, InstanceState callee, RunRelation relation = RunRelation.Concurrent)
         {
             if (AsyncSpawnKind(invocation, callee) is { } kind)
             {
@@ -4167,6 +4194,7 @@ public static partial class WholeProgram
 
             AddEdge((caller.Id, invocation.OperationId, callee.Id, "delegate"));
             _rebuilding.RepeatedRuns.Add((caller.Id, invocation.OperationId, callee.Id));
+            _rebuilding.RunRelations.Add((caller.Id, invocation.OperationId, callee.Id, relation));
         }
 
         /// <summary>What one run of each delegate a model may name the returns of gives back at a known call, and which of them may give

@@ -2960,6 +2960,17 @@
         { "symbol": "Demo.Web.Cases.ExceptionLeavesSpawningHelper.FallbackWorker.Work()", "operation": "write" },
         { "symbol": "Demo.Web.Cases.ExceptionLeavesSpawningHelper.FallbackWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
       ]
+    },
+    {
+      "id": "project-model-receiver-type",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "medium",
+      "resource": { "region": "alloc:Demo.Web.Cases.ProjectModelReceiverType.Shared..ctor()#Demo.Web.Cases.ProjectModelReceiverType.Payload#2", "accessPath": ["Count"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.ProjectModelReceiverType.WritingWorker.WriteViaTextWriter()", "operation": "unknown-effect" },
+        { "symbol": "Demo.Web.Cases.ProjectModelReceiverType.ReadingWorker.ExecuteAsync(CancellationToken)", "operation": "read" }
+      ]
     }
   ],
   "notDefects": [
@@ -3593,6 +3604,16 @@
       "id": "exclusive-branch-seeding",
       "phase": "5d",
       "resource": { "region": "di:Demo.Web.Cases.ExclusiveBranchSeeding.SeedingWorker@Singleton", "accessPath": ["Seeded"] }
+    },
+    {
+      "id": "project-model-awaited-runs",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.ProjectModelAwaitedRuns.RunsState@Singleton", "accessPath": ["Done"] }
+    },
+    {
+      "id": "project-model-receiver-type/string-writer",
+      "phase": "5d",
+      "resource": { "region": "alloc:Demo.Web.Cases.ProjectModelReceiverType.Shared..ctor()#Demo.Web.Cases.ProjectModelReceiverType.Payload", "accessPath": ["Count"] }
     }
   ]
 }

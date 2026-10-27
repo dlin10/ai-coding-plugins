@@ -277,7 +277,8 @@ public static class MethodSummaryBuilder
                                                                          References(store.AddressValue), store.Provenance, locks,
                                                                          Dependencies(store.Value))
                         {
-                            ReadModifyWriteOf = store.ReadModifyWriteOf
+                            ReadModifyWriteOf = store.ReadModifyWriteOf,
+                            StoredValue = Value(store.Value, delegates)
                         });
                         copies.Add(new StructCopy(store.Id, Final(Points(store.AddressValue), delegates), Final(Points(store.Value), delegates))
                         {
@@ -329,6 +330,7 @@ public static class MethodSummaryBuilder
                                                        store.ReadModifyWriteOf, stored, Dependencies(store.Value))
                         {
                             Atomic = atomic.TryGetValue(store.Id, out var storeMark) ? storeMark.Effect : null,
+                            StoredValue = Value(store.Value, delegates),
                             ComparandLoad = Comparand(atomic, store.Id),
                             StoredTerm = Term(store.Value),
                             IsFresh = store.ReceiverValue is int storeReceiver && IsFresh(storeReceiver),
@@ -771,7 +773,8 @@ public static class MethodSummaryBuilder
                 yield return new SummaryAccess(operation.Id, SummaryAccessKind.Store, assigned.Field, CellBases(assigned), operation.Provenance,
                                                locks, null, stored, Dependencies(source))
                 {
-                    IsFresh = Declares(assigned)
+                    IsFresh = Declares(assigned),
+                    StoredValue = Value(source, delegates)
                 };
             }
 
@@ -1760,7 +1763,8 @@ public static class MethodSummaryBuilder
                     IsFresh = IsFresh(value),
                     UnknownSources = _unknown[value],
                     SourceCalls = _sourceCalls[value],
-                    Completions = _completions[value]
+                    Completions = _completions[value],
+                    CompletedCalls = _completedCalls[value]
                 })
                 .ToArray();
 
@@ -2029,6 +2033,7 @@ public static class MethodSummaryBuilder
                 IrAllocateOperation or IrBoxOperation or IrCreateDelegateOperation or IrComputeOperation or IrCompareOperation => [],
                 IrLoadFieldOperation => [UnknownSource.FieldBeforeWrite],
                 IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _unknown[outer]],
+                IrCallOperation { Library.CreatesCallTask: true } call when call.ResultValue == value.Id => [UnknownSource.SourceCall],
                 IrCallOperation call when call.ResultValue == value.Id && _modeledCalls.Contains(call.Id) => [],
                 IrCallOperation call when PairPartOf(call, value.Id) is int pair => [.. _unknown[pair]],
                 IrCallOperation call => [IsOpaque(call) ? UnknownSource.OpaqueCall : UnknownSource.SourceCall],
@@ -2078,6 +2083,7 @@ public static class MethodSummaryBuilder
                 IrPhiOperation phi => phi.Inputs.SelectMany(input => _sourceCalls[input.Value]).ToHashSet(),
                 IrConvertOperation convert => [.. _sourceCalls[convert.OperandValue]],
                 IrCallOperation call when call.ResultValue == value.Id && _unwrapped.TryGetValue(value.Id, out var outer) => [.. _sourceCalls[outer]],
+                IrCallOperation { Library.CreatesCallTask: true } call when call.ResultValue == value.Id => [call.Id],
                 IrCallOperation call when call.ResultValue == value.Id && _modeledCalls.Contains(call.Id) => [],
                 IrCallOperation call when PairPartOf(call, value.Id) is int pair => [.. _sourceCalls[pair]],
                 IrCallOperation call => IsOpaque(call) ? [] : [call.Id],

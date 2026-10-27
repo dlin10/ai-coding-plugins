@@ -139,6 +139,7 @@ ConcurrencyHunter.Cli.Tests.RunToolsTests.Rejection_with_600_long_unknown_citati
 ConcurrencyHunter.Cli.Tests.RunToolsTests.Run_poll_reports_phase_state_counts_elapsed_and_remaining	Passed
 ConcurrencyHunter.Cli.Tests.RunToolsTests.Struct_path_digest_keeps_the_whole_path_and_names_its_field	Passed
 ConcurrencyHunter.Cli.Tests.RunToolsTests.Unknown_run_id_is_unknownRun_on_every_tool	Passed
+ConcurrencyHunter.Cli.Tests.SemanticGapTests.Measurement_carries_the_deciding_gaps_of_each_scope	Passed
 ConcurrencyHunter.Cli.Tests.SemanticGapTests.Measurement_carries_the_gap_counter_and_the_sorted_callees_of_each_scope	Passed
 ConcurrencyHunter.Cli.Tests.TargetResolverTests.Directory_that_cannot_be_enumerated_is_unresolvable_with_the_exception	Passed
 ConcurrencyHunter.Cli.Tests.TargetResolverTests.Directory_with_one_top_level_solution_resolves_to_it	Passed
@@ -447,6 +448,393 @@ ConcurrencyHunter.Core.Tests.Engine.AtomicOperationTests.Two_atomic_operations_o
 ConcurrencyHunter.Core.Tests.Engine.AtomicOperationTests.Volatile_read_is_an_atomic_read	Passed
 ConcurrencyHunter.Core.Tests.Engine.AtomicOperationTests.Volatile_write_is_an_atomic_write	Passed
 ConcurrencyHunter.Core.Tests.Engine.AtomicOperationTests.Write_of_a_volatile_field_is_an_atomic_write	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "add-distinct")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "add-same")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "append-distinct")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "append-same")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "combine-distinct")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "combine-same")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "field")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "lambda")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "local")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "method")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "parameter")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "phi-async")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "phi-call")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "phi-sync")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "sync")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "two-awaited")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_delegate_form_obeys_the_creation_and_async_boundary(form: "two-mixed")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-field", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-field", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-field", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-field", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-field", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-field", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-field", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-field", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-completed", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-completed", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-completed", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-completed", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-completed", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-completed", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-completed", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-completed", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-delay", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-delay", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-delay", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-delay", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-delay", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-delay", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-delay", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "conditional-overwrite-delay", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "direct", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "direct", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "direct", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "direct", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "direct", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "direct", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "direct", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "direct", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-completed", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-completed", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-completed", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-completed", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-completed", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-completed", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-completed", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-completed", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-delay", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-delay", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-delay", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-delay", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-delay", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-delay", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-delay", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field-delay", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "field", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "foreign-overwrite", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "foreign-overwrite", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "foreign-overwrite", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "foreign-overwrite", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "foreign-overwrite", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "foreign-overwrite", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "foreign-overwrite", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "foreign-overwrite", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "http", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "http", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "http", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "http", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "http", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "http", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "http", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "http", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-completed", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-completed", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-completed", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-completed", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-completed", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-completed", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-completed", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-completed", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-delay", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-delay", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-delay", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-delay", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-delay", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-delay", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-delay", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local-delay", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "local", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "null-before-field", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "null-before-field", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "null-before-field", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "null-before-field", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "null-before-field", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "null-before-field", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "null-before-field", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "null-before-field", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-completed", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-completed", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-completed", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-completed", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-completed", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-completed", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-completed", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-completed", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-delay", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-delay", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-delay", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-delay", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-delay", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-delay", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-delay", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "overwrite-delay", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-completed", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-completed", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-completed", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-completed", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-completed", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-completed", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-completed", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-completed", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-delay", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-delay", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-delay", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-delay", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-delay", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-delay", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-delay", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter-delay", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "parameter", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-field", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-field", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-field", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-field", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-field", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-field", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-field", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-field", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-overwrite", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-overwrite", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-overwrite", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-overwrite", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-overwrite", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-overwrite", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-overwrite", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "ref-overwrite", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "return", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "return", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "return", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "return", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "return", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "return", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "return", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "return", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "worker", handle: "call-task")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "worker", handle: "conditional")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "worker", handle: "get")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "worker", handle: "result")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "worker", handle: "wait-all-one")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "worker", handle: "wait-all-two")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "worker", handle: "wait")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.Every_wait_proves_all_runs_only_with_one_excused_call_task(place: "worker", handle: "when-all")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsBoundaryMatrixTests.There_are_17_delegate_and_40_wait_cells_covering_every_axis	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Fire", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Fire", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Fire", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "wait", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "wait", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "Run", wait: "wait", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "RunValue", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "RunValue", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "RunValue", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "RunValue", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "RunValue", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "RunValue", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "RunValue", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "RunValue", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "RunValue", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskBare", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskBare", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskBare", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskBare", wait: "result", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskBare", wait: "result", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskBare", wait: "result", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "result", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "result", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "result", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "wait", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "wait", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "TaskOf", wait: "wait", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueBare", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueBare", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueBare", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueBare", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueBare", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueBare", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "result", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "result", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "concurrent", member: "ValueOf", wait: "result", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Fire", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Fire", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Fire", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "wait", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "wait", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "Run", wait: "wait", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "RunValue", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "RunValue", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "RunValue", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "RunValue", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "RunValue", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "RunValue", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "RunValue", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "RunValue", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "RunValue", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskBare", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskBare", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskBare", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskBare", wait: "result", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskBare", wait: "result", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskBare", wait: "result", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "result", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "result", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "result", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "wait", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "wait", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "TaskOf", wait: "wait", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueBare", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueBare", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueBare", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueBare", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueBare", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueBare", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "result", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "result", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential-awaited", member: "ValueOf", wait: "result", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Fire", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Fire", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Fire", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "wait", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "wait", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "Run", wait: "wait", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "RunValue", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "RunValue", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "RunValue", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "RunValue", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "RunValue", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "RunValue", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "RunValue", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "RunValue", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "RunValue", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskBare", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskBare", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskBare", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskBare", wait: "result", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskBare", wait: "result", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskBare", wait: "result", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "result", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "result", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "result", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "wait", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "wait", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "TaskOf", wait: "wait", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueBare", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueBare", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueBare", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueBare", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueBare", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueBare", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "await", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "await", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "await", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "get", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "get", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "get", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "none", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "none", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "none", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "result", call: "http")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "result", call: "loop")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.Every_cell_has_exactly_the_required_pairs(relation: "sequential", member: "ValueOf", wait: "result", call: "once")	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsMatrixTests.There_are_180_cells_covering_every_axis	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.A_null_store_on_the_other_path_does_not_prove_a_call_task_field_join	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Built_in_sequential_awaited_record_has_both_effects	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Call_task_returned_through_an_async_completion_is_proven	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Call_tasks_and_relations_survive_worklist_rebuild_and_audit	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.ContinueWith_on_a_call_task_keeps_todays_reading	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Held_delegate_run_at_the_same_call_keeps_both_pairs	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Holder_triggers_keep_todays_reading	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Relation_of_a_generated_layer_call_proves_no_order	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Sequential_runs_read_as_concurrent	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Sync_part_of_a_run_still_meets_the_continuation_of_another	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Wait_of_a_call_task_that_fails_the_gate_stays_an_unproven_join	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Wait_of_a_call_task_that_passes_the_gate_is_no_unproven_join	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkScopeTests.All_selection_of_the_fixture_compiles_without_an_error	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkScopeTests.All_takes_every_override_and_every_interface_implementation	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkScopeTests.Default_interface_implementation_is_selected	Passed
@@ -4369,6 +4757,22 @@ ConcurrencyHunter.Core.Tests.Engine.CreatedArgumentArrayMatrixTests.Two_unresolv
 ConcurrencyHunter.Core.Tests.Engine.CreatedArgumentArrayMatrixTests.Two_unresolved_elements_count_once(creation: ExplicitArray)	Passed
 ConcurrencyHunter.Core.Tests.Engine.CreatedArgumentArrayMatrixTests.Two_unresolved_elements_count_once(creation: ParamsArray)	Passed
 ConcurrencyHunter.Core.Tests.Engine.CreatedArgumentArrayMatrixTests.Two_unresolved_elements_count_once(creation: ParamsCollection)	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Call_a_record_declares_opaque_can_be_a_deciding_gap	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Call_a_record_makes_known_is_no_deciding_gap	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Call_sites_are_one_per_path_and_line_ordered_by_path_then_line_number	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Call_sites_are_the_gaps_own_sites	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Checks_are_listed_operation_overlap_protection	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Checks_of_one_callee_from_different_occurrences_are_united	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Deciding_gaps_are_ordered_by_materiality_then_callee	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Gap_deciding_only_a_capped_occurrence_of_a_high_finding_is_listed	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Gap_deciding_the_operation_check_is_listed_with_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Gap_deciding_the_overlap_check_is_listed_with_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Gap_deciding_the_protection_check_is_listed_with_it	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Gap_deciding_two_findings_lists_both_by_fingerprint	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Gap_on_the_call_path_that_decides_nothing_is_not_listed	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Report_lists_the_deciding_gaps_after_the_semantic_gaps_of_their_scope	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Scope_without_deciding_gaps_has_an_empty_list_and_no_report_section	Passed
+ConcurrencyHunter.Core.Tests.Engine.DecidingGapTests.Two_gaps_deciding_one_finding_are_two_entries	Passed
 ConcurrencyHunter.Core.Tests.Engine.DeconstructionCallTests.Deconstruction_assignment_calls_a_source_Deconstruct	Passed
 ConcurrencyHunter.Core.Tests.Engine.DeconstructionCallTests.Deconstruction_into_existing_variables_calls_a_source_Deconstruct	Passed
 ConcurrencyHunter.Core.Tests.Engine.DeconstructionCallTests.Foreach_deconstruction_calls_a_source_Deconstruct	Passed
@@ -4866,6 +5270,10 @@ ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Call_that_joins_on_one_br
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Call_that_mixes_a_wait_and_an_await_the_caller_catches_a_throw_of_orders_nothing	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Call_where_every_implementation_waits_orders_the_write_after_it	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Call_where_only_one_implementation_waits_orders_nothing	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Conditional_argument_to_a_helper_keeps_the_spawn_handle_join_unproven(alternative: "Task.CompletedTask")	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Conditional_argument_to_a_helper_keeps_the_spawn_handle_join_unproven(alternative: "Task.Delay(1)")	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Conditional_value_in_one_field_store_keeps_the_spawn_handle_join_unproven(alternative: "Task.CompletedTask")	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Conditional_value_in_one_field_store_keeps_the_spawn_handle_join_unproven(alternative: "Task.Delay(1)")	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Continuation_follows_its_antecedent_but_overlaps_the_parent	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Continuation_in_an_http_action_is_not_ordered	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Continuation_of_a_composite_task_is_unrecognized_and_overlaps_itself	Passed
@@ -4873,8 +5281,14 @@ ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Continuation_of_a_receive
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Continuation_of_a_receiver_that_may_come_from_an_opaque_call_is_not_ordered	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Continuation_of_a_when_all_is_a_composite_task_that_orders_nothing	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Continuation_of_an_antecedent_spawned_in_a_loop_is_not_ordered	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Excused_parameter_local_and_field_values_keep_the_spawn_handle_join_proven(body: "_work = null; _work = t; await _work; P1();", members: "private Task _work;")	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Excused_parameter_local_and_field_values_keep_the_spawn_handle_join_proven(body: "await Drain(t);", members: "private async Task Drain(Task task) { await task; "···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Excused_parameter_local_and_field_values_keep_the_spawn_handle_join_proven(body: "if (_flag) _work = t; else _work = t; await _work;"···, members: "private Task _work; private readonly bool _flag;")	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Excused_parameter_local_and_field_values_keep_the_spawn_handle_join_proven(body: "var copy = t; await copy; P1();", members: "")	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Field_handle_awaited_in_a_method_called_on_every_path_is_a_join	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Field_handle_from_two_spawn_sites_is_not_proven	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Field_overwrite_after_the_task_store_keeps_the_spawn_handle_join_unproven(conditional: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Field_overwrite_after_the_task_store_keeps_the_spawn_handle_join_unproven(conditional: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.Fire_and_forget_inside_joined_work_is_not_bounded_by_its_end	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.First_await_of_a_spawned_async_delegate_orders_the_work_it_waits_for	Passed
 ConcurrencyHunter.Core.Tests.Engine.HappensBeforeTests.First_await_of_an_async_call_orders_the_work_it_waits_for	Passed
@@ -6406,7 +6820,9 @@ ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Override_lookup_goes_throu
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Same_named_types_in_two_assemblies_are_kept_apart	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Absent_inputs_are_alike_to_empty_ones	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Di_factory_is_rejected_until_the_generator	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Explicit_concurrent_runs_is_alike_to_none	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Fated_entries_alike_in_another_order_count_once	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Fated_entries_differing_only_in_runs_disagree	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Fated_entries_that_differ_leave_the_member_opaque	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Member_with_every_delegate_fated_is_accepted	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_entries(name: "fate key that is no name", decision: " \"effects\":{},\"fates\":{\"action!\":{\"fate\":\"···, reason: "keyed by parameter names")	Passed
@@ -6427,7 +6843,7 @@ ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_entries(name: "repeated result", decision: " \"effects\":{},\"result\":\"[arg:source]\",\"resu"···, reason: "repeated property 'result'")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_entries(name: "result not a string", decision: " \"effects\":{},\"result\":[\"arg:source\"]", reason: "result must be a string")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_entries(name: "returns naming no fate", decision: " \"effects\":{},\"result\":\"[returns:other]\",\"f"···, reason: "names no fate")	Passed
-ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_entries(name: "unknown fate property", decision: " \"effects\":{},\"fates\":{\"action\":{\"fate\":\""···, reason: "unknown property 'runs'")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_entries(name: "unknown fate property", decision: " \"effects\":{},\"fates\":{\"action\":{\"fate\":\""···, reason: "unknown property 'order'")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_entries(name: "unknown fate", decision: " \"effects\":{},\"fates\":{\"action\":{\"fate\":\""···, reason: "unknown fate 'soon'")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_entries(name: "value not a string", decision: " \"effects\":{},\"fates\":{\"action\":{\"fate\":\""···, reason: "inputs must be an array of arrays of strings")	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProjectFateEntryTests.Rejected_project_fate_entries(name: "value that does not parse", decision: " \"effects\":{},\"fates\":{\"action\":{\"fate\":\""···, reason: "does not parse")	Passed
@@ -6609,6 +7025,66 @@ ConcurrencyHunter.Core.Tests.Engine.ReachableSetTests.Type_initializer_is_a_cand
 ConcurrencyHunter.Core.Tests.Engine.ReachableSetTests.Type_initializer_referenced_only_from_an_override_is_a_candidate_with_that_override	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReachableSetTests.Unreferenced_method_and_its_lambda_are_outside_the_set_and_counted	Passed
 ConcurrencyHunter.Core.Tests.Engine.ReachableSetTests.Virtual_method_group_invoked_through_a_delegate_reaches_every_override	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Array_projection_checks_the_source_static_type(arrayReceiver: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Array_projection_checks_the_source_static_type(arrayReceiver: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "captured-indexer", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "captured-indexer", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "compound-indexer", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "compound-indexer", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "compound-property", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "compound-property", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "conditional", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "conditional", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "deconstruct", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "deconstruct", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "event-add", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "event-add", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "event-remove", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "event-remove", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "field", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "field", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "foreach", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "foreach", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "getter", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "getter", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "implicit-this", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "implicit-this", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "increment-property", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "increment-property", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "index-getter", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "index-getter", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "index-setter", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "index-setter", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "list-pattern", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "list-pattern", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "local", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "local", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "out", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "out", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "parameter", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "parameter", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "range-pattern", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "range-pattern", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "ref-getter", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "ref-getter", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "ref-method", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "ref-method", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "ref-property", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "ref-property", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "ref", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "ref", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "setter", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Every_instance_route_uses_one_record_for_the_call(route: "setter", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Recognizers_keep_their_operations_primitives_and_effects(route: "atomic-element", metadataType: "System.Threading.Interlocked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Recognizers_keep_their_operations_primitives_and_effects(route: "atomic", metadataType: "System.Threading.Interlocked")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Recognizers_keep_their_operations_primitives_and_effects(route: "combination", metadataType: "System.Delegate")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Recognizers_keep_their_operations_primitives_and_effects(route: "monitor", metadataType: "System.Threading.Monitor")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Recognizers_keep_their_operations_primitives_and_effects(route: "semaphore", metadataType: "System.Threading.SemaphoreSlim")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Routes_without_a_receiver_keep_keyless_records(route: "object-creation")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Routes_without_a_receiver_keep_keyless_records(route: "pair-creation")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Routes_without_a_receiver_keep_keyless_records(route: "pattern-range")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.Routes_without_a_receiver_keep_keyless_records(route: "synthesized-base")	Passed
+ConcurrencyHunter.Core.Tests.Engine.ReceiverRecordLoweringTests.There_are_48_instance_route_cells_with_both_receiver_types	Passed
 ConcurrencyHunter.Core.Tests.Engine.RecognizedTypeDefaultTests.A_copy_holds_the_objects_its_collection_holds(write: "foreach (var x in _state.Bag.ToArray()) { x.Value "···)	Passed
 ConcurrencyHunter.Core.Tests.Engine.RecognizedTypeDefaultTests.A_copy_holds_the_objects_its_collection_holds(write: "foreach (var x in _state.Items.GetRange(0, 1)) { x"···)	Passed
 ConcurrencyHunter.Core.Tests.Engine.RecognizedTypeDefaultTests.A_copy_holds_the_objects_its_collection_holds(write: "foreach (var x in _state.Items.Slice(0, 1)) { x.Va"···)	Passed
@@ -11147,6 +11623,12 @@ ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Accepted_values(text: "this", result: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Built_in_entries_look_through_task_results	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Built_in_entry_with_fates_and_a_result_loads	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Built_in_receiver_records_are_checked_against_metadata(member: "M:System.IO.TextWriter.Write(System.Object)", receiver: "T:Newtonsoft.Json.JsonConvert", accepted: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Built_in_receiver_records_are_checked_against_metadata(member: "M:System.IO.TextWriter.Write(System.Object)", receiver: "T:System.IO.MissingWriter", accepted: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Built_in_receiver_records_are_checked_against_metadata(member: "M:System.IO.TextWriter.Write(System.Object)", receiver: "T:System.IO.StringWriter", accepted: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Built_in_receiver_records_are_checked_against_metadata(member: "M:System.IO.TextWriter.Write(System.Object)", receiver: "T:System.Text.StringBuilder", accepted: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Built_in_receiver_records_are_checked_against_metadata(member: "M:System.IO.TextWriter.Write(System.Object)", receiver: null, accepted: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Built_in_receiver_records_are_checked_against_metadata(member: "M:System.String.IsNullOrEmpty(System.String)", receiver: "T:System.String", accepted: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Every_built_in_fate_and_result_fits_its_member	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "completion of a grouping", entry: ",\"result\":\"[completion(grouping(arg:a,arg:b))]\"···, reason: "needs a task")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "completion of a sequence", entry: ",\"result\":\"[completion(sequence(arg:a))]\" ", reason: "needs a task")	Passed
@@ -11184,7 +11666,7 @@ ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fat
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "returns of an unknown-execution delegate", entry: ",\"result\":\"[returns:f]\",\"fates\":{\"f\":{\"fa"···, reason: "unknown-execution delegate")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "sequence of holder-arg", entry: ",\"fates\":{\"f\":{\"fate\":\"holder\",\"holder\":"···, reason: "stands only alone")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "task in outputs", entry: ",\"outputs\":{\"o\":\"task(new)\"}", reason: "outputs never take task")	Passed
-ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "unknown fate property", entry: ",\"fates\":{\"f\":{\"fate\":\"invoke-now\",\"runs\"···, reason: "Invalid built-in library model")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "unknown fate property", entry: ",\"fates\":{\"f\":{\"fate\":\"invoke-now\",\"order"···, reason: "Invalid built-in library model")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "unknown fate", entry: ",\"fates\":{\"f\":{\"fate\":\"later\"}}", reason: "unknown fate 'later'")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "value not a string", entry: ",\"fates\":{\"f\":{\"fate\":\"invoke-now\",\"input"···, reason: "Invalid built-in library model")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ModelVocabularyTests.Refused_built_in_fate_entries(name: "value that does not parse", entry: ",\"fates\":{\"f\":{\"fate\":\"invoke-now\",\"input"···, reason: "input 'arg:' does not parse")	Passed
@@ -11374,6 +11856,118 @@ ConcurrencyHunter.Core.Tests.Providers.ProviderRegistryTests.Provider_with_no_ve
 ConcurrencyHunter.Core.Tests.Providers.ProviderRegistryTests.Valid_providers_are_registered_in_order	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProviderRegistryTests.Version_range_whose_minimum_is_not_below_its_exclusive_maximum_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProviderRegistryTests.Version_range_with_an_empty_assembly_name_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Assembly_and_version_filters_precede_receiver_specificity	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Built_in_rebuild_keeps_all_keys_and_repeated_pairs_still_fail	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltGProjectDefault", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltGProjectDefault", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltGProjectDefault", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltJ1AndJ2", receiver: "C")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltJ1AndJ2", receiver: "J")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltJ1AndJ2", receiver: "J1")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltJ1ProjectJ2", receiver: "C")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltJ1ProjectJ2", receiver: "J")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltJ1ProjectJ2", receiver: "J1")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKGenerated", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKGenerated", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKGenerated", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKGenerated", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKGenerated", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKGenerated", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKGenerated", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKGenerated", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKProjectDefault", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKProjectDefault", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKProjectDefault", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKProjectDefault", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKProjectDefault", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKProjectDefault", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKProjectDefault", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "BuiltKProjectDefault", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "None", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "None", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "None", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "None", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "None", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "None", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "None", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "None", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "OpaqueKBuiltDefault", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "OpaqueKBuiltDefault", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "OpaqueKBuiltDefault", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "OpaqueKBuiltDefault", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "OpaqueKBuiltDefault", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "OpaqueKBuiltDefault", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "OpaqueKBuiltDefault", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "OpaqueKBuiltDefault", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "Project", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "Project", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "Project", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "Project", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "Project", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "Project", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "Project", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "Project", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectG", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectG", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectG", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectGAndG2", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectGAndG2", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectGAndG2", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJ1", receiver: "C")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJ1", receiver: "J")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJ1", receiver: "J1")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJ1AndJ2", receiver: "C")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJ1AndJ2", receiver: "J")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJ1AndJ2", receiver: "J1")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJ1J2AndC", receiver: "C")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJ1J2AndC", receiver: "J")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJ1J2AndC", receiver: "J1")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJAndJ1", receiver: "C")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJAndJ1", receiver: "J")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectJAndJ1", receiver: "J1")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectK", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectK", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectK", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectK", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectK", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectK", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectK", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectK", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndDefault", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndDefault", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndDefault", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndDefault", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndDefault", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndDefault", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndDefault", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndDefault", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndK2", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndK2", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndK2", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndK2", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndK2", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndK2", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndK2", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndK2", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndS", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndS", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndS", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndS", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndS", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndS", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndS", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKAndS", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKBuiltDefault", receiver: "D")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKBuiltDefault", receiver: "G<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKBuiltDefault", receiver: "G<string>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKBuiltDefault", receiver: "G2<int>")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKBuiltDefault", receiver: "K")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKBuiltDefault", receiver: "K2")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKBuiltDefault", receiver: "none")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Every_cell_gets_its_exact_record(recordsName: "ProjectKBuiltDefault", receiver: "S")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Inapplicable_member_key_keeps_the_immutable_type_rule	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.Resolver_groups_conflicts_by_key_and_keeps_the_other_keys	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReceiverRecordSelectionMatrixTests.There_are_107_cells_and_every_axis_value_occurs	Passed
 ConcurrencyHunter.Core.Tests.Providers.RecipeStorageOpeningMatrixTests.Every_axis_value_occurs_in_a_cell	Passed
 ConcurrencyHunter.Core.Tests.Providers.RecipeStorageOpeningMatrixTests.Every_cell_opens_as_expected(storage: GetOnlyAutoProperty, copy: Off)	Passed
 ConcurrencyHunter.Core.Tests.Providers.RecipeStorageOpeningMatrixTests.Every_cell_opens_as_expected(storage: GetOnlyAutoProperty, copy: Shared)	Passed
@@ -11396,6 +11990,13 @@ ConcurrencyHunter.Core.Tests.Providers.RecipeStorageOpeningMatrixTests.Every_cel
 ConcurrencyHunter.Core.Tests.Providers.RecipeStorageOpeningMatrixTests.Every_cell_opens_as_expected(storage: UnopenedField, copy: Off)	Passed
 ConcurrencyHunter.Core.Tests.Providers.RecipeStorageOpeningMatrixTests.Every_cell_opens_as_expected(storage: UnopenedField, copy: Shared)	Passed
 ConcurrencyHunter.Core.Tests.Providers.RecipeStorageOpeningMatrixTests.Every_writable_off_storage_gets_its_recipe_value	Passed
+ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.Every_receiver_cell_is_answered_exactly_and_accepted_cells_round_trip	Passed
+ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.Every_result_cell_is_answered_exactly_and_accepted_cells_round_trip	Passed
+ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.Every_runs_cell_is_answered_exactly_and_accepted_cells_round_trip	Passed
+ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.Generic_receiver_definitions_pass_both_curated_readers	Passed
+ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.There_are_162_receiver_cells_and_every_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.There_are_36_result_cells_and_every_allowed_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.There_are_540_runs_cells_and_every_axis_value_occurs	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Git_file_marks_a_work_tree_root	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Git_work_tree_root_when_no_folder_holds_one	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Missing_folder_walks_up_without_failing	Passed
@@ -11404,7 +12005,9 @@ ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Solution_folder_itsel
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Solution_folder_when_outside_git	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Budget_spent_before_a_member_reached_through_a_model_leaves_it_budget	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Budget_spent_before_a_regeneration_leaves_the_old_answer_unkept	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Call_a_keyed_opaque_record_answers_is_no_generation_target	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Call_first_reached_with_a_stored_model_of_its_type_is_a_target	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Call_left_opaque_by_disagreeing_keys_is_no_generation_target	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Call_of_a_function_pointer_overload_is_no_target_and_its_parameterless_sibling_is_one	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Cancellation_while_a_dependency_is_generated_writes_no_answer_that_rests_on_it	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Chain_of_two_models_is_analysed_three_times	Passed
@@ -11421,6 +12024,8 @@ ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Generation_of_a_re
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Member_a_project_entry_declares_opaque_is_neither_generated_nor_listed	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Member_cut_by_its_limit_after_meeting_a_dependency_is_kept_as_timeout	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Member_reached_only_through_a_model_is_generated_and_applied	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Member_whose_calls_no_keyed_record_covers_stays_a_generation_target	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Member_with_keyed_and_uncovered_calls_is_a_target_only_through_the_uncovered_one	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Model_generated_in_an_earlier_scope_counts_in_a_later_scope_with_that_target	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Model_replaced_by_a_refusal_is_analysed_again	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.New_model_that_does_not_apply_in_one_project_is_not_generated_again	Passed
@@ -11432,6 +12037,22 @@ ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Pair_the_unknown_e
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Pairs_of_one_site_pair_in_two_executions_are_one	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.ReadOnly_applies_the_stored_model_of_a_member_reached_through_a_model	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.ReadOnly_lists_a_target_reached_through_a_model_as_wanted	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: False, inRange: False, incomparable: False, opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: False, inRange: False, incomparable: False, opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: False, inRange: False, incomparable: True, opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: False, inRange: False, incomparable: True, opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: False, inRange: True, incomparable: False, opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: False, inRange: True, incomparable: False, opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: False, inRange: True, incomparable: True, opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: False, inRange: True, incomparable: True, opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: True, inRange: False, incomparable: False, opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: True, inRange: False, incomparable: False, opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: True, inRange: False, incomparable: True, opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: True, inRange: False, incomparable: True, opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: True, inRange: True, incomparable: False, opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: True, inRange: True, incomparable: False, opaque: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: True, inRange: True, incomparable: True, opaque: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Receiver_key_agreement_excludes_generation_only_for_records_in_range(project: True, inRange: True, incomparable: True, opaque: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Refused_member_finishes_its_dependencies_without_reanalysing_the_scope	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Refused_member_reached_through_a_model_ends_the_rounds	Passed
 ConcurrencyHunter.Core.Tests.Providers.RunGenerationPassTests.Regenerated_model_with_other_effects_is_analysed_again	Passed
