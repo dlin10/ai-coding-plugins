@@ -32,6 +32,10 @@
     <PackageVersion Include="Microsoft.SqlServer.TransactSql.ScriptDom" Version="180.102.0" />
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
     <PackageVersion Include="StackExchange.Redis" Version="2.8.31" />
+    <!-- Not referenced directly by any project: Microsoft.Data.SqlClient 7.0.2 pulls in 9.0.13, which NuGet
+         audit reports as vulnerable (CVE-2026-84008, CVE-2026-70162) and warnings are errors here. Pinned
+         here because transitive pinning is on, to the first patched version of the 10.0 line. -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <!-- Centralising exposed a split: CacheDetective.Core.Tests was on 3.0.2 and
          CacheDetective.Cli.Tests on 2.8.2. Unified on the newer one. -->
