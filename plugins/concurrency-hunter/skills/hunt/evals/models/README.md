@@ -125,8 +125,9 @@ carries. The gold files carry no package ids or platforms, so the evals ask for 
   compilation and those made `extern`, the gold members and the drivers synthesized. The counts are `exact` for
   fates, `fateGoldEntries`, `effectsExact`, `linqExact` with separate `System.Linq` and `System.Linq.Queryable`
   counts, and `accessorsExact`. Every eval run
-  compares every answer field, including `detail`, `causes` and `mode`, with the fresh snapshot and reports an implementation
-  identity change (a runtime or package update) before any answer difference. It is rewritten only on purpose, by running the evals with `CH_MODEL_EVALS_RECORD=1`.
+  compares every answer field, including `detail`, `causes` and `mode`, with the fresh snapshot, save the `mode` of an answer
+  both refuse as `timeout`: the 120 s member limit cuts the attempt it lands in, the first (`inert`) on a loaded machine
+  and the second (`off`) on a quiet one. It reports an implementation identity change (a runtime or package update) before any answer difference. It is rewritten only on purpose, by running the evals with `CH_MODEL_EVALS_RECORD=1`.
 - **Flag.** The evals (`ModelEvalTests`, `EffectsEvalTests`, `LinqOracleTests`, `AccessorEvalTests`) share the serial `Model evals` collection
   and read the installed .NET 8 and .NET 10 shared frameworks and the NuGet global packages
   folder, so they run only with `CH_MODEL_EVALS=1` and skip otherwise; under the flag a missing package, shared

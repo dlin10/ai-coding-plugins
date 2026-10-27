@@ -210,6 +210,34 @@ public sealed class ModelEvalTests
         Assert.Contains(answer.Member, Assert.Single(Differences(recorded, snapshot.ToJsonString())));
     }
 
+    [Fact]
+    public void A_timeout_answer_matches_whichever_attempt_the_member_limit_cut()
+    {
+        // JsonSerializer.SerializeToUtf8Bytes: the limit cuts the second attempt (off) on a quiet machine and the first (inert) on a loaded
+        // one. The mode of two answers refused as timeout is not compared; their other fields are, and so is every other answer's mode.
+        const string TIMED_OUT = "M:Lib.C.T(System.Action)";
+        const string BOUNDED = "M:Lib.C.B(System.Action)";
+        var none = new WholeEntryRun([], []);
+        string Recorded(string timedOutMode, string boundedMode, int timedOutBodies = 0) =>
+            Snapshot(new EvalRun([Refused(TIMED_OUT, GenerationReasons.TIMEOUT, timedOutMode, timedOutBodies),
+                                  Refused(BOUNDED, GenerationReasons.CLOSURE_BOUND, boundedMode, 1501)], []), none, none, none);
+
+        foreach (var recorded in new[] { "inert", "off" })
+        {
+            foreach (var fresh in new[] { "inert", "off" })
+                Assert.Empty(Differences(Recorded(recorded, "off"), Recorded(fresh, "off")));
+        }
+        Assert.Contains(BOUNDED, Assert.Single(Differences(Recorded("off", "off"), Recorded("inert", "inert"))));
+        Assert.Contains(TIMED_OUT, Assert.Single(Differences(Recorded("off", "off"), Recorded("inert", "off", timedOutBodies: 41))));
+
+        static EvalAnswer Refused(string member, string reason, string mode, int reachedBodies)
+        {
+            var answer = Answer(null, reason);
+            return new EvalAnswer(new GoldMember("M", member, "invoke-now", null, [], "Lib", "1.0"),
+                                  answer with { Member = member, Generation = answer.Generation with { Mode = mode, ReachedBodies = reachedBodies } }, true);
+        }
+    }
+
     private static GeneratedAnswer Answer(IReadOnlyDictionary<string, ClassifiedFate>? classified, string? reason, LibraryModel? model = null) =>
         new(2, "M:Lib.C.M(System.Action)", new GenerationAssembly("Lib", "1.0", null), classified, reason, model, null,
             new GenerationRecord(null, null, [], 0, [], new Dictionary<string, string>(), [], 0, [],

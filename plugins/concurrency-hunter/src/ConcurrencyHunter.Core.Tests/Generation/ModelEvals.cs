@@ -105,6 +105,9 @@ internal static class ModelEvals
     private static readonly Lazy<EvalRun> Installed = new(() => Run(ImplementationAssemblies.ForThisProcess(), GoldPath),
                                                           LazyThreadSafetyMode.ExecutionAndPublication);
 
+    /// <summary>The snapshot's layout: two-space indentation, LF and relaxed escaping.</summary>
+    private static readonly JsonWriterOptions Layout = new() { Indented = true, NewLine = "\n", Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
     public static string ModelsDirectory => RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "skills", "hunt", "evals", "models");
 
     public static string GoldPath => Path.Combine(ModelsDirectory, "gold.json");
@@ -314,10 +317,7 @@ internal static class ModelEvals
     public static string Snapshot(EvalRun run, WholeEntryRun effects, WholeEntryRun linq, WholeEntryRun accessors)
     {
         using var stream = new MemoryStream();
-        using (var json = new Utf8JsonWriter(stream, new JsonWriterOptions
-               {
-                   Indented = true, NewLine = "\n", Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-               }))
+        using (var json = new Utf8JsonWriter(stream, Layout))
         {
             json.WriteStartObject();
             json.WriteStartArray("members");
@@ -421,7 +421,7 @@ internal static class ModelEvals
             .ToArray();
 
     /// <summary>How a fresh snapshot differs from the recorded one: implementation identity changes (a runtime or package update) first,
-    /// then answer differences; empty when they are the same.</summary>
+    /// then answer differences; empty when they are the same. The <c>mode</c> of an answer both refuse as <c>timeout</c> is not compared.</summary>
     /// <param name="recorded">The recorded snapshot's text.</param>
     /// <param name="fresh">The fresh snapshot's text.</param>
     public static IReadOnlyList<string> Differences(string recorded, string fresh)
@@ -430,6 +430,16 @@ internal static class ModelEvals
         var after = JsonNode.Parse(fresh)!;
         var beforeMembers = AnswerNodes(before);
         var afterMembers = AnswerNodes(after);
+        // The member limit cuts the attempt it lands in, the first (inert) on a loaded machine and the second (off) on a quiet one: a fresh
+        // answer refused as timeout, as the recorded one is, takes the recorded mode, in its text too.
+        var cut = afterMembers.Where(pair => beforeMembers.TryGetValue(pair.Key, out var old) && (string?)old["reason"] == GenerationReasons.TIMEOUT &&
+                                             (string?)pair.Value["reason"] == GenerationReasons.TIMEOUT && !JsonNode.DeepEquals(old["mode"], pair.Value["mode"]))
+                              .Select(pair => pair.Key)
+                              .ToArray();
+        foreach (var id in cut)
+            afterMembers[id]["mode"] = beforeMembers[id]["mode"]?.DeepClone();
+        if (cut.Length > 0)
+            fresh = Text(after);
         var beforePackages = Keyed(before["packages"], package => PackageKey(package));
         var afterPackages = Keyed(after["packages"], package => PackageKey(package));
 
@@ -479,6 +489,16 @@ internal static class ModelEvals
     }
 
     public static string Normalize(string text) => text.Replace("\r\n", "\n");
+
+    /// <summary>A snapshot document's text, as <see cref="Snapshot"/> writes it.</summary>
+    /// <param name="document">The document.</param>
+    private static string Text(JsonNode document)
+    {
+        using var stream = new MemoryStream();
+        using (var json = new Utf8JsonWriter(stream, Layout))
+            document.WriteTo(json);
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray()) + "\n";
+    }
 
     private static Dictionary<string, JsonNode> AnswerNodes(JsonNode document) =>
         new[] { "members", "effects", "linq", "accessors" }.SelectMany(section => (document[section]?.AsArray() ?? []).Select(entry => (Section: section, Entry: entry)))
