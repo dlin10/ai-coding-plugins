@@ -1,5 +1,22 @@
 # Plan Forge Flow releases
 
+## 0.68.3
+
+Codex now hands the server the Advisor variables, so a configured Jev or Microsoft-Decision-1 is
+discovered there. Issue #205.
+
+- Codex gives a STDIO MCP server only a small default environment plus the names its configuration
+  lists in `env_vars`, and `.mcp.json` listed none. A key exported for the Codex host never reached
+  the server, `advisors.configured` stayed empty and the Evidence check took the manual path.
+- `.mcp.json` now forwards `PLANFORGE_JEV_API_KEY`, `PLANFORGE_JEV_MODEL`,
+  `PLANFORGE_MSDECISION_ENDPOINT`, `PLANFORGE_MSDECISION_API_KEY` and
+  `PLANFORGE_MSDECISION_DEPLOYMENT` by name; no value is stored. A test checks the list against
+  every variable in the Advisor catalogue, read through the path the Codex manifest names.
+- Claude Code is unchanged: it inherits the whole environment and declares its server in its own
+  manifest. Advisor secrets are still removed from every child process.
+- A variable must be in the host's environment before the server starts. A running server keeps
+  the environment it started with: restart Codex (or Claude Code) after setting or changing one.
+
 ## 0.68.2
 
 Bound the Windows launcher's unused binary cache and remove its abandoned downloads. Issue #203.
