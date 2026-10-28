@@ -1,5 +1,19 @@
 # Plan Forge Flow releases
 
+## 0.68.2
+
+Bound the Windows launcher's unused binary cache and remove its abandoned downloads. Issue #203.
+
+- Cache preparation uses a short-lived inbox PowerShell helper; cmd remains the server's parent.
+  GUID download names and held handles isolate concurrent downloads. Failed promotion reuses the
+  winning executable after removing only the current launcher's temporary file.
+- Preserve discovered installations, running images, seven days of recent use and two older
+  rollback copies. Skip uncertain inventories, busy files and reparse points. Custom installations
+  are remembered on first launch; plugin folders and locks are never deleted.
+- Clean only abandoned GUID downloads older than seven days. Legacy numeric download names remain
+  untouched because their ownership cannot be established safely.
+- Packaging runs the isolated Windows launcher regression suite and includes the cache helper.
+
 ## 0.68.1
 
 A JSON or YAML file whose name only carries a secret keyword is read instead of refusing the whole

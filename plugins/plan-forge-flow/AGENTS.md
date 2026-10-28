@@ -30,6 +30,12 @@ the real vendor CLIs, take minutes, and cost money — run them deliberately, ne
 dotnet test src/PlanForgeFlow.sln --filter "FullyQualifiedName~ClaudeCriticTests.Critic_returns_a_valid_critique"
 ```
 
+Launcher/cache changes also run `pwsh -NoProfile -File build/test-launcher.ps1`, redirected to a
+log as below. It uses isolated temporary fixtures, real cmd/Windows PowerShell and Windows file
+sharing, with a stub downloader plus one local-file system-curl check; it needs no network.
+Packaging runs this check too and ships both `bin/planforge-launcher.cmd` and
+`bin/planforge-cache.ps1`. Retention policy and discovery limits are documented in README.md.
+
 Any change to C# under `src/` requires rebuilding the complete release asset set before handoff:
 
 ```powershell
