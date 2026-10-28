@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.68.1
+# Plan Forge Flow 0.68.2
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -372,6 +372,7 @@ plugins/plan-forge-flow/
   .claude-plugin/plugin.json
   .mcp.json
   bin/planforge-launcher.cmd
+  bin/planforge-cache.ps1
   hooks/claude.pff.hooks.json
   hooks/codex.pff.hooks.json
   prompts/
@@ -391,11 +392,38 @@ See
 
 The executable is not in the repository. On launch, `bin/planforge-launcher.cmd` runs a locally
 built `bin/win-x64/planforge.exe` when one exists, and otherwise the copy cached under
-`%LOCALAPPDATA%\plan-forge-flow` for the manifest version. When neither is there it downloads
-`planforge.exe` from the matching GitHub release into that cache with `curl.exe` — once per version
-rather than once per session, and with no interpreter of the plugin's own: the launcher is a batch
-file because a host starts it for every session and it then stays alive as the server's parent,
-where `cmd.exe` holds under 10 MB of working set and `powershell.exe` around 50.
+`%LOCALAPPDATA%\plan-forge-flow\bin\<version>` for the manifest version. A short-lived inbox Windows
+PowerShell helper, `bin/planforge-cache.ps1`, prepares the cache before the server starts. It fetches
+a missing executable from the matching GitHub release with system `curl.exe`. Each download has
+a unique GUID name and an open handle until curl finishes. Promotion never overwrites an existing
+executable; when another launcher wins, only this launcher's temporary file is removed. The batch
+file remains the server's parent, where `cmd.exe` holds under 10 MB of working set and
+`powershell.exe` around 50; the helper exits before MCP or a resume hook reads stdin.
+
+Cache maintenance runs on cached launches, with this retention policy:
+
+- Preserve the launching version and every version found in Plan Forge plugin folders under the
+  default `%USERPROFILE%\.codex\plugins\cache` and `%USERPROFILE%\.claude\plugins\cache`, plus
+  `CODEX_HOME` and `CLAUDE_CONFIG_DIR` overrides. Every retained plugin folder counts, including one
+  its host no longer selects. Custom plugin locations are remembered on their first launch through
+  the helper in immutable `.installations/*.path` records; these are paths, not copies of plugins.
+- Preserve versions used within seven days, then keep the two most recently used older copies for
+  rollback. Other unused executables can be retired. A version's `.last-used` file coordinates
+  startup with the final age check; its timestamp records use. A legacy executable without that
+  record uses its modification time. Small records and lease files remain in the cache.
+- Windows refuses exclusive deletion of a running image, preserving older servers, telemetry
+  collectors, hooks and other Plan Forge processes regardless of their arguments. Busy/read-only
+  files are skipped; an unreadable installation inventory skips the whole maintenance pass.
+- Only GUID-named downloads older than seven days can be removed, and only while exclusively
+  opened for deletion. Active downloads keep their handle even between curl's file operations.
+  Legacy numeric download names and unrecognised files are left alone because ownership is unclear.
+- Cleanup touches only this binary cache. It does not recurse through junctions or symlinks and
+  does not remove plugin installations, prompts, Run data, workspace locks or lease files. A failed
+  maintenance pass does not prevent an existing executable from starting.
+
+The bound therefore excludes installed, recent, busy and uncertain files; it is not a hard disk
+quota. The helper never searches the whole disk for custom installations. Run a custom installation
+through its helper once before relying on discovery from other hosts.
 
 ## State
 
