@@ -26,6 +26,8 @@ $metadata = Get-Content (Join-Path $pluginRoot '.codex-plugin/plugin.json') -Raw
 $claudeMetadata = Get-Content (Join-Path $pluginRoot '.claude-plugin/plugin.json') -Raw | ConvertFrom-Json
 $version = $metadata.version
 if ($claudeMetadata.version -ne $version) { throw "Codex and Claude manifest versions must match" }
+# Exercise the shipped launcher with real Windows file sharing before producing a release asset.
+& (Join-Path $PSScriptRoot 'test-launcher.ps1')
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) { $OutputRoot = Join-Path $pluginRoot 'artifacts' }
 $outputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $workspaceRoot = [IO.Path]::GetFullPath((Join-Path $pluginRoot '..\..'))
@@ -485,6 +487,7 @@ function Test-PluginArchive([string]$Archive) {
                 'plugins/plan-forge-flow/.claude-plugin/plugin.json',
                 'plugins/plan-forge-flow/.mcp.json',
                 'plugins/plan-forge-flow/bin/planforge-launcher.cmd',
+                'plugins/plan-forge-flow/bin/planforge-cache.ps1',
                 'plugins/plan-forge-flow/prompts/builder-contract.md',
                 'plugins/plan-forge-flow/prompts/critic-contract.md',
                 'plugins/plan-forge-flow/prompts/scout-contract.md',
@@ -647,6 +650,7 @@ $bundleRidBin = Join-Path $bundlePlugin "bin/$rid"
 New-Item -ItemType Directory -Force -Path $bundleRidBin | Out-Null
 Copy-Item -LiteralPath (Join-Path $publish $expectedExecutable) -Destination (Join-Path $bundleRidBin $expectedExecutable)
 Copy-Item -LiteralPath (Join-Path $pluginRoot 'bin/planforge-launcher.cmd') -Destination (Join-Path $bundlePlugin 'bin/planforge-launcher.cmd')
+Copy-Item -LiteralPath (Join-Path $pluginRoot 'bin/planforge-cache.ps1') -Destination (Join-Path $bundlePlugin 'bin/planforge-cache.ps1')
 $marketplace = [ordered]@{
     name      = 'plan-forge-flow-bundle'
     interface = [ordered]@{ displayName = 'Plan Forge Flow bundle' }
@@ -687,6 +691,7 @@ foreach ($requiredPath in @(
         (Join-Path $bundlePlugin 'prompts/orchestration-contract.md'),
         (Join-Path $bundlePlugin "bin/$rid/$expectedExecutable"),
         (Join-Path $bundlePlugin 'bin/planforge-launcher.cmd'),
+        (Join-Path $bundlePlugin 'bin/planforge-cache.ps1'),
         (Join-Path $bundlePlugin 'prompts/claude/critic.md'),
         (Join-Path $bundlePlugin 'prompts/claude/builder.md'),
         (Join-Path $bundlePlugin 'prompts/claude/scout.md'),
