@@ -8,6 +8,13 @@
         ".\\bin\\planforge-launcher.cmd"
       ],
       "cwd": ".",
+      "env_vars": [
+        "PLANFORGE_JEV_API_KEY",
+        "PLANFORGE_JEV_MODEL",
+        "PLANFORGE_MSDECISION_ENDPOINT",
+        "PLANFORGE_MSDECISION_API_KEY",
+        "PLANFORGE_MSDECISION_DEPLOYMENT"
+      ],
       "tool_timeout_sec": 3600
     }
   }

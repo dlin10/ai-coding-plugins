@@ -91,6 +91,11 @@ internal sealed class AdvisorCatalog
     /// <summary>The production catalogue; other vendors' credentials never configure it.</summary>
     public static AdvisorCatalog Default { get; } = new([new JevAdvisorDescriptor(), new MicrosoftDecisionAdvisorDescriptor()]);
 
+    /// <summary>All variable names, which Codex's server configuration must forward by name.</summary>
+    public IReadOnlyList<string> Variables =>
+        [.. _descriptors.SelectMany(descriptor => descriptor.Variables).Select(variable => variable.Name)
+                       .Distinct(StringComparer.OrdinalIgnoreCase)];
+
     /// <summary>All secret variable names, for gate validation and child-environment filtering.</summary>
     public IReadOnlyList<string> SecretVariables =>
         [.. _descriptors.SelectMany(descriptor => descriptor.Variables).Where(variable => variable.Secret)
