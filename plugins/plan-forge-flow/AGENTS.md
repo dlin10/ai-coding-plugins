@@ -167,8 +167,10 @@ what was measured for each.
 Microsoft-Decision-1 implement it, and neither is a Vendor or Worker. Both speak systemone and share
 `Advisors/SystemOne/SystemOneAdvisor.cs` below the seam — a helper, never a contract: nothing outside
 `Advisors/` names it, and an Advisor with another protocol implements `IAdvisor` directly. Adding an
-Advisor means a folder under `Advisors/` and a descriptor in `AdvisorCatalog.Default` that marks its
-credential `Secret: true`. `forge.begin` and `forge.status` discover configured and
+Advisor means a folder under `Advisors/`, a descriptor in `AdvisorCatalog.Default` that marks its
+credential `Secret: true`, and its variable names in `env_vars` of `.mcp.json`: Codex hands a STDIO
+server only the names listed there, and `CodexMcpConfigurationTests` checks the list against the
+catalogue. Claude Code passes its whole environment and needs no list. `forge.begin` and `forge.status` discover configured and
 partly configured Advisors from the server process environment on each call. A configured Advisor
 is consent to send excerpts from every repository forge runs in on that machine. With none, no
 external request is made and the Evidence check stays manual. `forge.evidence.map` runs only after

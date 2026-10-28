@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.68.2
+# Plan Forge Flow 0.68.3
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -249,7 +249,14 @@ would take the Run past its budget sends nothing and answers `stoppedBy: "budget
 Orchestrator asks the user whether to raise the budget or stop the map. The estimate covers the
 packed requests; a request-wide refusal split into one request per judgment is not re-estimated.
 
-Configure an Advisor in the environment inherited by the server process. Jev, id `jev`:
+Configure an Advisor in the environment inherited by the server process. Set the variables where
+the host process gets its environment, such as the Windows user environment, before the host
+starts its MCP server. A running server keeps the environment it started with, so restart the host
+after setting or changing a variable. Codex passes a STDIO server only the variables its
+configuration names: the plugin's `.mcp.json` names every variable below in `env_vars`, and stores
+no value. Claude Code passes its whole environment.
+
+Jev, id `jev`:
 
 | Variable | Meaning |
 |---|---|
