@@ -29,7 +29,7 @@ internal sealed partial class CodexCliSession : IVendorSession
     private readonly RoleSpec _role;
     private readonly Selection _selection;
     private readonly string? _workingDirectory;
-    private readonly IReadOnlyList<string> _grantedServers;
+    private readonly IReadOnlyList<CodexServer> _grantedServers;
     private readonly Channel<VendorEvent> _events = Channel.CreateUnbounded<VendorEvent>();
 
     // Set on the first run so a resumable role's later calls resume the same thread.
@@ -57,7 +57,7 @@ internal sealed partial class CodexCliSession : IVendorSession
                            Selection selection,
                            string? workingDirectory,
                            string? resumeToken = null,
-                           IReadOnlyList<string>? grantedServers = null)
+                           IReadOnlyList<CodexServer>? grantedServers = null)
     {
         _role = role;
         _selection = selection;
@@ -235,7 +235,7 @@ internal sealed partial class CodexCliSession : IVendorSession
                                                  string? sessionId,
                                                  string schemaPath,
                                                  string resultPath,
-                                                 IReadOnlyList<string>? grantedServers = null)
+                                                 IReadOnlyList<CodexServer>? grantedServers = null)
     {
         var arguments = new List<string> { "exec" };
 
@@ -284,11 +284,13 @@ internal sealed partial class CodexCliSession : IVendorSession
 
         // `codex exec` has nobody to approve an MCP call, so one nothing approved fails (issue #90).
         // The key is per server and merges into the server codex already knows; naming one it does
-        // not know stops codex before it starts, so only servers its own list reported get here.
+        // not know stops codex before it starts, so only servers its own list reported get here. A
+        // plugin's server is known only under its plugin: the top-level key would invent another.
         foreach (var server in grantedServers ?? [])
         {
+            var table = server.Plugin is { } plugin ? $"plugins.{plugin}.mcp_servers" : "mcp_servers";
             arguments.Add("-c");
-            arguments.Add($"mcp_servers.{server}.default_tools_approval_mode=" + TomlValue.String("approve"));
+            arguments.Add($"{table}.{server.Name}.default_tools_approval_mode=" + TomlValue.String("approve"));
         }
 
         // Sent on every turn, including a resumed one: a resumed turn keeps the instructions its
