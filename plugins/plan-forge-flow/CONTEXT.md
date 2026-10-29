@@ -89,7 +89,7 @@ these terms replace it.
 | **Gate run** | The server's own execution of a gate command: `passed`, `failed` or `timeout` when it ran, `not_executable` when the gate is a condition, `not_run` when the builder was `blocked` after a verification that `failed`, when its turn ended with a Killed background task, or when no PowerShell was found. A `blocked` turn whose verification was `unavailable` **is** run: the builder is saying it did the work and could not prove it, and the host holds the environment that can. Travels as `build.result.gate` / `fix.gate`, as a `Gate:` line in the flow log, and as `gate.start` / `gate.finished` in the run log. |
 | **Gate environment** | The variables a run's gate commands need — a connection string, a path to a sibling checkout — given to `forge.plan.confirm` as `gateEnvironment` and kept in the run state. Logged by name only. |
 | **Builder roots** | Absolute paths outside the workspace, accepted by `forge.plan.confirm` as `builderRoots` and retained in the Run for compatibility. They do not control Builder access: Codex Builders run without a sandbox, and the other Vendors ignore them. |
-| **Worker tools** | The MCP servers a Worker may call without being asked, named by server-name patterns in `workerTools` on `forge.begin` — `roslyn-*` when omitted, nothing when empty — and kept in the run state for every Worker role. Each launch looks the servers up in the vendor's own list and grants the ones that match: a claude worker by exact `--allowedTools mcp__<server>`, a codex worker by `default_tools_approval_mode` per server. The run log records each launch's patterns and the servers they matched as `worker.tools`. Not Claude's rule syntax: `mcp__roslyn-*` is refused there, see below. |
+| **Worker tools** | The MCP servers a Worker may call without being asked, named by server-name patterns in `workerTools` on `forge.begin` — `roslyn-*` when omitted, nothing when empty — and kept in the run state for every Worker role. Each launch looks the servers up in the vendor's own list and grants the ones that match: a claude worker by exact `--allowedTools mcp__<server>`, a codex worker by `default_tools_approval_mode` per server, under `plugins.<plugin>@<marketplace>` for a server a plugin declares. A pattern names a server by its key, so besides a whole name it matches the `<server>` of a plugin server claude lists as `plugin:<plugin>:<server>`, never its plugin. The run log records each launch's patterns and the servers they matched as `worker.tools`. Not Claude's rule syntax: `mcp__roslyn-*` is refused there, see below. |
 | **Run instructions** | The user's own free text for a Run's Workers, one for the Critic and one for the Builder, recorded by `forge.instructions.set` and kept in the run state. They travel in the **act prompt** — the user turn — never in the **role instructions**, which are the role contract loaded from `prompts/<vendor>/<role>.md` and reach a vendor by its own channel (`developer_instructions` for codex, `--append-system-prompt` for claude). A Critic is fresh every round and is handed its text every round; a Builder is handed its text only by a call that starts a session, so a change made mid-session reaches the next session and not the running one. Every new plan task and code-review round starts such a session, and so do vendor switches, reopened plans, and re-approval after the Builder Brief changes. A code-review Critic is additionally shown the Builder's text as data, framed as context for judging the diff. Nothing but the secret guard checks them, and nothing checks that the text is the user's own rather than the orchestrator's — see `docs/adr/0019`. |
 | **Build status** | What the builder says it **did** with a task: `done` or `blocked`, and where a gate ran the server writes the exit code over it in either direction — `gate_failed` when the command did not exit 0, `done` when it did, which is how a `blocked` turn the host proved still counts. The server also writes `background_killed` when the turn ended with a Killed background task, and then runs no gate. Only `done` is progress. A `blocked`, `gate_failed` or `background_killed` task remains the next task, so the run retries it rather than stepping over it — the distinction issue #58 proved was missing, when a machine that could run no command still walked the plan to its end. |
 | **Killed background task** | A command a Worker started in the background that was still running when its turn ended, so the Vendor killed it with the process. The Worker never saw its result. Detected on claude only, where the stream reports it; named in the build result for a Builder, logged for a Critic. Not a "background job": a **Job** is a delegated act. |
@@ -408,6 +408,23 @@ the six `roslyn-*` servers of this repository's local scope, none of them in the
 codex through a scratch project config that declared the server with no approval key. The
 codex critic also called `cua_repl` unasked on the way — a server the user's own configuration
 approves — which is the reach every worker already had, not one this grant added.
+
+A server a plugin declares, measured on 2026-10-29 against codex-cli 0.165.0 and Claude Code
+2.1.312:
+
+- **Codex knows a plugin's server only under its plugin.** `codex mcp list --json` lists it by its
+  `.mcp.json` key with no plugin id; only `transport.cwd` gives the plugin away,
+  `<CODEX_HOME>\plugins\cache\<marketplace>\<plugin>\<version>` — with backslashes and a trailing
+  `\.` for an installed plugin, forward slashes for a bundled one. `-c
+  mcp_servers.cache-detective.default_tools_approval_mode="approve"` stopped even `codex mcp list`
+  with "invalid transport in `mcp_servers.cache-detective`", as a server no layer declared does;
+  `-c plugins.cache-detective@dlin10-ai-coding-plugins.mcp_servers.cache-detective.…` left the
+  server as listed. Under `codex exec -s read-only` a find-files call failed with "MCP tool call
+  requires approval, but approval policy is never" without the plugin-scoped key, and succeeded
+  with it.
+- **Claude lists it as `plugin:<plugin>:<server>`**, and the rule
+  `mcp__plugin_<plugin>_<server>` that `ClaudeCliSession.ToolRule` makes of that name granted it
+  under `--permission-mode acceptEdits`.
 
 ## A headless claude kills what it backgrounded, and its own harness steers it there
 

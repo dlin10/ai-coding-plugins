@@ -38,3 +38,18 @@ orchestrator's to keep true for anything else it names.
 
 > **Amended 2026-10-22 ([0043](0043-remove-cursor-as-host-and-vendor.md)).** Cursor is no longer a
 > vendor; claude and codex are the two the grant has to reach, and both get it by exact name.
+
+> **Amended 2026-10-29.** A server a plugin declares is granted under its plugin. Codex lists it
+> by its `.mcp.json` key alone, but keeps it under the plugin: the top-level key invented a second
+> server with no transport and stopped codex before it started — "invalid transport in
+> `mcp_servers.<server>`". The grant is
+> `-c plugins.<plugin>@<marketplace>.mcp_servers.<server>.default_tools_approval_mode="approve"`,
+> with the plugin read off the server's `transport.cwd`, which codex sets to its plugin cache,
+> `<CODEX_HOME>\plugins\cache\<marketplace>\<plugin>\<version>`; the listing names no plugin
+> otherwise. Claude lists the same server as `plugin:<plugin>:<server>`, which `roslyn-*` missed
+> when matched against the whole name. A pattern now also matches the `<server>` part of such a
+> name, so it names a server by its key in both vendors and never by its plugin — which is what
+> lets the default reach roslyn-mcp's own plugin server, `roslyn-mcp`. A plugin's HTTP server has no
+> working directory, so codex's listing still cannot tell it from the user's own, and a pattern
+> that matched it would stop the codex worker. Measured against codex-cli 0.165.0 and Claude Code
+> 2.1.312; see CONTEXT.md.

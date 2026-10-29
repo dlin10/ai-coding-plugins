@@ -28,6 +28,8 @@ public sealed class WorkerToolsTests
         "roslyn-aicodingplugins: http://localhost:5053/mcp (HTTP) - ✘ Failed to connect — ConnectionRefused: Unable to connect. Is the computer able to access the url?"
     ];
 
+    private const string CodexHome = @"C:\Users\Admin\.codex";
+
     [Fact]
     public void The_default_grants_the_roslyn_servers_and_an_empty_list_grants_nothing()
     {
@@ -49,6 +51,30 @@ public sealed class WorkerToolsTests
     public void A_server_two_patterns_match_is_granted_once()
     {
         Assert.Equal(["roslyn-mcp"], WorkerTools.Match(["roslyn-*", "*-mcp"], ["roslyn-mcp"]));
+    }
+
+    /// <summary>
+    /// Claude lists a plugin's server as `plugin:&lt;plugin&gt;:&lt;server&gt;` and codex by its key alone,
+    /// so a pattern also matches the server part and means the key in either vendor.
+    /// </summary>
+    [Fact]
+    public void A_pattern_matches_the_server_part_of_a_plugin_server_claude_lists()
+    {
+        var servers = new[] { "plugin:roslyn-mcp:roslyn-mcp", "plugin:context7:context7", "roslyn-aicodingplugins" };
+
+        Assert.Equal(["plugin:roslyn-mcp:roslyn-mcp", "roslyn-aicodingplugins"], WorkerTools.Match(["roslyn-*"], servers));
+        Assert.Equal(["plugin:context7:context7"], WorkerTools.Match(["context7"], servers));
+        Assert.Equal(["plugin:context7:context7"], WorkerTools.Match(["plugin:context7:context7"], servers));
+    }
+
+    [Fact]
+    public void A_pattern_never_matches_the_plugin_part_alone()
+    {
+        var servers = new[] { "plugin:roslyn-tools:context7", "plugin:cache-detective:cachedet" };
+
+        Assert.Empty(WorkerTools.Match(["roslyn-*"], servers));
+        Assert.Empty(WorkerTools.Match(["cache-detective"], servers));
+        Assert.Empty(WorkerTools.Match(["plugin"], servers));
     }
 
     [Theory]
@@ -111,7 +137,59 @@ public sealed class WorkerToolsTests
             ]
             """);
 
-        Assert.Equal(["roslyn-mcp", "node_repl"], CodexCliVendor.ParseServerList(document.RootElement));
+        Assert.Equal([new("roslyn-mcp"), new("node_repl")], CodexCliVendor.ParseServerList(document.RootElement, CodexHome));
+    }
+
+    /// <summary>
+    /// `codex mcp list --json` as codex-cli 0.165.0 printed it on 2026-10-29, trimmed: a plugin's
+    /// server under its plain key, with its plugin only in `transport.cwd`.
+    /// </summary>
+    [Fact]
+    public void Codex_carries_the_plugin_that_declares_a_server_and_drops_one_it_cannot_address()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            [
+              { "name": "binlog", "enabled": true, "transport": { "type": "stdio", "command": "dotnet", "cwd": null } },
+              { "name": "cache-detective", "enabled": true,
+                "transport": { "type": "stdio", "command": "cmd.exe", "cwd": "C:\\Users\\Admin\\.codex\\plugins\\cache\\dlin10-ai-coding-plugins\\cache-detective\\0.4.1\\." } },
+              { "name": "codex_app", "enabled": true,
+                "transport": { "type": "stdio", "command": "cmd.exe", "cwd": "C:/Users/Admin/.codex/plugins/cache/openai-bundled/codex-app-tools/26.1023.50603" } },
+              { "name": "dotted", "enabled": true,
+                "transport": { "type": "stdio", "command": "x.exe", "cwd": "C:\\Users\\Admin\\.codex\\plugins\\cache\\my.market\\dotted\\1.0.0" } },
+              { "name": "openaiDeveloperDocs", "enabled": true, "transport": { "type": "streamable_http", "url": "https://developers.openai.com/mcp" } }
+            ]
+            """);
+
+        Assert.Equal(
+        [
+            new("binlog"),
+            new("cache-detective", "cache-detective@dlin10-ai-coding-plugins"),
+            new("codex_app", "codex-app-tools@openai-bundled"),
+            new("openaiDeveloperDocs")
+        ], CodexCliVendor.ParseServerList(document.RootElement, CodexHome));
+    }
+
+    /// <summary>
+    /// A server inside codex's plugin cache belongs to the plugin whose folder holds it; anything
+    /// else, a relative directory included, belongs to no plugin.
+    /// </summary>
+    /// <param name="cwd">The server's working directory as codex lists it.</param>
+    /// <param name="plugin">The plugin id expected, or null for none.</param>
+    [Theory]
+    [InlineData(@"C:\Users\Admin\.codex\plugins\cache\dlin10-ai-coding-plugins\cache-detective\0.4.1\.", "cache-detective@dlin10-ai-coding-plugins")]
+    [InlineData("C:/Users/Admin/.codex/plugins/cache/openai-bundled/codex-app-tools/26.1023.50603", "codex-app-tools@openai-bundled")]
+    [InlineData(@"c:\users\admin\.CODEX\plugins\cache\market\plugin\1.0.0\server", "plugin@market")]
+    [InlineData(@"C:\Users\Admin\.codex\plugins\cache\market", null)]
+    [InlineData(@"C:\Users\Admin\.codex\plugins\cached\market\plugin\1.0.0", null)]
+    [InlineData(@"C:\Dev\repo\plugins\cache\market\plugin\1.0.0", null)]
+    [InlineData(@"D:\Users\Admin\.codex\plugins\cache\market\plugin\1.0.0", null)]
+    [InlineData(@"plugins\cache\market\plugin\1.0.0", null)]
+    [InlineData(".", null)]
+    [InlineData(null, null)]
+    public void Codex_reads_a_servers_plugin_off_its_working_directory(string? cwd, string? plugin)
+    {
+        Assert.Equal(plugin, CodexCliVendor.PluginId(cwd, CodexHome));
     }
 
     [Fact]

@@ -3,6 +3,14 @@ using PlanForge.Infrastructure;
 
 namespace PlanForge.Vendors.Codex;
 
+/// <summary>A server `codex mcp list --json` reported, with the plugin that declares it.</summary>
+/// <param name="Name">The server's key, as the list names it.</param>
+/// <param name="Plugin">
+/// The declaring plugin as codex keys it in its configuration, <c>&lt;plugin&gt;@&lt;marketplace&gt;</c>,
+/// or null for a server of the user's or the project's own configuration.
+/// </param>
+internal sealed record CodexServer(string Name, string? Plugin = null);
+
 /// <summary>
 /// Codex reached through `codex exec` rather than the App Server — see
 /// docs/adr/0012-reach-codex-through-exec.md. The probe also has to rule out the Store-alias shell
@@ -116,21 +124,30 @@ internal sealed class CodexCliVendor : IVendor
 
     public async Task<IVendorSession> StartAsync(RoleSpec role, Selection selection, string? resumeToken, CancellationToken ct)
     {
-        var servers = await WorkerTools.GrantAsync(Id, role, ListServersAsync, ct).ConfigureAwait(false);
-        return new CodexCliSession(role, selection, _workingDirectory, resumeToken, servers);
+        // The patterns match names; the session also needs each granted server's plugin.
+        IReadOnlyList<CodexServer> listed = [];
+        var granted = await WorkerTools.GrantAsync(Id, role, async token =>
+        {
+            listed = await ListServersAsync(token).ConfigureAwait(false);
+            return [.. listed.Select(server => server.Name)];
+        }, ct).ConfigureAwait(false);
+
+        return new CodexCliSession(role, selection, _workingDirectory, resumeToken,
+                                   [.. listed.Where(server => granted.Contains(server.Name))]);
     }
 
     /// <summary>
     /// The servers a worker started here would load: every config layer, the project's
     /// `.codex/config.toml` included, as codex resolves them from the worker's own directory.
     /// </summary>
-    private async Task<IReadOnlyList<string>> ListServersAsync(CancellationToken ct)
+    /// <param name="ct">Cancels the listing.</param>
+    private async Task<IReadOnlyList<CodexServer>> ListServersAsync(CancellationToken ct)
     {
         var spec = CodexLaunch.Command.CreateProcess(["mcp", "list", "--json"], _workingDirectory, string.Empty);
         var lines = await StreamingProcess.CollectAsync(spec, PROBE_TIMEOUT, ct).ConfigureAwait(false);
 
         using var document = JsonDocument.Parse(string.Join('\n', lines));
-        return ParseServerList(document.RootElement);
+        return ParseServerList(document.RootElement, CodexLaunch.Home());
     }
 
     /// <summary>
@@ -175,13 +192,17 @@ internal sealed class CodexCliVendor : IVendor
 
     /// <summary>
     /// The enabled servers of `codex mcp list --json`, measured against codex-cli 0.154.0 on
-    /// 2026-09-17. Only a name that is a bare TOML key is kept: the grant addresses the server
-    /// through a dotted `-c` path, a name with a dot in it would address a different one, and a
-    /// server codex cannot find there stops it before it starts.
+    /// 2026-09-17, each with the plugin that declares it. Only a name that is a bare TOML key is
+    /// kept: the grant addresses the server through a dotted `-c` path, a name with a dot in it
+    /// would address a different one, and a server codex cannot find there stops it before it
+    /// starts. A plugin's server is addressed under its plugin, so the plugin id must be such a
+    /// path segment too.
     /// </summary>
-    internal static List<string> ParseServerList(JsonElement root)
+    /// <param name="root">The parsed listing.</param>
+    /// <param name="codexHome">Codex's home, whose plugin cache every plugin server runs in.</param>
+    internal static List<CodexServer> ParseServerList(JsonElement root, string codexHome)
     {
-        var servers = new List<string>();
+        var servers = new List<CodexServer>();
         if (root.ValueKind is not JsonValueKind.Array) return servers;
 
         foreach (var entry in root.EnumerateArray())
@@ -191,12 +212,45 @@ internal sealed class CodexCliVendor : IVendor
             if (entry.TryGetProperty("enabled", out var enabled) && enabled.ValueKind is JsonValueKind.False) continue;
 
             var value = name.GetString()!;
-            if (value.Length > 0 && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-'))
-                servers.Add(value);
+            if (!IsBareKey(value)) continue;
+
+            var cwd = entry.TryGetProperty("transport", out var transport) && transport.ValueKind is JsonValueKind.Object
+                ? OptionalString(transport, "cwd")
+                : null;
+            var plugin = PluginId(cwd, codexHome);
+            if (plugin is null || plugin.Split('@').All(IsBareKey))
+                servers.Add(new CodexServer(value, plugin));
         }
 
         return servers;
     }
+
+    /// <summary>
+    /// The plugin a server's working directory belongs to. `codex mcp list --json` names no plugin,
+    /// but starts a plugin's server in its cache folder,
+    /// <c>&lt;CODEX_HOME&gt;\plugins\cache\&lt;marketplace&gt;\&lt;plugin&gt;\&lt;version&gt;</c> — measured
+    /// against codex-cli 0.165.0 on 2026-10-29, with a trailing <c>\.</c> for an installed plugin
+    /// and forward slashes for a bundled one. A relative directory is nobody's: it would resolve
+    /// against this server's own, which is itself in the cache.
+    /// </summary>
+    /// <param name="cwd">The server's <c>transport.cwd</c>, or null when it has none.</param>
+    /// <param name="codexHome">Codex's home.</param>
+    /// <returns><c>&lt;plugin&gt;@&lt;marketplace&gt;</c>, as codex keys the plugin, or null outside the cache.</returns>
+    internal static string? PluginId(string? cwd, string codexHome)
+    {
+        if (cwd is null || !Path.IsPathFullyQualified(cwd)) return null;
+
+        var relative = Path.GetRelativePath(Path.Combine(codexHome, "plugins", "cache"), cwd);
+        if (Path.IsPathRooted(relative)) return null;
+
+        return relative.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]) is [var marketplace, var plugin, ..]
+               && marketplace is not ".."
+            ? $"{plugin}@{marketplace}"
+            : null;
+    }
+
+    private static bool IsBareKey(string value) =>
+        value.Length > 0 && value.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '-');
 
     /// <summary>
     /// Measured against `codex debug models` on 2026-09-04 to reproduce the App Server catalogue

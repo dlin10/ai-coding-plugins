@@ -15,6 +15,9 @@ internal static class WorkerTools
 {
     private const string SOURCE = "worker";
 
+    // How claude lists a plugin's server: `plugin:<plugin>:<server>`.
+    private const string PLUGIN_PREFIX = "plugin:";
+
     /// <summary>What a run begun without <c>workerTools</c> grants: the roslyn-mcp servers, however a repository named them.</summary>
     public static IReadOnlyList<string> Default { get; } = ["roslyn-*"];
 
@@ -33,15 +36,33 @@ internal static class WorkerTools
         return patterns;
     }
 
-    /// <summary>The servers any pattern matches as a whole name, in list order, each once; <c>*</c> stands for any run of characters.</summary>
+    /// <summary>
+    /// The servers any pattern matches, in list order, each once; <c>*</c> stands for any run of
+    /// characters. A pattern matches the whole name, or the server part of a name claude lists as
+    /// <c>plugin:&lt;plugin&gt;:&lt;server&gt;</c>, so it names a server by its key in either vendor —
+    /// codex lists a plugin's server by its key alone. The plugin part alone never matches.
+    /// </summary>
+    /// <param name="patterns">The run's server-name patterns.</param>
+    /// <param name="servers">The server names the vendor listed.</param>
     public static IReadOnlyList<string> Match(IReadOnlyList<string> patterns, IEnumerable<string> servers)
     {
         var expressions = patterns.Select(pattern => new Regex("^" + Regex.Escape(pattern).Replace(@"\*", ".*") + "$",
                                                                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
                                   .ToList();
 
-        return [.. servers.Where(server => expressions.Any(expression => expression.IsMatch(server)))
+        return [.. servers.Where(server => expressions.Any(expression => expression.IsMatch(server)
+                                                                       || expression.IsMatch(ServerKey(server))))
                           .Distinct(StringComparer.Ordinal)];
+    }
+
+    /// <summary>The <c>&lt;server&gt;</c> of a <c>plugin:&lt;plugin&gt;:&lt;server&gt;</c> name, or the name itself.</summary>
+    /// <param name="server">A server name as the vendor lists it.</param>
+    private static string ServerKey(string server)
+    {
+        if (!server.StartsWith(PLUGIN_PREFIX, StringComparison.Ordinal)) return server;
+
+        var separator = server.IndexOf(':', PLUGIN_PREFIX.Length);
+        return separator > PLUGIN_PREFIX.Length ? server[(separator + 1)..] : server;
     }
 
     /// <summary>
