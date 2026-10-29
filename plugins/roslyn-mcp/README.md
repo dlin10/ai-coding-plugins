@@ -37,7 +37,7 @@ Then ask Codex to use `$roslyn-install-vsix`. In each repository, ask it to use 
 
 ## Without Visual Studio (preview)
 
-The 3.0.0 previews also declare a plugin MCP server, `roslyn-mcp` in Codex and `plugin:roslyn-mcp:roslyn-mcp` in Claude Code, that needs no Visual Studio. It is a stdio shim that forwards the tools to one daemon per Windows user, which loads each solution with MSBuildWorkspace and keeps it loaded across sessions (`docs/adr/0004`). Call `roslyn_load` with the absolute path of the `.sln` or `.slnx` file first. It needs Windows x64 and the .NET 10 SDK.
+The 3.0.0 previews also declare a plugin MCP server, `roslyn-mcp` in Codex and `plugin:roslyn-mcp:roslyn-mcp` in Claude Code, that needs no Visual Studio. It is a stdio shim that forwards the tools to one daemon per Windows user, which loads each solution with MSBuild and keeps it loaded across sessions (`docs/adr/0004`), following edits on disk until it goes 2 hours without calls or an agent calls `roslyn_unload` (`docs/adr/0009`). Call `roslyn_load` with the absolute path of the `.sln` or `.slnx` file first. It needs Windows x64 and the .NET 10 SDK.
 
 On first start, `bin/roslyn-mcp-launcher.cmd` downloads the `roslyn-mcp.exe` of the plugin's version from the GitHub release `roslyn-mcp-v<version>` into `%LOCALAPPDATA%\roslyn-mcp\bin\<version>`, where the executable also unpacks itself. On every start the launcher retires the versions nobody has started for a week, except the two most recently used and any still running (`docs/adr/0008`). Until the 3.0.0 cutover, the per-solution servers described below keep working beside it.
 

@@ -36,10 +36,15 @@ internal sealed class PackageRestore
 	/// <summary>Checks some projects of a solution, and restores the solution when one of them needs it.</summary>
 	/// <param name="solutionPath">The full path of the .sln or .slnx file, which is what a restore restores.</param>
 	/// <param name="projectPaths">The full paths of the project files to check.</param>
-	public async Task<RestoreReport> RestoreIfNeededAsync(string solutionPath, IEnumerable<string> projectPaths)
+	/// <param name="imports">
+	/// Receives, by project file, the full paths of the files each evaluated project imported, so that an edit to one of
+	/// them can be traced to the projects it affects; null when not wanted.
+	/// </param>
+	public async Task<RestoreReport> RestoreIfNeededAsync(string solutionPath, IEnumerable<string> projectPaths,
+	                                                      IDictionary<string, string[]>? imports = null)
 	{
 		var report = new RestoreReport();
-		var needing = Evaluate(solutionPath, projectPaths, report).Where(project => WhyRestore(project) != null).ToList();
+		var needing = Evaluate(solutionPath, projectPaths, report, imports).Where(project => WhyRestore(project) != null).ToList();
 		if (needing.Count == 0)
 			return report;
 
@@ -57,7 +62,7 @@ internal sealed class PackageRestore
 
 	/// <summary>The full paths of a solution's C# and Visual Basic project files.</summary>
 	/// <param name="solutionPath">The full path of the .sln or .slnx file.</param>
-	private static IEnumerable<string> SolutionProjects(string solutionPath)
+	public static IEnumerable<string> SolutionProjects(string solutionPath)
 		=> SolutionFile.Parse(solutionPath).ProjectsInOrder
 		               .Select(project => project.AbsolutePath)
 		               .Where(path => CheckedExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase));
@@ -69,7 +74,9 @@ internal sealed class PackageRestore
 	/// <param name="solutionPath">The solution the projects are evaluated as part of.</param>
 	/// <param name="projectPaths">The project files to evaluate.</param>
 	/// <param name="report">Receives the projects that are not applicable or cannot be evaluated.</param>
-	private static List<EvaluatedProject> Evaluate(string solutionPath, IEnumerable<string> projectPaths, RestoreReport report)
+	/// <param name="imports">Receives the files each evaluated project imported, by project file; null when not wanted.</param>
+	private static List<EvaluatedProject> Evaluate(string solutionPath, IEnumerable<string> projectPaths, RestoreReport report,
+	                                               IDictionary<string, string[]>? imports)
 	{
 		// What a solution build passes every project, so that an obj folder placed relative to the solution is looked for
 		// where a restore of that solution writes it.
@@ -102,6 +109,8 @@ internal sealed class PackageRestore
 				continue;
 			}
 
+			if (imports != null)
+				imports[path] = [.. project.Imports.Select(import => import.ImportedProject.FullPath)];
 			var assetsFile = project.GetPropertyValue("ProjectAssetsFile");
 			if (assetsFile.Length == 0)
 				report.NotApplicable.Add(path);

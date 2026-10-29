@@ -13,6 +13,7 @@
          shadow the SDK's: the same exclusions as the Cli project's. -->
     <PackageReference Include="Microsoft.Build.Framework" VersionOverride="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.NET.StringTools" VersionOverride="18.4.0" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <!-- The daemon's versions, over the ones central management pins for Visual Studio. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" VersionOverride="5.9.0" />

@@ -38,8 +38,9 @@ public sealed class ShimDaemonTests(FixtureSolutions fixtures) : IDisposable
 			Assert.Null(Daemons.ServerProcessId(_pipe));
 		}
 
-		Assert.Equal(12, tools.Count);
+		Assert.Equal(13, tools.Count);
 		Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "roslyn_load");
+		Assert.Contains(tools, tool => tool!["name"]!.GetValue<string>() == "roslyn_unload");
 		Assert.All(tools, tool =>
 		{
 			var annotations = tool!["annotations"]!;

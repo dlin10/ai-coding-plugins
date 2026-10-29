@@ -16,6 +16,7 @@ during the interview that scoped symbol IDs, project-wide diagnostics and type d
 | **Discovery** | Finding the **active solution** from the agent's working directory. It finds one or offers **candidates**, and never chooses among them. |
 | **Marker** | A `.roslynmcp.json` next to a solution that names it, recording the user's choice. Untracked, so a linked worktree reads the main working tree's marker at the same relative path. One holding only a 2.x port is not a marker. |
 | **Candidates** | The solutions **discovery** offers when it finds none it may use. The user picks one; an agent never does. |
+| **Unload** | The daemon dropping a solution it holds: when `roslyn_unload` asks, after 2 hours without calls, or when the solution file is gone. A session whose **active solution** was unloaded loads it again on its next call. |
 
 ## Flagged ambiguities
 

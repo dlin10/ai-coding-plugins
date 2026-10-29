@@ -23,6 +23,11 @@
   the solution. `roslyn_load` reports the projects restored, the projects that failed with the reason, and the projects
   that name no assets file, which never trigger a restore. It sets `partial` while a restore has failed
   (`docs/adr/0006`).
+- **Loaded solutions follow the disk and unload when unused.** Every call sees the files as they are on disk: a watcher
+  queues the changes, each call applies them and checks the files it names directly, and an edit to a project file or
+  a file it imports restores and reloads the projects it affects. The daemon unloads a solution after 2 hours without
+  calls, `roslyn_unload` unloads one at once, and the daemon exits 30 minutes after it last held a solution
+  (`docs/adr/0009`).
 - **Installed from the marketplace.** The plugin declares the shim as the MCP server `roslyn-mcp`, which Codex lists
   under that name and Claude Code as `plugin:roslyn-mcp:roslyn-mcp`. On first start its launcher downloads the
   `roslyn-mcp.exe` of the plugin's version from the GitHub release into `%LOCALAPPDATA%\roslyn-mcp\bin`, and it
