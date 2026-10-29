@@ -28,3 +28,6 @@
   `roslyn-mcp.exe` of the plugin's version from the GitHub release into `%LOCALAPPDATA%\roslyn-mcp\bin`, and it
   retires versions nobody has started for a week. `3.0.0-preview.N` versions release the shim as a GitHub pre-release
   before the cutover, and the bundled VSIX stays 2.0.0 until then (`docs/adr/0008`).
+- **The daemon outlives Claude Code sessions.** Claude Code ends an MCP server by killing its process tree, so the shim
+  starts the daemon through `roslyn-mcp.exe start-daemon`, which exits at once and leaves the daemon outside that tree:
+  the next session finds its solution loaded (`docs/adr/0010`).

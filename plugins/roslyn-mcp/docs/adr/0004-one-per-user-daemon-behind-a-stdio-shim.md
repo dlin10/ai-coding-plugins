@@ -12,7 +12,8 @@ turns. Both are one executable, `roslyn-mcp.exe`, in two modes, `mcp` and `daemo
 
 - The shim contacts the daemon on the first tool call, never on `initialize`, so `claude mcp list` and
   `codex mcp list` start nothing.
-- When no daemon answers, the shim starts one with `CREATE_BREAKAWAY_FROM_JOB`, so that it outlives the host's job.
+- When no daemon answers, the shim starts one with `CREATE_BREAKAWAY_FROM_JOB`, so that it outlives the host's job,
+  and through a short-lived `start-daemon` process, so that it outlives a kill of the shim's process tree (ADR 0010).
   Where the job refuses breakaway (`ERROR_ACCESS_DENIED`), the shim starts it inside the job instead, and `roslyn_load`
   reports `daemon.exitsWithJob`, which the daemon reads from the limits of its own job.
 - They meet on the pipe `roslyn-mcp-<version>-<user SID>`, created `PipeOptions.CurrentUserOnly`: a shim reaches only
