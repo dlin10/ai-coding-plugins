@@ -66,6 +66,17 @@ public class LoadResult : IToolResult
 	public string? ErrorMessage { get; set; }
 }
 
+public class UnloadResult : IToolResult
+{
+	public string Solution { get; set; } = string.Empty;
+	/// <summary>The daemon held the solution, loaded or loading, and has dropped it; false when it held nothing there.</summary>
+	public bool Unloaded { get; set; }
+	public SolutionSwitch? SolutionSwitch { get; set; }
+	public bool RequestSucceeded { get; set; }
+	public string? ErrorCode { get; set; }
+	public string? ErrorMessage { get; set; }
+}
+
 /// <summary>
 /// The daemon's restore check of a solution's projects, each named by the full path of its project file. A restore ran
 /// only when a project needed one, and every project that did ends up in <see cref="Restored"/> or <see cref="Failed"/>.

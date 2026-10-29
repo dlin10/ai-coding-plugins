@@ -38,6 +38,8 @@ When the Roslyn tools include `roslyn_load`, call it before any other Roslyn too
 
 A result carrying `solutionSwitch` named a file of another solution: it was answered from `solutionSwitch.to`, and the session now answers from that solution.
 
+Every call sees the files as they are on disk, so an edit needs no reload. When you are done with the solution, at the end of an unattended run or before removing the worktree that holds it, call `roslyn_unload`.
+
 ## Availability checklist
 
 1. Confirm the Roslyn MCP tools are available. In Codex, use tool discovery when necessary.

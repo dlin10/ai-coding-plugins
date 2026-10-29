@@ -36,6 +36,19 @@ internal sealed class DaemonClient(string pipeName) : IRoslynAnalysisRpc, IDispo
 		return result;
 	}
 
+	/// <summary>
+	/// Unloads a solution from the daemon. The session keeps it as its active solution, which its next call loads again.
+	/// </summary>
+	/// <param name="solutionPath">The absolute path of the .sln or .slnx file; null for the session's active solution.</param>
+	public async Task<UnloadResult> UnloadAsync(string? solutionPath)
+	{
+		if ((solutionPath ?? _solution) is not { } path)
+			return new UnloadResult { ErrorCode = ToolErrorCodes.NoSolution, ErrorMessage = "No solution is loaded in this session; name the solution to unload." };
+
+		var daemon = await ConnectAsync(rebind: false).ConfigureAwait(false);
+		return await daemon.UnloadAsync(path).ConfigureAwait(false);
+	}
+
 	public Task LogAsync(string message) => Task.CompletedTask;
 
 	public Task ReadyAsync() => Task.CompletedTask;

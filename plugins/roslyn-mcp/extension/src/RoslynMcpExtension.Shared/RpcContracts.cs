@@ -38,4 +38,11 @@ public interface IRoslynDaemonRpc : IRoslynAnalysisRpc
     /// </summary>
     /// <param name="solutionPath">The absolute path of the .sln or .slnx file.</param>
     Task<LoadResult> LoadAsync(string solutionPath);
+
+    /// <summary>
+    /// Unloads a solution at once, whichever connections use it; each of them loads it again on its next call. See
+    /// docs/adr/0009.
+    /// </summary>
+    /// <param name="solutionPath">The absolute path of the .sln or .slnx file.</param>
+    Task<UnloadResult> UnloadAsync(string solutionPath);
 }
