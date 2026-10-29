@@ -27,6 +27,17 @@ Fall back to text search only when Roslyn MCP is unavailable, inconclusive, or o
 
 Rule: search finds candidates; Roslyn states facts.
 
+## Load the solution first
+
+When the Roslyn tools include `roslyn_load`, call it before any other Roslyn tool, with `directory` set to your working directory as an absolute path. Its `solution` and `foundBy` name the tree every later answer comes from. When the user names a solution, pass it as `solution` instead; it wins over `directory`.
+
+`status: needsChoice` loads nothing and lists `candidates`:
+
+- **A user is present:** show the candidates, ask which solution to use, then call `roslyn_load` with that `solution` and `remember: true`. The choice is saved next to the solution, so the next session in this directory loads it without asking.
+- **Unattended** (a forge worker, `claude -p`, `codex exec`, any session where nobody answers): report Roslyn unavailable, naming the directory and the candidates, and take the text-search fallback. A candidate you pick yourself analyses a tree nobody chose, and nothing in the answers shows it.
+
+A result carrying `solutionSwitch` named a file of another solution: it was answered from `solutionSwitch.to`, and the session now answers from that solution.
+
 ## Availability checklist
 
 1. Confirm the Roslyn MCP tools are available. In Codex, use tool discovery when necessary.

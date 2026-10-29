@@ -314,11 +314,11 @@ function validateSync() {
       );
     }
 
-    // The README title carries the same release version and nothing else checked it.
+    // The README title carries the same release version, a preview's suffix included, and nothing else checked it.
     const readmePath = join(pluginsDir, entry.name, 'README.md');
     if (versions.size === 1 && existsSync(readmePath)) {
       const [pluginVersion] = versions;
-      const heading = readFileSync(readmePath, 'utf8').match(/^#[^\n]*?(\d+\.\d+\.\d+)/);
+      const heading = readFileSync(readmePath, 'utf8').match(/^#[^\n]*?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)/);
       if (heading && heading[1] !== pluginVersion) {
         fail(
           `${relative(repoRoot, readmePath)}: title version is ${heading[1]} but the host manifests say ${pluginVersion}`,
@@ -332,7 +332,7 @@ function validateSync() {
   // manifests (and through check 2 the README title) can drift from it.
   const roslynDir = join(pluginsDir, 'roslyn-mcp');
   const propsPath = join(roslynDir, 'extension', 'src', 'Directory.Build.props');
-  const extensionVersion = extractVersion(propsPath, /<Version>(\d+\.\d+\.\d+)<\/Version>/, '<Version>');
+  const extensionVersion = extractVersion(propsPath, /<Version>(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)<\/Version>/, '<Version>');
   const pluginVersion = readJson(join(roslynDir, '.codex-plugin', 'plugin.json'))?.version;
   if (extensionVersion && pluginVersion && pluginVersion !== extensionVersion) {
     fail(

@@ -6,12 +6,13 @@
     <IsPackable>false</IsPackable>
     <AssemblyName>RoslynMcpExtension.Cli.Tests</AssemblyName>
     <RootNamespace>RoslynMcpExtension.Cli.Tests</RootNamespace>
-    <!-- No test registers MSBuild in its own process: the integration tests run the daemon from the Cli project's
-         output, so MSBuildLocator's check against MSBuild assemblies in this output does not apply. -->
-    <DisableMSBuildAssemblyCopyCheck>true</DisableMSBuildAssemblyCopyCheck>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The restore check's tests register MSBuild in this process, so no copy of MSBuild may sit in this output to
+         shadow the SDK's: the same exclusions as the Cli project's. -->
+    <PackageReference Include="Microsoft.Build.Framework" VersionOverride="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.StringTools" VersionOverride="18.4.0" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <!-- The daemon's versions, over the ones central management pins for Visual Studio. -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" VersionOverride="5.9.0" />

@@ -94,7 +94,7 @@ public sealed class DaemonSessionTests
 
 		public void Open() => _gate.TrySetResult();
 
-		public async Task<Workspace> LoadAsync(string solutionPath)
+		public async Task<LoadedSolution> LoadAsync(string solutionPath)
 		{
 			Interlocked.Increment(ref _loads);
 			await _gate.Task;
@@ -110,7 +110,7 @@ public sealed class DaemonSessionTests
 			workspace.AddDocument(DocumentInfo.Create(DocumentId.CreateNewId(project.Id), "Fake.cs",
 			                                          loader: TextLoader.From(TextAndVersion.Create(SourceText.From("class Fake { }"), VersionStamp.Create())),
 			                                          filePath: FilePath));
-			return workspace;
+			return new LoadedSolution(workspace, DateTimeOffset.UtcNow, restore: null);
 		}
 	}
 }
