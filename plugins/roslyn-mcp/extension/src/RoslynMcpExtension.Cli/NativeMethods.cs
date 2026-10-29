@@ -4,12 +4,17 @@ using System.Text;
 
 namespace RoslynMcpExtension.Cli;
 
-/// <summary>The Win32 calls that start a process outside its parent's job and tell a process which job it is in.</summary>
+/// <summary>
+/// The Win32 calls that start a process outside its parent's job, wait for it to exit and tell a process which job it
+/// is in.
+/// </summary>
 internal static class NativeMethods
 {
 	public const uint CreateBreakawayFromJob = 0x01000000;
 	public const uint CreateNoWindow = 0x08000000;
 	public const int ErrorAccessDenied = 5;
+	public const int ErrorTimeout = 1460;
+	public const uint WaitObject0 = 0;
 	public const uint JobObjectLimitKillOnJobClose = 0x2000;
 	public const int JobObjectExtendedLimitInformationClass = 9;
 
@@ -92,6 +97,12 @@ internal static class NativeMethods
 
 	[DllImport("kernel32.dll", SetLastError = true)]
 	public static extern bool CloseHandle(IntPtr handle);
+
+	[DllImport("kernel32.dll", SetLastError = true)]
+	public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+	[DllImport("kernel32.dll", SetLastError = true)]
+	public static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
 
 	[DllImport("kernel32.dll", SetLastError = true)]
 	public static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);

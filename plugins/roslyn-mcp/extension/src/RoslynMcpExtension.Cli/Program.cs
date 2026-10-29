@@ -30,6 +30,9 @@ var daemonCommand = new Command("daemon", "Runs the per-user daemon that loads s
 daemonCommand.SetAction((parseResult, _) => DaemonServer.RunAsync(parseResult.GetValue(pipeOption)!, parseResult.GetValue(unloadAfterOption),
                                                                   parseResult.GetValue(exitAfterOption)));
 
-var rootCommand = new RootCommand("Roslyn MCP without Visual Studio") { pipeOption, mcpCommand, daemonCommand };
+var startDaemonCommand = new Command("start-daemon", "Starts the daemon and exits, which leaves the daemon outside its caller's process tree");
+startDaemonCommand.SetAction(parseResult => DaemonLauncher.StartDaemon(parseResult.GetValue(pipeOption)!));
+
+var rootCommand = new RootCommand("Roslyn MCP without Visual Studio") { pipeOption, mcpCommand, daemonCommand, startDaemonCommand };
 
 return await rootCommand.Parse(args).InvokeAsync();
