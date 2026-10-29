@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The analysis services, on the base Workspace, shared by the Visual Studio extension and the headless
+       daemon. netstandard2.0 so that both the net48 extension and the net10 daemon can load it; each brings
+       the Roslyn it runs on, Visual Studio's own or the daemon's newer one. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>RoslynMcpExtension.Services</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RoslynMcpExtension.Shared\RoslynMcpExtension.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RoslynMcpExtension.Tests" />
+  </ItemGroup>
+
+</Project>

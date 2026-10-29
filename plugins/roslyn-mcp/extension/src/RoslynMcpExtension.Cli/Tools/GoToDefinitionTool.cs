@@ -3,12 +3,12 @@ using System.Threading.Tasks;
 using ModelContextProtocol.Server;
 using RoslynMcpExtension.Shared;
 
-namespace RoslynMcpExtension.Server.Tools;
+namespace RoslynMcpExtension.Cli.Tools;
 
 [McpServerToolType]
-public sealed class GoToDefinitionTool(RpcClient rpc)
+public sealed class GoToDefinitionTool(IRoslynAnalysisRpc rpc)
 {
-	[McpServerTool(Name = "roslyn_go_to_definition")]
+	[McpServerTool(Name = "roslyn_go_to_definition", ReadOnly = true, Destructive = false, OpenWorld = false)]
 	[Description("Navigates to the definition of a symbol at a given position. Returns source locations or metadata assembly names plus document-scoped compilation identity; projectName includes the target framework for multi-targeted projects.")]
 	public Task<SymbolListResult> GoToDefinition(
 		[Description("Absolute path to the C# file")] string filePath,

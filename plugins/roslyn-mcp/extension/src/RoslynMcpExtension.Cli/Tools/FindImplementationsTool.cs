@@ -3,12 +3,12 @@ using System.Threading.Tasks;
 using ModelContextProtocol.Server;
 using RoslynMcpExtension.Shared;
 
-namespace RoslynMcpExtension.Server.Tools;
+namespace RoslynMcpExtension.Cli.Tools;
 
 [McpServerToolType]
-public sealed class FindImplementationsTool(RpcClient rpc)
+public sealed class FindImplementationsTool(IRoslynAnalysisRpc rpc)
 {
-	[McpServerTool(Name = "roslyn_find_implementations")]
+	[McpServerTool(Name = "roslyn_find_implementations", ReadOnly = true, Destructive = false, OpenWorld = false)]
 	[Description("Finds implementing classes and derived interfaces for an interface, derived classes for a class, implementations of interface members, or overrides of virtual and abstract members. Includes document-scoped compilation identity; projectName carries the target framework." + SymbolAddress.Summary)]
 	public Task<SymbolListResult> FindImplementations(
 		[Description(SymbolAddress.FilePath)] string? filePath = null,

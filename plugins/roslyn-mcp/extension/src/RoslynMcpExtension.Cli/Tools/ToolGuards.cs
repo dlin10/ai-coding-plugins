@@ -1,6 +1,6 @@
 using RoslynMcpExtension.Shared;
 
-namespace RoslynMcpExtension.Server.Tools;
+namespace RoslynMcpExtension.Cli.Tools;
 
 /// <summary>The parameters naming a symbol by position or by symbol ID (docs/adr/0001), described once for every tool taking them.</summary>
 internal static class SymbolAddress

@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>RoslynMcpExtension.Cli.Tests</AssemblyName>
+    <RootNamespace>RoslynMcpExtension.Cli.Tests</RootNamespace>
+    <!-- No test registers MSBuild in its own process: the integration tests run the daemon from the Cli project's
+         output, so MSBuildLocator's check against MSBuild assemblies in this output does not apply. -->
+    <DisableMSBuildAssemblyCopyCheck>true</DisableMSBuildAssemblyCopyCheck>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- The daemon's versions, over the ones central management pins for Visual Studio. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" VersionOverride="5.9.0" />
+    <PackageReference Include="StreamJsonRpc" VersionOverride="[2.25.29]" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RoslynMcpExtension.Cli\RoslynMcpExtension.Cli.csproj" />
+  </ItemGroup>
+
+</Project>

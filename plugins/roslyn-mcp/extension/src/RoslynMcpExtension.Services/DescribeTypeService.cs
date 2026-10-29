@@ -185,11 +185,10 @@ internal class DescribeTypeService(DocumentFinder documentFinder, TimeSpan budge
 	/// <summary>The IDs of the extension methods a caller at the site reaches with no using to add; none without a site.</summary>
 	private static HashSet<string?> InScopeIds((SemanticModel Model, int Position)? site, INamedTypeSymbol type)
 		=> site is { } at
-			? at.Model.LookupSymbols(at.Position, type, includeReducedExtensionMethods: true)
+			? new HashSet<string?>(at.Model.LookupSymbols(at.Position, type, includeReducedExtensionMethods: true)
 				.OfType<IMethodSymbol>()
 				.Where(method => method.ReducedFrom != null)
-				.Select(CodeMemberInfoFactory.SymbolIdOf)
-				.ToHashSet()
+				.Select(CodeMemberInfoFactory.SymbolIdOf))
 			: [];
 
 	/// <summary>How many leading namespace segments two namespaces share: Microsoft.AspNetCore and Microsoft.Extensions share one.</summary>

@@ -10,7 +10,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using RoslynMcpExtension.Server;
-using RoslynMcpExtension.Server.Tools;
+using RoslynMcpExtension.Cli.Tools;
 using RoslynMcpExtension.Shared;
 
 var pipeOption = new Option<string>("--pipe")
@@ -117,7 +117,7 @@ static async Task RunServerAsync(string pipeName, string host, int port, string 
         builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
         builder.Logging.AddFilter("ModelContextProtocol", msLogLevel);
 
-        builder.Services.AddSingleton(rpcClient);
+        builder.Services.AddSingleton<IRoslynAnalysisRpc>(rpcClient);
 
         builder.Services.AddMcpServer(options =>
             {

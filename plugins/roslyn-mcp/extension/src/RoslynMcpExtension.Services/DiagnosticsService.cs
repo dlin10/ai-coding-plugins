@@ -95,10 +95,10 @@ internal class DiagnosticsService(DocumentFinder documentFinder, TimeSpan budget
 	private HashSet<ProjectId> Scope(Solution solution, string[]? filePaths, string? projectName)
 	{
 		if (projectName != null)
-			return DocumentFinder.ProjectsNamed(solution, projectName).Select(project => project.Id).ToHashSet();
+			return new HashSet<ProjectId>(DocumentFinder.ProjectsNamed(solution, projectName).Select(project => project.Id));
 
 		if (filePaths is not { Length: > 0 })
-			return solution.ProjectIds.ToHashSet();
+			return new HashSet<ProjectId>(solution.ProjectIds);
 
 		var graph = solution.GetProjectDependencyGraph();
 		var scope = new HashSet<ProjectId>();

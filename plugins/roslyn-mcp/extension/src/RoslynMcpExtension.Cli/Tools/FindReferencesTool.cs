@@ -3,12 +3,12 @@ using System.Threading.Tasks;
 using ModelContextProtocol.Server;
 using RoslynMcpExtension.Shared;
 
-namespace RoslynMcpExtension.Server.Tools;
+namespace RoslynMcpExtension.Cli.Tools;
 
 [McpServerToolType]
-public sealed class FindReferencesTool(RpcClient rpc)
+public sealed class FindReferencesTool(IRoslynAnalysisRpc rpc)
 {
-	[McpServerTool(Name = "roslyn_find_references")]
+	[McpServerTool(Name = "roslyn_find_references", ReadOnly = true, Destructive = false, OpenWorld = false)]
 	[Description("Finds deduplicated references to a symbol, ordered by file and line. The referenced symbol appears once at the response level; each location includes its fully-qualified containingSymbol and containingSymbolId, plus enclosingStartLine/enclosingEndLine, the declaration span of that containing member, so the surrounding code can be read straight from the file. Also returns document-scoped compilation identity; projectName includes the target framework for multi-targeted projects." + SymbolAddress.Summary)]
 	public Task<SymbolListResult> FindReferences(
 		[Description(SymbolAddress.FilePath)] string? filePath = null,
