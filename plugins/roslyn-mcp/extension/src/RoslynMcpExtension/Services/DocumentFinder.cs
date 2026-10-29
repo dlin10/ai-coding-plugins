@@ -16,6 +16,12 @@ internal class DocumentFinder(Workspace workspace)
 {
 	public Workspace Workspace => workspace;
 
+	/// <summary>
+	/// The document at exactly this path, compared after full-path normalization and ignoring letter case.
+	/// Never a same-named file elsewhere: a git worktree holds the same relative paths as the checkout the
+	/// solution was loaded from; see docs/adr/0003.
+	/// </summary>
+	/// <param name="filePath">The absolute path a client named, with either slash direction.</param>
 	public Document FindDocument(string filePath)
 	{
 		if (!workspace.CurrentSolution.Projects.Any())
@@ -24,45 +30,11 @@ internal class DocumentFinder(Workspace workspace)
 			                               "No solution is loaded or the workspace is still initializing.");
 		}
 
-		var allDocuments = workspace.CurrentSolution.Projects
-			.SelectMany(p => p.Documents)
-			.Where(d => d.FilePath != null)
-			.ToList();
-
 		var normalizedPath = Path.GetFullPath(filePath);
-		var exact = allDocuments.FirstOrDefault(d =>
-			string.Equals(d.FilePath, normalizedPath, StringComparison.OrdinalIgnoreCase));
-
-		if (exact != null)
-			return exact;
-
-		var fileName = Path.GetFileName(filePath);
-		var candidates = allDocuments
-			.Where(d => string.Equals(Path.GetFileName(d.FilePath), fileName, StringComparison.OrdinalIgnoreCase))
-			.ToList();
-
-		if (candidates.Count == 1)
-			return candidates[0];
-
-		if (candidates.Count > 1)
-		{
-			var inputSegments = GetSegments(filePath);
-			Document? best = null;
-			var bestScore = 0;
-			foreach (var candidate in candidates)
-			{
-				var docSegments = GetSegments(candidate.FilePath!);
-				var score = CountMatchingTrailingSegments(inputSegments, docSegments);
-				if (score > bestScore)
-				{
-					bestScore = score;
-					best = candidate;
-				}
-			}
-			return best ?? throw DocumentNotFound(filePath);
-		}
-
-		throw DocumentNotFound(filePath);
+		return workspace.CurrentSolution.Projects
+			.SelectMany(p => p.Documents)
+			.FirstOrDefault(d => string.Equals(d.FilePath, normalizedPath, StringComparison.OrdinalIgnoreCase))
+			?? throw DocumentNotFound(filePath);
 	}
 
 	/// <summary>
@@ -139,31 +111,5 @@ internal class DocumentFinder(Workspace workspace)
 			Defines = parseOptions?.PreprocessorSymbolNames.ToList() ?? [],
 			DocumentErrorCount = semanticModel?.GetDiagnostics().Count(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
 		};
-	}
-
-	private static string[] GetSegments(string path)
-	{
-		return path.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
-	}
-
-	private static int CountMatchingTrailingSegments(string[] a, string[] b)
-	{
-		var count = 0;
-		var ai = a.Length - 1;
-		var bi = b.Length - 1;
-		while (ai >= 0 && bi >= 0)
-		{
-			if (string.Equals(a[ai], b[bi], StringComparison.OrdinalIgnoreCase))
-			{
-				count++;
-				ai--;
-				bi--;
-			}
-			else
-			{
-				break;
-			}
-		}
-		return count;
 	}
 }
