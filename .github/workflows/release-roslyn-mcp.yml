@@ -1,0 +1,90 @@
+name: Roslyn MCP release
+
+# Cuts a release when a push to main carries a plugin version that has no tag yet, or when its tag is pushed. A
+# preview version such as 3.0.0-preview.1 becomes a GitHub pre-release. The one asset is roslyn-mcp.exe: the shim
+# starts the daemon from its own path, so the same file serves both modes, and the launcher fetches it by the plugin
+# version. See plugins/roslyn-mcp/docs/adr/0008.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'roslyn-mcp-v*'
+    paths:
+      - 'plugins/roslyn-mcp/**'
+      - '.github/workflows/release-roslyn-mcp.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: roslyn-mcp-release
+  cancel-in-progress: false
+
+jobs:
+  decide:
+    runs-on: windows-latest
+    outputs:
+      cut: ${{ steps.decide.outputs.cut }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Decide the version and whether to cut a release
+        id: decide
+        shell: pwsh
+        run: |
+          $version = (Get-Content plugins/roslyn-mcp/.codex-plugin/plugin.json -Raw | ConvertFrom-Json).version
+          $tag = "roslyn-mcp-v$version"
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            if ('${{ github.ref_name }}' -ne $tag) {
+              throw "Tag ${{ github.ref_name }} disagrees with manifest version $version; expected $tag"
+            }
+            $cut = $true
+          }
+          else {
+            $existing = git ls-remote --tags origin "refs/tags/$tag" | Out-String
+            $cut = [string]::IsNullOrWhiteSpace($existing)
+            if (-not $cut) { Write-Host "$tag is already released; nothing to cut." }
+            else { Write-Host "$tag does not exist yet; cutting it from ${{ github.sha }}." }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "cut=$($cut.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+  release:
+    needs: decide
+    if: needs.decide.outputs.cut == 'true'
+    runs-on: windows-latest
+    env:
+      PLUGIN_VERSION: ${{ needs.decide.outputs.version }}
+      RELEASE_TAG: ${{ needs.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish roslyn-mcp.exe
+        shell: pwsh
+        run: |
+          dotnet publish plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Cli/RoslynMcpExtension.Cli.csproj --configuration Release --runtime win-x64 --output publish
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Roslyn's build hosts must be inside the executable; only symbol files may be left beside it.
+          $loose = @(Get-ChildItem publish -Recurse -File | Where-Object { $_.Name -ne 'roslyn-mcp.exe' -and $_.Extension -ne '.pdb' })
+          if (-not (Test-Path publish/roslyn-mcp.exe) -or $loose.Count -gt 0) {
+            throw "Expected one roslyn-mcp.exe and symbol files; also found: $($loose.FullName -join ', ')"
+          }
+      - name: Test the launcher
+        shell: pwsh
+        run: ./plugins/roslyn-mcp/scripts/test-launcher.ps1
+      - name: Load a solution through the launcher
+        shell: pwsh
+        run: ./plugins/roslyn-mcp/scripts/test-published-shim.ps1 -Executable publish/roslyn-mcp.exe
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $preview = if ($env:PLUGIN_VERSION.Contains('-')) { @('--prerelease') } else { @() }
+          gh release create $env:RELEASE_TAG publish/roslyn-mcp.exe --target ${{ github.sha }} --title "Roslyn MCP $env:PLUGIN_VERSION" --generate-notes @preview
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

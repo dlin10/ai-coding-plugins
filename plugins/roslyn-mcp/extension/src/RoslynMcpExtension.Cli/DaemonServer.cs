@@ -36,7 +36,7 @@ internal static class DaemonServer
 		}
 
 		MSBuildLocator.RegisterDefaults();
-		var registry = new SolutionRegistry(new MsBuildSolutionLoader());
+		var registry = new SolutionRegistry(new MsBuildSolutionLoader(new PackageRestore()));
 		var daemon = new DaemonInfo
 		{
 			ProcessId = Environment.ProcessId,

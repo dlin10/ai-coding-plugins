@@ -3,7 +3,7 @@
        server's serverInfo and the packaged test all take it from here; the three host manifests and the
        README title repeat it, and scripts/validate-plugins.mjs fails when they differ. -->
   <PropertyGroup>
-    <Version>2.0.0</Version>
+    <Version>3.0.0-preview.1</Version>
   </PropertyGroup>
   <PropertyGroup>
     <LangVersion>latest</LangVersion>

@@ -63,8 +63,9 @@
   </ItemGroup>
 
   <!-- source.extension.vsixmanifest takes its Identity Version from this target, so the version
-       stays written only in Directory.Build.props. -->
-  <Target Name="GetVsixVersion" Returns="$(Version)" />
+       stays written only in Directory.Build.props. A VSIX version is numbers only, so a preview's
+       suffix is left off. -->
+  <Target Name="GetVsixVersion" Returns="$(Version.Split('-')[0])" />
 
   <!-- Publish before VSIX item collection; static globs evaluate too early and pack a stale server. -->
   <Target Name="PublishServerBeforeVsix" BeforeTargets="GetVsixSourceItems">

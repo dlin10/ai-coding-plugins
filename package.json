@@ -5,7 +5,8 @@
   "scripts": {
     "validate:plugins": "node --test scripts/validate-plugins.test.mjs && node scripts/validate-plugins.mjs",
     "test:validate-plugins": "node --test scripts/validate-plugins.test.mjs",
-    "test:roslyn-hooks": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File plugins/roslyn-mcp/scripts/test-roslyn-hooks.ps1"
+    "test:roslyn-hooks": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File plugins/roslyn-mcp/scripts/test-roslyn-hooks.ps1",
+    "test:roslyn-launcher": "pwsh -NoProfile -File plugins/roslyn-mcp/scripts/test-launcher.ps1"
   },
   "devDependencies": {
     "ajv": "^8.17.1",

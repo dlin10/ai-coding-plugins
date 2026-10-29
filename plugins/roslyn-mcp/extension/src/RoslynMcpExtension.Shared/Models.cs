@@ -13,6 +13,7 @@ public static class ToolErrorCodes
 	public const string InternalError = "internal_error";
 	public const string NoSolution = "no_solution";
 	public const string LoadFailed = "load_failed";
+	public const string NeedsChoice = "needs_choice";
 }
 
 public static class LoadStatus
@@ -20,22 +21,83 @@ public static class LoadStatus
 	public const string Loaded = "loaded";
 	/// <summary>The load outlasted the wait and goes on; a later call finds the solution loaded.</summary>
 	public const string Loading = "loading";
+	/// <summary>Discovery found more than one solution, or one nothing marks, and chose none; see docs/adr/0005.</summary>
+	public const string NeedsChoice = "needsChoice";
+}
+
+/// <summary>How roslyn_load chose the solution it loaded; see docs/adr/0005.</summary>
+public static class SolutionSource
+{
+	/// <summary>The client named it.</summary>
+	public const string Explicit = "explicit";
+	/// <summary>The nearest marker at or above the directory that names a solution named it.</summary>
+	public const string Marker = "marker";
+	/// <summary>It is the only solution in the nearest folder at or above the directory that holds any.</summary>
+	public const string Upward = "upward";
+	/// <summary>The only marker below the directory that names a solution named it.</summary>
+	public const string Downward = "downward";
 }
 
 public class LoadResult : IToolResult
 {
 	public string Status { get; set; } = string.Empty;
 	public string Solution { get; set; } = string.Empty;
-	/// <summary>How the solution was chosen: "explicit" when the client named it.</summary>
+	/// <summary>How the solution was chosen, one of <see cref="SolutionSource"/>.</summary>
 	public string? FoundBy { get; set; }
+	/// <summary>The marker that named the solution, or the one remember wrote.</summary>
+	public string? Marker { get; set; }
+	/// <summary>With <see cref="LoadStatus.NeedsChoice"/>, the solutions to choose from.</summary>
+	public List<string>? Candidates { get; set; }
 	public int? ProjectCount { get; set; }
 	public int? DocumentCount { get; set; }
 	/// <summary>When the daemon finished loading the solution, for whichever session asked first.</summary>
 	public DateTimeOffset? LoadedAt { get; set; }
 	public DaemonInfo? Daemon { get; set; }
+	/// <summary>What the daemon restored before it loaded the solution; null while the load goes on.</summary>
+	public RestoreReport? Restore { get; set; }
+	/// <summary>
+	/// A restore failed, so answers about the projects in <see cref="RestoreReport.Failed"/> may miss the types their
+	/// packages declare and report errors such as CS0246 that a restore would clear.
+	/// </summary>
+	public bool Partial => Restore?.Failed.Count > 0;
+	public SolutionSwitch? SolutionSwitch { get; set; }
 	public bool RequestSucceeded { get; set; }
 	public string? ErrorCode { get; set; }
 	public string? ErrorMessage { get; set; }
+}
+
+/// <summary>
+/// The daemon's restore check of a solution's projects, each named by the full path of its project file. A restore ran
+/// only when a project needed one, and every project that did ends up in <see cref="Restored"/> or <see cref="Failed"/>.
+/// </summary>
+public class RestoreReport
+{
+	/// <summary>Projects that needed a restore and have their packages since.</summary>
+	public List<string> Restored { get; set; } = [];
+	/// <summary>Projects that still need a restore, or could not be checked, each with the reason.</summary>
+	public List<RestoreFailure> Failed { get; set; } = [];
+	/// <summary>
+	/// Projects whose evaluation names no assets file: they reference no packages through one and never need a restore.
+	/// </summary>
+	public List<string> NotApplicable { get; set; } = [];
+	/// <summary>The errors <c>dotnet restore</c> printed, when it failed.</summary>
+	public string? Errors { get; set; }
+}
+
+public class RestoreFailure
+{
+	public string Project { get; set; } = string.Empty;
+	public string Reason { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// The call named a file that the session's active solution does not hold, so the session switched to the solution
+/// holding it before answering; see docs/adr/0005.
+/// </summary>
+public class SolutionSwitch
+{
+	public string From { get; set; } = string.Empty;
+	public string To { get; set; } = string.Empty;
 }
 
 public class DaemonInfo
@@ -51,6 +113,8 @@ public class DaemonInfo
 
 public interface IToolResult
 {
+	/// <summary>Set only when this call switched the session's active solution.</summary>
+	SolutionSwitch? SolutionSwitch { get; set; }
 	bool RequestSucceeded { get; set; }
 	string? ErrorCode { get; set; }
 	string? ErrorMessage { get; set; }
@@ -118,6 +182,7 @@ public class DiagnosticsResult : IToolResult
 	public List<DiagnosticInfo> Diagnostics { get; set; } = [];
 	public int ReturnedCount { get; set; }
 	public bool Truncated { get; set; }
+	public SolutionSwitch? SolutionSwitch { get; set; }
 	public bool RequestSucceeded { get; set; }
 	public string? ErrorCode { get; set; }
 	public string? ErrorMessage { get; set; }
@@ -150,6 +215,7 @@ public class TypeDescriptionResult : IToolResult
 	public bool Truncated { get; set; }
 	public bool ExtensionsComplete { get; set; }
 	public List<string> UnscannedAssemblies { get; set; } = [];
+	public SolutionSwitch? SolutionSwitch { get; set; }
 	public bool RequestSucceeded { get; set; }
 	public string? ErrorCode { get; set; }
 	public string? ErrorMessage { get; set; }
@@ -163,6 +229,7 @@ public class SymbolListResult : IToolResult
 	public int TotalCount { get; set; }
 	public int ReturnedCount { get; set; }
 	public bool Truncated { get; set; }
+	public SolutionSwitch? SolutionSwitch { get; set; }
 	public bool RequestSucceeded { get; set; }
 	public string? ErrorCode { get; set; }
 	public string? ErrorMessage { get; set; }
@@ -174,6 +241,7 @@ public class SymbolInfoResult : IToolResult
 	public CompilationInfo? Compilation { get; set; }
 	public string? Detail { get; set; }
 	public string? Documentation { get; set; }
+	public SolutionSwitch? SolutionSwitch { get; set; }
 	public bool RequestSucceeded { get; set; }
 	public string? ErrorCode { get; set; }
 	public string? ErrorMessage { get; set; }
@@ -188,6 +256,7 @@ public class ValidateFileResult : IToolResult
 	public List<DiagnosticInfo> Errors { get; set; } = [];
 	public List<DiagnosticInfo> Warnings { get; set; } = [];
 	public List<DiagnosticInfo> AnalyzerDiagnostics { get; set; } = [];
+	public SolutionSwitch? SolutionSwitch { get; set; }
 	public bool RequestSucceeded { get; set; }
 	public string? ErrorCode { get; set; }
 	public string? ErrorMessage { get; set; }

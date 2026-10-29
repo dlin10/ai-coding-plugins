@@ -14,7 +14,7 @@ public sealed class IntegrationCollection : ICollectionFixture<FixtureSolutions>
 }
 
 /// <summary>
-/// Small solutions on disk, restored once before any test loads them: the daemon does not restore in this slice.
+/// Small solutions on disk, restored once before any test loads them, so that no test waits on the daemon's restore.
 /// They live under the temporary folder, away from this repository's Directory.*.props.
 /// </summary>
 public sealed class FixtureSolutions : IDisposable

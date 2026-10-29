@@ -12,6 +12,10 @@ during the interview that scoped symbol IDs, project-wide diagnostics and type d
 | **Type description** | A type's base-type chain, its interfaces and the members it declares that are accessible from the **project context**, then the extension methods any assembly the project references declares for it, each with the namespace a caller must import — every entry carrying its **symbol ID**. Inherited members are not repeated; a client follows the chain. Extensions on a receiver that accepts any type (`this object`, or `this T` where `T` is constrained to no type, only at most to a kind such as `class`) are left out, because they describe no type in particular. Named by symbol ID or by a **position**, where it means the type of the symbol there — the type itself, a variable's or member's type, a method's return type. |
 | **Affected projects** | The projects holding the files a client changed, plus every project that transitively depends on them — where an edit can have broken a caller. |
 | **Unchecked project** | A project inside a diagnostics request's scope that its time budget did not reach. Reported by name, so that no errors from it is never read as no errors in it. |
+| **Active solution** | The one solution a session's tools answer from. `roslyn_load` sets it, from a named solution or by **discovery**; a call naming a file it does not hold replaces it with the solution that does. |
+| **Discovery** | Finding the **active solution** from the agent's working directory. It finds one or offers **candidates**, and never chooses among them. |
+| **Marker** | A `.roslynmcp.json` next to a solution that names it, recording the user's choice. Untracked, so a linked worktree reads the main working tree's marker at the same relative path. One holding only a 2.x port is not a marker. |
+| **Candidates** | The solutions **discovery** offers when it finds none it may use. The user picks one; an agent never does. |
 
 ## Flagged ambiguities
 

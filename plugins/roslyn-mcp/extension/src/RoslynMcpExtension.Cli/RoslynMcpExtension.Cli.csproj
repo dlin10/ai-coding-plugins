@@ -11,11 +11,22 @@
     <NoWarn>$(NoWarn);StreamJsonRpc0003</NoWarn>
   </PropertyGroup>
 
+  <!-- The release asset, which `dotnet publish -r win-x64` makes: one file holding the whole output, Roslyn's build
+       hosts included, unpacked on first start and run on the installed .NET. A build keeps the plain output the tests
+       start. See docs/adr/0008. -->
+  <PropertyGroup>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Build.Locator" />
     <!-- A copy of MSBuild in the output would shadow the SDK's, which MSBuildLocator refuses to register. Versioned
          here rather than centrally: a central version would pin the package in the extension's graph too. -->
     <PackageReference Include="Microsoft.Build.Framework" VersionOverride="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
+    <!-- The restore check evaluates projects in this process, on the MSBuild that MSBuildLocator registers. -->
+    <PackageReference Include="Microsoft.Build" VersionOverride="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
     <!-- An MSBuild assembly too, brought by StreamJsonRpc's MessagePack formatters, which nothing here uses: the
          pipe speaks JSON. -->
     <PackageReference Include="Microsoft.NET.StringTools" VersionOverride="18.4.0" ExcludeAssets="runtime" PrivateAssets="all" />

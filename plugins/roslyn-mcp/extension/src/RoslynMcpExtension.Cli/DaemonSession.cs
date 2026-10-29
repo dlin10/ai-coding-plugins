@@ -38,6 +38,7 @@ internal sealed class DaemonSession(SolutionRegistry registry, TimeSpan loadWait
 			result.ProjectCount = loaded.Solution.ProjectIds.Count;
 			result.DocumentCount = loaded.DocumentCount;
 			result.LoadedAt = loaded.LoadedAt;
+			result.Restore = loaded.Restore;
 			result.RequestSucceeded = true;
 		}
 		catch (Exception ex)

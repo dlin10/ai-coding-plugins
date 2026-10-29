@@ -10,5 +10,21 @@
   bare file name no longer resolves (`docs/adr/0003`).
 - **Roslyn without Visual Studio.** `roslyn-mcp.exe mcp` is a stdio MCP server offering `roslyn_load(solution)` and
   the eleven tools, which it forwards to a per-user daemon. The daemon loads each solution once with MSBuildWorkspace and
-  keeps it loaded across sessions. Every tool is annotated read-only. Not yet declared in the plugin's `.mcp.json`
-  (`docs/adr/0004`).
+  keeps it loaded across sessions. Every tool is annotated read-only (`docs/adr/0004`).
+- **The solution is found from the agent's working directory.** `roslyn_load(directory)` uses the nearest
+  `.roslynmcp.json` naming a `solution`, else the only solution in the nearest folder above, else the only marker below,
+  and reports which in `foundBy`; anything else answers `needsChoice` with the candidates and loads nothing.
+  `remember: true` saves the user's choice in a marker next to the solution, and a linked worktree reads the main
+  tree's markers. A call naming a file of another solution switches the session to it and says so in `solutionSwitch`
+  (`docs/adr/0005`).
+- **Packages are restored when a project needs it.** Before the daemon loads a solution, it checks each C# and Visual
+  Basic project the way the Roslyn language server does: the assets file named by the project's evaluation must exist and
+  must resolve every package the project references. When a project fails the check, the daemon runs `dotnet restore` on
+  the solution. `roslyn_load` reports the projects restored, the projects that failed with the reason, and the projects
+  that name no assets file, which never trigger a restore. It sets `partial` while a restore has failed
+  (`docs/adr/0006`).
+- **Installed from the marketplace.** The plugin declares the shim as the MCP server `roslyn-mcp`, which Codex lists
+  under that name and Claude Code as `plugin:roslyn-mcp:roslyn-mcp`. On first start its launcher downloads the
+  `roslyn-mcp.exe` of the plugin's version from the GitHub release into `%LOCALAPPDATA%\roslyn-mcp\bin`, and it
+  retires versions nobody has started for a week. `3.0.0-preview.N` versions release the shim as a GitHub pre-release
+  before the cutover, and the bundled VSIX stays 2.0.0 until then (`docs/adr/0008`).

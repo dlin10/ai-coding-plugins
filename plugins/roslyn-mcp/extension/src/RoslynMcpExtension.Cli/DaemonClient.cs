@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using RoslynMcpExtension.Shared;
@@ -15,7 +17,6 @@ namespace RoslynMcpExtension.Cli;
 /// <param name="pipeName">The pipe the daemon listens on.</param>
 internal sealed class DaemonClient(string pipeName) : IRoslynAnalysisRpc, IDisposable
 {
-	private const string FoundExplicitly = "explicit";
 	private static readonly TimeSpan AnswerTimeout = TimeSpan.FromSeconds(1);
 	private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(30);
 
@@ -32,7 +33,6 @@ internal sealed class DaemonClient(string pipeName) : IRoslynAnalysisRpc, IDispo
 		var result = await daemon.LoadAsync(solutionPath).ConfigureAwait(false);
 		if (result.RequestSucceeded)
 			_solution = result.Solution;
-		result.FoundBy = FoundExplicitly;
 		return result;
 	}
 
@@ -41,42 +41,42 @@ internal sealed class DaemonClient(string pipeName) : IRoslynAnalysisRpc, IDispo
 	public Task ReadyAsync() => Task.CompletedTask;
 
 	public Task<ValidateFileResult> ValidateFileAsync(string filePath, bool includeWarnings, bool runAnalyzers)
-		=> ForwardAsync(daemon => daemon.ValidateFileAsync(filePath, includeWarnings, runAnalyzers));
+		=> ForwardAsync([filePath], daemon => daemon.ValidateFileAsync(filePath, includeWarnings, runAnalyzers));
 
 	public Task<DiagnosticsResult> GetDiagnosticsAsync(string[]? filePaths, string? projectName, bool includeWarnings, bool runAnalyzers,
 	                                                   int maxResults)
-		=> ForwardAsync(daemon => daemon.GetDiagnosticsAsync(filePaths, projectName, includeWarnings, runAnalyzers, maxResults));
+		=> ForwardAsync(filePaths ?? [], daemon => daemon.GetDiagnosticsAsync(filePaths, projectName, includeWarnings, runAnalyzers, maxResults));
 
 	public Task<SymbolListResult> FindReferencesAsync(string? filePath, int line, int column, string? symbolId, string? projectName,
 	                                                  int maxResults)
-		=> ForwardAsync(daemon => daemon.FindReferencesAsync(filePath, line, column, symbolId, projectName, maxResults));
+		=> ForwardAsync([filePath], daemon => daemon.FindReferencesAsync(filePath, line, column, symbolId, projectName, maxResults));
 
 	public Task<SymbolListResult> FindImplementationsAsync(string? filePath, int line, int column, string? symbolId, string? projectName,
 	                                                       int maxResults)
-		=> ForwardAsync(daemon => daemon.FindImplementationsAsync(filePath, line, column, symbolId, projectName, maxResults));
+		=> ForwardAsync([filePath], daemon => daemon.FindImplementationsAsync(filePath, line, column, symbolId, projectName, maxResults));
 
 	public Task<SymbolListResult> FindCallersAsync(string? filePath, int line, int column, string? symbolId, string? projectName,
 	                                               int maxResults)
-		=> ForwardAsync(daemon => daemon.FindCallersAsync(filePath, line, column, symbolId, projectName, maxResults));
+		=> ForwardAsync([filePath], daemon => daemon.FindCallersAsync(filePath, line, column, symbolId, projectName, maxResults));
 
 	public Task<SymbolListResult> GoToDefinitionAsync(string filePath, int line, int column)
-		=> ForwardAsync(daemon => daemon.GoToDefinitionAsync(filePath, line, column));
+		=> ForwardAsync([filePath], daemon => daemon.GoToDefinitionAsync(filePath, line, column));
 
 	public Task<SymbolListResult> GetDocumentSymbolsAsync(string filePath)
-		=> ForwardAsync(daemon => daemon.GetDocumentSymbolsAsync(filePath));
+		=> ForwardAsync([filePath], daemon => daemon.GetDocumentSymbolsAsync(filePath));
 
 	public Task<SymbolListResult> SearchSymbolsAsync(string query, bool includeMetadata, int maxResults)
-		=> ForwardAsync(daemon => daemon.SearchSymbolsAsync(query, includeMetadata, maxResults));
+		=> ForwardAsync([], daemon => daemon.SearchSymbolsAsync(query, includeMetadata, maxResults));
 
 	public Task<SymbolListResult> FindDeadCodeAsync(int maxResults, bool includeInternal, bool includePublic)
-		=> ForwardAsync(daemon => daemon.FindDeadCodeAsync(maxResults, includeInternal, includePublic));
+		=> ForwardAsync([], daemon => daemon.FindDeadCodeAsync(maxResults, includeInternal, includePublic));
 
 	public Task<SymbolInfoResult> GetSymbolInfoAsync(string? filePath, int line, int column, string? symbolId, string? projectName)
-		=> ForwardAsync(daemon => daemon.GetSymbolInfoAsync(filePath, line, column, symbolId, projectName));
+		=> ForwardAsync([filePath], daemon => daemon.GetSymbolInfoAsync(filePath, line, column, symbolId, projectName));
 
 	public Task<TypeDescriptionResult> DescribeTypeAsync(string? filePath, int line, int column, string? symbolId, string? projectName,
 	                                                     string? memberFilter, int maxResults)
-		=> ForwardAsync(daemon => daemon.DescribeTypeAsync(filePath, line, column, symbolId, projectName, memberFilter, maxResults));
+		=> ForwardAsync([filePath], daemon => daemon.DescribeTypeAsync(filePath, line, column, symbolId, projectName, memberFilter, maxResults));
 
 	public void Dispose()
 	{
@@ -84,21 +84,55 @@ internal sealed class DaemonClient(string pipeName) : IRoslynAnalysisRpc, IDispo
 		_connecting.Dispose();
 	}
 
-	/// <summary>Forwards an analysis call, or tells the client to load a solution first.</summary>
+	/// <summary>
+	/// Forwards an analysis call, or tells the client to load a solution first. When the active solution does not hold
+	/// a file the call names and the solution found from the file's folder does, the session switches to that one and
+	/// the call answers from it, saying so; see docs/adr/0005.
+	/// </summary>
+	/// <param name="filePaths">The files the call names, with null for a file it may name and does not.</param>
 	/// <param name="call">The call, on the daemon.</param>
-	private async Task<T> ForwardAsync<T>(Func<IRoslynDaemonRpc, Task<T>> call) where T : IToolResult, new()
+	private async Task<T> ForwardAsync<T>(string?[] filePaths, Func<IRoslynDaemonRpc, Task<T>> call) where T : IToolResult, new()
 	{
-		if (_solution == null)
+		if (_solution is not { } active)
 		{
 			return new T
 			{
 				ErrorCode = ToolErrorCodes.NoSolution,
-				ErrorMessage = "No solution is loaded. Call roslyn_load with the absolute path of the .sln or .slnx file first."
+				ErrorMessage = "No solution is loaded. Call roslyn_load first, with your working directory as directory."
 			};
 		}
 
-		return await call(await ConnectAsync(rebind: true).ConfigureAwait(false)).ConfigureAwait(false);
+		var daemon = await ConnectAsync(rebind: true).ConfigureAwait(false);
+		var result = await call(daemon).ConfigureAwait(false);
+		if (result.ErrorCode != ToolErrorCodes.DocumentNotFound || OwnerOf(filePaths) is not { } owner
+		    || owner.Equals(active, StringComparison.OrdinalIgnoreCase))
+			return result;
+
+		var load = await daemon.LoadAsync(owner).ConfigureAwait(false);
+		if (!load.RequestSucceeded)
+		{
+			result.ErrorMessage += $" Discovery from its folder found {owner}, which could not be loaded: {load.ErrorMessage}";
+			return result;
+		}
+
+		var switched = await call(daemon).ConfigureAwait(false);
+		if (switched.ErrorCode == ToolErrorCodes.DocumentNotFound)
+		{
+			// The solution found from the file's folder does not hold the file either, so the session stays where it was.
+			await daemon.LoadAsync(active).ConfigureAwait(false);
+			return result;
+		}
+
+		_solution = load.Solution;
+		switched.SolutionSwitch = new SolutionSwitch { From = active, To = load.Solution };
+		return switched;
 	}
+
+	/// <summary>The one solution discovery finds for every file a call names; null when it names none, or they differ.</summary>
+	/// <param name="filePaths">The files the call names.</param>
+	private static string? OwnerOf(string?[] filePaths)
+		=> filePaths.OfType<string>().Where(Path.IsPathFullyQualified).Select(SolutionDiscovery.FindOwner)
+		            .Distinct(StringComparer.OrdinalIgnoreCase).ToList() is [{ } owner] ? owner : null;
 
 	/// <summary>
 	/// The connection to the daemon, made on first use and again after the daemon went away; starts a daemon when

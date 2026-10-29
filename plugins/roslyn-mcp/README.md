@@ -1,4 +1,4 @@
-# Roslyn MCP 2.0.0
+# Roslyn MCP 3.0.0-preview.1
 
 Roslyn MCP packages a Visual Studio extension and agent guidance that expose the live Roslyn workspace to **Codex**, **Claude Code**, and **Cursor**. Each solution uses its own MCP port, so multiple Visual Studio instances can serve different solutions without cross-talk, whether those solutions live in one repository or in several.
 
@@ -34,6 +34,12 @@ Then ask Codex to use `$roslyn-install-vsix`. In each repository, ask it to use 
 2. Install `roslyn-mcp` from Customize.
 3. Invoke the `roslyn-install-vsix` skill.
 4. Invoke `roslyn-setup-repo` with a distinct port, for example `5051`.
+
+## Without Visual Studio (preview)
+
+The 3.0.0 previews also declare a plugin MCP server, `roslyn-mcp` in Codex and `plugin:roslyn-mcp:roslyn-mcp` in Claude Code, that needs no Visual Studio. It is a stdio shim that forwards the tools to one daemon per Windows user, which loads each solution with MSBuildWorkspace and keeps it loaded across sessions (`docs/adr/0004`). Call `roslyn_load` with the absolute path of the `.sln` or `.slnx` file first. It needs Windows x64 and the .NET 10 SDK.
+
+On first start, `bin/roslyn-mcp-launcher.cmd` downloads the `roslyn-mcp.exe` of the plugin's version from the GitHub release `roslyn-mcp-v<version>` into `%LOCALAPPDATA%\roslyn-mcp\bin\<version>`, where the executable also unpacks itself. On every start the launcher retires the versions nobody has started for a week, except the two most recently used and any still running (`docs/adr/0008`). Until the 3.0.0 cutover, the per-solution servers described below keep working beside it.
 
 ## Repository setup behavior
 
@@ -90,8 +96,9 @@ Every result that reports a symbol carries its `symbolId`, the documentation com
 
 ## Contents
 
-- `assets/RoslynMcpExtension.vsix` — bundled extension, the same version as the plugin.
-- `.codex-plugin/`, `.claude-plugin/`, `.cursor-plugin/` — host manifests.
+- `assets/RoslynMcpExtension.vsix` — bundled extension, the same version as the plugin, or for a preview the last release's.
+- `.codex-plugin/`, `.claude-plugin/`, `.cursor-plugin/` — host manifests; `.mcp.json` — the plugin MCP server.
+- `bin/` — the launcher that fetches `roslyn-mcp.exe` and its cache helper.
 - `skills/` — installation, repository setup, and Roslyn-first routing.
 - `commands/` — thin Claude Code command shims over the canonical skills.
 - `hooks/` — host-specific hook manifests and the shared PowerShell hook.
@@ -105,7 +112,7 @@ The extension targets .NET Framework 4.8 and the server targets .NET 10. Build w
 msbuild extension/src/RoslynMcpExtension.slnx /p:Configuration=Release /t:Rebuild /restore
 ```
 
-The plugin and the extension share one version, written once as `<Version>` in `extension/src/Directory.Build.props`; the VSIX manifest, the package registration and the server's `serverInfo` all take it from there. To release, change it there, in the three host manifests and in the title above, then replace `assets/RoslynMcpExtension.vsix` with the Release output. `npm run validate:plugins` fails while any of them differ.
+The plugin and the extension share one version, written once as `<Version>` in `extension/src/Directory.Build.props`; the VSIX manifest, the package registration and the server's `serverInfo` all take it from there. To release, change it there, in the three host manifests and in the title above, then replace `assets/RoslynMcpExtension.vsix` with the Release output. `npm run validate:plugins` fails while any of them differ. A `-preview.N` version keeps the VSIX of the last release, and the VSIX manifest takes the version without the suffix. Merging a new version to main releases `roslyn-mcp.exe` through `.github/workflows/release-roslyn-mcp.yml`.
 
 ## Validation
 
@@ -115,9 +122,12 @@ From the repository root:
 npm ci
 npm run validate:plugins
 npm run test:roslyn-hooks
+npm run test:roslyn-launcher
 ```
 
-CI validates all three marketplace surfaces, manifest and version consistency, hook contracts, the extension build, the standalone server tests, the bundled VSIX version, and standalone server package advisories. `RoslynMcpExtension.Tests`, which covers the server lifecycle inside the extension, needs the Visual Studio SDK and runs locally from the built solution rather than in CI.
+To check a published `roslyn-mcp.exe` end to end, through the launcher on a one-project solution, run `pwsh plugins/roslyn-mcp/scripts/test-published-shim.ps1 -Executable <path to roslyn-mcp.exe>`.
+
+CI validates all three marketplace surfaces, manifest and version consistency, hook contracts, the launcher, the extension build, the standalone server tests, the bundled VSIX version, standalone server package advisories, and a published `roslyn-mcp.exe` loading a solution through the launcher. `RoslynMcpExtension.Tests`, which covers the server lifecycle inside the extension, needs the Visual Studio SDK and runs locally from the built solution rather than in CI.
 
 ## License
 
