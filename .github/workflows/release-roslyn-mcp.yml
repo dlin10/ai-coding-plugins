@@ -85,6 +85,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $preview = if ($env:PLUGIN_VERSION.Contains('-')) { @('--prerelease') } else { @() }
+          # @() keeps it an array: an if unrolls a one-item array to a string, and a splatted string passes its characters.
+          $preview = @(if ($env:PLUGIN_VERSION.Contains('-')) { '--prerelease' })
           gh release create $env:RELEASE_TAG publish/roslyn-mcp.exe --target ${{ github.sha }} --title "Roslyn MCP $env:PLUGIN_VERSION" --generate-notes @preview
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
