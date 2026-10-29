@@ -214,10 +214,10 @@ public sealed class ValidateFileGeneratorTests : IDisposable
 	public void ProductionObservationIsStructurallyInsideBudgetHelper()
 	{
 		var directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
-		while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Services", "ValidateFileService.cs")) &&
-			!File.Exists(Path.Combine(directory.FullName, "RoslynMcpExtension", "Services", "ValidateFileService.cs"))) directory = directory.Parent;
+		while (directory != null && !File.Exists(Path.Combine(directory.FullName, "RoslynMcpExtension.Services", "ValidateFileService.cs")))
+			directory = directory.Parent;
 		Assert.NotNull(directory);
-		var path = Path.Combine(directory!.FullName, "RoslynMcpExtension", "Services", "ValidateFileService.cs");
+		var path = Path.Combine(directory!.FullName, "RoslynMcpExtension.Services", "ValidateFileService.cs");
 		var syntax = CSharpSyntaxTree.ParseText(File.ReadAllText(path)).GetRoot();
 		var calls = syntax.DescendantNodes().OfType<InvocationExpressionSyntax>().ToArray();
 		string Name(InvocationExpressionSyntax call) => call.Expression is MemberAccessExpressionSyntax member

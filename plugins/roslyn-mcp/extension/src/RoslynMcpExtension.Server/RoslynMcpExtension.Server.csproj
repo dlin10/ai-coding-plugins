@@ -19,4 +19,11 @@
     <ProjectReference Include="..\RoslynMcpExtension.Shared\RoslynMcpExtension.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The eleven analysis tools live with the headless shim; this server, which #214 retires, compiles them too.
+         roslyn_load is the shim's own: here Visual Studio has the solution loaded. -->
+    <Compile Include="..\RoslynMcpExtension.Cli\Tools\*.cs" Exclude="..\RoslynMcpExtension.Cli\Tools\LoadTool.cs"
+             Link="Tools\%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

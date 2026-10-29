@@ -25,3 +25,17 @@ public interface IServerRpc
 {
     Task ShutdownAsync();
 }
+
+/// <summary>
+/// The headless daemon's contract with a shim, one connection per agent session. The analysis calls answer from
+/// the solution this connection last loaded; see docs/adr/0004.
+/// </summary>
+public interface IRoslynDaemonRpc : IRoslynAnalysisRpc
+{
+    /// <summary>
+    /// Makes a solution this connection's, loading it unless the daemon already holds it. Waits for the load
+    /// about a minute at most, then answers <see cref="LoadStatus.Loading"/> while the load goes on.
+    /// </summary>
+    /// <param name="solutionPath">The absolute path of the .sln or .slnx file.</param>
+    Task<LoadResult> LoadAsync(string solutionPath);
+}

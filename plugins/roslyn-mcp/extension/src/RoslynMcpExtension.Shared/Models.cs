@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 
@@ -10,6 +11,42 @@ public static class ToolErrorCodes
 	public const string WorkspaceNotReady = "workspace_not_ready";
 	public const string Cancelled = "cancelled";
 	public const string InternalError = "internal_error";
+	public const string NoSolution = "no_solution";
+	public const string LoadFailed = "load_failed";
+}
+
+public static class LoadStatus
+{
+	public const string Loaded = "loaded";
+	/// <summary>The load outlasted the wait and goes on; a later call finds the solution loaded.</summary>
+	public const string Loading = "loading";
+}
+
+public class LoadResult : IToolResult
+{
+	public string Status { get; set; } = string.Empty;
+	public string Solution { get; set; } = string.Empty;
+	/// <summary>How the solution was chosen: "explicit" when the client named it.</summary>
+	public string? FoundBy { get; set; }
+	public int? ProjectCount { get; set; }
+	public int? DocumentCount { get; set; }
+	/// <summary>When the daemon finished loading the solution, for whichever session asked first.</summary>
+	public DateTimeOffset? LoadedAt { get; set; }
+	public DaemonInfo? Daemon { get; set; }
+	public bool RequestSucceeded { get; set; }
+	public string? ErrorCode { get; set; }
+	public string? ErrorMessage { get; set; }
+}
+
+public class DaemonInfo
+{
+	public int ProcessId { get; set; }
+	public string Version { get; set; } = string.Empty;
+	/// <summary>
+	/// The daemon runs inside a job that kills it when closed, because the host refused it breakaway, as
+	/// codex exec does: it and every solution it holds end with the host's turn.
+	/// </summary>
+	public bool ExitsWithJob { get; set; }
 }
 
 public interface IToolResult

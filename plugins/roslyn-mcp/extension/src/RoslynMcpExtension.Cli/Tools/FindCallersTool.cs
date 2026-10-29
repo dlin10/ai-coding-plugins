@@ -3,12 +3,12 @@ using System.Threading.Tasks;
 using ModelContextProtocol.Server;
 using RoslynMcpExtension.Shared;
 
-namespace RoslynMcpExtension.Server.Tools;
+namespace RoslynMcpExtension.Cli.Tools;
 
 [McpServerToolType]
-public sealed class FindCallersTool(RpcClient rpc)
+public sealed class FindCallersTool(IRoslynAnalysisRpc rpc)
 {
-	[McpServerTool(Name = "roslyn_find_callers")]
+	[McpServerTool(Name = "roslyn_find_callers", ReadOnly = true, Destructive = false, OpenWorld = false)]
 	[Description("Finds call sites grouped by calling member. Direct calls are marked caller; calls through interface or override relationships are marked indirect-caller. Each call site carries enclosingStartLine/enclosingEndLine, the declaration span of the calling member, so the surrounding code can be read straight from the file, and containingSymbolId, which names the calling member for the next call up the chain. Includes document-scoped compilation identity; projectName carries the target framework." + SymbolAddress.Summary)]
 	public Task<SymbolListResult> FindCallers(
 		[Description(SymbolAddress.FilePath)] string? filePath = null,

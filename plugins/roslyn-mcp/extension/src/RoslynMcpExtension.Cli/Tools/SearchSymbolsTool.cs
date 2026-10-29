@@ -3,12 +3,12 @@ using System.Threading.Tasks;
 using ModelContextProtocol.Server;
 using RoslynMcpExtension.Shared;
 
-namespace RoslynMcpExtension.Server.Tools;
+namespace RoslynMcpExtension.Cli.Tools;
 
 [McpServerToolType]
-public sealed class SearchSymbolsTool(RpcClient rpc)
+public sealed class SearchSymbolsTool(IRoslynAnalysisRpc rpc)
 {
-	[McpServerTool(Name = "roslyn_search_symbols")]
+	[McpServerTool(Name = "roslyn_search_symbols", ReadOnly = true, Destructive = false, OpenWorld = false)]
 	[Description("Searches source symbol declarations across the entire solution using substring and camel-hump matching (for example, OSvc finds OrderService). Each result carries its symbolId and enclosingStartLine/enclosingEndLine, the span of the whole declaration. With includeMetadata, also returns types and members of referenced assemblies whose name is exactly the query, each naming its assembly and version. Values above 500 are clamped.")]
 	public Task<SymbolListResult> SearchSymbols(
 		[Description("Substring or camel-hump pattern for source declarations (for example, OSvc finds OrderService); an exact name for metadata")] string query,
