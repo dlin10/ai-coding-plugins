@@ -1,10 +1,10 @@
 # Roslyn MCP Extension — Visual Studio Extension
 
-A Visual Studio extension that exposes **semantic C# code analysis** via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), powered by the **live Roslyn workspace** inside Visual Studio.
+A Visual Studio extension that serves **semantic C# code analysis** from the **live Roslyn workspace** inside Visual Studio to the Roslyn MCP plugin's daemon, which offers it to agents over the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/). It is optional: without it, the daemon loads every solution itself.
 
 This extension was inspired by [Roslyn MCP Extension](https://github.com/sailro/RoslynMcpExtension) by Sebastien Lebreton.
 
-Unlike standalone Roslyn MCP servers that create their own `MSBuildWorkspace`, this extension uses Visual Studio's actual `VisualStudioWorkspace` — giving you access to unsaved changes, live diagnostics, and the full compilation state that VS already maintains.
+The daemon loads a solution with MSBuild and answers from the files on disk. When Visual Studio has the same solution file open, the daemon forwards its calls to this extension instead, which answers from Visual Studio's own `VisualStudioWorkspace` — unsaved changes, live diagnostics, and the full compilation state that VS already maintains — without loading the solution a second time.
 
 ## MCP Tools
 
@@ -119,19 +119,17 @@ Find dead code in the active workspace
 Find dead code including public members
 ```
 
-## How It Differs from Other Roslyn MCP Servers
+## How It Differs from the Daemon's Own Load
 
-| Feature | This Extension | Others roslyn/mcp servers |
-|---------|---------------|---------------------------------------|
-| Workspace | Live VS `VisualStudioWorkspace` | Standalone `MSBuildWorkspace` |
+| Feature | Served by this extension | Loaded by the daemon |
+|---------|--------------------------|----------------------|
+| Workspace | Live VS `VisualStudioWorkspace` | A workspace of its own, loaded with MSBuild |
 | Unsaved changes | ✅ Sees current editor state | ❌ Only saved files |
-| Find References | ✅ Semantic `SymbolFinder` | ❌ Text search or separate workspace |
-| Diagnostics | ✅ Live from VS compiler | ⚠️ Re-compiled separately |
-| Build integration | ✅ Uses VS compilation state | ❌ Separate compilation |
-| Multi-instance support | A pipe per open solution, found by its path | Commonly one global server configuration |
-| Setup | Install the VSIX beside the Roslyn MCP plugin | Configure and load a separate workspace |
-| Logging | ✅ Dedicated Output pane | ❌ Console/file logs |
-| Session recovery | ✅ The daemon falls back to its own load | ❌ Client must reconnect |
+| Diagnostics | ✅ Live from VS compiler | Compiled by the daemon |
+| Memory | No second load of the solution | One workspace per solution in the daemon |
+| Which solutions | Exactly the solution file VS has open | Any path, a Git worktree's included |
+| Setup | Install the VSIX of the plugin's version | None |
+| When VS closes the solution | The daemon loads it itself | — |
 
 ## License
 

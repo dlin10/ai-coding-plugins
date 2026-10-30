@@ -1,14 +1,14 @@
-# Roslyn MCP 3.0.0-preview.2
+# Roslyn MCP 3.0.0
 
-Roslyn MCP packages a Visual Studio extension and agent guidance that expose the live Roslyn workspace to **Codex**, **Claude Code**, and **Cursor**. Each solution uses its own MCP port, so multiple Visual Studio instances can serve different solutions without cross-talk, whether those solutions live in one repository or in several.
+Roslyn MCP gives **Codex**, **Claude Code**, and **Cursor** the compiler's view of a C# solution. The plugin declares one MCP server, `roslyn-mcp`, which forwards every tool to a per-user daemon that loads each solution with MSBuild and keeps it loaded across sessions. No repository needs configuring: the server finds the solution from the agent's working directory. Visual Studio is optional; with the bundled extension installed, a solution Visual Studio has open is answered by Visual Studio, unsaved editor buffers included.
 
-This release supports clients running natively on Windows with Visual Studio 2022 or 2026. WSL and non-Windows hosts are not supported.
+It runs natively on Windows x64 and needs the .NET 10 SDK. WSL and non-Windows hosts are not supported. The optional extension supports Visual Studio 2022 and 2026.
 
 ## Why
 
 Grep matches text; Roslyn MCP resolves C# symbols using the compiler's understanding of types, namespaces, overloads, inheritance, and project references. It knows which declaration a particular identifier refers to, so methods, properties, fields, parameters, and local variables that happen to share a name produce far fewer false matches. It can also follow interface implementations and overrides, resolve callers and references across projects, and return diagnostics from the active compilation instead of inferring relationships from matching strings.
 
-Because the server uses Visual Studio's live workspace, results include unsaved editor changes and the solution's actual target frameworks, references, preprocessor symbols, and language settings. The focused semantic results also reduce token usage: the agent receives the relevant definitions and references instead of reading and filtering large sets of textual matches. Grep remains useful for configuration files and broad text discovery, but Roslyn MCP is the reliable source for semantic claims such as who calls a method, what implements an interface, where a symbol is defined, or whether code may be unused.
+Answers come from a full load of the solution: its actual target frameworks, references, preprocessor symbols, and language settings, with packages restored when a project needs it. The focused semantic results also reduce token usage: the agent receives the relevant definitions and references instead of reading and filtering large sets of textual matches. Grep remains useful for configuration files and broad text discovery, but Roslyn MCP is the reliable source for semantic claims such as who calls a method, what implements an interface, where a symbol is defined, or whether code may be unused.
 
 ## Install in Codex
 
@@ -17,69 +17,53 @@ codex plugin marketplace add dlin10/ai-coding-plugins
 codex plugin add roslyn-mcp@dlin10-ai-coding-plugins
 ```
 
-Then ask Codex to use `$roslyn-install-vsix`. In each repository, ask it to use `$roslyn-setup-repo` with a distinct port, for example `5051`.
-
 ## Install in Claude Code
 
 ```text
 /plugin marketplace add dlin10/ai-coding-plugins
 /plugin install roslyn-mcp@dlin10-ai-coding-plugins
-/roslyn-mcp:install
-/roslyn-mcp:setup-repo 5051
 ```
 
 ## Install in Cursor
 
 1. In the Cursor Dashboard, import `dlin10/ai-coding-plugins` as a team marketplace and enable it for the intended groups.
 2. Install `roslyn-mcp` from Customize.
-3. Invoke the `roslyn-install-vsix` skill.
-4. Invoke `roslyn-setup-repo` with a distinct port, for example `5051`.
 
-## Without Visual Studio (preview)
+A repository configured for 2.x needs migrating once, as described below. For the optional Visual Studio extension, use `$roslyn-install-vsix` in Codex, `/roslyn-mcp:install` in Claude Code, or the `roslyn-install-vsix` skill in Cursor.
 
-The 3.0.0 previews also declare a plugin MCP server, `roslyn-mcp` in Codex and `plugin:roslyn-mcp:roslyn-mcp` in Claude Code, that needs no Visual Studio. It is a stdio shim that forwards the tools to one daemon per Windows user, which loads each solution with MSBuild and keeps it loaded across sessions (`docs/adr/0004`), following edits on disk until it goes 2 hours without calls or an agent calls `roslyn_unload` (`docs/adr/0009`). Call `roslyn_load` with the absolute path of the `.sln` or `.slnx` file first. It needs Windows x64 and the .NET 10 SDK.
+## How it works
 
-On first start, `bin/roslyn-mcp-launcher.cmd` downloads the `roslyn-mcp.exe` of the plugin's version from the GitHub release `roslyn-mcp-v<version>` into `%LOCALAPPDATA%\roslyn-mcp\bin\<version>`, where the executable also unpacks itself. On every start the launcher retires the versions nobody has started for a week, except the two most recently used and any still running (`docs/adr/0008`). Until the 3.0.0 cutover, the per-solution servers described below keep working beside it.
+The server is listed as `roslyn-mcp` in Codex and Cursor and as `plugin:roslyn-mcp:roslyn-mcp` in Claude Code. It is a stdio shim that forwards the tools to one daemon per Windows user and plugin version (`docs/adr/0004`). An agent calls `roslyn_load` first, with its working directory: the shim finds the solution from there and names it with how it found it, or lists the candidates when the choice is the user's, and `remember: true` records that choice next to the solution (`docs/adr/0005`). A file is found by its exact path only, so a Git worktree is answered from the worktree's files (`docs/adr/0003`).
 
-## Repository setup behavior
+The daemon restores packages for the projects that need it before it loads a solution (`docs/adr/0006`), follows edits on disk, unloads a solution after 2 hours without calls or when an agent calls `roslyn_unload`, and exits 30 minutes after it last held one (`docs/adr/0009`). It starts outside the shim's process tree, so a Claude Code session ending does not take it along (`docs/adr/0010`); under `codex exec` it ends with the turn.
 
-A port belongs to a solution rather than to a repository, because one Visual Studio instance serves one solution. A repository with several solutions therefore gets one port per solution.
+On first start, `bin/roslyn-mcp-launcher.cmd` downloads the `roslyn-mcp.exe` of the plugin's version from the GitHub release `roslyn-mcp-v<version>` into `%LOCALAPPDATA%\roslyn-mcp\bin\<version>`, where the executable also unpacks itself. On every start the launcher retires the versions nobody has started for a week, except the two most recently used and any still running (`docs/adr/0008`).
 
-`roslyn-setup-repo` performs a complete read-only preflight before it changes anything. It enumerates the solutions, validates a distinct port for each, scans for files already claiming those ports, rejects a tracked `.codex/config.toml`, and displays conflicting global MCP entries for approval before removal.
+## Visual Studio, optional
 
-After preflight, it writes or merges the following in each solution's owning directory — the repository root when there is one solution, otherwise the component folder the extension reaches by searching upward from the solution:
+The bundled extension, `assets/RoslynMcpExtension.vsix`, starts no server and reads no port. Once Visual Studio has loaded a solution, it serves it on a named pipe to the current Windows user, and the daemon forwards the calls for exactly that solution file to it: Visual Studio answers from its workspace, unsaved editor buffers included, and `roslyn_load` reports `servedBy: visualStudio`. The same solution in a linked worktree, or any solution Visual Studio does not have open, the daemon loads itself. When Visual Studio closes the solution, the daemon loads it again (`docs/adr/0007`). The extension and the plugin must be the same version.
 
-- `.roslynmcp.json` for the Visual Studio extension;
-- `.codex/config.toml` for Codex, carrying `default_tools_approval_mode = "approve"` and `omit_tools_from = ["deferred"]` beside the URL;
-- `.cursor/mcp.json` for Cursor;
-- a Claude Code local-scope MCP entry when the `claude` CLI is available.
+## Migrating from 2.x
 
-Both extra Codex keys are load-bearing on Codex 0.149+. Without `omit_tools_from`, Codex parks MCP tools behind tool search and embedded `codex app-server` clients never see them; without `default_tools_approval_mode`, a session running with approval policy `never` in a read-only or workspace-write sandbox rejects every call.
+Roslyn MCP 2.x served each solution from Visual Studio on a port of its own, which `roslyn-setup-repo` wrote into every client: `.roslynmcp.json` for the extension, `.codex/config.toml`, `.cursor/mcp.json`, a Claude Code local-scope entry, and helpers that copied the client files into new worktrees. In 3.0 those servers have nothing behind them once Visual Studio runs the 3.0 extension, and in Codex a project entry named `roslyn-mcp` takes the plugin server's place.
 
-Codex and Cursor read the port from the directory, so they follow the solution automatically. Claude Code keys local-scope servers by Git repository root instead, so a repository with several solutions gets one entry per solution under distinct names such as `roslyn-<solution-slug>`, and its tools are named `mcp__roslyn-<slug>__*`.
+In each repository configured for 2.x, run `$roslyn-setup-repo` in Codex, `/roslyn-mcp:setup-repo` in Claude Code, or the `roslyn-setup-repo` skill in Cursor. It first checks that each installed client lists the plugin server, then shows everything it found and removes the repository's per-solution entries, in the main working tree and in every linked worktree. A `.roslynmcp.json` that names a `solution` is a discovery marker and keeps everything but its `port`. Roslyn entries in the global configuration (`~/.codex/config.toml`, Claude Code's user scope, `~/.cursor/mcp.json`) reach every repository, so it removes each one only after the user approves it by name. Start fresh sessions afterwards. Install the 3.0 extension last, once every repository whose solutions Visual Studio opens is migrated: until then a Visual Studio running a 2.x extension keeps serving its ports to the repositories not yet migrated.
 
-The three clients use `http://localhost:<port>/mcp`. Start fresh client sessions after setup so they reload the project configuration.
-
-## Port resolution and server lifecycle
-
-The extension walks upward from the solution directory and uses the nearest `.roslynmcp.json`. When that search finds nothing and the solution sits in a linked Git worktree — the usual case there, because the file is developer-local and therefore untracked — it repeats the search from the same relative folder in the repository's main working tree. A worktree therefore needs no port setup of its own, but one port serves one Visual Studio instance, so open a solution from the main working tree or from one worktree at a time and give a worktree its own `.roslynmcp.json` when both must be open at once.
-
-The clients are a different matter: Claude Code resolves a worktree to its repository and needs nothing, but Codex and Cursor read `.codex/config.toml` and `.cursor/mcp.json` from the directory tree, and a linked worktree starts without them. `roslyn-setup-repo` therefore also writes a `.worktreeinclude` that makes the Codex app copy both files into the worktrees it creates, and a `.cursor/worktrees.json` whose setup script does the same for worktrees Cursor creates. A worktree made any other way still needs that script run once from inside it.
-
-When neither search finds a file, the extension falls back to the **Fallback Port** setting under **Tools ▸ Options ▸ Roslyn MCP Extension ▸ General**, which also carries **Server Name** and **Auto Start**. The setting applies only in that unconfigured case, which is what its name says.
-
-Loading, closing, and reloading a solution — what a branch switch does — starts and stops the server through a single serialized queue, so a close-then-open burst keeps its order and a stale exit callback can never reach a newer run. Stopping asks the server to exit over its RPC channel so Kestrel releases the listening socket instead of being killed, which avoids the "port may already be in use" failures that used to follow a restart. Visual Studio shutdown keeps a fast path that terminates the child without waiting, because the UI thread must not block while the IDE exits.
+A checkout of this repository carries the marketplace name `dlin10-ai-coding-plugins` in `.agents/plugins/marketplace.json`, and the Codex desktop app working in such a checkout has installed the plugin from it in place of the GitHub release: on 2026-10-30 the only installed `roslyn-mcp` was a checkout's 2.0.0, so no Codex session in any folder had the plugin server. When `codex mcp list` lacks `roslyn-mcp`, check the version under `%USERPROFILE%\.codex\plugins\cache\dlin10-ai-coding-plugins\roslyn-mcp\`, and reinstall from GitHub with `codex plugin add roslyn-mcp@dlin10-ai-coding-plugins` once the checkout's branch carries 3.0.
 
 ## Behavioral guidance
 
 - **Codex and Claude Code:** strict Roslyn-first routing for semantic C# questions. If tools are not loaded in Codex, use tool discovery before falling back.
 - **Cursor:** semantic search may discover conceptual candidates, but symbol-level claims must be verified with Roslyn MCP.
+- **Every host:** call `roslyn_load` first, name files by their exact absolute paths, and call `roslyn_unload` at the end of a forge run or any other unattended run.
 - **Hooks:** Codex and Claude receive non-blocking pre-tool reminders; Cursor receives a non-blocking post-tool reminder.
 
 ## MCP tools
 
 | Tool | Purpose |
 |------|---------|
+| `roslyn_load` | Find the solution from the working directory, or take the one named, and make it the session's active solution; reports how it was found, the restore, and who serves it. |
+| `roslyn_unload` | Unload a solution from the daemon at once. |
 | `roslyn_validate_file` | Return compiler, nullable, warning, and optional analyzer diagnostics for one file. |
 | `roslyn_get_diagnostics` | Return errors and warnings across the projects a change can have broken, or a project, or the solution, under a time budget that names what it skipped. |
 | `roslyn_search_symbols` | Find source declarations by exact, substring, or camel-hump pattern; optionally referenced types and members by exact name. |
@@ -97,22 +81,22 @@ Every result that reports a symbol carries its `symbolId`, the documentation com
 ## Contents
 
 - `assets/RoslynMcpExtension.vsix` — bundled extension, the same version as the plugin, or for a preview the last release's.
-- `.codex-plugin/`, `.claude-plugin/`, `.cursor-plugin/` — host manifests; `.mcp.json` — the plugin MCP server.
+- `.codex-plugin/`, `.claude-plugin/`, `.cursor-plugin/` — host manifests; `.mcp.json` — the plugin MCP server for Codex, which the Claude Code and Cursor manifests declare inline.
 - `bin/` — the launcher that fetches `roslyn-mcp.exe` and its cache helper.
-- `skills/` — installation, repository setup, and Roslyn-first routing.
+- `skills/` — Roslyn-first routing, migration from 2.x, and the extension's installation.
 - `commands/` — thin Claude Code command shims over the canonical skills.
 - `hooks/` — host-specific hook manifests and the shared PowerShell hook.
-- `extension/` — vendored, buildable extension source with upstream MIT license.
+- `extension/` — vendored, buildable source of the extension, the shim and the daemon, with upstream MIT license.
 
 ## Rebuild the VSIX
 
-The extension targets .NET Framework 4.8 and the server targets .NET 10. Build with Visual Studio MSBuild:
+The extension targets .NET Framework 4.8 and `roslyn-mcp.exe` targets .NET 10. Build with Visual Studio MSBuild:
 
 ```text
 msbuild extension/src/RoslynMcpExtension.slnx /p:Configuration=Release /t:Rebuild /restore
 ```
 
-The plugin and the extension share one version, written once as `<Version>` in `extension/src/Directory.Build.props`; the VSIX manifest, the package registration and the server's `serverInfo` all take it from there. To release, change it there, in the three host manifests and in the title above, then replace `assets/RoslynMcpExtension.vsix` with the Release output. `npm run validate:plugins` fails while any of them differ. A `-preview.N` version keeps the VSIX of the last release, and the VSIX manifest takes the version without the suffix. Merging a new version to main releases `roslyn-mcp.exe` through `.github/workflows/release-roslyn-mcp.yml`.
+The plugin and the extension share one version, written once as `<Version>` in `extension/src/Directory.Build.props`; the VSIX manifest, the package registration, the shim's `serverInfo` and the pipe names all take it from there. To release, change it there, in the three host manifests and in the title above, then replace `assets/RoslynMcpExtension.vsix` with the Release output. `npm run validate:plugins` fails while any of them differ. A `-preview.N` version keeps the VSIX of the last release, and the VSIX manifest takes the version without the suffix. Merging a new version to main releases `roslyn-mcp.exe` through `.github/workflows/release-roslyn-mcp.yml`.
 
 ## Validation
 

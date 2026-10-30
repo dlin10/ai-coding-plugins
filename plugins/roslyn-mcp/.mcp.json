@@ -9,7 +9,8 @@
       ],
       "cwd": ".",
       "startup_timeout_sec": 60,
-      "tool_timeout_sec": 120
+      "tool_timeout_sec": 120,
+      "omit_tools_from": ["deferred"]
     }
   }
 }

@@ -5,7 +5,7 @@ description: Use first for semantic questions about C#/.NET symbols, compiler di
 
 # Roslyn MCP first (C#/.NET)
 
-Roslyn MCP is backed by Visual Studio's live `VisualStudioWorkspace`, including unsaved editor changes, live diagnostics, and the active compilation. Text search sees characters; Roslyn sees the program.
+Roslyn MCP answers from the compiler's view of a whole C# solution: its projects, references, target frameworks and diagnostics. The plugin's `roslyn-mcp` server forwards every call to a per-user daemon that keeps the solution loaded and follows its files on disk, or to the Visual Studio that has the solution open. Text search sees characters; Roslyn sees the program.
 
 ## Choose the host route
 
@@ -16,7 +16,7 @@ Roslyn MCP is backed by Visual Studio's live `VisualStudioWorkspace`, including 
 
 Before `Grep`, `rg`, `Select-String`, manual C# reading, or `dotnet build` is used to answer a semantic question, use Roslyn MCP first. This includes symbol usage, references, callers, definitions, implementations, signatures, diagnostics, and dead-code questions.
 
-In Codex, if the Roslyn MCP tools are not loaded, use tool discovery first. A tool not being immediately visible is not a reason to skip the gate. The server name comes from this repository's configuration: usually `roslyn-mcp`, giving `mcp__roslyn-mcp__*`, but a repository holding several solutions registers one server per solution, giving names such as `mcp__roslyn-<slug>__*`.
+The tools are the plugin server's: `mcp__roslyn-mcp__*` in Codex, `mcp__plugin_roslyn-mcp_roslyn-mcp__*` in Claude Code. In Codex, if they are not loaded, use tool discovery first. A tool not being immediately visible is not a reason to skip the gate.
 
 Fall back to text search only when Roslyn MCP is unavailable, inconclusive, or outside its scope, and state why.
 
@@ -29,7 +29,7 @@ Rule: search finds candidates; Roslyn states facts.
 
 ## Load the solution first
 
-When the Roslyn tools include `roslyn_load`, call it before any other Roslyn tool, with `directory` set to your working directory as an absolute path. Its `solution` and `foundBy` name the tree every later answer comes from. When the user names a solution, pass it as `solution` instead; it wins over `directory`.
+Call `roslyn_load` before any other Roslyn tool, with `directory` set to your working directory as an absolute path. Its `solution` and `foundBy` name the tree every later answer comes from. When the user names a solution, pass its absolute path as `solution` instead; it wins over `directory`. `status: loading` means a first load is still running in the background: call `roslyn_load` again shortly.
 
 `status: needsChoice` loads nothing and lists `candidates`:
 
@@ -38,14 +38,21 @@ When the Roslyn tools include `roslyn_load`, call it before any other Roslyn too
 
 A result carrying `solutionSwitch` named a file of another solution: it was answered from `solutionSwitch.to`, and the session now answers from that solution.
 
-Every call sees the files as they are on disk, so an edit needs no reload. When `roslyn_load` reports `servedBy: visualStudio`, the Visual Studio that has the solution open answers instead: a file open in its editor answers with the editor's unsaved text, and an edit you just wrote reaches the answers a fraction of a second later. When you are done with the solution, at the end of an unattended run or before removing the worktree that holds it, call `roslyn_unload`.
+Every call sees the files as they are on disk, so an edit needs no reload. When `roslyn_load` reports `servedBy: visualStudio`, the Visual Studio that has the solution open answers instead: a file open in its editor answers with the editor's unsaved text, and an edit you just wrote reaches the answers a fraction of a second later.
+
+## Paths are exact
+
+Name every file by its absolute path in the tree you work in. A file is found by its exact path only: letter case and slash direction do not matter, but a relative path or a bare file name does not resolve. In a Git worktree, use the worktree's path; a path into the main checkout answers from the main checkout's files, on whatever branch that checkout is. `DocumentNotFound` names the solution that was searched, and means that solution holds no file at that path — a wrong or relative path, or a file of a solution no discovery reaches — not that the load failed.
+
+## Unload when you are done
+
+At the end of a forge run, or of any other unattended run, call `roslyn_unload` for the solution the run loaded, before its worktree is removed. Do the same before removing any worktree whose solution you loaded. Between the turns of one run, leave the solution loaded: the next turn would only load it again. Left alone, the daemon unloads a solution after 2 hours without calls.
 
 ## Availability checklist
 
 1. Confirm the Roslyn MCP tools are available. In Codex, use tool discovery when necessary.
-2. Confirm Visual Studio has the relevant solution loaded. Roslyn MCP exposes only the live solution attached to the configured port. When the repository registers several Roslyn servers, pick the one belonging to the solution that owns the code in question; the others answer for different solutions and report nothing useful about it.
-3. With several servers, choose by evidence rather than by the first name that responds: match the server name to the component folder that holds the file, and read the server's `instructions` from its `initialize` response, which names the solution and port it serves (extension v1.8.2 and later). A `DocumentNotFound` error names the solution that was searched. When that solution is not the one owning the file, the server is the wrong one: retry on the sibling server before concluding that Visual Studio has not loaded the solution.
-4. If Visual Studio is closed, the wrong solution is loaded, or the server is unreachable, say so before using text search or build output as a fallback.
+2. Confirm `roslyn_load` answered `loaded` for the solution that owns the code in question, and read `partial`: a failed package restore leaves the failed projects without their packages' types, so errors such as CS0246 there may be the restore's, not the code's.
+3. If the server is unavailable, the load fails, or the file belongs to no solution discovery finds, say so before using text search or build output as a fallback.
 
 ## Use Roslyn MCP first for
 

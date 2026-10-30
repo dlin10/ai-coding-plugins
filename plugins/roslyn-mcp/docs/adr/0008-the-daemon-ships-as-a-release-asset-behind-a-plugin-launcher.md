@@ -20,6 +20,10 @@ asset of the plugin's own version on first start.
   start downloads about 35 MB inside the start, hence `startup_timeout_sec` 60. On a cold machine, the first
   `roslyn_load` waits up to 30 s for the new daemon to answer and up to 50 s more for the load before it answers
   `loading`, hence `tool_timeout_sec` 120. Claude's defaults (30 s to start, no practical limit on a tool) suffice.
+- **Tools in reach of `codex exec`.** Codex 0.165 defers a plugin server's tools behind tool search, which a
+  `codex exec` session does not offer: a forge worker granted the server listed none of its tools (measured
+  2026-10-30, #216). `omit_tools_from = ["deferred"]` in `.mcp.json` keeps them in the model's direct toolset, as
+  the 2.x project configuration did for the per-solution servers.
 - **The launcher** is `cmd`, because it stays the shim's parent for the whole session, and cmd's working set is under a
   fifth of PowerShell's. A short-lived inbox PowerShell helper, `roslyn-mcp-cache.ps1`, prepares
   `%LOCALAPPDATA%\roslyn-mcp\bin\<version>` and exits before the shim starts. Its file handling is plan-forge-flow's

@@ -1,5 +1,5 @@
 ---
-description: Install or upgrade the bundled tri-host Roslyn MCP Visual Studio extension (per-solution-port build) into Visual Studio.
+description: Install or upgrade the bundled Roslyn MCP Visual Studio extension, which serves a solution Visual Studio has open to the plugin's roslyn-mcp server.
 allowed-tools: Bash
 ---
 
