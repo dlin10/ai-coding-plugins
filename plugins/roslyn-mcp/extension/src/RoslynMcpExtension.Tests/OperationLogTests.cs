@@ -114,7 +114,7 @@ public sealed class OperationLogTests : IDisposable
 	[Fact]
 	public void LogNameStaysOutOfTheRpcPayload()
 	{
-		// The formatter McpServerSession's `new JsonRpc(pipe)` sends results with.
+		// The formatter SolutionPipe's `new JsonRpc(connected)` sends results with.
 		var json = JObject.FromObject(new SymbolLocation { Name = "Run", LogName = "Target.Run(int)" }, new JsonMessageFormatter().JsonSerializer);
 
 		Assert.Equal("Run", (string?)json["Name"]);

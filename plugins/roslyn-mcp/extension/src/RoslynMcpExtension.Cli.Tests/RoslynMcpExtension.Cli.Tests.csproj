@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>RoslynMcpExtension.Cli.Tests</AssemblyName>
+    <RootNamespace>RoslynMcpExtension.Cli.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The restore check's tests register MSBuild in this process, so no copy of MSBuild may sit in this output to
+         shadow the SDK's: the same exclusions as the Cli project's. -->
+    <PackageReference Include="Microsoft.Build.Framework" VersionOverride="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NET.StringTools" VersionOverride="18.4.0" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <!-- The daemon's versions, over the ones central management pins for Visual Studio. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" VersionOverride="5.9.0" />
+    <PackageReference Include="StreamJsonRpc" VersionOverride="[2.25.29]" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RoslynMcpExtension.Cli\RoslynMcpExtension.Cli.csproj" />
+  </ItemGroup>
+
+</Project>

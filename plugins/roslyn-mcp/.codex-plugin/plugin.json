@@ -1,22 +1,23 @@
 {
   "name": "roslyn-mcp",
-  "version": "2.0.0",
-  "description": "Use Visual Studio's live Roslyn workspace from Codex, Claude Code, and Cursor with an isolated MCP port per solution.",
+  "version": "3.0.0",
+  "description": "Give Codex, Claude Code, and Cursor the compiler's view of a C# solution through one MCP server, with or without Visual Studio.",
   "author": {
     "name": "Dmitry Linetsky"
   },
   "license": "MIT",
   "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Roslyn MCP",
-    "shortDescription": "Query Visual Studio's live Roslyn workspace",
-    "longDescription": "Installs a bundled Visual Studio extension, configures an isolated MCP endpoint per solution, and routes C# semantic questions through the live Roslyn workspace in Codex, Claude Code, and Cursor.",
+    "shortDescription": "Answer C# questions from the compiler's view of the solution",
+    "longDescription": "Declares one MCP server that forwards to a per-user daemon, which loads each C# solution with MSBuild and keeps it loaded across sessions, and routes C# semantic questions through it in Codex, Claude Code, and Cursor. An optional bundled Visual Studio extension serves a solution Visual Studio has open, unsaved editor buffers included.",
     "developerName": "Dmitry Linetsky",
     "category": "Developer Tools",
     "capabilities": [
       "Interactive",
       "Write"
     ],
-    "defaultPrompt": "Use $roslyn-setup-repo to connect each solution in this repository to Roslyn MCP, starting at port 5051."
+    "defaultPrompt": "Use $roslyn-setup-repo to migrate this repository from the Roslyn MCP 2.x per-solution ports to the plugin's roslyn-mcp server."
   }
 }

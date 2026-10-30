@@ -9,3 +9,4 @@ plugins/plan-forge-flow/bin/planforge-launcher.cmd text eol=crlf
 
 # cmd.exe also interprets the Concurrency Hunter launcher, so keep its shipped bytes as CRLF.
 plugins/concurrency-hunter/bin/concurrency-hunter-launcher.cmd text eol=crlf
+plugins/roslyn-mcp/bin/roslyn-mcp-launcher.cmd text eol=crlf

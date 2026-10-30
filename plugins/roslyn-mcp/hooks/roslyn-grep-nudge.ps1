@@ -79,7 +79,7 @@ elseif ($HostKind -eq 'codex') {
     $msg = "roslyn-first: this is a text search over C#/.NET code. If it answers a semantic question about a C# symbol, STOP and use the roslyn-mcp tools first. If they are not loaded, use tool discovery before falling back. Use text search only when Roslyn MCP is unavailable for this repo or the query is non-semantic, and state why (see the 'roslyn-first' skill)."
 }
 else {
-    $msg = "roslyn-first: this is a text search over C#/.NET code. If it answers a semantic question about a C# symbol (references, callers, definition, implementations, diagnostics, dead code), STOP and use the roslyn-mcp tools first (see the 'roslyn-first' skill). Fall back to text search only if roslyn-mcp is unavailable for this repo (VS not open / wrong solution) or the query is non-semantic -- and say why."
+    $msg = "roslyn-first: this is a text search over C#/.NET code. If it answers a semantic question about a C# symbol (references, callers, definition, implementations, diagnostics, dead code), STOP and use the roslyn-mcp tools first (see the 'roslyn-first' skill). Fall back to text search only if roslyn-mcp is unavailable for this repo (no roslyn-mcp server, or roslyn_load found no solution) or the query is non-semantic -- and say why."
 }
 
 $hookEventName = [string]$payload.hook_event_name

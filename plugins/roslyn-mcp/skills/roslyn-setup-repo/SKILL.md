@@ -1,149 +1,65 @@
 ---
 name: roslyn-setup-repo
-description: Configure a native-Windows repository to reach Roslyn MCP from Codex, Claude Code, and Cursor on an isolated port per solution. Writes solution-local client configuration and removes conflicting global entries only after explicit approval.
+description: Migrate a native-Windows repository from the Roslyn MCP 2.x per-solution ports to the plugin's roslyn-mcp server, for Codex, Claude Code, and Cursor. Removes the repository's port configuration, and global Roslyn entries only after explicit approval.
 ---
 
-# Set up Roslyn MCP for this repository
+# Migrate a repository to the Roslyn MCP plugin server
 
-The unit of isolation is a **solution**, not a repository, because one Visual Studio instance serves one solution on one port. A repository holding a single solution needs one port; a repository holding several needs one port per solution. Work from the current Git repository root. The supported environment is native Windows; WSL is outside this workflow.
+From 3.0, agents reach Roslyn through one MCP server the plugin declares: `roslyn-mcp` in Codex and Cursor, `plugin:roslyn-mcp:roslyn-mcp` in Claude Code. It finds the solution from the agent's working directory (`docs/adr/0005`), so a repository needs no configuration of its own. A repository set up for 2.x still carries a port per solution and a URL server per solution in each client. This workflow removes them, so that the plugin server is the only Roslyn entry the agents see. Run it from the repository's main working tree, on native Windows.
 
-## Preflight — do not write anything yet
+A **Roslyn URL entry** is an MCP server whose name starts with `roslyn` and whose URL is `http://localhost:<port>/mcp` or `http://127.0.0.1:<port>/mcp`, which is what 2.x wrote. Report any other Roslyn-named entry, such as one that runs a command, and leave it as it is.
 
-Complete every preflight check before changing files or client settings:
+## Preflight — change nothing yet
 
-1. Enumerate every `*.sln` and `*.slnx` in the repository, ignoring the generated copies under `.vs\`. Show the list and confirm which solutions are in scope.
-2. Require an integer port in `1024..65535` for each in-scope solution, and require the ports to differ from one another. If the user supplied fewer ports than solutions, or none, ask for the rest.
-3. Scan for `.roslynmcp.json` files claiming any requested port. Search at every depth rather than only at repository roots, because a multi-solution repository keeps them in subdirectories. Ask which additional repository roots to scan if the developer uses others. Stop on a collision and name the file that already claims the port.
-4. Warn about any solution that sits outside or above the repository, because the extension searches upward from the solution directory for `.roslynmcp.json`.
-5. For each directory that will receive configuration, check whether `.codex/config.toml` is tracked with `git ls-files --error-unmatch <dir>/.codex/config.toml`. If tracked, stop before all mutations and ask how the user wants to handle the developer-specific port. Do not modify the tracked file automatically.
-6. Inspect, without changing them, for global/user `roslyn` or `roslyn-mcp` entries in:
-   - Codex user config (`codex mcp list` and `codex mcp get <name>`) — run it from outside the repository, or discount the project entries, because Codex merges configuration upward from the working directory;
-   - Claude user scope, when the `claude` CLI is available;
-   - `%USERPROFILE%\.cursor\mcp.json`.
-7. If any global entries exist, show their exact names and locations and ask permission to remove them. If permission is declined, stop without partial setup because global entries can defeat per-solution isolation.
+1. **The plugin server is there.** For each client installed: `codex mcp list`, run from outside any repository, lists `roslyn-mcp` with the command `cmd.exe /d /c .\bin\roslyn-mcp-launcher.cmd`, and `claude mcp list` lists `plugin:roslyn-mcp:roslyn-mcp`. Inside a repository a project entry named `roslyn-mcp` takes the plugin server's place in Codex, which then lists the entry's URL under that name. When a client lacks the plugin server, stop: removing the per-solution servers first leaves it without Roslyn. A Codex that lacks it often runs a plugin installed from a checkout of this marketplace; see the last section.
+2. **Working trees.** List them with `git worktree list --porcelain`. The first is the main working tree; the others are linked worktrees, which may carry copies of the developer-local files.
+3. **Project entries.** In every working tree, at any depth, skipping `.git`, `bin`, `obj`, `node_modules` and the linked worktrees nested in it, find:
+   - `.roslynmcp.json` files that hold a `port`;
+   - `.codex/config.toml` files with a Roslyn URL entry, under `[mcp_servers.<name>]`;
+   - `.cursor/mcp.json` files with a Roslyn URL entry, under `mcpServers`;
+   - in the repository root's `.worktreeinclude`, the lines naming those client files, and the `.cursor/setup-worktree-windows.ps1` scripts that begin with `# Written by roslyn-setup-repo`, with the `.cursor/worktrees.json` beside each.
 
-## Choose an owning directory for each solution
+   Then Claude Code's local-scope Roslyn URL entries: run `claude mcp list` from the main working tree, and `claude mcp get <name>` for each name starting with `roslyn`, which reports the scope.
+4. **Tracked files.** Check each file found with `git ls-files --error-unmatch <path>`, and check the repository root's `.mcp.json`, Claude Code's project scope, for Roslyn URL entries. When any of these is tracked, stop before changing anything and ask the user how to handle it: a tracked file is shared with everyone who clones the repository, and this workflow edits only developer-local files.
+5. **Global entries.** Find Roslyn URL entries, without changing them, in the places below. The two files hold other servers' credentials, so read them for Roslyn entries only: parse each one and print the name and URL of each server whose name starts with `roslyn`, never the whole file.
+   - Codex's user config, `%USERPROFILE%\.codex\config.toml` (`$env:CODEX_HOME\config.toml` when that is set), under `[mcp_servers.<name>]`;
+   - Claude Code's user scope, which `claude mcp get <name>` reports as `User config`;
+   - Cursor's `%USERPROFILE%\.cursor\mcp.json`.
+6. **Show the plan.** List everything steps 3 to 5 found, as project entries and global entries, with what will happen to each. Ask the user to approve the removal of each global entry by name. The project entries are what this workflow migrates and go without further approval. A global entry reaches every repository on the machine, so it goes only with the user's explicit approval, and a declined one stays.
 
-The extension walks upward from the solution directory and uses the nearest `.roslynmcp.json`, so every solution needs a configuration directory of its own:
+## Remove the project entries
 
-- **One solution in the repository:** the repository root owns it.
-- **Several solutions:** the owning directory is the nearest ancestor of the solution that is not also an ancestor of another solution — usually the component folder, such as `plugins\<name>\` for `plugins\<name>\src\X.sln`. Never use the repository root in a multi-solution repository, because it resolves every solution to one port.
+In every working tree where step 3 found them:
 
-Place all three files — `.roslynmcp.json`, `.codex/config.toml`, and `.cursor/mcp.json` — in that single owning directory. Codex merges project configuration upward from the working directory, so it resolves correctly whether the session starts in the solution folder or the component folder, and Cursor reads `.cursor/mcp.json` from the folder opened as the workspace, which is normally the component folder.
+1. **`.roslynmcp.json`.** Remove the `port` key, and delete the file when nothing is left. A file that names a `solution` is a discovery marker, which records the user's choice of solution (`docs/adr/0005`): it stays, with every key but `port`.
+2. **`.codex/config.toml`.** Remove each Roslyn URL entry's `[mcp_servers.<name>]` table, its subtables such as `[mcp_servers.<name>.tools.<tool>]` with it, and keep every unrelated setting. The keys 2.x wrote beside the URL, `default_tools_approval_mode` and `omit_tools_from`, belong to that table. Delete the file when nothing else is left in it, and the `.codex` folder when that leaves it empty.
+3. **`.cursor/mcp.json`.** Remove each Roslyn URL entry from `mcpServers`, keeping every other server and key. Delete the file when nothing else is left in it, and the `.cursor` folder when that leaves it empty.
+4. **Worktree helpers.** Remove from `.worktreeinclude` each line naming a client file that steps 2 and 3 deleted, and delete `.worktreeinclude` when no line is left. A `.cursor/setup-worktree-windows.ps1` written by `roslyn-setup-repo` copies the client files of the folders in its `$owners` into new worktrees. Once none of those files is left in the main working tree, delete the script and remove the `setup-worktree-windows` key from the `.cursor/worktrees.json` beside it, deleting that file when it is left empty. While any of them is left, keep both.
+5. **Claude Code.** From the main working tree, run `claude mcp remove <name> -s local` for each local-scope Roslyn URL entry. Claude Code keys local scope by the repository root, so this covers the linked worktrees as well.
 
-When per-solution directories are being written and a repository-root configuration already exists, remove the root `.roslynmcp.json`, `.codex/config.toml`, and `.cursor/mcp.json`. A surviving root entry competes with the solution-local one during the upward merge Codex performs.
+`.git/info/exclude` stays as it is: markers are untracked, and the patterns 2.x added keep ignoring whatever else the user keeps under `.codex/` and `.cursor/`.
 
-## Apply the project configuration
+## Remove the approved global entries
 
-After preflight succeeds, write the following for each solution, in its owning directory:
+Remove only the global entries the user approved by name:
 
-1. Write `.roslynmcp.json` as exactly `{ "port": <port> }`.
-2. Ensure `.git/info/exclude` carries the unanchored patterns `.roslynmcp.json`, `.codex/`, `.cursor/`, and `.worktreeinclude`. A pattern containing a slash, such as `.codex/config.toml`, is anchored to the repository root and silently fails to cover nested directories, so replace it with `.codex/`. Before broadening it, confirm that no tracked files live under a directory named `.codex`; a sibling such as `.codex-plugin/` does not match the pattern and stays tracked. Do not edit the committed `.gitignore`. Confirm each written file with `git check-ignore`.
-3. Create or merge `.codex/config.toml`, preserving all unrelated TOML settings:
-
-```toml
-[mcp_servers.roslyn-mcp]
-url = "http://localhost:<port>/mcp"
-default_tools_approval_mode = "approve"
-omit_tools_from = ["deferred"]
-```
-
-   Both extra keys are load-bearing on Codex 0.149+ (verified against 0.149.0). `omit_tools_from = ["deferred"]` keeps the Roslyn tools in the model's direct toolset; without it Codex parks MCP tools behind tool search, and embedded non-interactive sessions — `codex app-server` clients such as Plan Forge Flow reviewers — never see them at all. `default_tools_approval_mode = "approve"` pre-approves the tools; without it a session running with approval policy `never` in a read-only or workspace-write sandbox rejects every call with "MCP tool call requires approval, but approval policy is never". Interactive sessions under `danger-full-access` work without either key, which is why the gap only shows up in embedded reviewers.
-
-4. Create or merge `.cursor/mcp.json`, preserving all unrelated servers:
-
-```json
-{
-  "mcpServers": {
-    "roslyn-mcp": {
-      "url": "http://localhost:<port>/mcp"
-    }
-  }
-}
-```
-
-5. Create or merge `.worktreeinclude` in the **repository root** — this one file is per repository rather than per solution, because the Codex app reads it from the root when it creates a managed worktree. List the two client files of every owning directory as paths relative to the root, one per line, and append only the lines that are missing:
-
-```
-.codex/config.toml
-.cursor/mcp.json
-plugins/<name>/.codex/config.toml
-plugins/<name>/.cursor/mcp.json
-```
-
-   The Codex app copies only the ignored files that match these patterns into the worktrees it creates. Do not list `.roslynmcp.json`: the extension already resolves it from the main working tree, and a copy inside a worktree would collide with the port scan in preflight step 3.
-
-6. Create or merge `.cursor/worktrees.json` in each owning directory, preserving unrelated keys, and write `.cursor/setup-worktree-windows.ps1` beside it. Cursor looks for `worktrees.json` in the folder opened as the workspace when it creates a worktree, first inside the worktree and then in the main working tree, so an ignored file is found. The script runs inside the new worktree and copies the client files of every owning directory, so the whole worktree is configured whichever workspace created it:
-
-```json
-{
-  "setup-worktree-windows": "setup-worktree-windows.ps1"
-}
-```
-
-```powershell
-# Written by roslyn-setup-repo. Cursor runs it inside a new worktree; it copies the
-# developer-local MCP client configuration a worktree never receives, because every
-# such file is untracked in the main working tree.
-$ErrorActionPreference = 'Stop'
-$owners = @('.', 'plugins\<name>')
-$files = @('.codex\config.toml', '.cursor\mcp.json')
-
-$worktree = [IO.Path]::GetFullPath((git rev-parse --show-toplevel).Trim())
-$main = git worktree list --porcelain | Select-Object -First 1
-$main = [IO.Path]::GetFullPath(($main -replace '^worktree ', '').Trim())
-if ($main -eq $worktree) { Write-Host 'main working tree, nothing to copy'; exit 0 }
-
-foreach ($owner in $owners) {
-    foreach ($file in $files) {
-        $source = Join-Path $main (Join-Path $owner $file)
-        $target = Join-Path $worktree (Join-Path $owner $file)
-        if (-not (Test-Path $source)) { Write-Host "missing: $source"; continue }
-        New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
-        Copy-Item $source $target -Force
-        Write-Host "copied: $target"
-    }
-}
-```
-
-   Fill `$owners` with the relative path of every owning directory; a single-solution repository has only `'.'`. The script takes both paths from git rather than from Cursor's `$ROOT_WORKTREE_PATH`, so it works whatever the working directory is, and it is a no-op when run in the main working tree. Overwrite an existing copy of the script, since it is generated. The exclude pattern `.cursor/` from step 2 already covers both files.
-
-7. Configure Claude Code as described in the next section.
-8. Remove only the previously displayed global/user entries for which the user approved removal. Use `codex mcp remove <name>` for Codex user entries, `claude mcp remove <name> -s user` for Claude entries, and a structure-preserving JSON merge for Cursor.
-
-## Claude Code is keyed by repository, not by directory
-
-Claude Code stores local-scope MCP servers under the **Git repository root** rather than the working directory. An entry added from a subdirectory lands under the repository key and remains visible from every directory in the repository, so a single server name cannot carry two ports. Confirm this on the machine at hand instead of assuming it: add a throwaway entry from a subdirectory, find which key it landed under in `%USERPROFILE%\.claude.json`, then remove it.
-
-When the `claude` CLI is available:
-
-- **One solution:** replace only the local-scope entry — `claude mcp remove roslyn-mcp -s local` when it already exists, then `claude mcp add --transport http --scope local roslyn-mcp http://localhost:<port>/mcp`. Verify with `claude mcp get roslyn-mcp` and confirm Local scope.
-- **Several solutions:** register one entry per solution under distinct names such as `roslyn-<solution-slug>`, each pointing at its own port, and remove any shared `roslyn-mcp` entry left over from an earlier single-solution setup. The distinct names are required rather than cosmetic: a shared name serves only one solution, and two concurrent sessions in the same repository would read the same entry.
-
-Explain what the multi-entry arrangement changes:
-
-- Tool names become `mcp__roslyn-<slug>__*`, so the `mcp__roslyn-mcp__*` naming quoted in the `roslyn-first` skill no longer matches this repository. The grep-nudge hooks are unaffected because they match on prose rather than server names.
-- Every entry is visible from every directory in the repository, so state which server belongs to which solution.
-- Entries whose Visual Studio instance is not running report a connection failure when a session starts. That is expected rather than a fault.
-
-## Git worktrees
-
-Run this workflow in the repository's main working tree. Every file it writes is developer-local and untracked, so a linked worktree starts out with none of them, and `.git/info/exclude` is shared across worktrees, which means anything copied into one is already ignored there.
-
-- **Visual Studio** needs nothing. When a worktree carries no `.roslynmcp.json`, the extension resolves the port from the same relative folder in the main working tree — bundled extension v1.8.0 and later.
-- **Claude Code** needs nothing. Its local-scope entries are keyed by repository and resolve from a worktree as well; confirm on the machine at hand by listing the servers from inside a worktree.
-- **Codex and Cursor** read configuration from the directory tree, so a worktree carries neither `.codex/config.toml` nor `.cursor/mcp.json`. Codex stops its upward config walk at the first `.git`, and a linked worktree has one at its root, so the main working tree's `.codex/config.toml` is never consulted from a worktree. Two files written in the apply steps cover the worktrees the clients create themselves:
-  - Worktrees created by the **Codex app** receive both client files through `.worktreeinclude`. The app applies it only to its own managed worktrees, not to `git worktree add` and not to worktrees another client created.
-  - Worktrees created by **Cursor** receive them through `.cursor/worktrees.json` and its setup script.
-  - A worktree created any other way — `git worktree add`, or another client's worktree feature in which Codex or Cursor is then used — still needs the copy. Run `.cursor\setup-worktree-windows.ps1` from inside the worktree, or copy each file by hand, then verify with `codex mcp list` run from inside the worktree rather than assuming the copy took effect.
-
-One port serves one Visual Studio instance, so a solution can be open in the main working tree or in one worktree, not both at once. When both are needed, give the worktree its own `.roslynmcp.json` on a port no other solution claims, and point that worktree's Codex, Cursor, and Claude configuration at the same port.
+- Codex: `codex mcp remove <name>`, run from outside any repository so that no project config is in play.
+- Claude Code: `claude mcp remove <name> -s user`.
+- Cursor: remove the entry from `%USERPROFILE%\.cursor\mcp.json` with a structure-preserving JSON edit, keeping every other server.
 
 ## Verify and report
 
-- Report one row per solution: the solution path, the port, and the port recorded in `.roslynmcp.json`, `.codex/config.toml`, `.cursor/mcp.json`, and the Claude entry. All five must agree.
-- Confirm the per-solution resolution rather than assuming it: run `codex mcp list` from each solution directory and check the URL it reports.
-- Report any unavailable client that was skipped.
-- Confirm with `git check-ignore` that `.worktreeinclude`, `.cursor/worktrees.json`, and `.cursor/setup-worktree-windows.ps1` are ignored, and state that the Codex app and Cursor worktree paths were verified against documentation only: creating a worktree from either client is the user's check.
-- Remind the user to reopen each solution in Visual Studio so the extension reloads its port, and to start fresh Codex, Claude Code, and Cursor sessions so each client reloads its project MCP configuration.
-- Serving several solutions at once requires a separate port and a separate Visual Studio instance for each, whether those solutions live in one repository or in several.
+- From the main working tree, `codex mcp list` and `claude mcp list` show the plugin server and no other Roslyn URL entry, apart from declined global entries. Run `codex mcp list` once more from each folder that held a `.codex/config.toml`, because Codex merges project configuration from the working directory upward: `roslyn-mcp` must show the launcher command there, not a URL.
+- No working tree has an empty `.codex` or `.cursor` folder left by the removals.
+- Report every file and entry the preflight found, with its path or name and what became of it: removed, edited with the keys that remain, or kept, and why.
+- Report each declined global entry as still reaching the agents in every repository, with the command that removes it.
+- When the preflight found nothing, say that the repository was ready already.
+- Ask the user to start fresh Codex, Claude Code and Cursor sessions, since a running session keeps the servers it started with.
+- A repository holding several solutions needs no setup either. The first `roslyn_load` from a folder above them answers `needsChoice`; the user picks one, and `remember: true` records the choice as a marker next to that solution.
+- Visual Studio is optional. Once every repository whose solutions Visual Studio opens is migrated, the 3.0 extension (`roslyn-install-vsix`) lets the daemon forward a solution Visual Studio has open to it, unsaved editor buffers included. The 3.0 extension serves no port, so install it only then; until then a Visual Studio running a 2.x extension keeps serving its ports to the repositories not yet migrated.
+
+## A checkout of this marketplace
+
+The Codex desktop app can install the plugin from a checkout of the `ai-coding-plugins` repository instead of from GitHub. The checkout's `.agents/plugins/marketplace.json` carries the same marketplace name, `dlin10-ai-coding-plugins`, and on 2026-10-30 the only copy in `%USERPROFILE%\.codex\plugins\cache\dlin10-ai-coding-plugins\roslyn-mcp\` was that checkout's 2.0.0, file for file with the checkout's timestamps, while GitHub offered a 3.0 preview. Every Codex session then ran 2.0.0, the CLI's in any folder included, and none had the plugin server. A checkout whose version has no release yet installs a launcher with nothing to download.
+
+So when `codex mcp list` lacks `roslyn-mcp`, read the version folder there. When it is not the version on GitHub, bring the checkout's branch up to date, or reinstall from GitHub with `codex plugin add roslyn-mcp@dlin10-ai-coding-plugins` once no Codex desktop session works in that checkout.

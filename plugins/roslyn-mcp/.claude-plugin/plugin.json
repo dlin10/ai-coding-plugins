@@ -1,9 +1,20 @@
 {
   "name": "roslyn-mcp",
-  "version": "2.0.0",
-  "description": "Roslyn MCP for Visual Studio: bundles the per-solution-port VSIX and tri-host setup guidance for Codex, Claude Code, and Cursor. Includes strict Roslyn-first routing for Claude Code and a non-blocking grep-nudge hook.",
+  "version": "3.0.0",
+  "description": "Roslyn MCP: the compiler's view of a C# solution through one MCP server backed by a per-user daemon, no Visual Studio needed, with an optional VSIX that serves a solution Visual Studio has open. Includes strict Roslyn-first routing for Claude Code, a non-blocking grep-nudge hook and 2.x migration.",
   "hooks": "./hooks/hooks.claude.json",
   "author": {
     "name": "Dmitry Linetsky"
+  },
+  "mcpServers": {
+    "roslyn-mcp": {
+      "type": "stdio",
+      "command": "cmd.exe",
+      "args": [
+        "/d",
+        "/c",
+        "${CLAUDE_PLUGIN_ROOT}\\bin\\roslyn-mcp-launcher.cmd"
+      ]
+    }
   }
 }

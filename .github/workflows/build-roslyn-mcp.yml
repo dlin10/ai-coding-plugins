@@ -9,11 +9,15 @@ on:
     paths:
       - 'plugins/roslyn-mcp/extension/**'
       - 'plugins/roslyn-mcp/assets/**'
+      - 'plugins/roslyn-mcp/bin/**'
+      - 'plugins/roslyn-mcp/scripts/test-published-shim.ps1'
       - '.github/workflows/build-roslyn-mcp.yml'
   pull_request:
     paths:
       - 'plugins/roslyn-mcp/extension/**'
       - 'plugins/roslyn-mcp/assets/**'
+      - 'plugins/roslyn-mcp/bin/**'
+      - 'plugins/roslyn-mcp/scripts/test-published-shim.ps1'
       - '.github/workflows/build-roslyn-mcp.yml'
 
 jobs:
@@ -27,12 +31,20 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build Release VSIX
         run: msbuild plugins/roslyn-mcp/extension/src/RoslynMcpExtension.slnx /p:Configuration=Release /t:Rebuild /restore
-      - name: Test standalone server
-        run: dotnet test plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Server.Tests/RoslynMcpExtension.Server.Tests.csproj --configuration Release --no-build --no-restore
-      - name: Audit standalone server packages
+      # The integration tests start real daemons and need an installed SDK older than the newest; they run locally.
+      - name: Test headless daemon
+        run: dotnet test plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Cli.Tests/RoslynMcpExtension.Cli.Tests.csproj --configuration Release --no-build --no-restore --filter "Category!=Integration"
+      # What the release workflow publishes once this reaches main, so that a broken asset fails here first.
+      - name: Publish the shim and load a solution through the launcher
         shell: pwsh
         run: |
-          $project = 'plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Server/RoslynMcpExtension.Server.csproj'
+          dotnet publish plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Cli/RoslynMcpExtension.Cli.csproj --configuration Release --runtime win-x64 --output publish
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./plugins/roslyn-mcp/scripts/test-published-shim.ps1 -Executable publish/roslyn-mcp.exe
+      - name: Audit the shim's packages
+        shell: pwsh
+        run: |
+          $project = 'plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Cli/RoslynMcpExtension.Cli.csproj'
           $output = dotnet list $project package --vulnerable --include-transitive
           $output | Write-Host
           if ($output -match 'has the following vulnerable packages') { exit 1 }
@@ -44,6 +56,11 @@ jobs:
           $vsixPath = 'plugins/roslyn-mcp/assets/RoslynMcpExtension.vsix'
           [xml] $source = Get-Content -Raw $sourcePath
           $sourceVersion = $source.SelectSingleNode('//Version').InnerText
+          # A preview ships roslyn-mcp.exe only and keeps the last release's VSIX (plugins/roslyn-mcp/AGENTS.md).
+          if ($sourceVersion.Contains('-')) {
+            Write-Host "$sourceVersion is a preview; the bundled VSIX stays the last release's."
+            exit 0
+          }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = [System.IO.Compression.ZipFile]::OpenRead($vsixPath)
           try {

@@ -1,5 +1,28 @@
 # Plan Forge Flow releases
 
+## 0.68.4
+
+A worker is granted an MCP server a plugin declares, in both vendors, and a codex worker no longer
+fails to start when one is.
+
+- Codex keeps a plugin's server under the plugin, and the grant named it at the top level:
+  `-c mcp_servers.<server>.default_tools_approval_mode="approve"` invented a server with no
+  transport, and codex refused to start — "invalid transport in `mcp_servers.<server>`". A
+  `workerTools` pattern matching a plugin server, cache-detective or find-files today, stopped every
+  codex worker of the run. The grant is now
+  `plugins.<plugin>@<marketplace>.mcp_servers.<server>.default_tools_approval_mode`, with the plugin
+  read off the server's working directory in codex's plugin cache, since `codex mcp list --json`
+  names none. A plugin whose id is not a bare key is not granted, as a dotted server name is not.
+- Claude lists a plugin's server as `plugin:<plugin>:<server>`, and a pattern was matched against
+  that whole name, so the default `roslyn-*` would miss roslyn-mcp 3.0's plugin server,
+  `plugin:roslyn-mcp:roslyn-mcp`, and refuse a claude builder every Roslyn call. A pattern now also
+  matches the `<server>` part, so it names a server by its key in both vendors; the plugin part
+  alone matches nothing.
+- A plugin's HTTP server has no working directory, so codex's listing still cannot tell it from
+  the user's own, and a pattern that matches one still stops the codex worker.
+- ADR 0017 carries the amendment; CONTEXT.md the measurements (codex-cli 0.165.0, Claude Code
+  2.1.312).
+
 ## 0.68.3
 
 Codex now hands the server the Advisor variables, so a configured Jev or Microsoft-Decision-1 is

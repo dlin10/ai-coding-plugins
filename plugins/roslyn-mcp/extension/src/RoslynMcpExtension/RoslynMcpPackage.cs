@@ -3,31 +3,28 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Community.VisualStudio.Toolkit;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.ComponentModelHost;
-using Microsoft.VisualStudio.Imaging;
+using Microsoft.VisualStudio.OperationProgress;
 using Microsoft.VisualStudio.Shell;
 using Microsoft.VisualStudio.Shell.Interop;
+using Microsoft.VisualStudio.Threading;
 using RoslynMcpExtension.Services;
 using RoslynMcpExtension.Shared;
+using Task = System.Threading.Tasks.Task;
 
 namespace RoslynMcpExtension;
 
 [ProvideBindingPath]
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
 [InstalledProductRegistration("Roslyn MCP Extension", "Exposes Roslyn code analysis via MCP", ExtensionVersion.Value)]
-[ProvideOptionPage(typeof(SettingsPage), "Roslyn MCP Extension", "General", 0, 0, true)]
 [ProvideAutoLoad(VSConstants.UICONTEXT.SolutionExists_string, PackageAutoLoadFlags.BackgroundLoad)]
 [Guid("b8a7f3e2-1c4d-4e5f-9a6b-8c7d0e1f2a3b")]
-[ProvideMenuResource("Menus.ctmenu", 1)]
 public sealed class RoslynMcpPackage : AsyncPackage
 {
-    public static RoslynMcpPackage? Instance { get; private set; }
-
     internal OutputLogger? Logger { get; private set; }
     internal RoslynAnalysisService? AnalysisService { get; private set; }
-    internal McpServerController? Controller { get; private set; }
+    internal SolutionPipeHost? Pipes { get; private set; }
 
     private IVsSolution? _solutionService;
     private uint _solutionEventsCookie;
@@ -36,8 +33,6 @@ public sealed class RoslynMcpPackage : AsyncPackage
     {
         await base.InitializeAsync(cancellationToken, progress);
         await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
-
-        Instance = this;
 
         try
         {
@@ -53,21 +48,18 @@ public sealed class RoslynMcpPackage : AsyncPackage
             AnalysisService.Logger = Logger;
 
             var analysisService = AnalysisService;
-            var logger = Logger;
-            Controller = new McpServerController(options => McpServerSession.StartAsync(options, analysisService, logger), logger)
-            {
-                StartFailedAsync = ShowStartupFailureAsync
-            };
+            var operationProgress = await GetServiceAsync(typeof(SVsOperationProgress)) as IVsOperationProgressStatusService;
+            Pipes = new SolutionPipeHost(path => SolutionPipe.Open(path, analysisService),
+                                         token => SolutionLoadedAsync(operationProgress, token),
+                                         Logger);
 
-            await ServerCommands.InitializeAsync(this);
-
-            // Re-resolve the port and restart the server whenever the loaded solution changes.
+            // Serve every solution Visual Studio opens to the Roslyn MCP daemon, from when it has loaded until it closes.
             _solutionService = await GetServiceAsync(typeof(SVsSolution)) as IVsSolution;
             _solutionService?.AdviseSolutionEvents(new SolutionEventsSink(this), out _solutionEventsCookie);
 
-            var settings = (SettingsPage)GetDialogPage(typeof(SettingsPage));
-            if (settings.AutoStart)
-                RequestEnsureServer();
+            // The package loads in the background, often after the solution has opened.
+            if (GetOpenSolutionPath() is { } solutionPath)
+                Pipes.SolutionOpened(solutionPath);
 
             Logger?.Log("Extension loaded");
         }
@@ -78,55 +70,30 @@ public sealed class RoslynMcpPackage : AsyncPackage
     }
 
     /// <summary>
-    /// Resolves the per-solution configuration and queues a start, or a restart when the port
-    /// changed. Reading the configuration here rather than inside the queued work is deliberate:
-    /// GetDialogPage and GetSolutionInfo require the UI thread and every caller is already on it,
-    /// so no thread hop can reorder the close/open pair a solution reload produces.
+    /// Completes once Visual Studio has loaded the solution it opened, IntelliSense included, which is when its workspace
+    /// holds every project; at once when the status service is missing.
     /// </summary>
-    internal void RequestEnsureServer()
+    /// <param name="operationProgress">Visual Studio's status of the operations a solution load runs; null when missing.</param>
+    /// <param name="cancellationToken">Cancelled when the solution closes first.</param>
+    private static async Task SolutionLoadedAsync(IVsOperationProgressStatusService? operationProgress, CancellationToken cancellationToken)
     {
-        ThreadHelper.ThrowIfNotOnUIThread();
-        if (Controller == null) return;
+        if (operationProgress == null) return;
 
-        try
-        {
-            var settings = (SettingsPage)GetDialogPage(typeof(SettingsPage));
-            var solutionDirectory = GetCurrentSolutionDirectory(out var solutionPath);
-            var port = RoslynMcpConfig.ResolvePort(solutionDirectory, settings.Port, out var configPath);
-
-            Controller.EnqueueEnsure(new McpServerSessionOptions(port, settings.ServerName, solutionDirectory, configPath, solutionPath));
-        }
-        catch (Exception ex)
-        {
-            Logger?.Log($"Could not resolve the MCP server configuration: {ex.Message}");
-        }
+        var stage = operationProgress.GetStageStatusForSolutionLoad(CommonOperationProgressStageIds.Intellisense);
+        await stage.WaitForCompletionAsync().WithCancellation(cancellationToken);
     }
 
-    internal void RequestStopServer() => Controller?.EnqueueStop();
-
-    private async Task ShowStartupFailureAsync(McpServerSessionOptions options, ServerStartResult result)
-    {
-        var configSource = options.ConfigPath ?? (options.SolutionDirectory == null
-            ? RoslynMcpConfig.FileName
-            : Path.Combine(options.SolutionDirectory, RoslynMcpConfig.FileName));
-        var message = $"Roslyn MCP server failed to start on port {options.Port}. Another Visual Studio instance may already be using that port. Configuration: {configSource}. {result.Message}";
-
-        await JoinableTaskFactory.SwitchToMainThreadAsync();
-        var infoBar = await VS.InfoBar.CreateAsync(new InfoBarModel(message, KnownMonikers.StatusWarning, true));
-        if (infoBar != null)
-            await infoBar.TryShowInfoBarUIAsync();
-    }
-
-    private string? GetCurrentSolutionDirectory(out string? solutionPath)
+    /// <summary>The full path of the open solution's file; null when no solution is open, or a folder is.</summary>
+    private string? GetOpenSolutionPath()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
-        solutionPath = null;
-        if (_solutionService?.GetSolutionInfo(out var dir, out var file, out _) == VSConstants.S_OK && !string.IsNullOrEmpty(dir))
-        {
-            solutionPath = string.IsNullOrEmpty(file) ? null : file;
-            return dir;
-        }
-        return null;
+        if (_solutionService?.GetSolutionInfo(out _, out var file, out _) != VSConstants.S_OK || string.IsNullOrEmpty(file))
+            return null;
+
+        var extension = Path.GetExtension(file);
+        return extension.Equals(".sln", StringComparison.OrdinalIgnoreCase) || extension.Equals(".slnx", StringComparison.OrdinalIgnoreCase)
+            ? file
+            : null;
     }
 
     protected override void Dispose(bool disposing)
@@ -142,9 +109,7 @@ public sealed class RoslynMcpPackage : AsyncPackage
                 _solutionEventsCookie = 0;
             }
 
-            // Terminate rather than negotiate: VS is exiting and the UI thread must not wait.
-            Controller?.ShutdownFast();
-            Instance = null;
+            Pipes?.Dispose();
         }
 
         base.Dispose(disposing);
@@ -155,13 +120,14 @@ public sealed class RoslynMcpPackage : AsyncPackage
         public int OnAfterOpenSolution(object pUnkReserved, int fNewSolution)
         {
             ThreadHelper.ThrowIfNotOnUIThread();
-            package.RequestEnsureServer();
+            if (package.GetOpenSolutionPath() is { } solutionPath)
+                package.Pipes?.SolutionOpened(solutionPath);
             return VSConstants.S_OK;
         }
 
         public int OnBeforeCloseSolution(object pUnkReserved)
         {
-            package.RequestStopServer();
+            package.Pipes?.SolutionClosing();
             return VSConstants.S_OK;
         }
 

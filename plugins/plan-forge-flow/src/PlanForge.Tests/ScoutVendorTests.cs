@@ -71,7 +71,7 @@ public sealed class ScoutVendorTests
         var role = new RoleSpec(VendorRole.Scout, "scout", [@"C:\outside"]);
         var arguments = CodexCliSession.BuildArguments(role, new Selection("gpt-scout", "high"),
                                                         "scout-thread", "schema.json", "result.json",
-                                                        ["roslyn-mcp"]);
+                                                        [new("roslyn-mcp")]);
 
         Assert.Equal(["exec", "resume", "scout-thread", "-"], arguments.Take(4));
         Assert.Contains("--dangerously-bypass-approvals-and-sandbox", arguments);

@@ -170,7 +170,8 @@ public sealed class CodexArgumentTests
         foreach (var role in new[] { VendorRole.Critic, VendorRole.Builder })
         {
             var arguments = CodexCliSession.BuildArguments(new RoleSpec(role, "work"), new Selection("gpt-5.6-sol", null),
-                                                           null, "schema.json", "result.json", ["roslyn-mcp", "roslyn-mcp-plan-forge-flow"]);
+                                                           null, "schema.json", "result.json",
+                                                           [new("roslyn-mcp"), new("roslyn-mcp-plan-forge-flow")]);
 
             var first = arguments.IndexOf("mcp_servers.roslyn-mcp.default_tools_approval_mode=" + TomlValue.String("approve"));
             Assert.Equal("-c", arguments[first - 1]);
@@ -179,6 +180,26 @@ public sealed class CodexArgumentTests
             Assert.Equal("-c", arguments[first + 3]);
             Assert.StartsWith("developer_instructions=", arguments[first + 4], StringComparison.Ordinal);
         }
+    }
+
+    /// <summary>
+    /// A plugin's server is known to codex only under its plugin: the top-level key invented a server
+    /// with no transport and stopped codex — "invalid transport in `mcp_servers.cache-detective`" —
+    /// while the plugin-scoped key let the call through (codex-cli 0.165.0, 2026-10-29).
+    /// </summary>
+    [Fact]
+    public void A_plugin_server_is_approved_under_its_plugin_and_any_other_at_the_top_level()
+    {
+        var arguments = CodexCliSession.BuildArguments(new RoleSpec(VendorRole.Builder, "work"), new Selection("gpt-5.6-sol", null),
+                                                       null, "schema.json", "result.json",
+                                                       [new("roslyn-mcp"), new("cache-detective", "cache-detective@dlin10-ai-coding-plugins")]);
+
+        var plain = arguments.IndexOf("mcp_servers.roslyn-mcp.default_tools_approval_mode=" + TomlValue.String("approve"));
+        var plugin = arguments.IndexOf("plugins.cache-detective@dlin10-ai-coding-plugins.mcp_servers.cache-detective"
+                                       + ".default_tools_approval_mode=" + TomlValue.String("approve"));
+        Assert.Equal("-c", arguments[plain - 1]);
+        Assert.Equal("-c", arguments[plugin - 1]);
+        Assert.DoesNotContain("mcp_servers.cache-detective.default_tools_approval_mode=" + TomlValue.String("approve"), arguments);
     }
 
     /// <summary>

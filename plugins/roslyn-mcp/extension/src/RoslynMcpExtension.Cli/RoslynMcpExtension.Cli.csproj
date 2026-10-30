@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Roslyn MCP without Visual Studio, one executable in two modes: `mcp`, the stdio shim a host starts, and
+       `daemon`, the per-user process the shim starts when none answers. Windows only: the daemon's lifetime rests on
+       job objects. See docs/adr/0004. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>roslyn-mcp</AssemblyName>
+    <RootNamespace>RoslynMcpExtension.Cli</RootNamespace>
+    <NoWarn>$(NoWarn);StreamJsonRpc0003</NoWarn>
+  </PropertyGroup>
+
+  <!-- The release asset, which `dotnet publish -r win-x64` makes: one file holding the whole output, Roslyn's build
+       hosts included, unpacked on first start and run on the installed .NET. A build keeps the plain output the tests
+       start. See docs/adr/0008. -->
+  <PropertyGroup>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Build.Locator" />
+    <!-- A copy of MSBuild in the output would shadow the SDK's, which MSBuildLocator refuses to register. Versioned
+         here rather than centrally: a central version would pin the package in the extension's graph too. -->
+    <PackageReference Include="Microsoft.Build.Framework" VersionOverride="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
+    <!-- The restore check evaluates projects in this process, on the MSBuild that MSBuildLocator registers. -->
+    <PackageReference Include="Microsoft.Build" VersionOverride="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
+    <!-- An MSBuild assembly too, brought by StreamJsonRpc's MessagePack formatters, which nothing here uses: the
+         pipe speaks JSON. -->
+    <PackageReference Include="Microsoft.NET.StringTools" VersionOverride="18.4.0" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" VersionOverride="5.9.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="StreamJsonRpc" VersionOverride="[2.25.29]" />
+    <!-- StreamJsonRpc 2.25.29 brings MessagePack 2.5.302 (GHSA-qhrr-8q5h-9q3h); drop once it brings 2.5.303 or later. -->
+    <PackageReference Include="MessagePack" VersionOverride="2.5.303" />
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RoslynMcpExtension.Services\RoslynMcpExtension.Services.csproj" />
+    <ProjectReference Include="..\RoslynMcpExtension.Shared\RoslynMcpExtension.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RoslynMcpExtension.Cli.Tests" />
+  </ItemGroup>
+
+</Project>

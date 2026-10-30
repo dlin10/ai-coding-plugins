@@ -12,7 +12,7 @@
     {
       "name": "roslyn-mcp",
       "source": "./plugins/roslyn-mcp",
-      "description": "Roslyn MCP for Visual Studio — per-repository ports and live Roslyn workspace access for Codex, Claude Code, and Cursor."
+      "description": "Roslyn MCP — the compiler's view of a C# solution for Codex, Claude Code, and Cursor through one MCP server, with or without Visual Studio."
     },
     {
       "name": "explain-code-simply",

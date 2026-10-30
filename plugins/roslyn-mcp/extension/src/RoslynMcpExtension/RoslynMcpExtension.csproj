@@ -16,18 +16,9 @@
     <CustomAfterMicrosoftCSharpTargets Condition="$(VsSDKInstall) != ''">$(VsSDKInstall)\Microsoft.VsSDK.targets</CustomAfterMicrosoftCSharpTargets>
     <!-- VS host process provides the correct assembly versions at runtime; suppress version-conflict noise. -->
     <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
-    <!-- VS SDK 17.14 requires Newtonsoft.Json 13.0.3; the toolkit check is outdated. -->
-    <CheckNewtonsoftJsonVersion>false</CheckNewtonsoftJsonVersion>
   </PropertyGroup>
 
   <ItemGroup>
-    <VSCTCompile Include="VSCommandTable.vsct">
-      <ResourceName>Menus.ctmenu</ResourceName>
-    </VSCTCompile>
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Community.VisualStudio.Toolkit.17" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools">
       <IncludeAssets>build; runtime</IncludeAssets>
     </PackageReference>
@@ -40,6 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\RoslynMcpExtension.Services\RoslynMcpExtension.Services.csproj" />
     <ProjectReference Include="..\RoslynMcpExtension.Shared\RoslynMcpExtension.Shared.csproj" />
   </ItemGroup>
 
@@ -62,21 +54,8 @@
   </ItemGroup>
 
   <!-- source.extension.vsixmanifest takes its Identity Version from this target, so the version
-       stays written only in Directory.Build.props. -->
-  <Target Name="GetVsixVersion" Returns="$(Version)" />
-
-  <!-- Publish before VSIX item collection; static globs evaluate too early and pack a stale server. -->
-  <Target Name="PublishServerBeforeVsix" BeforeTargets="GetVsixSourceItems">
-    <Exec Command="dotnet publish ..\RoslynMcpExtension.Server\RoslynMcpExtension.Server.csproj -c $(Configuration) -o $(OutputPath)RoslynMcpExtension.Server --no-self-contained" />
-    <ItemGroup>
-      <Content Include="$(OutputPath)RoslynMcpExtension.Server\**\*.*">
-        <IncludeInVSIX>true</IncludeInVSIX>
-        <VSIXSubPath>McpServer</VSIXSubPath>
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <Link>McpServer\%(RecursiveDir)%(Filename)%(Extension)</Link>
-        <Visible>false</Visible>
-      </Content>
-    </ItemGroup>
-  </Target>
+       stays written only in Directory.Build.props. A VSIX version is numbers only, so a preview's
+       suffix is left off. -->
+  <Target Name="GetVsixVersion" Returns="$(Version.Split('-')[0])" />
 
 </Project>
