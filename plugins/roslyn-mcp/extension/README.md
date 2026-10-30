@@ -27,7 +27,7 @@ Reference and caller locations additionally carry `enclosingStartLine` and `encl
 ## Prerequisites
 
 - Native Windows with Visual Studio 2022 or later
-- .NET 10 ASP.NET Core Runtime for the bundled server process
+- The Roslyn MCP plugin, whose `roslyn-mcp.exe` daemon the agents talk to
 - .NET 10 SDK when building the extension from source
 
 ## Building
@@ -38,11 +38,9 @@ The solution file is at `src/RoslynMcpExtension.slnx`. Since the VSIX project re
 # Full solution (requires Visual Studio / MSBuild)
 msbuild src\RoslynMcpExtension.slnx /p:Configuration=Release /t:Rebuild /restore
 
-# Server and Shared projects only (dotnet CLI)
-dotnet build src\RoslynMcpExtension.Server\RoslynMcpExtension.Server.csproj
+# The daemon and its shim only (dotnet CLI)
+dotnet build src\RoslynMcpExtension.Cli\RoslynMcpExtension.Cli.csproj
 ```
-
-The VSIX project automatically publishes the MCP server process to its output directory.
 
 ## Installation
 
@@ -56,41 +54,19 @@ For a source build:
 
 ## Usage
 
-### Starting the Server
+### Serving the Open Solution
 
-The server auto-starts when a solution is loaded when **Auto Start** is enabled in **Tools > Options > Roslyn MCP Extension**. The extension resolves the port again whenever a solution opens or closes, so switching solutions also switches to the appropriate repository configuration.
+The extension starts no server and needs no port or settings. Once Visual Studio has loaded a solution, the extension serves it over the named pipe `roslyn-mcp-vs-<version>-<hash of the solution path>`, open to the current Windows user only, and closes the pipe when the solution closes. With no solution open it serves nothing.
 
-You can also manually start/stop via **Tools > Start/Stop Roslyn MCP Server**.
+Agents reach it through the Roslyn MCP plugin's `roslyn-mcp` server. Its daemon forwards the calls for exactly that solution file to Visual Studio, and `roslyn_load` answers `servedBy: visualStudio`. Any other path, such as the same solution in a Git worktree, the daemon loads itself. A solution the daemon loaded goes to Visual Studio as soon as Visual Studio opens it, and back to the daemon when Visual Studio closes it. The daemon and the extension of different versions do not meet; the daemon then loads the solution itself.
 
 ### Output Pane
 
 The extension logs all activity to a dedicated **"Roslyn MCP Extension"** pane in the Visual Studio Output window (**View > Output**, then select "Roslyn MCP Extension" from the dropdown). This includes:
 
-- **Server lifecycle**: start, stop, process exit, connection status
-- **Tool invocations**: each MCP tool call with name and elapsed time
-- **RPC events**: client connect/disconnect, pipe errors
-- **Exceptions**: any errors during server startup, command execution, or VS interaction
-- **MCP Server messages**: the HTTP server process logs back to the Output pane via RPC
-
-### Per-solution Port Configuration
-
-When a solution opens, the extension walks upward from the solution directory and uses the nearest `.roslynmcp.json` file:
-
-```json
-{ "port": 5051 }
-```
-
-This allows several Visual Studio instances to expose different solutions simultaneously, each on its own port. Because the nearest file wins, a repository holding one solution can keep `.roslynmcp.json` at its root, while a repository holding several places one beside each solution to give each its own port. Keep `.roslynmcp.json` developer-local and configure every MCP client that works on a solution to use that solution's `http://localhost:<port>/mcp` endpoint.
-
-Because the file is developer-local, a Git worktree added from a configured repository does not carry one. When the upward search comes up empty and the solution sits in a linked worktree, the extension repeats the search from the same relative folder in the repository's main working tree, so a worktree serves its solution on the port the repository already uses without any per-worktree setup. Only one Visual Studio instance can hold a port, so open the solution from the main working tree or from one worktree at a time; give a worktree its own `.roslynmcp.json` when both must be open at once.
-
-If neither search finds a `.roslynmcp.json`, the extension falls back to the **Port** configured under **Tools > Options > Roslyn MCP Extension**, whose default is `5050`. The same options page also controls the server name and automatic startup.
-
-### Transport
-
-The HTTP MCP endpoint runs in **stateless** mode (no `Mcp-Session-Id`). Clients can keep calling tools after a server restart (solution switch / Start-Stop) without session recovery.
-
-The `initialize` response carries `instructions` naming the solution and port the server serves, and a `DocumentNotFound` error names the solution that was searched. Both exist so that a client configured with several Roslyn servers can tell a wrong server apart from a solution Visual Studio has not loaded.
+- **Serving**: when the extension starts and stops serving a solution to the daemon
+- **Tool invocations**: each call the daemon forwards, with name and elapsed time
+- **Exceptions**: any errors while serving, or during VS interaction
 
 ### Dead Code Analysis
 
@@ -152,10 +128,10 @@ Find dead code including public members
 | Find References | ✅ Semantic `SymbolFinder` | ❌ Text search or separate workspace |
 | Diagnostics | ✅ Live from VS compiler | ⚠️ Re-compiled separately |
 | Build integration | ✅ Uses VS compilation state | ❌ Separate compilation |
-| Multi-instance support | Per-solution ports resolved from `.roslynmcp.json` | Commonly one global server configuration |
-| Setup | Install the VSIX and align each repository's client port | Configure and load a separate workspace |
+| Multi-instance support | A pipe per open solution, found by its path | Commonly one global server configuration |
+| Setup | Install the VSIX beside the Roslyn MCP plugin | Configure and load a separate workspace |
 | Logging | ✅ Dedicated Output pane | ❌ Console/file logs |
-| Session recovery | ✅ Transparent migration | ❌ Client must reconnect |
+| Session recovery | ✅ The daemon falls back to its own load | ❌ Client must reconnect |
 
 ## License
 

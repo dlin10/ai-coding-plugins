@@ -16,7 +16,8 @@ internal static class ShimHost
 		+ " sessions. Call roslyn_load first with your working directory, from which it finds the solution, or with the"
 		+ " solution's path. Every other tool answers from that solution only; a file it does not hold switches the session"
 		+ " to the solution that does, and a file no solution found holds fails with DocumentNotFound naming the solution"
-		+ " searched. Every call sees the files as they are on disk. Call roslyn_unload when you are done with a solution.";
+		+ " searched. Every call sees the files as they are on disk, unless a Visual Studio has the solution open: it then"
+		+ " answers instead, unsaved editor buffers included. Call roslyn_unload when you are done with a solution.";
 
 	/// <summary>Serves MCP over stdin and stdout until the host closes them.</summary>
 	/// <param name="pipeName">The pipe the daemon listens on.</param>

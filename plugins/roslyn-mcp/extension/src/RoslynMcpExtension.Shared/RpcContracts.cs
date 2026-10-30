@@ -4,8 +4,6 @@ namespace RoslynMcpExtension.Shared;
 
 public interface IRoslynAnalysisRpc
 {
-    Task LogAsync(string message);
-    Task ReadyAsync();
     Task<ValidateFileResult> ValidateFileAsync(string filePath, bool includeWarnings, bool runAnalyzers);
     Task<DiagnosticsResult> GetDiagnosticsAsync(string[]? filePaths, string? projectName, bool includeWarnings, bool runAnalyzers, int maxResults);
     // A symbol is named by a position (filePath, line, column) or by symbolId, never both; see docs/adr/0001.
@@ -19,11 +17,6 @@ public interface IRoslynAnalysisRpc
     Task<SymbolInfoResult> GetSymbolInfoAsync(string? filePath, int line, int column, string? symbolId, string? projectName);
     Task<TypeDescriptionResult> DescribeTypeAsync(string? filePath, int line, int column, string? symbolId, string? projectName,
                                                   string? memberFilter, int maxResults);
-}
-
-public interface IServerRpc
-{
-    Task ShutdownAsync();
 }
 
 /// <summary>

@@ -38,6 +38,15 @@ public static class SolutionSource
 	public const string Downward = "downward";
 }
 
+/// <summary>Who answers the calls for a loaded solution; see docs/adr/0007.</summary>
+public static class SolutionServer
+{
+	/// <summary>The daemon, from a load of its own that follows the files on disk.</summary>
+	public const string Daemon = "daemon";
+	/// <summary>The Visual Studio that has exactly this solution file open, from its workspace, unsaved editor buffers included.</summary>
+	public const string VisualStudio = "visualStudio";
+}
+
 public class LoadResult : IToolResult
 {
 	public string Status { get; set; } = string.Empty;
@@ -50,10 +59,18 @@ public class LoadResult : IToolResult
 	public List<string>? Candidates { get; set; }
 	public int? ProjectCount { get; set; }
 	public int? DocumentCount { get; set; }
-	/// <summary>When the daemon finished loading the solution, for whichever session asked first.</summary>
+	/// <summary>
+	/// When the daemon finished loading the solution, or connected to the Visual Studio serving it, for whichever session
+	/// asked first.
+	/// </summary>
 	public DateTimeOffset? LoadedAt { get; set; }
+	/// <summary>Who answers the solution's calls, one of <see cref="SolutionServer"/>; null while the load goes on.</summary>
+	public string? ServedBy { get; set; }
 	public DaemonInfo? Daemon { get; set; }
-	/// <summary>What the daemon restored before it loaded the solution; null while the load goes on.</summary>
+	/// <summary>
+	/// What the daemon restored before it loaded the solution; null while the load goes on, and when Visual Studio serves
+	/// the solution.
+	/// </summary>
 	public RestoreReport? Restore { get; set; }
 	/// <summary>
 	/// A restore failed, so answers about the projects in <see cref="RestoreReport.Failed"/> may miss the types their

@@ -16,10 +16,6 @@ public class AnalysisService(Workspace workspace) : IRoslynAnalysisRpc
 	private readonly DocumentFinder _documentFinder = new(workspace);
 	private readonly OperationLog _log = new(workspace);
 
-	public virtual Task LogAsync(string message) => Task.CompletedTask;
-
-	public virtual Task ReadyAsync() => Task.CompletedTask;
-
 	public Task<ValidateFileResult> ValidateFileAsync(string filePath, bool includeWarnings, bool runAnalyzers)
 		=> InvokeAsync(nameof(ValidateFileAsync), _log.RelativePath(filePath),
 			(result, request) => OperationLog.Validation(result, request, includeWarnings),

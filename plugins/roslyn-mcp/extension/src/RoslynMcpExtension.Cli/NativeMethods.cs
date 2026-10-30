@@ -5,14 +5,15 @@ using System.Text;
 namespace RoslynMcpExtension.Cli;
 
 /// <summary>
-/// The Win32 calls that start a process outside its parent's job, wait for it to exit and tell a process which job it
-/// is in.
+/// The Win32 calls that start a process outside its parent's job, wait for it to exit, tell a process which job it is
+/// in and find whether a pipe exists.
 /// </summary>
 internal static class NativeMethods
 {
 	public const uint CreateBreakawayFromJob = 0x01000000;
 	public const uint CreateNoWindow = 0x08000000;
 	public const int ErrorAccessDenied = 5;
+	public const int ErrorSemTimeout = 121;
 	public const int ErrorTimeout = 1460;
 	public const uint WaitObject0 = 0;
 	public const uint JobObjectLimitKillOnJobClose = 0x2000;
@@ -111,4 +112,8 @@ internal static class NativeMethods
 	[DllImport("kernel32.dll", SetLastError = true)]
 	public static extern bool QueryInformationJobObject(IntPtr job, int infoClass, out JobObjectExtendedLimitInformation info,
 	                                                    int length, IntPtr returnLength);
+
+	// A timeout of 0 means the server's default wait, not none.
+	[DllImport("kernel32.dll", EntryPoint = "WaitNamedPipeW", CharSet = CharSet.Unicode, SetLastError = true)]
+	public static extern bool WaitNamedPipe(string name, uint milliseconds);
 }

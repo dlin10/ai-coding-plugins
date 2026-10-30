@@ -46,4 +46,5 @@ turns. Both are one executable, `roslyn-mcp.exe`, in two modes, `mcp` and `daemo
 - A daemon of an older version keeps its own pipe; a shim of a newer version starts a daemon of its own beside it.
 - The shim holds the session's active solution. When its daemon has gone, the next call starts one and loads that
   solution there again.
-- The daemon reads files from disk, never Visual Studio's unsaved editor buffers.
+- The daemon reads files from disk, never Visual Studio's unsaved editor buffers. A solution Visual Studio has open is
+  answered by Visual Studio instead, buffers included (ADR 0007).

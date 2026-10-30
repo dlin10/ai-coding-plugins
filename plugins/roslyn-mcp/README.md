@@ -127,7 +127,7 @@ npm run test:roslyn-launcher
 
 To check a published `roslyn-mcp.exe` end to end, through the launcher on a one-project solution, run `pwsh plugins/roslyn-mcp/scripts/test-published-shim.ps1 -Executable <path to roslyn-mcp.exe>`.
 
-CI validates all three marketplace surfaces, manifest and version consistency, hook contracts, the launcher, the extension build, the standalone server tests, the bundled VSIX version, standalone server package advisories, and a published `roslyn-mcp.exe` loading a solution through the launcher. `RoslynMcpExtension.Tests`, which covers the server lifecycle inside the extension, needs the Visual Studio SDK and runs locally from the built solution rather than in CI.
+CI validates all three marketplace surfaces, manifest and version consistency, hook contracts, the launcher, the extension build, the daemon's tests, the bundled VSIX version, the shim's package advisories, and a published `roslyn-mcp.exe` loading a solution through the launcher. `RoslynMcpExtension.Tests`, which covers the solution pipe inside the extension, needs the Visual Studio SDK and runs locally from the built solution rather than in CI.
 
 ## License
 
