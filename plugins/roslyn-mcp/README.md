@@ -1,4 +1,4 @@
-# Roslyn MCP 3.0.0-preview.1
+# Roslyn MCP 3.0.0-preview.2
 
 Roslyn MCP packages a Visual Studio extension and agent guidance that expose the live Roslyn workspace to **Codex**, **Claude Code**, and **Cursor**. Each solution uses its own MCP port, so multiple Visual Studio instances can serve different solutions without cross-talk, whether those solutions live in one repository or in several.
 
