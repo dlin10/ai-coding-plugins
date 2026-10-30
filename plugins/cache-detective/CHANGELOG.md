@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2 - 2026-10-31
+
+- **A `codex exec` session sees the server's tools.** Codex leaves a plugin server's tools out of
+  the tool descriptions the model reads unless the server declares `omit_tools_from = ["deferred"]`,
+  so a `codex exec` session, a Plan Forge Flow codex worker among them, did not know the
+  cache-detective tools existed. `.mcp.json` now carries the key; Codex reads it there only, and ignores a
+  `-c` override of it. Claude Code and Cursor declare the server in their own manifests and are
+  unaffected.
+
 ## 0.4.1 - 2026-10-27
 
 - **The launcher uses the `cachedet.exe` it has already downloaded, and removes a download it cannot

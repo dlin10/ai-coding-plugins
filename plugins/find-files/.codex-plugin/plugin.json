@@ -1,6 +1,6 @@
 {
   "name": "find-files",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Find files and folders by name anywhere on a Windows machine using the Everything index, without walking the filesystem.",
   "author": {
     "name": "Dmitry Linetsky"
