@@ -16,7 +16,7 @@ Turn ambitious ideas into implementation-ready plans. Plan Forge Flow brings str
 
 ### [Roslyn MCP](plugins/roslyn-mcp)
 
-Give your coding agent a true understanding of your C# solution. Roslyn MCP connects it to Visual Studio's live code intelligence, making navigation, impact analysis, diagnostics, and refactoring more accurate—even across large and complex codebases.
+Give your coding agent a true understanding of your C# solution. Roslyn MCP connects it to the C# compiler's code intelligence, with or without Visual Studio, making navigation, impact analysis, diagnostics, and refactoring more accurate—even across large and complex codebases.
 
 ### [Explain Code Simply](plugins/explain-code-simply)
 
