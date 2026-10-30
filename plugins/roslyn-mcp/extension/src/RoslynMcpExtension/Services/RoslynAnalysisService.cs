@@ -1,6 +1,4 @@
-using System;
 using System.ComponentModel.Composition;
-using System.Threading.Tasks;
 using Microsoft.VisualStudio.LanguageServices;
 
 namespace RoslynMcpExtension.Services;
@@ -13,19 +11,6 @@ namespace RoslynMcpExtension.Services;
 public class RoslynAnalysisService(VisualStudioWorkspace workspace) : AnalysisService(workspace)
 {
 	internal IExtensionLogger? Logger { get; set; }
-	internal Action? ServerReadyHandler { get; set; }
-
-	public override Task LogAsync(string message)
-	{
-		Logger?.Log($"[MCP Server] {message}");
-		return Task.CompletedTask;
-	}
-
-	public override Task ReadyAsync()
-	{
-		ServerReadyHandler?.Invoke();
-		return Task.CompletedTask;
-	}
 
 	protected override void Log(string line) => Logger?.Log(line);
 }

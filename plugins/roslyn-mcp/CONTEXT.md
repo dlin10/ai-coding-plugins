@@ -17,6 +17,7 @@ during the interview that scoped symbol IDs, project-wide diagnostics and type d
 | **Marker** | A `.roslynmcp.json` next to a solution that names it, recording the user's choice. Untracked, so a linked worktree reads the main working tree's marker at the same relative path. One holding only a 2.x port is not a marker. |
 | **Candidates** | The solutions **discovery** offers when it finds none it may use. The user picks one; an agent never does. |
 | **Unload** | The daemon dropping a solution it holds: when `roslyn_unload` asks, after 2 hours without calls, or when the solution file is gone. A session whose **active solution** was unloaded loads it again on its next call. |
+| **Served by Visual Studio** | A solution whose calls the daemon forwards to the Visual Studio that has exactly that solution file open, which answers from its workspace, unsaved editor buffers included. Otherwise it is served by the daemon, from a load of its own that follows the disk. `roslyn_load` says which in `servedBy`; the daemon moves a solution to Visual Studio when Visual Studio opens it, and back when Visual Studio closes it. |
 
 ## Flagged ambiguities
 

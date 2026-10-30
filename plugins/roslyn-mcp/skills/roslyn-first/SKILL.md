@@ -38,7 +38,7 @@ When the Roslyn tools include `roslyn_load`, call it before any other Roslyn too
 
 A result carrying `solutionSwitch` named a file of another solution: it was answered from `solutionSwitch.to`, and the session now answers from that solution.
 
-Every call sees the files as they are on disk, so an edit needs no reload. When you are done with the solution, at the end of an unattended run or before removing the worktree that holds it, call `roslyn_unload`.
+Every call sees the files as they are on disk, so an edit needs no reload. When `roslyn_load` reports `servedBy: visualStudio`, the Visual Studio that has the solution open answers instead: a file open in its editor answers with the editor's unsaved text, and an edit you just wrote reaches the answers a fraction of a second later. When you are done with the solution, at the end of an unattended run or before removing the worktree that holds it, call `roslyn_unload`.
 
 ## Availability checklist
 

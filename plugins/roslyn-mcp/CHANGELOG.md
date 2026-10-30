@@ -36,3 +36,11 @@
 - **The daemon outlives Claude Code sessions.** Claude Code ends an MCP server by killing its process tree, so the shim
   starts the daemon through `roslyn-mcp.exe start-daemon`, which exits at once and leaves the daemon outside that tree:
   the next session finds its solution loaded (`docs/adr/0010`).
+- **Visual Studio serves the solution it has open, through the daemon.** The extension starts no HTTP server and reads no
+  port. Once Visual Studio has loaded a solution, it serves it on the pipe `roslyn-mcp-vs-<version>-<hash of the path>`,
+  to the current Windows user only, until the solution closes. The daemon forwards that exact solution file's calls to
+  it, holding no workspace, restore or disk sync of its own, and loads any other path itself, the same solution in a
+  worktree included. A solution the daemon loaded goes to Visual Studio on the first call after Visual Studio opens it,
+  and back to a load in the daemon when Visual Studio closes it; `roslyn_load` reports which in `servedBy`. The server
+  process, the options page with its port, server name and auto start, and the Tools menu's start and stop commands are
+  gone (`docs/adr/0007`).

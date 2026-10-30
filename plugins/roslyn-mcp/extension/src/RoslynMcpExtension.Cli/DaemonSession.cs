@@ -1,15 +1,16 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
-using RoslynMcpExtension.Services;
 using RoslynMcpExtension.Shared;
+using StreamJsonRpc;
 
 namespace RoslynMcpExtension.Cli;
 
 /// <summary>
 /// One shim's connection to the daemon. The analysis calls answer from the solution the connection last loaded, waiting
 /// for its load as <see cref="LoadAsync"/> does, and loading it again when the daemon has unloaded it meanwhile. Every
-/// call first brings the solution up to date with the disk; see docs/adr/0009.
+/// call first brings the solution up to date with the disk (docs/adr/0009), or goes to the Visual Studio that has it
+/// open (docs/adr/0007).
 /// </summary>
 /// <param name="registry">The solutions the daemon holds, shared by every connection.</param>
 /// <param name="loadWait">How long a call waits for a load, or for the solution to catch up, before answering that it is still loading.</param>
@@ -42,7 +43,8 @@ internal sealed class DaemonSession(SolutionRegistry registry, TimeSpan loadWait
 
 			_bound = path;
 			result.Status = LoadStatus.Loaded;
-			result.ProjectCount = loaded.Solution.ProjectIds.Count;
+			result.ServedBy = loaded.ServedBy;
+			result.ProjectCount = loaded.ProjectCount;
 			result.DocumentCount = loaded.DocumentCount;
 			result.LoadedAt = loaded.LoadedAt;
 			result.Restore = loaded.Restore;
@@ -62,10 +64,6 @@ internal sealed class DaemonSession(SolutionRegistry registry, TimeSpan loadWait
 		var path = Path.GetFullPath(solutionPath);
 		return Task.FromResult(new UnloadResult { Solution = path, Unloaded = registry.Unload(path), RequestSucceeded = true });
 	}
-
-	public Task LogAsync(string message) => Task.CompletedTask;
-
-	public Task ReadyAsync() => Task.CompletedTask;
 
 	public Task<ValidateFileResult> ValidateFileAsync(string filePath, bool includeWarnings, bool runAnalyzers)
 		=> CallAsync([filePath], analysis => analysis.ValidateFileAsync(filePath, includeWarnings, runAnalyzers));
@@ -107,8 +105,8 @@ internal sealed class DaemonSession(SolutionRegistry registry, TimeSpan loadWait
 
 	/// <summary>Runs an analysis call on this connection's solution once it has loaded and caught up, or says why it cannot.</summary>
 	/// <param name="files">The files the call names, with null for a file it may name and does not.</param>
-	/// <param name="call">The call, on the solution's analysis service.</param>
-	private async Task<T> CallAsync<T>(string?[] files, Func<AnalysisService, Task<T>> call) where T : IToolResult, new()
+	/// <param name="call">The call, on whatever answers for the solution.</param>
+	private async Task<T> CallAsync<T>(string?[] files, Func<IRoslynAnalysisRpc, Task<T>> call) where T : IToolResult, new()
 	{
 		if (_bound is not { } path)
 			return Failed<T>(ToolErrorCodes.NoSolution, "No solution is loaded on this connection.");
@@ -117,7 +115,7 @@ internal sealed class DaemonSession(SolutionRegistry registry, TimeSpan loadWait
 		if (!await FinishesInTimeAsync(ready).ConfigureAwait(false))
 			return Failed<T>(ToolErrorCodes.WorkspaceNotReady, $"Solution {path} is still loading or catching up with the disk; call again shortly.");
 
-		LoadedSolution? loaded;
+		HeldSolution? loaded;
 		try
 		{
 			loaded = await ready.ConfigureAwait(false);
@@ -127,9 +125,18 @@ internal sealed class DaemonSession(SolutionRegistry registry, TimeSpan loadWait
 			return Failed<T>(ToolErrorCodes.LoadFailed, $"Could not load {path}: {ex.Message}");
 		}
 
-		return loaded == null
-			? Failed<T>(ToolErrorCodes.LoadFailed, Vanished(path))
-			: await call(loaded.Analysis).ConfigureAwait(false);
+		if (loaded == null)
+			return Failed<T>(ToolErrorCodes.LoadFailed, Vanished(path));
+
+		try
+		{
+			return await call(loaded.Analysis).ConfigureAwait(false);
+		}
+		catch (Exception ex) when (loaded is VisualStudioSolution && ex is ConnectionLostException or ObjectDisposedException)
+		{
+			// Visual Studio closed the solution or exited during the call. Not an error: the next call loads it in the daemon.
+			return Failed<T>(ToolErrorCodes.WorkspaceNotReady, $"Visual Studio closed {path} during the call; call again, and the daemon loads it.");
+		}
 	}
 
 	/// <summary>
@@ -138,7 +145,7 @@ internal sealed class DaemonSession(SolutionRegistry registry, TimeSpan loadWait
 	/// </summary>
 	/// <param name="path">The full path of the solution file.</param>
 	/// <param name="files">The files the call names, checked on disk whether or not a change to them was reported.</param>
-	private async Task<LoadedSolution?> ReadyAsync(string path, string?[] files)
+	private async Task<HeldSolution?> ReadyAsync(string path, string?[] files)
 	{
 		var loaded = await registry.Load(path).ConfigureAwait(false);
 		return await loaded.CatchUpAsync(files).ConfigureAwait(false) ? loaded : null;

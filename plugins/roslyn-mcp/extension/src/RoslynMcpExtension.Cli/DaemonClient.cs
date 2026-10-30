@@ -49,10 +49,6 @@ internal sealed class DaemonClient(string pipeName) : IRoslynAnalysisRpc, IDispo
 		return await daemon.UnloadAsync(path).ConfigureAwait(false);
 	}
 
-	public Task LogAsync(string message) => Task.CompletedTask;
-
-	public Task ReadyAsync() => Task.CompletedTask;
-
 	public Task<ValidateFileResult> ValidateFileAsync(string filePath, bool includeWarnings, bool runAnalyzers)
 		=> ForwardAsync([filePath], daemon => daemon.ValidateFileAsync(filePath, includeWarnings, runAnalyzers));
 

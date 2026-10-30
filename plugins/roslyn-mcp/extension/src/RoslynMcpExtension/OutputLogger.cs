@@ -5,7 +5,7 @@ using Microsoft.VisualStudio.Shell.Interop;
 namespace RoslynMcpExtension;
 
 /// <summary>
-/// Sink for extension diagnostics. Keeps the server lifecycle types free of VS shell
+/// Sink for extension diagnostics. Keeps the solution pipe types free of VS shell
 /// dependencies so they can be exercised outside Visual Studio.
 /// </summary>
 internal interface IExtensionLogger

@@ -70,5 +70,5 @@ nothing.
   solution again or starts a daemon.
 - After a plugin update the older version's daemon gets no more calls, unloads its solutions after 2 hours and exits 30
   minutes later, beside the newer version's daemon on its own pipe.
-- A solution that Visual Studio serves (#214) holds no workspace in the daemon: the times apply to it, the disk sync
+- A solution that Visual Studio serves (ADR 0007) holds no workspace in the daemon: the times apply to it, the disk sync
   does not.

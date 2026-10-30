@@ -1,6 +1,6 @@
 <Project>
   <!-- The one place the release version is written. The VSIX manifest, the package registration, the
-       server's serverInfo and the packaged test all take it from here; the three host manifests and the
+       shim's serverInfo and the pipe names all take it from here; the three host manifests and the
        README title repeat it, and scripts/validate-plugins.mjs fails when they differ. -->
   <PropertyGroup>
     <Version>3.0.0-preview.1</Version>

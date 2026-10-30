@@ -31,8 +31,6 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build Release VSIX
         run: msbuild plugins/roslyn-mcp/extension/src/RoslynMcpExtension.slnx /p:Configuration=Release /t:Rebuild /restore
-      - name: Test standalone server
-        run: dotnet test plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Server.Tests/RoslynMcpExtension.Server.Tests.csproj --configuration Release --no-build --no-restore
       # The integration tests start real daemons and need an installed SDK older than the newest; they run locally.
       - name: Test headless daemon
         run: dotnet test plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Cli.Tests/RoslynMcpExtension.Cli.Tests.csproj --configuration Release --no-build --no-restore --filter "Category!=Integration"
@@ -43,10 +41,10 @@ jobs:
           dotnet publish plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Cli/RoslynMcpExtension.Cli.csproj --configuration Release --runtime win-x64 --output publish
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./plugins/roslyn-mcp/scripts/test-published-shim.ps1 -Executable publish/roslyn-mcp.exe
-      - name: Audit standalone server packages
+      - name: Audit the shim's packages
         shell: pwsh
         run: |
-          $project = 'plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Server/RoslynMcpExtension.Server.csproj'
+          $project = 'plugins/roslyn-mcp/extension/src/RoslynMcpExtension.Cli/RoslynMcpExtension.Cli.csproj'
           $output = dotnet list $project package --vulnerable --include-transitive
           $output | Write-Host
           if ($output -match 'has the following vulnerable packages') { exit 1 }
