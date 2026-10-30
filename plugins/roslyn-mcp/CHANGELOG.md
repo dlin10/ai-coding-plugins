@@ -35,7 +35,9 @@ needs a port per solution.
   under that name and Claude Code as `plugin:roslyn-mcp:roslyn-mcp`. On first start its launcher downloads the
   `roslyn-mcp.exe` of the plugin's version from the GitHub release into `%LOCALAPPDATA%\roslyn-mcp\bin`, and it
   retires versions nobody has started for a week. The `3.0.0-preview.N` versions released the shim as a GitHub
-  pre-release beside the 2.0.0 VSIX (`docs/adr/0008`). Cursor's manifest declares the same server.
+  pre-release beside the 2.0.0 VSIX (`docs/adr/0008`). Cursor's manifest declares the same server. The server's
+  `omit_tools_from = ["deferred"]` keeps its tools in reach of a `codex exec` session, which has no tool search to find
+  deferred tools: without it a codex forge worker saw none of them.
 - **The daemon outlives Claude Code sessions.** Claude Code ends an MCP server by killing its process tree, so the shim
   starts the daemon through `roslyn-mcp.exe start-daemon`, which exits at once and leaves the daemon outside that tree:
   the next session finds its solution loaded (`docs/adr/0010`).
