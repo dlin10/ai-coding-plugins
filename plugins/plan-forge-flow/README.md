@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.68.4
+# Plan Forge Flow 0.69.0
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a

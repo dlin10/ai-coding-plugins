@@ -27,8 +27,9 @@ whether a plan should be split, so the signal must be advisory and grounded in p
   Orchestrator uses the plan's actual seams, not a mechanical partition by length. It may also
   propose a split below the threshold when the plan's content calls for one.
 - Shape and the signal do not refuse a write, patch, confirmation or review. A plan is never split
-  automatically. A later patch can change the reported shape, but the before-round-1 offer is
-  tied to the first draft, so revision growth does not repeatedly ask the same question.
+  automatically. The before-round-1 offer is tied to the first draft. Growth after round 1 owes
+  another offer under the rule in the amendment below, so revision growth neither goes unasked nor
+  asks the same question twice.
 
 ## Calibration
 
@@ -145,3 +146,44 @@ for the same comparison.
 - The source artifacts are local archives and user transcripts, not repository fixtures. Their
   exact locations and the derived values are recorded here, but another checkout without those
   artifacts cannot independently recompute the table.
+
+## Amendment: offer again when the plan outgrows its first draft
+
+The first version asked once, before round 1, because "revision growth does not repeatedly ask the
+same question". Run `20261028-115553-01bf54` (Concurrency Hunter 5d H2, plan-forge-flow 0.68.4)
+shows what that left out. Its first draft had an Approach of 21,649 characters, 351 under the
+threshold, so its Flow log said `Offer a split: no`. The first patch took the Approach to 34,730 and
+each of the 35 later Shape blocks said `yes`, but the skill asks only before round 1, so no split
+question was ever put to the user. The Approach reached 355,732 characters, 16.4 times the first
+draft's, across 21 plan-review rounds. The largest growth in the calibration above is B4c's 2.2×.
+
+**The rule.** The first-draft rule stands: before round 1, `splitSuggested` is true when the
+Approach is at least 22,000 characters. The run keeps a **checkpoint**, `splitCheckpoint` in
+`state.json`. Before round 1 it follows each draft's Approach; after it, it is the Approach at which
+the last offer was owed. After round 1, a write or patch owes an offer when the Approach is at least
+22,000 characters and either
+
+- the checkpoint is below 22,000 (`crossed`), or
+- the Approach is at least twice the checkpoint (`doubled`).
+
+The shape then carries `splitReason` and `splitCheckpoint`, the checkpoint moves to the current
+Approach so that each later offer needs another doubling, and the Flow log reads
+`Offer a split: yes — doubled since 34,730`. It reads `no` when no offer is owed, so it does not
+announce an offer the skill will not make. The Orchestrator asks before the next round, once per
+trigger, with **continue as is** as the alternative.
+
+Two points go past the wording of the issue. Doubling counts only for a plan at or above the
+threshold: an Approach that grows from 5,000 to 10,000 characters is not a split candidate under the
+calibration above, and a plan that later reaches 22,000 `crossed` anyway. And a run with no recorded
+checkpoint, begun before 0.69.0 or reviewed from a `planDraft` handed straight to
+`forge.plan.review`, records the current Approach at its next write or patch and is offered nothing:
+growth cannot be measured against nothing.
+
+Replayed on the 36 Shape blocks of that run, the rule fires four times, before round 2 (34,730,
+`crossed`), round 8 (70,787), round 10 (160,354) and round 20 (327,748), and `PlanShapeTests` pins
+that series. B4c's Approach went from 27,501 to about 74,200 characters, so it would have owed one
+more offer, at 55,002 characters, and no second one below 110,004.
+
+**Limit.** The checkpoint moves only when an offer is owed. A split chosen after round 1 rewrites the
+draft smaller and leaves the checkpoint at the larger size, so the narrower plan is next offered only
+once it has doubled that size.

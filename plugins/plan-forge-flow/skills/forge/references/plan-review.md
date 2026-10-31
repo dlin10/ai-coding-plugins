@@ -6,8 +6,16 @@ Read it before the first `forge.plan.review`, and again whenever plan review res
 
 Before round 1, settle the first-draft split offer in `planning.md` when the first substantive
 `forge.plan.write` returned `shape.splitSuggested: true`. Do not send the Critic until the user
-chooses the narrower draft or **review as is**. A later `forge.plan.patch` also returns `shape` and
-records it in the Flow log; it does not turn an agreed review into an automatic split.
+chooses the narrower draft or **review as is**.
+
+After round 1, a `forge.plan.write` or `forge.plan.patch` returns `splitSuggested: true` only when the
+plan has grown since the last offer. `splitReason` is `crossed` when Approach has reached 22,000
+characters from below, or `doubled` when it has reached twice `splitCheckpoint`, the size it stood at
+when the last offer was owed. Ask the split question before the next round, in the form `planning.md`
+gives the first-draft offer: name the separable tasks or task groups with their sizes and R-items, say
+what the growth since `splitCheckpoint` added, and offer **continue as is** as the alternative. Ask
+once per trigger: the checkpoint has already moved to the current Approach, so another offer needs
+another doubling. A false `splitSuggested` needs no question, and a split is never automatic.
 
 Each `forge.plan.review` call runs exactly one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, declare
 `phase: "plan_revision"` as soon as the verdict arrives — after every `revise`, not only the first —

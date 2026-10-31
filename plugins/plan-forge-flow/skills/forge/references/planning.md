@@ -199,7 +199,8 @@ introduces or changes no rule, the line says so.
 The first `forge.plan.write` returns `shape` measured from the plan on disk and records it in the
 Flow log. Its `approachCharacters` includes the `## Approach` heading and its tasks; the task sizes
 come from the returned outline. `splitSuggested` is true when Approach reaches 22,000 UTF-16
-characters. This is an advisory threshold, not a refusal or an automatic split.
+characters. This is an advisory threshold, not a refusal or an automatic split. It is the whole rule
+until round 1; `plan-review.md` says when growth after it owes the question again.
 
 Before the first `forge.plan.review`, when `splitSuggested` is true, propose a concrete split to the
 user. Name the separable tasks or task groups, their sizes from the outline, the R-items each serves,

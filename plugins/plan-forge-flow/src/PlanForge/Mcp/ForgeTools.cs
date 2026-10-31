@@ -427,11 +427,15 @@ internal sealed class ForgeTools
                 PlanReview.Write(run, planDraft);
                 var plan = run.ReadPlan();
                 var outline = PlanOutline.Of(plan);
-                var shape = PlanShape.Of(plan, outline);
-                try { run.AppendFlowPlanWritten(outline.PlanHash, shape); }
+                PlanShape shape;
+                try
+                {
+                    shape = PlanReview.Measure(run, plan, outline);
+                    run.AppendFlowPlanWritten(outline.PlanHash, shape);
+                }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {
-                    throw new IOException($"The plan was written, but its Flow entry could not be written. " +
+                    throw new IOException($"The plan was written, but its Flow entry or split checkpoint could not be written. " +
                                           $"The new plan hash is {outline.PlanHash}; read forge.plan.outline.", error);
                 }
                 return Task.FromResult(EvidenceMapCurrency.Attach(

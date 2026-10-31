@@ -581,7 +581,9 @@ public sealed class PlanPatchToolTests : IDisposable
 
         await Patch(run, PlanOutline.Hash(Plan), [Edit(PlanOutline.Of(Plan))]);
 
-        Assert.Equal(state, run.ReadState());
+        var after = run.ReadState();
+        Assert.NotNull(after.SplitCheckpoint);
+        Assert.Equal(state with { SplitCheckpoint = after.SplitCheckpoint }, after);
         Assert.False(Directory.Exists(Path.Combine(run.Path, "jobs")));
     }
 
