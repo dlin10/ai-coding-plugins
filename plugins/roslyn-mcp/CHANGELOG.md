@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.1 - unreleased
+
+- **`roslyn_load` says how long a job-bound daemon lives.** Under Codex desktop a daemon started by a thread ends when
+  the thread is closed, not with the turn as under `codex exec` (#217).
+
 ## 3.0.0 - 2026-10-30
 
 Roslyn reaches agents through the plugin's own MCP server, with or without Visual Studio, and a repository no longer
