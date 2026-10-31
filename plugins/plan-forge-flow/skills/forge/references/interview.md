@@ -80,8 +80,8 @@ the user through `asking.md` whether to change the acceptance, change the mechan
 probe first. Explain the dependency and its evidence, recommend an option with a reason, and wait
 for the answer; record it with `forge.decision.record`. Check the affected dependencies again when
 the acceptance or mechanism changes. The interview is settled only when they hold or the user
-has chosen a probe whose first task tests the outcome and stops the run if it fails
-(`planning.md`). Refactors and docs without an outcome on a real target need no feasibility question.
+has chosen a probe whose first task checks the unsettled dependency and stops the run if its gate
+fails (`planning.md`). Refactors and docs without an outcome on a real target need no feasibility question.
 
 When the interview has settled the decisions, declare `phase: "planning"`, sketch the approach and
 make its matrix check (`planning.md`), and start the Impact pass on it as a Scout job (`scout.md`).
