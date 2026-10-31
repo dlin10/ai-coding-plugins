@@ -1,5 +1,31 @@
 # Plan Forge Flow releases
 
+## 0.71.0
+
+A probe is the smallest check of the unsettled dependency, and its stop belongs to its gate. Issue
+#230.
+
+- 0.64.0 made a probe ordinary task 1 whose gate checks the acceptance outcome, stopping the run when
+  the outcome fails or cannot be verified. In run `20261028-115553-01bf54` that shape cost most of
+  the build time in two ways. The acceptance was the run's whole outcome, so task 1 held the whole
+  implementation: 244,215 of the plan's 424,143 characters, while tasks 2–8 were reviewed for 21
+  rounds and never ran. And "cannot be verified" took in ordinary trouble: of 36 Builder turns, 28
+  ended `blocked` with `gate.outcome` `not_run` before any gate, and each such stop became a question
+  to the user.
+- `planning.md`: task 1 of a probe-first plan checks the dependency the feasibility check left unmet
+  or unsettled, with the least code that shows it, not the run's whole acceptance. When showing the
+  outcome needs most of the planned implementation, the skill offers a split instead, a probe run and
+  then the implementation run. The signal is task 1 being the plan's largest task, read from the
+  sketch of the approach or the outline's task sizes.
+- A probe-first plan is reviewed and approved with task 1 alone and the Requirements and Gates it
+  needs. Tasks 2..n are drafted after its gate passes, by a `forge.plan.patch` that keeps task 1
+  built, or in a follow-up run, so no review round goes to a task the probe's result can still change.
+- `build.md`: the probe stop applies when its gate ran and `gate.outcome` is `failed` or `timeout`. A
+  probe turn that ends `blocked` before the gate (`not_run`) is an ordinary blocked turn: preparation,
+  harness and environment trouble is fixed within the approved plan and the task retried. The user is
+  asked when the fix would change the plan, the acceptance or the inputs.
+- Skill text only; the server, its tools and its results are unchanged.
+
 ## 0.70.0
 
 A scope question in review offers a split and shows the scope already added. Issue #229.
