@@ -1,7 +1,7 @@
 {
   "name": "find-files",
   "displayName": "Find Files",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Index-backed file and folder lookup for Windows via voidtools Everything: finds files outside the current project instantly, with no directory walk.",
   "author": {
     "name": "Dmitry Linetsky"

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- A `codex exec` session sees `find_file_anywhere`. Codex leaves a plugin server's tools out of the tool descriptions the model reads unless the server declares `omit_tools_from = ["deferred"]`, so a `codex exec` session, a Plan Forge Flow codex worker among them, did not know the tool existed. `.mcp.json` now carries the key; Codex reads it there only, and ignores a `-c` override of it. Claude Code and Cursor declare the server in their own manifests and are unaffected.
+
 ## 0.1.0
 
 Initial release.

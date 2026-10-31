@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { validateCatalogCoverage, validateCatalogSuperset } from './validate-plugins.mjs';
+import { validateCatalogCoverage, validateCatalogSuperset, validateCodexToolDeferral } from './validate-plugins.mjs';
 
 function writeJson(path, value) {
   mkdirSync(dirname(path), { recursive: true });
@@ -65,6 +65,47 @@ test('reports a plugin listed in the Claude catalog but not in the Cursor one', 
   assert.deepEqual(errors, [
     'plugin "example" is in .claude-plugin/marketplace.json but missing from .cursor-plugin/marketplace.json',
   ]);
+});
+
+function writeCodexServer(root, plugin, server) {
+  writeJson(join(root, `plugins/${plugin}/.codex-plugin/plugin.json`), {
+    name: plugin,
+    version: '1.0.0',
+    mcpServers: './.mcp.json',
+  });
+  writeJson(join(root, `plugins/${plugin}/.mcp.json`), { mcpServers: { [plugin]: server } });
+}
+
+test('reports a Codex server that leaves its tools deferred', (t) => {
+  const root = createFixture(t);
+  writeCodexServer(root, 'example', { command: 'example.exe' });
+  const errors = [];
+
+  validateCodexToolDeferral(root, (error) => errors.push(error));
+
+  assert.deepEqual(errors, [
+    'plugins/example/.mcp.json: server "example" must declare "omit_tools_from": ["deferred"], or codex exec does not describe its tools to the model',
+  ]);
+});
+
+test('accepts a Codex server that keeps its tools out of deferral', (t) => {
+  const root = createFixture(t);
+  writeCodexServer(root, 'example', { command: 'example.exe', omit_tools_from: ['deferred'] });
+  const errors = [];
+
+  validateCodexToolDeferral(root, (error) => errors.push(error));
+
+  assert.deepEqual(errors, []);
+});
+
+test('lets plan-forge-flow leave its own server deferred', (t) => {
+  const root = createFixture(t);
+  writeCodexServer(root, 'plan-forge-flow', { command: 'planforge.exe' });
+  const errors = [];
+
+  validateCodexToolDeferral(root, (error) => errors.push(error));
+
+  assert.deepEqual(errors, []);
 });
 
 test('lets a plugin that ships no Cursor manifest be listed in the Claude catalog alone', () => {

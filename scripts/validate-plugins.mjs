@@ -373,6 +373,37 @@ export function validateCatalogCoverage(root = repoRoot, report = fail) {
   }
 }
 
+// Plan Forge Flow's tools serve the orchestrator in the host session, and forge disables the
+// plugin in every worker it launches, so no codex exec session it starts needs them.
+const DEFERRED_SERVER_PLUGINS = new Set(['plan-forge-flow']);
+
+/**
+ * Every server a Codex manifest declares must carry `omit_tools_from: ["deferred"]`. Codex defers a
+ * plugin server's tools, leaving them out of the tool descriptions the model reads, so a `codex exec`
+ * session — a plan-forge-flow codex worker among them — does not know they exist. Codex reads the
+ * key from the plugin's own file only; a `-c plugins.<plugin>.mcp_servers.<server>.omit_tools_from`
+ * override is ignored, so the plugin is the one place that can set it.
+ */
+export function validateCodexToolDeferral(root = repoRoot, report = fail) {
+  const pluginsDir = join(root, 'plugins');
+  for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || DEFERRED_SERVER_PLUGINS.has(entry.name)) continue;
+    const manifestPath = join(pluginsDir, entry.name, '.codex-plugin', 'plugin.json');
+    if (!existsSync(manifestPath)) continue;
+    const serversFile = readJson(manifestPath)?.mcpServers;
+    if (typeof serversFile !== 'string') continue;
+
+    const serversPath = join(pluginsDir, entry.name, serversFile);
+    for (const [name, server] of Object.entries(readJson(serversPath)?.mcpServers ?? {})) {
+      if (!server.omit_tools_from?.includes('deferred')) {
+        report(
+          `${relative(root, serversPath).replaceAll('\\', '/')}: server "${name}" must declare "omit_tools_from": ["deferred"], or codex exec does not describe its tools to the model`,
+        );
+      }
+    }
+  }
+}
+
 function validateClaudeMarketplace() {
   const marketplacePath = join(repoRoot, '.claude-plugin', 'marketplace.json');
   const marketplace = readJson(marketplacePath);
@@ -514,6 +545,7 @@ async function main() {
   validateCodexMarketplace();
   validateSync();
   validateCatalogCoverage();
+  validateCodexToolDeferral();
 
   if (errors.length > 0) {
     console.error('Plugin validation failed:\n');
