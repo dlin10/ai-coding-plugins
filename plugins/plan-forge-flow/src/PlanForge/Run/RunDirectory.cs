@@ -525,6 +525,27 @@ internal sealed class RunDirectory
     }
 
     /// <summary>
+    /// How the orchestrator labelled the findings of a plan-review round, in the line the code-review
+    /// skill asks for by hand, and what share of the round the plan's own revisions caused. The
+    /// server writes this one, because a hand-written line was never written in run
+    /// <c>20261028-115553-01bf54</c>: nothing required it.
+    /// </summary>
+    /// <param name="round">The round whose findings were labelled.</param>
+    /// <param name="labels">The labels the call passed.</param>
+    /// <param name="tally">How many findings carry each label.</param>
+    public void AppendFlowFallout(int round, PlanFallout labels, FalloutTally tally) =>
+        AtomicFile.Append(FlowLogPath,
+            new StringBuilder().Append("## Plan review — fallout of round ").Append(round).AppendLine()
+                               .AppendLine()
+                               .AppendLine(labels.Line(round))
+                               .AppendLine()
+                               .Append(tally.Fallout).Append(" of ").Append(tally.New)
+                               .Append(" new findings are fallout of the plan's own revisions (own and sibling)")
+                               .AppendLine(tally.Mostly ? ": half or more." : ".")
+                               .AppendLine()
+                               .ToString());
+
+    /// <summary>
     /// The instructions the user gave this run's workers, verbatim. The server cannot tell text the
     /// user typed from text the orchestrator invented — the same hole `approved` has, see
     /// docs/adr/0019 — so this entry is what makes the answer auditable by the one person who knows.
@@ -1047,6 +1068,11 @@ internal sealed class RunDirectory
 /// owed, or the latest draft's before round 1. Null before any plan was measured, and for a run begun
 /// before the checkpoint existed, which is offered nothing until its next write or patch sets one.
 /// </param>
+/// <param name="FalloutOwed">
+/// The new finding IDs of the last plan-review round, whose fallout labels the next round's call
+/// must carry. Null when none are owed: after round 1, whose findings no revision can have caused,
+/// after a round with no new finding, and for a run begun before the labels were an argument.
+/// </param>
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -1077,14 +1103,25 @@ internal sealed record RunState(string RunId,
                                 int AutoContinuedCodeReviewRounds = 0,
                                 IReadOnlyList<ReviewTally>? ReviewTallies = null,
                                 IReadOnlyList<ReviewTally>? CodeReviewTallies = null,
-                                int? SplitCheckpoint = null);
+                                int? SplitCheckpoint = null,
+                                IReadOnlyList<string>? FalloutOwed = null);
 
 internal sealed record TaskChange(int TaskNumber, IReadOnlyList<string> FilesChanged);
 
 /// <summary>What one review round left for the cap: how many findings were open after it, and whether one was a blocker.</summary>
 /// <param name="Findings">The round's new findings plus the unresolved findings it assessed as still present.</param>
 /// <param name="Blocker">Whether any of those is a <c>blocker</c>.</param>
-internal sealed record ReviewTally(int Findings, bool Blocker);
+/// <param name="New">
+/// How many of the round's findings were new, once the next round's call labelled them; null until
+/// then, for a round that was never labelled, and for a round of an act that labels nothing.
+/// </param>
+/// <param name="Fallout">How many of those new findings the orchestrator labelled <c>own</c> or <c>sibling</c>.</param>
+internal sealed record ReviewTally(int Findings,
+                                   bool Blocker,
+                                   [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                   int? New = null,
+                                   [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                   int? Fallout = null);
 
 internal sealed record ScoutState(bool Enabled,
                                   string? Vendor = null,

@@ -221,9 +221,17 @@ public sealed class PlanReviewTests : IDisposable
         var run = NewRun(rounds: 5, cap: 5, tallies: [new(5, false), new(4, false)]);
         var act = new PlanReview(critic, new PromptLibrary(RepositoryPrompts()));
 
-        foreach (var revision in new[] { "revision 6", "revision 7", "revision 8", "revision 9" })
+        // Each round owes labels for the findings the one before raised, and none of these is fallout.
+        var labels = new Dictionary<string, PlanFallout?>
+        {
+            ["revision 6"] = null,
+            ["revision 7"] = new(Older: ["F-0001", "F-0002", "F-0003"]),
+            ["revision 8"] = new(Older: ["F-0004"]),
+            ["revision 9"] = null
+        };
+        foreach (var (revision, fallout) in labels)
             await act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
-                                  revision, null, false, CancellationToken.None);
+                                  revision, null, false, CancellationToken.None, fallout: fallout);
 
         await Assert.ThrowsAsync<ReviewCapReachedException>(
             () => act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null),
@@ -328,6 +336,175 @@ public sealed class PlanReviewTests : IDisposable
 
         Assert.Equal("6 → 4", automatic["continuedAutomatically"]?.GetValue<string>());
         Assert.Null(budgeted["continuedAutomatically"]);
+    }
+
+    private static readonly string[] OwedFindings = ["F-0101", "F-0102", "F-0103", "F-0104"];
+
+    private static readonly PlanFallout HalfFallout = new(Own: ["F-0101"], Sibling: ["F-0102"], SameClass: ["F-0103"], Older: ["F-0104"]);
+
+    private static readonly PlanFallout QuarterFallout = new(Own: ["F-0101"], SameClass: ["F-0102", "F-0103"], Older: ["F-0104"]);
+
+    private Task<Critique> Labelled(PlanReview act, RunDirectory run, PlanFallout? fallout, bool granted = false) =>
+        act.ReviewAsync(run, HardenedPlan, new Selection("critic-model", null), "reworked step 3", null, granted,
+                        CancellationToken.None, fallout: fallout);
+
+    /// <summary>
+    /// Round 1 judges a first draft no revision has touched, so its findings owe no label; round 2's
+    /// do, and the call that follows it is refused until they have them. The refusal spends nothing.
+    /// </summary>
+    [Fact]
+    public async Task The_round_after_the_second_is_refused_until_the_second_rounds_findings_are_labelled()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [new Finding("major", "step 1", "page size unstated")], "one hole"));
+        critic.Enqueue(new Critique("revise", [new Finding("major", "step 2", "rename target unstated"),
+                                               new Finding("minor", "step 3", "batch log unstated")], "two holes"));
+        var run = NewRun(rounds: 0, cap: 5);
+        var act = new PlanReview(critic, new PromptLibrary(RepositoryPrompts()));
+
+        await Labelled(act, run, null);
+        Assert.Null(run.ReadState().FalloutOwed);
+        await Labelled(act, run, null);
+        var owed = run.ReadState().FalloutOwed;
+        Assert.Equal(2, owed!.Count);
+
+        var refusal = await Assert.ThrowsAsync<FalloutLabelsException>(() => Labelled(act, run, null));
+
+        foreach (var id in owed) Assert.Contains(id, refusal.Message, StringComparison.Ordinal);
+        Assert.Equal(2, run.ReadState().ReviewRounds);
+        Assert.Equal(owed, run.ReadState().FalloutOwed!);
+    }
+
+    [Fact]
+    public async Task A_label_set_with_an_ID_missing_is_refused_before_the_critic_starts()
+    {
+        var critic = new RecordingVendor("claude");
+        var run = NewRun(rounds: 2, cap: 5, falloutOwed: OwedFindings);
+
+        var refusal = await Assert.ThrowsAsync<FalloutLabelsException>(
+            () => Labelled(new PlanReview(critic, new PromptLibrary(RepositoryPrompts())), run,
+                           new PlanFallout(Own: ["F-0101"], SameClass: ["F-0102"], Older: ["F-0104"])));
+
+        Assert.Contains("missing: F-0103", refusal.Message, StringComparison.Ordinal);
+        Assert.Empty(critic.Sessions);
+        Assert.Equal(2, run.ReadState().ReviewRounds);
+        Assert.DoesNotContain("fallout of round", Flow(run), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The labels reach the Flow log and the tally of the round they describe, which is the previous
+    /// one, and the round that ran leaves its own new findings owed.
+    /// </summary>
+    [Fact]
+    public async Task The_labels_are_written_to_the_flow_log_and_the_previous_rounds_tally_after_the_critique()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("revise", [new Finding("minor", "step 2", "name the temp suffix"),
+                                               new Finding("minor", "step 3", "name the log file")], "two nits"));
+        var run = NewRun(rounds: 2, cap: 5, tallies: [new(3, false), new(4, false)], falloutOwed: OwedFindings);
+
+        var critique = await Labelled(new PlanReview(critic, new PromptLibrary(RepositoryPrompts())), run, HalfFallout);
+
+        var state = run.ReadState();
+        Assert.Equal(new ReviewTally[] { new(3, false), new(4, false, 4, 2), new(2, false) }, state.ReviewTallies!);
+        Assert.Equal(critique.Findings.Select(finding => finding.FindingId), state.FalloutOwed!);
+        var flow = Flow(run);
+        Assert.Contains("## Plan review — fallout of round 2", flow, StringComparison.Ordinal);
+        Assert.Contains("Plan review round 2: own F-0101; sibling F-0102; same-class F-0103; older F-0104", flow,
+                        StringComparison.Ordinal);
+        Assert.Contains("2 of 4 new findings are fallout", flow, StringComparison.Ordinal);
+        Assert.True(flow.IndexOf("## Plan review — fallout of round 2", StringComparison.Ordinal)
+                    < flow.IndexOf("## Plan revision after round 2", StringComparison.Ordinal),
+                    "the labels read between the critique they describe and the revision they led to");
+    }
+
+    /// <summary>The same property as the grant and the revision: the labels are recorded after the critique, so a round that died labelled nothing.</summary>
+    [Fact]
+    public async Task A_dying_critique_records_no_labels()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new InvalidOperationException("vendor died mid-turn"));
+        var run = NewRun(rounds: 2, cap: 5, tallies: [new(3, false), new(4, false)], falloutOwed: OwedFindings);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => Labelled(new PlanReview(critic, new PromptLibrary(RepositoryPrompts())), run, HalfFallout));
+
+        var state = run.ReadState();
+        Assert.Equal(new ReviewTally[] { new(3, false), new(4, false) }, state.ReviewTallies!);
+        Assert.Equal(OwedFindings, state.FalloutOwed!);
+        Assert.DoesNotContain("fallout of round", Flow(run), StringComparison.Ordinal);
+    }
+
+    /// <summary>A run begun before the labels existed owes none, so a label set it happens to pass is not checked against anything.</summary>
+    [Fact]
+    public async Task Labels_passed_while_none_are_owed_are_ignored()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 2, cap: 5, tallies: [new(3, false), new(4, false)]);
+
+        await Labelled(new PlanReview(critic, new PromptLibrary(RepositoryPrompts())), run, HalfFallout);
+
+        Assert.Equal(new ReviewTally[] { new(3, false), new(4, false), new(0, false) }, run.ReadState().ReviewTallies!);
+        Assert.DoesNotContain("fallout of round", Flow(run), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The count fell and no blocker is left, so ADR 0041 alone would run this round; half of the last
+    /// round being the revisions' own fallout is what makes it a question. The refusal runs nothing,
+    /// records nothing, and quotes the share the orchestrator shows the user.
+    /// </summary>
+    [Fact]
+    public async Task At_the_cap_a_falling_count_does_not_buy_a_round_that_is_half_fallout()
+    {
+        var critic = new RecordingVendor("claude");
+        var run = NewRun(rounds: 5, cap: 5, tallies: [new(6, false), new(4, false)], falloutOwed: OwedFindings);
+
+        var refusal = await Assert.ThrowsAsync<ReviewCapReachedException>(
+            () => Labelled(new PlanReview(critic, new PromptLibrary(RepositoryPrompts())), run, HalfFallout));
+
+        Assert.Contains("2 of 4 new findings", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("sweep", refusal.Message, StringComparison.Ordinal);
+        Assert.Contains("userGrantedRound", refusal.Message, StringComparison.Ordinal);
+        Assert.Empty(critic.Sessions);
+        var state = run.ReadState();
+        Assert.Equal(5, state.ReviewRounds);
+        Assert.Equal(OwedFindings, state.FalloutOwed!);
+        Assert.Equal(new ReviewTally[] { new(6, false), new(4, false) }, state.ReviewTallies!);
+        Assert.DoesNotContain("fallout of round", Flow(run), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task At_the_cap_a_falling_count_still_buys_a_round_that_is_less_than_half_fallout()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 5, cap: 5, tallies: [new(6, false), new(4, false)], falloutOwed: OwedFindings);
+        var act = new PlanReview(critic, new PromptLibrary(RepositoryPrompts()));
+
+        await Labelled(act, run, QuarterFallout);
+
+        var state = run.ReadState();
+        Assert.Equal("6 → 4", act.ContinuedAutomatically);
+        Assert.Equal(1, state.AutoContinuedReviewRounds);
+        Assert.Equal(new ReviewTally[] { new(6, false), new(4, false, 4, 1), new(0, false) }, state.ReviewTallies!);
+    }
+
+    /// <summary>A grant is the user's word, and it is given after being shown this share; it buys the round whatever the share is.</summary>
+    [Fact]
+    public async Task A_grant_at_the_cap_buys_a_round_that_is_half_fallout()
+    {
+        var critic = new RecordingVendor("claude");
+        critic.Enqueue(new Critique("approve", [], "nothing left"));
+        var run = NewRun(rounds: 5, cap: 5, tallies: [new(6, false), new(4, false)], falloutOwed: OwedFindings);
+
+        await Labelled(new PlanReview(critic, new PromptLibrary(RepositoryPrompts())), run, HalfFallout, granted: true);
+
+        var state = run.ReadState();
+        Assert.Equal(6, state.ReviewRoundCap);
+        Assert.Equal(1, state.GrantedReviewRounds);
+        Assert.Equal(0, state.AutoContinuedReviewRounds);
+        Assert.Equal(2, state.ReviewTallies![1].Fallout);
     }
 
     /// <summary>
@@ -757,14 +934,16 @@ public sealed class PlanReviewTests : IDisposable
     }
 
     private RunDirectory NewRun(int rounds, int cap, IReadOnlyList<string>? workerTools = null,
-                                IReadOnlyList<ReviewTally>? tallies = null)
+                                IReadOnlyList<ReviewTally>? tallies = null, IReadOnlyList<string>? falloutOwed = null)
     {
         const string runId = "test-run";
         var run = RunDirectory.Create(_workspace, runId);
         run.WriteState(new RunState(runId, _workspace, "Text", DateTimeOffset.Now, rounds, cap, WorkerTools: workerTools,
-                                    ReviewTallies: tallies));
+                                    ReviewTallies: tallies, FalloutOwed: falloutOwed));
         return run;
     }
+
+    private static string Flow(RunDirectory run) => File.Exists(run.FlowLogPath) ? File.ReadAllText(run.FlowLogPath) : string.Empty;
 
     private static PlanReview NewAct() =>
         new(new ClaudeCliVendor(), new PromptLibrary(RepositoryPrompts()));

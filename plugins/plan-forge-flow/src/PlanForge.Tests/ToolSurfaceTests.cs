@@ -379,6 +379,24 @@ public sealed class ToolSurfaceTests
         Assert.Equal(["act"], required.Except(["workspaceRoot", "runId"]));
     }
 
+    /// <summary>
+    /// The fallout labels are a structured argument of <c>forge.plan.review</c>, so the SDK has to
+    /// describe them without reflection, and the tool must not require them: rounds 1 and 2, and a
+    /// round after one that raised nothing, carry none. See docs/adr/0049.
+    /// </summary>
+    [Fact]
+    public void Plan_review_publishes_the_fallout_labels_as_an_optional_argument_of_four_ID_lists()
+    {
+        var schema = SchemaFor(nameof(ForgeTools.ReviewPlan));
+        var fallout = schema.GetProperty("properties").GetProperty("fallout").GetRawText();
+        var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
+
+        foreach (var label in new[] { "own", "sibling", "sameClass", "older" })
+            Assert.Contains($"\"{label}\"", fallout, StringComparison.Ordinal);
+        Assert.Contains("array", fallout, StringComparison.Ordinal);
+        Assert.DoesNotContain("fallout", required);
+    }
+
     [Fact]
     public void Poll_publishes_an_optional_wait_and_hides_its_injected_services()
     {

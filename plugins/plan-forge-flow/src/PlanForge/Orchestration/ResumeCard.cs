@@ -169,6 +169,8 @@ internal static class ResumeCard
         AppendIds(card, "  of which active in code review", ledger.CodeReviewActiveFindingIds.Intersect(ledger.UnresolvedFindingIds).ToArray());
         AppendIds(card, "Deferred", ledger.DeferredFindingIds);
         AppendIds(card, "Rejected", ledger.RejectedFindingIds);
+        if (stand == Stand.PlanReview)
+            AppendIds(card, $"Fallout labels owed for the new findings of plan-review round {state.ReviewRounds}", state.FalloutOwed ?? []);
         foreach (var attempt in ledger.PendingFullGateAttempts)
             AppendIds(card, $"Pending full host verification under fix attempt {attempt.FixAttemptId}", attempt.FindingIds);
 
@@ -203,7 +205,7 @@ internal static class ResumeCard
                                                                                    + "target: \"s3\", targetHash: \"<from the outline>\", content?: \"<none for delete>\" }] }; "
                                                                                    + "forge.plan.write { planDraft } only for a rewrite.")
                 .Append("- forge.plan.review { ").Append(criticArguments).Append(", revision: \"<what you changed; required from round 2>\", ")
-                .Append(Decisions("addressedByRevision")).AppendLine(" }; never planDraft.")
+                .Append(Decisions("addressedByRevision")).Append(Fallout(state)).AppendLine(" }; never planDraft.")
                 .Append("- forge.plan.confirm { approved: true, planHash: \"").Append(hash).Append("\", decisions?: {...as above}, ")
                 .AppendLine("fullGate?: \"beforeNextRound\" | \"final\", gateEnvironment?: { \"NAME\": \"value\" }, rebuildFrom?: <a built task> }; "
                             + "never plan, and only after the user said yes. approved: false takes no decisions.");
@@ -317,6 +319,14 @@ internal static class ResumeCard
         + "by: \"user\" | \"orchestrator\", reason: \"...\", duplicateOf?: \"F-...\", evidence?: \"<required for "
         + (closure == "addressedByRevision" ? "accept, and for addressedByRevision of a blocker or major" : "hostVerified and accept")
         + $">\" }}]{raises} }}";
+
+    /// <summary>The fallout argument of the next plan-review round, present only while the last round left findings to label.</summary>
+    /// <param name="state">The run's saved state.</param>
+    /// <returns>The argument's shape, or nothing when no label is owed.</returns>
+    private static string Fallout(RunState state) =>
+        state.FalloutOwed is { Count: > 0 }
+            ? ", fallout: { own: [\"F-...\"], sibling: [], sameClass: [], older: [] } (required: every ID listed above, each under exactly one label)"
+            : "";
 
     private static string? Text(JsonElement fields, string name) =>
         fields.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

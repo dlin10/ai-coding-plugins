@@ -1,6 +1,6 @@
 # Plan Forge Flow releases
 
-## 0.72.0
+## 0.73.0
 
 Workers start with the user's cross-session memory off. Issue #233.
 
@@ -20,6 +20,36 @@ Workers start with the user's cross-session memory off. Issue #233.
 - Only the worker processes change. The variable and the flag are set on each worker's own process or
   command line, not in the server's environment or in any settings file, so the user's own sessions
   keep their memory.
+
+## 0.72.0
+
+Plan review's fallout labels become an argument of the call, and a round that is half fallout stops
+the loop. Issue #232.
+
+- Code review stops on fallout; plan review only borrowed the labels, as a `forge.log.append` line
+  nothing required or read. In run `20261028-115553-01bf54` no such line was written in 21 rounds and
+  154 findings. The loop ran against a cap of 5 on 14 grants and 2 automatic rounds, and the audit
+  the user's question prompted found 20 of the 27 valid findings of rounds 14–17 to be fallout of the
+  plan's own revisions.
+- `forge.plan.review` takes `fallout`: `{ own, sibling, sameClass, older }`, the previous round's new
+  finding IDs, each under exactly one label. It is required from the third round on whenever the
+  previous round raised new findings, and the call is refused, naming the IDs, when one has no label,
+  is not one that round raised, or has two. A run begun before 0.72.0 owes none.
+- After the critique the server writes `Plan review — fallout of round N` to the Flow log and puts
+  `new` and `fallout` (`own` plus `sibling`) in that round's `reviewTallies` entry. The IDs still owed
+  are `falloutOwed` in `state.json`; `forge.status` leaves them out, and the resume card prints them
+  with the argument's shape.
+- A round at the cap runs unasked only when fewer than half of the last round's new findings are
+  fallout, besides ADR 0041's conditions. Otherwise the refusal quotes the share. A grant buys the
+  round whatever the share is.
+- `plan-review.md` has a new section, *Labelling fallout, and the sweep*, with the four labels and the
+  code-review stop: when half a round or more is fallout, run no further round yet, sweep the rules
+  the revisions touched — their axes, every mention, one owner per rule — and spend one round to
+  confirm. The cap question shows the fallout of the last rounds, the plan's growth and the
+  widenings, and offers the sweep and a split beside one more round.
+- `build/package.ps1` checks that the published `fallout` argument is optional and names all four
+  labels.
+- ADR 0049 carries the decision, the alternatives and the dry check on H2; ADR 0041 is amended.
 
 ## 0.71.0
 
