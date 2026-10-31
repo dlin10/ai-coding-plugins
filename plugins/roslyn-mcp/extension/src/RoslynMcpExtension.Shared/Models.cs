@@ -134,7 +134,8 @@ public class DaemonInfo
 	public string Version { get; set; } = string.Empty;
 	/// <summary>
 	/// The daemon runs inside a job that kills it when closed, because the host refused it breakaway, as
-	/// codex exec does: it and every solution it holds end with the host's turn.
+	/// codex exec and Codex desktop do: it and every solution it holds end when that job closes, at the end of the
+	/// turn under codex exec and when the thread is closed under Codex desktop.
 	/// </summary>
 	public bool ExitsWithJob { get; set; }
 }
