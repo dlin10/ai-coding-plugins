@@ -258,22 +258,44 @@ internal sealed class PlanReview
         }
 
         var outline = PlanOutline.Of(patch.Plan);
-        var shape = PlanShape.Of(patch.Plan, outline);
         var beforeHash = PlanOutline.Hash(plan);
+        PlanShape shape;
         try
         {
+            shape = Measure(run, patch.Plan, outline);
             run.AppendFlowPlanPatched(beforeHash, outline.PlanHash, patch.Changes, sizes, shape);
         }
         catch (Exception)
         {
             throw new PlanPatchFailedException("failed_after_patch", sizes,
-                $"The plan was patched, but its Flow entry could not be written. The new plan hash is {outline.PlanHash}; read forge.plan.outline.");
+                $"The plan was patched, but its Flow entry or split checkpoint could not be written. The new plan hash is {outline.PlanHash}; read forge.plan.outline.");
         }
         return new PlanPatchOutcome(beforeHash, outline, shape, patch.Changes, sizes, tasksKept,
                                     FirstTaskOwed(patch.Plan, tasksKept));
 
         PlanPatchRejectedException NoPlan() => new("no_plan", sizes,
             "Write the plan first with forge.plan.write before reading an outline or patching it.");
+    }
+
+    /// <summary>
+    /// Measures the plan a write or a patch has just put on disk and keeps the run's split checkpoint
+    /// current, so the shape the call returns says whether the user is owed a split offer before the
+    /// next round. See docs/adr/0048.
+    /// </summary>
+    /// <remarks>
+    /// The state is read here, after <see cref="Reopen"/> has written its own, so the checkpoint
+    /// lands on the state that holds the withdrawn approval rather than restoring one from a stale capture.
+    /// </remarks>
+    /// <param name="run">The run whose state holds the checkpoint.</param>
+    /// <param name="plan">The plan as it now stands on disk.</param>
+    /// <param name="outline">The outline of <paramref name="plan"/>.</param>
+    /// <returns>The plan's shape, its split offer settled against the run's review rounds and checkpoint.</returns>
+    public static PlanShape Measure(RunDirectory run, string plan, PlanOutline outline)
+    {
+        var state = run.ReadState();
+        var (shape, checkpoint) = PlanShape.Of(plan, outline).Offer(state.ReviewRounds, state.SplitCheckpoint);
+        if (checkpoint != state.SplitCheckpoint) run.WriteState(state with { SplitCheckpoint = checkpoint });
+        return shape;
     }
 
     /// <summary>

@@ -1,5 +1,57 @@
 # Plan Forge Flow releases
 
+## 0.70.0
+
+A scope question in review offers a split and shows the scope already added. Issue #229.
+
+- In run `20261028-115553-01bf54`, 13 of the first 27 decisions with options recommended widening the
+  run, and the user took the recommendation each time. Nothing counted the widenings, and the split
+  recommended at the interview was never offered again.
+- `forge.decision.record` takes an optional `scope`, `widens` or `narrows`, and `decisions.json`
+  stores it. A record without it is written as before; a file holding any other value does not read
+  back.
+- The server counts the standing `widens` decisions made after the interview. The count is on the
+  Flow-log entry of a scoped decision, in `forge.status` as `decisions.widenings` (left out while it
+  is 0) and on the resume card, so it survives a compaction.
+- `asking.md` has a new section, *Scope questions*. A question with a widening also offers the split:
+  deliver the settled scope now, and move the widening and the acceptance that needs it to a
+  follow-up run. It names the widenings so far and the plan's size against its first draft. From the
+  second widening the split is the recommendation, and recommending a widening needs a stated reason
+  why the split would not deliver the interview's goal. Before the third, one question lists every
+  widening the acceptance still needs and asks: split here, or agree the whole set as one package.
+- The round-cap question shows the count, and the plan-review rules for a requirement that moves the
+  scope and for a new mechanism point to the new section.
+- A decision made in the interview is not a widening of the scope the interview settled, so it is not
+  counted. On H2's decisions, tagged as the issue lists them, the third widening since the interview
+  is D-0039; the issue's D-0036 counts D-0004, which was made at the interview.
+- ADR 0045 carries the amendment.
+
+## 0.69.0
+
+The split offer is made again when a plan outgrows its first draft, not only before round 1. Issue
+#228.
+
+- The offer was tied to the first draft. Run `20261028-115553-01bf54` began 351 characters under the
+  threshold (Approach 21,649) and grew to 355,732 over 21 plan-review rounds; its Flow log said
+  `Offer a split: yes` after every patch, while the skill, which asked only before round 1, never
+  asked.
+- The run now keeps a split checkpoint in `state.json`: each draft's Approach before round 1, and the
+  Approach at which the last offer was owed after it. After round 1, `forge.plan.write` and
+  `forge.plan.patch` return `splitSuggested: true`, with `splitReason` and `splitCheckpoint`, when the
+  Approach is at least 22,000 and either `crossed` (the checkpoint was below 22,000) or `doubled` (it
+  is at least twice the checkpoint). The checkpoint then moves to the current Approach, so each later
+  offer needs another doubling. Both fields are left out when no offer is owed.
+- The Flow log prints `Offer a split: yes — doubled since 34,730` only when an offer is due, and `no`
+  otherwise, so it no longer announces an offer the skill will not make.
+- The skill asks the split question before the next round when a write or patch after round 1 returns
+  `splitSuggested: true`. It names the separable tasks with their sizes and R-items and what the
+  growth since the checkpoint added, and offers **continue as is**. One question per trigger.
+- On the 36 Shape blocks of that run the rule fires four times, at 34,730, 70,787, 160,354 and
+  327,748. A test replays the series.
+- A run begun before 0.69.0 has no checkpoint. It records one at its next write or patch and is
+  offered nothing until the plan grows from there.
+- ADR 0048 carries the amendment.
+
 ## 0.68.4
 
 A worker is granted an MCP server a plugin declares, in both vendors, and a codex worker no longer

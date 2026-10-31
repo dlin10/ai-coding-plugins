@@ -39,6 +39,30 @@ explanation, put the recommended option first, and end its label with "(Recommen
 question — a vendor, a model and effort, the Fast tier, a value a gate needs — needs one or two
 sentences of explanation and no code.
 
+## Scope questions
+
+A scope question is one with an option that widens the run beyond the scope the interview settled: a
+new mechanism, model family, product input, requirement or acceptance condition. It follows
+everything above, and in addition:
+
+- **It offers a split.** Beside the widening, one option is **split**: deliver the settled scope as
+  this run, with the acceptance narrowed to it, and move the widening and the acceptance that needs
+  it to a follow-up run, which the decision names. Stopping the run stays an option.
+- **It shows the scope already added.** The explanation names the widenings recorded since the
+  interview, by `D-` ID, and the plan's size now against its first draft's: `shape.characters` of the
+  last `forge.plan.write` or `forge.plan.patch` against the first `Plan written` block of
+  `flow_log.md`. Their number is `decisions.widenings` in `forge.status` and on the resume card; take
+  it from there after a compaction, not from your summary.
+- **From the second widening, the split is the recommendation.** When `decisions.widenings` is 1 or
+  more, the widening you are about to ask is the second or a later one: recommend the split.
+  Recommend the widening only with a stated reason why the split would not deliver the interview's
+  goal, and record that reason in the decision's answer.
+- **Before the third widening, ask once for all of them.** When `decisions.widenings` is 2 or more,
+  do not ask this widening alone. List every widening the acceptance still needs, with one Scout
+  question about the feasibility of the whole acceptance rather than of each widening, and ask once:
+  split here, or agree the whole set as one package. The widenings of an agreed package are recorded
+  as they come and need no question each.
+
 ## Recording the answer
 
 Record every answer that settles something with `forge.decision.record` the moment it is given,
@@ -49,6 +73,9 @@ offered with `recommended: true` on the one you recommended, the answer as given
 `phase` you are in, and in `bearsOn` the requirement, task, gate or finding IDs it governs once they
 exist. A choice you settle yourself without asking is recorded too, with `by: "orchestrator"`. An
 answer that changes an earlier one is a new record whose `supersedes` names it; nothing is removed.
+A scope answer carries `scope: "widens"` when it widens the run beyond what the interview settled and
+`scope: "narrows"` when it narrows it, as a split or a narrowed acceptance does; the server counts the
+widenings. A decision that does neither, and the interview's own answers, carry none.
 The record replaces the `forge.log.append` note: never also write a decision as an `Interview D-n`
 or `(user):` note.
 

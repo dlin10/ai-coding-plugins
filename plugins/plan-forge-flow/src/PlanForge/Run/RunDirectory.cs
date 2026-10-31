@@ -283,12 +283,16 @@ internal sealed class RunDirectory
     /// verbatim, and the options as the question offered them.
     /// </summary>
     /// <param name="record">The decision as recorded.</param>
-    public void AppendFlowDecision(DecisionRecord record)
+    /// <param name="widenings">How many standing decisions widen the Run since the interview, this one included; shown beside its scope.</param>
+    public void AppendFlowDecision(DecisionRecord record, int widenings)
     {
         var entry = new StringBuilder().Append("## Decision ").AppendLine(record.DecisionId)
                                        .AppendLine()
                                        .Append("Phase: ").AppendLine(record.Phase)
                                        .Append("By: ").AppendLine(record.By);
+        if (record.Scope is not null)
+            entry.Append("Scope: ").Append(record.Scope).Append("; widenings since the interview: ")
+                 .AppendLine(widenings.ToString(CultureInfo.InvariantCulture));
         if (record.Supersedes is not null) entry.Append("Supersedes: ").AppendLine(record.Supersedes);
         if (record.BearsOn is not null) entry.Append("Bears on: ").AppendLine(record.BearsOn);
         entry.AppendLine()
@@ -683,8 +687,13 @@ internal sealed class RunDirectory
              .Append("- R-items: ").Append(shape.RequirementItemCount)
              .Append("; named test classes: ").Append(shape.NamedTestClassCount)
              .Append("; MatrixTests: ").AppendLine(shape.MatrixTestClassCount.ToString(CultureInfo.InvariantCulture))
-             .Append("- Offer a split: ").AppendLine(shape.SplitSuggested ? "yes" : "no");
+             .Append("- Offer a split: ").AppendLine(SplitOffer(shape));
     }
+
+    private static string SplitOffer(PlanShape shape) =>
+        !shape.SplitSuggested ? "no"
+        : shape.SplitReason is null ? "yes"
+        : $"yes — {shape.SplitReason} since {shape.SplitCheckpoint?.ToString("N0", CultureInfo.InvariantCulture)}";
 
     /// <summary>
     /// Records that a round ran past its cap because the user granted it, so a reader of
@@ -1033,6 +1042,11 @@ internal sealed class RunDirectory
 /// <param name="AutoContinuedCodeReviewRounds">Code-review rounds that ran past the cap without asking, because the findings fell.</param>
 /// <param name="ReviewTallies">What each plan-review round left for the cap, oldest first; null before the first tallied round.</param>
 /// <param name="CodeReviewTallies">What each code-review round left for the cap, oldest first; null before the first tallied round.</param>
+/// <param name="SplitCheckpoint">
+/// The Approach size the plan's growth is measured from for the split offer: where the last offer was
+/// owed, or the latest draft's before round 1. Null before any plan was measured, and for a run begun
+/// before the checkpoint existed, which is offered nothing until its next write or patch sets one.
+/// </param>
 internal sealed record RunState(string RunId,
                                 string WorkspaceRoot,
                                 string Profile,
@@ -1062,7 +1076,8 @@ internal sealed record RunState(string RunId,
                                 int AutoContinuedReviewRounds = 0,
                                 int AutoContinuedCodeReviewRounds = 0,
                                 IReadOnlyList<ReviewTally>? ReviewTallies = null,
-                                IReadOnlyList<ReviewTally>? CodeReviewTallies = null);
+                                IReadOnlyList<ReviewTally>? CodeReviewTallies = null,
+                                int? SplitCheckpoint = null);
 
 internal sealed record TaskChange(int TaskNumber, IReadOnlyList<string> FilesChanged);
 

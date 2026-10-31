@@ -156,11 +156,13 @@ internal static class ResumeCard
                 { } scout => new WorkerChoice(scout.Vendor, scout.Model ?? "?", scout.Effort, scout.Fast).Arguments
                              + ", as selected; every call passes sessionMode explicitly."
             });
-        var decisions = run.ReadDecisions().Count;
-        card.AppendLine(decisions == 0
+        var decisions = run.ReadDecisions();
+        var widenings = DecisionRecords.Widenings(decisions);
+        card.AppendLine(decisions.Count == 0
                             ? "- Decisions: none recorded yet."
-                            : $"- Decisions: {decisions} recorded in {run.DecisionsPath}. Read them there, not in your summary, "
-                              + "before you ask the user anything the run may have settled.");
+                            : $"- Decisions: {decisions.Count} recorded in {run.DecisionsPath}. Read them there, not in your summary, "
+                              + "before you ask the user anything the run may have settled."
+                              + (widenings == 0 ? "" : $" Widenings since the interview: {widenings}."));
 
         AppendIds(card, "Unresolved", ledger.UnresolvedFindingIds);
         AppendIds(card, "  of which active in plan review", ledger.PlanReviewActiveFindingIds.Intersect(ledger.UnresolvedFindingIds).ToArray());
@@ -233,7 +235,8 @@ internal static class ResumeCard
 
         card.AppendLine("- forge.decision.record { phase: \"<the phase you are in>\", question: \"<as asked>\", answer: \"<as given>\", "
                         + "by: \"user\" | \"orchestrator\", options?: [{ label, recommended?: true }], bearsOn?: \"R3, F-0012\", "
-                        + "supersedes?: \"D-...\" } the moment an answer settles something; never forge.log.append for it.");
+                        + "supersedes?: \"D-...\", scope?: \"widens\" | \"narrows\" } the moment an answer settles something; "
+                        + "never forge.log.append for it.");
         card.Append("Before your next forge call, read ")
             .Append(string.Join(", ", read.Select(file => references is null ? $"references/{file}" : Path.Combine(references, file))))
             .AppendLine(references is null

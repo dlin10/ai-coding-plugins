@@ -222,6 +222,25 @@ public sealed class ResumeCardTests : IDisposable
     }
 
     [Fact]
+    public void The_card_counts_the_widenings_since_the_interview_and_shows_the_scope_tag()
+    {
+        var run = NewRun("20261021-100000-widened", approved: false, tasksCompleted: 0);
+        DecisionRecords.Record(run, DecisionRecords.Validate("interview", $"{DECISION_TEXT} settled?", null,
+                                                             $"{DECISION_TEXT} settled", "user", null, null, "widens"));
+        var before = ResumeCard.Of(_root, SESSION, null);
+        foreach (var answer in new[] { "first", "second" })
+            DecisionRecords.Record(run, DecisionRecords.Validate("plan_revision", $"{DECISION_TEXT} {answer}?", null,
+                                                                 $"{DECISION_TEXT} {answer}", "user", null, null, "widens"));
+
+        var card = ResumeCard.Of(_root, SESSION, null);
+
+        Assert.DoesNotContain("Widenings since the interview", before, StringComparison.Ordinal);
+        Assert.Contains("Widenings since the interview: 2.", card, StringComparison.Ordinal);
+        Assert.Contains("scope?: \"widens\" | \"narrows\"", card, StringComparison.Ordinal);
+        Clean(card);
+    }
+
+    [Fact]
     public void A_run_with_no_decision_says_so_and_still_shows_the_call()
     {
         NewRun("20261021-100000-undecided", approved: true, tasksCompleted: 1);
