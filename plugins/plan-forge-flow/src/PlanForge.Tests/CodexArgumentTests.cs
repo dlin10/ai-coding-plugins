@@ -31,9 +31,34 @@ public sealed class CodexArgumentTests
             "-m", "gpt-5.6-sol",
             "-c", "service_tier=" + TomlValue.String("default"),
             "-c", "plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false",
+            "--disable", "memories",
             "--dangerously-bypass-approvals-and-sandbox",
             "-c", "developer_instructions=" + TomlValue.String("review the plan")
         ], arguments);
+    }
+
+    /// <summary>
+    /// Codex's `memories` feature is on by default, and a worker that keeps it reads the user's notes
+    /// and may write them, outside the workspace the run's diff and code review cover (issue #233).
+    /// `--disable memories` is the same as `-c features.memories=false`, and `codex exec resume`
+    /// accepts it, so a resumed turn names it as a fresh one does.
+    /// </summary>
+    /// <param name="role">The worker role launched.</param>
+    /// <param name="sessionId">The session resumed, or null for a fresh launch.</param>
+    [Theory]
+    [InlineData("Critic", null)]
+    [InlineData("Scout", null)]
+    [InlineData("Scout", "thread-1")]
+    [InlineData("Builder", null)]
+    [InlineData("Builder", "thread-1")]
+    public void Every_role_starts_without_the_users_memory_on_every_turn(string role, string? sessionId)
+    {
+        var arguments = CodexCliSession.BuildArguments(new RoleSpec(Enum.Parse<VendorRole>(role), "work"),
+                                                       new Selection("gpt-5.6-sol", null), sessionId,
+                                                       "schema.json", "result.json");
+
+        Assert.Single(arguments, argument => argument == "--disable");
+        Assert.Equal("memories", arguments[arguments.IndexOf("--disable") + 1]);
     }
 
     /// <summary>
@@ -100,7 +125,7 @@ public sealed class CodexArgumentTests
     }
 
     [Fact]
-    public void Both_roles_disable_only_the_self_plugin_and_keep_the_ambient_configuration()
+    public void Both_roles_turn_off_only_the_self_plugin_and_memories_and_keep_the_ambient_configuration()
     {
         var critic = CodexCliSession.BuildArguments(
             new RoleSpec(VendorRole.Critic, "review the plan"),
@@ -113,7 +138,11 @@ public sealed class CodexArgumentTests
         {
             Assert.Contains("plugins.plan-forge-flow@dlin10-ai-coding-plugins.enabled=false", arguments);
             Assert.DoesNotContain("--ignore-user-config", arguments);
-            Assert.DoesNotContain("--disable", arguments);
+
+            var disabled = arguments.Zip(arguments.Skip(1))
+                                    .Where(pair => pair.First == "--disable")
+                                    .Select(pair => pair.Second);
+            Assert.Equal(["memories"], disabled);
         }
     }
 

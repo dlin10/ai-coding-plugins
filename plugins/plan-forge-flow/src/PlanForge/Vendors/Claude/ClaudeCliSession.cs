@@ -528,7 +528,14 @@ internal sealed class ClaudeCliSession : IVendorSession
     internal static IReadOnlyDictionary<string, string> BuildEnvironment() =>
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["BASH_MAX_TIMEOUT_MS"] = FOREGROUND_COMMAND_LIMIT
+            ["BASH_MAX_TIMEOUT_MS"] = FOREGROUND_COMMAND_LIMIT,
+
+            // The user's auto memory is notes across sessions, and they change while a run is live. A
+            // worker that loads them is steered by input the run does not record, and one that writes
+            // them leaves a change neither `filesChanged` nor code review sees (issue #233). The
+            // variable outranks the `autoMemoryEnabled` setting both ways, so it also holds against a
+            // `0` this server inherited. CLAUDE.md stays: it is the workers' standing context.
+            ["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         };
 
     /// <summary>
