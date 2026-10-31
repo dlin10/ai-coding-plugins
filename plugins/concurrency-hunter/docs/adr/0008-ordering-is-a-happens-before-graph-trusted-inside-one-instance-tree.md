@@ -29,6 +29,11 @@ loop's return, a proven wait for a timer created once. Otherwise another instanc
 overlaps the pair and the pair stays. An execution that overlaps itself, a periodic timer callback or
 a `Parallel` body, still has its self-pairs; the tree only orders it against the others. Startup is
 the exception: it runs once, before every instance of every root, so its edges hold for all of them.
+Amended by [ADR 0030](0030-ordering-assumes-the-default-thread-context-unless-visible-code-installs-another.md):
+an edge holds for every instance under the environment assumptions — a thread has no synchronization
+context or task scheduler of its own unless code the analysis sees installs one, thread-pool work
+starts with no context, and observers the program did not subscribe change nothing — so a blocking
+wait for a task without a timeout or a token ends only when that task has completed.
 
 Rejected: ordering only between a spawn and its chain of parents, with siblings ordered only through
 joins in a common parent. Smaller, and it covers the demo's cases, but every new edge kind (timers,

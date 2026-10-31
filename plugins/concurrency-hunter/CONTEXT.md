@@ -90,6 +90,13 @@ leads from one to the other, inside one instance tree whose root runs once. Two 
 happens-before in either direction never overlap; without it they may.
 _Avoid_: sequential, ordered, before (a line above is not happens-before when a loop repeats it)
 
+**Environment assumption**:
+A fact about the thread or the process that the analysis assumes instead of proving (ADR 0030): a thread has
+no synchronization context or task scheduler of its own unless code the analysis sees installs one, thread-pool
+work starts with no context, and observers the program did not subscribe change nothing. Every
+**Happens-before** edge holds under these assumptions.
+_Avoid_: soundness hole, heuristic
+
 **Instance tree**:
 A root that runs at most once without overlapping itself, together with the executions started from
 it and from its once-running descendants; its spawn and join edges hold for every instance they
