@@ -301,7 +301,9 @@ starting at one millisecond doubled the suite's running time and starved the tas
 
 `decisions.json` holds the run's decisions, appended through `forge.decision.record`: one `D-nnnn`
 record per settled question, numbered by the server and never removed, a changed answer superseding
-an earlier one. Like `approved`, each record is the Orchestrator's assertion. Every review Critic is
+an earlier one. A record may carry `scope`, `widens` or `narrows`; the server counts the standing
+`widens` made after the interview, and the Flow log, `forge.status` and the resume card show the
+count. Like `approved`, each record is the Orchestrator's assertion. Every review Critic is
 shown the current records in a bounded Decisions section after its ledger projection, and
 `forge.status` and the resume card point back at them; no Builder sees them. A file that does not
 read back stops the call, as a malformed ledger does — see

@@ -40,7 +40,7 @@ and again whenever you resume it:
 
 | File | Read it | It holds |
 |---|---|---|
-| `references/asking.md` | before your first question to the user | Asking the user: one question per call, each explained, the recommendation first; Recording the answer |
+| `references/asking.md` | before your first question to the user | Asking the user: one question per call, each explained, the recommendation first; Scope questions; Recording the answer |
 | `references/interview.md` | right after `forge.begin` | Act 1: the interview, the opening questions, the mode ladder, verification and feasibility; Choosing the vendor and model |
 | `references/scout.md` | at the first broad reconnaissance need, for feasibility during the interview, and before the Impact pass | Scout reconnaissance; The Scout question; The feasibility question; The Impact pass; The Evidence check |
 | `references/planning.md` | once the interview's decisions are settled | Writing the plan: requirements, gates, the Fix gate grammar, gate commands, the Approach; When the user chooses a probe first; The matrix check; The matrix task; First-draft shape and split offer |
@@ -111,7 +111,7 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 | `forge.work.fetch` | `jobId` | Once the poll says the job stopped. |
 | `forge.work.cancel` | `jobId` | Only on the user's explicit request. |
 | `forge.status` | — | Before approval, at a cap, after a resume, and whenever the user asks. |
-| `forge.decision.record` | `phase`, `question`, `answer`, `by: "user" \| "orchestrator"`, `options?: [{ label, recommended? }]`, `bearsOn?`, `supersedes?` | The moment an answer settles something. `asking.md` says which. |
+| `forge.decision.record` | `phase`, `question`, `answer`, `by: "user" \| "orchestrator"`, `options?: [{ label, recommended? }]`, `bearsOn?`, `supersedes?`, `scope?: "widens" \| "narrows"` | The moment an answer settles something. `asking.md` says which. |
 | `forge.log.append` | `message`, `level?`, `detail?`, `phase?` | Your record of choices, retries and stops; declares phases. |
 
 `decisions`, on `forge.plan.review`, `forge.plan.confirm` and `forge.review.fix`, is one object, not an

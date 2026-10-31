@@ -32,6 +32,10 @@ internal sealed record DecisionOption(
 /// <param name="By"><c>user</c> or <c>orchestrator</c>, as the ledger attributes its decisions.</param>
 /// <param name="BearsOn">The requirement, task, gate or finding IDs the decision governs, or null.</param>
 /// <param name="Supersedes">The earlier record this one changes, or null.</param>
+/// <param name="Scope">
+/// <c>widens</c> or <c>narrows</c> when the answer moved the Run's scope away from the one the
+/// interview settled, or null for a decision that did neither.
+/// </param>
 internal sealed record DecisionRecord(
     [property: JsonPropertyOrder(0), JsonRequired] string DecisionId,
     [property: JsonPropertyOrder(1), JsonRequired] string Phase,
@@ -43,18 +47,23 @@ internal sealed record DecisionRecord(
     [property: JsonPropertyOrder(6), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     string? BearsOn = null,
     [property: JsonPropertyOrder(7), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? Supersedes = null);
+    string? Supersedes = null,
+    [property: JsonPropertyOrder(8), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Scope = null);
 
 /// <summary>What recording a decision did.</summary>
 /// <param name="Record">The record that stands: the new one, or the one a replay found.</param>
 /// <param name="Recorded">False when a record with the same content was already there.</param>
 /// <param name="Count">How many decisions the Run holds now.</param>
-internal sealed record DecisionOutcome(DecisionRecord Record, bool Recorded, int Count);
+/// <param name="Widenings">How many standing decisions widen the Run since the interview, this one included.</param>
+internal sealed record DecisionOutcome(DecisionRecord Record, bool Recorded, int Count, int Widenings);
 
 /// <summary>What <c>forge.status</c> shows of a Run's decisions.</summary>
 /// <param name="Count">How many the Run has recorded, superseded ones included.</param>
 /// <param name="Last">The last five, oldest first, one line each.</param>
-internal sealed record DecisionsStatus(int Count, IReadOnlyList<string> Last);
+/// <param name="Widenings">How many standing decisions widen the Run since the interview; left out while there is none.</param>
+internal sealed record DecisionsStatus(int Count, IReadOnlyList<string> Last,
+                                       [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] int Widenings = 0);
 
 /// <summary>
 /// The Run's decisions: the one place the answers it rests on are kept outside the Orchestrator's
@@ -80,6 +89,8 @@ internal static class DecisionRecords
     private const int BEARS_ON_LIMIT = 1_000;
     private const string USER = "user";
     private const string ORCHESTRATOR = "orchestrator";
+    private const string WIDENS = "widens";
+    private const string NARROWS = "narrows";
 
     /// <summary>The phases a decision may be made in: every Orchestrator phase but <c>done</c>, which opens none.</summary>
     private static readonly string[] Phases = [.. OrchestratorPhases.Names.Where(name => name != OrchestratorPhases.DONE)];
@@ -96,9 +107,11 @@ internal static class DecisionRecords
     /// <param name="by"><c>user</c> or <c>orchestrator</c>.</param>
     /// <param name="bearsOn">The IDs the decision governs, or null.</param>
     /// <param name="supersedes">The ID of the decision this one changes, or null.</param>
+    /// <param name="scope"><c>widens</c> or <c>narrows</c>, or null for a decision that did neither.</param>
     /// <returns>The record to append, with an empty <see cref="DecisionRecord.DecisionId"/>.</returns>
     public static DecisionRecord Validate(string? phase, string? question, IReadOnlyList<DecisionOption?>? options,
-                                          string? answer, string? by, string? bearsOn, string? supersedes)
+                                          string? answer, string? by, string? bearsOn, string? supersedes,
+                                          string? scope = null)
     {
         if (phase is null || !Phases.Contains(phase, StringComparer.Ordinal))
             throw new ArgumentRejectedException(
@@ -125,13 +138,17 @@ internal static class DecisionRecords
         var replaced = string.IsNullOrWhiteSpace(supersedes) ? null : supersedes;
         if (replaced is not null && Number(replaced) is null)
             throw new ArgumentRejectedException($"supersedes must be a decision ID such as D-0001; '{replaced}' is not");
+        var tagged = string.IsNullOrWhiteSpace(scope) ? null : scope;
+        if (tagged is not (null or WIDENS or NARROWS))
+            throw new ArgumentRejectedException($"scope must be exactly {WIDENS} or {NARROWS} (case-sensitive) when given; '{tagged}' is not");
 
         SensitiveInput.Guard(question!, "the decision's question");
         SensitiveInput.Guard(answer!, "the decision's answer");
         foreach (var option in offered ?? []) SensitiveInput.Guard(option!.Label, "a decision's option");
         if (governs is not null) SensitiveInput.Guard(governs, "the decision's bearsOn");
 
-        return new DecisionRecord("", phase, question!, offered?.Select(option => option!).ToArray(), answer!, by, governs, replaced);
+        return new DecisionRecord("", phase, question!, offered?.Select(option => option!).ToArray(), answer!, by, governs, replaced,
+                                  tagged);
     }
 
     /// <summary>
@@ -152,19 +169,29 @@ internal static class DecisionRecords
             var records = Read(text);
             if (records.FirstOrDefault(record => Digest(record) == digest) is { } standing)
             {
-                outcome = new DecisionOutcome(standing, false, records.Count);
+                outcome = new DecisionOutcome(standing, false, records.Count, Widenings(records));
                 return text!;
             }
 
             RequireSupersedable(records, decision.Supersedes);
             var recorded = decision with { DecisionId = Id(records.Count + 1) };
-            outcome = new DecisionOutcome(recorded, true, records.Count + 1);
+            outcome = new DecisionOutcome(recorded, true, records.Count + 1, Widenings([.. records, recorded]));
             return JsonSerializer.Serialize([.. records, recorded], DecisionRecordsJson.Readable.ListDecisionRecord);
         });
 
-        if (outcome!.Recorded) run.AppendFlowDecision(outcome.Record);
+        if (outcome!.Recorded) run.AppendFlowDecision(outcome.Record, outcome.Widenings);
         return outcome;
     }
+
+    /// <summary>
+    /// How many standing decisions widen the Run since the interview: tagged <c>widens</c>, made in a
+    /// phase after the interview, and not superseded by a later record. A decision the interview made
+    /// is part of the scope the interview settled, so it is not a widening of it.
+    /// </summary>
+    /// <param name="records">The Run's records, as <see cref="Read"/> returned them.</param>
+    /// <returns>The count the Flow log, <c>forge.status</c> and the resume card show.</returns>
+    public static int Widenings(IReadOnlyList<DecisionRecord> records) =>
+        Current(records).Count(record => record.Scope == WIDENS && record.Phase != OrchestratorPhases.INTERVIEW);
 
     /// <summary>Reads and checks the records, or none when the file is absent.</summary>
     /// <param name="text">The file's contents, or null when there is no file.</param>
@@ -189,7 +216,8 @@ internal static class DecisionRecords
             if (record is null || record.DecisionId != Id(index + 1))
                 throw new DecisionRecordsException($"entry {index + 1} is not {Id(index + 1)}");
             if (!Phases.Contains(record.Phase, StringComparer.Ordinal) || record.By is not (USER or ORCHESTRATOR)
-                || string.IsNullOrWhiteSpace(record.Question) || string.IsNullOrWhiteSpace(record.Answer))
+                || string.IsNullOrWhiteSpace(record.Question) || string.IsNullOrWhiteSpace(record.Answer)
+                || record.Scope is not (null or WIDENS or NARROWS))
                 throw new DecisionRecordsException($"{record.DecisionId} is not a well-formed record");
             if (record.Supersedes is { } replaced
                 && (Number(replaced) is not { } number || number > index
@@ -231,10 +259,10 @@ internal static class DecisionRecords
         return section.ToString();
     }
 
-    /// <summary>What <c>forge.status</c> shows of the records: how many there are, and the last five.</summary>
+    /// <summary>What <c>forge.status</c> shows of the records: how many there are, the last five, and the widenings since the interview.</summary>
     /// <param name="records">The Run's records, as <see cref="Read"/> returned them.</param>
     public static DecisionsStatus Status(IReadOnlyList<DecisionRecord> records) =>
-        new(records.Count, [.. records.TakeLast(STATUS_LINES).Select(record => Line(record, STATUS_LINE_LIMIT))]);
+        new(records.Count, [.. records.TakeLast(STATUS_LINES).Select(record => Line(record, STATUS_LINE_LIMIT))], Widenings(records));
 
     /// <summary>
     /// The record as one line, <c>D-0007 (user): question → answer</c>, its whitespace collapsed and

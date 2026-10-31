@@ -283,12 +283,16 @@ internal sealed class RunDirectory
     /// verbatim, and the options as the question offered them.
     /// </summary>
     /// <param name="record">The decision as recorded.</param>
-    public void AppendFlowDecision(DecisionRecord record)
+    /// <param name="widenings">How many standing decisions widen the Run since the interview, this one included; shown beside its scope.</param>
+    public void AppendFlowDecision(DecisionRecord record, int widenings)
     {
         var entry = new StringBuilder().Append("## Decision ").AppendLine(record.DecisionId)
                                        .AppendLine()
                                        .Append("Phase: ").AppendLine(record.Phase)
                                        .Append("By: ").AppendLine(record.By);
+        if (record.Scope is not null)
+            entry.Append("Scope: ").Append(record.Scope).Append("; widenings since the interview: ")
+                 .AppendLine(widenings.ToString(CultureInfo.InvariantCulture));
         if (record.Supersedes is not null) entry.Append("Supersedes: ").AppendLine(record.Supersedes);
         if (record.BearsOn is not null) entry.Append("Bears on: ").AppendLine(record.BearsOn);
         entry.AppendLine()

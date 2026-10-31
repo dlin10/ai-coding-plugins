@@ -1144,6 +1144,7 @@ internal sealed class ForgeTools
     /// <param name="options">The choices the question offered, or null.</param>
     /// <param name="bearsOn">The IDs the decision governs, or null.</param>
     /// <param name="supersedes">The ID of the decision this one changes, or null.</param>
+    /// <param name="scope"><c>widens</c> or <c>narrows</c>, or null for a decision that did neither.</param>
     [McpServerTool(Name = "forge.decision.record"), Description("Records one decision the moment it settles something — the user's answer to a question, or a choice you made yourself — in the run's `decisions.json` and the Flow log, under an ID the server assigns from `D-0001` on. Pass the question as asked and the answer as given, verbatim. Every later plan-review and code-review critic is shown the run's current decisions, one line each; a changed answer is a new record that names the one it supersedes, and nothing is removed. The same content sent again is a no-op answering with the ID it already has. A decision goes here, not into forge.log.append. Declares no phase.")]
     public static async Task<string> RecordDecision(SessionRoots roots,
                                                     [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -1155,14 +1156,15 @@ internal sealed class ForgeTools
                                                     CancellationToken ct,
                                                     [Description("The choices the question offered, in the order shown, with recommended: true on the one you recommended. Omit for a question asked in prose. At most 20.")] DecisionOption[]? options = null,
                                                     [Description("Optional free text naming the requirement, task, gate or finding IDs the decision governs, e.g. \"R3, task 4, F-0012\".")] string? bearsOn = null,
-                                                    [Description("The ID of the earlier decision this answer changes, e.g. D-0004; one already superseded is refused.")] string? supersedes = null)
+                                                    [Description("The ID of the earlier decision this answer changes, e.g. D-0004; one already superseded is refused.")] string? supersedes = null,
+                                                    [Description("Exactly widens or narrows (case-sensitive): whether the answer widens the run beyond the scope the interview settled — a new mechanism, model family, product input, requirement or acceptance condition — or narrows it, as a split or a narrowed acceptance does. Omit it for a decision that does neither. The server counts the widenings since the interview and shows the number in the Flow log, forge.status and the resume card.")] string? scope = null)
     {
-        var decision = DecisionRecords.Validate(phase, question, options, answer, by, bearsOn, supersedes);
+        var decision = DecisionRecords.Validate(phase, question, options, answer, by, bearsOn, supersedes, scope);
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.decision.record",
             [("phase", phase), ("by", by), ("question", question), ("answer", answer),
              ("options", options is { Length: > 0 } ? string.Join(" | ", options.Select(option => option.Label)) : null),
-             ("bearsOn", bearsOn), ("supersedes", supersedes)],
+             ("bearsOn", bearsOn), ("supersedes", supersedes), ("scope", scope)],
             () =>
             {
                 var outcome = DecisionRecords.Record(run, decision);

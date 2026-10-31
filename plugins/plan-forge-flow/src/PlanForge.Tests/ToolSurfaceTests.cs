@@ -276,7 +276,7 @@ public sealed class ToolSurfaceTests
         Assert.Equal(["workspaceRoot", "runId", "phase", "question", "answer", "by"],
                      schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
         var properties = schema.GetProperty("properties");
-        Assert.Equal(["workspaceRoot", "runId", "phase", "question", "answer", "by", "options", "bearsOn", "supersedes"],
+        Assert.Equal(["workspaceRoot", "runId", "phase", "question", "answer", "by", "options", "bearsOn", "supersedes", "scope"],
                      properties.EnumerateObject().Select(property => property.Name));
         var options = properties.GetProperty("options");
         Assert.Contains("array", options.GetProperty("type").GetRawText(), StringComparison.Ordinal);

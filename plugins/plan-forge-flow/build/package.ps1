@@ -393,7 +393,7 @@ function Test-PublishedServer([string]$Executable) {
             'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate', 'plan', 'planHash', 'rebuildFrom')
             'forge.plan.show'   = @('plan')
             'forge.log.append'  = @('level', 'detail', 'phase')
-            'forge.decision.record' = @('options', 'bearsOn', 'supersedes')
+            'forge.decision.record' = @('options', 'bearsOn', 'supersedes', 'scope')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
             # had to send them together could not correct one without restating the other.
             'forge.instructions.set' = @('criticInstructions', 'builderInstructions')

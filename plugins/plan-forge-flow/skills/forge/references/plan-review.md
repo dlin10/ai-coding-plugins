@@ -60,7 +60,8 @@ The critic judges the requirements too, and those findings are not all yours to 
 interview already settles — two requirements you wrote that contradict each other, a condition
 stated too vaguely to check — you revise and carry on without stopping. One it does not — a
 requirement covering a question nobody asked, or an answer that would move the scope — goes to the
-user before you revise, and its answer goes into `forge.decision.record` (`asking.md`). Ask the moment it comes up
+user before you revise, as a scope question when it widens the run (*Scope questions* in `asking.md`),
+and its answer goes into `forge.decision.record`. Ask the moment it comes up
 rather than saving it for approval: a scope question answered late invalidates every round that ran
 after it. When one critique brings several, ask them one at a time, the one the others depend on
 first.
@@ -70,8 +71,9 @@ asking when the last round found fewer findings than the one before it — new o
 ones the critic still finds — and left no blocker, for as long as the count keeps falling. Its result then
 carries `continuedAutomatically`, for example `"4 → 2"`: say so in one line with those counts and
 carry on. Otherwise the tool refuses, and only then is the cap question asked.
-Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, and
-what the last verdict said, so the question carries its numbers. Say in plain words what the open
+Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, what
+the last verdict said, and how many widenings the run has taken since the interview
+(`decisions.widenings`), so the question carries its numbers. Say in plain words what the open
 findings are, and what one more round would cost against stopping here. On a yes, pass
 `userGrantedRound: true` on the next round tool — `forge.plan.review` or `forge.review.code` — which
 raises the cap by exactly one. The grant is spent by
@@ -153,7 +155,7 @@ the whole plan, including after a patch; the draft is ready when every change pa
   looks. Name the list and the query in `revision`.
 - **Mechanisms are the user's.** When the answer to a finding is a new mechanism — a pass, a state,
   a wrapper, a restart, a fixpoint — ask the user before writing it, with the simpler alternatives
-  beside it.
+  beside it and the split that keeps the work already settled (*Scope questions* in `asking.md`).
 - **The findings' scope.** The revision changes what the findings name and what the checks above
   reach. A neighbouring case enters the plan when a critic raises it.
 

@@ -1,5 +1,31 @@
 # Plan Forge Flow releases
 
+## 0.70.0
+
+A scope question in review offers a split and shows the scope already added. Issue #229.
+
+- In run `20261028-115553-01bf54`, 13 of the first 27 decisions with options recommended widening the
+  run, and the user took the recommendation each time. Nothing counted the widenings, and the split
+  recommended at the interview was never offered again.
+- `forge.decision.record` takes an optional `scope`, `widens` or `narrows`, and `decisions.json`
+  stores it. A record without it is written as before; a file holding any other value does not read
+  back.
+- The server counts the standing `widens` decisions made after the interview. The count is on the
+  Flow-log entry of a scoped decision, in `forge.status` as `decisions.widenings` (left out while it
+  is 0) and on the resume card, so it survives a compaction.
+- `asking.md` has a new section, *Scope questions*. A question with a widening also offers the split:
+  deliver the settled scope now, and move the widening and the acceptance that needs it to a
+  follow-up run. It names the widenings so far and the plan's size against its first draft. From the
+  second widening the split is the recommendation, and recommending a widening needs a stated reason
+  why the split would not deliver the interview's goal. Before the third, one question lists every
+  widening the acceptance still needs and asks: split here, or agree the whole set as one package.
+- The round-cap question shows the count, and the plan-review rules for a requirement that moves the
+  scope and for a new mechanism point to the new section.
+- A decision made in the interview is not a widening of the scope the interview settled, so it is not
+  counted. On H2's decisions, tagged as the issue lists them, the third widening since the interview
+  is D-0039; the issue's D-0036 counts D-0004, which was made at the interview.
+- ADR 0045 carries the amendment.
+
 ## 0.69.0
 
 The split offer is made again when a plan outgrows its first draft, not only before round 1. Issue
