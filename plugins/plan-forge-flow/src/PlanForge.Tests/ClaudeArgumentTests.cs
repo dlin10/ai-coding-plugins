@@ -97,6 +97,19 @@ public sealed class ClaudeArgumentTests
     }
 
     /// <summary>
+    /// Auto memory is the user's cross-session notes for the repository, and they change while a run
+    /// is live: a worker that loads them is steered by input the run does not record, and one that
+    /// writes them leaves a change `filesChanged`, the diff and code review never see (issue #233).
+    /// The variable outranks the `autoMemoryEnabled` setting in both directions, so it also beats a
+    /// `0` the server inherited from the user's environment.
+    /// </summary>
+    [Fact]
+    public void Every_worker_starts_without_the_users_auto_memory()
+    {
+        Assert.Equal("1", ClaudeCliSession.BuildEnvironment()["CLAUDE_CODE_DISABLE_AUTO_MEMORY"]);
+    }
+
+    /// <summary>
     /// Fast is asked for in the same `--settings` payload that disables this plugin, and standard
     /// speed is named as explicitly, so neither depends on the user's own settings — see
     /// docs/adr/0023. Measured against Claude Code 2.1.282 on 2026-09-25: `"fastMode": true` there
