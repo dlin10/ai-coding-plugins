@@ -59,6 +59,11 @@ internal sealed class PlanReview
     /// and, per docs/adr/0003, one no code here can check. Without it a round at the cap still runs
     /// when <see cref="ReviewCap.Continuation"/> allows it.
     /// </param>
+    /// <param name="fallout">
+    /// Labels for the previous round's new findings, required from the third round on while that round
+    /// left any — see <see cref="PlanFallout.Check"/>. Recorded in the Flow log and in the round's
+    /// tally after the critique, and the cap reads them to decide whether the round may run unasked.
+    /// </param>
     public async Task<Critique> ReviewAsync(RunDirectory run,
                                             string? planDraft,
                                             Selection selection,
@@ -66,15 +71,17 @@ internal sealed class PlanReview
                                             string? deferred,
                                             bool userGrantedRound,
                                             CancellationToken ct,
-                                            OrchestratorDecisionBatch? orchestratorDecisions = null)
+                                            OrchestratorDecisionBatch? orchestratorDecisions = null,
+                                            PlanFallout? fallout = null)
     {
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
         var state = run.ReadState();
+        var labelled = PlanFallout.Check(state.ReviewRounds, state.FalloutOwed, fallout);
         var atCap = state.ReviewRounds >= state.ReviewRoundCap;
         var continuation = atCap && !userGrantedRound
-            ? ReviewCap.Continuation(state.ReviewTallies)
-              ?? throw new ReviewCapReachedException(state.ReviewRounds, state.ReviewRoundCap)
+            ? ReviewCap.Continuation(state.ReviewTallies, labelled)
+              ?? throw new ReviewCapReachedException(state.ReviewRounds, state.ReviewRoundCap, labelled)
             : null;
         var granted = atCap && userGrantedRound;
         RequireRevision(state.ReviewRounds, revision);
@@ -166,7 +173,9 @@ internal sealed class PlanReview
         // Written after the critique rather than before it, so an act that died — a vendor timeout,
         // a restarted server — and was retried with the same arguments records the revision once.
         // The grant is spent the same way: recording it here rather than at the cap check means a
-        // retried call with the same arguments spends no grant, and no automatic round either.
+        // retried call with the same arguments spends no grant, and no automatic round either. The
+        // labels are written the same way, for the same reason: a round that died labelled nothing.
+        if (labelled is not null) run.AppendFlowFallout(state.ReviewRounds, fallout!, labelled);
         if (revision is { Length: > 0 })
             run.AppendFlowRevision(state.ReviewRounds, revision, deferred);
         if (granted) run.AppendFlowGrantedRound("Plan review", round);
@@ -180,7 +189,8 @@ internal sealed class PlanReview
         var reviewed = state with
         {
             ReviewRounds = round,
-            ReviewTallies = [.. state.ReviewTallies ?? [], ReviewCap.Tally(critique, ledger, LedgerPhase.PlanReview)]
+            ReviewTallies = [.. Labelled(state.ReviewTallies, labelled), ReviewCap.Tally(critique, ledger, LedgerPhase.PlanReview)],
+            FalloutOwed = round > 1 ? NewFindingIds(critique) : null
         };
         run.WriteState(granted
             ? reviewed with { ReviewRoundCap = state.ReviewRoundCap + 1, GrantedReviewRounds = state.GrantedReviewRounds + 1 }
@@ -402,6 +412,28 @@ internal sealed class PlanReview
             throw new RevisionMissingException(roundsSoFar);
     }
 
+    /// <summary>Puts the labels the call carried into the tally of the round they describe, which is the last one.</summary>
+    /// <param name="tallies">The tallies of the rounds so far, oldest first; null for a run begun before rounds were tallied.</param>
+    /// <param name="labelled">How the last round's new findings were labelled, or null when none were owed.</param>
+    /// <returns>The tallies, the last with its new and fallout counts when it was labelled.</returns>
+    private static IEnumerable<ReviewTally> Labelled(IReadOnlyList<ReviewTally>? tallies, FalloutTally? labelled)
+    {
+        if (tallies is not { Count: > 0 }) return [];
+
+        return labelled is null
+            ? tallies
+            : [.. tallies.Take(tallies.Count - 1), tallies[^1] with { New = labelled.New, Fallout = labelled.Fallout }];
+    }
+
+    /// <summary>The IDs of the findings a critique raised, which the next round's call labels.</summary>
+    /// <param name="critique">The round's identified critique.</param>
+    /// <returns>The IDs, or null for a round that raised none.</returns>
+    private static IReadOnlyList<string>? NewFindingIds(Critique critique)
+    {
+        var ids = critique.Findings.Select(finding => finding.FindingId).OfType<string>().ToArray();
+        return ids.Length > 0 ? ids : null;
+    }
+
     /// <summary>
     /// The plan, then what the run has settled — the ledger's projection and the Run's decisions —
     /// and the critic's own instructions last, after everything it is judging. The builder's never
@@ -445,9 +477,18 @@ internal sealed class PlanPatchFailedException(string outcome, PlanPatchSizes si
     public PlanPatchSizes Sizes { get; } = sizes;
 }
 
-internal sealed class ReviewCapReachedException(int rounds, int cap)
-    : Exception($"plan review already ran {rounds} rounds, and the cap is {cap}. Ask the user "
-                + "whether to run another round, and pass `userGrantedRound: true` if they say yes.");
+/// <summary>A round past the cap that the findings did not earn: the user is asked before it runs.</summary>
+/// <param name="rounds">The rounds already run.</param>
+/// <param name="cap">The cap they ran against.</param>
+/// <param name="fallout">How the last round's new findings were labelled, or null when none were owed.</param>
+internal sealed class ReviewCapReachedException(int rounds, int cap, FalloutTally? fallout = null)
+    : Exception($"plan review already ran {rounds} rounds, and the cap is {cap}. "
+                + (fallout is null
+                    ? ""
+                    : $"Fallout in the last round: {fallout.Fallout} of {fallout.New} new findings (own {fallout.Own}, sibling {fallout.Sibling})"
+                      + (fallout.Mostly ? ", half or more, so no round continues unasked: sweep the rules the revisions touched, "
+                                          + "then show the user this share when you ask. " : ". "))
+                + "Ask the user whether to run another round, and pass `userGrantedRound: true` if they say yes.");
 
 internal sealed class RevisionMissingException(int round)
     : Exception($"round {round} has already run: pass `revision` saying what you changed in the plan "
