@@ -543,6 +543,7 @@ internal sealed class ForgeTools
     /// <param name="userGrantedRound">Whether the user granted exactly one round beyond the cap.</param>
     /// <param name="decisions">Typed authoritative ledger decisions to apply before this critic round.</param>
     /// <param name="fast">Whether the critic must run at the confirmed Fast tier.</param>
+    /// <param name="fallout">Labels for the previous round's new findings, required from the third round on.</param>
     [McpServerTool(Name = "forge.plan.review"), Description("Applies one typed plan decision batch, then runs one Critic round against the active plan-phase ledger projection. Use one decisionBatchId per logical set and repeat the exact batch when retrying an invalid Critic response. Plan closures use addressedByRevision or duplicateOf here. A minor may use builderNote with a reason and explicit forTasks; blocker and major findings cannot. A changed task list makes existing builder notes stale until reopened and re-noted. An addressedByRevision of a blocker or major requires `evidence` — what the revision read, the class it listed, the test cell a wrong implementation fails — and is refused without it. The result includes the critique, Flow audit and plan under `documents`.")]
     public static async Task<string> ReviewPlan(CatalogCache catalogs,
                                                 SessionRoots roots,
@@ -555,9 +556,10 @@ internal sealed class ForgeTools
                                                 [Description("Vendor: claude or codex. Defaults to claude.")] string? vendor = null,
                                                 [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
                                                 [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log; typed ledger decisions are what the next round's critic treats as settled.")] string? deferred = null,
-                                                [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before and no blocker; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
+                                                [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before, no blocker, and fewer than half of its new findings as fallout; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
                                                 [Description("Optional typed authoritative decisions applied before the critic runs. Reuse the same decisionBatchId and identical decisions when retrying this call. A minor builderNote needs a reason and explicit forTasks. An addressedByRevision of a blocker or major requires `evidence` — what the revision read, the class it listed, the test cell a wrong implementation fails — and is refused without it.")] OrchestratorDecisionBatch? decisions = null,
-                                                [Description(FAST_DESCRIPTION)] bool fast = false)
+                                                [Description(FAST_DESCRIPTION)] bool fast = false,
+                                                [Description("Required from the third round on whenever the previous round raised new findings: those finding IDs, each under exactly one of own, sibling, sameClass or older, as plan-review.md defines them. A call whose labels leave an ID out, name one the previous round did not raise, or repeat one is refused with the IDs named. The server writes the Flow-log line and keeps the round's fallout share (own plus sibling over new findings) in reviewTallies.")] PlanFallout? fallout = null)
     {
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
@@ -566,7 +568,7 @@ internal sealed class ForgeTools
             [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)), ("planDraft", planDraft),
              ("revision", revision), ("deferred", deferred),
              ("userGrantedRound", userGrantedRound ? "true" : "false"),
-             ("decisionBatchId", decisions?.DecisionBatchId)],
+             ("decisionBatchId", decisions?.DecisionBatchId), ("fallout", fallout?.Counts())],
             async () =>
             {
                 var critic = VendorFactory.Create(vendor, workspaceRoot);
@@ -574,7 +576,7 @@ internal sealed class ForgeTools
                 var act = new PlanReview(critic, new PromptLibrary());
                 var critique = await act.ReviewAsync(run, planDraft, selection,
                                                      revision, deferred, userGrantedRound, ct,
-                                                     orchestratorDecisions: decisions);
+                                                     orchestratorDecisions: decisions, fallout: fallout);
 
                 var json = ReviewCap.Attach(JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
                                                                      ForgeToolJson.Default.CritiqueResult),
@@ -1740,6 +1742,7 @@ internal sealed record CatalogModel(string Id,
 [JsonSerializable(typeof(OrchestratorDecisionBatch))]
 [JsonSerializable(typeof(OrchestratorDecision))]
 [JsonSerializable(typeof(OrchestratorRaise))]
+[JsonSerializable(typeof(PlanFallout))]
 [JsonSerializable(typeof(LedgerDispositionDecision))]
 [JsonSerializable(typeof(LedgerReopeningDecision))]
 [JsonSerializable(typeof(LedgerClosureDecision))]

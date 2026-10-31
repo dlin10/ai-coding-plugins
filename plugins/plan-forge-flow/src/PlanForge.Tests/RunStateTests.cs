@@ -89,6 +89,29 @@ public sealed class RunStateTests : IDisposable
         Assert.Equal(new ReviewTally[] { new(4, false), new(2, true) }, written.ReviewTallies!);
     }
 
+    /// <summary>
+    /// A run begun before the labels were an argument owes none and its tallies carry no counts; the
+    /// IDs a round leaves to label and the counts the next call records read back as written, and a
+    /// tally without counts writes none.
+    /// </summary>
+    [Fact]
+    public void The_fallout_owed_and_the_counts_of_a_labelled_round_round_trip_and_default_to_none()
+    {
+        var run = RunDirectory.Create(_workspace, "test-run");
+        run.WriteState(new RunState("test-run", @"C:\workspace", "Text", DateTimeOffset.Now, 5, 5));
+
+        var state = run.ReadState();
+        Assert.Null(state.FalloutOwed);
+
+        run.WriteState(state with { FalloutOwed = ["F-0101", "F-0102"], ReviewTallies = [new(4, false), new(3, false, 3, 2)] });
+
+        var written = run.ReadState();
+        Assert.Equal(["F-0101", "F-0102"], written.FalloutOwed!);
+        Assert.Equal(new ReviewTally[] { new(4, false), new(3, false, 3, 2) }, written.ReviewTallies!);
+        var json = File.ReadAllText(Path.Combine(run.Path, "state.json"));
+        Assert.Equal(1, json.Split("\"fallout\"").Length - 1);
+    }
+
     [Fact]
     public void The_gate_settings_round_trip_through_the_state_file()
     {

@@ -68,13 +68,19 @@ first.
 
 Review rounds are capped, and so is the code-review loop. At the cap a round still runs without
 asking when the last round found fewer findings than the one before it — new ones plus unresolved
-ones the critic still finds — and left no blocker, for as long as the count keeps falling. Its result then
-carries `continuedAutomatically`, for example `"4 → 2"`: say so in one line with those counts and
-carry on. Otherwise the tool refuses, and only then is the cap question asked.
+ones the critic still finds — left no blocker, and, in plan review, fewer than half of its new
+findings were fallout (*Labelling fallout, and the sweep* below), for as long as the count keeps
+falling. Its result then carries `continuedAutomatically`, for example `"4 → 2"`: say so in one line
+with those counts and carry on. Otherwise the tool refuses, and only then is the cap question asked.
 Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, what
-the last verdict said, and how many widenings the run has taken since the interview
-(`decisions.widenings`), so the question carries its numbers. Say in plain words what the open
-findings are, and what one more round would cost against stopping here. On a yes, pass
+the last verdict said, how much of the last rounds was fallout (`fallout` of `new` for each labelled
+round in `reviewTallies`; a refusal for fallout quotes the share of the round it was about), how far
+the plan has grown since its first draft (*Scope questions* in `asking.md` says where to read it),
+and how many widenings the run has taken since the interview (`decisions.widenings`), so the
+question carries its numbers. Say in plain words what the open findings are, and what one more
+round would cost against stopping here. Offer the sweep and a split — narrow this run to what is settled and move the
+rest to a follow-up run, in the form *Scope questions* gives — beside one more round, and recommend
+the sweep while half a round or more is fallout. On a yes to a round, pass
 `userGrantedRound: true` on the next round tool — `forge.plan.review` or `forge.review.code` — which
 raises the cap by exactly one. The grant is spent by
 that round, so the round after it needs a fresh answer, and never pass the argument without having
@@ -169,7 +175,27 @@ On a stale-base refusal, read `forge.plan.outline` and redo the edits against it
 never resend the refused patch unchanged. A replay after a lost answer is a stale-base conflict,
 and equal text is never proof that the patch was applied.
 
-From the second round on, label every new finding with the labels of *When a round is mostly
-fallout* in `code-review.md`, reading *revision* for *fix* — `own`, `sibling`, `same-class`, `older` — and record one
-line per round with `forge.log.append`:
-`Plan review round 3: own F-0021; sibling F-0024; same-class F-0019; older F-0022`.
+### Labelling fallout, and the sweep
+
+A revision is the main source of the next round's findings: in the longest measured run, 20 of the
+27 valid findings of four consecutive rounds were fallout of the revisions before them. So from the
+third round on, `forge.plan.review` carries `fallout` whenever the previous round raised new
+findings: their IDs, each under exactly one label, read against the revisions made before that
+round, as *When a round is mostly fallout* in `code-review.md` reads them against fixes:
+
+- `own` — something an earlier revision wrote is wrong: the rule it keyed on, or anything else it changed;
+- `sibling` — a place that answers the same question as an earlier revision was left behind;
+- `sameClass` — an older instance of a class an earlier revision covered only where a finding named it;
+- `older` — anything else the plan's first draft already held.
+
+Label by what the finding names, not by how it is worded: a finding is `older` only when the first
+draft already held the text it names. The tool refuses the call, naming the IDs, when a new finding
+has no label, a label names an ID the previous round did not raise, or an ID has two. The server
+writes the Flow-log line, so do not also write it with `forge.log.append`, and keeps the round's share
+in `reviewTallies`: `new` findings, of which `fallout` are `own` or `sibling`.
+
+When half a round or more is fallout, or its findings walk one axis of a rule case by case, run no
+further round yet. Sweep instead: for each rule the revisions touched, list its axes, search the
+whole plan for every mention and name its one owner; settle the rule at its owner and answer the
+other places from it; then spend one round to confirm. Hold the sweep to the checks of *Writing a
+revision*, and say in `revision` that it is a sweep, with the rules and axes it covered.
