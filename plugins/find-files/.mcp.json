@@ -4,7 +4,8 @@
       "command": "./bin/win-x64/esfind.exe",
       "args": ["mcp"],
       "cwd": ".",
-      "tool_timeout_sec": 60
+      "tool_timeout_sec": 60,
+      "omit_tools_from": ["deferred"]
     }
   }
 }
