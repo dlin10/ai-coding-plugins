@@ -1,5 +1,54 @@
 # Plan Forge Flow releases
 
+## 0.73.0
+
+OpenAI's Decisions API becomes the third Advisor, and the part of an Evidence-map request that every
+request of the map repeats is sent so that OpenAI caches it. ADR 0050.
+
+- `openai-decisions` answers the Evidence map's Choice questions through
+  `POST https://api.openai.com/v1/decisions` with a Bearer key. It is configured by the secret
+  `PLANFORGE_OPENAI_API_KEY` and the optional `PLANFORGE_OPENAI_MODEL`, which defaults to
+  `gpt-6-luna`; `OPENAI_API_KEY` configures nothing. Like the other two secrets, the key is refused as
+  a gate variable and stripped from every child process, and Codex forwards both variables. It is
+  third in catalogue order.
+- `AdviceRequest` carries the state shared by every request of one map (requirements, exclusions and
+  Change points) apart from the state the request adds (its item). OpenAI receives them as two
+  `input_text` parts of one user message, the first an explicit prompt-cache breakpoint, so only the
+  shared part is ever written to the cache, which needs at least 1,024 tokens. Jev's and
+  Microsoft-Decision-1's bodies stay byte for byte what they were, and judgment cache keys do not
+  change.
+- Reported usage carries cached-input and cache-write token counts, parts of the input count and
+  unknown when the service reports none.
+- `AdviceUsageTotals` adds counts that are known and stays unknown until one is; a reply's cached and
+  written counts are added only together with that reply's input count, so totals never hold more
+  cached plus written tokens than input.
+- Every Advisor has an uncached, a cache-read and a cache-write input rate. Jev and Microsoft use
+  their one rate for all three, so their costs do not change; OpenAI's are 0.10, 0.01 and 0.125 USD
+  per million. `AdvisorPrice` is the one pricing rule for a call's reported cost, the Run's spending
+  for an older usage record without a cost, the pre-dispatch estimate and the live evaluation report.
+  The estimate still prices every token at the uncached rate, so on a cold OpenAI cache it can fall
+  short by a quarter of the written share.
+- The `advisor.usage` telemetry record carries `cachedInputTokens` and `cacheWriteTokens`, written as
+  `null` when unknown. No tool argument or result field is added.
+- The HTTP transport — client, deadline, retries, cancellation and exception mapping — moves out of
+  the systemone helper into `HttpAdvisor`, which both `SystemOneAdvisor` and `OpenAiDecisionsAdvisor`
+  extend. Jev's and Microsoft's measurement, limits, status classification, retries, timeouts,
+  cancellation, pacing and costs are unchanged.
+- OpenAI's failure table: a 400 naming `context_length` or `token` is too large and any other 400
+  rejected; 401 unauthorized; 403 and 404 forbidden; 408 timed out; a 429 whose error names an
+  exhausted quota or a spend limit is forbidden and stops the map, and any other 429 is rate limited;
+  503 overloaded; other 5xx unavailable. Only rate limiting and overload are retried. A 200 that
+  cannot be mapped is an invalid response, and no response content or key fragment reaches an
+  exception message, a log, telemetry or Run content.
+- Two `Category=Integration` tests run against the live API: the sanitized fixture evaluation, and
+  two requests sharing a part of about 2,700 tokens, the second of which reads it from the cache. The
+  README's *Measured* subsection holds the rows they wrote.
+- Three real Concurrency Hunter maps replayed on `openai-decisions` at the Build usage tier all
+  completed, the largest (5,876 judgments) in three map calls: its 13.25M input tokens met the 2M
+  tokens-a-minute limit, which no pacing could raise, so OpenAI stays unpaced. The cache saved 14–24%
+  of the price, since most of a request is candidate plan text inside the questions; the three maps
+  cost USD 1.92 against Jev's 1.72.
+
 ## 0.72.0
 
 Plan review's fallout labels become an argument of the call, and a round that is half fallout stops

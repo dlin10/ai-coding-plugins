@@ -123,9 +123,11 @@ public sealed class EvidenceInvalidationMatrixTests
             var before = Inputs(cell, false);
             var after = Inputs(cell, true);
             CheckPositionalInvariants(cell, before, after);
-            var size = run.Advisor.Measure(new(EvidenceRubric.State(before.Shared, EvidenceRubric.Item(before.Item)), before.Primary.Questions));
+            var size = run.Advisor.Measure(new(EvidenceRubric.SharedPart(before.Shared),
+                EvidenceRubric.RequestPart(EvidenceRubric.Item(before.Item)), before.Primary.Questions));
             run.Advisor.Limits = Limits(cell.Judgment, size);
-            var revisedSize = run.Advisor.Measure(new(EvidenceRubric.State(after.Shared, EvidenceRubric.Item(after.Item)), after.Primary.Questions));
+            var revisedSize = run.Advisor.Measure(new(EvidenceRubric.SharedPart(after.Shared),
+                EvidenceRubric.RequestPart(EvidenceRubric.Item(after.Item)), after.Primary.Questions));
             // Every mutation has equal byte length in the key's body inputs. Positional mutations leave those inputs identical.
             Assert.Equal(size, revisedSize);
             var first = await run.CallAsync(before.Shared, before.Item, before.Primary, before.Neighbours);

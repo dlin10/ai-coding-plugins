@@ -140,7 +140,7 @@ internal sealed class LabelledAdvisor : IAdvisor
     {
         ct.ThrowIfCancellationRequested();
         Requests.Add(request);
-        var label = labels[request.State["item"]!["text"]!.GetValue<string>()];
+        var label = labels[request.RequestState["item"]!["text"]!.GetValue<string>()];
         var answers = new Dictionary<string, AdviceOutcome>();
         foreach (var question in request.Questions)
         {

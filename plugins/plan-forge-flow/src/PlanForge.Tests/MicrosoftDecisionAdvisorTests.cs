@@ -207,7 +207,7 @@ public sealed class MicrosoftDecisionAdvisorTests
     }
 
     /// <summary>Creates a request shaped like the core's pair judgment.</summary>
-    private static AdviceRequest Request() => new(new JsonObject { ["text"] = "context" },
+    private static AdviceRequest Request() => new(new JsonObject { ["text"] = "context" }, new JsonObject(),
         [new("relationship:0123456789abcdef", "How does the section relate to the item?",
              [new("supports", "It agrees"), new("unrelated", "It is not about it")])]);
 

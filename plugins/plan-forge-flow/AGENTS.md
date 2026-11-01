@@ -163,10 +163,20 @@ what was measured for each.
 
 ## The Advisor seam
 
-`Advisors/IAdvisor.cs` is the judgment seam for external typed Choice services; Jev and
-Microsoft-Decision-1 implement it, and neither is a Vendor or Worker. Both speak systemone and share
-`Advisors/SystemOne/SystemOneAdvisor.cs` below the seam — a helper, never a contract: nothing outside
-`Advisors/` names it, and an Advisor with another protocol implements `IAdvisor` directly. Adding an
+`Advisors/IAdvisor.cs` is the judgment seam for external typed Choice services; Jev,
+Microsoft-Decision-1 and OpenAI's Decisions API implement it, and none is a Vendor or Worker. Below
+the seam, `Advisors/HttpAdvisor.cs` is the shared HTTP transport — the client, the deadline, the
+retries, cancellation and the exception mapping — and knows no protocol.
+`Advisors/SystemOne/SystemOneAdvisor.cs` is the systemone protocol on that transport, shared by Jev
+and Microsoft-Decision-1, and `Advisors/OpenAiDecisions/OpenAiDecisionsAdvisor.cs` is OpenAI's
+protocol on it. Both are helpers, never contracts: nothing outside `Advisors/` names them, and an
+Advisor with another HTTP protocol extends `HttpAdvisor`. `AdviceRequest` carries two state parts:
+`SharedState`, which every request of one map repeats (requirements, exclusions and Change points),
+and `RequestState`, what this request adds (its item); each protocol decides what the split means on
+its wire. systemone merges them into one `state` object, the shared properties first and then the
+request's, so Jev and Microsoft receive one state as a single JSON object; OpenAI sends them as two
+`input_text` parts and marks only the first as a prompt-cache prefix — see
+[docs/adr/0050](docs/adr/0050-cache-the-shared-part-of-an-advisor-request.md). Adding an
 Advisor means a folder under `Advisors/`, a descriptor in `AdvisorCatalog.Default` that marks its
 credential `Secret: true`, and its variable names in `env_vars` of `.mcp.json`: Codex hands a STDIO
 server only the names listed there, and `CodexMcpConfigurationTests` checks the list against the
@@ -182,8 +192,14 @@ Scout answers it read, and a later call asks only about unmarked items — see
 [docs/adr/0046](docs/adr/0046-map-each-item-once-and-price-every-map.md).
 `Evidence/EvidenceMapCurrency.cs` turns a Scout answer no complete map has read into
 `evidenceMapWarning` on plan writes and plan-review rounds. It warns only: a new answer, not a
-changed plan, makes a map due. Every call is priced at `IAdvisor.InputUsdPerMillion` before it
-sends, and one that would take the Run past its Advisor budget sends nothing.
+changed plan, makes a map due. Every call is estimated at `IAdvisor.InputUsdPerMillion` before it
+sends, every measured token at the uncached rate, and one that would take the Run past its Advisor
+budget sends nothing. Every Advisor also publishes `CacheReadUsdPerMillion` and
+`CacheWriteUsdPerMillion`; a systemone service leaves both at its one rate. Usage totals are kept by
+`AdviceUsageTotals`, which adds a reply's cached and written counts only with that reply's input
+count, and every price — a call's reported cost, the Run's spending for an older record without a
+cost, the estimate and the live evaluation report — comes from `AdvisorPrice`; do not price tokens
+anywhere else.
 
 Advisor credentials are read only from the environment when needed and never become tool arguments
 or results, exception messages, logs (`forge.log` or `flow_log.md`), telemetry or persisted Run
@@ -192,7 +208,11 @@ content (`evidence-map.json`, `scout-answers.json`, `state.json`). Jev requires 
 only `jev-<major>.<minor>.<patch>`. Microsoft-Decision-1 requires `PLANFORGE_MSDECISION_ENDPOINT`
 (https, without credentials, query, fragment or a Foundry project path), secret
 `PLANFORGE_MSDECISION_API_KEY`, and `PLANFORGE_MSDECISION_DEPLOYMENT`, the requested model, which has
-no default. `GateSettings.Validate` refuses any secret variable named by
+no default. OpenAI's Decisions API requires secret `PLANFORGE_OPENAI_API_KEY`, sent as a Bearer
+token only to the fixed `https://api.openai.com/v1/decisions`; optional `PLANFORGE_OPENAI_MODEL`
+defaults to `gpt-6-luna` and accepts 1–64 ASCII letters, digits, `.`, `_` or `-`, starting with a
+letter or digit. `OPENAI_API_KEY`, like every variable without the `PLANFORGE_` prefix, configures
+nothing. `GateSettings.Validate` refuses any secret variable named by
 `AdvisorCatalog.Default`, ignoring case, so `forge.plan.confirm` never persists it; report its name,
 never its value. `StreamingProcess.Build` strips every such variable from child environments after
 `ProcessSpec.Environment` overlays, also ignoring case. This covers Vendor CLIs, catalogue probes,

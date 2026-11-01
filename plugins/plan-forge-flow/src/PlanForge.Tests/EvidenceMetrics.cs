@@ -1,3 +1,4 @@
+using PlanForge.Advisors;
 using PlanForge.Evidence;
 
 namespace PlanForge.Tests;
@@ -18,27 +19,27 @@ internal sealed record EvidenceEvaluation(EvidenceMap Map, IReadOnlyList<Evidenc
 /// <param name="LatencyP90">Nearest-rank ninetieth percentile over those same requests.</param>
 /// <param name="InputTokens">All reported input tokens, null when none were reported.</param>
 /// <param name="OutputTokens">All reported output tokens, null when none were reported.</param>
-/// <param name="CostUsd">Input-only cost at the rate jev-1.13.0 and Microsoft-Decision-1 both publish.</param>
+/// <param name="CachedInputTokens">The cached part of the pooled input tokens, null when no counted reply reported one.</param>
+/// <param name="CacheWriteTokens">The cache-written part of the pooled input tokens, null when no counted reply reported one.</param>
+/// <param name="CostUsd">
+/// The pooled input tokens at the evaluated Advisor's uncached, cache-read and cache-write rates, unrounded; output is not
+/// priced.
+/// </param>
 /// <param name="Complete">Whether the last call for every evaluated plan completed.</param>
 internal sealed record EvidenceMetricsReport(double? CandidateRecall, double? ObligationRecall,
                                              double? FalseCoverage, double? Abstentions, double? UncheckedShare, double? LocatorValidity,
                                              double? LatencyP50, double? LatencyP90, long? InputTokens, long? OutputTokens,
-                                             decimal? CostUsd, bool Complete);
+                                             long? CachedInputTokens, long? CacheWriteTokens, decimal? CostUsd, bool Complete);
 
 /// <summary>Computes R18 metrics without consulting a model or counting earlier observations again.</summary>
 internal static class EvidenceMetrics
 {
-    /// <summary>
-    /// The input price in USD per million tokens published for jev-1.13.0 on 2026-10-19 and for Microsoft-Decision-1 on
-    /// 2026-10-09; output is free for Jev and unpriced for Microsoft. A price that diverges needs a rate per Advisor.
-    /// </summary>
-    private const decimal InputUsdPerMillion = 0.042m;
-
     /// <summary>Pools counts over each plan's last observation and usage and raw durations over every call.</summary>
     /// <param name="evaluations">Exactly one last map and label set per plan.</param>
     /// <param name="progress">Every mapper call made during the evaluation.</param>
+    /// <param name="advisor">The Advisor the evaluation ran with, whose rates price the pooled usage.</param>
     public static EvidenceMetricsReport Of(IReadOnlyList<EvidenceEvaluation> evaluations,
-                                           IReadOnlyList<EvidenceMapProgress> progress)
+                                           IReadOnlyList<EvidenceMapProgress> progress, IAdvisor advisor)
     {
         var candidateTotal = 0;
         var candidateSelected = 0;
@@ -95,12 +96,12 @@ internal static class EvidenceMetrics
                     }
         }
         var durations = progress.SelectMany(call => call.AskDurations).Order().ToArray();
-        var input = Sum(progress.Select(call => call.InputTokens));
-        var output = Sum(progress.Select(call => call.OutputTokens));
+        var usage = progress.Aggregate(AdviceUsageTotals.Empty, (totals, call) => totals.Add(call.Usage));
         return new(Ratio(candidateSelected, candidateTotal), Ratio(obligationAnswered, obligationChecked),
             Ratio(falselyCovered, covered), Ratio(abstentions, checkedQuestions), Ratio(uncheckedItems, items),
-            Ratio(resolved, repositoryItems), Percentile(durations, 0.5), Percentile(durations, 0.9), input, output,
-            input is null ? null : input.Value * InputUsdPerMillion / 1_000_000m,
+            Ratio(resolved, repositoryItems), Percentile(durations, 0.5), Percentile(durations, 0.9), usage.InputTokens,
+            usage.OutputTokens, usage.CachedInputTokens, usage.CacheWriteTokens,
+            AdvisorPrice.Usd(advisor, usage.InputTokens, usage.CachedInputTokens, usage.CacheWriteTokens),
             evaluations.All(evaluation => evaluation.Map.Result.Complete));
     }
 
@@ -108,14 +109,6 @@ internal static class EvidenceMetrics
     /// <param name="numerator">The pooled qualifying count.</param>
     /// <param name="denominator">The pooled eligible count.</param>
     private static double? Ratio(int numerator, int denominator) => denominator == 0 ? null : (double)numerator / denominator;
-
-    /// <summary>Preserves missing usage rather than reporting a fabricated zero.</summary>
-    /// <param name="counts">Reported token totals from every call.</param>
-    private static long? Sum(IEnumerable<long?> counts)
-    {
-        var reported = counts.Where(count => count.HasValue).ToArray();
-        return reported.Length == 0 ? null : reported.Sum(count => count!.Value);
-    }
 
     /// <summary>Computes nearest rank on pooled raw durations, never on per-call percentiles.</summary>
     /// <param name="sorted">Every request duration sorted ascending.</param>

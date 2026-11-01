@@ -68,6 +68,28 @@ public sealed class JevAdvisorTests
     }
 
     /// <summary>
+    /// The shared part's properties go first and the request part's after them, in one systemone <c>state</c>, and the
+    /// measurement is the one the same three properties get as a single shared part.
+    /// </summary>
+    [Fact]
+    public async Task The_split_state_is_merged_shared_first_on_the_systemone_wire()
+    {
+        IReadOnlyList<ChoiceQuestion> questions = [new("relevance", "Does it apply?", [new("yes", "It applies"), new("no", "It does not")])];
+        var split = new AdviceRequest(new JsonObject { ["requirements"] = "one", ["exclusions"] = "two" },
+                                      new JsonObject { ["item"] = "three" }, questions);
+        var whole = new AdviceRequest(new JsonObject { ["requirements"] = "one", ["exclusions"] = "two", ["item"] = "three" },
+                                      new JsonObject(), questions);
+        var handler = new StubHandler();
+        using var advisor = new JevAdvisor(KEY, MODEL, handler);
+        await advisor.AskAsync(split, CancellationToken.None);
+        using var body = JsonDocument.Parse(Assert.Single(handler.Requests).Body);
+        var state = body.RootElement.GetProperty("state");
+        Assert.Equal(["requirements", "exclusions", "item"], state.EnumerateObject().Select(property => property.Name));
+        Assert.Equal("{\"requirements\":\"one\",\"exclusions\":\"two\",\"item\":\"three\"}", state.GetRawText());
+        Assert.Equal(advisor.Measure(whole), advisor.Measure(split));
+    }
+
+    /// <summary>
     /// A Russian state the service's bound admits is not refused as too large. Run 20261024-105628-872ce5 sent a
     /// 49 KB state that measured 98 KB once each Cyrillic letter became a six-byte escape, so every task pair was
     /// withheld as too_large.
@@ -379,7 +401,7 @@ public sealed class JevAdvisorTests
     [Fact]
     public async Task Measure_matches_the_state_plus_largest_serialized_question()
     {
-        var request = new AdviceRequest(new JsonObject { ["text"] = "Shared state 世界\n" },
+        var request = new AdviceRequest(new JsonObject { ["text"] = "Shared state 世界\n" }, new JsonObject(),
         [
             new("short", "Short", [new("a", "A")]),
             new("largest", new string('長', 80), [new("yes", "A long description <T>\n"), new("no", "No")]),
@@ -401,7 +423,7 @@ public sealed class JevAdvisorTests
 
     /// <summary>Creates a simple ordered request without serializing through reflection.</summary>
     /// <param name="text">The shared state text.</param>
-    private static AdviceRequest Request(string text = "context") => new(new JsonObject { ["text"] = text },
+    private static AdviceRequest Request(string text = "context") => new(new JsonObject { ["text"] = text }, new JsonObject(),
         [new("relevance", "Does it apply?", [new("yes", "It applies"), new("no", "It does not")])]);
 
     /// <summary>Creates a handler that always returns the supplied response.</summary>

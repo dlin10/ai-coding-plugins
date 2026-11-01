@@ -26,8 +26,14 @@ public sealed class ChildEnvironmentTests : IDisposable
     /// <summary>Microsoft-Decision-1's non-secret endpoint and deployment names.</summary>
     private static readonly string[] MSDECISION_PUBLIC = ["PLANFORGE_MSDECISION_ENDPOINT", "PLANFORGE_MSDECISION_DEPLOYMENT"];
 
+    /// <summary>OpenAI Decisions' server-only credential name.</summary>
+    private const string OPENAI_KEY = "PLANFORGE_OPENAI_API_KEY";
+
+    /// <summary>OpenAI Decisions' non-secret model name.</summary>
+    private const string OPENAI_MODEL = "PLANFORGE_OPENAI_MODEL";
+
     /// <summary>A distinctive test value whose presence would reveal a credential leak.</summary>
-    private const string SECRET = "child-environment-secret-f63e8b";
+    private const string SECRET = "child-env-f63e8b";
 
     /// <summary>An ordinary variable used to check inherited and overlaid settings.</summary>
     private const string OTHER = "PLANFORGE_CHILD_ENVIRONMENT_PROBE";
@@ -125,6 +131,34 @@ public sealed class ChildEnvironmentTests : IDisposable
         return Task.CompletedTask;
     });
 
+    /// <summary>OpenAI Decisions' credential is removed, inherited or overlaid in upper or lower case, while its model passes.</summary>
+    [Fact]
+    public Task The_OpenAI_credential_is_absent_and_its_model_is_kept() => WithEnvironment(OPENAI_KEY, SECRET, () =>
+        WithEnvironment(OPENAI_MODEL, "gpt-6-luna", async () =>
+        {
+            // Windows names are case-insensitive, so each spelling is inherited alone after the other is unset.
+            foreach (var key in new[] { OPENAI_KEY, OPENAI_KEY.ToLowerInvariant() })
+                await WithEnvironment(OPENAI_KEY, null, () => WithEnvironment(key, SECRET, () =>
+                {
+                    Assert.Contains(key, Environment.GetEnvironmentVariables().Keys.Cast<string>());
+                    var inherited = StreamingProcess.Build(Spec()).Environment;
+                    Assert.DoesNotContain(inherited.Keys, name => string.Equals(name, OPENAI_KEY, StringComparison.OrdinalIgnoreCase));
+                    Assert.DoesNotContain(SECRET, inherited.Values);
+                    Assert.Equal("gpt-6-luna", inherited[OPENAI_MODEL]);
+                    return Task.CompletedTask;
+                }));
+            foreach (var key in new[] { OPENAI_KEY, OPENAI_KEY.ToLowerInvariant() })
+            {
+                var overlaid = StreamingProcess.Build(Spec(new Dictionary<string, string> { [key] = SECRET, [OPENAI_MODEL] = "gpt-6.1-luna" }))
+                                               .Environment;
+                Assert.DoesNotContain(overlaid.Keys, name => string.Equals(name, OPENAI_KEY, StringComparison.OrdinalIgnoreCase));
+                Assert.DoesNotContain(SECRET, overlaid.Values);
+                Assert.Equal("gpt-6.1-luna", overlaid[OPENAI_MODEL]);
+            }
+            Assert.Equal("gpt-6-luna", GateSettings.Validate(new Dictionary<string, string> { [OPENAI_MODEL] = "gpt-6-luna" }, null)
+                                                   .Environment![OPENAI_MODEL]);
+        }));
+
     /// <summary>A real PowerShell child printing the variable receives no credential.</summary>
     [Fact]
     public Task A_real_child_does_not_see_the_credential() => WithEnvironment(KEY, SECRET, async () =>
@@ -153,6 +187,21 @@ public sealed class ChildEnvironmentTests : IDisposable
         Assert.Equal(["key=", "probe=gate-value"], result.Output!.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
     });
 
+    /// <summary>A real gate keeps its overlay while neither inheritance nor overlay supplies OpenAI Decisions' key.</summary>
+    [Fact]
+    public Task A_gate_receives_its_environment_without_the_OpenAI_credential() => WithEnvironment(OPENAI_KEY, SECRET, async () =>
+    {
+        var environment = new Dictionary<string, string> { [OTHER] = "gate-value", [OPENAI_KEY.ToLowerInvariant()] = SECRET };
+        var command = "Write-Output ('key=' + $env:PLANFORGE_OPENAI_API_KEY)\n"
+                    + "Write-Output ('probe=' + $env:PLANFORGE_CHILD_ENVIRONMENT_PROBE)";
+        var result = await GateRunner.RunAsync(new GateCommand("Gate", command), _workspace, environment,
+                                                TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        Assert.Equal("passed", result.Outcome);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(["key=", "probe=gate-value"], result.Output!.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries));
+    });
+
     /// <summary>Plan confirmation refuses a secret gate variable before saving its value anywhere.</summary>
     /// <param name="name">The casing of the forbidden gate variable supplied by the caller.</param>
     [Theory]
@@ -161,6 +210,9 @@ public sealed class ChildEnvironmentTests : IDisposable
     [InlineData("PlanForge_Jev_Api_Key")]
     [InlineData(MSDECISION_KEY)]
     [InlineData("planforge_msdecision_api_key")]
+    [InlineData(OPENAI_KEY)]
+    [InlineData("planforge_openai_api_key")]
+    [InlineData("PlanForge_OpenAI_Api_Key")]
     public async Task Confirmation_refuses_secret_gate_names_without_leaking_the_value(string name)
     {
         var run = RunDirectory.Create(_workspace, "credential-refusal");

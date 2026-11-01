@@ -15,18 +15,22 @@ namespace PlanForge.Vendors;
 /// <param name="JudgmentsAsked">Judgments placed in requests.</param>
 /// <param name="InputTokens">The sum of reported input tokens, or null.</param>
 /// <param name="OutputTokens">The sum of reported output tokens, or null.</param>
+/// <param name="CachedInputTokens">The cached part of the reported input tokens, or null when unknown.</param>
+/// <param name="CacheWriteTokens">The cache-written part of the reported input tokens, or null when unknown.</param>
 /// <param name="CacheHits">Judgments read from the store at the start.</param>
 /// <param name="LatencyP50">Nearest-rank median AskAsync latency in milliseconds.</param>
 /// <param name="LatencyP90">Nearest-rank ninetieth percentile AskAsync latency in milliseconds.</param>
 /// <param name="Duration">The elapsed call duration.</param>
 /// <param name="Complete">Whether every judgment has a persistent outcome.</param>
 /// <param name="StoppedBy">Unauthorized, forbidden or budget, when one stopped dispatch.</param>
-/// <param name="CostUsd">The reported input tokens at the Advisor's price, or null when not reported.</param>
+/// <param name="CostUsd">The reported input tokens at the Advisor's uncached, cache-read and cache-write prices, or null when not reported.</param>
 internal sealed record AdvisorUsageRecord(string At, string Event, string Advisor, string RequestedModel,
                                          [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? ServedModel,
                                          int Requests, int FailedRequests, int JudgmentsAsked,
                                          [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] long? InputTokens,
                                          [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] long? OutputTokens,
+                                         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] long? CachedInputTokens,
+                                         [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] long? CacheWriteTokens,
                                          int CacheHits,
                                          [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] double? LatencyP50,
                                          [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] double? LatencyP90,
@@ -43,7 +47,8 @@ internal sealed record AdvisorUsageRecord(string At, string Event, string Adviso
     public static AdvisorUsageRecord From(EvidenceMapProgress progress, IAdvisor advisor) =>
         new(VendorAttempt.FormatLocalTimestamp(progress.At.ToLocalTime()), EVENT, advisor.Id,
             advisor.RequestedModel, progress.Result?.ServedModel, progress.Requests, progress.FailedRequests,
-            progress.JudgmentsAsked, progress.InputTokens, progress.OutputTokens, progress.Result?.CacheHits ?? 0,
+            progress.JudgmentsAsked, progress.InputTokens, progress.OutputTokens, progress.CachedInputTokens,
+            progress.CacheWriteTokens, progress.Result?.CacheHits ?? 0,
             progress.LatencyP50, progress.LatencyP90, VendorAttempt.FormatDuration(progress.Duration),
             progress.Result?.Complete ?? false, progress.Result?.StoppedBy, progress.Result?.CostUsd);
 }

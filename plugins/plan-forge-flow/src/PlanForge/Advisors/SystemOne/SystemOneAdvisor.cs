@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -7,34 +6,13 @@ using System.Text.Json.Serialization;
 namespace PlanForge.Advisors.SystemOne;
 
 /// <summary>
-/// The systemone wire protocol, shared below IAdvisor by the services that speak it. A subclass owns its endpoint,
-/// credential, status meanings and any pacing; this class owns the body, its measurement and limits, retries and parsing.
-/// It is a helper, never a contract: the core sees only IAdvisor.
+/// The systemone wire protocol on the shared HTTP transport, shared below IAdvisor by the services that speak it. A
+/// subclass owns its endpoint, credential, status meanings and any pacing; this class owns the body, its measurement and
+/// limits, and parsing, while <see cref="HttpAdvisor"/> owns the client, the deadline and retries. It is a helper, never a
+/// contract: the core sees only IAdvisor.
 /// </summary>
-internal abstract class SystemOneAdvisor : IAdvisor, IDisposable
+internal abstract class SystemOneAdvisor : HttpAdvisor
 {
-    /// <summary>The shared production transport never follows redirects or stores credentials.</summary>
-    private static readonly HttpClient HTTP = new(new SocketsHttpHandler
-    {
-        AllowAutoRedirect = false,
-        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
-    }) { Timeout = Timeout.InfiniteTimeSpan };
-
-    /// <summary>The only address to which this Advisor sends content or authentication.</summary>
-    private readonly Uri _endpoint;
-
-    /// <summary>The transport, shared in production and owned when a handler was supplied.</summary>
-    private readonly HttpClient _http;
-
-    /// <summary>Whether this instance owns its test transport.</summary>
-    private readonly bool _ownsHttp;
-
-    /// <summary>The cancellable retry wait, replaceable by tests.</summary>
-    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
-
-    /// <summary>The clock driving the request timeout.</summary>
-    private readonly TimeProvider _clock;
-
     /// <summary>Creates the Advisor without probing or sending any request.</summary>
     /// <param name="endpoint">The only address that receives content or authentication.</param>
     /// <param name="model">The model requested on every attempt.</param>
@@ -43,108 +21,38 @@ internal abstract class SystemOneAdvisor : IAdvisor, IDisposable
     /// <param name="clock">The timeout clock, defaulting to the system clock.</param>
     protected SystemOneAdvisor(Uri endpoint, string model, HttpMessageHandler? handler,
                                Func<TimeSpan, CancellationToken, Task>? delay, TimeProvider? clock)
+        : base(endpoint, model, handler, delay, clock)
     {
-        _endpoint = endpoint;
-        RequestedModel = model;
-        _ownsHttp = handler is not null;
-        _http = handler is null ? HTTP : new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
-        _delay = delay ?? Task.Delay;
-        _clock = clock ?? TimeProvider.System;
     }
-
-    /// <summary>The stable Advisor identifier.</summary>
-    public abstract string Id { get; }
-
-    /// <summary>The service's published price in USD per million input tokens.</summary>
-    public abstract decimal InputUsdPerMillion { get; }
-
-    /// <summary>The model requested on every attempt.</summary>
-    public string RequestedModel { get; }
 
     /// <summary>
     /// The protocol's bounds, the same at every service that speaks it, in estimated tokens: UTF-8 bytes divided by three
     /// and rounded up.
     /// </summary>
-    public AdvisorLimits Limits { get; } = new("estimated_tokens", 64_000, 32_000, 64, 255, 8, TimeSpan.FromSeconds(30));
+    public override AdvisorLimits Limits { get; } = new("estimated_tokens", 64_000, 32_000, 64, 255, 8, TimeSpan.FromSeconds(30));
 
     /// <summary>Measures the same serialized body sent by AskAsync, without contacting the service.</summary>
     /// <param name="request">The state and ordered questions to measure.</param>
-    public AdviceSize Measure(AdviceRequest request)
+    public override AdviceSize Measure(AdviceRequest request)
     {
         var body = Body(request);
         var bytes = JsonSerializer.SerializeToUtf8Bytes(body, SystemOneJson.Wire.SystemOneRequest);
         using var state = new MemoryStream();
         using (var writer = new Utf8JsonWriter(state, new JsonWriterOptions { Encoder = SystemOneJson.Wire.Options.Encoder }))
-            request.State.WriteTo(writer, SystemOneJson.Wire.Options);
+            State(request).WriteTo(writer, SystemOneJson.Wire.Options);
         var largest = body.Questions.Values.Select(question =>
             JsonSerializer.SerializeToUtf8Bytes(question, SystemOneJson.Wire.SystemOneQuestion).Length).DefaultIfEmpty(0).Max();
         return new(EstimatedTokens(bytes.Length), EstimatedTokens(checked((int)state.Length + largest)));
     }
 
-    /// <summary>Sends a Choice request, retrying only rate limiting and overload, at most twice.</summary>
-    /// <param name="request">The object state and ordered questions to send.</param>
-    /// <param name="ct">Caller cancellation, which is never converted to an Advisor failure.</param>
-    public async Task<AdviceResult> AskAsync(AdviceRequest request, CancellationToken ct)
-    {
-        using var deadline = new CancellationTokenSource(Limits.RequestTimeout, _clock);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
-        try
-        {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(Body(request), SystemOneJson.Wire.SystemOneRequest);
-            for (var attempt = 0; ; attempt++)
-            {
-                timeout.Token.ThrowIfCancellationRequested();
-                await PaceAsync(timeout.Token);
-                using var message = new HttpRequestMessage(HttpMethod.Post, _endpoint);
-                Authenticate(message);
-                message.Content = new ByteArrayContent(bytes);
-                message.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-                using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-                Observe(response);
-                var status = (int)response.StatusCode;
-                var body = status is 200 or 400 or 422 ? await response.Content.ReadAsStringAsync(timeout.Token) : "";
-                if (status == 200) return Parse(body);
-                var kind = Failure(status, body);
-                if (kind is not (AdvisorFailureKind.RateLimited or AdvisorFailureKind.Overloaded) || attempt == 2)
-                    throw new AdvisorException(kind);
-                var seconds = response.Headers.RetryAfter?.Delta?.TotalSeconds;
-                var wait = TimeSpan.FromSeconds(seconds is >= 0 ? Math.Min(seconds.Value, 5) : attempt + 1);
-                await _delay(wait, timeout.Token);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            if (ct.IsCancellationRequested) throw new OperationCanceledException(ct);
-            throw new AdvisorException(AdvisorFailureKind.TimedOut);
-        }
-        catch (HttpRequestException) { throw new AdvisorException(AdvisorFailureKind.Unavailable); }
-        catch (IOException) { throw new AdvisorException(AdvisorFailureKind.Unavailable); }
-        catch (JsonException) { throw new AdvisorException(AdvisorFailureKind.InvalidResponse); }
-        catch (FormatException) { throw new AdvisorException(AdvisorFailureKind.Unauthorized); }
-    }
+    /// <summary>Serializes the systemone body, its non-ASCII text as written.</summary>
+    /// <param name="request">The service-independent request.</param>
+    protected override byte[] Serialize(AdviceRequest request) =>
+        JsonSerializer.SerializeToUtf8Bytes(Body(request), SystemOneJson.Wire.SystemOneRequest);
 
-    /// <summary>Releases an injected transport while leaving the production client shared.</summary>
-    public void Dispose()
-    {
-        if (_ownsHttp) _http.Dispose();
-    }
-
-    /// <summary>Puts the credential on one outgoing attempt; a value that cannot be a header throws FormatException.</summary>
-    /// <param name="message">The attempt's request.</param>
-    protected abstract void Authenticate(HttpRequestMessage message);
-
-    /// <summary>Classifies a status other than 200 without retaining the response's content.</summary>
+    /// <summary>Reads the content of a 200, and of a 400 or 422 so that a subclass can recognize a refusal.</summary>
     /// <param name="status">The HTTP status code.</param>
-    /// <param name="body">The content of a 400 or 422, empty for any other status, used only to recognize a refusal.</param>
-    protected abstract AdvisorFailureKind Failure(int status, string body);
-
-    /// <summary>Waits until the service's quota allows the next attempt; completes at once unless overridden.</summary>
-    /// <param name="ct">The call's linked caller and timeout cancellation.</param>
-    protected virtual Task PaceAsync(CancellationToken ct) => Task.CompletedTask;
-
-    /// <summary>Sees every response before its status is handled; must not throw.</summary>
-    /// <param name="response">The attempt's response.</param>
-    protected virtual void Observe(HttpResponseMessage response) { }
+    protected override bool ReadsBody(int status) => status is 200 or 400 or 422;
 
     /// <summary>Builds ordered wire maps, leaving object-state serialization to the generated contract.</summary>
     /// <param name="request">The service-independent request.</param>
@@ -154,7 +62,21 @@ internal abstract class SystemOneAdvisor : IAdvisor, IDisposable
         foreach (var question in request.Questions)
             questions.Add(question.Id, new("choice", question.Instructions,
                 question.Options.ToDictionary(option => option.Value, option => option.Description, StringComparer.Ordinal)));
-        return new(request.State, RequestedModel, questions);
+        return new(State(request), RequestedModel, questions);
+    }
+
+    /// <summary>
+    /// The one systemone <c>state</c>: the shared part's properties in order, then the request part's, each value
+    /// deep-cloned so that neither part is reparented. A name in both parts throws, as
+    /// <see cref="JsonObject.Add(string, JsonNode?)"/> does.
+    /// </summary>
+    /// <param name="request">The service-independent request whose two state parts are merged.</param>
+    private static JsonObject State(AdviceRequest request)
+    {
+        var state = new JsonObject();
+        foreach (var (name, value) in request.SharedState.Concat(request.RequestState))
+            state.Add(name, value?.DeepClone());
+        return state;
     }
 
     /// <summary>Rounds a UTF-8 byte count up to estimated tokens without integer overflow.</summary>
@@ -163,7 +85,7 @@ internal abstract class SystemOneAdvisor : IAdvisor, IDisposable
 
     /// <summary>Maps the wire response, leaving per-question validity to the core.</summary>
     /// <param name="body">The response JSON, never retained by an exception.</param>
-    private static AdviceResult Parse(string body)
+    protected override AdviceResult Parse(string body)
     {
         var response = JsonSerializer.Deserialize(body, SystemOneJson.Default.SystemOneResponse);
         if (response is null || string.IsNullOrWhiteSpace(response.Model) || response.Answers is null)

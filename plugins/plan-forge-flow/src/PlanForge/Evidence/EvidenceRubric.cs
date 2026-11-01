@@ -102,15 +102,15 @@ internal static class EvidenceRubric
             new EvidenceQuestionContent(question.Instructions, question.Options)).ToArray(),
             EvidenceRubricJson.Default.EvidenceQuestionContentArray);
 
-    /// <summary>Builds the request's object state from the same canonical shared state and item contracts.</summary>
+    /// <summary>Builds the state every request of the map shares, from the same canonical shared-state contract.</summary>
     /// <param name="shared">The shared requirements, exclusions and Change points.</param>
+    public static JsonObject SharedPart(EvidenceSharedState shared) =>
+        JsonSerializer.SerializeToNode(shared, EvidenceRubricJson.Default.EvidenceSharedState)!.AsObject();
+
+    /// <summary>Builds the state one request adds, <c>{"item": …}</c>, from the same canonical item contract.</summary>
     /// <param name="item">The permitted item fields.</param>
-    public static JsonObject State(EvidenceSharedState shared, EvidenceRubricItem item)
-    {
-        var state = JsonSerializer.SerializeToNode(shared, EvidenceRubricJson.Default.EvidenceSharedState)!.AsObject();
-        state.Add("item", JsonSerializer.SerializeToNode(item, EvidenceRubricJson.Default.EvidenceRubricItem));
-        return state;
-    }
+    public static JsonObject RequestPart(EvidenceRubricItem item) =>
+        new() { ["item"] = JsonSerializer.SerializeToNode(item, EvidenceRubricJson.Default.EvidenceRubricItem) };
 
     /// <summary>Builds relevance first for Scouts, then every candidate pair in the supplied plan order.</summary>
     /// <param name="item">The Scout item or implication to ask about.</param>
@@ -162,7 +162,8 @@ internal static class EvidenceRubric
                             .Concat([rubricItem.Kind, rubricItem.Category ?? "", rubricItem.Text])))
             return new(requests, judgments.Select(judgment => new EvidenceUnchecked(judgment, "sensitive")).ToArray());
 
-        var state = State(shared, rubricItem);
+        var sharedPart = SharedPart(shared);
+        var requestPart = RequestPart(rubricItem);
         var current = new List<EvidenceJudgment>();
         var currentSize = 0;
         foreach (var judgment in judgments)
@@ -174,7 +175,7 @@ internal static class EvidenceRubric
                 uncheckedJudgments.Add(new(judgment, "sensitive"));
                 continue;
             }
-            var alone = new AdviceRequest(state, judgment.Questions);
+            var alone = new AdviceRequest(sharedPart, requestPart, judgment.Questions);
             var size = advisor.Measure(alone);
             if (size.Total > advisor.Limits.MaxTotal || size.StatePlusLargestQuestion > advisor.Limits.MaxStatePlusQuestion
                 || judgment.Questions.Count > advisor.Limits.MaxQuestions
@@ -183,18 +184,18 @@ internal static class EvidenceRubric
                 uncheckedJudgments.Add(new(judgment, "too_large"));
                 continue;
             }
-            var combined = new AdviceRequest(state, current.SelectMany(part => part.Questions).Concat(judgment.Questions).ToArray());
+            var combined = new AdviceRequest(sharedPart, requestPart, current.SelectMany(part => part.Questions).Concat(judgment.Questions).ToArray());
             var tooMany = combined.Questions.Count > advisor.Limits.MaxQuestions;
             var combinedSize = current.Count > 0 && !tooMany ? advisor.Measure(combined).Total : 0;
             if (current.Count > 0 && (tooMany || combinedSize > advisor.Limits.MaxTotal))
             {
-                requests.Add(Request(state, current, currentSize));
+                requests.Add(Request(sharedPart, requestPart, current, currentSize));
                 current.Clear();
             }
             current.Add(judgment);
             currentSize = current.Count == 1 ? size.Total : combinedSize;
         }
-        if (current.Count > 0) requests.Add(Request(state, current, currentSize));
+        if (current.Count > 0) requests.Add(Request(sharedPart, requestPart, current, currentSize));
         return new(requests, uncheckedJudgments);
     }
 
@@ -234,11 +235,13 @@ internal static class EvidenceRubric
     }
 
     /// <summary>Copies a packed judgment list so later packing cannot alter a completed request.</summary>
-    /// <param name="state">The canonical object state shared by these judgments.</param>
+    /// <param name="sharedPart">The canonical state every request of the map shares.</param>
+    /// <param name="requestPart">The canonical state these judgments' item adds.</param>
     /// <param name="judgments">The current packed judgments.</param>
     /// <param name="size">The packed request's measured size.</param>
-    private static EvidenceRequest Request(JsonObject state, IReadOnlyList<EvidenceJudgment> judgments, int size) =>
-        new(new(state, judgments.SelectMany(judgment => judgment.Questions).ToArray()), judgments.ToArray(), size);
+    private static EvidenceRequest Request(JsonObject sharedPart, JsonObject requestPart,
+                                           IReadOnlyList<EvidenceJudgment> judgments, int size) =>
+        new(new(sharedPart, requestPart, judgments.SelectMany(judgment => judgment.Questions).ToArray()), judgments.ToArray(), size);
 
     /// <summary>Checks each plain string independently so JSON escaping cannot hide an assignment.</summary>
     /// <param name="strings">Every string that could be sent in this scope.</param>
