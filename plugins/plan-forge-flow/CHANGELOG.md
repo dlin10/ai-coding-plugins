@@ -1,6 +1,6 @@
 # Plan Forge Flow releases
 
-## 0.73.0
+## 0.74.0
 
 OpenAI's Decisions API becomes the third Advisor, and the part of an Evidence-map request that every
 request of the map repeats is sent so that OpenAI caches it. ADR 0050.
@@ -48,6 +48,27 @@ request of the map repeats is sent so that OpenAI caches it. ADR 0050.
   tokens-a-minute limit, which no pacing could raise, so OpenAI stays unpaced. The cache saved 14–24%
   of the price, since most of a request is candidate plan text inside the questions; the three maps
   cost USD 1.92 against Jev's 1.72.
+
+## 0.73.0
+
+Workers start with the user's cross-session memory off. Issue #233.
+
+- A worker used to load the same memory the user's interactive sessions in the repository use, and
+  could write it. In run `20261028-115553-01bf54` the Claude Builder read a note about the live run 8 s
+  after it started, appended a status paragraph to the note and to the `MEMORY.md` index, and offered
+  the note's own recommendation as the first way forward; neither file was among its `filesChanged`.
+  Codex Scouts searched `~/.codex/memories/MEMORY.md` for the run's subjects 66 times. Memory is input
+  the run does not record, a place to write that the diff and code review never see, and agreement
+  that is not independent.
+- A Claude worker, in every role, runs with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. The variable outranks
+  the `autoMemoryEnabled` setting both ways, so it also holds against a `0` the server inherited.
+- A Codex worker, in every role and on a resumed turn too, runs `codex exec` with `--disable memories`,
+  the same as `-c features.memories=false`.
+- `CLAUDE.md` and `AGENTS.md` still load: they are the workers' standing context, and a fact a worker
+  needs from memory belongs there or in `forge.instructions.set`.
+- Only the worker processes change. The variable and the flag are set on each worker's own process or
+  command line, not in the server's environment or in any settings file, so the user's own sessions
+  keep their memory.
 
 ## 0.72.0
 
