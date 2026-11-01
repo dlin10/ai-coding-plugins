@@ -47,7 +47,7 @@ public sealed class ServedModelMatrixTests
             if (cell.Stored is not null) run.SeedRelevance(cell.Stored);
             run.Advisor.Handler = (request, _) =>
             {
-                var text = request.State["item"]!["text"]!.GetValue<string>();
+                var text = request.RequestState["item"]!["text"]!.GetValue<string>();
                 var model = text switch { "fact number 2" => cell.First, "fact number 3" => cell.Later, _ => null };
                 if (model is null) throw new AdvisorException(AdvisorFailureKind.Unavailable);
                 return Task.FromResult(FakeAdvisor.Answer(request, model));

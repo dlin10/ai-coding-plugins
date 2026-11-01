@@ -6,8 +6,9 @@ namespace PlanForge.Acts;
 
 /// <summary>
 /// When a review round past its cap runs without the user: the round before the last found more than
-/// the last, and the last left no blocker. Plan review and code review share it because they share
-/// the cap. See docs/adr/0041.
+/// the last, the last left no blocker, and, in plan review, less than half of the last round's new
+/// findings were fallout. Plan review and code review share it because they share the cap. See
+/// docs/adr/0041 and docs/adr/0049.
 /// </summary>
 /// <remarks>
 /// Automatic rounds do not raise the cap, so every round after one is decided here again, and a
@@ -19,10 +20,15 @@ internal static class ReviewCap
 {
     /// <summary>The counts a round past the cap continues on, or null when the user has to be asked.</summary>
     /// <param name="tallies">What each round of the act left, oldest first; null for a run begun before rounds were tallied.</param>
+    /// <param name="fallout">
+    /// How the orchestrator labelled the last round's new findings, or null where the act labels none
+    /// or the round has none to label. Half the round or more as fallout ends the chain of automatic
+    /// rounds: the revisions are what keeps producing findings, so another round would only find more.
+    /// </param>
     /// <returns>The last two rounds' finding counts as <c>4 → 2</c>.</returns>
-    internal static string? Continuation(IReadOnlyList<ReviewTally>? tallies)
+    internal static string? Continuation(IReadOnlyList<ReviewTally>? tallies, FalloutTally? fallout = null)
     {
-        if (tallies is not { Count: >= 2 }) return null;
+        if (tallies is not { Count: >= 2 } || fallout is { Mostly: true }) return null;
 
         var (before, last) = (tallies[^2], tallies[^1]);
         return last.Findings < before.Findings && !last.Blocker ? $"{before.Findings} → {last.Findings}" : null;

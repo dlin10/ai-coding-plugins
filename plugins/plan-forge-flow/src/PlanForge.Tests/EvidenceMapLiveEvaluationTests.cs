@@ -22,10 +22,32 @@ public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
     public Task Evaluate_sanitized_fixture_with_configured_Microsoft_Decision() =>
         Evaluate("microsoft-decision", "PLANFORGE_MSDECISION_API_KEY");
 
-    /// <summary>Maps every fixture plan in one call with one configured Advisor and writes the pooled report.</summary>
+    /// <summary>
+    /// Uses the configured OpenAI Decisions the same way, with no failed request and a cost priced at OpenAI's three rates,
+    /// and writes the measured README rows.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task Evaluate_sanitized_fixture_with_configured_OpenAI_Decisions()
+    {
+        var (report, progress, advisor) = await Evaluate("openai-decisions", "PLANFORGE_OPENAI_API_KEY");
+        Assert.Equal("openai-decisions", advisor.Id);
+        Assert.All(progress, call => Assert.Equal(0, call.FailedRequests));
+        Assert.NotNull(report.CostUsd);
+        Assert.Equal(AdvisorPrice.Usd(advisor, report.InputTokens, report.CachedInputTokens, report.CacheWriteTokens),
+            report.CostUsd);
+        var path = Path.Combine(Path.GetTempPath(), $"planforge-evidence-evaluation-openai-decisions-{Guid.NewGuid():N}.md");
+        AtomicFile.Write(path, string.Join('\n', MeasuredRows.Fixture(report, DateOnly.FromDateTime(DateTime.Now))) + "\n");
+        output.WriteLine($"Measured rows: {path}");
+    }
+
+    /// <summary>
+    /// Maps every fixture plan in one call with one configured Advisor, writes the pooled report and returns it with every
+    /// call's progress and the Advisor.
+    /// </summary>
     /// <param name="id">The Advisor to select.</param>
     /// <param name="keyVariable">Its credential variable, named in the failure when unset.</param>
-    private async Task Evaluate(string id, string keyVariable)
+    private async Task<LiveEvaluation> Evaluate(string id, string keyVariable)
     {
         Assert.True(!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(keyVariable)),
             $"Set {keyVariable} to run the opt-in {id} evaluation.");
@@ -43,7 +65,7 @@ public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
             evaluations.Add(new(map, fixture.Labels[plan]));
             output.WriteLine($"{plan}: complete={map.Result.Complete}, remaining={map.Result.Remaining}");
         }
-        var report = EvidenceMetrics.Of(evaluations, fixture.Progress);
+        var report = EvidenceMetrics.Of(evaluations, fixture.Progress, advisor);
         var json = JsonSerializer.Serialize(report, EvidenceFixtureJson.Default.EvidenceMetricsReport);
         var path = Path.Combine(Path.GetTempPath(), $"planforge-evidence-evaluation-{id}-{Guid.NewGuid():N}.json");
         AtomicFile.Write(path, json);
@@ -57,5 +79,12 @@ public sealed class EvidenceMapLiveEvaluationTests(ITestOutputHelper output)
             Assert.DoesNotContain(evaluation.Map.Observation.SelectMany(item => item.Judgments)
                 .SelectMany(judgment => judgment.Questions.Values), outcome => outcome.Reason == "invalid_answer");
         }
+        return new(report, fixture.Progress, advisor);
     }
+
+    /// <summary>One live evaluation's pooled report, every fixture call's progress and the Advisor that priced it.</summary>
+    /// <param name="Report">The pooled report, as written.</param>
+    /// <param name="Progress">Every mapper call the evaluation made.</param>
+    /// <param name="Advisor">The selected Advisor; its rates stay readable after the evaluation disposed it.</param>
+    private sealed record LiveEvaluation(EvidenceMetricsReport Report, IReadOnlyList<EvidenceMapProgress> Progress, IAdvisor Advisor);
 }

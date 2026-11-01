@@ -427,11 +427,15 @@ internal sealed class ForgeTools
                 PlanReview.Write(run, planDraft);
                 var plan = run.ReadPlan();
                 var outline = PlanOutline.Of(plan);
-                var shape = PlanShape.Of(plan, outline);
-                try { run.AppendFlowPlanWritten(outline.PlanHash, shape); }
+                PlanShape shape;
+                try
+                {
+                    shape = PlanReview.Measure(run, plan, outline);
+                    run.AppendFlowPlanWritten(outline.PlanHash, shape);
+                }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {
-                    throw new IOException($"The plan was written, but its Flow entry could not be written. " +
+                    throw new IOException($"The plan was written, but its Flow entry or split checkpoint could not be written. " +
                                           $"The new plan hash is {outline.PlanHash}; read forge.plan.outline.", error);
                 }
                 return Task.FromResult(EvidenceMapCurrency.Attach(
@@ -539,6 +543,7 @@ internal sealed class ForgeTools
     /// <param name="userGrantedRound">Whether the user granted exactly one round beyond the cap.</param>
     /// <param name="decisions">Typed authoritative ledger decisions to apply before this critic round.</param>
     /// <param name="fast">Whether the critic must run at the confirmed Fast tier.</param>
+    /// <param name="fallout">Labels for the previous round's new findings, required from the third round on.</param>
     [McpServerTool(Name = "forge.plan.review"), Description("Applies one typed plan decision batch, then runs one Critic round against the active plan-phase ledger projection. Use one decisionBatchId per logical set and repeat the exact batch when retrying an invalid Critic response. Plan closures use addressedByRevision or duplicateOf here. A minor may use builderNote with a reason and explicit forTasks; blocker and major findings cannot. A changed task list makes existing builder notes stale until reopened and re-noted. An addressedByRevision of a blocker or major requires `evidence` — what the revision read, the class it listed, the test cell a wrong implementation fails — and is refused without it. The result includes the critique, Flow audit and plan under `documents`.")]
     public static async Task<string> ReviewPlan(CatalogCache catalogs,
                                                 SessionRoots roots,
@@ -551,9 +556,10 @@ internal sealed class ForgeTools
                                                 [Description("Vendor: claude or codex. Defaults to claude.")] string? vendor = null,
                                                 [Description("What you changed in the plan in answer to the previous round's findings, as markdown. Required from the second round on, and recorded in the flow log so the user sees your turn between the critic's.")] string? revision = null,
                                                 [Description("Optional markdown list of findings you decided not to act on, each with its reason. Recorded in the flow log; typed ledger decisions are what the next round's critic treats as settled.")] string? deferred = null,
-                                                [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before and no blocker; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
+                                                [Description("At the cap, this raises this run's review-round cap by exactly one and runs the round; below the cap it does nothing. Spent by this call, so a further round past the new cap needs a fresh answer. Never pass true without having shown the user where the run stands and asked. Without it a round at the cap still runs when the last round found fewer findings than the one before, no blocker, and fewer than half of its new findings as fallout; its result then carries continuedAutomatically.")] bool userGrantedRound = false,
                                                 [Description("Optional typed authoritative decisions applied before the critic runs. Reuse the same decisionBatchId and identical decisions when retrying this call. A minor builderNote needs a reason and explicit forTasks. An addressedByRevision of a blocker or major requires `evidence` — what the revision read, the class it listed, the test cell a wrong implementation fails — and is refused without it.")] OrchestratorDecisionBatch? decisions = null,
-                                                [Description(FAST_DESCRIPTION)] bool fast = false)
+                                                [Description(FAST_DESCRIPTION)] bool fast = false,
+                                                [Description("Required from the third round on whenever the previous round raised new findings: those finding IDs, each under exactly one of own, sibling, sameClass or older, as plan-review.md defines them. A call whose labels leave an ID out, name one the previous round did not raise, or repeat one is refused with the IDs named. The server writes the Flow-log line and keeps the round's fallout share (own plus sibling over new findings) in reviewTallies.")] PlanFallout? fallout = null)
     {
         if (revision is { Length: > 0 }) SensitiveInput.Guard(revision, "the plan revision");
         if (deferred is { Length: > 0 }) SensitiveInput.Guard(deferred, "the deferred findings");
@@ -562,7 +568,7 @@ internal sealed class ForgeTools
             [("vendor", vendor), ("model", model), ("effort", effort), ("fast", Flag(fast)), ("planDraft", planDraft),
              ("revision", revision), ("deferred", deferred),
              ("userGrantedRound", userGrantedRound ? "true" : "false"),
-             ("decisionBatchId", decisions?.DecisionBatchId)],
+             ("decisionBatchId", decisions?.DecisionBatchId), ("fallout", fallout?.Counts())],
             async () =>
             {
                 var critic = VendorFactory.Create(vendor, workspaceRoot);
@@ -570,7 +576,7 @@ internal sealed class ForgeTools
                 var act = new PlanReview(critic, new PromptLibrary());
                 var critique = await act.ReviewAsync(run, planDraft, selection,
                                                      revision, deferred, userGrantedRound, ct,
-                                                     orchestratorDecisions: decisions);
+                                                     orchestratorDecisions: decisions, fallout: fallout);
 
                 var json = ReviewCap.Attach(JsonSerializer.Serialize(new CritiqueResult(critique, Documents(run)),
                                                                      ForgeToolJson.Default.CritiqueResult),
@@ -1140,6 +1146,7 @@ internal sealed class ForgeTools
     /// <param name="options">The choices the question offered, or null.</param>
     /// <param name="bearsOn">The IDs the decision governs, or null.</param>
     /// <param name="supersedes">The ID of the decision this one changes, or null.</param>
+    /// <param name="scope"><c>widens</c> or <c>narrows</c>, or null for a decision that did neither.</param>
     [McpServerTool(Name = "forge.decision.record"), Description("Records one decision the moment it settles something — the user's answer to a question, or a choice you made yourself — in the run's `decisions.json` and the Flow log, under an ID the server assigns from `D-0001` on. Pass the question as asked and the answer as given, verbatim. Every later plan-review and code-review critic is shown the run's current decisions, one line each; a changed answer is a new record that names the one it supersedes, and nothing is removed. The same content sent again is a no-op answering with the ID it already has. A decision goes here, not into forge.log.append. Declares no phase.")]
     public static async Task<string> RecordDecision(SessionRoots roots,
                                                     [Description("Absolute path to the workspace root.")] string workspaceRoot,
@@ -1151,14 +1158,15 @@ internal sealed class ForgeTools
                                                     CancellationToken ct,
                                                     [Description("The choices the question offered, in the order shown, with recommended: true on the one you recommended. Omit for a question asked in prose. At most 20.")] DecisionOption[]? options = null,
                                                     [Description("Optional free text naming the requirement, task, gate or finding IDs the decision governs, e.g. \"R3, task 4, F-0012\".")] string? bearsOn = null,
-                                                    [Description("The ID of the earlier decision this answer changes, e.g. D-0004; one already superseded is refused.")] string? supersedes = null)
+                                                    [Description("The ID of the earlier decision this answer changes, e.g. D-0004; one already superseded is refused.")] string? supersedes = null,
+                                                    [Description("Exactly widens or narrows (case-sensitive): whether the answer widens the run beyond the scope the interview settled — a new mechanism, model family, product input, requirement or acceptance condition — or narrows it, as a split or a narrowed acceptance does. Omit it for a decision that does neither. The server counts the widenings since the interview and shows the number in the Flow log, forge.status and the resume card.")] string? scope = null)
     {
-        var decision = DecisionRecords.Validate(phase, question, options, answer, by, bearsOn, supersedes);
+        var decision = DecisionRecords.Validate(phase, question, options, answer, by, bearsOn, supersedes, scope);
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
         return await LoggedAsync(run, workspaceRoot, "forge.decision.record",
             [("phase", phase), ("by", by), ("question", question), ("answer", answer),
              ("options", options is { Length: > 0 } ? string.Join(" | ", options.Select(option => option.Label)) : null),
-             ("bearsOn", bearsOn), ("supersedes", supersedes)],
+             ("bearsOn", bearsOn), ("supersedes", supersedes), ("scope", scope)],
             () =>
             {
                 var outcome = DecisionRecords.Record(run, decision);
@@ -1734,6 +1742,7 @@ internal sealed record CatalogModel(string Id,
 [JsonSerializable(typeof(OrchestratorDecisionBatch))]
 [JsonSerializable(typeof(OrchestratorDecision))]
 [JsonSerializable(typeof(OrchestratorRaise))]
+[JsonSerializable(typeof(PlanFallout))]
 [JsonSerializable(typeof(LedgerDispositionDecision))]
 [JsonSerializable(typeof(LedgerReopeningDecision))]
 [JsonSerializable(typeof(LedgerClosureDecision))]

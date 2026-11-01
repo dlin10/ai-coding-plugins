@@ -151,18 +151,32 @@ Evidence check has.
 
 ### When the user chooses a probe first
 
-Make the probe ordinary task 1 under `## Approach`, after the usual plan review and approval.
-Name the target, the acceptance outcome and conditions, the decided mechanism, and the dependency
-it must settle. Include only the setup and implementation needed to test that outcome in task 1;
-do not put preparatory implementation tasks ahead of it.
+A probe is the smallest check of the dependency the feasibility check left unmet or unsettled, not
+the run's whole acceptance. Make it ordinary task 1 under `## Approach`, after the usual plan review
+and approval. Name the target, the acceptance outcome the run is for, the decided mechanism, and the
+dependency the probe must settle. Include in task 1 only the setup and the least code that shows
+whether that dependency holds; do not put preparatory implementation tasks ahead of it.
 
-Task 1's executable **Gate** checks the acceptance outcome itself on the real target. Compiling,
-creating a fixture or passing unrelated tests is not that gate. The server runs it with the usual
-gate ownership. Make every later task conditional on its pass, and put the stop rule in both the
-Builder Brief and task 1: if the outcome fails or cannot be verified, stop the run there and show
-the evidence to the user. Do not automatically retry the probe, start task 2, weaken the acceptance
+When showing the outcome needs most of the planned implementation, probe first is the wrong shape.
+Offer the user a split instead, a probe run and then the implementation run, in the form of the
+first-draft offer below, and wait for the choice. The signal is task 1 being the plan's largest task:
+read it off your sketch of the approach before you draft, and off the task sizes in the outline
+`forge.plan.write` returns once a draft stands.
+
+Review and approve a probe-first plan with task 1 alone, and the Requirements and Gates it needs.
+Draft tasks 2..n after task 1's gate has passed, and review and approve them then, by a
+`forge.plan.patch` that keeps task 1 built (*Rounds, revision, and caps* in `plan-review.md` says
+what a patch keeps) or in a follow-up run. The Critic reads only what the plan holds, so it spends
+no round on tasks the probe's result can still change.
+
+Task 1's executable **Gate** checks that dependency itself on the real target. Compiling, creating a
+fixture or passing unrelated tests is not that gate. The server runs it with the usual gate
+ownership. Put the stop rule in both the Builder Brief and task 1: if the gate ran and failed or
+timed out (`gate.outcome` `failed` or `timeout`), stop the run there and show the evidence to the
+user. Do not automatically retry the probe, draft or start the tasks after it, weaken the acceptance
 or change the mechanism; a new direction needs the user's decision. `build.md` applies this stop
-before its ordinary retry rules. This uses an ordinary task and gate, with no new act or sandbox.
+before its ordinary retry rules, and only to the gate's outcome: a turn that ends before the gate is
+an ordinary blocked turn there. This uses an ordinary task and gate, with no new act or sandbox.
 
 ### The matrix check
 
@@ -199,7 +213,8 @@ introduces or changes no rule, the line says so.
 The first `forge.plan.write` returns `shape` measured from the plan on disk and records it in the
 Flow log. Its `approachCharacters` includes the `## Approach` heading and its tasks; the task sizes
 come from the returned outline. `splitSuggested` is true when Approach reaches 22,000 UTF-16
-characters. This is an advisory threshold, not a refusal or an automatic split.
+characters. This is an advisory threshold, not a refusal or an automatic split. It is the whole rule
+until round 1; `plan-review.md` says when growth after it owes the question again.
 
 Before the first `forge.plan.review`, when `splitSuggested` is true, propose a concrete split to the
 user. Name the separable tasks or task groups, their sizes from the outline, the R-items each serves,

@@ -327,7 +327,7 @@ internal static class WorkerTelemetryFile
 
     /// <summary>
     /// What the Run's Evidence map calls have cost: each <c>advisor.usage</c> record's own <c>costUsd</c>, or, for a
-    /// record written before it carried one, its input tokens at the current Advisor's price. A file that does not read
+    /// record written before it carried one, its input, cached and cache-written tokens at the current Advisor's prices. A file that does not read
     /// is logged and counts nothing, as a failed write does.
     /// </summary>
     /// <param name="path">The Run's telemetry file.</param>
@@ -347,8 +347,9 @@ internal static class WorkerTelemetryFile
                     || !name.ValueEquals(AdvisorUsageRecord.EVENT)) continue;
                 if (element.TryGetProperty("costUsd", out var cost) && cost.ValueKind == JsonValueKind.Number)
                     spent += cost.GetDecimal();
-                else if (element.TryGetProperty("inputTokens", out var input) && input.ValueKind == JsonValueKind.Number)
-                    spent += Math.Round(input.GetInt64() * advisor.InputUsdPerMillion / 1_000_000m, 4);
+                else if (AdvisorPrice.Usd(advisor, Tokens(element, "inputTokens"), Tokens(element, "cachedInputTokens"),
+                                          Tokens(element, "cacheWriteTokens")) is { } usd)
+                    spent += Math.Round(usd, 4);
             }
             return spent;
         }
@@ -359,6 +360,12 @@ internal static class WorkerTelemetryFile
             return 0m;
         }
     }
+
+    /// <summary>Reads a record's token count, null when the field is absent or not a number.</summary>
+    /// <param name="record">The advisor.usage record.</param>
+    /// <param name="name">The token field's name.</param>
+    private static long? Tokens(JsonElement record, string name) =>
+        record.TryGetProperty(name, out var count) && count.ValueKind == JsonValueKind.Number ? count.GetInt64() : null;
 
     /// <summary>
     /// Where a record opened at <paramref name="at"/> goes: after the last element that opened no

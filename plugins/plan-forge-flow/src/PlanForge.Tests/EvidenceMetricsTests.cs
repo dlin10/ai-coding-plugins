@@ -99,14 +99,36 @@ public sealed class EvidenceMetricsTests
     [Fact]
     public void Cost_uses_input_tokens_only_and_preserves_reported_zero()
     {
-        var report = Report([], [], [new() { InputTokens = 1_000_000, OutputTokens = 9_000_000 }]);
+        var report = Report([], [], [Usage(new(1_000_000, 9_000_000))]);
         Assert.Equal(0.042m, report.CostUsd);
         Assert.Equal(1_000_000L, report.InputTokens);
         Assert.Equal(9_000_000L, report.OutputTokens);
-        var zero = Report([], [], [new() { InputTokens = 0 }]);
+        var zero = Report([], [], [Usage(new(0, null))]);
         Assert.Equal(0m, zero.CostUsd);
         Assert.Null(zero.OutputTokens);
-        Assert.Null(Report([], [], [new() { OutputTokens = 100 }]).CostUsd);
+        Assert.Null(Report([], [], [Usage(new(null, 100))]).CostUsd);
+    }
+
+    /// <summary>
+    /// Pooled cached and written tokens are priced at the evaluated Advisor's read and write rates, and a call's cache
+    /// counts without its input count are not pooled.
+    /// </summary>
+    [Fact]
+    public void Cost_prices_cache_reads_and_writes_at_the_advisors_rates()
+    {
+        var openAi = new FakeAdvisor { InputUsdPerMillion = 0.10m, CacheReadUsdPerMillion = 0.01m, CacheWriteUsdPerMillion = 0.125m };
+        var report = EvidenceMetrics.Of([new(Map([]), [])],
+            [Usage(new(600_000, 3, 100_000, 300_000)), Usage(new(400_000, null, 100_000)), Usage(new(null, 2, 5_000_000, 5_000_000))],
+            openAi);
+        Assert.Equal(1_000_000L, report.InputTokens);
+        Assert.Equal(5L, report.OutputTokens);
+        Assert.Equal(200_000L, report.CachedInputTokens);
+        Assert.Equal(300_000L, report.CacheWriteTokens);
+        Assert.Equal(0.0895m, report.CostUsd);
+        var uncached = Report([], [], [Usage(new(1_000_000, null))]);
+        Assert.Null(uncached.CachedInputTokens);
+        Assert.Null(uncached.CacheWriteTokens);
+        Assert.Equal(0.042m, uncached.CostUsd);
     }
 
     /// <summary>Counts are pooled across plans before division, and usage is pooled across all calls.</summary>
@@ -116,7 +138,7 @@ public sealed class EvidenceMetricsTests
         var report = EvidenceMetrics.Of([
             new(Map([Item("a", candidates: ["T1"])]), [Label("a", candidates: ["T1"])]),
             new(Map([Item("a")]), [Label("a", candidates: ["T1", "T2", "T3"])])],
-            [new() { InputTokens = 100, OutputTokens = 20 }, new() { InputTokens = 300 }, new() { OutputTokens = 40 }]);
+            [Usage(new(100, 20)), Usage(new(300, null)), Usage(new(null, 40))], Jev);
         Assert.Equal(0.25, report.CandidateRecall);
         Assert.Equal(400L, report.InputTokens);
         Assert.Equal(60L, report.OutputTokens);
@@ -170,8 +192,15 @@ public sealed class EvidenceMetricsTests
     {
         var complete = Map([]);
         var incomplete = complete with { Result = complete.Result with { Complete = false, Remaining = 1 } };
-        Assert.False(EvidenceMetrics.Of([new(complete, []), new(incomplete, [])], []).Complete);
+        Assert.False(EvidenceMetrics.Of([new(complete, []), new(incomplete, [])], [], Jev).Complete);
     }
+
+    /// <summary>A fake priced at the one rate jev-1.13.0 and Microsoft-Decision-1 publish, for all three input rates.</summary>
+    private static FakeAdvisor Jev => new() { InputUsdPerMillion = 0.042m };
+
+    /// <summary>Builds one call's progress having received exactly the given usage.</summary>
+    /// <param name="usage">The call's one reply's usage.</param>
+    private static EvidenceMapProgress Usage(AdviceUsage usage) => new() { Usage = AdviceUsageTotals.Empty.Add(usage) };
 
     /// <summary>Builds a minimal report input without running the mapper.</summary>
     /// <param name="items">The last observation.</param>
@@ -179,7 +208,7 @@ public sealed class EvidenceMetricsTests
     /// <param name="progress">All call progress, if any.</param>
     private static EvidenceMetricsReport Report(EvidenceItemObservation[] items, EvidenceLabel[] labels,
                                                 EvidenceMapProgress[]? progress = null) =>
-        EvidenceMetrics.Of([new(Map(items), labels)], progress ?? []);
+        EvidenceMetrics.Of([new(Map(items), labels)], progress ?? [], Jev);
 
     /// <summary>Builds a complete last-call envelope; metrics read the observation rather than its counts.</summary>
     /// <param name="items">The hand-built observation.</param>

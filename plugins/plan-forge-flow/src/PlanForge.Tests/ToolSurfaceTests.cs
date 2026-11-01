@@ -276,7 +276,7 @@ public sealed class ToolSurfaceTests
         Assert.Equal(["workspaceRoot", "runId", "phase", "question", "answer", "by"],
                      schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()));
         var properties = schema.GetProperty("properties");
-        Assert.Equal(["workspaceRoot", "runId", "phase", "question", "answer", "by", "options", "bearsOn", "supersedes"],
+        Assert.Equal(["workspaceRoot", "runId", "phase", "question", "answer", "by", "options", "bearsOn", "supersedes", "scope"],
                      properties.EnumerateObject().Select(property => property.Name));
         var options = properties.GetProperty("options");
         Assert.Contains("array", options.GetProperty("type").GetRawText(), StringComparison.Ordinal);
@@ -377,6 +377,24 @@ public sealed class ToolSurfaceTests
         foreach (var name in new[] { "planDraft", "revision", "deferred", "userGrantedRound", "excludePaths" })
             Assert.False(properties.TryGetProperty(name, out _), $"forge.work.start still publishes {name}");
         Assert.Equal(["act"], required.Except(["workspaceRoot", "runId"]));
+    }
+
+    /// <summary>
+    /// The fallout labels are a structured argument of <c>forge.plan.review</c>, so the SDK has to
+    /// describe them without reflection, and the tool must not require them: rounds 1 and 2, and a
+    /// round after one that raised nothing, carry none. See docs/adr/0049.
+    /// </summary>
+    [Fact]
+    public void Plan_review_publishes_the_fallout_labels_as_an_optional_argument_of_four_ID_lists()
+    {
+        var schema = SchemaFor(nameof(ForgeTools.ReviewPlan));
+        var fallout = schema.GetProperty("properties").GetProperty("fallout").GetRawText();
+        var required = schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).ToList();
+
+        foreach (var label in new[] { "own", "sibling", "sameClass", "older" })
+            Assert.Contains($"\"{label}\"", fallout, StringComparison.Ordinal);
+        Assert.Contains("array", fallout, StringComparison.Ordinal);
+        Assert.DoesNotContain("fallout", required);
     }
 
     [Fact]

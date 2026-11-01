@@ -1,5 +1,183 @@
 # Plan Forge Flow releases
 
+## 0.74.0
+
+OpenAI's Decisions API becomes the third Advisor, and the part of an Evidence-map request that every
+request of the map repeats is sent so that OpenAI caches it. ADR 0050.
+
+- `openai-decisions` answers the Evidence map's Choice questions through
+  `POST https://api.openai.com/v1/decisions` with a Bearer key. It is configured by the secret
+  `PLANFORGE_OPENAI_API_KEY` and the optional `PLANFORGE_OPENAI_MODEL`, which defaults to
+  `gpt-6-luna`; `OPENAI_API_KEY` configures nothing. Like the other two secrets, the key is refused as
+  a gate variable and stripped from every child process, and Codex forwards both variables. It is
+  third in catalogue order.
+- `AdviceRequest` carries the state shared by every request of one map (requirements, exclusions and
+  Change points) apart from the state the request adds (its item). OpenAI receives them as two
+  `input_text` parts of one user message, the first an explicit prompt-cache breakpoint, so only the
+  shared part is ever written to the cache, which needs at least 1,024 tokens. Jev's and
+  Microsoft-Decision-1's bodies stay byte for byte what they were, and judgment cache keys do not
+  change.
+- Reported usage carries cached-input and cache-write token counts, parts of the input count and
+  unknown when the service reports none.
+- `AdviceUsageTotals` adds counts that are known and stays unknown until one is; a reply's cached and
+  written counts are added only together with that reply's input count, so totals never hold more
+  cached plus written tokens than input.
+- Every Advisor has an uncached, a cache-read and a cache-write input rate. Jev and Microsoft use
+  their one rate for all three, so their costs do not change; OpenAI's are 0.10, 0.01 and 0.125 USD
+  per million. `AdvisorPrice` is the one pricing rule for a call's reported cost, the Run's spending
+  for an older usage record without a cost, the pre-dispatch estimate and the live evaluation report.
+  The estimate still prices every token at the uncached rate, so on a cold OpenAI cache it can fall
+  short by a quarter of the written share.
+- The `advisor.usage` telemetry record carries `cachedInputTokens` and `cacheWriteTokens`, written as
+  `null` when unknown. No tool argument or result field is added.
+- The HTTP transport — client, deadline, retries, cancellation and exception mapping — moves out of
+  the systemone helper into `HttpAdvisor`, which both `SystemOneAdvisor` and `OpenAiDecisionsAdvisor`
+  extend. Jev's and Microsoft's measurement, limits, status classification, retries, timeouts,
+  cancellation, pacing and costs are unchanged.
+- OpenAI's failure table: a 400 naming `context_length` or `token` is too large and any other 400
+  rejected; 401 unauthorized; 403 and 404 forbidden; 408 timed out; a 429 whose error names an
+  exhausted quota or a spend limit is forbidden and stops the map, and any other 429 is rate limited;
+  503 overloaded; other 5xx unavailable. Only rate limiting and overload are retried. A 200 that
+  cannot be mapped is an invalid response, and no response content or key fragment reaches an
+  exception message, a log, telemetry or Run content.
+- Two `Category=Integration` tests run against the live API: the sanitized fixture evaluation, and
+  two requests sharing a part of about 2,700 tokens, the second of which reads it from the cache. The
+  README's *Measured* subsection holds the rows they wrote.
+- Three real Concurrency Hunter maps replayed on `openai-decisions` at the Build usage tier all
+  completed, the largest (5,876 judgments) in three map calls: its 13.25M input tokens met the 2M
+  tokens-a-minute limit, which no pacing could raise, so OpenAI stays unpaced. The cache saved 14–24%
+  of the price, since most of a request is candidate plan text inside the questions; the three maps
+  cost USD 1.92 against Jev's 1.72.
+
+## 0.73.0
+
+Workers start with the user's cross-session memory off. Issue #233.
+
+- A worker used to load the same memory the user's interactive sessions in the repository use, and
+  could write it. In run `20261028-115553-01bf54` the Claude Builder read a note about the live run 8 s
+  after it started, appended a status paragraph to the note and to the `MEMORY.md` index, and offered
+  the note's own recommendation as the first way forward; neither file was among its `filesChanged`.
+  Codex Scouts searched `~/.codex/memories/MEMORY.md` for the run's subjects 66 times. Memory is input
+  the run does not record, a place to write that the diff and code review never see, and agreement
+  that is not independent.
+- A Claude worker, in every role, runs with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. The variable outranks
+  the `autoMemoryEnabled` setting both ways, so it also holds against a `0` the server inherited.
+- A Codex worker, in every role and on a resumed turn too, runs `codex exec` with `--disable memories`,
+  the same as `-c features.memories=false`.
+- `CLAUDE.md` and `AGENTS.md` still load: they are the workers' standing context, and a fact a worker
+  needs from memory belongs there or in `forge.instructions.set`.
+- Only the worker processes change. The variable and the flag are set on each worker's own process or
+  command line, not in the server's environment or in any settings file, so the user's own sessions
+  keep their memory.
+
+## 0.72.0
+
+Plan review's fallout labels become an argument of the call, and a round that is half fallout stops
+the loop. Issue #232.
+
+- Code review stops on fallout; plan review only borrowed the labels, as a `forge.log.append` line
+  nothing required or read. In run `20261028-115553-01bf54` no such line was written in 21 rounds and
+  154 findings. The loop ran against a cap of 5 on 14 grants and 2 automatic rounds, and the audit
+  the user's question prompted found 20 of the 27 valid findings of rounds 14–17 to be fallout of the
+  plan's own revisions.
+- `forge.plan.review` takes `fallout`: `{ own, sibling, sameClass, older }`, the previous round's new
+  finding IDs, each under exactly one label. It is required from the third round on whenever the
+  previous round raised new findings, and the call is refused, naming the IDs, when one has no label,
+  is not one that round raised, or has two. A run begun before 0.72.0 owes none.
+- After the critique the server writes `Plan review — fallout of round N` to the Flow log and puts
+  `new` and `fallout` (`own` plus `sibling`) in that round's `reviewTallies` entry. The IDs still owed
+  are `falloutOwed` in `state.json`; `forge.status` leaves them out, and the resume card prints them
+  with the argument's shape.
+- A round at the cap runs unasked only when fewer than half of the last round's new findings are
+  fallout, besides ADR 0041's conditions. Otherwise the refusal quotes the share. A grant buys the
+  round whatever the share is.
+- `plan-review.md` has a new section, *Labelling fallout, and the sweep*, with the four labels and the
+  code-review stop: when half a round or more is fallout, run no further round yet, sweep the rules
+  the revisions touched — their axes, every mention, one owner per rule — and spend one round to
+  confirm. The cap question shows the fallout of the last rounds, the plan's growth and the
+  widenings, and offers the sweep and a split beside one more round.
+- `build/package.ps1` checks that the published `fallout` argument is optional and names all four
+  labels.
+- ADR 0049 carries the decision, the alternatives and the dry check on H2; ADR 0041 is amended.
+
+## 0.71.0
+
+A probe is the smallest check of the unsettled dependency, and its stop belongs to its gate. Issue
+#230.
+
+- 0.64.0 made a probe ordinary task 1 whose gate checks the acceptance outcome, stopping the run when
+  the outcome fails or cannot be verified. In run `20261028-115553-01bf54` that shape cost most of
+  the build time in two ways. The acceptance was the run's whole outcome, so task 1 held the whole
+  implementation: 244,215 of the plan's 424,143 characters, while tasks 2–8 were reviewed for 21
+  rounds and never ran. And "cannot be verified" took in ordinary trouble: of 36 Builder turns, 28
+  ended `blocked` with `gate.outcome` `not_run` before any gate, and each such stop became a question
+  to the user.
+- `planning.md`: task 1 of a probe-first plan checks the dependency the feasibility check left unmet
+  or unsettled, with the least code that shows it, not the run's whole acceptance. When showing the
+  outcome needs most of the planned implementation, the skill offers a split instead, a probe run and
+  then the implementation run. The signal is task 1 being the plan's largest task, read from the
+  sketch of the approach or the outline's task sizes.
+- A probe-first plan is reviewed and approved with task 1 alone and the Requirements and Gates it
+  needs. Tasks 2..n are drafted after its gate passes, by a `forge.plan.patch` that keeps task 1
+  built, or in a follow-up run, so no review round goes to a task the probe's result can still change.
+- `build.md`: the probe stop applies when its gate ran and `gate.outcome` is `failed` or `timeout`. A
+  probe turn that ends `blocked` before the gate (`not_run`) is an ordinary blocked turn: preparation,
+  harness and environment trouble is fixed within the approved plan and the task retried. The user is
+  asked when the fix would change the plan, the acceptance or the inputs.
+- Skill text only; the server, its tools and its results are unchanged.
+
+## 0.70.0
+
+A scope question in review offers a split and shows the scope already added. Issue #229.
+
+- In run `20261028-115553-01bf54`, 13 of the first 27 decisions with options recommended widening the
+  run, and the user took the recommendation each time. Nothing counted the widenings, and the split
+  recommended at the interview was never offered again.
+- `forge.decision.record` takes an optional `scope`, `widens` or `narrows`, and `decisions.json`
+  stores it. A record without it is written as before; a file holding any other value does not read
+  back.
+- The server counts the standing `widens` decisions made after the interview. The count is on the
+  Flow-log entry of a scoped decision, in `forge.status` as `decisions.widenings` (left out while it
+  is 0) and on the resume card, so it survives a compaction.
+- `asking.md` has a new section, *Scope questions*. A question with a widening also offers the split:
+  deliver the settled scope now, and move the widening and the acceptance that needs it to a
+  follow-up run. It names the widenings so far and the plan's size against its first draft. From the
+  second widening the split is the recommendation, and recommending a widening needs a stated reason
+  why the split would not deliver the interview's goal. Before the third, one question lists every
+  widening the acceptance still needs and asks: split here, or agree the whole set as one package.
+- The round-cap question shows the count, and the plan-review rules for a requirement that moves the
+  scope and for a new mechanism point to the new section.
+- A decision made in the interview is not a widening of the scope the interview settled, so it is not
+  counted. On H2's decisions, tagged as the issue lists them, the third widening since the interview
+  is D-0039; the issue's D-0036 counts D-0004, which was made at the interview.
+- ADR 0045 carries the amendment.
+
+## 0.69.0
+
+The split offer is made again when a plan outgrows its first draft, not only before round 1. Issue
+#228.
+
+- The offer was tied to the first draft. Run `20261028-115553-01bf54` began 351 characters under the
+  threshold (Approach 21,649) and grew to 355,732 over 21 plan-review rounds; its Flow log said
+  `Offer a split: yes` after every patch, while the skill, which asked only before round 1, never
+  asked.
+- The run now keeps a split checkpoint in `state.json`: each draft's Approach before round 1, and the
+  Approach at which the last offer was owed after it. After round 1, `forge.plan.write` and
+  `forge.plan.patch` return `splitSuggested: true`, with `splitReason` and `splitCheckpoint`, when the
+  Approach is at least 22,000 and either `crossed` (the checkpoint was below 22,000) or `doubled` (it
+  is at least twice the checkpoint). The checkpoint then moves to the current Approach, so each later
+  offer needs another doubling. Both fields are left out when no offer is owed.
+- The Flow log prints `Offer a split: yes — doubled since 34,730` only when an offer is due, and `no`
+  otherwise, so it no longer announces an offer the skill will not make.
+- The skill asks the split question before the next round when a write or patch after round 1 returns
+  `splitSuggested: true`. It names the separable tasks with their sizes and R-items and what the
+  growth since the checkpoint added, and offers **continue as is**. One question per trigger.
+- On the 36 Shape blocks of that run the rule fires four times, at 34,730, 70,787, 160,354 and
+  327,748. A test replays the series.
+- A run begun before 0.69.0 has no checkpoint. It records one at its next write or patch and is
+  offered nothing until the plan grows from there.
+- ADR 0048 carries the amendment.
+
 ## 0.68.4
 
 A worker is granted an MCP server a plugin declares, in both vendors, and a codex worker no longer

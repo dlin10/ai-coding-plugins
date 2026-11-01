@@ -385,7 +385,7 @@ function Test-PublishedServer([string]$Executable) {
             'forge.begin'       = @('workerTools')
             'forge.scout.select' = @('vendor', 'model', 'effort')
             'forge.work.start' = @('model', 'effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate', 'question', 'sessionMode')
-            'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'decisions', 'revision', 'deferred', 'userGrantedRound')
+            'forge.plan.review' = @('planDraft', 'effort', 'vendor', 'decisions', 'revision', 'deferred', 'userGrantedRound', 'fallout')
             'forge.build.next'  = @('effort', 'vendor')
             'forge.review.code' = @('effort', 'vendor', 'userGrantedRound')
             'forge.review.fix'  = @('effort', 'vendor', 'decisions', 'fixAttemptId', 'fixFindingIds', 'note', 'gate')
@@ -393,7 +393,7 @@ function Test-PublishedServer([string]$Executable) {
             'forge.plan.confirm' = @('decisions', 'gateEnvironment', 'builderRoots', 'fullGate', 'plan', 'planHash', 'rebuildFrom')
             'forge.plan.show'   = @('plan')
             'forge.log.append'  = @('level', 'detail', 'phase')
-            'forge.decision.record' = @('options', 'bearsOn', 'supersedes')
+            'forge.decision.record' = @('options', 'bearsOn', 'supersedes', 'scope')
             # Both roles optional on purpose: an omitted one is left as it stands, and a caller that
             # had to send them together could not correct one without restating the other.
             'forge.instructions.set' = @('criticInstructions', 'builderInstructions')
@@ -426,6 +426,13 @@ function Test-PublishedServer([string]$Executable) {
                     throw "$name schema incorrectly requires the optional $parameter"
                 }
             }
+        }
+        # The fallout labels are a structured argument, so a trimmed binary can lose the type that
+        # describes them: the published schema has to name all four labels (docs/adr/0049).
+        $planReview = $tools | Where-Object { $_.name -eq 'forge.plan.review' } | Select-Object -First 1
+        $falloutSchema = $planReview.inputSchema.properties.fallout | ConvertTo-Json -Depth 10 -Compress
+        foreach ($label in @('own', 'sibling', 'sameClass', 'older')) {
+            if ($falloutSchema -notmatch "`"$label`"") { throw "forge.plan.review fallout schema is missing $label" }
         }
         # The reason has to reach the caller, not only the run log: this one names the argument.
         if (-not $failure.isError) { throw 'a failing tool call did not come back as an error result' }

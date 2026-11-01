@@ -93,6 +93,8 @@ public sealed class DecisionRecordTests : IDisposable
     [InlineData("bears-on-long", "bearsOn must be at most 1,000 characters")]
     [InlineData("supersedes-short", "supersedes must be a decision ID such as D-0001; 'D-1' is not")]
     [InlineData("supersedes-finding", "'F-0001' is not")]
+    [InlineData("scope-case", "scope must be exactly widens or narrows (case-sensitive) when given; 'Widens' is not")]
+    [InlineData("scope-other", "'broadens' is not")]
     public async Task A_malformed_decision_is_refused_before_anything_is_written(string kind, string reason)
     {
         var run = NewRun();
@@ -113,6 +115,8 @@ public sealed class DecisionRecordTests : IDisposable
             "bears-on-long" => () => Record(run, bearsOn: new string('R', 1_001)),
             "supersedes-short" => () => Record(run, supersedes: "D-1"),
             "supersedes-finding" => () => Record(run, supersedes: "F-0001"),
+            "scope-case" => () => Record(run, scope: "Widens"),
+            "scope-other" => () => Record(run, scope: "broadens"),
             _ => throw new ArgumentOutOfRangeException(nameof(kind))
         };
 
@@ -187,6 +191,7 @@ public sealed class DecisionRecordTests : IDisposable
     [InlineData("""[{"decisionId":"D-0001","phase":"interview","question":"q","by":"user"}]""", "it is not a JSON array of decision records")]
     [InlineData("""[{"decisionId":"D-0002","phase":"interview","question":"q","answer":"a","by":"user"}]""", "entry 1 is not D-0001")]
     [InlineData("""[{"decisionId":"D-0001","phase":"done","question":"q","answer":"a","by":"user"}]""", "D-0001 is not a well-formed record")]
+    [InlineData("""[{"decisionId":"D-0001","phase":"interview","question":"q","answer":"a","by":"user","scope":"broadens"}]""", "D-0001 is not a well-formed record")]
     [InlineData("""[{"decisionId":"D-0001","phase":"interview","question":"q","answer":"a","by":"user","supersedes":"D-0001"}]""",
                 "D-0001 supersedes D-0001, which is not an earlier record still standing")]
     public async Task A_hand_edited_file_stops_every_reader_and_is_left_as_it_is(string content, string reason)
@@ -292,6 +297,85 @@ public sealed class DecisionRecordTests : IDisposable
         Assert.False(char.IsHighSurrogate(line[^2]));
     }
 
+    /// <summary>
+    /// A decision without a scope is written exactly as before the tag existed, so a run begun earlier
+    /// reads back unchanged and a replay of an old record still finds its digest.
+    /// </summary>
+    [Fact]
+    public async Task A_scope_tag_is_kept_in_the_file_and_a_record_without_one_is_written_as_before()
+    {
+        var run = NewRun();
+
+        await Record(run, answer: "Plain");
+        var plain = File.ReadAllText(run.DecisionsPath);
+        await Record(run, question: "Add the second mechanism?", answer: "Yes", phase: "plan_revision", scope: "widens");
+        await Record(run, question: "Add a model family?", answer: "No", phase: "plan_revision", scope: " ");
+
+        Assert.Equal(
+            """
+            [
+              {
+                "decisionId": "D-0001",
+                "phase": "interview",
+                "question": "Is generation by dependencies in scope?",
+                "answer": "Plain",
+                "by": "user"
+              }
+            ]
+            """.ReplaceLineEndings(), plain);
+        var records = run.ReadDecisions();
+        Assert.Equal([null, "widens", null], records.Select(record => record.Scope));
+        Assert.Contains("\"scope\": \"widens\"", File.ReadAllText(run.DecisionsPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_widenings_since_the_interview_count_the_standing_decisions_tagged_widens_after_it()
+    {
+        DecisionRecord[] records =
+        [
+            Decision(1, "Widen at the interview?", "Yes", phase: "interview", scope: "widens"),
+            Decision(2, "Add the first mechanism?", "Yes", scope: "widens"),
+            Decision(3, "Add a model family?", "Yes", phase: "build", scope: "widens"),
+            Decision(4, "Add an input?", "Yes", scope: "widens"),
+            Decision(5, "Add an input?", "No, keep it conservative", scope: "narrows", supersedes: "D-0004"),
+            Decision(6, "Which store?", "SQLite")
+        ];
+
+        Assert.Equal(2, DecisionRecords.Widenings(records));
+        Assert.Equal(0, DecisionRecords.Widenings([]));
+    }
+
+    [Fact]
+    public async Task The_flow_entry_of_a_scoped_decision_shows_the_widenings_since_the_interview()
+    {
+        var run = NewRun();
+
+        await Record(run, answer: "Interview widening", scope: "widens");
+        await Record(run, question: "Add the first mechanism?", phase: "plan_revision", scope: "widens");
+        await Record(run, question: "Add the second mechanism?", phase: "plan_revision", scope: "widens");
+        await Record(run, question: "Narrow the acceptance?", phase: "plan_revision", scope: "narrows");
+        await Record(run, question: "Which store?", answer: "SQLite", phase: "plan_revision");
+
+        var scopes = File.ReadLines(run.FlowLogPath).Where(line => line.StartsWith("Scope:", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(["Scope: widens; widenings since the interview: 0",
+                      "Scope: widens; widenings since the interview: 1",
+                      "Scope: widens; widenings since the interview: 2",
+                      "Scope: narrows; widenings since the interview: 2"], scopes);
+    }
+
+    [Fact]
+    public async Task Status_shows_the_widenings_since_the_interview_only_once_there_is_one()
+    {
+        var run = await NewGitRun();
+        await Record(run, phase: "plan_revision", answer: "Plain");
+        Assert.False((await Status(run))["decisions"]!.AsObject().ContainsKey("widenings"));
+
+        await Record(run, question: "Add the first mechanism?", phase: "plan_revision", scope: "widens");
+        await Record(run, question: "Add the second mechanism?", phase: "build", scope: "widens");
+
+        Assert.Equal(2, (await Status(run))["decisions"]!["widenings"]!.GetValue<int>());
+    }
+
     private async Task<JsonNode> Record(RunDirectory run,
                                         string question = "Is generation by dependencies in scope?",
                                         string answer = "Deferred",
@@ -299,9 +383,10 @@ public sealed class DecisionRecordTests : IDisposable
                                         string by = "user",
                                         DecisionOption[]? options = null,
                                         string? bearsOn = null,
-                                        string? supersedes = null) =>
+                                        string? supersedes = null,
+                                        string? scope = null) =>
         JsonNode.Parse(await ForgeTools.RecordDecision(SessionRoots.None, _workspace, run.RunId, phase, question, answer, by,
-                                                       CancellationToken.None, options, bearsOn, supersedes))!;
+                                                       CancellationToken.None, options, bearsOn, supersedes, scope))!;
 
     private async Task<JsonNode> Status(RunDirectory run) =>
         JsonNode.Parse(await ForgeTools.Status(SessionRoots.None, _workspace, run.RunId, CancellationToken.None, _ => null))!;
@@ -312,8 +397,9 @@ public sealed class DecisionRecordTests : IDisposable
     private static (int Count, int Shown) Decisions(JsonNode status) =>
         (status["decisions"]!["count"]!.GetValue<int>(), status["decisions"]!["last"]!.AsArray().Count);
 
-    private static DecisionRecord Decision(int number, string question, string answer, string by = "user", string? supersedes = null) =>
-        new($"D-{number:0000}", "plan_revision", question, null, answer, by, Supersedes: supersedes);
+    private static DecisionRecord Decision(int number, string question, string answer, string by = "user", string? supersedes = null,
+                                           string phase = "plan_revision", string? scope = null) =>
+        new($"D-{number:0000}", phase, question, null, answer, by, Supersedes: supersedes, Scope: scope);
 
     private RunDirectory NewRun()
     {

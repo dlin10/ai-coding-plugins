@@ -6,8 +6,16 @@ Read it before the first `forge.plan.review`, and again whenever plan review res
 
 Before round 1, settle the first-draft split offer in `planning.md` when the first substantive
 `forge.plan.write` returned `shape.splitSuggested: true`. Do not send the Critic until the user
-chooses the narrower draft or **review as is**. A later `forge.plan.patch` also returns `shape` and
-records it in the Flow log; it does not turn an agreed review into an automatic split.
+chooses the narrower draft or **review as is**.
+
+After round 1, a `forge.plan.write` or `forge.plan.patch` returns `splitSuggested: true` only when the
+plan has grown since the last offer. `splitReason` is `crossed` when Approach has reached 22,000
+characters from below, or `doubled` when it has reached twice `splitCheckpoint`, the size it stood at
+when the last offer was owed. Ask the split question before the next round, in the form `planning.md`
+gives the first-draft offer: name the separable tasks or task groups with their sizes and R-items, say
+what the growth since `splitCheckpoint` added, and offer **continue as is** as the alternative. Ask
+once per trigger: the checkpoint has already moved to the current Approach, so another offer needs
+another doubling. A false `splitSuggested` needs no question, and a split is never automatic.
 
 Each `forge.plan.review` call runs exactly one round and returns a verdict of `approve` or `revise` plus findings. On `revise`, declare
 `phase: "plan_revision"` as soon as the verdict arrives — after every `revise`, not only the first —
@@ -52,19 +60,27 @@ The critic judges the requirements too, and those findings are not all yours to 
 interview already settles — two requirements you wrote that contradict each other, a condition
 stated too vaguely to check — you revise and carry on without stopping. One it does not — a
 requirement covering a question nobody asked, or an answer that would move the scope — goes to the
-user before you revise, and its answer goes into `forge.decision.record` (`asking.md`). Ask the moment it comes up
+user before you revise, as a scope question when it widens the run (*Scope questions* in `asking.md`),
+and its answer goes into `forge.decision.record`. Ask the moment it comes up
 rather than saving it for approval: a scope question answered late invalidates every round that ran
 after it. When one critique brings several, ask them one at a time, the one the others depend on
 first.
 
 Review rounds are capped, and so is the code-review loop. At the cap a round still runs without
 asking when the last round found fewer findings than the one before it — new ones plus unresolved
-ones the critic still finds — and left no blocker, for as long as the count keeps falling. Its result then
-carries `continuedAutomatically`, for example `"4 → 2"`: say so in one line with those counts and
-carry on. Otherwise the tool refuses, and only then is the cap question asked.
-Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, and
-what the last verdict said, so the question carries its numbers. Say in plain words what the open
-findings are, and what one more round would cost against stopping here. On a yes, pass
+ones the critic still finds — left no blocker, and, in plan review, fewer than half of its new
+findings were fallout (*Labelling fallout, and the sweep* below), for as long as the count keeps
+falling. Its result then carries `continuedAutomatically`, for example `"4 → 2"`: say so in one line
+with those counts and carry on. Otherwise the tool refuses, and only then is the cap question asked.
+Before asking, call `forge.status` and show the user how many rounds have run, what the cap is, what
+the last verdict said, how much of the last rounds was fallout (`fallout` of `new` for each labelled
+round in `reviewTallies`; a refusal for fallout quotes the share of the round it was about), how far
+the plan has grown since its first draft (*Scope questions* in `asking.md` says where to read it),
+and how many widenings the run has taken since the interview (`decisions.widenings`), so the
+question carries its numbers. Say in plain words what the open findings are, and what one more
+round would cost against stopping here. Offer the sweep and a split — narrow this run to what is settled and move the
+rest to a follow-up run, in the form *Scope questions* gives — beside one more round, and recommend
+the sweep while half a round or more is fallout. On a yes to a round, pass
 `userGrantedRound: true` on the next round tool — `forge.plan.review` or `forge.review.code` — which
 raises the cap by exactly one. The grant is spent by
 that round, so the round after it needs a fresh answer, and never pass the argument without having
@@ -145,7 +161,7 @@ the whole plan, including after a patch; the draft is ready when every change pa
   looks. Name the list and the query in `revision`.
 - **Mechanisms are the user's.** When the answer to a finding is a new mechanism — a pass, a state,
   a wrapper, a restart, a fixpoint — ask the user before writing it, with the simpler alternatives
-  beside it.
+  beside it and the split that keeps the work already settled (*Scope questions* in `asking.md`).
 - **The findings' scope.** The revision changes what the findings name and what the checks above
   reach. A neighbouring case enters the plan when a critic raises it.
 
@@ -159,7 +175,27 @@ On a stale-base refusal, read `forge.plan.outline` and redo the edits against it
 never resend the refused patch unchanged. A replay after a lost answer is a stale-base conflict,
 and equal text is never proof that the patch was applied.
 
-From the second round on, label every new finding with the labels of *When a round is mostly
-fallout* in `code-review.md`, reading *revision* for *fix* — `own`, `sibling`, `same-class`, `older` — and record one
-line per round with `forge.log.append`:
-`Plan review round 3: own F-0021; sibling F-0024; same-class F-0019; older F-0022`.
+### Labelling fallout, and the sweep
+
+A revision is the main source of the next round's findings: in the longest measured run, 20 of the
+27 valid findings of four consecutive rounds were fallout of the revisions before them. So from the
+third round on, `forge.plan.review` carries `fallout` whenever the previous round raised new
+findings: their IDs, each under exactly one label, read against the revisions made before that
+round, as *When a round is mostly fallout* in `code-review.md` reads them against fixes:
+
+- `own` — something an earlier revision wrote is wrong: the rule it keyed on, or anything else it changed;
+- `sibling` — a place that answers the same question as an earlier revision was left behind;
+- `sameClass` — an older instance of a class an earlier revision covered only where a finding named it;
+- `older` — anything else the plan's first draft already held.
+
+Label by what the finding names, not by how it is worded: a finding is `older` only when the first
+draft already held the text it names. The tool refuses the call, naming the IDs, when a new finding
+has no label, a label names an ID the previous round did not raise, or an ID has two. The server
+writes the Flow-log line, so do not also write it with `forge.log.append`, and keeps the round's share
+in `reviewTallies`: `new` findings, of which `fallout` are `own` or `sibling`.
+
+When half a round or more is fallout, or its findings walk one axis of a rule case by case, run no
+further round yet. Sweep instead: for each rule the revisions touched, list its axes, search the
+whole plan for every mention and name its one owner; settle the rule at its owner and answer the
+other places from it; then spend one round to confirm. Hold the sweep to the checks of *Writing a
+revision*, and say in `revision` that it is a sweep, with the rules and axes it covered.

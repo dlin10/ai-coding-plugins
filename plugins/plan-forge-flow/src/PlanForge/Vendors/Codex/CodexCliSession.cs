@@ -278,6 +278,14 @@ internal sealed partial class CodexCliSession : IVendorSession
         arguments.Add("-c");
         arguments.Add(SELF_PLUGIN_DISABLE);
 
+        // The user's notes across sessions change while a run is live: a worker that reads them is
+        // steered by input the run does not record, and one that writes them leaves a change neither
+        // the diff nor code review sees (issue #233). `--disable memories` is the same as
+        // `-c features.memories=false`, and `codex exec resume` takes it as `exec` does. AGENTS.md
+        // stays: it is the workers' standing context.
+        arguments.Add("--disable");
+        arguments.Add("memories");
+
         // Every role uses the launching process's permissions on fresh and resumed turns; Critic and
         // Scout stay read-only by their contracts alone. See docs/adr/0028 and docs/adr/0033.
         arguments.Add("--dangerously-bypass-approvals-and-sandbox");

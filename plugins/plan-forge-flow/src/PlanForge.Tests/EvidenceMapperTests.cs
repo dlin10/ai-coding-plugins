@@ -51,14 +51,14 @@ public sealed class EvidenceMapperTests
         Assert.NotNull(Outcome(first, 0).Answer);
         Assert.Equal("not_yet_checked", Outcome(first, 2).Reason);
         Assert.Equal(2, run.Advisor.Requests.Count);
-        var sent = run.Advisor.Requests.Select(request => request.State["item"]!["text"]!.GetValue<string>()).ToArray();
+        var sent = run.Advisor.Requests.Select(request => request.RequestState["item"]!["text"]!.GetValue<string>()).ToArray();
         run.Advisor.Handler = (request, _) => Task.FromResult(FakeAdvisor.Answer(request));
         var second = await run.Call();
         Assert.True(second.Result.Complete);
         Assert.Equal(2, second.Result.CacheHits);
         Assert.Equal(1, second.Result.CheckedThisCall);
         Assert.Equal(3, run.Advisor.Requests.Count);
-        Assert.DoesNotContain(run.Advisor.Requests[^1].State["item"]!["text"]!.GetValue<string>(), sent);
+        Assert.DoesNotContain(run.Advisor.Requests[^1].RequestState["item"]!["text"]!.GetValue<string>(), sent);
     }
 
     /// <summary>Only the configured number of simultaneous requests is started.</summary>
@@ -292,7 +292,8 @@ public sealed class EvidenceMapperTests
         Assert.Equal(run.Entries[0].Report.ConfirmedFacts[0].Text, flag.Text);
         Assert.Equal("https://example.com/evidence", flag.Source);
         Assert.Equal("## Work", Assert.Single(flag.Units).Label);
-        Assert.DoesNotContain("example.com", run.Advisor.Requests[0].State.ToJsonString());
+        Assert.DoesNotContain("example.com", run.Advisor.Requests[0].SharedState.ToJsonString());
+        Assert.DoesNotContain("example.com", run.Advisor.Requests[0].RequestState.ToJsonString());
     }
 
     /// <summary>A resumed observation includes every item and both stored and newly received outcomes.</summary>
@@ -343,6 +344,47 @@ public sealed class EvidenceMapperTests
         Assert.Equal(2000d, progress.LatencyP50);
         Assert.Equal(3000d, progress.LatencyP90);
         Assert.Equal(TimeSpan.FromSeconds(6), progress.Duration);
+    }
+
+    /// <summary>
+    /// A reply's cached count is not added without that reply's input count, so the totals never price more cached tokens
+    /// than input and the cost never goes negative.
+    /// </summary>
+    [Fact]
+    public async Task Cache_counts_accumulate_only_with_their_replys_input()
+    {
+        using var run = MapperRun.Plain(2);
+        (run.Advisor.InputUsdPerMillion, run.Advisor.CacheReadUsdPerMillion, run.Advisor.CacheWriteUsdPerMillion) = (0.10m, 0.01m, 0.125m);
+        run.Advisor.Handler = (request, _) => Task.FromResult(FakeAdvisor.Answer(request) with
+        {
+            Usage = run.Advisor.Requests.Count == 1 ? new(1_000_000, null) : new(null, null, 2_000_000)
+        });
+        var result = (await run.Call()).Result;
+        var progress = run.Mapper.Progress;
+        Assert.Equal(2, progress.Requests);
+        Assert.Equal(1_000_000, progress.InputTokens);
+        Assert.Null(progress.OutputTokens);
+        Assert.Null(progress.CachedInputTokens);
+        Assert.Null(progress.CacheWriteTokens);
+        Assert.Equal(0.1m, result.CostUsd);
+        Assert.Equal(0.1m, AdvisorPrice.Usd(run.Advisor, progress.InputTokens, progress.CachedInputTokens, progress.CacheWriteTokens));
+    }
+
+    /// <summary>The reported cost prices the uncached rest, the cached and the written input each at its own rate.</summary>
+    [Fact]
+    public async Task Reported_cost_prices_cached_and_written_tokens_at_their_rates()
+    {
+        using var run = MapperRun.Plain(1);
+        (run.Advisor.InputUsdPerMillion, run.Advisor.CacheReadUsdPerMillion, run.Advisor.CacheWriteUsdPerMillion) = (0.10m, 0.01m, 0.125m);
+        run.Advisor.Handler = (request, _) =>
+            Task.FromResult(FakeAdvisor.Answer(request) with { Usage = new(1_000_000, 5, 200_000, 300_000) });
+        var result = (await run.Call()).Result;
+        var progress = run.Mapper.Progress;
+        Assert.Equal(1_000_000, progress.InputTokens);
+        Assert.Equal(200_000, progress.CachedInputTokens);
+        Assert.Equal(300_000, progress.CacheWriteTokens);
+        Assert.Equal(0.0895m, result.CostUsd);
+        Assert.Equal(0m, (await run.Call()).Result.CostUsd);
     }
 
     /// <summary>Sensitive recorded text accounts for every key without sending anything.</summary>
@@ -684,6 +726,10 @@ internal sealed class FakeAdvisor : IAdvisor
     public AdvisorLimits Limits { get; set; } = new("questions", 1000, 1000, 64, 255, 1, TimeSpan.FromSeconds(30));
     /// <summary>A price per million of the fake's measure unit, set by the budget tests.</summary>
     public decimal InputUsdPerMillion { get; set; }
+    /// <summary>The cache-read price per million, the input price until a test sets its own.</summary>
+    public decimal CacheReadUsdPerMillion { get => cacheRead ?? InputUsdPerMillion; set => cacheRead = value; }
+    /// <summary>The cache-write price per million, the input price until a test sets its own.</summary>
+    public decimal CacheWriteUsdPerMillion { get => cacheWrite ?? InputUsdPerMillion; set => cacheWrite = value; }
     /// <summary>The requests in invocation order.</summary>
     public List<AdviceRequest> Requests { get; } = [];
     /// <summary>The response script, when the default question script is insufficient.</summary>
@@ -696,6 +742,10 @@ internal sealed class FakeAdvisor : IAdvisor
     public int InternalRetries { get; set; }
     /// <summary>The current invocation count.</summary>
     private int inFlight;
+    /// <summary>A cache-read price set by a test, or null to use the input price.</summary>
+    private decimal? cacheRead;
+    /// <summary>A cache-write price set by a test, or null to use the input price.</summary>
+    private decimal? cacheWrite;
 
     /// <summary>Measures in questions so packing boundaries are easy to script.</summary>
     /// <param name="request">The exact state and questions.</param>

@@ -29,10 +29,18 @@ Declare `phase: "build"` before each build act — `forge.build.next`, or
 `forge.work.start` with act `build.next` — a retry of the same task included, so each record holds one
 attempt at one task.
 
-For a probe-first plan (`planning.md`), task 1's acceptance gate must pass before any later task.
-If the outcome fails or cannot be verified, stop the run and show the evidence to the user; do not
-apply the automatic retries below. Declare `phase: "done"` with the run unfinished. A new direction
-requires the user's decision, and a changed plan goes through revision and approval.
+For a probe-first plan (`planning.md`), task 1's gate must pass before any later task is drafted or
+built. The stop belongs to that gate: when it ran and `gate.outcome` is `failed` or `timeout`, stop
+the run and show the evidence to the user; do not apply the automatic retries below. Declare
+`phase: "done"` with the run unfinished. A new direction requires the user's decision, and a changed
+plan goes through revision and approval.
+
+A probe turn that ends `blocked` before the gate (`gate.outcome` `not_run`) is the ordinary blocked
+turn of any task, not the probe failing: the gate measured nothing. When the cause is preparation,
+the Builder's own harness, a sandbox limit or an input that needs regenerating, fix it within the
+approved plan and retry the task. Ask the user when the fix would change the plan, the acceptance or
+the inputs: a baseline that has drifted, assets the target does not support, a population the check
+has to recount.
 
 Read `gate.outcome` first:
 

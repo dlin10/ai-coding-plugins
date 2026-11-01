@@ -40,7 +40,9 @@ turns. Both are one executable, `roslyn-mcp.exe`, in two modes, `mcp` and `daemo
 ## Consequences
 
 - Under codex exec the daemon still exits with the turn and the next turn loads again; the agent is told so rather
-  than left to guess why it waits.
+  than left to guess why it waits. Codex desktop puts a thread's servers in the same kind of job (limit flags
+  `0x2000`, measured 2026-10-31 in #217) but closes it only when the thread is closed, so a daemon started there
+  outlives the turn and ends with the thread.
 - Roslyn's build host finds MSBuild from each project's own directory, so a `global.json` that pins an older SDK is
   honoured inside the one daemon.
 - A daemon of an older version keeps its own pipe; a shim of a newer version starts a daemon of its own beside it.

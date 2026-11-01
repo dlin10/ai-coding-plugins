@@ -28,7 +28,7 @@ internal sealed class OrchestratorPhases
     internal const string SOURCE_FAILED = "source_failed";
     internal const string FILE_NAME = "orchestrator-phase.json";
 
-    private const string INTERVIEW = "interview";
+    internal const string INTERVIEW = "interview";
     internal const string DONE = "done";
     internal const string OPEN = "open";
     private const string NONE = "none";

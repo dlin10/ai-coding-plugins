@@ -75,6 +75,26 @@ public sealed class ResumeCardTests : IDisposable
         Clean(card);
     }
 
+    /// <summary>
+    /// After a compaction the next review call is refused unless it carries the labels, so the card
+    /// names the IDs owed and the argument's shape; with none owed it says nothing of either.
+    /// </summary>
+    [Fact]
+    public void A_plan_review_with_findings_to_label_names_them_and_the_fallout_argument()
+    {
+        var run = NewRun("20261021-100000-labels", approved: false, tasksCompleted: 0);
+
+        var without = ResumeCard.Of(_root, SESSION, null);
+        run.WriteState(run.ReadState() with { FalloutOwed = ["F-0101", "F-0102"] });
+        var with = ResumeCard.Of(_root, SESSION, null);
+
+        Assert.DoesNotContain("fallout", without, StringComparison.Ordinal);
+        Assert.Contains("- Fallout labels owed for the new findings of plan-review round 2: F-0101, F-0102.", with, StringComparison.Ordinal);
+        Assert.Contains("fallout: { own: [\"F-...\"], sibling: [], sameClass: [], older: [] }", with, StringComparison.Ordinal);
+        Clean(without);
+        Clean(with);
+    }
+
     [Fact]
     public void Rounds_run_past_the_cap_without_asking_are_counted_beside_the_granted_ones()
     {
@@ -218,6 +238,25 @@ public sealed class ResumeCardTests : IDisposable
 
         Assert.Contains($"- Decisions: 2 recorded in {run.DecisionsPath}.", card, StringComparison.Ordinal);
         Assert.Contains("- forge.decision.record { phase: \"<the phase you are in>\", question: \"<as asked>\"", card, StringComparison.Ordinal);
+        Clean(card);
+    }
+
+    [Fact]
+    public void The_card_counts_the_widenings_since_the_interview_and_shows_the_scope_tag()
+    {
+        var run = NewRun("20261021-100000-widened", approved: false, tasksCompleted: 0);
+        DecisionRecords.Record(run, DecisionRecords.Validate("interview", $"{DECISION_TEXT} settled?", null,
+                                                             $"{DECISION_TEXT} settled", "user", null, null, "widens"));
+        var before = ResumeCard.Of(_root, SESSION, null);
+        foreach (var answer in new[] { "first", "second" })
+            DecisionRecords.Record(run, DecisionRecords.Validate("plan_revision", $"{DECISION_TEXT} {answer}?", null,
+                                                                 $"{DECISION_TEXT} {answer}", "user", null, null, "widens"));
+
+        var card = ResumeCard.Of(_root, SESSION, null);
+
+        Assert.DoesNotContain("Widenings since the interview", before, StringComparison.Ordinal);
+        Assert.Contains("Widenings since the interview: 2.", card, StringComparison.Ordinal);
+        Assert.Contains("scope?: \"widens\" | \"narrows\"", card, StringComparison.Ordinal);
         Clean(card);
     }
 

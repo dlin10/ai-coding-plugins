@@ -88,3 +88,10 @@ disposition the Orchestrator's. A converging loop no longer waits for the user a
 flat, rising or blocked one asks as before. The measurement the issue sets — majors at least 60%
 high value with no rated-high finding demoted, and plan rounds to approval, cap questions asked and
 Critic `approve` reached on live runs — is not part of this change.
+
+## Amendment: fallout ends the automatic rounds of plan review
+
+A falling count says nothing about why the findings keep coming. In plan review a round at the cap
+also needs fewer than half of the last round's new findings to be fallout of the plan's own
+revisions, which the Orchestrator labels in the `fallout` argument of the call itself. A grant still
+buys the round whatever the share is. See [ADR 0049](0049-label-plan-review-fallout-as-an-argument-and-stop-on-it.md).

@@ -78,3 +78,35 @@ that a recorded question was asked. Nothing in the server can, as with `approved
 - Measured on the next runs: records per run against the 14–17 domain questions; Critic findings
   rejected `by: user` as already decided; and whether the Orchestrator's first calls after a
   compaction cite the record instead of guessing.
+
+## Amendment: a scope tag and the count of widenings
+
+The decisions of run `20261028-115553-01bf54` (Concurrency Hunter 5d H2) show what a record could not
+say. As counted in issue #229, 13 of the 27 questions with options up to D-0051 recommended widening
+the run, with a new mechanism, model family, product input, proof or profile condition, and the user
+took the recommendation every time; in 7 of them the only alternative was to stop the run. Nothing
+counted the widenings, so each was judged alone, and the split that D-0004 had recommended at the
+interview was never offered again.
+
+From 0.70.0:
+
+- **`scope`.** `forge.decision.record` takes an optional `scope`, exactly `widens` or `narrows`, and
+  `decisions.json` stores it when given. A record without it is written byte for byte as before, so
+  a Run begun earlier reads back unchanged and a replay of its records still finds their digests. A
+  file whose `scope` is anything else does not read back.
+- **The count.** The widenings since the interview are the standing records tagged `widens` and made
+  in a phase after `interview`; a record that a later one supersedes is not counted. What the
+  interview answered is the scope the interview settled, so it is not a widening of it. The count is
+  on the Flow-log entry of a scoped decision, in `forge.status` as `decisions.widenings` (left out
+  while it is 0) and on the resume card, so it survives a compaction.
+- **The skill.** *Scope questions* in `asking.md`: a question with a widening also offers the
+  split, and names the widenings so far and the plan's size against its first draft. From the second
+  widening the split is the recommendation, and recommending a widening needs a stated reason why the
+  split would not deliver the interview's goal. Before the third, one question lists every widening
+  the acceptance still needs and asks to split or to agree the whole set. The round-cap question
+  shows the count.
+
+The tag is the Orchestrator's assertion, as `approved` is: a widening it leaves untagged is not
+counted. On H2's decisions, tagged as the issue lists them, the third widening since the interview is
+D-0039, not the D-0036 the issue names: D-0004 widened the run at the interview, and this count
+leaves the interview out.

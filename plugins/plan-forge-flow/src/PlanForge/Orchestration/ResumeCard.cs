@@ -156,17 +156,21 @@ internal static class ResumeCard
                 { } scout => new WorkerChoice(scout.Vendor, scout.Model ?? "?", scout.Effort, scout.Fast).Arguments
                              + ", as selected; every call passes sessionMode explicitly."
             });
-        var decisions = run.ReadDecisions().Count;
-        card.AppendLine(decisions == 0
+        var decisions = run.ReadDecisions();
+        var widenings = DecisionRecords.Widenings(decisions);
+        card.AppendLine(decisions.Count == 0
                             ? "- Decisions: none recorded yet."
-                            : $"- Decisions: {decisions} recorded in {run.DecisionsPath}. Read them there, not in your summary, "
-                              + "before you ask the user anything the run may have settled.");
+                            : $"- Decisions: {decisions.Count} recorded in {run.DecisionsPath}. Read them there, not in your summary, "
+                              + "before you ask the user anything the run may have settled."
+                              + (widenings == 0 ? "" : $" Widenings since the interview: {widenings}."));
 
         AppendIds(card, "Unresolved", ledger.UnresolvedFindingIds);
         AppendIds(card, "  of which active in plan review", ledger.PlanReviewActiveFindingIds.Intersect(ledger.UnresolvedFindingIds).ToArray());
         AppendIds(card, "  of which active in code review", ledger.CodeReviewActiveFindingIds.Intersect(ledger.UnresolvedFindingIds).ToArray());
         AppendIds(card, "Deferred", ledger.DeferredFindingIds);
         AppendIds(card, "Rejected", ledger.RejectedFindingIds);
+        if (stand == Stand.PlanReview)
+            AppendIds(card, $"Fallout labels owed for the new findings of plan-review round {state.ReviewRounds}", state.FalloutOwed ?? []);
         foreach (var attempt in ledger.PendingFullGateAttempts)
             AppendIds(card, $"Pending full host verification under fix attempt {attempt.FixAttemptId}", attempt.FindingIds);
 
@@ -201,7 +205,7 @@ internal static class ResumeCard
                                                                                    + "target: \"s3\", targetHash: \"<from the outline>\", content?: \"<none for delete>\" }] }; "
                                                                                    + "forge.plan.write { planDraft } only for a rewrite.")
                 .Append("- forge.plan.review { ").Append(criticArguments).Append(", revision: \"<what you changed; required from round 2>\", ")
-                .Append(Decisions("addressedByRevision")).AppendLine(" }; never planDraft.")
+                .Append(Decisions("addressedByRevision")).Append(Fallout(state)).AppendLine(" }; never planDraft.")
                 .Append("- forge.plan.confirm { approved: true, planHash: \"").Append(hash).Append("\", decisions?: {...as above}, ")
                 .AppendLine("fullGate?: \"beforeNextRound\" | \"final\", gateEnvironment?: { \"NAME\": \"value\" }, rebuildFrom?: <a built task> }; "
                             + "never plan, and only after the user said yes. approved: false takes no decisions.");
@@ -233,7 +237,8 @@ internal static class ResumeCard
 
         card.AppendLine("- forge.decision.record { phase: \"<the phase you are in>\", question: \"<as asked>\", answer: \"<as given>\", "
                         + "by: \"user\" | \"orchestrator\", options?: [{ label, recommended?: true }], bearsOn?: \"R3, F-0012\", "
-                        + "supersedes?: \"D-...\" } the moment an answer settles something; never forge.log.append for it.");
+                        + "supersedes?: \"D-...\", scope?: \"widens\" | \"narrows\" } the moment an answer settles something; "
+                        + "never forge.log.append for it.");
         card.Append("Before your next forge call, read ")
             .Append(string.Join(", ", read.Select(file => references is null ? $"references/{file}" : Path.Combine(references, file))))
             .AppendLine(references is null
@@ -314,6 +319,14 @@ internal static class ResumeCard
         + "by: \"user\" | \"orchestrator\", reason: \"...\", duplicateOf?: \"F-...\", evidence?: \"<required for "
         + (closure == "addressedByRevision" ? "accept, and for addressedByRevision of a blocker or major" : "hostVerified and accept")
         + $">\" }}]{raises} }}";
+
+    /// <summary>The fallout argument of the next plan-review round, present only while the last round left findings to label.</summary>
+    /// <param name="state">The run's saved state.</param>
+    /// <returns>The argument's shape, or nothing when no label is owed.</returns>
+    private static string Fallout(RunState state) =>
+        state.FalloutOwed is { Count: > 0 }
+            ? ", fallout: { own: [\"F-...\"], sibling: [], sameClass: [], older: [] } (required: every ID listed above, each under exactly one label)"
+            : "";
 
     private static string? Text(JsonElement fields, string name) =>
         fields.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

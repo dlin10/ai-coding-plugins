@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.68.4
+# Plan Forge Flow 0.74.0
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -110,8 +110,8 @@ are lost on upgrade, so instructions for one run go through `forge.instructions.
 ## Advisor and Evidence map
 
 **What it is.** An Advisor is an external service that answers typed multiple-choice questions and
-returns a probability for each option. Two are supported: TypeSafe's Jev and Microsoft-Decision-1
-in Azure AI Foundry. The Evidence map uses an Advisor to judge, for each fact in the Scout report
+returns a probability for each option. Three are supported: TypeSafe's Jev, Microsoft-Decision-1
+in Azure AI Foundry, and OpenAI's Decisions API. The Evidence map uses an Advisor to judge, for each fact in the Scout report
 and each implication the Orchestrator derived from it, which parts of the plan it bears on and
 whether the plan accounts for it.
 
@@ -137,6 +137,24 @@ with `evidenceMapWarning`.
 budget is 5 USD unless the user names another as `budgetUsd`; a call that would exceed it sends
 nothing and the Orchestrator asks the user whether to raise the budget.
 
+Each Advisor has three input rates, in USD per million tokens: uncached, read from a prompt cache,
+and written to it. Output is free.
+
+| Advisor | Uncached | Cache read | Cache write |
+|---|---|---|---|
+| `jev` | 0.042 | 0.042 | 0.042 |
+| `microsoft-decision` | 0.042 | 0.042 | 0.042 |
+| `openai-decisions` | 0.10 | 0.01 | 0.125 |
+
+Every request of one map repeats the same requirements, exclusions and Change points and differs
+only in its item. OpenAI caches that shared part, and only that part, once it reaches 1,024 tokens;
+a smaller plan pays the uncached rate throughout. On real maps the cache saves 14–24% of the price:
+most of a request is the candidate plan text inside the questions, which is not cacheable. Jev and Microsoft-Decision-1 do not cache. The
+estimate made before a call sends prices every token at the uncached rate, since nothing can
+tell in advance what will be cached: on a cold cache it can fall short by a quarter of the written
+share, and on a warm one it can be ten times the bill. The actual cost prices each part at its own
+rate.
+
 **How to configure it.** Set the variables in the environment the host starts its MCP server
 with, such as the Windows user environment, then restart the host. Unset, empty or whitespace
 values count as unset, and an Advisor is configured only when all its required variables are set
@@ -161,14 +179,57 @@ Microsoft-Decision-1, id `microsoft-decision`, authenticated by key (Entra ID is
 Microsoft-Decision-1 is paced by the request quota its deployment reports, so a raised quota needs
 no configuration.
 
+OpenAI's Decisions API, id `openai-decisions`, sent only to the fixed endpoint
+`https://api.openai.com/v1/decisions` with the key as a Bearer token in `Authorization`:
+
+| Variable | Meaning |
+|---|---|
+| `PLANFORGE_OPENAI_API_KEY` | Required secret |
+| `PLANFORGE_OPENAI_MODEL` | Optional model, default `gpt-6-luna`; 1–64 ASCII letters, digits, `.`, `_` or `-`, starting with a letter or digit |
+
+`OPENAI_API_KEY`, or any other variable without the `PLANFORGE_` prefix, configures nothing.
+OpenAI is not paced: a rate-limited or overloaded request is retried, and a 429 that names an
+exhausted quota or a spend limit stops the map. Its tokens-per-minute limit sets the pace of a large
+map: at the Build usage tier (2M a minute) a 5,876-judgment map took 6.7 minutes and three
+`forge.evidence.map` calls, each asking again what the previous call's 429s left unchecked. A higher
+usage tier removes the extra calls.
+
 **What is sent.** The text of Scout items, implications, plan sections and Change points, which
 may quote code. No repository file is read for sending, and the content passes the same secret
 check as worker prompts. Configuring a key is consent to send these excerpts from every repository
 forge runs in on that machine. **TypeSafe's standard service is not zero-retention.**
-Microsoft-Decision-1 requests fall under the terms of your own Azure resource.
+Microsoft-Decision-1 requests fall under the terms of your own Azure resource. OpenAI does not
+train on API content by default and keeps it for abuse monitoring for up to 30 days.
 
 The key never appears in a tool argument or result, a log, telemetry or run files, and it is
 removed from the environment of every child process: vendor CLIs, gates and git.
+
+**Running the OpenAI live tests.** Two `Category=Integration` tests call OpenAI and cost a fraction
+of a cent: the sanitized fixture evaluation, and two requests that share a part of about 2,700
+tokens, where the second must read it from the cache. From `plugins/plan-forge-flow`, this copies
+the User-scope key into the process environment inside the same command, without printing it:
+
+```powershell
+$env:PLANFORGE_OPENAI_API_KEY = [Environment]::GetEnvironmentVariable('PLANFORGE_OPENAI_API_KEY', 'User'); $log = Join-Path ([IO.Path]::GetTempPath()) 'pff-openai-live.log'; dotnet test src/PlanForgeFlow.sln --filter "FullyQualifiedName=PlanForge.Tests.EvidenceMapLiveEvaluationTests.Evaluate_sanitized_fixture_with_configured_OpenAI_Decisions|FullyQualifiedName=PlanForge.Tests.OpenAiDecisionsLiveTests.The_second_request_reads_the_shared_part_from_the_cache" > $log 2>&1; Get-Content $log -Tail 40
+```
+
+Each test writes its measured rows to the temporary folder, as
+`planforge-evidence-evaluation-openai-decisions-*.md` and `planforge-openai-decisions-cache-*.md`.
+
+### Measured
+
+Live runs of the two tests with `gpt-6-luna`, rows as the tests wrote them:
+
+Measured on 2026-11-01
+
+| Measurement | Value |
+|---|---|
+| Fixture obligation recall | 1.000 |
+| Fixture false coverage | 0.000 |
+| Fixture p50 latency | 968 ms |
+| Fixture cost | $0.0073 |
+| Cache request 1 tokens (input / cached / written) | 2784 / 0 / 2628 |
+| Cache request 2 tokens (input / cached / written) | 2785 / 2628 / 0 |
 
 ## Requirements
 
@@ -240,7 +301,9 @@ SHA plus `baseline.patch`.
 `telemetry.json` records each worker attempt, each Orchestrator phase and each Advisor call: wall
 time, time inside tool calls, tokens and, where the vendor reports it, cost. Worker counts come from
 the vendor CLI. Orchestrator counts come from the host's own OpenTelemetry export when it is
-enabled, and otherwise from the host's transcript, which carries no cost.
+enabled, and otherwise from the host's transcript, which carries no cost. Each Advisor call's
+`advisor.usage` record also carries `cachedInputTokens` and `cacheWriteTokens`, the parts of its
+input read from and written to the Advisor's prompt cache, as `null` when the service reports none.
 
 To enable the export in Claude Code, add to `settings.json` in your Claude config directory
 (`CLAUDE_CONFIG_DIR`, else `%USERPROFILE%\.claude`); any free loopback port works:

@@ -42,7 +42,7 @@ internal sealed record EvidenceFlag(string Id, string Kind, string? Category, st
 /// <param name="Remaining">Keys with a transient reason.</param>
 /// <param name="StoppedBy">Unauthorized, forbidden, or budget, if one stopped dispatch.</param>
 /// <param name="EstimatedCostUsd">What the requests this call had to send would cost, estimated before sending.</param>
-/// <param name="CostUsd">The reported input tokens of this call at the Advisor's price, or null when not reported.</param>
+/// <param name="CostUsd">The reported input tokens of this call at the Advisor's uncached, cache-read and cache-write prices, or null when not reported.</param>
 /// <param name="RunCostUsd">The Run's Advisor spending including this call, or null when the call kept no budget.</param>
 /// <param name="BudgetUsd">The Run's Advisor budget, or null when the call kept none.</param>
 /// <param name="Counts">Item status counts, source-changed items and unavailable answer numbers.</param>
@@ -102,10 +102,16 @@ internal sealed class EvidenceMapProgress
     public int FailedRequests { get; internal set; }
     /// <summary>Judgments placed in requests, including isolated retries.</summary>
     public int JudgmentsAsked { get; internal set; }
+    /// <summary>The reported usage of every reply, totalled by the one totals rule.</summary>
+    public AdviceUsageTotals Usage { get; internal set; } = AdviceUsageTotals.Empty;
     /// <summary>The sum of reported input tokens, or null without reported input usage.</summary>
-    public long? InputTokens { get; internal set; }
+    public long? InputTokens => Usage.InputTokens;
     /// <summary>The sum of reported output tokens, or null without reported output usage.</summary>
-    public long? OutputTokens { get; internal set; }
+    public long? OutputTokens => Usage.OutputTokens;
+    /// <summary>The cached part of the reported input tokens, or null when no counted reply reported one.</summary>
+    public long? CachedInputTokens => Usage.CachedInputTokens;
+    /// <summary>The cache-written part of the reported input tokens, or null when no counted reply reported one.</summary>
+    public long? CacheWriteTokens => Usage.CacheWriteTokens;
     /// <summary>Every AskAsync duration in milliseconds, including failed and cancelled requests.</summary>
     public List<double> AskDurations { get; } = [];
     /// <summary>The elapsed call duration.</summary>
@@ -455,11 +461,7 @@ internal sealed class EvidenceMapper
         }
 
         /// <summary>The packed requests' estimated cost.</summary>
-        private decimal EstimatedCostUsd => Usd(estimatedTokens);
-
-        /// <summary>Prices input tokens at the Advisor's rate, rounded to a hundredth of a cent.</summary>
-        /// <param name="tokens">The input tokens.</param>
-        private decimal Usd(long tokens) => Math.Round(tokens * advisor.InputUsdPerMillion / 1_000_000m, 4);
+        private decimal EstimatedCostUsd => Math.Round(AdvisorPrice.Usd(advisor, estimatedTokens, 0, 0)!.Value, 4);
 
         /// <summary>Applies one completion, splitting persistent request-wide failures into isolated requests.</summary>
         /// <param name="reply">The completed invocation.</param>
@@ -469,8 +471,7 @@ internal sealed class EvidenceMapper
             progress.AskDurations.Add(reply.Milliseconds);
             if (reply.Failed) progress.FailedRequests++;
             var result = reply.Result;
-            if (result?.Usage?.InputTokens is { } input) progress.InputTokens = (progress.InputTokens ?? 0) + input;
-            if (result?.Usage?.OutputTokens is { } output) progress.OutputTokens = (progress.OutputTokens ?? 0) + output;
+            progress.Usage = progress.Usage.Add(result?.Usage);
             var validation = result is null ? null : EvidenceRubric.Validate(reply.Batch.Request, result);
             var reason = validation?.InvalidRequest == true ? "invalid_answer" : reply.Reason;
             if (reason is "unauthorized" or "forbidden") StoppedBy ??= reason;
@@ -495,7 +496,8 @@ internal sealed class EvidenceMapper
             if (reason is not null && EvidenceStore.IsPersistent(reason) && reply.Batch.Work.Count > 1)
             {
                 foreach (var part in reply.Batch.Work)
-                    queue.Enqueue(new(new(reply.Batch.Request.State, part.Judgment.Questions), [part]));
+                    queue.Enqueue(new(new(reply.Batch.Request.SharedState, reply.Batch.Request.RequestState,
+                                          part.Judgment.Questions), [part]));
                 return;
             }
             foreach (var part in reply.Batch.Work)
@@ -566,7 +568,10 @@ internal sealed class EvidenceMapper
             counts["notIndexedAnswers"] = index.NotIndexedAnswers.Count;
             var remaining = Work.Values.Count(part => part.Questions.Values.Any(outcome =>
                 outcome.Reason is { } reason && !EvidenceStore.IsPersistent(reason)));
-            decimal? cost = progress.Requests == 0 ? 0m : progress.InputTokens is { } input ? Usd(input) : null;
+            var usage = progress.Usage;
+            decimal? cost = progress.Requests == 0 ? 0m
+                : AdvisorPrice.Usd(advisor, usage.InputTokens, usage.CachedInputTokens, usage.CacheWriteTokens) is { } usd
+                    ? Math.Round(usd, 4) : null;
             progress.Result = new(advisor.Id, advisor.RequestedModel, servedModel, remaining == 0, Work.Count, alreadyMapped,
                 cacheHits, Work.Values.Count(part => part.Checked), remaining, StoppedBy, EstimatedCostUsd, cost,
                 budget is null ? null : budget.SpentUsd + (cost ?? 0m), limit, counts, flags, index.NotIndexedAnswers, path);

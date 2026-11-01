@@ -481,9 +481,20 @@ internal sealed class StoreAdvisor : IAdvisor
             foreach (var option in q.Options) options.Add(option.Value, option.Description);
             questions.Add(q.Id, new JsonObject { ["instructions"] = q.Instructions, ["criteria"] = options });
         }
-        var body = new JsonObject { ["state"] = request.State.DeepClone(), ["model"] = RequestedModel, ["questions"] = questions };
-        return new(Bytes(body.ToJsonString()), Bytes(request.State.ToJsonString())
+        var state = State(request);
+        var body = new JsonObject { ["state"] = state.DeepClone(), ["model"] = RequestedModel, ["questions"] = questions };
+        return new(Bytes(body.ToJsonString()), Bytes(state.ToJsonString())
             + request.Questions.Select(q => Bytes(new JsonObject { [q.Id] = questions[q.Id]!.DeepClone() }.ToJsonString())).DefaultIfEmpty().Max());
+    }
+
+    /// <summary>Merges the shared part's properties, then the request part's, into one fresh state object.</summary>
+    /// <param name="request">The request whose two state parts are merged.</param>
+    private static JsonObject State(AdviceRequest request)
+    {
+        var state = new JsonObject();
+        foreach (var (name, value) in request.SharedState.Concat(request.RequestState))
+            state.Add(name, value?.DeepClone());
+        return state;
     }
 
     /// <summary>Answers without network and asserts that every measured limit is respected.</summary>

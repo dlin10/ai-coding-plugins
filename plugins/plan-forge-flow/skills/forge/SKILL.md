@@ -40,11 +40,11 @@ and again whenever you resume it:
 
 | File | Read it | It holds |
 |---|---|---|
-| `references/asking.md` | before your first question to the user | Asking the user: one question per call, each explained, the recommendation first; Recording the answer |
+| `references/asking.md` | before your first question to the user | Asking the user: one question per call, each explained, the recommendation first; Scope questions; Recording the answer |
 | `references/interview.md` | right after `forge.begin` | Act 1: the interview, the opening questions, the mode ladder, verification and feasibility; Choosing the vendor and model |
 | `references/scout.md` | at the first broad reconnaissance need, for feasibility during the interview, and before the Impact pass | Scout reconnaissance; The Scout question; The feasibility question; The Impact pass; The Evidence check |
 | `references/planning.md` | once the interview's decisions are settled | Writing the plan: requirements, gates, the Fix gate grammar, gate commands, the Approach; When the user chooses a probe first; The matrix check; The matrix task; First-draft shape and split offer |
-| `references/plan-review.md` | before the first `forge.plan.review` | First-draft split decision; Rounds, revision, and caps; Writing a revision |
+| `references/plan-review.md` | before the first `forge.plan.review` | First-draft split decision; Rounds, revision, and caps; Writing a revision; Labelling fallout, and the sweep |
 | `references/ledger.md` | before your first decision batch | Decision ledger protocol |
 | `references/approval.md` | when the critique settles | Approval |
 | `references/build.md` | after approval | The gate decides the task; When the host times the call out |
@@ -100,7 +100,7 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 | `forge.plan.write` | `planDraft` — the whole plan | The first draft and genuine rewrites. |
 | `forge.plan.outline` | — | The current `planHash` and targets `s0`, `s1`, … with `targetHash`. |
 | `forge.plan.patch` | `baseHash`, `edits: [{ op: "replace" \| "delete" \| "insertBefore" \| "insertAfter", target, targetHash, content? }]` | A revision of some targets; `delete` takes no `content`. |
-| `forge.plan.review` | `model`, `effort?`, `vendor?`, `fast?`, `revision` (from round 2), `decisions?`, `userGrantedRound?` | One critic round over `PLAN.md`. Never `planDraft`. |
+| `forge.plan.review` | `model`, `effort?`, `vendor?`, `fast?`, `revision` (from round 2), `fallout?: { own, sibling, sameClass, older }` (from round 3), `decisions?`, `userGrantedRound?` | One critic round over `PLAN.md`. Never `planDraft`. `fallout` lists the previous round's new finding IDs, each under one label. |
 | `forge.plan.show` | — | `Canvas` profile only, before asking for approval. Never `plan`. |
 | `forge.plan.confirm` | `approved`, `planHash`, `decisions?`, `fullGate?: "beforeNextRound" \| "final"`, `gateEnvironment?: { "NAME": "value" }`, `rebuildFrom?` | The user's answer. Never `plan`; `approved: false` takes no `decisions`. |
 | `forge.build.next` | `model`, `effort?`, `vendor?`, `fast?` | One task per call. |
@@ -111,7 +111,7 @@ Every tool takes `workspaceRoot`, an absolute path, and every tool after `forge.
 | `forge.work.fetch` | `jobId` | Once the poll says the job stopped. |
 | `forge.work.cancel` | `jobId` | Only on the user's explicit request. |
 | `forge.status` | — | Before approval, at a cap, after a resume, and whenever the user asks. |
-| `forge.decision.record` | `phase`, `question`, `answer`, `by: "user" \| "orchestrator"`, `options?: [{ label, recommended? }]`, `bearsOn?`, `supersedes?` | The moment an answer settles something. `asking.md` says which. |
+| `forge.decision.record` | `phase`, `question`, `answer`, `by: "user" \| "orchestrator"`, `options?: [{ label, recommended? }]`, `bearsOn?`, `supersedes?`, `scope?: "widens" \| "narrows"` | The moment an answer settles something. `asking.md` says which. |
 | `forge.log.append` | `message`, `level?`, `detail?`, `phase?` | Your record of choices, retries and stops; declares phases. |
 
 `decisions`, on `forge.plan.review`, `forge.plan.confirm` and `forge.review.fix`, is one object, not an

@@ -124,10 +124,10 @@ public sealed class MicrosoftDecisionDescriptorTests
         Assert.DoesNotContain("distinctive-host", partial.ToString());
     }
 
-    /// <summary>The production catalogue keeps both credentials secret, and the endpoint and deployment public.</summary>
+    /// <summary>The production catalogue keeps the three credentials secret, in catalogue order, and every other variable public.</summary>
     [Fact]
     public void The_default_catalogue_keeps_only_the_credentials_secret() =>
-        Assert.Equal(["PLANFORGE_JEV_API_KEY", KEY], AdvisorCatalog.Default.SecretVariables);
+        Assert.Equal(["PLANFORGE_JEV_API_KEY", KEY, "PLANFORGE_OPENAI_API_KEY"], AdvisorCatalog.Default.SecretVariables);
 
     /// <summary>A vendor's own Azure variables never configure the Advisor.</summary>
     [Fact]
