@@ -362,10 +362,16 @@ internal sealed class RunDirectory
     /// <param name="act">The review phase.</param>
     /// <param name="round">The round number, or null for an empty diff that consumes no round.</param>
     /// <param name="critique">The identified critique.</param>
-    public void AppendFlowCritique(string act, int? round, Critique critique)
+    /// <param name="notes">What ingestion dropped from the critique, one line each, or null when nothing was.</param>
+    public void AppendFlowCritique(string act, int? round, Critique critique, IReadOnlyList<string>? notes = null)
     {
         var heading = round is null ? $"## {act} — empty diff (no round consumed)" : $"## {act} — round {round}";
         var entry = new StringBuilder(CritiqueEntry(heading, critique));
+        if (notes is { Count: > 0 })
+        {
+            entry.AppendLine().AppendLine("### Dropped on ingestion");
+            foreach (var note in notes) entry.Append("- ").AppendLine(note);
+        }
         if (act == "Code review") AppendPendingFullGate(entry);
         AtomicFile.Append(FlowLogPath, entry.ToString());
     }
@@ -923,7 +929,10 @@ internal sealed class RunDirectory
             entry.Append("- ");
             if (finding.FindingId is { Length: > 0 }) entry.Append(finding.FindingId).Append(" ");
             entry.Append("**").Append(finding.Severity).Append("** ")
-                 .Append(finding.Where).Append(" — ").AppendLine(finding.What);
+                 .Append(finding.Where).Append(" — ").Append(finding.What);
+            if (finding.InvariantOf is { } earlier) entry.Append(" (again: ").Append(earlier).Append(')');
+            entry.AppendLine();
+            if (finding.Invariant is { } invariant) entry.Append("  invariant: ").AppendLine(DecisionRecords.Flat(invariant));
         }
 
         if (critique.UnresolvedAssessments is { Count: > 0 })

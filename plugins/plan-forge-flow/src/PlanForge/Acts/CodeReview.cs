@@ -107,6 +107,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
         }
 
         Critique critique;
+        IReadOnlyList<string> notes;
         IReadOnlyList<string> killed;
         var diffs = run.ReviewDiffsPath(round);
         if (delivery == Delivery.AllByPath)
@@ -137,7 +138,8 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
 
             try
             {
-                critique = WithPending(WithReviewWindow(ledger.IngestCritique(wireCritique, LedgerPhase.CodeReview), window, scope, byPath),
+                critique = WithPending(WithReviewWindow(ledger.IngestCritique(wireCritique, LedgerPhase.CodeReview, out notes),
+                                                        window, scope, byPath),
                                        state, ledger);
             }
             catch (DecisionLedgerCritiqueException error)
@@ -156,7 +158,7 @@ internal sealed class CodeReview(IVendor vendor, PromptLibrary prompts, IReviewG
 
         if (granted) run.AppendFlowGrantedRound("Code review", round);
         if (continuation is not null) run.AppendFlowAutoContinuedRound("Code review", round, continuation);
-        run.AppendFlowCritique("Code review", round, critique);
+        run.AppendFlowCritique("Code review", round, critique, notes);
         run.AppendFlowKilledTasks("Code review", round, killed);
         ContinuedAutomatically = continuation;
         var reviewed = state with

@@ -78,6 +78,13 @@ of a blocker or major carries the Orchestrator's evidence, and the Flow log prin
 decision. The decision shape already had the field and no persisted field changed, so the schema
 version stays 3.
 
+*Extended 2026-11-01 by [0051](0051-carry-a-findings-invariant-across-rounds.md).* A Critic's
+finding carries its invariant, axes, search, completeness and the earlier finding it repeats. A
+closure no longer leaves nothing behind: a closed finding that named an invariant leaves a record in
+`closedInvariants` — its invariant, axes, how it closed and the fixer's claim — and every later
+Critic is shown those records after the projection. Both are optional and absent when empty, so the
+schema version stays 3 and an older ledger serializes as before.
+
 Pre-ledger Run folders are outside the supported scenario: there is no transcript migration,
 fallback reader or compatibility error path. Verification uses deterministic prompt-composition and
 UTF-8 byte-size tests rather than a live pre/post Vendor benchmark.

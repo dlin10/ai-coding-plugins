@@ -81,6 +81,12 @@ Treat a finding as one instance of a rule, at every step that handles it:
    name its owner, those places and its input axes, and makes "wherever X" carry the list of what
    reads X. The Impact pass asks for those places.
 
+*Amended 2026-11-01 by [0051](0051-carry-a-findings-invariant-across-rounds.md).* The fix prompt is
+no longer `where — what` alone: under each finding it prints the Critic's `invariant:` and `axes:`.
+The Builder fixes along those axes, and its report says per finding which axes its check covers and
+which it left. When the gate closes the finding, that report is kept as the claim the next Critic
+verifies.
+
 Considered and rejected:
 
 - **A stronger builder.** The pattern appeared with claude opus/high, opus-5-5/high and codex

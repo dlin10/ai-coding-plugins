@@ -78,6 +78,12 @@ A finding shows one place where a rule breaks. Fix the rule, not the place.
 5. Report per finding in your summary: `rule:`, then one line per place with `fixed`,
    `already agreed`, or `left: <reason>`.
 
+A finding with `invariant:` and `axes:` lines under it names its rule and the axes its places vary
+along: fix it along them. The check you add walks every listed axis — each layer and form — not only
+the reproduction, and your report says, per finding ID, which axes your check covers and which you
+left, and why. Start each finding's part on a line naming its ID: that part is kept as the claim the
+next Critic verifies.
+
 A section headed "From the orchestrator" after the findings is the orchestrator's framing: the rule
 it sees, places it already knows answer the same question, what it has settled. Its places join your
 list in step 2; the findings stay the work.

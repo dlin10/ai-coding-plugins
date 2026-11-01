@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using PlanForge.Acts;
 using PlanForge.Infrastructure;
 using PlanForge.Review;
@@ -73,12 +75,55 @@ internal sealed class StrictSnakeCaseEnumConverter<TEnum> : JsonConverter<TEnum>
     private static string Name(TEnum value) => JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString());
 }
 
+/// <summary>The whole <c>decision-ledger.json</c>.</summary>
+/// <param name="SchemaVersion">The file's schema version.</param>
+/// <param name="NextFindingNumber">The number the next finding takes.</param>
+/// <param name="Entries">The findings still tracked, in ID order.</param>
+/// <param name="AppliedDecisionBatches">Every applied batch's digest and result.</param>
+/// <param name="FixAttempts">Every fix attempt's binding and last result.</param>
+/// <param name="ClosedInvariants">
+/// The invariant register: one record per closed finding that named an invariant, in closing
+/// order. Absent from the file while empty, so a ledger without one reads and writes as before.
+/// </param>
 internal sealed record DecisionLedgerSnapshot(
     [property: JsonPropertyOrder(0)] int SchemaVersion,
     [property: JsonPropertyOrder(1)] int NextFindingNumber,
     [property: JsonPropertyOrder(2)] IReadOnlyList<DecisionLedgerEntry> Entries,
     [property: JsonPropertyOrder(3)] IReadOnlyList<AppliedDecisionBatch> AppliedDecisionBatches,
-    [property: JsonPropertyOrder(4)] IReadOnlyList<FixAttemptRecord>? FixAttempts = null);
+    [property: JsonPropertyOrder(4)] IReadOnlyList<FixAttemptRecord>? FixAttempts = null,
+    [property: JsonPropertyOrder(5), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<ClosedInvariant>? ClosedInvariants = null);
+
+/// <summary>
+/// What the ledger keeps of a closed finding that named an invariant, so later Critics are shown
+/// which invariants were fixed and what the fixer claimed it covered.
+/// </summary>
+/// <param name="FindingId">The closed finding's ID.</param>
+/// <param name="Origin">The phase the finding was raised in.</param>
+/// <param name="Severity">The finding's severity.</param>
+/// <param name="Where">The place the finding named.</param>
+/// <param name="Invariant">The invariant the finding named.</param>
+/// <param name="Axes">The axes the finding named, or null when it named none.</param>
+/// <param name="InvariantOf">The earlier finding whose invariant this one violated again, or null.</param>
+/// <param name="ClosedBy">How the finding was closed.</param>
+/// <param name="Claim">
+/// What the fixer said it covered, cut to <c>600</c> characters: a revision's or a host closure's
+/// evidence, or the part of the Builder's summary of the closing attempt that names this finding.
+/// A marker instead when the text looked like a secret; null when there was none.
+/// </param>
+internal sealed record ClosedInvariant(
+    [property: JsonPropertyOrder(0)] string FindingId,
+    [property: JsonPropertyOrder(1)] string Origin,
+    [property: JsonPropertyOrder(2)] string Severity,
+    [property: JsonPropertyOrder(3)] string Where,
+    [property: JsonPropertyOrder(4)] string Invariant,
+    [property: JsonPropertyOrder(5), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? Axes,
+    [property: JsonPropertyOrder(6), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? InvariantOf,
+    [property: JsonPropertyOrder(7)] LedgerClosureKind ClosedBy,
+    [property: JsonPropertyOrder(8), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Claim);
 
 /// <summary>One finding the ledger still tracks, with its disposition and the decisions behind it.</summary>
 /// <param name="FindingId">The finding's run-local identity, from <c>F-0001</c> on.</param>
@@ -286,6 +331,11 @@ internal sealed record OrchestratorDecisionPayload(
 internal sealed class DecisionLedger
 {
     private const int CURRENT_SCHEMA_VERSION = 3;
+    private const int INVARIANTS_SECTION_LIMIT = 12_000;
+    private const int LEFT_OUT_ROOTS = 10;
+    private const int LEFT_OUT_RESERVE = 200;
+    private const int CLAIM_LIMIT = 600;
+    private const string WITHHELD_CLAIM = "(withheld: the fixer's text held what looks like a secret)";
     private static readonly ConcurrentDictionary<string, object> GATES = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _path;
 
@@ -311,10 +361,11 @@ internal sealed class DecisionLedger
 
     internal DecisionLedgerSnapshot Snapshot => ReadSnapshot();
 
-    internal IReadOnlyList<DecisionLedgerEntry> Project(LedgerPhase phase)
+    internal IReadOnlyList<DecisionLedgerEntry> Project(LedgerPhase phase) => Project(ReadSnapshot(), phase);
+
+    private static IReadOnlyList<DecisionLedgerEntry> Project(DecisionLedgerSnapshot snapshot, LedgerPhase phase)
     {
         var phaseName = PhaseName(phase);
-        var snapshot = ReadSnapshot();
         var entries = phase == LedgerPhase.PlanReview
             ? snapshot.Entries.Where(entry => entry.ActivePhase == phaseName)
             : snapshot.Entries.Where(entry => entry.ActivePhase == phaseName
@@ -323,17 +374,27 @@ internal sealed class DecisionLedger
         return entries.ToArray();
     }
 
+    /// <summary>
+    /// The Critic's view of the ledger for <paramref name="phase"/>: the projected entries, then the
+    /// invariants of earlier rounds when any finding of the run named one.
+    /// </summary>
+    /// <param name="phase">The phase whose Critic is shown the ledger.</param>
     internal string RenderProjection(LedgerPhase phase)
     {
-        var projection = Project(phase);
+        var snapshot = ReadSnapshot();
+        var projection = Project(snapshot, phase);
         var output = new StringBuilder()
             .AppendLine("# Decision ledger projection")
             .Append("Phase: ").AppendLine(PhaseName(phase))
             .AppendLine("Only this projection is authoritative; prior critique and Flow history are not input.")
             .AppendLine();
 
+        var invariants = InvariantsSection(snapshot.ClosedInvariants ?? [], projection);
         if (projection.Count == 0)
-            return output.AppendLine("Entries: (none)").ToString();
+        {
+            output.AppendLine("Entries: (none)");
+            return invariants.Length == 0 ? output.ToString() : output.AppendLine().Append(invariants).ToString();
+        }
 
         output.AppendLine("Entries:");
         foreach (var entry in projection)
@@ -345,6 +406,7 @@ internal sealed class DecisionLedger
                   .Append("  severity: ").AppendLine(entry.Finding.Severity)
                   .Append("  where: ").AppendLine(entry.Finding.Where)
                   .Append("  what: ").AppendLine(entry.Finding.What);
+            AppendInvariant(output, entry.Finding, withInvariantOf: true);
 
             if (entry.Raised is { } raised)
                 output.Append("  raised: ").Append(DecisionMakerName(raised.By)).Append(" — ").AppendLine(raised.Reason);
@@ -369,8 +431,147 @@ internal sealed class DecisionLedger
                       .Append("; evidence: ").AppendLine(reopening.Evidence);
         }
 
-        return output.ToString();
+        return invariants.Length == 0 ? output.ToString() : output.AppendLine().Append(invariants).ToString();
     }
+
+    /// <summary>The <c>invariant:</c>, <c>axes:</c> and <c>invariantOf:</c> lines of a finding that has them.</summary>
+    /// <param name="output">The rendering to append to.</param>
+    /// <param name="finding">The finding.</param>
+    /// <param name="withInvariantOf">Whether to name the earlier finding it repeats.</param>
+    private static void AppendInvariant(StringBuilder output, Finding finding, bool withInvariantOf)
+    {
+        if (finding.Invariant is { } invariant) output.Append("  invariant: ").AppendLine(DecisionRecords.Flat(invariant));
+        if (finding.Axes is { Count: > 0 } axes)
+            output.Append("  axes: ").AppendLine(string.Join("; ", axes.Select(DecisionRecords.Flat)));
+        if (withInvariantOf && finding.InvariantOf is { } earlier) output.Append("  invariantOf: ").AppendLine(earlier);
+    }
+
+    /// <summary>
+    /// The <c># Invariants of earlier rounds</c> section: the register's closed findings and the
+    /// displayed entries that name an invariant, grouped into chains by following <c>invariantOf</c>
+    /// to the first finding of each. Blocker and major chains come first, then the chain last
+    /// repeated first. Every line is cut to <see cref="DecisionRecords.SECTION_LINE_LIMIT"/>, and the
+    /// whole section, heading and left-out list included, stays within
+    /// <see cref="INVARIANTS_SECTION_LIMIT"/>: a chain that does not fit is left out, a later one that
+    /// does is still shown, and the section names the roots it left out.
+    /// </summary>
+    /// <param name="register">The ledger's closed invariants, in closing order.</param>
+    /// <param name="displayed">The entries this projection shows.</param>
+    /// <returns>The section, or empty when no finding shown or closed named an invariant.</returns>
+    private static string InvariantsSection(IReadOnlyList<ClosedInvariant> register,
+                                            IReadOnlyList<DecisionLedgerEntry> displayed)
+    {
+        var instances = register
+            .Select((record, closed) => new InvariantInstance(record.FindingId, record.Origin, record.Severity, record.Where,
+                                                              record.Invariant, record.Axes, record.InvariantOf,
+                                                              "closed: " + JsonNamingPolicy.SnakeCaseLower.ConvertName(record.ClosedBy.ToString()),
+                                                              record.Claim, closed))
+            .Concat(displayed.Where(entry => entry.Finding.Invariant is not null)
+                .Select(entry => new InvariantInstance(entry.FindingId, entry.Origin, entry.Finding.Severity,
+                                                       entry.Finding.Where, entry.Finding.Invariant!, entry.Finding.Axes,
+                                                       entry.Finding.InvariantOf, DispositionName(entry.Disposition), null, null)))
+            .ToDictionary(instance => instance.FindingId, StringComparer.Ordinal);
+        if (instances.Count == 0) return "";
+
+        // invariantOf always names an earlier ID, so the walk ends; the root is the chain's lowest ID.
+        string Root(InvariantInstance instance)
+        {
+            while (instance.InvariantOf is { } earlier && instances.TryGetValue(earlier, out var previous))
+                instance = previous;
+            return instance.FindingId;
+        }
+
+        var blocks = instances.Values
+            .GroupBy(Root, StringComparer.Ordinal)
+            .Select(chain => chain.OrderBy(instance => FindingNumber(instance.FindingId)).ToArray())
+            .OrderBy(chain => chain.Any(instance => instance.Severity is "blocker" or "major") ? 0 : 1)
+            .ThenByDescending(chain => FindingNumber(chain[^1].FindingId))
+            .Select(chain => (Root: chain[0].FindingId, Text: InvariantBlock(chain)))
+            .ToArray();
+        var heading = new StringBuilder()
+            .AppendLine("# Invariants of earlier rounds")
+            .AppendLine()
+            .AppendLine("Each block is one invariant a finding of this run named, under the first finding that named it: its phase, "
+                        + "the highest severity among its findings, the invariant, the union of their axes, every finding that "
+                        + "named it with how it stands, and the latest claim a fixer made for it. Blocker and major first, newest first.")
+            .ToString();
+        var budget = INVARIANTS_SECTION_LIMIT - heading.Length - LEFT_OUT_RESERVE;
+        var shown = new List<string>();
+        var leftOut = new List<string>();
+        foreach (var (root, text) in blocks)
+        {
+            var cost = Environment.NewLine.Length + text.Length;
+            if (cost <= budget)
+            {
+                shown.Add(text);
+                budget -= cost;
+            }
+            else
+                leftOut.Add(root);
+        }
+
+        var section = new StringBuilder(heading);
+        if (leftOut.Count > 0)
+            section.Append("Left out to keep this section within ")
+                   .Append(INVARIANTS_SECTION_LIMIT.ToString("N0", CultureInfo.InvariantCulture))
+                   .Append(" characters: ").Append(leftOut.Count).Append(" chains, roots ")
+                   .Append(string.Join(", ", leftOut.Take(LEFT_OUT_ROOTS)))
+                   .Append(leftOut.Count > LEFT_OUT_ROOTS ? $" and {leftOut.Count - LEFT_OUT_ROOTS} more" : "")
+                   .AppendLine(".");
+        foreach (var text in shown) section.AppendLine().Append(text);
+        return section.ToString();
+    }
+
+    /// <summary>One chain of the invariants section, its root first, each line flattened and cut.</summary>
+    /// <param name="chain">The chain's findings in ID order.</param>
+    private static string InvariantBlock(IReadOnlyList<InvariantInstance> chain)
+    {
+        var root = chain[0];
+        var severity = chain.Any(instance => instance.Severity == "blocker") ? "blocker"
+            : chain.Any(instance => instance.Severity == "major") ? "major" : "minor";
+        var axes = chain.SelectMany(instance => instance.Axes ?? []).Select(DecisionRecords.Flat)
+                        .Distinct(StringComparer.Ordinal).ToArray();
+        var block = new StringBuilder()
+            .AppendLine($"## {root.FindingId} | {root.Origin} | {severity}")
+            .AppendLine(Line($"invariant: {root.Invariant}"));
+        if (axes.Length > 0) block.AppendLine(Line($"axes: {string.Join("; ", axes)}"));
+        foreach (var instance in chain)
+            block.AppendLine(Line($"- {instance.FindingId} ({instance.Status}) {instance.Where}"));
+        // The latest claim is the one closed last, which need not be the highest ID.
+        if (chain.Where(instance => instance.Claim is not null).MaxBy(instance => instance.Closed) is { } claimed)
+            block.AppendLine(Line($"claim ({claimed.FindingId}): {claimed.Claim}"));
+        return block.ToString();
+    }
+
+    /// <summary>A line of the invariants section: its whitespace collapsed, cut to <see cref="DecisionRecords.SECTION_LINE_LIMIT"/>.</summary>
+    /// <param name="text">The line's text.</param>
+    private static string Line(string text) => Cut(DecisionRecords.Flat(text), DecisionRecords.SECTION_LINE_LIMIT);
+
+    /// <summary><paramref name="text"/> unchanged when it fits <paramref name="limit"/>, otherwise cut with an ellipsis.</summary>
+    /// <param name="text">The text.</param>
+    /// <param name="limit">The most characters the result may hold.</param>
+    private static string Cut(string text, int limit)
+    {
+        if (text.Length <= limit) return text;
+        var cut = limit - 1;
+        if (char.IsHighSurrogate(text[cut - 1])) cut--;
+        return text[..cut] + "…";
+    }
+
+    /// <summary>One finding of the invariants section.</summary>
+    /// <param name="FindingId">The finding's ID.</param>
+    /// <param name="Origin">The phase it was raised in.</param>
+    /// <param name="Severity">Its severity.</param>
+    /// <param name="Where">The place it named.</param>
+    /// <param name="Invariant">Its invariant.</param>
+    /// <param name="Axes">Its axes, or null.</param>
+    /// <param name="InvariantOf">The earlier finding it repeats, or null.</param>
+    /// <param name="Status">How it stands: its disposition, or how it closed.</param>
+    /// <param name="Claim">The fixer's claim, for a closed finding that has one.</param>
+    /// <param name="Closed">Its position in the register's closing order, or null while it is open.</param>
+    private sealed record InvariantInstance(string FindingId, string Origin, string Severity, string Where,
+                                            string Invariant, IReadOnlyList<string>? Axes, string? InvariantOf,
+                                            string Status, string? Claim, int? Closed);
 
     internal LedgerSummary Summary
     {
@@ -435,6 +636,8 @@ internal sealed class DecisionLedger
             SensitiveInput.Guard(entry.Finding.Severity, $"finding severity for {id}");
             SensitiveInput.Guard(entry.Finding.Where, $"finding location for {id}");
             SensitiveInput.Guard(entry.Finding.What, $"finding text for {id}");
+            if (entry.Finding.Invariant is { } invariant) SensitiveInput.Guard(invariant, $"finding invariant for {id}");
+            foreach (var axis in entry.Finding.Axes ?? []) SensitiveInput.Guard(axis, $"finding axes for {id}");
             selected.Add(entry);
         }
 
@@ -445,6 +648,7 @@ internal sealed class DecisionLedger
                   .Append(entry.Finding.Severity).Append(" | ")
                   .Append(entry.Finding.Where).Append(" — ")
                   .AppendLine(entry.Finding.What);
+            AppendInvariant(output, entry.Finding, withInvariantOf: false);
         }
 
         return output.ToString();
@@ -500,6 +704,7 @@ internal sealed class DecisionLedger
             }
 
             var entries = snapshot.Entries.ToDictionary(entry => entry.FindingId, StringComparer.Ordinal);
+            var register = snapshot.ClosedInvariants?.ToList() ?? [];
             if (terminal && result is not null)
             {
                 var completion = FixGatePolicy.Completion(gateMode, result);
@@ -511,10 +716,15 @@ internal sealed class DecisionLedger
                     if (completion == FixCompletion.PendingFullGate)
                         entries[id] = entry with { PendingFullGateAttemptId = fixAttemptId };
                     else if (completion == FixCompletion.Closed)
+                    {
+                        Register(register, entry, LedgerClosureKind.AutomaticGate,
+                                 string.IsNullOrWhiteSpace(result.Summary) ? result.Gate?.Output
+                                     : ClaimFor(result.Summary, id, ids));
                         entries.Remove(id);
+                    }
                 }
             }
-            WriteSnapshot(_path, snapshot with { FixAttempts = attempts,
+            WriteSnapshot(_path, snapshot with { FixAttempts = attempts, ClosedInvariants = register,
                 Entries = entries.Values.OrderBy(entry => FindingNumber(entry.FindingId)).ToArray() });
         }
     }
@@ -606,11 +816,12 @@ internal sealed class DecisionLedger
             }
 
             var entries = snapshot.Entries.ToDictionary(entry => entry.FindingId, StringComparer.Ordinal);
+            var register = snapshot.ClosedInvariants?.ToList() ?? [];
             if (operations > 0)
             {
                 var normalized = ValidateAndNormalize(request);
                 ValidateLegalTransitions(snapshot, normalized);
-                ApplyEntries(entries, normalized);
+                ApplyEntries(entries, register, normalized, fixClaim: null);
             }
 
             // A raise takes the next number from the one sequence critics draw on, in the order sent.
@@ -639,7 +850,8 @@ internal sealed class DecisionLedger
             {
                 NextFindingNumber = next,
                 Entries = entries.Values.OrderBy(entry => FindingNumber(entry.FindingId)).ToArray(),
-                AppliedDecisionBatches = [.. snapshot.AppliedDecisionBatches, applied]
+                AppliedDecisionBatches = [.. snapshot.AppliedDecisionBatches, applied],
+                ClosedInvariants = register
             };
             WriteSnapshot(_path, updated);
             return new DecisionBatchResponse("applied", result, applied);
@@ -682,7 +894,18 @@ internal sealed class DecisionLedger
         }
     }
 
-    internal Critique IngestCritique(VendorCritique critique, LedgerPhase phase)
+    internal Critique IngestCritique(VendorCritique critique, LedgerPhase phase) => IngestCritique(critique, phase, out _);
+
+    /// <summary>
+    /// Validates a Critic's answer against the projection it was shown and stores its new findings
+    /// under the next IDs. A finding's invariant fields are kept as they came, a blank one as none,
+    /// and never refuse the answer: an <c>invariantOf</c> naming an ID this run never had is dropped.
+    /// </summary>
+    /// <param name="critique">The Critic's answer.</param>
+    /// <param name="phase">The phase whose round produced it.</param>
+    /// <param name="notes">One line for the Flow log per <c>invariantOf</c> dropped, empty when none was.</param>
+    /// <returns>The critique with the IDs its findings received.</returns>
+    internal Critique IngestCritique(VendorCritique critique, LedgerPhase phase, out IReadOnlyList<string> notes)
     {
         if (critique is null) throw new DecisionLedgerCritiqueException("critique must not be null");
         ValidateCritiqueText(critique.Verdict, "verdict");
@@ -724,15 +947,26 @@ internal sealed class DecisionLedger
 
             var entries = snapshot.Entries.ToList();
             var identified = new List<Finding>(critique.Findings.Count);
+            var dropped = new List<string>();
             var next = snapshot.NextFindingNumber;
             foreach (var finding in critique.Findings)
             {
                 var id = FormatFindingId(next++);
-                entries.Add(new DecisionLedgerEntry(id, PhaseName(phase), PhaseName(phase),
-                                                    new Finding(finding.Severity, finding.Where, finding.What),
+                var invariantOf = Text(finding.InvariantOf);
+                if (invariantOf is not null && !IsEarlierFindingId(invariantOf, snapshot.NextFindingNumber))
+                {
+                    dropped.Add($"{id}: invariantOf {invariantOf} names no finding of this run; stored as none");
+                    invariantOf = null;
+                }
+                var axes = finding.Axes?.Select(Text).OfType<string>().ToArray();
+                var stored = new Finding(finding.Severity, finding.Where, finding.What, null,
+                                         Text(finding.Invariant), axes is { Length: > 0 } ? axes : null,
+                                         Text(finding.Searched), finding.Complete, invariantOf);
+                entries.Add(new DecisionLedgerEntry(id, PhaseName(phase), PhaseName(phase), stored,
                                                     LedgerDisposition.Unresolved));
-                identified.Add(new Finding(finding.Severity, finding.Where, finding.What, id));
+                identified.Add(stored with { FindingId = id });
             }
+            notes = dropped;
 
             if (identified.Count > 0)
             {
@@ -788,7 +1022,14 @@ internal sealed class DecisionLedger
         }
     }
 
-    internal DecisionBatchResponse Apply(DecisionBatchRequest request)
+    /// <summary>Applies a batch the server builds itself, such as the closures a passed fix gate makes.</summary>
+    /// <param name="request">The batch.</param>
+    /// <param name="fixClaim">
+    /// What the Builder reported for the attempt behind an automatic-gate closure; each closed
+    /// finding keeps the part that names it as its claim in the invariant register. Null or blank
+    /// keeps the closure's evidence instead. Not part of the digest.
+    /// </param>
+    internal DecisionBatchResponse Apply(DecisionBatchRequest request, string? fixClaim = null)
     {
         var payload = ValidateAndNormalize(request);
         var digest = Digest(JsonSerializer.SerializeToUtf8Bytes(
@@ -809,8 +1050,9 @@ internal sealed class DecisionLedger
 
             ValidateLegalTransitions(snapshot, payload);
             var entries = snapshot.Entries.ToDictionary(entry => entry.FindingId, StringComparer.Ordinal);
+            var register = snapshot.ClosedInvariants?.ToList() ?? [];
 
-            ApplyEntries(entries, payload);
+            ApplyEntries(entries, register, payload, fixClaim);
 
             var result = new DecisionBatchResult(
                 payload.DecisionBatchId,
@@ -822,7 +1064,8 @@ internal sealed class DecisionLedger
             var updated = snapshot with
             {
                 Entries = entries.Values.OrderBy(entry => FindingNumber(entry.FindingId)).ToArray(),
-                AppliedDecisionBatches = [.. snapshot.AppliedDecisionBatches, applied]
+                AppliedDecisionBatches = [.. snapshot.AppliedDecisionBatches, applied],
+                ClosedInvariants = register
             };
 
             WriteSnapshot(_path, updated);
@@ -857,8 +1100,18 @@ internal sealed class DecisionLedger
         return JsonSerializer.SerializeToUtf8Bytes(payload, DecisionLedgerCanonicalJson.Default.OrchestratorDecisionPayload);
     }
 
+    /// <summary>
+    /// Applies a validated batch to the entries. A closed entry that named an invariant leaves its
+    /// record in <paramref name="register"/> before it is removed.
+    /// </summary>
+    /// <param name="entries">The ledger's entries by ID, changed in place.</param>
+    /// <param name="register">The invariant register, appended to in place.</param>
+    /// <param name="payload">The validated batch.</param>
+    /// <param name="fixClaim">The Builder's report behind an automatic-gate closure, or null or blank to keep its evidence.</param>
     private static void ApplyEntries(Dictionary<string, DecisionLedgerEntry> entries,
-                                     DecisionBatchPayload payload)
+                                     List<ClosedInvariant> register,
+                                     DecisionBatchPayload payload,
+                                     string? fixClaim)
     {
         foreach (var decision in payload.Decisions)
         {
@@ -885,9 +1138,63 @@ internal sealed class DecisionLedger
             };
         }
 
+        var closedIds = payload.Closures.Select(closure => closure.FindingId).ToArray();
         foreach (var closure in payload.Closures)
-            entries.Remove(closure.FindingId);
+        {
+            if (!entries.Remove(closure.FindingId, out var closed)) continue;
+            Register(register, closed, closure.Kind,
+                     closure.Kind == LedgerClosureKind.AutomaticGate && !string.IsNullOrWhiteSpace(fixClaim)
+                         ? ClaimFor(fixClaim, closure.FindingId, closedIds)
+                         : closure.Evidence);
+        }
     }
+
+    /// <summary>
+    /// Keeps a closing entry's invariant, when it named one, with what the fixer claimed. A claim that
+    /// trips the secret guard is withheld rather than kept: it is shown to every later Critic, and
+    /// the guard on that prompt would otherwise refuse every round after it.
+    /// </summary>
+    /// <param name="register">The invariant register, appended to in place.</param>
+    /// <param name="entry">The entry being closed.</param>
+    /// <param name="closedBy">How it is closed.</param>
+    /// <param name="claim">What the fixer said it covered; blank is none, and longer than <see cref="CLAIM_LIMIT"/> is cut.</param>
+    private static void Register(List<ClosedInvariant> register, DecisionLedgerEntry entry,
+                                 LedgerClosureKind closedBy, string? claim)
+    {
+        if (entry.Finding.Invariant is not { } invariant) return;
+        if (!string.IsNullOrWhiteSpace(claim))
+        {
+            try { SensitiveInput.Guard(claim, $"fix claim for {entry.FindingId}"); }
+            catch (SensitiveContentException) { claim = WITHHELD_CLAIM; }
+        }
+        register.Add(new ClosedInvariant(entry.FindingId, entry.Origin, entry.Finding.Severity, entry.Finding.Where,
+                                         invariant, entry.Finding.Axes, entry.Finding.InvariantOf, closedBy,
+                                         string.IsNullOrWhiteSpace(claim) ? null : Cut(claim, CLAIM_LIMIT + 1)));
+    }
+
+    /// <summary>
+    /// The part of a Builder's report that belongs to one finding of its batch: from the first line
+    /// naming the finding up to the next line naming another finding of the batch, or the whole
+    /// report when no line names it.
+    /// </summary>
+    /// <param name="report">The Builder's summary of the attempt.</param>
+    /// <param name="findingId">The finding whose claim is wanted.</param>
+    /// <param name="batchIds">Every finding the attempt fixed.</param>
+    private static string ClaimFor(string report, string findingId, IReadOnlyList<string> batchIds)
+    {
+        var lines = report.ReplaceLineEndings("\n").Split('\n');
+        var start = Array.FindIndex(lines, line => Names(line, findingId));
+        if (start < 0) return report;
+        var end = start + 1;
+        while (end < lines.Length && !batchIds.Any(id => id != findingId && Names(lines[end], id))) end++;
+        return string.Join('\n', lines[start..end]);
+    }
+
+    /// <summary>Whether <paramref name="line"/> names <paramref name="findingId"/> itself, not an ID it is the start of.</summary>
+    /// <param name="line">A line of a report.</param>
+    /// <param name="findingId">A finding ID.</param>
+    private static bool Names(string line, string findingId) =>
+        Regex.IsMatch(line, $@"(?<![\w-]){Regex.Escape(findingId)}(?!\d)");
 
     private object Gate() => GATES.GetOrAdd(_path, static _ => new object());
 
@@ -943,7 +1250,11 @@ internal sealed class DecisionLedger
 
     private static void WriteSnapshot(string path, DecisionLedgerSnapshot snapshot)
     {
-        snapshot = snapshot with { SchemaVersion = CURRENT_SCHEMA_VERSION };
+        snapshot = snapshot with
+        {
+            SchemaVersion = CURRENT_SCHEMA_VERSION,
+            ClosedInvariants = snapshot.ClosedInvariants is { Count: > 0 } register ? register : null
+        };
         ValidateSnapshot(snapshot);
         var json = JsonSerializer.Serialize(snapshot, DecisionLedgerJson.Readable.DecisionLedgerSnapshot);
         AtomicFile.Write(path, json);
@@ -1027,8 +1338,10 @@ internal sealed class DecisionLedger
                     RequireActiveUnresolved(entry, phase, decision.FindingId);
                     if (decision.Evidence is null && entry.Finding.Severity is "blocker" or "major")
                         unevidenced.Add(entry);
+                    // The evidence rides along only to reach the invariant register: the batch's
+                    // digest is taken over what the orchestrator sent, not over this closure.
                     closures.Add(new LedgerClosureDecision(decision.FindingId, LedgerClosureKind.Revision,
-                                                           decisionMaker, decision.Reason));
+                                                           decisionMaker, decision.Reason, decision.Evidence ?? ""));
                     accepted.Add(decision.FindingId);
                     break;
 
@@ -1292,6 +1605,7 @@ internal sealed class DecisionLedger
 
             ValidateOriginAndPhase(entry.Origin, entry.ActivePhase);
             ValidateFinding(entry.Finding);
+            ValidateInvariantOf(entry.Finding.InvariantOf, number);
             if (!Enum.IsDefined(entry.Disposition))
                 throw new DecisionLedgerStateException($"unsupported disposition '{entry.Disposition}'");
 
@@ -1332,6 +1646,24 @@ internal sealed class DecisionLedger
                     throw new DecisionLedgerStateException("only a code-review entry can be raised");
                 ValidateDecisionData(entry.Raised);
             }
+        }
+
+        var closedIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var record in snapshot.ClosedInvariants ?? [])
+        {
+            if (record is null) throw new DecisionLedgerStateException("closedInvariants must not contain null");
+            var number = ValidateFindingId(record.FindingId);
+            if (number >= snapshot.NextFindingNumber)
+                throw new DecisionLedgerStateException("closed invariant references a finding beyond nextFindingNumber");
+            if (entryIds.Contains(record.FindingId) || !closedIds.Add(record.FindingId))
+                throw new DecisionLedgerStateException($"closed invariant '{record.FindingId}' is open or recorded twice");
+            ValidatePhase(record.Origin, "closed invariant origin");
+            RequireText(record.Severity, "closed invariant severity");
+            RequireText(record.Where, "closed invariant where");
+            RequireText(record.Invariant, "closed invariant");
+            if (!Enum.IsDefined(record.ClosedBy))
+                throw new DecisionLedgerStateException($"unsupported closure kind '{record.ClosedBy}'");
+            ValidateInvariantOf(record.InvariantOf, number);
         }
 
         var batchIds = new HashSet<string>(StringComparer.Ordinal);
@@ -1508,6 +1840,18 @@ internal sealed class DecisionLedger
         RequireText(finding.What, "finding what");
     }
 
+    /// <summary>
+    /// A stored <c>invariantOf</c> names an earlier finding, so following it always ends; ingestion
+    /// stores none that does not.
+    /// </summary>
+    /// <param name="invariantOf">The stored value, or null.</param>
+    /// <param name="ownNumber">The number of the finding that carries it.</param>
+    private static void ValidateInvariantOf(string? invariantOf, int ownNumber)
+    {
+        if (invariantOf is not null && !IsEarlierFindingId(invariantOf, ownNumber))
+            throw new DecisionLedgerStateException($"invariantOf '{invariantOf}' must name an earlier finding");
+    }
+
     private static void ValidateAssessments(IReadOnlyList<UnresolvedAssessment> assessments,
                                             IReadOnlySet<string> unresolved)
     {
@@ -1578,6 +1922,17 @@ internal sealed class DecisionLedger
 
     private static int FindingNumber(string id) => ValidateFindingId(id);
 
+    /// <summary>Whether <paramref name="id"/> is a well-formed finding ID numbered below <paramref name="limit"/>.</summary>
+    /// <param name="id">The ID to check.</param>
+    /// <param name="limit">The first number it must stay below.</param>
+    private static bool IsEarlierFindingId(string id, int limit) =>
+        id.StartsWith("F-", StringComparison.Ordinal)
+        && int.TryParse(id.AsSpan(2), NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+        && number >= 1 && number < limit
+        && string.Equals(id, FormatFindingId(number), StringComparison.Ordinal);
+
+    private static string? Text(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
+
     private static string FormatFindingId(int number) => $"F-{number:0000}";
 
     private static string PhaseName(LedgerPhase phase) => phase switch
@@ -1635,6 +1990,7 @@ internal sealed class DecisionLedgerCritiqueException(string message)
 [JsonSerializable(typeof(AppliedDecisionBatch))]
 [JsonSerializable(typeof(DecisionBatchResult))]
 [JsonSerializable(typeof(FixAttemptRecord))]
+[JsonSerializable(typeof(ClosedInvariant))]
 [JsonSerializable(typeof(BuildResult))]
 [JsonSerializable(typeof(Verification))]
 [JsonSerializable(typeof(GateRun))]

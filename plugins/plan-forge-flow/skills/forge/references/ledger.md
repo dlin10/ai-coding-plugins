@@ -7,8 +7,15 @@ How findings are identified, decided, closed and fixed. Read it before the first
 `decision-ledger.json` is the Run-local source of truth for Critic findings. IDs are monotonic across
 plan and code review and are never reused. Each entry keeps an immutable `origin`, a mutable
 `activePhase`, its verbatim finding, and one of `unresolved`, `deferred`, `rejected`, or
-`builder_note`. Closing an entry removes it; the Flow log keeps the finding, decision, reopening proposal, fix and closure as
-the human-readable audit. Flow is never Worker input, and there is no `review-log.md`.
+`builder_note`. A Critic's finding also carries its `invariant` — the property violated, stated
+without the place — the `axes` its places vary along, how the Critic `searched` for them, whether
+its list is `complete`, and `invariantOf`, the earlier finding whose invariant it violates again.
+Closing an entry removes it; the Flow log keeps the finding, decision, reopening proposal, fix and closure as
+the human-readable audit. Flow is never Worker input, and there is no `review-log.md`. A closed
+finding that named an invariant leaves a record in the ledger's invariant register: its ID, phase,
+severity, place, invariant, axes and `invariantOf`, how it closed, and the fixer's claim — your
+`addressedByRevision` or `hostVerified` evidence, or the lines of the Builder's report that name
+the finding, for the attempt whose gate closed it.
 
 The phase projection is deliberate. Plan review receives entries whose `activePhase` is
 `plan_review`. Code review receives settled plan decisions and Builder notes plus entries whose
@@ -16,7 +23,10 @@ The phase projection is deliberate. Plan review receives entries whose `activePh
 creates no copy of an existing ID, and may only propose reopening a displayed deferred, rejected,
 or `builder_note` ID. You accept or decline that proposal. Accepting a plan-origin proposal during
 code review preserves `origin=plan_review`, changes `activePhase` to `code_review`, and makes the same ID unresolved;
-declining changes no ledger state and remains visible in the Flow audit.
+declining changes no ledger state and remains visible in the Flow audit. After the projection, both
+phases' Critics get `# Invariants of earlier rounds`: the register and the displayed entries'
+invariants, grouped by the first finding of each `invariantOf` chain, blocker and major first, each
+with its axes, its findings and the latest claim, which the Critic checks rather than takes.
 
 Every non-empty logical decision set gets one new `decisionBatchId` and a `decisions` array. Keep
 that key and the exact byte-for-byte decisions for every retry of the same logical set. Each item is
@@ -72,7 +82,8 @@ invalid, the round does not count and no findings are ingested, but decisions ap
 call stay applied; retry the round with the same batch and exact decisions.
 
 Fix execution is separate from decisions. Give each logical execution one `fixAttemptId` and the
-exact sorted `fixFindingIds`; the Builder receives the ledger's verbatim findings for those IDs only.
+exact sorted `fixFindingIds`; the Builder receives the ledger's verbatim findings for those IDs only,
+each with its invariant and axes.
 Your `note` follows them in a section of its own, and the Flow log records it verbatim; what it
 holds is under "Fix batches and their notes" in `code-review.md`.
 A cut-short turn, failed gate, timeout, or retained finding retries the same attempt ID, exact ID

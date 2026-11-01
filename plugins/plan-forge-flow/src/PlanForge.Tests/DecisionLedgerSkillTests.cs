@@ -193,7 +193,8 @@ public sealed class DecisionLedgerSkillTests
         Assert.Contains("One pass, one kind of gap, every place it occurs.", critic, StringComparison.Ordinal);
         Assert.Contains("never judge on the strength of a command that is still running.\n\nThe projection's IDs", critic,
                         StringComparison.Ordinal);
-        Assert.Contains("Use these passes:\n\n- File by file", scope, StringComparison.Ordinal);
+        Assert.Contains("Use these passes:\n\n- Invariant by invariant", scope, StringComparison.Ordinal);
+        Assert.Contains("- File by file", scope, StringComparison.Ordinal);
         Assert.Contains("- Task by task over the approved plan", scope, StringComparison.Ordinal);
         Assert.Contains("- Gate by gate", scope, StringComparison.Ordinal);
         Assert.Contains("Judge the complete brief:\n\n- The requirements are yours to judge", requirements,

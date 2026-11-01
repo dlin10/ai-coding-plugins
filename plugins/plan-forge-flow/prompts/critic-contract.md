@@ -14,6 +14,14 @@ answers left out. A decision is not a gap. Do not raise a finding that asks for 
 settled otherwise, or that asks its question again. Material that departs from a decision is a gap,
 and its `what` names the decision's ID.
 
+A `# Invariants of earlier rounds` section may follow too. Each block is one invariant findings of
+this run named, under the first finding that named it: the axes its places vary along, every finding
+that named it and how it stands, and the latest claim — what a fixer says its fix covered. Before
+your own passes, take each invariant and check it along its axes across the whole current material,
+every layer, not only where it was found and fixed. A claim is the fixer's word: verify it, do not
+take it. Each violation is a finding with `invariantOf` set to the block's ID or the instance it
+repeats; places that each need an edit of their own stay findings of their own.
+
 Read the material through in passes, and carry each pass to the end of it before starting the next.
 Which passes those are depends on what you were given, and the contracts below name them; the
 discipline does not change. A pass ends where the material ends, not where you have enough to say.
@@ -24,7 +32,8 @@ and holding the rest costs a round apiece, and the round after this one may not 
 though it will not. What you leave out is not deferred, it is shipped.
 
 Before you answer, read your own findings back against the material once and add what the first pass
-walked past.
+walked past. Walk the invariant of each of your blocker and major findings along its axes over the
+whole material, and add every place that breaks it.
 
 A later round sweeps the whole material again, not only the part the revision touched. The decisions
 you are given say what was settled; they say nothing about whether the rest was ever looked at.
@@ -34,12 +43,22 @@ You will be given either an implementation plan or a diff. Judge only what is in
 - Every gap becomes a finding. `where` names the step, file, or section, and names it precisely
   enough to tell one instance from another within the same step; `what` states the gap concretely
   enough to act on.
+- Every finding names the rule it breaks. `invariant` is the property violated, stated without the
+  place and at the level of the plan's rule, so that it covers every place that must satisfy it —
+  not the instance's form. `axes` are the layers and forms those places vary along — for a plan:
+  requirement, task rule, matrix, gate, docs; for code: each decider or reader of the question,
+  tests, gate scripts, docs; for either: call kinds, value channels, object kinds, one target or
+  several. A minor may leave them empty. `invariantOf` is the ID of an earlier finding — a displayed
+  entry or one under `# Invariants of earlier rounds` — whose invariant this one violates again, and
+  empty when there is none.
 - When the material leaves out members of a class — readers of a value, deciders of a question,
   call forms, cases of a rule — that is one finding against the rule or decision that leaves them
-  out, and `what` lists every member left out that you found and says how you looked: a references
-  or callers query, a search of the material. If you stopped short, say the list is partial. A
-  partial list read as a whole one is answered member by member, a round at a time. Places that
-  each need an edit of their own stay findings of their own.
+  out: `what` lists every member left out that you found, and `searched` says how you looked — a
+  references or callers query, a search of the material. `complete` is true only when you walked
+  every axis and the members listed are all there are; for a finding about one place, only when you
+  checked that no other place breaks the same invariant. A partial list read as a whole one is
+  answered member by member, a round at a time. Places that each need an edit of their own stay
+  findings of their own.
 - When closing a gap takes both a rule and the check that would catch its violation, `what` states
   them apart: the rule first, then the check. A gap that is only a missing check says so.
 - Severity is about the implementer who will follow the material, not about how complete it is.
@@ -91,9 +110,10 @@ completion. The Orchestrator supplies hostVerified evidence after full checks.
 Return `findings`, `unresolvedAssessments`, and `reopenings` on every response, including empty
 arrays. For every displayed `unresolved` ID, return exactly one `unresolvedAssessments` item with
 that `findingId`, a boolean `stillPresent`, and non-empty, concrete `evidence`. New findings go in
-`findings` without an ID; the server assigns their immutable IDs. Put a reopening proposal only for
-a displayed settled (`deferred`, `rejected`, or `builder_note`) ID, with non-empty evidence. A
-proposal does not change the ledger. If a gap is already represented by a displayed ID, assess or
-propose reopening that ID instead of returning a semantically duplicate new finding. Return no
-properties outside the schema; an invalid response is rejected as a whole and does not count as a
-successful round.
+`findings` without an ID; the server assigns their immutable IDs. Each carries `invariant`, `axes`,
+`searched`, `complete` and `invariantOf`, an empty string or array where there is nothing to say.
+Put a reopening proposal only for a displayed settled (`deferred`, `rejected`, or `builder_note`)
+ID, with non-empty evidence. A proposal does not change the ledger. If a gap is already represented
+by a displayed ID, assess or propose reopening that ID instead of returning a semantically duplicate
+new finding. Return no properties outside the schema; an invalid response is rejected as a whole and
+does not count as a successful round.
