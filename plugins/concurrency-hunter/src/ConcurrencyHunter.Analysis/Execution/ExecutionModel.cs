@@ -194,6 +194,16 @@ public sealed class ExecutionAnalysis
     private readonly AsyncSegments? _segments;
     private readonly HappensBefore? _order;
 
+    private static readonly IReadOnlySet<string> NoAssumptions = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>The name each assumption is counted under (<see cref="OrderingAssumptions"/>).</summary>
+    private static readonly (OrderingAssumption Assumption, string Name)[] AssumptionKeys =
+    [
+        (OrderingAssumption.Observers, OrderingAssumptions.OBSERVERS),
+        (OrderingAssumption.ThreadContext, OrderingAssumptions.THREAD_CONTEXT),
+        (OrderingAssumption.ThreadPoolEntry, OrderingAssumptions.THREAD_POOL_ENTRY)
+    ];
+
     internal ExecutionAnalysis(IReadOnlyList<ExecutionInstance> executions, IReadOnlyList<CollectedAccess> accesses,
                                IReadOnlyDictionary<string, RegionOwnership> ownership, IReadOnlyDictionary<string, int> counters,
                                IReadOnlySet<string> singleObjects, IReadOnlySet<string> publishedObjects,
@@ -280,13 +290,13 @@ public sealed class ExecutionAnalysis
     /// <param name="second">The second execution's id.</param>
     public bool Overlaps(string first, string second) => first != second || _executions[first].OverlapsItself;
 
-    /// <summary>Whether a happens-before path trusted for every instance it connects orders two accesses of different executions.</summary>
+    /// <summary>Whether a universal happens-before path or a completion proof for the queried passes orders two accesses.</summary>
     /// <param name="first">The first access.</param>
     /// <param name="second">The second access.</param>
     public bool Ordered(Access first, Access second)
     {
         WorkCancellation.Check();
-        return first.ExecutionId != second.ExecutionId && _order?.Ordered(first, second) == true;
+        return _order?.Ordered(first, second) == true;
     }
 
     /// <summary>Whether an execution runs once per run of a creator (ADR 0020): it is the creator, or every start on its chain from the
@@ -298,23 +308,52 @@ public sealed class ExecutionAnalysis
     public bool RunsOncePerRunOf(string execution, string creator) => CreatorRuns.Once(_executions, execution, creator);
 
     /// <summary>How two accesses meet in time. On a <c>TreeConfined</c> region, both sides of one creator, the creator runs once
-    /// (ADR 0020): two accesses of one execution may run at once only when it does not run once per run of the creator, and two of two
-    /// executions unless happens-before, read per run of the creator, orders them. Anywhere else the executions' policies and the
-    /// happens-before graph of the whole scope decide.</summary>
+    /// (ADR 0020): two accesses of one execution may run at once only when it does not run once per run of the creator, and then, like
+    /// two of two executions, unless happens-before or the completion proof of the queried passes, read per run of the creator, orders
+    /// them. Anywhere else the executions' policies, the happens-before graph of the whole scope and the completion proof decide.</summary>
     /// <param name="first">One access.</param>
     /// <param name="second">The other access.</param>
-    public PairTiming Timing(Access first, Access second)
+    public PairTiming Timing(Access first, Access second) => Decide(first, second, TreeCreator(first, second)).Timing;
+
+    /// <summary><see cref="Timing"/>, with the assumptions an ordered pair is ordered only under (R5): for a pair it orders, the same
+    /// decision is made again with the exceptional exit of every blocking wait for a task ordering nothing, as in the cases of R4, and when
+    /// that decision leaves the pair unordered, <paramref name="assumed"/> names the assumptions of the waits the ordering read as
+    /// completion (<see cref="OrderingAssumptions"/>). It is empty for every other pair.</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    /// <param name="assumed">Receives the assumptions the ordering of the pair rests on.</param>
+    public PairTiming Timing(Access first, Access second, out IReadOnlySet<string> assumed)
     {
-        if (TreeCreator(first, second) is not { } creator)
+        var creator = TreeCreator(first, second);
+        var timing = Decide(first, second, creator).Timing;
+        var assumption = timing == PairTiming.Ordered ? _order?.Assumed(first, second, creator) ?? OrderingAssumption.None : OrderingAssumption.None;
+        assumed = assumption == OrderingAssumption.None
+            ? NoAssumptions
+            : AssumptionKeys.Where(key => assumption.HasFlag(key.Assumption)).Select(key => key.Name).ToHashSet(StringComparer.Ordinal);
+        return timing;
+    }
+
+    /// <summary>The production decision of <see cref="Timing"/> together with the branch that gave it, so a diagnostic reads the branch
+    /// the analysis took instead of reproducing it.</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    /// <param name="creator">The creator of the <c>TreeConfined</c> region both are on, or null.</param>
+    private (PairTiming Timing, TimingBranch Branch) Decide(Access first, Access second, string? creator)
+    {
+        if (creator is null)
         {
-            return !Overlaps(first.ExecutionId, second.ExecutionId) ? PairTiming.NoOverlap
-                : Ordered(first, second) ? PairTiming.Ordered
-                : PairTiming.Concurrent;
+            if (!Overlaps(first.ExecutionId, second.ExecutionId))
+                return (PairTiming.NoOverlap, TimingBranch.SerializedExecution);
+            WorkCancellation.Check();
+            return Ordering(_order?.OrderedBy(first, second));
         }
 
-        if (first.ExecutionId == second.ExecutionId)
-            return RunsOncePerRunOf(first.ExecutionId, creator) ? PairTiming.NoOverlap : PairTiming.Concurrent;
-        return _order?.Ordered(first, second, creator) == true ? PairTiming.Ordered : PairTiming.Concurrent;
+        if (first.ExecutionId == second.ExecutionId && RunsOncePerRunOf(first.ExecutionId, creator))
+            return (PairTiming.NoOverlap, TimingBranch.CreatorRunsOnce);
+        return Ordering(_order?.OrderedBy(first, second, creator));
+
+        static (PairTiming, TimingBranch) Ordering(TimingBranch? branch) =>
+            branch is { } ordered ? (PairTiming.Ordered, ordered) : (PairTiming.Concurrent, TimingBranch.Unordered);
     }
 
     /// <summary>The creator of the <c>TreeConfined</c> region both accesses are on, or null.</summary>
@@ -339,6 +378,56 @@ public sealed class ExecutionAnalysis
     {
         WorkCancellation.Check();
         return _order?.JoinDominates(access.ExecutionId, joinInstance, joinOperation, access) ?? true;
+    }
+
+    /// <summary>Whether a join of a pass's parent, were its handle the pass's own, would order the self-pair of the pass's work (R9).</summary>
+    /// <param name="instance">The instance making the join.</param>
+    /// <param name="operation">The join operation.</param>
+    /// <param name="first">One access of the pass's work.</param>
+    /// <param name="second">The other access of the same work.</param>
+    internal bool PassJoinWouldOrder(string instance, int operation, Access first, Access second)
+    {
+        WorkCancellation.Check();
+        return _order?.PassJoinWouldOrder(instance, operation, first, second, TreeCreator(first, second)) == true;
+    }
+
+    /// <summary>How <see cref="Timing"/> decided a pair, for a diagnostic request only: the branch the production decision took, the facts
+    /// that branch read and, where that decision ran the completion proof of the queried passes, a traced replay of that proof. A replay
+    /// that does not answer as the decision did is an inconsistency, never evidence.</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    internal OrderProofEvidence OrderProof(Access first, Access second)
+    {
+        var creator = TreeCreator(first, second);
+        var (timing, branch) = Decide(first, second, creator);
+        var facts = new List<string>();
+        if (branch is TimingBranch.SerializedExecution or TimingBranch.CreatorRunsOnce)
+        {
+            var execution = _executions[first.ExecutionId];
+            facts.Add($"execution:{execution.Id}");
+            facts.Add($"kind:{execution.Kind}");
+            facts.Add($"multiplicity:{execution.Policy.Multiplicity}");
+            facts.Add($"self-overlap:{execution.Policy.SelfOverlap}");
+            facts.Add($"overlaps-itself:{execution.OverlapsItself}");
+            if (creator is not null)
+            {
+                facts.Add($"creator:{creator}");
+                facts.AddRange(Ownership[OwnershipRegion(first)].Evidence.Select(line => $"ownership:{line}"));
+            }
+            return new OrderProofEvidence(timing, branch, creator, facts, [], [], []);
+        }
+        if (_order is null)
+            return new OrderProofEvidence(timing, branch, creator, ["no-happens-before-graph"], [], [], []);
+        if (branch == TimingBranch.HappensBeforePath)
+        {
+            facts.Add(_order.PathBefore(first, second, creator) ? "path:first-before-second" : "path:second-before-first");
+            return new OrderProofEvidence(timing, branch, creator, facts, [], [], []);
+        }
+        // Unordered and PassCompletion both ran the pass completion proof; its replay shows what it read.
+        var trace = _order.TracePassCompletion(first, second, creator);
+        if (trace.Proven != (branch == TimingBranch.PassCompletion))
+            throw new InvalidOperationException($"The traced pass completion proof answered {trace.Proven} where the decision took {branch}.");
+        return new OrderProofEvidence(timing, branch, creator, facts, trace.Frames, trace.Steps, trace.Proven ? trace.Models : []);
     }
 
     /// <summary>The distinct spawn and async call sites the executions reach, by source; timers are counted apart.</summary>
@@ -599,13 +688,17 @@ public static class ExecutionModel
     /// <param name="delegateRegion">The delegate region.</param>
     public static string UnknownDelegateCallId(string delegateRegion) => $"unknown-delegate-call:{delegateRegion}";
 
-    /// <summary>A call whose record orders every run's continuation, under the once-running caller threshold.</summary>
+    /// <summary>A call whose record runs its delegate one run at a time, admitted by the one selection every reader of a record's run
+    /// relation shares: a <c>sequential</c> call, or a <c>sequential-awaited</c> call, whose record also orders every run's continuation
+    /// under the once-running caller threshold.</summary>
     /// <param name="Instance">The instance making the call.</param>
     /// <param name="Operation">The call operation.</param>
-    /// <param name="Execution">The execution making the call.</param>
-    /// <param name="Task">The call's own task, or null for a member returning no task.</param>
-    /// <param name="Continuations">The executions continuing the delegate's runs.</param>
-    internal sealed record AwaitedCall(string Instance, int Operation, string Execution, string? Task, IReadOnlyList<string> Continuations);
+    /// <param name="Relation">The relation of every run of the call.</param>
+    /// <param name="Execution">The execution making a sequential-awaited call; null for a sequential one.</param>
+    /// <param name="Task">The call's own task, or null for a member returning no task or a sequential call.</param>
+    /// <param name="Continuations">The executions continuing a sequential-awaited call's runs; none for a sequential one.</param>
+    internal sealed record AdmittedCall(string Instance, int Operation, RunRelation Relation, string? Execution, string? Task,
+                                        IReadOnlyList<string> Continuations);
 
     private sealed class Builder(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken, ExecutionWalkOrder? walkOrder)
     {
@@ -668,6 +761,7 @@ public static class ExecutionModel
         private readonly Dictionary<string, HashSet<(string Instance, int Operation)>> _workSites = new(StringComparer.Ordinal);
         private readonly Dictionary<(string BodyId, int OperationId), TimerKind> _timerKinds = [];
         private readonly Dictionary<string, HappensBefore.Flow> _flows = new(StringComparer.Ordinal);
+        private HappensBefore? _handleOrder;
         private readonly Dictionary<string, string> _childKeys = new(StringComparer.Ordinal);
         private readonly List<string> _childOrder = [];
         private readonly HashSet<string> _alwaysRepeated = new(StringComparer.Ordinal);
@@ -820,8 +914,9 @@ public static class ExecutionModel
 
             FinishSpawnedExecutions();
             FinishUnknownDelegateCalls();
-            var awaitedCalls = AwaitedCalls();
-            foreach (var continuation in awaitedCalls.SelectMany(call => call.Continuations).Distinct(StringComparer.Ordinal))
+            var admittedCalls = AdmittedCalls();
+            foreach (var continuation in admittedCalls.Where(call => call.Relation == RunRelation.SequentialAwaited).SelectMany(call => call.Continuations)
+                                                      .Distinct(StringComparer.Ordinal))
             {
                 CheckCancellation();
                 _executions[continuation] = _executions[continuation] with { Policy = SERIALIZED };
@@ -835,7 +930,7 @@ public static class ExecutionModel
             var executions = _executions.Values.OrderBy(execution => execution.Id, StringComparer.Ordinal).ToArray();
             var entries = _entries.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionEntry>)pair.Value, StringComparer.Ordinal);
             var order = new HappensBefore(scope, heap, _segments, executions.ToDictionary(execution => execution.Id, StringComparer.Ordinal), entries,
-                                          _visitsByExecution, _steps, _anchors.ToArray(), _tails, DuringStartup(), awaitedCalls, cancellationToken);
+                                          _visitsByExecution, _steps, _anchors.ToArray(), _tails, DuringStartup(), admittedCalls, cancellationToken);
             var timerSites = _timerKinds.Select(pair => new TimerSiteCoverage(new OperationSite(pair.Key.BodyId, pair.Key.OperationId), Counter(pair.Value)))
                                         .OrderBy(site => site.Site.BodyId, StringComparer.Ordinal)
                                         .ThenBy(site => site.Site.OperationId)
@@ -1229,26 +1324,51 @@ public static class ExecutionModel
             }
         }
 
-        /// <summary>The single owner of both sequential-awaited effects: only a curated call made once by one once-running execution,
-        /// with exactly one delegate supplying its continuation site, created in the calling body and having only async targets.</summary>
-        private IReadOnlyList<AwaitedCall> AwaitedCalls()
+        /// <summary>The single owner of every run relation's effects: only a curated call of the built-in or project layer, whose one
+        /// <c>invoke-now</c> delegate is created in the calling body. A <c>sequential</c> call is admitted when every run made at it is
+        /// sequential; a <c>sequential-awaited</c> one only when made once by one once-running execution, with that delegate supplying
+        /// its whole continuation site and having only async targets, or non-async ones that each run as one async call of their body,
+        /// whose site is then theirs (<see cref="Wrapped"/>).</summary>
+        private IReadOnlyList<AdmittedCall> AdmittedCalls()
         {
-            var result = new List<AwaitedCall>();
+            var result = new List<AdmittedCall>();
+            var relations = heap.RunRelations.ToLookup(run => (run.Caller, run.Operation), run => run.Relation);
             foreach (var group in heap.DelegateReturns.GroupBy(pair => (pair.Key.Instance, pair.Key.Operation)))
             {
                 CheckCancellation();
-                if (!_asyncSpawns.TryGetValue(group.Key, out var site))
+                if (!heap.Instances.TryGetValue(group.Key.Instance, out var instance) ||
+                    !scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
+                {
                     continue;
-                var instance = heap.Instances[group.Key.Instance];
-                var body = scope.Reachable.Bodies[instance.BodyId];
+                }
                 var call = body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
                                .FirstOrDefault(call => call.Id == group.Key.Operation);
                 if (call?.Library is not { InRange: true, DeclaredOpaque: false, Layer: IrModelLayer.BuiltIn or IrModelLayer.Project } library)
                     continue;
+                if (relations[group.Key].Distinct().ToArray() is [RunRelation.Sequential])
+                {
+                    var invoked = group.Where(pair => library.Fates.Any(fate => fate.ParameterOrdinal == pair.Key.Ordinal && fate.Kind == IrFateKind.InvokeNow))
+                                       .ToArray();
+                    if (invoked is [var only] && !only.Value.Unseen && only.Value.Runs.Count != 0 &&
+                        call.ArgumentAt(only.Key.Ordinal) is int value && CreatedDelegate(body, value))
+                    {
+                        result.Add(new AdmittedCall(instance.Id, call.Id, RunRelation.Sequential, null, null, []));
+                    }
+                    continue;
+                }
+                var site = _asyncSpawns.GetValueOrDefault(group.Key);
+                var wrapped = Wrapped(group.Key, group.SelectMany(pair => pair.Value.Runs), instance);
+                if (site is null && wrapped.Count == 0)
+                    continue;
+                // A non-async target returning the task of one async call in its body runs as that call (R8): the call's task is the run's.
+                string? RunTask(DelegateRun run) => run.Task ?? (wrapped.TryGetValue(run.Callee, out var returned) ? _asyncSpawns[returned].Handle : null);
+                // Its continuation site is that call's; that call's callees stand for it where this delegate must cover a whole site.
+                IEnumerable<string> Awaited(DelegateRun run) => wrapped.TryGetValue(run.Callee, out var returned) ? _asyncSpawns[returned].Callees : [run.Callee];
+                var siteCallees = site?.Callees ?? [];
                 var delegates = group.Where(pair => library.Fates.Any(fate => fate.ParameterOrdinal == pair.Key.Ordinal && fate.Kind == IrFateKind.InvokeNow) &&
-                                                    pair.Value.Runs.Any(run => site.Callees.Contains(run.Callee))).ToArray();
+                                                    pair.Value.Runs.Any(run => siteCallees.Contains(run.Callee) || wrapped.ContainsKey(run.Callee))).ToArray();
                 if (delegates is not [var candidate] || candidate.Value.Unseen || candidate.Value.Runs.Count == 0 ||
-                    candidate.Value.Runs.Any(run => run.Task is null ||
+                    candidate.Value.Runs.Any(run => RunTask(run) is null ||
                         !heap.RunRelations.Contains((group.Key.Instance, group.Key.Operation, run.Callee, RunRelation.SequentialAwaited))))
                 {
                     continue;
@@ -1256,9 +1376,12 @@ public static class ExecutionModel
 
                 // A holder can run another delegate at the same continuation site, including the candidate's own target.
                 // Both effects require this one delegate to account for every continuation and every recorded run there.
-                if (!candidate.Value.Runs.Select(run => run.Callee).ToHashSet(StringComparer.Ordinal).SetEquals(site.Callees) ||
+                var continuationSites = candidate.Value.Runs.Where(run => wrapped.ContainsKey(run.Callee)).Select(run => wrapped[run.Callee]).Distinct().ToArray();
+                var awaitedRuns = siteCallees.Concat(candidate.Value.Runs.Select(run => run.Callee).Where(wrapped.ContainsKey)).ToHashSet(StringComparer.Ordinal);
+                if (!candidate.Value.Runs.SelectMany(Awaited).ToHashSet(StringComparer.Ordinal)
+                              .SetEquals(siteCallees.Concat(continuationSites.SelectMany(returned => _asyncSpawns[returned].Callees))) ||
                     heap.RunRelations.Any(run => run.Caller == group.Key.Instance && run.Operation == group.Key.Operation &&
-                                                 site.Callees.Contains(run.Callee) && run.Relation != RunRelation.SequentialAwaited))
+                                                 awaitedRuns.Contains(run.Callee) && run.Relation != RunRelation.SequentialAwaited))
                 {
                     continue;
                 }
@@ -1268,20 +1391,72 @@ public static class ExecutionModel
                     continue;
                 }
 
-                var executions = _visitsByExecution.Where(pair => pair.Value.Any(visit => visit.InstanceId == instance.Id &&
-                                                     _segments.Runs(instance.BodyId, visit.Segment, call.Id)))
-                                                  .Select(pair => pair.Key).ToArray();
-                if (executions is not [var execution] || !RunsOnce(execution) || !SiteOnce(execution, body.BodyId, call.Id, afterCall: true))
+                if (OnlyExecution(instance, call.Id) is not { } execution || !RunsOnce(execution) ||
+                    !SiteOnce(execution, body.BodyId, call.Id, afterCall: true))
+                {
                     continue;
-                var continuations = _anchors.Where(anchor => anchor.ExecutionId == execution && anchor.CallerInstance == instance.Id &&
-                                                             anchor.OperationId == call.Id && anchor.Kind == SpawnAnchorKind.AsyncReturn)
+                }
+                bool ContinuationOf(SpawnAnchor anchor) => site is not null && anchor.CallerInstance == instance.Id && anchor.OperationId == call.Id ||
+                                                           continuationSites.Contains((anchor.CallerInstance, anchor.OperationId));
+                var continuations = _anchors.Where(anchor => anchor.ExecutionId == execution && anchor.Kind == SpawnAnchorKind.AsyncReturn && ContinuationOf(anchor))
                                             .Select(anchor => anchor.ChildId).Distinct(StringComparer.Ordinal).ToArray();
-                if (continuations.Length == 0 || library.ReturnsTask && !heap.CallTasks.ContainsKey((instance.Id, call.Id)))
+                if (continuations.Length == 0 || library.ReturnsTask && !heap.CallTasks.ContainsKey((instance.Id, call.Id)) ||
+                    continuationSites.Any(returned => !_anchors.Any(anchor => anchor.ExecutionId == execution && anchor.Kind == SpawnAnchorKind.AsyncReturn &&
+                                                                              (anchor.CallerInstance, anchor.OperationId) == returned)))
+                {
                     continue;
-                result.Add(new AwaitedCall(instance.Id, call.Id, execution, heap.CallTasks.GetValueOrDefault((instance.Id, call.Id)), continuations));
+                }
+                result.Add(new AdmittedCall(instance.Id, call.Id, RunRelation.SequentialAwaited, execution,
+                                            heap.CallTasks.GetValueOrDefault((instance.Id, call.Id)), continuations));
             }
             return result;
         }
+
+        /// <summary>The non-async targets of a curated call's runs that each run as one async call of their body (R8), with that call:
+        /// a target entered only through this call, run as <c>sequential-awaited</c>, whose every return is proven the task of that one
+        /// call, which one run of the target makes at most once — around a loop, a recursion or a delegate run again inside the target,
+        /// the task returned is only the last run's, and the earlier runs are work the target leaves behind. It makes the call
+        /// synchronously in the one execution making the curated call, so execution and once-ness are the curated call's.</summary>
+        /// <param name="site">The curated call's instance and operation.</param>
+        /// <param name="runs">The runs the call makes.</param>
+        /// <param name="instance">The instance making the call.</param>
+        private Dictionary<string, (string Instance, int Operation)> Wrapped((string Instance, int Operation) site, IEnumerable<DelegateRun> runs,
+                                                                             MethodInstance instance)
+        {
+            var result = new Dictionary<string, (string Instance, int Operation)>(StringComparer.Ordinal);
+            var targets = runs.Where(run => run.Task is null).Select(run => run.Callee).Distinct(StringComparer.Ordinal)
+                              .Where(callee => heap.RunRelations.Contains((site.Instance, site.Operation, callee, RunRelation.SequentialAwaited)) &&
+                                               _asyncSpawns.Keys.Any(key => key.Caller == callee) &&
+                                               heap.Edges.Where(edge => edge.CalleeInstance == callee)
+                                                   .All(edge => edge.CallerInstance == site.Instance && edge.OperationId == site.Operation))
+                              .ToArray();
+            if (targets.Length == 0 || OnlyExecution(instance, site.Operation) is not { } execution)
+                return result;
+            foreach (var target in targets)
+            {
+                CheckCancellation();
+                if (HandleOrder().ReturnedAsyncCall(execution, target) is { } returned &&
+                    OnePath(execution, heap.Instances[target].BodyId, returned.Operation, roots: new HashSet<string>([target], StringComparer.Ordinal)))
+                {
+                    result.Add(target, returned);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>The one execution that runs a call operation of an instance, or null.</summary>
+        /// <param name="instance">The instance making the call.</param>
+        /// <param name="call">The call operation.</param>
+        private string? OnlyExecution(MethodInstance instance, int call) =>
+            _visitsByExecution.Where(pair => pair.Value.Any(visit => visit.InstanceId == instance.Id && _segments.Runs(instance.BodyId, visit.Segment, call)))
+                              .Select(pair => pair.Key).ToArray() is [var only] ? only : null;
+
+        /// <summary>The graph that proves a non-async target's returns before any call is admitted, made the first time one is asked:
+        /// which execution a handle names reads no admission.</summary>
+        private HappensBefore HandleOrder() =>
+            _handleOrder ??= new HappensBefore(scope, heap, _segments, new Dictionary<string, ExecutionInstance>(_executions, StringComparer.Ordinal),
+                                               _entries.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<ExecutionEntry>)pair.Value, StringComparer.Ordinal),
+                                               _visitsByExecution, _steps, _anchors.ToArray(), _tails, DuringStartup(), [], cancellationToken);
 
         /// <summary>Whether only delegate creations define a value in this body, through assignments and phi inputs. A field,
         /// parameter, call result or combination is no creation even where its points-to set contains the same delegate regions.</summary>
@@ -1515,7 +1690,8 @@ public static class ExecutionModel
                 return flow;
             var visits = _visitsByExecution.GetValueOrDefault(execution) ?? [];
             flow = new HappensBefore.Flow(scope, heap, _segments, _entries.GetValueOrDefault(execution) ?? [], visits,
-                                          _steps.GetValueOrDefault(execution)?.ToArray() ?? [], new HashSet<(string, int)>(), CheckCancellation);
+                                          _steps.GetValueOrDefault(execution)?.ToArray() ?? [],
+                                          new Dictionary<(string, int), IReadOnlyCollection<HappensBefore.PointKey>>(), CheckCancellation);
             _flows.Add(execution, flow);
             return flow;
         }
@@ -1564,13 +1740,15 @@ public static class ExecutionModel
         /// <param name="step">The call step.</param>
         private bool Repeated(ExecutionStep step) => heap.RepeatedRuns.Contains((step.Caller, step.OperationId, step.Callee));
 
-        /// <summary>Whether no loop holds a site and the execution's call graph has at most one path to its body, none through a recursion,
-        /// a call inside a loop or a call that runs a delegate 0..n times, and the site itself is no such call.</summary>
+        /// <summary>Whether no loop holds a site and the execution's call graph has at most one path to its body from its entries, or from
+        /// the roots given, none through a recursion, a call inside a loop or a call that runs a delegate 0..n times, and the site itself
+        /// is no such call.</summary>
         /// <param name="execution">The execution.</param>
         /// <param name="bodyId">The body holding the site.</param>
         /// <param name="operationId">The site's operation.</param>
         /// <param name="afterCall">Whether the site is the call's return, outside its repeated delegate runs.</param>
-        private bool OnePath(string execution, string bodyId, int operationId, bool afterCall = false)
+        /// <param name="roots">The instances one run of which the paths are counted from, or null for the execution's entries.</param>
+        private bool OnePath(string execution, string bodyId, int operationId, bool afterCall = false, IReadOnlySet<string>? roots = null)
         {
             var steps = _steps.GetValueOrDefault(execution) ?? [];
             if (InCycle(bodyId, operationId) ||
@@ -1579,7 +1757,7 @@ public static class ExecutionModel
                 return false;
             }
 
-            var entries = (_entries.GetValueOrDefault(execution) ?? []).Select(entry => entry.InstanceId).ToHashSet(StringComparer.Ordinal);
+            var entries = roots ?? (_entries.GetValueOrDefault(execution) ?? []).Select(entry => entry.InstanceId).ToHashSet(StringComparer.Ordinal);
             var incoming = steps.GroupBy(step => step.Callee, StringComparer.Ordinal)
                                 .ToDictionary(group => group.Key,
                                               group => group.Select(step => (step.Caller, step.OperationId, Repeated: Repeated(step))).Distinct().ToArray(),

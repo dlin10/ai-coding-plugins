@@ -858,7 +858,9 @@ public sealed record IrYieldOperation(int Id, int? Value, IrProvenance Provenanc
 /// <see cref="IrThreadWorkOperation"/> binds. Each work value is a delegate the spawn invokes, an array of such delegates
 /// the call does not list, or, with <see cref="WorkMethod"/>, an object the spawn calls that method on. <see cref="AwaitsWorkTask"/> (set by the overload, whatever the work's body) says the call's handle
 /// completes only after the task an async work returns; <see cref="JoinsOnReturn"/> says the call itself returns, and throws,
-/// only after every iteration is complete.</summary>
+/// only after every iteration is complete. <see cref="SchedulerArgument"/> is the <c>TaskScheduler</c> argument of a <c>StartNew</c> or
+/// <c>ContinueWith</c>, and <see cref="OnSeparateFactory"/> says a <c>StartNew</c> is called on a factory other than
+/// <c>Task.Factory</c> or <c>Task&lt;T&gt;.Factory</c>.</summary>
 /// <param name="Id">The operation's identity in its body.</param>
 /// <param name="Kind">The kind of spawn.</param>
 /// <param name="CallOperationId">The BCL call that starts the work.</param>
@@ -878,6 +880,17 @@ public sealed record IrSpawnOperation(int Id, IrSpawnKind Kind, int CallOperatio
     public bool WorkIsAsync { get; init; }
     public bool AwaitsWorkTask { get; init; }
     public bool JoinsOnReturn { get; init; }
+    public IrSchedulerArgument SchedulerArgument { get; init; }
+    public bool OnSeparateFactory { get; init; }
+}
+
+/// <summary>The <c>TaskScheduler</c> argument a <c>StartNew</c> or <c>ContinueWith</c> is given: none, a read of
+/// <c>TaskScheduler.Default</c>, or any other scheduler.</summary>
+public enum IrSchedulerArgument
+{
+    None,
+    Default,
+    Other
 }
 
 /// <summary>A <c>Thread</c> constructor binding the work its <c>Start</c> runs; a thread never waits for the task an async
@@ -910,9 +923,10 @@ public sealed record IrJoinOperation(int Id, IrJoinKind Kind, int CallOperationI
     public override IReadOnlyList<int> DefinedValues => [];
     public override IReadOnlyList<int> Operands => HandleValues;
 
-    /// <summary>Whether the call throws only after its handle completes, as an await does: the <c>Result</c> of a <c>Task</c> or a
-    /// <c>Task&lt;T&gt;</c>. That of a <c>ValueTask</c> may throw before, when an <c>IValueTaskSource</c> backs it, as every other
-    /// join may (R3).</summary>
+    /// <summary>Whether the call's form throws only after its handles complete, as an await does: <c>Wait()</c>, the <c>Result</c> or
+    /// <c>GetResult()</c> of a <c>Task</c> or a <c>Task&lt;T&gt;</c> and <c>Task.WaitAll(tasks)</c>, which the environment may still
+    /// deny (ADR 0030). That of a <c>ValueTask</c> may throw before, when an <c>IValueTaskSource</c> backs it, as every other join may
+    /// (R3).</summary>
     public bool ThrowsOnlyAfterCompletion { get; init; }
 }
 
@@ -1110,6 +1124,11 @@ public sealed record IrConvertOperation(int Id, int ResultValue, int OperandValu
 {
     public override IReadOnlyList<int> DefinedValues => [ResultValue];
     public override IReadOnlyList<int> Operands => [OperandValue];
+
+    /// <summary>Whether the language makes the conversion implicitly, as an identity conversion or one to a base type or interface is:
+    /// an implicit reference conversion never throws, while an explicit one, such as a downcast, may. False where the lowering does not
+    /// record it.</summary>
+    public bool IsImplicit { get; init; }
 }
 
 public sealed record IrUnknownOperation(int Id, int? ResultValue, string OperationKind, string Reason,

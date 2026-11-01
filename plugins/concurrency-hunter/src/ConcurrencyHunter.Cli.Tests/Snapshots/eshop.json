@@ -24,6 +24,11 @@
         "no-overlap": 100,
         "read-read": 3565
       },
+      "assumed": {
+        "observers": 0,
+        "thread-context": 0,
+        "thread-pool-entry": 0
+      },
       "suppressed": 0,
       "candidates": 36
     },

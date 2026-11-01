@@ -7,7 +7,8 @@ public sealed class AwaitedRunsBoundaryMatrixTests
     public static readonly string[] Forms =
     [
         "lambda", "method", "local", "phi-async", "phi-sync", "phi-call", "sync", "add-distinct", "append-distinct", "combine-distinct",
-        "add-same", "append-same", "combine-same", "parameter", "field", "two-awaited", "two-mixed"
+        "add-same", "append-same", "combine-same", "parameter", "field", "two-awaited", "two-mixed", "sync-completed", "sync-field",
+        "sync-two", "local-function"
     ];
     public static readonly string[] Places =
     [
@@ -16,15 +17,20 @@ public sealed class AwaitedRunsBoundaryMatrixTests
         "overwrite-completed", "overwrite-delay", "conditional-overwrite-completed", "conditional-overwrite-delay",
         "local-completed", "local-delay", "ref-overwrite", "foreign-overwrite", "ref-field", "null-before-field"
     ];
+    /// <summary>The pair a delegate cell reads: the continuation with the code after the call, or with the synchronous part of the next
+    /// run.</summary>
+    public static readonly string[] Pairs = ["after", "next"];
     public static readonly string[] Handles = ["call-task", "conditional", "wait-all-one", "wait-all-two", "when-all", "wait", "get", "result"];
-    public static IEnumerable<object[]> DelegateCells() => Forms.Select(form => new object[] { form });
+    public static IEnumerable<object[]> DelegateCells() => from form in Forms from pair in Pairs select new object[] { form, pair };
     public static IEnumerable<object[]> WaitCells() => from place in Places from handle in Handles select new object[] { place, handle };
 
     [Fact]
-    public void There_are_17_delegate_and_40_wait_cells_covering_every_axis()
+    public void There_are_17_delegate_forms_and_4_more_on_2_pairs_and_176_wait_cells_covering_every_axis()
     {
-        Assert.Equal(17, DelegateCells().Count());
+        var delegates = DelegateCells().ToArray();
+        Assert.Equal(42, delegates.Length);
         Assert.Equal(Forms.Length, Forms.Distinct().Count());
+        Assert.All(Pairs, pair => Assert.Equal(21, delegates.Count(cell => (string)cell[1] == pair)));
         var cells = WaitCells().ToArray();
         Assert.Equal(176, cells.Length);
         Assert.All(Places, place => Assert.Equal(8, cells.Count(cell => (string)cell[0] == place)));
@@ -33,20 +39,27 @@ public sealed class AwaitedRunsBoundaryMatrixTests
 
     [Theory]
     [MemberData(nameof(DelegateCells))]
-    public void Every_delegate_form_obeys_the_creation_and_async_boundary(string form)
+    public void Every_delegate_form_obeys_the_creation_and_async_boundary(string form, string pair)
     {
-        const string A = "async () => { await Task.Yield(); _state.C = 1; }";
-        const string B = "async () => { await Task.Yield(); _state.C = 1; }";
+        // The second pair needs a synchronous part in every run, and the call in a body one async call enters once and awaits at once.
+        var next = pair == "next";
+        var A = next ? "async () => { _state.C = 3; await Task.Yield(); _state.C = 1; }" : "async () => { await Task.Yield(); _state.C = 1; }";
+        var B = A;
+        var method = next ? "NextAsync" : "WorkAsync";
         var locals = $"Func<Task> a = {A}; Func<Task> b = {B};";
+        // A local function of the calling body, passed as a method group, is a delegate that body creates.
+        if (form == "local-function")
+            locals += "\nasync Task Local() " + A[A.IndexOf('{')..];
         var expression = form switch
         {
             "lambda" => A,
-            "method" => "WorkAsync",
+            "method" => method,
             "local" => "a",
+            "local-function" => "Local",
             "phi-async" => "_state.Choose ? a : b",
-            "phi-sync" => "_state.Choose ? a : () => WorkAsync()",
+            "phi-sync" => $"_state.Choose ? a : () => {method}()",
             "phi-call" => "_state.Choose ? a : Runs.Lib.Unknown()",
-            "sync" => "() => WorkAsync()",
+            "sync" => $"() => {method}()",
             "add-distinct" => "a + b",
             "append-distinct" => "f",
             "combine-distinct" => "(Func<Task>)Delegate.Combine(a, b)",
@@ -56,6 +69,10 @@ public sealed class AwaitedRunsBoundaryMatrixTests
             "parameter" => "f",
             "field" => "_state.F",
             "two-awaited" or "two-mixed" => A,
+            // A non-async target runs as the async call it returns only when every return is that one call's task.
+            "sync-completed" => $"() => {{ if (_state.Choose) return {method}(); return Task.CompletedTask; }}",
+            "sync-field" => $"() => {{ _state.Task = {method}(); return _state.Task; }}",
+            "sync-two" => $"() => {{ if (_state.Choose) return {method}(); return {method}(); }}",
             _ => throw new ArgumentOutOfRangeException(nameof(form))
         };
         if (form.StartsWith("append", StringComparison.Ordinal))
@@ -74,9 +91,24 @@ public sealed class AwaitedRunsBoundaryMatrixTests
         {
             work = "await Runs.Lib.Run(_state.F);\n_state.C = 2;";
         }
-        var run = AwaitedRunsFixture.Run(work, members: members, fieldDelegate: form == "field");
-        var ordered = Array.IndexOf(Forms, form) < 4;
+        if (next && form != "parameter")
+        {
+            // The calling body is the helper: a field it reads is set by its caller, a delegate it creates stays its own.
+            members = "private async Task Helper() { " + (form == "field" ? "" : locals) + "\nawait " + (form == "field" ? "Runs.Lib.Run(_state.F)" : call) +
+                      ";\n_state.C = 2; }";
+            work = (form == "field" ? $"_state.F = {A};\n" : "") + "await Helper();";
+        }
+        if (next)
+            members += "\nprivate async Task NextAsync() { _state.C = 3; await Task.Yield(); _state.C = 1; }";
+        // Another writer keeps the field from naming only the target's own task.
+        var run = AwaitedRunsFixture.Run(work, members: members, other: form == "sync-field" ? "_state.Task = Task.Delay(1);" : "",
+                                         fieldDelegate: form == "field" && !next);
+        var ordered = Array.IndexOf(Forms, form) < 4 || form is "sync" or "phi-sync" or "local-function";
         AwaitedRunsFixture.AssertPairs(run, after: !ordered, self: !ordered);
+        // Outside the admission the continuation starts after the call returns, so a path puts every run's synchronous part before it;
+        // only a continuation a synchronous target starts inside its run still meets the next run's.
+        if (next)
+            AwaitedRunsFixture.AssertNextRun(run, pair: !ordered && form.StartsWith("sync", StringComparison.Ordinal));
     }
 
     [Theory]

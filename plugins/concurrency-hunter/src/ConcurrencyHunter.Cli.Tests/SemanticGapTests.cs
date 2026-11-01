@@ -90,7 +90,7 @@ public sealed class SemanticGapTests
         using var json = JsonDocument.Parse(JsonSerializer.Serialize(measurement, MetricsJsonContext.Default.Measurement));
         var scopes = json.RootElement.GetProperty("coverage").EnumerateArray().ToArray();
 
-        Assert.Equal("1.4", json.RootElement.GetProperty("schemaVersion").GetString());
+        Assert.Equal("1.5", json.RootElement.GetProperty("schemaVersion").GetString());
         Assert.Equal(["A", "B", "C"], scopes.Select(scope => scope.GetProperty("scopeId").GetString()));
         foreach (var (scopeId, callee) in new[] { ("A", "System.Console.WriteLine(object)"), ("B", "System.Console.Write(object)") })
         {

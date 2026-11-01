@@ -34,6 +34,18 @@ internal enum SpawnAnchorKind
 /// <param name="Kind">Whether the anchor is a spawn, a timer or an async call's return.</param>
 internal sealed record SpawnAnchor(string ExecutionId, string CallerInstance, int OperationId, string ChildId, SpawnAnchorKind Kind);
 
+/// <summary>The assumptions of ADR 0030 that reading the exceptional exit of a blocking wait for a task as that task's completion rests
+/// on (R5): the thread context of the waiting code, or of the scheduler a waited task takes from it; the thread-pool entry of waiting
+/// code that runs as thread-pool work; the observers, which every such reading rests on.</summary>
+[Flags]
+internal enum OrderingAssumption
+{
+    None = 0,
+    ThreadContext = 1,
+    ThreadPoolEntry = 2,
+    Observers = 4
+}
+
 /// <summary>
 /// The happens-before graph of ADR 0008 over one scope's executions, queried per pair of accesses. Inside an execution a point precedes
 /// another when no valid interprocedural path leads back from the second to the first; a join precedes what cannot be reached from the
@@ -43,7 +55,7 @@ internal sealed record SpawnAnchor(string ExecutionId, string CallerInstance, in
 /// execution running or being started once is read per run of it (ADR 0020). Each execution's graph is built once per context, when a
 /// query first needs it.
 /// </summary>
-internal sealed class HappensBefore
+internal sealed partial class HappensBefore
 {
     private readonly ScopeProgram _scope;
     private readonly HeapSolution _heap;
@@ -58,8 +70,14 @@ internal sealed class HappensBefore
     private readonly Dictionary<string, SpawnAnchor> _anchorOfChild = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Caller, int Operation), SpawnSite> _spawnSites;
     private readonly Dictionary<string, List<string>> _handles = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _asyncHandles = new(StringComparer.Ordinal);
-    private readonly IReadOnlyList<ExecutionModel.AwaitedCall> _awaitedCalls;
+    private readonly IReadOnlyList<ExecutionModel.AdmittedCall> _admittedCalls;
+
+    /// <summary>The admitted calls whose record also orders every run's continuation: the only ones joins, anchors and call tasks read.</summary>
+    private readonly IReadOnlyList<ExecutionModel.AdmittedCall> _awaitedCalls;
+
+    /// <summary>The admitted calls, sequential and sequential-awaited alike, whose next run begins only after this one returns: the
+    /// pass completion proof reads their repetition as a boundary between passes.</summary>
+    private readonly HashSet<(string Instance, int Operation)> _sequentialRuns;
     private readonly Dictionary<string, Flow> _plainFlows = new(StringComparer.Ordinal);
     private readonly HashSet<(string Instance, int Operation)> _proving = [];
     private readonly HashSet<(string Instance, int Operation)> _provingBindings = [];
@@ -72,6 +90,28 @@ internal sealed class HappensBefore
     /// <summary>The context the query in progress reads its edges in: the whole scope, or one run of a creator.</summary>
     private Context _context;
     private CancellationToken _constructionToken;
+    private PassCompletionProof? _passCompletion;
+    private ThreadContextFacts? _contextFacts;
+    private Dictionary<string, List<SpawnSite>>? _spawnsOfHandle;
+    private readonly IReadOnlyList<SpawnAnchor> _anchorList;
+
+    /// <summary>The assumption sets whose blocking waits for a task this graph reads as ordering nothing on their exceptional exit, as
+    /// the cases of R4; null for the analysis's own graph.</summary>
+    private readonly IReadOnlySet<OrderingAssumption>? _withheld;
+
+    /// <summary>The assumption sets of the readings of an exceptional exit as completion that the queries so far made, each once.</summary>
+    private readonly HashSet<OrderingAssumption> _assumptions = [];
+
+    /// <summary>The graphs that withhold some assumption sets, by the sets withheld, made the first time a pair asks for one.</summary>
+    private readonly Dictionary<string, HappensBefore> _replays = new(StringComparer.Ordinal);
+
+    /// <summary>Every assumption set a reading can rest on: the waiting code's entry with or without the waited task's thread scheduler.</summary>
+    private static readonly OrderingAssumption[] AssumptionSets =
+    [
+        OrderingAssumption.ThreadContext | OrderingAssumption.Observers,
+        OrderingAssumption.ThreadPoolEntry | OrderingAssumption.Observers,
+        OrderingAssumption.ThreadPoolEntry | OrderingAssumption.ThreadContext | OrderingAssumption.Observers
+    ];
 
     /// <summary>What the edges of one context decide and cache: the whole scope (no creator), or one run of the creator of a
     /// <c>TreeConfined</c> region, where every condition an edge puts on an execution running or being started once is read per run of
@@ -95,9 +135,12 @@ internal sealed class HappensBefore
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionVisit>> visits,
                            IReadOnlyDictionary<string, IReadOnlyList<ExecutionStep>> steps, IReadOnlyList<SpawnAnchor> anchors,
                            IReadOnlyDictionary<string, string> tails, IReadOnlySet<string> duringStartup,
-                           IReadOnlyList<ExecutionModel.AwaitedCall> awaitedCalls, CancellationToken cancellationToken)
+                           IReadOnlyList<ExecutionModel.AdmittedCall> admittedCalls, CancellationToken cancellationToken,
+                           IReadOnlySet<OrderingAssumption>? withheld = null)
     {
         _constructionToken = cancellationToken;
+        _withheld = withheld;
+        _anchorList = anchors;
         _context = _global;
         _scope = scope;
         _heap = heap;
@@ -108,7 +151,9 @@ internal sealed class HappensBefore
         _steps = steps;
         _tails = tails;
         _duringStartup = duringStartup;
-        _awaitedCalls = awaitedCalls;
+        _admittedCalls = admittedCalls;
+        _awaitedCalls = admittedCalls.Where(call => call.Relation == RunRelation.SequentialAwaited).ToArray();
+        _sequentialRuns = admittedCalls.Select(call => (call.Instance, call.Operation)).ToHashSet();
         _spawnSites = heap.Spawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
         var asyncSites = heap.AsyncSpawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
         var timerSites = heap.TimerCallbacks.ToDictionary(site => (site.CallerInstance, site.OperationId));
@@ -130,8 +175,6 @@ internal sealed class HappensBefore
             {
                 CheckCancellation();
                 AddHandle(handle, anchor.ChildId);
-                if (anchor.Kind == SpawnAnchorKind.AsyncReturn)
-                    _asyncHandles.Add(handle);
                 if (_heap.Tails.TryGetValue(handle, out var tail) && _tails.TryGetValue(anchor.ChildId, out var tailExecution) &&
                     AllWorkAsync(anchor))
                 {
@@ -177,13 +220,91 @@ internal sealed class HappensBefore
                        .ToArray();
     });
 
-    /// <summary>Whether a happens-before path orders two accesses, in the whole scope, or with a creator given, in one run of it: the
-    /// creator runs once there, and every condition an edge puts on an execution running or being started once is read per run of it
-    /// (ADR 0020).</summary>
+    /// <summary>Whether a happens-before path, or the completion proof of the queried passes, orders two accesses, in the whole scope,
+    /// or with a creator given, in one run of it: the creator runs once there, and every condition an edge puts on an execution running
+    /// or being started once is read per run of it (ADR 0020).</summary>
     /// <param name="first">One access.</param>
     /// <param name="second">The other access.</param>
     /// <param name="creator">The creator of the <c>TreeConfined</c> region the two are on, or null.</param>
-    internal bool Ordered(Access first, Access second, string? creator = null) => In(creator, () => Path(first, second) || Path(second, first));
+    internal bool Ordered(Access first, Access second, string? creator = null) => OrderedBy(first, second, creator) is not null;
+
+    /// <summary>What <see cref="Ordered"/> answers, by the branch that orders the pair: a path, else the completion proof of the queried
+    /// passes, which a path's answer leaves unasked; null when neither orders it.</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    /// <param name="creator">The creator of the <c>TreeConfined</c> region the two are on, or null.</param>
+    internal TimingBranch? OrderedBy(Access first, Access second, string? creator = null) => In(creator, () =>
+        first.ExecutionId != second.ExecutionId && (Path(first, second) || Path(second, first)) ? TimingBranch.HappensBeforePath
+        : (_passCompletion ??= new PassCompletionProof(this)).Ordered(first, second, creator) ? TimingBranch.PassCompletion
+        : (TimingBranch?)null);
+
+    /// <summary>Whether the path that ordered a pair runs from its first access to its second, on a diagnostic request after
+    /// <see cref="OrderedBy"/> answered <see cref="TimingBranch.HappensBeforePath"/>: the direction that decision tried first.</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    /// <param name="creator">The creator of the <c>TreeConfined</c> region the two are on, or null.</param>
+    internal bool PathBefore(Access first, Access second, string? creator) => In(creator, () => Path(first, second));
+
+    /// <summary>The completion proof of the queried passes for one pair, on a diagnostic request: a fresh proof with its own trace, so
+    /// neither the analysis's cached proofs nor its answers change. It answers what the analysis's own proof answered for the pair.</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    /// <param name="creator">The creator of the <c>TreeConfined</c> region the two are on, or null.</param>
+    internal PassCompletionTrace TracePassCompletion(Access first, Access second, string? creator) => In(creator, () =>
+    {
+        var frames = new List<PassFrameEvidence>();
+        var steps = new List<PassStepEvidence>();
+        var models = new List<ModelRecordEvidence>();
+        var proven = new PassCompletionProof(this) { Trace = frames, Steps = steps, Models = models }.Ordered(first, second, creator);
+        return new PassCompletionTrace(proven, frames, steps, models);
+    });
+
+    /// <summary>Whether a join of a pass's parent, were its handle the pass's own, would order the pass's self-pair: the handle may carry
+    /// the pass's own through a call the analysis cannot see into, so that call's semantics decides the order of the passes (R9).</summary>
+    /// <param name="instance">The instance making the join.</param>
+    /// <param name="operation">The join operation.</param>
+    /// <param name="first">One access of the pass's work.</param>
+    /// <param name="second">The other access of the same work.</param>
+    /// <param name="creator">The creator of the <c>TreeConfined</c> region the two are on, or null.</param>
+    internal bool PassJoinWouldOrder(string instance, int operation, Access first, Access second, string? creator) => In(creator, () =>
+        (_passCompletion ??= new PassCompletionProof(this)).JoinWouldOrder(instance, operation, first, second, creator));
+
+    /// <summary>The assumptions a pair <see cref="OrderedBy"/> orders is ordered only under (R5): none when the same decision, with the
+    /// exceptional exit of every blocking wait for a task ordering nothing as in the cases of R4, still orders it. Otherwise the union of
+    /// the assumption sets of the readings the decision needed — each one without which it does not order the pair — and, where those
+    /// alone do not order it, of each other reading that orders the pair together with them alone, every other reading withheld: a proof
+    /// that cannot do without one reading and has alternatives for the rest rests on the alternatives too. Where nothing qualifies, every
+    /// reading taken.</summary>
+    /// <param name="first">One access.</param>
+    /// <param name="second">The other access.</param>
+    /// <param name="creator">The creator of the <c>TreeConfined</c> region the two are on, or null.</param>
+    internal OrderingAssumption Assumed(Access first, Access second, string? creator)
+    {
+        // Every reading a decision made was taken when it was first computed, so a scope that took none has nothing to withhold.
+        if (_assumptions.Count == 0 || Withholding(AssumptionSets).OrderedBy(first, second, creator) is not null)
+            return OrderingAssumption.None;
+        var taken = AssumptionSets.Where(_assumptions.Contains).ToArray();
+        var needed = taken.Where(set => Withholding([set]).OrderedBy(first, second, creator) is null).ToArray();
+        // Readings the needed ones order the pair without are no part of its proof.
+        var alone = needed.Length != 0 && Withholding(AssumptionSets.Where(other => !needed.Contains(other)).ToArray())
+                                              .OrderedBy(first, second, creator) is not null;
+        var completing = alone ? [] : taken.Except(needed).Where(set => Withholding(AssumptionSets.Where(other => other != set && !needed.Contains(other)).ToArray())
+                                                                            .OrderedBy(first, second, creator) is not null);
+        var read = needed.Concat(completing).ToArray();
+        return (read.Length != 0 ? read : taken).Aggregate(OrderingAssumption.None, (union, set) => union | set);
+    }
+
+    /// <summary>The graph of the same scope whose blocking waits for a task, read under one of the given assumption sets, order nothing
+    /// on their exceptional exit.</summary>
+    /// <param name="withheld">The assumption sets withheld.</param>
+    private HappensBefore Withholding(IReadOnlyList<OrderingAssumption> withheld)
+    {
+        var key = string.Join(",", withheld.Order());
+        if (!_replays.TryGetValue(key, out var replay))
+            _replays.Add(key, replay = new HappensBefore(_scope, _heap, _segments, _executions, _entries, _visits, _steps, _anchorList, _tails,
+                                                         _duringStartup, _admittedCalls, CancellationToken.None, withheld.ToHashSet()));
+        return replay;
+    }
 
     /// <summary>Runs a query in the context of a creator, or of the whole scope, and restores the context it was asked in.</summary>
     /// <typeparam name="T">What the query answers.</typeparam>
@@ -457,11 +578,20 @@ internal sealed class HappensBefore
         _heap.Instances.TryGetValue(instance, out var state) && _scope.Reachable.Bodies.TryGetValue(state.BodyId, out var body) && body.IsAsyncIterator;
 
     /// <summary>Whether a joined execution ends before the joining one: the join runs on every path of the joining execution from where
-    /// it starts the joined work (from its own start, when the work comes from elsewhere) to its end, exceptional paths included.</summary>
+    /// it starts the joined work (from its own start, when the work comes from elsewhere) to its normal end. An exception that leaves the
+    /// joining execution is no path to that end here, so the end carries the joined work's completion only on a normal return; a blocking
+    /// wait for the joining execution reads its exceptional exit as that completion only where no exception leaves around the join
+    /// (<see cref="LeavesWorkRunning"/>).</summary>
     /// <param name="joining">The joining.</param>
     /// <param name="join">The join.</param>
     /// <param name="joined">The joined.</param>
-    private bool BoundsEnd(string joining, JoinAnchor join, string joined)
+    private bool BoundsEnd(string joining, JoinAnchor join, string joined) => FlowOf(joining).AlwaysFollows(JoinedFrom(joining, joined), [join.Point]);
+
+    /// <summary>Where the joining execution starts the joined work: the anchor of the joined execution's ancestor the joining one spawns,
+    /// or null, for its own start, when the work comes from elsewhere.</summary>
+    /// <param name="joining">The joining.</param>
+    /// <param name="joined">The joined.</param>
+    private PointKey? JoinedFrom(string joining, string joined)
     {
         PointKey? from = null;
         for (var current = joined; _executions.TryGetValue(current, out var execution) && execution.ParentId is { } parent; current = parent)
@@ -474,7 +604,7 @@ internal sealed class HappensBefore
             break;
         }
 
-        return FlowOf(joining).AlwaysFollows(from, [join.Point]);
+        return from;
     }
 
     /// <summary>The anchors whose spawn edge holds for every instance of the child: the spawning execution runs at most once, and a timer's
@@ -485,8 +615,11 @@ internal sealed class HappensBefore
             ? (_anchors.GetValueOrDefault(execution) ?? []).Where(anchor => anchor.Kind != SpawnAnchorKind.Timer || SpawnedOnce(anchor.ChildId))
             : [];
 
-    /// <summary>A spawn's position in its parent. A sequential-awaited call starts its continuations before the call's repeated
-    /// delegate prefixes have all returned: a later run's prefix may still meet an earlier run's continuation.</summary>
+    /// <summary>A spawn's position in its parent. An admitted sequential-awaited call starts its continuations before the call's
+    /// repeated delegate prefixes have all returned, so no path orders a later run's prefix after an earlier run's continuation; only the
+    /// completion proof of the queried passes does, where the call's task is awaited at once in a body entered through one async call
+    /// whose pass completes before its next start. Any other async return, including a sequential-awaited call outside the admission,
+    /// starts its continuation after the call returns, so a path already orders it after the synchronous part of every run.</summary>
     /// <param name="anchor">The spawn anchor.</param>
     private PointKey AnchorPoint(SpawnAnchor anchor) =>
         new(anchor.CallerInstance, anchor.OperationId, anchor.Kind == SpawnAnchorKind.AsyncReturn &&
@@ -567,6 +700,7 @@ internal sealed class HappensBefore
         try
         {
             var candidates = new List<Candidate>();
+            var blocking = new HashSet<(string Execution, PointKey Point)>();
             foreach (var execution in _executions.Keys.Order(StringComparer.Ordinal))
             {
                 CheckCancellation();
@@ -600,8 +734,12 @@ internal sealed class HappensBefore
                         var (targets, proven) = Prove(execution, instance, join);
                         if (!proven)
                             _context.UnprovenJoins.Add((instance.BodyId, join.OperationId));
-                        if (targets.Count != 0)
-                            Wait(candidates, resumed, execution, visit, instance, join.OperationId, targets, join.ThrowsOnlyAfterCompletion);
+                        if (targets.Count == 0)
+                            continue;
+                        var throwsAfter = ThrowsAfterCompletion(execution, instance.Id, join, proven);
+                        if (throwsAfter && join.Kind != SummaryJoinKind.Await)
+                            blocking.Add((execution, new PointKey(instance.Id, join.OperationId, false)));
+                        Wait(candidates, resumed, execution, visit, instance, join.OperationId, targets, throwsAfter);
                     }
                 }
 
@@ -626,20 +764,13 @@ internal sealed class HappensBefore
                 }
             }
 
-            AtCallSites(candidates);
-            foreach (var group in candidates.GroupBy(candidate => (candidate.Execution, candidate.Point)))
+            Anchor(candidates);
+            if (WithoutRunningWork(candidates, blocking) is { } completing)
             {
-                CheckCancellation();
-                var joins = _context.Joins.TryGetValue(group.Key.Execution, out var existing) ? (List<JoinAnchor>)existing : [];
-                var targets = group.SelectMany(candidate => candidate.Targets).Distinct(StringComparer.Ordinal).ToArray();
-                var join = new JoinAnchor(joins.Count, group.Key.Point, targets, group.Any(candidate => candidate.ThrowsAfter));
-                joins.Add(join);
-                _context.Joins[group.Key.Execution] = joins;
-                foreach (var target in targets.Where(target => target != group.Key.Execution))
-                {
-                    CheckCancellation();
-                    Get(_context.JoinedBy, target).Add((group.Key.Execution, join.Index));
-                }
+                _context.Joins.Clear();
+                _context.JoinedBy.Clear();
+                _context.Flows.Clear();
+                Anchor(completing);
             }
         }
         catch
@@ -648,8 +779,92 @@ internal sealed class HappensBefore
             _context.Joins.Clear();
             _context.JoinedBy.Clear();
             _context.UnprovenJoins.Clear();
+            _context.Flows.Clear();
             throw;
         }
+    }
+
+    /// <summary>Makes the join anchors of the waits given and of the call sites they are hoisted to, one per point.</summary>
+    /// <param name="waits">The waits, before hoisting.</param>
+    private void Anchor(IReadOnlyList<Candidate> waits)
+    {
+        var candidates = waits.ToList();
+        AtCallSites(candidates);
+        foreach (var group in candidates.GroupBy(candidate => (candidate.Execution, candidate.Point)))
+        {
+            CheckCancellation();
+            var joins = _context.Joins.TryGetValue(group.Key.Execution, out var existing) ? (List<JoinAnchor>)existing : [];
+            var targets = group.SelectMany(candidate => candidate.Targets).Distinct(StringComparer.Ordinal).ToArray();
+            // One point read as several waits throws only after completion where every reading of it says so.
+            var join = new JoinAnchor(joins.Count, group.Key.Point, targets, group.All(candidate => candidate.ThrowsAfter));
+            joins.Add(join);
+            _context.Joins[group.Key.Execution] = joins;
+            foreach (var target in targets.Where(target => target != group.Key.Execution))
+            {
+                CheckCancellation();
+                Get(_context.JoinedBy, target).Add((group.Key.Execution, join.Index));
+            }
+        }
+    }
+
+    /// <summary>The waits with a blocking wait's exceptional exit read as the completion of its tasks only where it is also the completion
+    /// of the work their ends carry: the fault of a task comes after the task completed, not after the work it started, so a blocking wait
+    /// for a task that may end with an exception while such work runs (<see cref="LeavesWorkRunning"/>) throws before that work completes.
+    /// An <c>await</c> is read as it always has been. Null when no wait changes.</summary>
+    /// <param name="waits">The waits, before hoisting, read from the anchors already made.</param>
+    /// <param name="blocking">The blocking waits for tasks whose exceptional exit is read as their tasks' completion, by execution and
+    /// point.</param>
+    private List<Candidate>? WithoutRunningWork(IReadOnlyList<Candidate> waits, IReadOnlySet<(string Execution, PointKey Point)> blocking)
+    {
+        var known = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var changed = false;
+        var result = new List<Candidate>(waits.Count);
+        foreach (var wait in waits)
+        {
+            CheckCancellation();
+            var running = wait.ThrowsAfter && blocking.Contains((wait.Execution, wait.Point)) &&
+                          wait.Targets.Any(target => target != wait.Execution && LeavesWorkRunning(target, known));
+            result.Add(running ? wait with { ThrowsAfter = false } : wait);
+            changed |= running;
+        }
+
+        return changed ? result : null;
+    }
+
+    /// <summary>Whether an execution may end with an exception while work whose completion its end carries still runs: a join of the
+    /// execution bounds its end on every normal path (<see cref="BoundsEnd"/>) but an exception leaves the execution around it, or the
+    /// joined execution's own end carries such work in turn. An execution reached again through its own joins is taken to leave work
+    /// running.</summary>
+    /// <param name="execution">The execution.</param>
+    /// <param name="known">The answers already found, by execution.</param>
+    private bool LeavesWorkRunning(string execution, Dictionary<string, bool> known)
+    {
+        CheckCancellation();
+        if (known.TryGetValue(execution, out var leaves))
+            return leaves;
+        known.Add(execution, true);
+        foreach (var join in Joins(execution))
+        {
+            CheckCancellation();
+            foreach (var joined in join.Targets.Where(target => target != execution))
+            {
+                CheckCancellation();
+                var from = JoinedFrom(execution, joined);
+                var flow = FlowOf(execution);
+                if (flow.AlwaysFollows(from, [join.Point]) &&
+                    (!flow.AlwaysFollows(from, [join.Point], exceptionalExits: true) || LeavesWorkRunning(joined, known)))
+                {
+                    leaves = true;
+                    break;
+                }
+            }
+
+            if (leaves)
+                break;
+        }
+
+        known[execution] = leaves;
+        return leaves;
     }
 
     private sealed record Candidate(string Execution, PointKey Point, IReadOnlyList<string> Targets, bool ThrowsAfter);
@@ -767,19 +982,27 @@ internal sealed class HappensBefore
 
     /// <summary>A call is the wait its callees make, but only where the call cannot go around it: every callee it may dispatch to has to
     /// wait on every path from its entry to any exit, exceptional ones included, so the targets are the ones all of them wait for, not the
-    /// ones any of them does. The call keeps its exceptional edge unless every wait behind it throws after the work completed, since one
-    /// that may throw earlier leaves the work unfinished on that path. A hoisted wait is a wait of its own site, so calls of calls follow.
+    /// ones any of them does. The call keeps its exceptional edge unless every wait behind it throws after the work completed and no
+    /// exception leaves a callee before its wait — not even from computing the handle it waits on, nor from an earlier wait for something
+    /// else, which skips this one — since either leaves the work unfinished on that path. A hoisted wait is a wait of its own site, so
+    /// calls of calls follow.
     /// </summary>
     /// <param name="candidates">The candidates.</param>
-    private void AtCallSites(List<Candidate> candidates)
+    private void AtCallSites(List<Candidate> candidates) => candidates.AddRange(Hoisted(candidates, _steps.Keys));
+
+    /// <summary>The waits <see cref="AtCallSites"/> hoists from the candidates to the sites calling them, in the executions given.</summary>
+    /// <param name="candidates">The waits.</param>
+    /// <param name="executions">The executions whose call sites are read.</param>
+    private IReadOnlyList<Candidate> Hoisted(IReadOnlyList<Candidate> candidates, IEnumerable<string> executions)
     {
         var hoisted = new Dictionary<(string Execution, string Caller, int Operation), Candidate>();
+        var read = executions.Where(_steps.ContainsKey).Order(StringComparer.Ordinal).ToArray();
         var changed = true;
         while (changed)
         {
             CheckCancellation();
             changed = false;
-            foreach (var execution in _steps.Keys.Order(StringComparer.Ordinal))
+            foreach (var execution in read)
             {
                 CheckCancellation();
                 var flow = PlainFlow(execution);
@@ -805,10 +1028,12 @@ internal sealed class HappensBefore
                         {
                             CheckCancellation();
                             var alternatives = made.Where(candidate => candidate.Targets.Contains(target)).ToArray();
-                            if (!flow.AlwaysWaits(step.Callee, step.CalleeSegment, alternatives.Select(candidate => candidate.Point).ToArray()))
+                            var points = alternatives.Select(candidate => candidate.Point).ToArray();
+                            if (!flow.AlwaysWaits(step.Callee, step.CalleeSegment, points, exceptional: false))
                                 continue;
                             waited.Add(target);
-                            throwsAfter &= alternatives.All(candidate => candidate.ThrowsAfter);
+                            throwsAfter &= alternatives.All(candidate => candidate.ThrowsAfter) &&
+                                           flow.AlwaysWaits(step.Callee, step.CalleeSegment, points, exceptional: true);
                         }
 
                         targets = targets is null ? waited : targets.Where(waited.Contains).ToArray();
@@ -830,7 +1055,132 @@ internal sealed class HappensBefore
             }
         }
 
-        candidates.AddRange(hoisted.Values);
+        return hoisted.Values.ToArray();
+    }
+
+    /// <summary>Whether an exception out of a wait comes only after every task it waits for completed, so that a path through a handler
+    /// after it is ordered as its normal return is (R3, R4; ADR 0030). An await resumes only after its task completed, whatever the thread
+    /// context. A blocking wait does when its form does — <c>Wait()</c>, the <c>Result</c> or <c>GetResult()</c> of a <c>Task</c> or a
+    /// <c>Task&lt;T&gt;</c>, <c>Task.WaitAll(tasks)</c> — and, under the thread-context assumption, when every task it waits for is
+    /// proven, no reachable call of the process scope installs another context and no task it waits for runs on a scheduler the program
+    /// names: a task not proven may run on any. Every other wait may throw before its work completes. A blocking wait so read rests on
+    /// the assumptions <see cref="Assumption"/> gives, which a graph that withholds them reads as ordering nothing (R5).</summary>
+    /// <param name="execution">The execution making the wait.</param>
+    /// <param name="instanceId">The instance making the wait.</param>
+    /// <param name="join">The wait.</param>
+    /// <param name="proven">Whether every task the wait waits for is proven.</param>
+    private bool ThrowsAfterCompletion(string execution, string instanceId, SummaryJoin join, bool proven)
+    {
+        CheckCancellation();
+        return ThrowsAfterCompletion(execution, join, instanceId, join.Handles, proven);
+    }
+
+    /// <summary>What <see cref="ThrowsAfterCompletion(string, string, SummaryJoin, bool)"/> answers for a wait, with the tasks it waits
+    /// for read from the handles given: its own, or for a wait on a gap's result, the handle the gap presumably carries.</summary>
+    /// <param name="execution">The execution making the wait.</param>
+    /// <param name="join">The wait.</param>
+    /// <param name="handleInstance">The instance expressing the handles.</param>
+    /// <param name="handles">The handles whose tasks the wait waits for.</param>
+    /// <param name="proven">Whether every task the wait waits for is proven.</param>
+    private bool ThrowsAfterCompletion(string execution, SummaryJoin join, string handleInstance, IEnumerable<SummaryValue> handles, bool proven)
+    {
+        if (!join.ThrowsOnlyAfterCompletion || join.Kind == SummaryJoinKind.Await)
+            return join.ThrowsOnlyAfterCompletion;
+        _contextFacts ??= ThreadContextFacts.Of(_scope);
+        var waited = WaitedTasks(handleInstance, handles);
+        if (!proven || _contextFacts.InstallsContext ||
+            !waited.All(task => (SpawnsOfHandle().GetValueOrDefault(task) ?? []).All(site => _contextFacts.Scheduling(site) != TaskScheduling.Program)))
+            return false;
+        var assumption = Assumption(execution, waited);
+        if (_withheld?.Contains(assumption) == true)
+            return false;
+        _assumptions.Add(assumption);
+        return true;
+    }
+
+    /// <summary>The assumptions reading a blocking wait's exceptional exit as its tasks' completion rests on (R5, D-0018): the thread-pool
+    /// entry when the waiting execution runs as thread-pool work, else its thread context; the thread context as well when a waited task
+    /// takes the scheduler of the thread that starts it; and always the observers.</summary>
+    /// <param name="execution">The execution making the wait.</param>
+    /// <param name="waited">The tasks the wait waits for.</param>
+    private OrderingAssumption Assumption(string execution, IReadOnlySet<string> waited)
+    {
+        var assumption = (OnThreadPool(execution) ? OrderingAssumption.ThreadPoolEntry : OrderingAssumption.ThreadContext) | OrderingAssumption.Observers;
+        return waited.Any(task => (SpawnsOfHandle().GetValueOrDefault(task) ?? []).Any(site => _contextFacts!.Scheduling(site) == TaskScheduling.Thread))
+            ? assumption | OrderingAssumption.ThreadContext
+            : assumption;
+    }
+
+    /// <summary>Whether an execution runs as thread-pool work (D-0018): the work of a <c>Task.Run</c>, a <c>QueueUserWorkItem</c> or an
+    /// <c>UnsafeQueueUserWorkItem</c>, of a <c>StartNew</c> whose scheduler argument is a read of <c>TaskScheduler.Default</c>, a
+    /// <c>Parallel</c> body, a timer's callback, or a request of a <c>controller-action</c>, <c>minimal-api</c> or <c>grpc-method</c> root.
+    /// The tail of async work runs where the execution whose prefix it continues does; every other execution runs on its thread.</summary>
+    /// <param name="execution">The execution.</param>
+    private bool OnThreadPool(string execution)
+    {
+        for (var current = execution; _executions.TryGetValue(current, out var instance);)
+        {
+            CheckCancellation();
+            var anchor = _anchorOfChild.GetValueOrDefault(current);
+            if (instance.Origin is { IsTail: true } || anchor?.Kind == SpawnAnchorKind.AsyncReturn)
+            {
+                if (instance.ParentId is not { } parent)
+                    return false;
+                current = parent;
+                continue;
+            }
+            if (instance.Kind == ExecutionKind.TimerCallback)
+                return true;
+            if (instance.Kind == ExecutionKind.Root)
+                return _scope.Roots.FirstOrDefault(root => root.StableRootId == instance.RootId)?.RootKind is "controller-action" or "minimal-api" or "grpc-method";
+            return anchor is { Kind: SpawnAnchorKind.Spawn } && _spawnSites.TryGetValue((anchor.CallerInstance, anchor.OperationId), out var site) &&
+                   (site.Kind is IrSpawnKind.TaskRun or IrSpawnKind.QueueUserWorkItem or IrSpawnKind.UnsafeQueueUserWorkItem or IrSpawnKind.ParallelFor
+                                 or IrSpawnKind.ParallelForEach or IrSpawnKind.ParallelForEachAsync ||
+                    site.Kind == IrSpawnKind.StartNew && site.SchedulerArgument == IrSchedulerArgument.Default);
+        }
+
+        return false;
+    }
+
+    /// <summary>The task regions a wait waits for: those its handles point to, and the members of each group among them.</summary>
+    /// <param name="instanceId">The instance expressing the handles.</param>
+    /// <param name="handles">The handles of the wait.</param>
+    private HashSet<string> WaitedTasks(string instanceId, IEnumerable<SummaryValue> handles)
+    {
+        var tasks = new HashSet<string>(StringComparer.Ordinal);
+        var pending = new Stack<string>(handles.SelectMany(handle => handle.Values).SelectMany(value => _heap.Resolve(instanceId, value)));
+        while (pending.TryPop(out var task))
+        {
+            CheckCancellation();
+            if (!tasks.Add(task) || !_heap.TaskGroups.TryGetValue(task, out var group))
+                continue;
+            foreach (var member in group.Members)
+            {
+                CheckCancellation();
+                pending.Push(member);
+            }
+        }
+
+        return tasks;
+    }
+
+    /// <summary>The spawns whose handle is each region.</summary>
+    private Dictionary<string, List<SpawnSite>> SpawnsOfHandle()
+    {
+        if (_spawnsOfHandle is not null)
+            return _spawnsOfHandle;
+        var spawns = new Dictionary<string, List<SpawnSite>>(StringComparer.Ordinal);
+        foreach (var site in _heap.Spawns)
+        {
+            CheckCancellation();
+            foreach (var handle in site.Handles)
+            {
+                CheckCancellation();
+                Get(spawns, handle).Add(site);
+            }
+        }
+
+        return _spawnsOfHandle = spawns;
     }
 
     /// <summary>The executions a join waits for with proven identity, and whether every handle it waits for is proven (R8: a handle the
@@ -947,12 +1297,19 @@ internal sealed class HappensBefore
     /// <param name="execution">The execution.</param>
     /// <param name="instance">The instance.</param>
     /// <param name="timer">The timer.</param>
-    private List<int> HandleWaits(string execution, MethodInstance instance, SummaryTimer timer)
+    private List<int> HandleWaits(string execution, MethodInstance instance, SummaryTimer timer) =>
+        HandleWaitPoints(execution, instance, timer).Select(point => point.Operation).ToList();
+
+    /// <summary>The points of the <c>WaitOne()</c> calls <see cref="HandleWaits"/> finds, in the instance that makes each.</summary>
+    /// <param name="execution">The execution.</param>
+    /// <param name="instance">The instance.</param>
+    /// <param name="timer">The timer.</param>
+    private List<PointKey> HandleWaitPoints(string execution, MethodInstance instance, SummaryTimer timer)
     {
         if (timer.WaitHandle is not { UnknownSources.Count: 0 } handle || Regions(instance, handle) is not [var region] || !IsQuietEvent(region))
             return [];
 
-        var waits = new List<(int OperationId, PointKey Point)>();
+        var waits = new List<PointKey>();
         foreach (var visit in _visits.GetValueOrDefault(execution) ?? [])
         {
             CheckCancellation();
@@ -964,15 +1321,12 @@ internal sealed class HappensBefore
                 if (_segments.Runs(waiter.BodyId, visit.Segment, join.OperationId) &&
                     join.Handles is [{ UnknownSources.Count: 0 } waited] && Regions(waiter, waited) is [var other] && other == region)
                 {
-                    waits.Add((join.OperationId, new PointKey(waiter.Id, join.OperationId, false)));
+                    waits.Add(new PointKey(waiter.Id, join.OperationId, false));
                 }
             }
         }
 
-        return waits.Count != 0 &&
-               PlainFlow(execution).AlwaysFollows(new PointKey(instance.Id, timer.OperationId, false), waits.Select(wait => wait.Point).ToArray())
-            ? waits.Select(wait => wait.OperationId).ToList()
-            : [];
+        return waits.Count != 0 && PlainFlow(execution).AlwaysFollows(new PointKey(instance.Id, timer.OperationId, false), waits) ? waits : [];
     }
 
     private string[] Regions(MethodInstance instance, SummaryValue value) =>
@@ -1105,6 +1459,19 @@ internal sealed class HappensBefore
     /// <param name="joinOperation">The operation the handle is judged at.</param>
     private string? ProveHandle(string execution, MethodInstance instance, SummaryValue handle, int joinOperation)
     {
+        var target = ProveHandleSource(execution, instance, handle, joinOperation);
+        return target is not null && SpawnedOnce(target) && !IsComposite(target) ? target : null;
+    }
+
+    /// <summary>The execution a handle value names with proven identity, whether or not it is started once: it points to exactly one
+    /// region, that region is one spawn's handle (or tail) in this instance tree, and the value comes from nowhere else. The completion
+    /// proof of a pass asks this and proves for itself that the handle is the pass's own.</summary>
+    /// <param name="execution">The joining execution.</param>
+    /// <param name="instance">The instance expressing the handle value.</param>
+    /// <param name="handle">The handle value.</param>
+    /// <param name="joinOperation">The operation the handle is judged at.</param>
+    private string? ProveHandleSource(string execution, MethodInstance instance, SummaryValue handle, int joinOperation)
+    {
         var regions = handle.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
         if (regions.Length != 1 || HandleExecution(execution, regions[0]) is not { } target ||
             !SourcesExcused(execution, instance, handle, regions[0], joinOperation))
@@ -1112,7 +1479,40 @@ internal sealed class HappensBefore
             return null;
         }
 
-        return SpawnedOnce(target) && !IsComposite(target) ? target : null;
+        return target;
+    }
+
+    /// <summary>The async call of a non-async body whose task every return of that body gives back, each return proven as a join's
+    /// handle is (<see cref="ProveHandleSource"/>): the body then runs as that call, which it makes synchronously in the execution
+    /// running it. Null where some return is another task, a task from elsewhere or the task of another call.</summary>
+    /// <param name="execution">The execution running the body.</param>
+    /// <param name="callee">The body's instance.</param>
+    internal (string Instance, int Operation)? ReturnedAsyncCall(string execution, string callee)
+    {
+        if (!_heap.Instances.TryGetValue(callee, out var instance) || !_scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ||
+            body.IsAsync || instance.Summary.Returns.Count == 0)
+        {
+            return null;
+        }
+        int? operation = null;
+        foreach (var returned in instance.Summary.Returns)
+        {
+            CheckCancellation();
+            var value = new SummaryValue(returned.Values, returned.UnknownSources)
+            {
+                SourceCalls = returned.SourceCalls,
+                Completions = returned.Completions,
+                CompletedCalls = returned.CompletedCalls
+            };
+            if (ProveHandleSource(execution, instance, value, returned.OperationId) is not { } target ||
+                !_anchorOfChild.TryGetValue(target, out var anchor) || anchor is not { Kind: SpawnAnchorKind.AsyncReturn } ||
+                anchor.ExecutionId != execution || anchor.CallerInstance != instance.Id || operation is { } other && other != anchor.OperationId)
+            {
+                return null;
+            }
+            operation = anchor.OperationId;
+        }
+        return (instance.Id, operation!.Value);
     }
 
     /// <summary>Every continuation a curated call's own task waits for, with the same source proof as an async call's handle.
@@ -1141,7 +1541,7 @@ internal sealed class HappensBefore
 
     /// <summary>Whether every unknown source of a value that resolves to one region is one that cannot be another object: a field read
     /// before its first write, when the field holds only that region and a store of it precedes the operation on every path, or an
-    /// async or curated call's result, when the region is that call's own task and every call the value comes from returns that task. A value
+    /// async, curated or ordinary call's result, when every call the value comes from provably returns that task. A value
     /// that is a task's completion is excused only where no task its await reads may complete with an object the heap cannot name.</summary>
     /// <param name="execution">The execution proving the value.</param>
     /// <param name="instance">The instance expressing the value.</param>
@@ -1154,7 +1554,7 @@ internal sealed class HappensBefore
         value.UnknownSources.All(source => source switch
         {
             UnknownSource.FieldBeforeWrite => FieldStoreDominates(execution, instance, value, region, operation),
-            UnknownSource.SourceCall => (_asyncHandles.Contains(region) || _heap.CallTasks.Values.Contains(region)) &&
+            UnknownSource.SourceCall => (_handles.ContainsKey(region) || _heap.CallTasks.Values.Contains(region)) &&
                                         CallsReturn(execution, instance, value, region),
             UnknownSource.Parameter => BoundToRegion(execution, instance, value, region),
             UnknownSource.Null => allowNull,
@@ -1205,8 +1605,9 @@ internal sealed class HappensBefore
         }
     }
 
-    /// <summary>Whether every call a value comes from returns that region and nothing else; a call whose result the heap does not follow
-    /// there, or whose callee may return an object the heap cannot name, may return any task. A call the value is the completion of gives
+    /// <summary>Whether every call a value comes from returns that region and nothing else. Every callee's return origins must account
+    /// for the region, including arguments behind a parameter whose summary marks the result as unfollowed. An unresolved target or
+    /// an unaccounted return origin may return any task. A call the value is the completion of gives
     /// what its result's tasks complete with, followed as many times as the value consumed it (<see cref="HeapSolution.Gives"/>).</summary>
     /// <param name="execution">The execution proving the value.</param>
     /// <param name="instance">The instance expressing the value.</param>
@@ -1214,8 +1615,7 @@ internal sealed class HappensBefore
     /// <param name="region">The one region it resolves to.</param>
     private bool CallsReturn(string execution, MethodInstance instance, SummaryValue value, string region) =>
         value.SourceCalls.Count != 0 &&
-        value.SourceCalls.All(call => !_heap.UnfollowedCallResults.Contains((instance.Id, call)) &&
-                                      value.Depths(call).All(depth => _heap.Gives(instance.Id, call, depth).SetEquals([region]) &&
+        value.SourceCalls.All(call => value.Depths(call).All(depth => _heap.Gives(instance.Id, call, depth).SetEquals([region]) &&
                                                                       ReturnsExcused(execution, instance, call, region, depth)));
 
     /// <summary>Whether every body the call may run gives that handle with an origin it can account for itself: the regions of a call
@@ -1241,7 +1641,7 @@ internal sealed class HappensBefore
                                      .Select(edge => _heap.Instances.GetValueOrDefault(edge.CalleeInstance))
                                      .OfType<MethodInstance>()
                                      .ToArray();
-            return callees.Length != 0 &&
+            return !_heap.UnresolvedCallTargets.Contains((instance.Id, call)) && callees.Length != 0 &&
                    callees.All(callee => (_scope.Reachable.Bodies.TryGetValue(callee.BodyId, out var body) &&
                                           body is { IsAsync: true, IsAsyncIterator: false }) switch
                    {
@@ -1401,11 +1801,29 @@ internal sealed class HappensBefore
     {
         if (_context.Flows.TryGetValue(execution, out var flow))
             return flow;
-        var throwsAfter = Joins(execution).Where(join => join.ThrowsOnlyAfterCompletion).Select(join => (join.Point.Instance, ThrowingOperation(join.Point)))
-                                          .ToHashSet();
+        var throwsAfter = ThrowingAfter(Joins(execution).Where(join => join.ThrowsOnlyAfterCompletion).Select(join => (join.Point, join.Targets)).ToArray());
         flow = NewFlow(execution, throwsAfter);
         _context.Flows.Add(execution, flow);
         return flow;
+    }
+
+    /// <summary>The operations, by instance, whose exception comes only after the waits given completed, each with the points of the
+    /// waits it comes after: its own, and every other such wait for no more than it waits for. A path asking about one of those tasks
+    /// stops at any of them, and the exception came after that task completed; a path asking about another task does not.</summary>
+    /// <param name="waits">The waits whose exception comes only after their tasks completed, by point and targets.</param>
+    private Dictionary<(string Instance, int Operation), IReadOnlyCollection<PointKey>> ThrowingAfter(
+        IReadOnlyList<(PointKey Point, IReadOnlyList<string> Targets)> waits)
+    {
+        var throwing = new Dictionary<(string Instance, int Operation), IReadOnlyCollection<PointKey>>();
+        foreach (var wait in waits)
+        {
+            CheckCancellation();
+            var key = (wait.Point.Instance, ThrowingOperation(wait.Point));
+            var within = waits.Where(other => other.Targets.All(wait.Targets.Contains)).Select(other => other.Point);
+            throwing[key] = throwing.TryGetValue(key, out var known) ? [.. known.Union(within)] : [.. within.Distinct()];
+        }
+
+        return throwing;
     }
 
     /// <summary>The operation a join's exceptions leave from: the call of a joining BCL call, which is what may throw, and not the join
@@ -1420,13 +1838,37 @@ internal sealed class HappensBefore
     private Flow PlainFlow(string execution)
     {
         if (!_plainFlows.TryGetValue(execution, out var flow))
-            _plainFlows.Add(execution, flow = NewFlow(execution, new HashSet<(string, int)>()));
+            _plainFlows.Add(execution, flow = NewFlow(execution, new Dictionary<(string, int), IReadOnlyCollection<PointKey>>(), readByForm: true));
         return flow;
     }
 
-    private Flow NewFlow(string execution, IReadOnlySet<(string Instance, int Operation)> throwsAfter) =>
+    private Flow NewFlow(string execution, IReadOnlyDictionary<(string Instance, int Operation), IReadOnlyCollection<PointKey>> throwsAfter,
+                         bool readByForm = false) =>
         new(_scope, _heap, _segments, _entries.GetValueOrDefault(execution) ?? [], _visits.GetValueOrDefault(execution) ?? [],
-            _steps.GetValueOrDefault(execution) ?? [], throwsAfter, CheckCancellation);
+            _steps.GetValueOrDefault(execution) ?? [], throwsAfter, CheckCancellation, EarlyTaskWaits(execution), _sequentialRuns, readByForm);
+
+    /// <summary>The blocking waits for tasks of an execution's visits whose form throws only after their tasks complete but whose
+    /// environment does not let them (<see cref="ThrowsAfterCompletion"/>), by instance and join operation: the handles' proof is each
+    /// join's own, so only the form and the environment decide here. Every other blocking wait is read as its form says.</summary>
+    /// <param name="execution">The execution.</param>
+    private HashSet<(string Instance, int Operation)> EarlyTaskWaits(string execution)
+    {
+        var early = new HashSet<(string Instance, int Operation)>();
+        foreach (var instanceId in (_visits.GetValueOrDefault(execution) ?? []).Select(visit => visit.InstanceId).Distinct(StringComparer.Ordinal))
+        {
+            CheckCancellation();
+            if (!_heap.Instances.TryGetValue(instanceId, out var instance))
+                continue;
+            foreach (var join in instance.Summary.Joins.Where(join => join.Kind != SummaryJoinKind.Await && join.ThrowsOnlyAfterCompletion))
+            {
+                CheckCancellation();
+                if (!ThrowsAfterCompletion(execution, instanceId, join, proven: true))
+                    early.Add((instanceId, join.OperationId));
+            }
+        }
+
+        return early;
+    }
 
     private bool Precedes(string execution, PointKey first, PointKey second)
     {
@@ -1468,12 +1910,19 @@ internal sealed class HappensBefore
     /// <summary>
     /// One execution's interprocedural control flow over the body segments it runs: a node before each operation and at each block's
     /// end, plus an entry and an exit per segment. Passing an operation is an edge; an operation that may throw has an edge to each
-    /// handler of its block, except a join that throws only after completion; a call descends into its callees and returns only to its
-    /// own site, with a summary edge when a callee can complete. A call that runs a delegate 0..n times (SPEC TD-034a) may run it again
-    /// from where it stands. A prefix leaves its body at its first await.
+    /// handler of its block, except an await that throws only after completion and the operations that belong to a wait. The exception of
+    /// a wait that throws only after completion comes after that wait (<see cref="WaitExit"/>): a path through it has waited for what the
+    /// wait waits for and for nothing else; that of any other wait comes before it. A call descends into its callees and returns only to its own site, with a summary edge when a callee can complete. A call
+    /// that runs a delegate 0..n times (SPEC TD-034a) may run it again from where it stands. A prefix leaves its body at its first await.
     /// </summary>
     internal sealed class Flow
     {
+        /// <summary>The kind of the unsupported operation a collection expression lowers to.</summary>
+        private const string COLLECTION_EXPRESSION = "CollectionExpression";
+
+        /// <summary>The prefix of the type a conversion to a <c>ReadOnlySpan&lt;T&gt;</c> gives.</summary>
+        private const string READ_ONLY_SPAN = "System.ReadOnlySpan<";
+
         private readonly List<int>[] _plain;
         private readonly int[] _pass;
         private readonly Dictionary<int, int[]> _calls = [];
@@ -1487,13 +1936,25 @@ internal sealed class HappensBefore
         private readonly HashSet<int> _unresolved = [];
         private readonly HashSet<int> _escapes = [];
 
+        /// <summary>The escapes of operations computing a handle a wait waits on: an exception there leaves before the wait, and the body
+        /// has then not returned either.</summary>
+        private readonly HashSet<int> _producing = [];
+
+        /// <summary>The exceptional steps of the operations a wait throws at, by node (<see cref="WaitExit"/>).</summary>
+        private readonly Dictionary<int, WaitExit> _waitExits = [];
+
         /// <summary>The calls that may run a delegate again before they return: a known call's <c>invoke-now</c> delegate, an
         /// enumeration's <c>iterator</c> delegate, the delegate of a member of the collection table
         /// (<see cref="HeapSolution.RepeatedRuns"/>).</summary>
         private readonly HashSet<int> _repeating = [];
 
-        /// <summary>Where an exception that leaves a visit goes on, by the visit, as <see cref="Thrown"/> works it out.</summary>
-        private readonly Dictionary<int, (int Node, bool Ascend)[]> _thrown = [];
+        /// <summary>The repeating calls whose record runs the delegate one run at a time: the next run begins only after this one returns,
+        /// so none overlaps a run in progress.</summary>
+        private readonly HashSet<int> _sequential = [];
+
+        /// <summary>Where an exception that leaves a visit goes on, by the visit and whether it reaches the execution's exit, as
+        /// <see cref="Thrown"/> works it out.</summary>
+        private readonly Dictionary<(int Visit, bool ExceptionalExits), (int Node, bool Ascend, int[] Gates)[]> _thrown = [];
         private readonly List<int> _starts = [];
         private readonly Dictionary<string, HashSet<int>> _completing = new(StringComparer.Ordinal);
         private readonly Action? _checkCancellation;
@@ -1508,9 +1969,28 @@ internal sealed class HappensBefore
 
         private readonly Dictionary<string, bool[]> _reach = new(StringComparer.Ordinal);
 
+        /// <summary>Builds the flow of one execution.</summary>
+        /// <param name="scope">The process scope whose bodies the visits run.</param>
+        /// <param name="heap">The solved heap.</param>
+        /// <param name="segments">The segments of async bodies.</param>
+        /// <param name="entries">Where the execution starts.</param>
+        /// <param name="visits">The body segments the execution runs.</param>
+        /// <param name="steps">The call edges the execution follows.</param>
+        /// <param name="throwsAfter">The operations, by instance, whose exception comes only after the work they wait for completed, each
+        /// with the points of the waits it comes after (<see cref="WaitExit"/>).</param>
+        /// <param name="checkCancellation">Checks the cancellation of the work building the flow, or null for the ambient one.</param>
+        /// <param name="earlyWaits">The task waits, by instance and join operation, whose exception may come before their tasks complete
+        /// although their form says otherwise; none when null.</param>
+        /// <param name="sequentialRuns">The calls, by instance and operation, whose record runs the delegate one run at a time; none when
+        /// null.</param>
+        /// <param name="readByForm">Whether a blocking wait whose form throws only after completion and which the early waits do not hold
+        /// throws after the wait although the operations given do not list it: the flow is built before the joins are proven, and a query
+        /// asking about such a wait reads the proof from the wait itself.</param>
         internal Flow(ScopeProgram scope, HeapSolution heap, AsyncSegments segments, IReadOnlyList<ExecutionEntry> entries,
                       IReadOnlyList<ExecutionVisit> visits, IReadOnlyList<ExecutionStep> steps,
-                      IReadOnlySet<(string Instance, int Operation)> throwsAfter, Action? checkCancellation = null)
+                      IReadOnlyDictionary<(string Instance, int Operation), IReadOnlyCollection<PointKey>> throwsAfter,
+                      Action? checkCancellation = null, IReadOnlySet<(string Instance, int Operation)>? earlyWaits = null,
+                      IReadOnlySet<(string Instance, int Operation)>? sequentialRuns = null, bool readByForm = false)
         {
             _checkCancellation = checkCancellation;
             var bodies = visits.Select(visit => heap.Instances.TryGetValue(visit.InstanceId, out var instance) &&
@@ -1565,9 +2045,11 @@ internal sealed class HappensBefore
                           .ToDictionary(group => group.Key,
                                         group => group.Select(step => _visitIndex.TryGetValue((step.Callee, step.CalleeSegment), out var callee) ? callee : -1)
                                                       .Where(callee => callee >= 0).Distinct().ToArray());
+            var calleesAt = steps.ToLookup(step => (step.Caller, step.OperationId), step => step.Callee);
             var repeated = steps.Where(step => heap.RepeatedRuns.Contains((step.Caller, step.OperationId, step.Callee)))
                                 .Select(step => (step.Caller, step.CallerSegment, step.OperationId))
                                 .ToHashSet();
+            var after = new List<(WaitExit Exit, IReadOnlyCollection<PointKey> Waited)>();
 
             for (var index = 0; index < visits.Count; index++)
             {
@@ -1600,7 +2082,28 @@ internal sealed class HappensBefore
                 }
 
                 var instanceBody = heap.Instances[visit.InstanceId].BodyId;
-                var waitParts = WaitParts(body);
+                Func<IrCallOperation, bool> faults = call => FaultsItsTask(scope, heap, body, visit.InstanceId, call, calleesAt[(visit.InstanceId, call.Id)]);
+                var waits = WaitParts(body, join => earlyWaits?.Contains((visit.InstanceId, join.Id)) != true, faults);
+                var listings = WaitParts(body, join => throwsAfter.ContainsKey((visit.InstanceId, join.CallOperationId)), faults).Parts;
+                var reads = readByForm
+                    ? body.Blocks.SelectMany(block => block.Operations).OfType<IrJoinOperation>()
+                          .Where(join => join.ThrowsOnlyAfterCompletion && earlyWaits?.Contains((visit.InstanceId, join.Id)) != true)
+                          .Select(join => join.CallOperationId)
+                          .ToHashSet()
+                    : [];
+                var nodeOf = new Dictionary<int, int>();
+                for (var block = 0; block < body.Blocks.Count; block++)
+                {
+                    CheckCancellation();
+                    var operations = body.Blocks[block].Operations;
+                    for (var position = 0; position < operations.Count; position++)
+                    {
+                        CheckCancellation();
+                        nodeOf[operations[position].Id] = Node(block, position);
+                    }
+                }
+                var marks = body.Blocks.SelectMany(block => block.Operations).OfType<IrJoinOperation>()
+                                .ToLookup(join => join.CallOperationId, join => nodeOf[join.Id]);
                 for (var block = 0; block < body.Blocks.Count; block++)
                 {
                     CheckCancellation();
@@ -1623,7 +2126,11 @@ internal sealed class HappensBefore
                             if (heap.UnresolvedCallTargets.Contains((visit.InstanceId, operation.Id)))
                                 _unresolved.Add(node);
                             if (repeated.Contains((visit.InstanceId, visit.Segment, operation.Id)))
+                            {
                                 _repeating.Add(node);
+                                if (sequentialRuns?.Contains((visit.InstanceId, operation.Id)) == true)
+                                    _sequential.Add(node);
+                            }
                         }
                         else if (visit.Segment == BodySegment.Prefix && operation is IrAwaitOperation)
                         {
@@ -1641,16 +2148,36 @@ internal sealed class HappensBefore
                             nodes.Add(node);
                         }
 
-                        if (MayThrow(operation) && !throwsAfter.Contains((visit.InstanceId, operation.Id)))
+                        var afterWait = throwsAfter.TryGetValue((visit.InstanceId, operation.Id), out var waited);
+                        if (MayThrow(operation) && !(afterWait && operation is IrAwaitOperation))
                         {
-                            foreach (var handler in exceptional[block])
+                            // The exception of a wait read as throwing only after completion comes after that wait: its steps are taken
+                            // only by a path that does not stop at the wait. Any other wait may throw before its work completes.
+                            var exit = afterWait || reads.Contains(operation.Id)
+                                ? _waitExits[node] = new WaitExit([node, .. marks[operation.Id]])
+                                : null;
+                            if (afterWait)
+                                after.Add((exit!, waited!));
+                            if (afterWait || !listings.Contains(operation.Id))
                             {
-                                CheckCancellation();
-                                _plain[node].Add(Node(handler, 0));
+                                foreach (var handler in exceptional[block])
+                                {
+                                    CheckCancellation();
+                                    (afterWait ? exit!.Handlers : _plain[node]).Add(Node(handler, 0));
+                                }
                             }
-                            // With no handler in this body the exception leaves it here, unless the operation is part of a wait.
-                            if (exceptional[block].Count == 0 && !waitParts.Contains(operation.Id))
+                            // With no handler in this body the exception leaves it here, unless the operation is part of a wait; that of
+                            // a wait not so read leaves before the wait, like that of a producer.
+                            if (exceptional[block].Count == 0 && exit is not null)
+                            {
+                                exit.Escapes = true;
+                            }
+                            else if (exceptional[block].Count == 0 && (!waits.Parts.Contains(operation.Id) || waits.Calls.Contains(operation.Id)))
+                            {
                                 _escapes.Add(node);
+                                if (waits.Producers.Contains(operation.Id) || waits.Calls.Contains(operation.Id))
+                                    _producing.Add(node);
+                            }
                         }
                     }
 
@@ -1690,19 +2217,211 @@ internal sealed class HappensBefore
                 if (_visitIndex.TryGetValue((entry.InstanceId, entry.Segment), out var index))
                     _starts.Add(_entry[index]);
             }
+
+            foreach (var (exit, waited) in after)
+            {
+                CheckCancellation();
+                exit.Gates = [.. exit.Gates.Concat(waited.SelectMany(Nodes)).Distinct().Order()];
+            }
         }
 
-        /// <summary>The operations a wait is made of: the call each join marks and the operations computing the handles it waits on. An
-        /// exception out of one of them is not a path that skipped the wait — it either comes from the wait itself, after the work it waited
-        /// for completed, or from reading a handle whose identity the join has already been proven to hold.</summary>
+        /// <summary>The operations of a body that belong to its waits, which throw only as the wait does: the call each join marks; the
+        /// operations building what it is handed — the array or span made for the call, its initializer's stores, its implicit conversion to a
+        /// <c>ReadOnlySpan&lt;T&gt;</c>, the reads and the
+        /// identity and implicit reference conversions of the tasks it lists; the calls of the wait's form that give the same task
+        /// (<c>GetAwaiter()</c>, <c>ConfigureAwait(bool)</c>) or the task of a <c>Task.WhenAll</c> that lists its tasks, which its
+        /// <c>Wait()</c> waits on, with that group's own listing; and a call whose exception faults the task it returns
+        /// (<see cref="FaultsItsTask"/>), which the wait throws once that task completed. An exception out of one of them is not a path
+        /// that skipped the wait. Any other operation computing a handle or an argument — a program call, a field or element read, a later
+        /// store into the array, an explicit conversion, an unboxing or a user-defined one, <c>ConfigureAwait(ConfigureAwaitOptions)</c>
+        /// — may throw before the wait, whichever task the value it gives is proven to be; those that define a handle the join waits on
+        /// are its producers.</summary>
         /// <param name="body">The body.</param>
-        private HashSet<int> WaitParts(IrBody body)
+        /// <param name="counts">Whether a join is such a wait.</param>
+        /// <param name="faults">Whether a call's exception faults the task it returns instead of leaving the call.</param>
+        private WaitOperations WaitParts(IrBody body, Func<IrJoinOperation, bool> counts, Func<IrCallOperation, bool> faults)
         {
             var operations = body.Blocks.SelectMany(block => block.Operations).ToArray();
-            var joins = operations.OfType<IrJoinOperation>().ToArray();
+            var joins = operations.OfType<IrJoinOperation>().Where(counts).ToArray();
             if (joins.Length == 0)
-                return [];
+                return new WaitOperations([], [], []);
 
+            var byId = operations.ToDictionary(operation => operation.Id);
+            var types = body.Values.ToDictionary(value => value.Id, value => value.Type);
+            var definers = Definers(operations);
+            var stores = operations.OfType<IrStoreElementOperation>().ToLookup(store => store.ReceiverValue);
+            var same = operations.OfType<IrTaskOperation>().Where(task => task is { Kind: IrTaskKind.Same, ResultValue: not null, TaskValue: not null })
+                                 .ToLookup(task => (task.CallOperationId, task.ResultValue!.Value), task => task.TaskValue!.Value);
+            var groups = operations.OfType<IrWhenAllOperation>().ToLookup(group => group.ResultValue);
+            var parts = new HashSet<int>();
+            var producers = new HashSet<int>();
+            foreach (var join in joins)
+            {
+                CheckCancellation();
+                parts.Add(join.CallOperationId);
+                producers.UnionWith(join.HandleValues.SelectMany(value => definers.GetValueOrDefault(value) ?? []));
+                var pending = new Stack<int>(join.HandleValues);
+                // The array or span a call lists its tasks in is made for the call, written in it.
+                var listings = new HashSet<int>();
+                if (join is { Kind: IrJoinKind.WaitAll, HandlesKnown: true } && byId.GetValueOrDefault(join.CallOperationId) is IrCallOperation waitAll)
+                    Listing(waitAll.ArgumentValues);
+                var seen = new HashSet<int>();
+                while (pending.TryPop(out var value))
+                {
+                    CheckCancellation();
+                    if (!seen.Add(value))
+                        continue;
+                    // Only the initializer's stores, at a constant index into the array it makes of the element type, cannot throw.
+                    foreach (var store in stores[value].Where(store => store.Provenance.Transformation == "array-initializer"))
+                    {
+                        CheckCancellation();
+                        parts.Add(store.Id);
+                        pending.Push(store.Value);
+                    }
+                    foreach (var definer in (definers.GetValueOrDefault(value) ?? []).Select(id => byId[id]))
+                    {
+                        CheckCancellation();
+                        switch (definer)
+                        {
+                            case IrCallOperation call when same[(call.Id, value)].ToArray() is { Length: > 0 } tasks:
+                                // ConfigureAwait(ConfigureAwaitOptions) throws on options its task does not take.
+                                if (call.ArgumentValues.All(argument => tasks.Contains(argument) || types.GetValueOrDefault(argument) == "bool"))
+                                    parts.Add(call.Id);
+                                Follow(tasks);
+                                break;
+                            case IrCallOperation call when groups[value].ToArray() is { Length: > 0 } listed:
+                                // A group that does not list its tasks may be handed a null one, which the call throws on.
+                                if (listed.All(group => group.TasksKnown))
+                                {
+                                    parts.Add(call.Id);
+                                    Listing(call.ArgumentValues);
+                                }
+                                Follow(listed.SelectMany(group => group.TaskValues));
+                                break;
+                            case IrCallOperation call when faults(call):
+                                parts.Add(call.Id);
+                                break;
+                            case IrCallOperation:
+                                break;
+                            // An explicit reference conversion, an unboxing or a user-defined conversion may throw; the implicit one of an
+                            // array or a collection expression to a ReadOnlySpan, which takes a covariant array, does not.
+                            case IrConvertOperation convert when convert.ConversionKind == IrConversionKind.Identity ||
+                                                                 convert is { ConversionKind: IrConversionKind.Reference, IsImplicit: true } ||
+                                                                 convert is { ConversionKind: IrConversionKind.Other, IsImplicit: true } &&
+                                                                 convert.Type.StartsWith(READ_ONLY_SPAN, StringComparison.Ordinal):
+                                parts.Add(convert.Id);
+                                if (listings.Contains(value))
+                                    listings.Add(convert.OperandValue);
+                                pending.Push(convert.OperandValue);
+                                break;
+                            // Only the array or collection the call lists its tasks in is made for it; any other operation giving the
+                            // listing, an explicit conversion of it included, answers as it does for a handle.
+                            case IrAllocateOperation or IrUnknownOperation { OperationKind: COLLECTION_EXPRESSION } when listings.Contains(value):
+                                parts.Add(definer.Id);
+                                Follow(definer.Operands);
+                                break;
+                            case var other when !MayThrow(other):
+                                Follow(other.Operands);
+                                break;
+                        }
+                    }
+                }
+
+                void Follow(IEnumerable<int> values)
+                {
+                    foreach (var value in values)
+                    {
+                        CheckCancellation();
+                        pending.Push(value);
+                    }
+                }
+
+                void Listing(IEnumerable<int> values)
+                {
+                    foreach (var value in values)
+                    {
+                        CheckCancellation();
+                        listings.Add(value);
+                        pending.Push(value);
+                    }
+                }
+            }
+
+            producers.ExceptWith(parts);
+            return new WaitOperations(parts, producers, joins.Select(join => join.CallOperationId).ToHashSet());
+        }
+
+        /// <summary>The operations that belong to a body's waits, and those that compute a handle one of them waits on without
+        /// belonging to it.</summary>
+        /// <param name="Parts">The operations that throw only as the wait does.</param>
+        /// <param name="Producers">The operations defining a handle a wait waits on that may throw before it.</param>
+        /// <param name="Calls">The calls the waits mark, where each wait throws.</param>
+        private sealed record WaitOperations(HashSet<int> Parts, HashSet<int> Producers, HashSet<int> Calls);
+
+        /// <summary>The exceptional steps of an operation a wait throws at, which come after that wait and only after it: a path that
+        /// stops at the wait — whose cut holds one of the gates — has not taken them, and any other path has, without waiting for
+        /// anything the wait waits for. An exception the wait throws after the work completed thus orders that work alone, never the work
+        /// of a later wait it skips.</summary>
+        /// <param name="gates">The nodes of the wait: the operation's own and those of the joins marking it.</param>
+        private sealed class WaitExit(int[] gates)
+        {
+            /// <summary>The nodes of the waits the exception comes after: the wait's own and, for one that throws only after completion,
+            /// those of the waits for no more than it waits for, any of which a path asking about one of its tasks stops at.</summary>
+            internal int[] Gates { get; set; } = gates;
+
+            /// <summary>The handlers of its block the exception goes to, when it throws only after completion; an exception that may come
+            /// earlier keeps its plain edges to them.</summary>
+            internal List<int> Handlers { get; } = [];
+
+            /// <summary>Whether the exception leaves the body here, its block having no handler.</summary>
+            internal bool Escapes { get; set; }
+        }
+
+        /// <summary>Whether a path that stops at none of the cut's nodes passes a step that comes after the waits given.</summary>
+        /// <param name="gates">The nodes of the waits.</param>
+        /// <param name="cut">The cut.</param>
+        private static bool Open(int[] gates, IReadOnlySet<int> cut) => !gates.Any(cut.Contains);
+
+        /// <summary>Whether a call's exception faults the task it returns instead of leaving the call: every body it may run is async and
+        /// returns a task, whose builder catches what the body throws, and nothing before the body runs can throw — the call has no
+        /// receiver, or its receiver is the calling body's own, which is never null.</summary>
+        /// <param name="scope">The process scope whose bodies the calls run.</param>
+        /// <param name="heap">The solved heap.</param>
+        /// <param name="body">The calling body.</param>
+        /// <param name="instance">The calling instance.</param>
+        /// <param name="call">The call.</param>
+        /// <param name="callees">The instances the call runs in the execution.</param>
+        private bool FaultsItsTask(ScopeProgram scope, HeapSolution heap, IrBody body, string instance, IrCallOperation call,
+                                   IEnumerable<string> callees)
+        {
+            if (heap.UnresolvedCallTargets.Contains((instance, call.Id)))
+                return false;
+            if (call.CallKind is not (IrCallKind.Static or IrCallKind.LocalFunction) &&
+                (call.CallKind is IrCallKind.Delegate or IrCallKind.Constructor || call.ReceiverValue is not int receiver ||
+                 body.Values.FirstOrDefault(value => value.Id == receiver) is not { Kind: IrValueKind.Receiver }))
+            {
+                return false;
+            }
+
+            var any = false;
+            foreach (var callee in callees)
+            {
+                CheckCancellation();
+                if (!heap.Instances.TryGetValue(callee, out var called) || !scope.Reachable.Bodies.TryGetValue(called.BodyId, out var run) ||
+                    run is not { IsAsync: true, IsAsyncIterator: false } || run.ReturnType == "void")
+                {
+                    return false;
+                }
+                any = true;
+            }
+
+            return any;
+        }
+
+        /// <summary>The operations defining each value of a body.</summary>
+        /// <param name="operations">The body's operations.</param>
+        private Dictionary<int, List<int>> Definers(IReadOnlyList<IrOperation> operations)
+        {
             var definers = new Dictionary<int, List<int>>();
             foreach (var operation in operations)
             {
@@ -1716,26 +2435,14 @@ internal sealed class HappensBefore
                 }
             }
 
-            var parts = new HashSet<int>();
-            foreach (var join in joins)
-            {
-                CheckCancellation();
-                parts.Add(join.CallOperationId);
-                foreach (var value in join.HandleValues)
-                {
-                    CheckCancellation();
-                    parts.UnionWith(definers.GetValueOrDefault(value) ?? []);
-                }
-            }
-
-            return parts;
+            return definers;
         }
 
         /// <summary>Whether an operation can throw where it stands: calls, awaits, field and element reads and writes, conversions,
         /// arithmetic, locks and operations the lowering does not model. Assignments, phis, comparisons, allocations (their constructor is
         /// a call) and the BCL marks that follow a call cannot.</summary>
         /// <param name="operation">The operation.</param>
-        private static bool MayThrow(IrOperation operation) => operation is IrCallOperation or IrAwaitOperation or IrLoadFieldOperation or
+        internal static bool MayThrow(IrOperation operation) => operation is IrCallOperation or IrAwaitOperation or IrLoadFieldOperation or
             IrStoreFieldOperation or IrLoadElementOperation or IrStoreElementOperation or IrConvertOperation or IrComputeOperation or
             IrAcquireOperation or IrReleaseOperation or IrUnknownOperation or IrAtomicOperation;
 
@@ -1794,10 +2501,12 @@ internal sealed class HappensBefore
         }
 
         /// <summary>Whether every path from just after an operation (from the point itself for a point after a call, from the
-        /// execution's start for none) to the execution's end passes one of the targets.</summary>
+        /// execution's start for none) to the execution's end passes one of the targets: to its normal end, or with exceptional exits,
+        /// also out of it with an exception no handler catches.</summary>
         /// <param name="from">The point the paths start after, or null for the execution's start.</param>
         /// <param name="targets">The points one of which every path must pass.</param>
-        internal bool AlwaysFollows(PointKey? from, IReadOnlyCollection<PointKey> targets)
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its end.</param>
+        internal bool AlwaysFollows(PointKey? from, IReadOnlyCollection<PointKey> targets, bool exceptionalExits = false)
         {
             var fromNodes = from is not { } point ? _starts.ToArray()
                 : point.AfterCall ? Nodes(point).ToArray()
@@ -1805,9 +2514,108 @@ internal sealed class HappensBefore
             var targetNodes = targets.SelectMany(Nodes).ToHashSet();
             if (fromNodes.Length == 0 || targetNodes.Count == 0)
                 return false;
-            var key = $"after:{from?.ToString() ?? "start"}>{string.Join(";", targets.Select(target => target.ToString()).Order(StringComparer.Ordinal))}";
-            var reach = Reach(key, fromNodes, ascend: true, targetNodes);
+            var key = $"after:{from?.ToString() ?? "start"}>{string.Join(";", targets.Select(target => target.ToString()).Order(StringComparer.Ordinal))}" +
+                      (exceptionalExits ? ">exceptional" : "");
+            var reach = Reach(key, fromNodes, ascend: true, targetNodes, exceptionalExits);
             return !_starts.Any(start => reach[start + 1]);
+        }
+
+        /// <summary>Whether every path from just after a pass's start (from the point itself for a point after a call) to that start
+        /// again passes one of the pass's completions; a run that a call running a delegate again around the start begins next starts
+        /// before this one passes anything, so a path reaches the start through it too.</summary>
+        /// <param name="start">The pass's start.</param>
+        /// <param name="completions">The points that complete the pass's work.</param>
+        internal bool BeforeNext(PointKey start, IReadOnlyCollection<PointKey> completions) =>
+            BeforeDestination(start, start with { AfterCall = false }, completions, overlappingRuns: true);
+
+        /// <summary>Whether every path from just after a pass's start (from the point itself for a point after a call) to a destination
+        /// passes one of the pass's completions. With overlapping runs, a run that a call running a delegate again around the start begins
+        /// next starts before this one passes anything: what that run reaches is reached without a completion of this pass.</summary>
+        /// <param name="start">The pass's start.</param>
+        /// <param name="destination">The point the paths lead to.</param>
+        /// <param name="completions">The points that complete the pass's work.</param>
+        /// <param name="overlappingRuns">Whether the runs a call around the start may begin before this one completes count.</param>
+        internal bool BeforeDestination(PointKey start, PointKey destination, IReadOnlyCollection<PointKey> completions, bool overlappingRuns)
+        {
+            var targets = Nodes(destination);
+            var cuts = completions.SelectMany(Nodes).ToHashSet();
+            if (targets.Count == 0 || cuts.Count == 0 || PassBegins(start, cuts) is not { } begins)
+                return false;
+            var reach = Reach($"pass:{start}>{string.Join(";", cuts.Order())}", begins, cuts);
+            if (targets.Any(node => reach[node]))
+                return false;
+            if (!overlappingRuns)
+                return true;
+            var runs = OverlappingRuns(Nodes(start));
+            if (runs.Count == 0)
+                return true;
+            var overlapping = Reach($"overlapping:{string.Join(";", runs.Order())}", runs, ascend: false, new HashSet<int>());
+            return !targets.Any(node => overlapping[node]);
+        }
+
+        /// <summary>Whether every path from just after a pass's start (from the point itself for a point after a call) to the
+        /// execution's end passes one of the pass's completions: to its normal end, or with exceptional exits, also out of it with an
+        /// exception no handler catches.</summary>
+        /// <param name="start">The pass's start.</param>
+        /// <param name="completions">The points that complete the pass's work.</param>
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its end.</param>
+        internal bool BeforeReturn(PointKey start, IReadOnlyCollection<PointKey> completions, bool exceptionalExits)
+        {
+            var cuts = completions.SelectMany(Nodes).ToHashSet();
+            if (cuts.Count == 0 || PassBegins(start, cuts) is not { } begins)
+                return false;
+            var reach = Reach($"return:{start}>{exceptionalExits}>{string.Join(";", cuts.Order())}", begins, cuts, exceptionalExits);
+            return !_starts.Any(node => reach[node + 1]);
+        }
+
+        /// <summary>Where the paths of a pass begin: just after its start's operation, or at the point itself for a point after a call. A
+        /// start that is itself one of the pass's completions — a call whose return completes the work it starts — has completed the pass
+        /// once it returns, so its paths are only the steps that leave it without returning: to a handler, out of its body, into a run it
+        /// begins again. Null when the start has no node to begin from.</summary>
+        /// <param name="start">The pass's start.</param>
+        /// <param name="cuts">The nodes of the pass's completions.</param>
+        private (int Node, bool Ascend)[]? PassBegins(PointKey start, HashSet<int> cuts)
+        {
+            var nodes = Nodes(start);
+            if (start.AfterCall || nodes.Count == 0 || !nodes.All(cuts.Contains))
+            {
+                var begins = start.AfterCall ? nodes.ToArray() : nodes.Where(node => _pass[node] >= 0).Select(node => _pass[node]).ToArray();
+                return begins.Length == 0 ? null : begins.Select(node => (node, true)).ToArray();
+            }
+            var completing = Completing(cuts);
+            var steps = new Stack<(int Node, bool Ascend)>();
+            foreach (var node in nodes)
+            {
+                CheckCancellation();
+                Expand(node, true, cuts, completing, steps);
+            }
+            return steps.ToArray();
+        }
+
+        /// <summary>The entries of the runs a call that runs a delegate again may begin while a run holding one of the nodes is still in
+        /// progress: every such call on a chain of calling sites above the nodes' bodies, except one whose record runs the delegate one run
+        /// at a time, whose next run begins only after this one returns.</summary>
+        /// <param name="nodes">The nodes.</param>
+        private List<int> OverlappingRuns(IEnumerable<int> nodes)
+        {
+            var runs = new List<int>();
+            var seen = new HashSet<int>();
+            var pending = new Stack<int>(nodes.Select(node => _visitOf[node]));
+            while (pending.TryPop(out var visit))
+            {
+                CheckCancellation();
+                if (!seen.Add(visit))
+                    continue;
+                foreach (var site in _callers[visit])
+                {
+                    CheckCancellation();
+                    if (_repeating.Contains(site) && !_sequential.Contains(site))
+                        runs.AddRange(_calls[site].Select(callee => _entry[callee]));
+                    pending.Push(_visitOf[site]);
+                }
+            }
+
+            return runs.Distinct().ToList();
         }
 
         private List<int> Nodes(PointKey point)
@@ -1819,11 +2627,15 @@ internal sealed class HappensBefore
         }
 
         /// <summary>Whether every path of one visit, from its entry to its exit or out of it with an exception, passes one of the points:
-        /// waiting for one thing at several places is one wait, so the alternatives are cut together.</summary>
+        /// waiting for one thing at several places is one wait, so the alternatives are cut together. An exception computing a handle a
+        /// wait waits on leaves before that wait, but without returning, and so does the exception of an earlier wait for something else,
+        /// which skips the later one (<see cref="WaitExit"/>): they count only where the exceptional exits are asked for.</summary>
         /// <param name="instance">The instance.</param>
         /// <param name="segment">The segment.</param>
         /// <param name="points">The points.</param>
-        internal bool AlwaysWaits(string instance, BodySegment segment, IReadOnlyCollection<PointKey> points)
+        /// <param name="exceptional">Whether every exception leaving the visit has to come after one of the points, as it must for the
+        /// visit's exception to come only after the work completed.</param>
+        internal bool AlwaysWaits(string instance, BodySegment segment, IReadOnlyCollection<PointKey> points, bool exceptional)
         {
             if (!_visitIndex.TryGetValue((instance, segment), out var visit))
                 return false;
@@ -1838,13 +2650,17 @@ internal sealed class HappensBefore
                 CheckCancellation();
                 if (cut.Contains(node))
                     continue;
-                if (node == _exit[visit] || _escapes.Contains(node))
+                var exit = _waitExits.GetValueOrDefault(node) is { } wait && Open(wait.Gates, cut) ? wait : null;
+                if (node == _exit[visit] || _escapes.Contains(node) && (exceptional || !_producing.Contains(node)) ||
+                    exceptional && exit is { Escapes: true })
+                {
                     return false;
+                }
                 if (!seen.Add(node))
                     continue;
                 if (_pass[node] >= 0)
                     pending.Push(_pass[node]);
-                foreach (var next in _plain[node])
+                foreach (var next in _plain[node].Concat(exit?.Handlers ?? []))
                 {
                     CheckCancellation();
                     pending.Push(next);
@@ -1861,18 +2677,20 @@ internal sealed class HappensBefore
         /// <param name="starts">The starts.</param>
         /// <param name="ascend">Whether a path may leave the body of a start through a site calling it.</param>
         /// <param name="cut">The cut.</param>
-        private bool[] Reach(string key, IEnumerable<int> starts, bool ascend, IReadOnlySet<int> cut)
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit.</param>
+        private bool[] Reach(string key, IEnumerable<int> starts, bool ascend, IReadOnlySet<int> cut, bool exceptionalExits = false)
         {
             CheckCancellation();
-            return Reach(key, starts.Select(start => (start, ascend)), cut);
+            return Reach(key, starts.Select(start => (start, ascend)), cut, exceptionalExits);
         }
 
         /// <summary>The nodes valid paths reach from the starts, each start saying whether a path may leave its body through a site calling
         /// it, without passing a cut operation, by <see cref="Expand"/>'s steps.</summary>
-        /// <param name="key">The key the answer is kept under.</param>
+        /// <param name="key">The key the answer is kept under; it names the exceptional exits a query asks for.</param>
         /// <param name="starts">The starts.</param>
         /// <param name="cut">The cut.</param>
-        private bool[] Reach(string key, IEnumerable<(int Node, bool Ascend)> starts, IReadOnlySet<int> cut)
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit.</param>
+        private bool[] Reach(string key, IEnumerable<(int Node, bool Ascend)> starts, IReadOnlySet<int> cut, bool exceptionalExits = false)
         {
             if (_reach.TryGetValue(key, out var cached))
                 return cached;
@@ -1887,27 +2705,31 @@ internal sealed class HappensBefore
                 if (!seen.Add(item))
                     continue;
                 reached[item.Node] = true;
-                Expand(item.Node, item.Ascend, cut, completing, pending);
+                Expand(item.Node, item.Ascend, cut, completing, pending, exceptionalExits);
             }
 
             _reach.Add(key, reached);
             return reached;
         }
 
-        /// <summary>The steps a valid path takes from a node: passing its operation unless the cut holds it, to a handler of its block, into a
-        /// callee and, through the summary edge of its own site, past the call when a callee can complete, and into the call's delegate
-        /// again where the call may run it again. A path that leaves a body it may leave returns to any site calling it, and to that site
-        /// again where it may run the body again; an exception that leaves such a body goes on as <see cref="Thrown"/> says.</summary>
+        /// <summary>The steps a valid path takes from a node: passing its operation unless the cut holds it, to a handler of its block —
+        /// after a wait only where the cut does not hold that wait (<see cref="WaitExit"/>) —, into a callee and, through the summary edge
+        /// of its own site, past the call when a callee can complete, and into the call's delegate again where the call may run it again.
+        /// A path that leaves a body it may leave returns to any site calling it, and to that site again where it may run the body again;
+        /// an exception that leaves such a body goes on as <see cref="Thrown"/> says.</summary>
         /// <param name="node">The node.</param>
         /// <param name="up">Whether the path may leave the node's body through a site calling it.</param>
         /// <param name="cut">The operations the path may not pass.</param>
         /// <param name="completing">The segments whose exit their entry reaches without passing the cut.</param>
         /// <param name="pending">Receives the steps.</param>
-        private void Expand(int node, bool up, IReadOnlySet<int> cut, HashSet<int> completing, Stack<(int Node, bool Ascend)> pending)
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit.</param>
+        private void Expand(int node, bool up, IReadOnlySet<int> cut, HashSet<int> completing, Stack<(int Node, bool Ascend)> pending,
+                            bool exceptionalExits = false)
         {
             if (_pass[node] >= 0 && !cut.Contains(node))
                 pending.Push((_pass[node], up));
-            foreach (var next in _plain[node])
+            var exit = _waitExits.GetValueOrDefault(node) is { } wait && Open(wait.Gates, cut) ? wait : null;
+            foreach (var next in _plain[node].Concat(exit?.Handlers ?? []))
             {
                 CheckCancellation();
                 pending.Push((next, up));
@@ -1937,47 +2759,62 @@ internal sealed class HappensBefore
                         pending.Push((site, true));
                 }
             }
-            if (_escapes.Contains(node))
+            if (_escapes.Contains(node) || exit is { Escapes: true })
             {
-                foreach (var next in Thrown(_visitOf[node]))
+                foreach (var (next, ascend, gates) in Thrown(_visitOf[node], exceptionalExits))
                 {
                     CheckCancellation();
-                    pending.Push(next);
+                    if (Open(gates, cut))
+                        pending.Push((next, ascend));
                 }
             }
         }
 
         /// <summary>Where an exception that leaves a visit goes on: to the handlers of every site calling the visit, to the site again where
-        /// its call may run the visit again, and from a site whose block has no handler on out of that site's visit in turn.</summary>
+        /// its call may run the visit again, and from a site whose block has no handler on out of that site's visit in turn. With exceptional
+        /// exits, an exception that leaves a visit the execution starts in reaches that visit's exit. A step past a site whose call is a
+        /// wait comes after that wait (<see cref="WaitExit"/>): each step carries the nodes of the waits it comes after, and a path takes it
+        /// only where its cut holds none of them.</summary>
         /// <param name="visit">The visit the exception leaves.</param>
-        private (int Node, bool Ascend)[] Thrown(int visit)
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit.</param>
+        private (int Node, bool Ascend, int[] Gates)[] Thrown(int visit, bool exceptionalExits)
         {
-            if (_thrown.TryGetValue(visit, out var cached))
+            if (_thrown.TryGetValue((visit, exceptionalExits), out var cached))
                 return cached;
 
-            var targets = new List<(int Node, bool Ascend)>();
-            var left = new HashSet<int> { visit };
-            var pending = new Stack<int>([visit]);
+            var targets = new List<(int Node, bool Ascend, int[] Gates)>();
+            var left = new HashSet<(int Visit, string Gates)> { (visit, "") };
+            var pending = new Stack<(int Visit, int[] Gates)>([(visit, [])]);
             while (pending.TryPop(out var current))
             {
                 CheckCancellation();
-                foreach (var site in _callers[current])
+                if (exceptionalExits && _starts.Contains(_entry[current.Visit]))
+                    targets.Add((_exit[current.Visit], true, current.Gates));
+                foreach (var site in _callers[current.Visit])
                 {
                     CheckCancellation();
+                    var wait = _waitExits.GetValueOrDefault(site);
+                    int[] past = wait is null ? current.Gates : [.. current.Gates.Union(wait.Gates).Order()];
                     foreach (var handler in _plain[site])
                     {
                         CheckCancellation();
-                        targets.Add((handler, true));
+                        targets.Add((handler, true, current.Gates));
+                    }
+                    foreach (var handler in wait?.Handlers ?? [])
+                    {
+                        CheckCancellation();
+                        targets.Add((handler, true, past));
                     }
                     if (_repeating.Contains(site))
-                        targets.Add((site, true));
-                    if (_escapes.Contains(site) && left.Add(_visitOf[site]))
-                        pending.Push(_visitOf[site]);
+                        targets.Add((site, true, current.Gates));
+                    var gates = _escapes.Contains(site) ? current.Gates : wait is { Escapes: true } ? past : null;
+                    if (gates is not null && left.Add((_visitOf[site], string.Join(",", gates))))
+                        pending.Push((_visitOf[site], gates));
                 }
             }
 
-            cached = targets.Distinct().ToArray();
-            _thrown.Add(visit, cached);
+            cached = targets.DistinctBy(target => (target.Node, target.Ascend, string.Join(",", target.Gates))).ToArray();
+            _thrown.Add((visit, exceptionalExits), cached);
             return cached;
         }
 
@@ -2024,7 +2861,8 @@ internal sealed class HappensBefore
                     continue;
                 if (_pass[node] >= 0 && !cut.Contains(node))
                     pending.Push(_pass[node]);
-                foreach (var next in _plain[node])
+                var exit = _waitExits.GetValueOrDefault(node) is { } wait && Open(wait.Gates, cut) ? wait : null;
+                foreach (var next in _plain[node].Concat(exit?.Handlers ?? []))
                 {
                     CheckCancellation();
                     pending.Push(next);

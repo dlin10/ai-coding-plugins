@@ -223,6 +223,7 @@ public sealed class CandidateIndexTests
         Assert.Equal(PairKeys(reference), PairKeys(run.Pairs));
         Assert.Equal(reference.Comparisons, run.Pairs.Comparisons);
         Assert.Equal(reference.Skips, run.Pairs.Skips);
+        Assert.Equal(reference.Assumed, run.Pairs.Assumed);
         Assert.Equal(reference.Suppressed, run.Pairs.Suppressed);
     }
 

@@ -3614,6 +3614,21 @@
       "id": "project-model-receiver-type/string-writer",
       "phase": "5d",
       "resource": { "region": "alloc:Demo.Web.Cases.ProjectModelReceiverType.Shared..ctor()#Demo.Web.Cases.ProjectModelReceiverType.Payload", "accessPath": ["Count"] }
+    },
+    {
+      "id": "own-pass-join",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.OwnPassJoin.HandoffWorker@Singleton", "accessPath": ["_value"] }
+    },
+    {
+      "id": "own-pass-join/seed-twice",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.OwnPassJoin.SeedTwiceWorker@Singleton", "accessPath": ["Seeded"] }
+    },
+    {
+      "id": "own-pass-join/seed-retry",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.OwnPassJoin.SeedRetryWorker@Singleton", "accessPath": ["Seeded"] }
     }
   ]
 }

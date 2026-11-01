@@ -274,6 +274,10 @@ public sealed record AccessPair(Access First, Access Second, string Protection)
 
 /// <summary>A scope's pairs. <see cref="Comparisons"/> counts the compared pairs; <see cref="CartesianBound"/> is n(n+1)/2 over the
 /// scope's non-construction-local accesses; <see cref="Candidates"/> are the compared pairs that survived the filters.</summary>
+/// <param name="Pairs">The candidate pairs.</param>
+/// <param name="Comparisons">How many pairs were compared.</param>
+/// <param name="Suppressed">The compared pairs a sufficient protection suppressed.</param>
+/// <param name="Skips">The compared pairs a filter skipped, by the filter.</param>
 public sealed record PairAnalysis(IReadOnlyList<AccessPair> Pairs, int Comparisons, int Suppressed,
                                   IReadOnlyDictionary<string, int> Skips)
 {
@@ -281,4 +285,8 @@ public sealed record PairAnalysis(IReadOnlyList<AccessPair> Pairs, int Compariso
     public int Buckets { get; init; }
     public int LargestBucket { get; init; }
     public int Candidates => Pairs.Count;
+
+    /// <summary>The ordered pairs, by each assumption (<see cref="OrderingAssumptions"/>) their ordering rests on alone (R5): a pair is
+    /// counted once under every assumption it rests on, and is among the <c>ordered</c> skips as well. Empty unless given.</summary>
+    public IReadOnlyDictionary<string, int> Assumed { get; init; } = new Dictionary<string, int>(StringComparer.Ordinal);
 }

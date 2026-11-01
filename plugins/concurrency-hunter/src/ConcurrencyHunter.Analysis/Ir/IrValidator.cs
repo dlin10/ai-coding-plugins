@@ -133,6 +133,10 @@ public static class IrValidator
                     problems.Add($"Spawn operation {spawn.Id} of kind {spawn.Kind} names a work method.");
                 if (spawn.JoinsOnReturn != spawn.Kind is IrSpawnKind.ParallelFor or IrSpawnKind.ParallelForEach)
                     problems.Add($"Spawn operation {spawn.Id} of kind {spawn.Kind} disagrees with its implicit join.");
+                if (spawn.SchedulerArgument != IrSchedulerArgument.None && spawn.Kind is not (IrSpawnKind.StartNew or IrSpawnKind.ContinueWith))
+                    problems.Add($"Spawn operation {spawn.Id} of kind {spawn.Kind} names a scheduler argument.");
+                if (spawn.OnSeparateFactory && spawn.Kind != IrSpawnKind.StartNew)
+                    problems.Add($"Spawn operation {spawn.Id} of kind {spawn.Kind} names a factory.");
                 break;
             case IrJoinOperation join:
                 RequireCall(join.Id, join.CallOperationId, calls, problems);
@@ -140,6 +144,9 @@ public static class IrValidator
                     problems.Add($"Join operation {join.Id} of kind {join.Kind} does not name exactly one known handle.");
                 if (!join.HandlesKnown && join.HandleValues.Count != 0)
                     problems.Add($"Join operation {join.Id} names handles it does not know.");
+                break;
+            case IrConvertOperation { ConversionKind: IrConversionKind.Unboxing, IsImplicit: true } unboxing:
+                problems.Add($"Convert operation {unboxing.Id} is an implicit unboxing.");
                 break;
             case IrWhenAllOperation whenAll:
                 if (!whenAll.TasksKnown && whenAll.TaskValues.Count > 0)

@@ -183,10 +183,21 @@ public sealed record GenerationRefusal(string Member, string MemberId, string Fi
 public sealed record WantedGeneration(string MemberId, string FileKey);
 
 /// <summary>The pair counters summed over scopes; <see cref="LargestBucket"/> is the largest bucket of any scope.</summary>
+/// <param name="Comparisons">How many pairs were compared.</param>
+/// <param name="CartesianBound">The sum over scopes of n(n+1)/2 over each scope's non-construction-local accesses.</param>
+/// <param name="Buckets">How many buckets the candidate index made.</param>
+/// <param name="LargestBucket">The largest bucket of any scope.</param>
+/// <param name="Candidates">The compared pairs that survived the filters.</param>
+/// <param name="Suppressed">The compared pairs a sufficient protection suppressed.</param>
+/// <param name="Skips">The compared pairs a filter skipped, by the filter.</param>
 public sealed record PairCounters(int Comparisons, int CartesianBound, int Buckets, int LargestBucket, int Candidates, int Suppressed,
                                   IReadOnlyDictionary<string, int> Skips)
 {
     public static PairCounters None { get; } = new(0, 0, 0, 0, 0, 0, new Dictionary<string, int>());
+
+    /// <summary>The ordered pairs counted under each assumption their ordering rests on alone (<see cref="PairAnalysis.Assumed"/>),
+    /// summed over scopes.</summary>
+    public IReadOnlyDictionary<string, int> Assumed { get; init; } = new Dictionary<string, int>(StringComparer.Ordinal);
 }
 
 /// <summary>A root provider the analysis ran, with its supported assembly ranges as <c>name min..max</c> (max exclusive).</summary>

@@ -3,30 +3,35 @@
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 391,
+    "roots": 394,
     "rootsPerProvider": {
       "aspnetcore": 170,
-      "hosting": 221
+      "hosting": 224
     },
-    "reachableBodies": 1599,
-    "summaries": 1599,
-    "regions": 1128,
-    "instances": 1653,
-    "accesses": 1967,
+    "reachableBodies": 1611,
+    "summaries": 1611,
+    "regions": 1136,
+    "instances": 1665,
+    "accesses": 1970,
     "pairs": {
-      "comparisons": 2084,
-      "cartesianBound": 941879,
+      "comparisons": 2087,
+      "cartesianBound": 946001,
       "largestBucket": 8,
-      "buckets": 865,
+      "buckets": 868,
       "skips": {
         "confined": 23,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 71,
         "no-overlap": 390,
-        "ordered": 56,
+        "ordered": 59,
         "read-read": 1225,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
+      },
+      "assumed": {
+        "observers": 1,
+        "thread-context": 1,
+        "thread-pool-entry": 0
       },
       "suppressed": 17,
       "candidates": 295
@@ -315,9 +320,9 @@
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
         "aspnetcore": 170,
-        "hosting": 220
+        "hosting": 223
       },
-      "accesses": 1372,
+      "accesses": 1375,
       "counters": {
         "delegate-to-opaque": 12,
         "element-operation": 37,
@@ -330,10 +335,10 @@
         "model-entry-rejected": 0,
         "no-receiver-object": 17,
         "opaque-by-project": 3,
-        "opaque-call": 1348,
+        "opaque-call": 1361,
         "out-of-range-call": 0,
         "pairs-removed-generated": 1,
-        "reachable-bodies": 1596,
+        "reachable-bodies": 1608,
         "scc-budget-exceeded": 0,
         "semantic-gap": 20,
         "solver-available": 1,
@@ -341,18 +346,18 @@
         "solver-sat": 17,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
-        "unproven-reference": 223,
+        "unproven-reference": 225,
         "unresolved-base": 34,
         "unresolved-locator": 2,
         "unsupported-operation": 26,
         "wildcard-access": 9
       },
       "ordering": {
-        "spawn-sites": 70,
+        "spawn-sites": 73,
         "timers-disabled": 1,
         "timers-one-shot": 5,
         "timers-periodic": 7,
-        "unproven-joins": 53
+        "unproven-joins": 59
       },
       "semanticGaps": [
         "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",

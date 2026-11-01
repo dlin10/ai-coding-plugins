@@ -20,22 +20,104 @@ public sealed class AwaitedRunsTests
     public void Built_in_sequential_awaited_record_has_both_effects() =>
         AwaitedRunsFixture.AssertPairs(AwaitedRunsFixture.Run(AwaitedRunsFixture.Direct, builtIn: true), after: false, self: false);
 
+    /// <summary>A delegate whose run writes 3 in its synchronous part and 1 in its continuation.</summary>
+    private const string SyncThenAwait = "async () => { _state.C = 3; await Task.Yield(); _state.C = 1; }";
+
     [Fact]
-    public void Sync_part_of_a_run_still_meets_the_continuation_of_another()
+    public void Sync_part_of_a_run_still_meets_the_continuation_of_another_outside_one_awaited_entry()
     {
+        // The call sits in the root body, which no async call enters; the void member gives no task to await.
         foreach (var member in new[] { "Run", "Fire" })
         {
-            var run = AwaitedRunsFixture.Run((member == "Run" ? "await " : "") + $"Runs.Lib.{member}(async () => {{ _state.C = 3; await Task.Yield(); _state.C = 1; }});\n_state.C = 2;");
-            Assert.Contains(run.PairsOn("C"), pair => pair.First.ExecutionId != pair.Second.ExecutionId &&
-                                                    pair.First.Symbol.Contains("Worker", StringComparison.Ordinal) && pair.Second.Symbol.Contains("Worker", StringComparison.Ordinal));
+            var run = AwaitedRunsFixture.Run((member == "Run" ? "await " : "") + $"Runs.Lib.{member}({SyncThenAwait});\n_state.C = 2;");
+            AwaitedRunsFixture.AssertNextRun(run, pair: true);
             AwaitedRunsFixture.AssertPairs(run, after: false, self: false);
         }
     }
 
     [Fact]
+    public void Continuation_of_a_run_precedes_the_next_sync_part_where_one_awaited_entry_awaits_the_call_at_once() =>
+        AwaitedRunsFixture.AssertNextRun(AwaitedRunsFixture.Run("await Helper();", members: $"private async Task Helper() {{ await Runs.Lib.Run({SyncThenAwait}); }}"),
+                                         pair: false);
+
+    [Fact]
+    public void Continuation_meets_the_next_sync_part_when_the_call_task_is_awaited_after_the_prefix() =>
+        AwaitedRunsFixture.AssertNextRun(AwaitedRunsFixture.Run("await Helper();", members:
+            $"private async Task Helper() {{ var t = Runs.Lib.Run({SyncThenAwait}); await Task.Yield(); await t; }}"), pair: true);
+
+    [Fact]
+    public void Continuation_meets_the_next_sync_part_when_an_operation_between_the_call_and_its_await_may_throw() =>
+        AwaitedRunsFixture.AssertNextRun(AwaitedRunsFixture.Run("await Helper();", members:
+            $"private async Task Helper() {{ var t = Runs.Lib.Run({SyncThenAwait}); _state.Choose = true; await t; }}"), pair: true);
+
+    [Fact]
+    public void Continuation_meets_the_next_sync_part_when_the_body_has_two_async_entries() =>
+        AwaitedRunsFixture.AssertNextRun(AwaitedRunsFixture.Run("await Helper();\nawait Helper();", members:
+            $"private async Task Helper() {{ await Runs.Lib.Run({SyncThenAwait}); }}"), pair: true);
+
+    [Fact]
+    public void Continuation_meets_the_next_sync_part_when_the_entry_does_not_complete_before_its_next_start() =>
+        AwaitedRunsFixture.AssertNextRun(AwaitedRunsFixture.Run("for (var i = 0; i < 2; i++) { _ = Helper(); }", members:
+            $"private async Task Helper() {{ await Runs.Lib.Run({SyncThenAwait}); }}"), pair: true);
+
+    [Fact]
     public void Sequential_runs_read_as_concurrent() =>
         AwaitedRunsFixture.AssertPairs(AwaitedRunsFixture.Run("Runs.Lib.Run(async () => { await Task.Yield(); _state.C = 1; Task.Run(() => { }).Wait(); });\n_state.C = 2;",
                                                             "sequential"), after: true, self: true);
+
+    [Fact]
+    public void Sequential_runs_order_the_work_each_run_waits_for() =>
+        AwaitedRunsFixture.AssertPairs(AwaitedRunsFixture.Run($"Runs.Lib.Run({AwaitedRunsFixture.SyncBody});\n_state.C = 2;", "sequential"),
+                                       after: false, self: false);
+
+    [Fact]
+    public void Sequential_runs_outside_the_admission_order_only_the_code_after_the_call()
+    {
+        var cases = new[]
+        {
+            AwaitedRunsFixture.Run($"Runs.Lib.Run({AwaitedRunsFixture.SyncBody});\n_state.C = 2;", "sequential", generated: true),
+            AwaitedRunsFixture.Run($"Go({AwaitedRunsFixture.SyncBody});\n_state.C = 2;", "sequential",
+                                   members: "private void Go(Func<Task> f) { Runs.Lib.Run(f); }"),
+            AwaitedRunsFixture.Run($"Func<Task> f = {AwaitedRunsFixture.SyncBody}; f += () => Task.CompletedTask; Runs.Lib.Run(f);\n_state.C = 2;",
+                                   "sequential"),
+            AwaitedRunsFixture.Run($"Runs.Lib.Run({AwaitedRunsFixture.SyncBody});\n_state.C = 2;", relation: null)
+        };
+        foreach (var run in cases)
+            AwaitedRunsFixture.AssertPairs(run, after: false, self: true);
+    }
+
+    /// <summary>A non-async target runs as the async call whose task it returns only where one run of the target makes that call once
+    /// (R8): around a <c>do</c>, <c>for</c>, <c>while</c>, <c>foreach</c> or <c>goto</c> loop it returns the last run's task, and the
+    /// earlier runs are work it leaves behind, which overlaps the next run and the code after the call. A target that waits each earlier
+    /// run inside the loop is read the same way, since nothing proves its waits for the admission. A return on the loop's first pass and
+    /// a plain lambda make the call once.</summary>
+    /// <param name="form">The target's form, which names the delegate the curated call runs.</param>
+    /// <param name="paired">Whether the async call's work keeps its self-pair and its pair with the write after the call.</param>
+    [Theory]
+    [InlineData("do", true)]
+    [InlineData("for", true)]
+    [InlineData("while", true)]
+    [InlineData("foreach", true)]
+    [InlineData("goto", true)]
+    [InlineData("do-waiting", true)]
+    [InlineData("first-pass-return", false)]
+    [InlineData("lambda", false)]
+    public void Non_async_target_making_its_returned_call_more_than_once_keeps_the_pairs(string form, bool paired)
+    {
+        var target = form switch
+        {
+            "do" => "() => { Task t; var i = 0; do { t = WorkAsync(); i++; } while (i < 2); return t; }",
+            "for" => "() => { Task t = null!; for (var i = 0; i < 2; i++) t = WorkAsync(); return t; }",
+            "while" => "() => { Task t = null!; var i = 0; while (i < 2) { t = WorkAsync(); i++; } return t; }",
+            "foreach" => "() => { Task t = null!; foreach (var x in new[] { 1, 2 }) t = WorkAsync(); return t; }",
+            "goto" => "() => { Task t; var i = 0; again: t = WorkAsync(); if (++i < 2) goto again; return t; }",
+            "do-waiting" => "() => { Task t; var i = 0; do { t = WorkAsync(); if (i == 0) t.Wait(); i++; } while (i < 2); return t; }",
+            "first-pass-return" => "() => { for (;;) return WorkAsync(); }",
+            "lambda" => "() => WorkAsync()",
+            _ => throw new ArgumentOutOfRangeException(nameof(form), form, null)
+        };
+        AwaitedRunsFixture.AssertPairs(AwaitedRunsFixture.Run($"await Runs.Lib.Run({target});\n_state.C = 2;"), after: paired, self: paired);
+    }
 
     [Fact]
     public void Wait_of_a_call_task_that_passes_the_gate_is_no_unproven_join()
@@ -132,6 +214,9 @@ public sealed class AwaitedRunsTests
 internal static class AwaitedRunsFixture
 {
     internal const string Direct = "await Runs.Lib.Run(async () => { await Task.Yield(); _state.C = 1; });\n_state.C = 2;";
+
+    /// <summary>A synchronous delegate body that starts its own work and waits for it before it returns.</summary>
+    internal const string SyncBody = "() => { Task.Run(() => { _state.C = 1; }).Wait(); return Task.CompletedTask; }";
     private static readonly Lazy<CSharpCompilation> LibrarySource = new(() => CSharpCompilation.Create("Runs", [CSharpSyntaxTree.ParseText("""
         using System;
         using System.Threading.Tasks;
@@ -170,7 +255,7 @@ internal static class AwaitedRunsFixture
         _ => throw new ArgumentOutOfRangeException(nameof(wait))
     };
 
-    internal static EngineRun Run(string work, string relation = "sequential-awaited", bool http = false, string members = "", string other = "",
+    internal static EngineRun Run(string work, string? relation = "sequential-awaited", bool http = false, string members = "", string other = "",
                                   bool builtIn = false, bool generated = false, bool fieldDelegate = false)
     {
         var source = Usings + $$"""
@@ -250,15 +335,40 @@ internal static class AwaitedRunsFixture
         Assert.Equal(self, pairs.Any(pair => Continuation(pair.First) && pair.First == pair.Second));
     }
 
-    private static LibraryModels Models(Compilation compilation, string relation, bool builtIn)
+    /// <summary>Asserts whether a continuation of a run, writing 1, still meets the synchronous part of a run, writing 3 before its
+    /// first await.</summary>
+    /// <param name="run">The analyzed case.</param>
+    /// <param name="pair">Whether the pair is expected.</param>
+    internal static void AssertNextRun(EngineRun run, bool pair)
+    {
+        var body = run.Execution.Heap.Program.Result.Bodies.Values;
+        HashSet<(string BodyId, int Id)> Stores(string constant) =>
+            body.SelectMany(item => item.Blocks.SelectMany(block => block.Operations).OfType<IrStoreFieldOperation>()
+                .Where(store => store.Field.Name == "C" && item.Values.Any(value => value.Id == store.Value && value.Kind == IrValueKind.Constant && value.Name == constant))
+                .Select(store => (item.BodyId, store.Id))).ToHashSet();
+        var continuationSites = Stores("1");
+        var syncSites = Stores("3");
+        bool Continuation(Access access) => continuationSites.Contains((access.BodyId, access.OperationId)) &&
+            run.Execution.Analysis.Executions.Any(execution => execution.Id == access.ExecutionId && execution.Kind == ExecutionKind.Spawn);
+        bool Sync(Access access) => syncSites.Contains((access.BodyId, access.OperationId));
+        var writes = run.Of("C").Where(access => access.Operation == AccessOperation.Write).ToArray();
+        Assert.Contains(writes, Continuation);
+        Assert.Contains(writes, Sync);
+        Assert.Equal(pair, run.PairsOn("C").Any(item => Continuation(item.First) && Sync(item.Second) || Continuation(item.Second) && Sync(item.First)));
+    }
+
+    private static LibraryModels Models(Compilation compilation, string? relation, bool builtIn)
     {
         var entries = new[] { "Runs.Lib", "Runs.Holder" }.SelectMany(name => LibrarySource.Value.GetTypeByMetadataName(name)!.GetMembers().OfType<IMethodSymbol>())
             .Where(method => method.MethodKind == MethodKind.Ordinary && method.Name is not ("Unknown" or "Trigger")).Select(method =>
             {
-                var fates = method.Parameters.ToDictionary(parameter => parameter.Name, parameter => (object)new Dictionary<string, object>
+                var fates = method.Parameters.ToDictionary(parameter => parameter.Name, parameter =>
                 {
-                    ["fate"] = method.Name == "Keep" ? "holder" : "invoke-now",
-                    [method.Name == "Keep" ? "holder" : "runs"] = method.Name == "Keep" ? "result" : method.Name == "Mixed" && parameter.Name == "g" ? "concurrent" : relation
+                    var fate = new Dictionary<string, object> { ["fate"] = method.Name == "Keep" ? "holder" : "invoke-now" };
+                    var runs = method.Name == "Keep" ? "result" : method.Name == "Mixed" && parameter.Name == "g" ? "concurrent" : relation;
+                    if (runs is not null)
+                        fate[method.Name == "Keep" ? "holder" : "runs"] = runs;
+                    return (object)fate;
                 });
                 var entry = new Dictionary<string, object> { ["member"] = DocumentationCommentId.CreateDeclarationId(method)!, ["effects"] = new { }, ["fates"] = fates };
                 if (method.Name is "TaskOf" or "ValueOf")

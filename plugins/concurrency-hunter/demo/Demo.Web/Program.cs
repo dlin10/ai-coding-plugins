@@ -1,5 +1,6 @@
 ﻿using Demo.Web.Cases.GeneratedModelReturnsArgument;
 using Demo.Web.Cases.ProjectOpaqueSwitchesOffGenerated;
+using Demo.Web.Cases.OwnPassJoin;
 using Demo.Web.Cases.KeptCallbackStaysUnknown;
 using Demo.Web.Cases.PollyExecuteInvokesDelegate;
 using Demo.Web.Cases.PollyCircuitBreakerCallbackAtExecute;
@@ -348,6 +349,7 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddReaderWriterLockSlim()
                 .AddCustomAsyncLockReleaser()
                 .AddCalleeJoinsOnAParameter()
+                .AddOwnPassJoin()
                 .AddArraySymbolicIndices()
                 .AddDictionaryDisjointKeysStructural()
                 .AddConcurrentDictionaryCompound()

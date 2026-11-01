@@ -1160,6 +1160,8 @@ public sealed record SummarySpawn(int OperationId, int CallOperationId, IrSpawnK
     public bool WorkIsAsync { get; init; }
     public bool AwaitsWorkTask { get; init; }
     public bool JoinsOnReturn { get; init; }
+    public IrSchedulerArgument SchedulerArgument { get; init; }
+    public bool OnSeparateFactory { get; init; }
 }
 
 public sealed record SummaryThreadWork(int OperationId, SummaryValue Thread, SummaryValue Work, bool WorkIsAsync, IrProvenance Provenance);

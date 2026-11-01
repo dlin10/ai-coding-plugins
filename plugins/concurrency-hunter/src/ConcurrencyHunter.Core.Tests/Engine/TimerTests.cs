@@ -214,21 +214,23 @@ public sealed class TimerTests
     }
 
     [Fact]
-    public void Awaited_dispose_async_of_a_timer_created_in_a_loop_orders_nothing()
+    public void Awaited_dispose_async_of_a_timer_created_in_a_loop_orders_the_write_after_the_loop()
     {
         var run = Analyze(Worker("for (var i = 0; i < 2; i++) { var timer = new Timer(_ => state.F(), null, 0, 1000); await timer.DisposeAsync(); } " +
                                  "state.P1();"));
 
-        Assert.True(Overlap(run, "P1", "F"));
+        Assert.False(Overlap(run, "P1", "F"));
+        Assert.True(Overlap(run, "F", "F"));
     }
 
     [Fact]
-    public void Awaited_dispose_async_of_a_timer_created_in_a_helper_called_in_a_loop_orders_nothing()
+    public void Awaited_dispose_async_of_a_timer_created_in_a_helper_called_in_a_loop_orders_the_write_after_it()
     {
         var run = Analyze(Worker("for (var i = 0; i < 2; i++) await Tick();",
                                  "private async Task Tick() { var timer = new Timer(_ => state.F(), null, 0, 1000); await timer.DisposeAsync(); state.P1(); }"));
 
-        Assert.True(Overlap(run, "P1", "F"));
+        Assert.False(Overlap(run, "P1", "F"));
+        Assert.True(Overlap(run, "F", "F"));
     }
 
     [Fact]

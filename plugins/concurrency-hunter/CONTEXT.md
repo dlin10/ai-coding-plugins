@@ -81,13 +81,18 @@ _Avoid_: background execution, anonymous thread, somewhere
 A point in an execution that runs only after another execution has ended: an `await`, `Wait`,
 `Join`, `WhenAll`, `.Result` or `GetAwaiter().GetResult()` on a handle proven to be that execution's,
 reached on every path including the exceptional ones. A `WhenAny`, a wait that can return on a timeout, an event wait or a `Dispose()` is
-not a join.
+not a join. Under the **Environment assumptions** an exception out of a blocking wait for a `Task` without a timeout or a token —
+`Wait`, `.Result`, `GetAwaiter().GetResult()`, `Task.WaitAll` — arrives only after the tasks it waits for have completed, so the path
+through its handler passes the join as the normal return does; in a process scope where code the analysis reaches installs a context or
+interrupts a thread, and for a task created on a scheduler of the program, that exception orders nothing.
 _Avoid_: wait, sync point, completion (a completion is the end of an execution, a join is where someone relies on it)
 
 **Happens-before**:
 The proven order of two execution events: a path through spawns, joins, continuations and startup
 leads from one to the other, inside one instance tree whose root runs once. Two accesses with
-happens-before in either direction never overlap; without it they may.
+happens-before in either direction never overlap; without it they may. A **Join** of a spawn site its
+parent passes more than once orders the work of its own **Site pass** before the next pass of the same
+site, however often the site repeats.
 _Avoid_: sequential, ordered, before (a line above is not happens-before when a loop repeats it)
 
 **Environment assumption**:
@@ -102,8 +107,22 @@ A root that runs at most once without overlapping itself, together with the exec
 it and from its once-running descendants; its spawn and join edges hold for every instance they
 connect, which makes it the only place a **Happens-before** path is trusted. A periodic timer or a
 `Parallel` body inside it still overlaps itself. For the accesses to a `TreeConfined` region, one run
-of the execution that created it is such a tree, however often that execution runs.
+of the execution that created it is such a tree, however often that execution runs. A spawn site its
+parent passes more than once stays inside the tree pass by pass: work that its own **Site pass**
+joins is ordered before the next pass, and work no pass joins overlaps the work of every other pass.
 _Avoid_: task tree, call tree, thread tree
+
+**Site pass**:
+One time the parent of a **Spawn site** reaches it: an iteration of a loop, one call of a helper called
+twice, one run of the delegate of a built-in or project model's `sequential` or `sequential-awaited`
+call. A **Join** on a handle proven to be the work this pass started, reached on every path from the
+spawn to the next pass, orders that work before the next pass and before the parent's accesses after
+the wait, and work that does not overlap itself loses its self-pair; the site still repeats, and the
+iterations of one `Parallel` call or the callbacks of one periodic timer still overlap one another.
+The parent must not overlap itself: the passes of an HTTP action keep their pairs. The runs of a
+delegate with a `concurrent` relation or none are not passes: each may start before the previous
+one's join.
+_Avoid_: iteration (the iterations of a `Parallel` body overlap one another), attempt, round
 
 **Construction**:
 A constructor or type initializer running to produce an object or prepare a type. What it does to
@@ -695,7 +714,7 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - A **Kept object** has the **Ownership** of what reaches it through its keeper: kept by a shared
   library object, or by keepers the analysis cannot tell apart, it is shared, even when the
   execution that created it is the only one that touches it directly.
-- A **Library model** from the generated or the AI **Model layer** may remove pairs the **Unknown effect** of the same call would have made; **Coverage** counts, per layer, the pairs it removed. No model proves protection, and the only happens-before a model proves is the `sequential-awaited` relation of a built-in or project model: waiting for such a call's task waits for the task of every run of its delegate, and those tasks never overlap one another.
+- A **Library model** from the generated or the AI **Model layer** may remove pairs the **Unknown effect** of the same call would have made; **Coverage** counts, per layer, the pairs it removed. No model proves protection, and the only happens-before a model proves is the `sequential` or `sequential-awaited` relation of a built-in or project model: the runs of a `sequential` delegate go one at a time in the caller's execution, each finishing with everything it waited for before the next one starts; waiting for a `sequential-awaited` call's task waits for the task of every run of its delegate, and those tasks never overlap one another. A generated model proves no order.
 - The **Model generator** follows the **Open-world rule**: a delegate is `invoke-now` only when it ran during the call and nothing keeps it afterwards, and an object is a **Holder** only when it keeps the delegate and one of its own members was seen running it; from then on the delegate runs wherever any member of the holder runs, not only at the calls the **Driver** happened to observe.
 - A write or read through a reference — a ref-returning indexer, a ref local or return, an `out` or `ref` argument — is an **Access** to the location the reference names; one whose location the analysis cannot trace is counted in **Coverage** and never dropped.
 - An **Execution root** belongs to one or more **Process scopes**; two **Accesses** form a **Candidate** only inside one **Process scope**.
@@ -768,8 +787,8 @@ _Avoid_: baseline, exclusion, ignore, whitelist
 - "AI does not suppress deterministic findings" (PRD G6) could be read as forbidding any model from
   a non-manual layer to remove a pair the **Unknown effect** made. Resolved: generated and AI models
   may remove such pairs, and **Coverage** counts them per layer; no model proves protection, only a
-  built-in or project model's `sequential-awaited` relation proves happens-before, and a project
-  model can override any other.
+  built-in or project model's `sequential` or `sequential-awaited` relation proves happens-before,
+  and a project model can override any other.
 - A member of a **Recognized type** that no recognizer understands — `List<T>.Reverse()`,
   `HashSet<T>.UnionWith` — could be read as touching nothing, because the engine owns its type.
   Resolved by a probe: a `foreach` over a shared list met no `Reverse`, `Sort()`, `InsertRange`,

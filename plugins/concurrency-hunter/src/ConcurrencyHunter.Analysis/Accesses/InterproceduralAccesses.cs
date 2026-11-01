@@ -49,6 +49,18 @@ public static class OrderingCounters
     public static IReadOnlyList<string> TIMER_KINDS { get; } = [TIMERS_DISABLED, TIMERS_ONE_SHOT, TIMERS_PERIODIC];
 }
 
+/// <summary>The assumptions of ADR 0030 an ordered pair is counted under when its ordering holds only because the exceptional exit of a
+/// blocking wait for a task is read as that task's completion (R5).</summary>
+public static class OrderingAssumptions
+{
+    public const string THREAD_CONTEXT = "thread-context";
+    public const string THREAD_POOL_ENTRY = "thread-pool-entry";
+    public const string OBSERVERS = "observers";
+
+    /// <summary>Every assumption, in the order a measurement lists them.</summary>
+    public static IReadOnlyList<string> ALL { get; } = [OBSERVERS, THREAD_CONTEXT, THREAD_POOL_ENTRY];
+}
+
 /// <summary>One operation of one body: what makes a site the same site across scopes, so that a library site two executable scopes
 /// reach is one site, not two.</summary>
 /// <param name="BodyId">The body the operation is in.</param>
@@ -4716,22 +4728,26 @@ public static class InterproceduralPairing
     public const string SKIP_DISJOINT_ITERATION = "disjoint-iteration";
     public const string SKIP_FRESH_OBJECT = "fresh-object";
 
+    private static readonly IReadOnlySet<string> NoAssumptions = new HashSet<string>(StringComparer.Ordinal);
+
     public static PairAnalysis Pair(IReadOnlyList<Access> accesses, ExecutionAnalysis executions, HeapSolution heap)
     {
         var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
         var pairs = new List<AccessPair>();
         var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var counted = 0;
         var suppressed = 0;
 
         void Consider(Access first, Access second, AccessResource reported, IReadOnlyList<string> uncertainties)
         {
             counted++;
+            var assumptions = NoAssumptions;
             var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? SKIP_READ_READ
                 : !first.Operation.Conflicts() && !second.Operation.Conflicts() ? SKIP_NO_CONFLICTING_OPERATION
                 : first.Resource.Scope != second.Resource.Scope || first.ExecutionId == second.ExecutionId && IsHostedInstanceTransient(first)
                     ? SKIP_NO_OVERLAP
-                : Skip(executions.Timing(first, second)) is { } timing ? timing
+                : Skip(executions.Timing(first, second, out assumptions)) is { } timing ? timing
                 : IsConfined(first) || IsConfined(second) ? SKIP_CONFINED
                 : PathConditions.Contradict(first.Conditions, second.Conditions) ? SKIP_UNSATISFIABLE_PATH
                 : IsDisjointIteration(first, second) ? SKIP_DISJOINT_ITERATION
@@ -4741,6 +4757,9 @@ public static class InterproceduralPairing
             if (skip is not null)
             {
                 skips[skip] = skips.GetValueOrDefault(skip) + 1;
+                // bounded: the at most three assumptions of a pair the timing ordered; every other pair has none.
+                foreach (var assumption in assumptions)
+                    assumed[assumption] = assumed.GetValueOrDefault(assumption) + 1;
                 return;
             }
 
@@ -4775,7 +4794,8 @@ public static class InterproceduralPairing
         {
             CartesianBound = (int)((long)candidates.Length * (candidates.Length + 1) / 2),
             Buckets = index.Buckets,
-            LargestBucket = index.LargestBucket
+            LargestBucket = index.LargestBucket,
+            Assumed = assumed
         };
     }
 

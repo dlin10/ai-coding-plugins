@@ -236,6 +236,7 @@ public static class GapDecisions
     private const string CONTINUATION_REASON = "the task a continuation runs after may be its result, so the continuation is ordered after nothing";
     private const string TIMER_REASON = "the timer whose callback runs a side may be its result, so whether the timer is periodic is not proven";
     private const string DELEGATE_REASON = "a side runs in the unknown call of a delegate it was handed, which nothing orders";
+    private const string PASS_JOIN_REASON = "the current pass's completion handle may be its result, so completion before the next pass is not proven";
 
     public static IReadOnlyList<AccessPair> Mark(IReadOnlyList<AccessPair> pairs, InterproceduralInput input, IReadOnlyList<SemanticGap> gaps)
     {
@@ -262,6 +263,8 @@ public static class GapDecisions
 
     /// <summary>What each execution waits for, continues and runs as a callback, as far as a gap's result decides it, and the gaps whose
     /// delegate it runs.</summary>
+    /// <param name="input">The analysis input: the heap, the executions and their order.</param>
+    /// <param name="origins">The semantic gaps whose result each value may be.</param>
     private sealed class ExecutionFacts(InterproceduralInput input, GapOrigins origins)
     {
         private readonly Dictionary<string, Facts> _facts = new(StringComparer.Ordinal);
@@ -276,6 +279,17 @@ public static class GapDecisions
         internal IEnumerable<GapCheck> Overlap(Access firstAccess, Access secondAccess)
         {
             var (first, second) = (firstAccess.ExecutionId, secondAccess.ExecutionId);
+            // A self-pair of work started again and again: a wait of its parent on a gap's result orders its passes if the result is
+            // the current pass's own handle (R9).
+            if (first == second && input.Executions.Execution(first).ParentId is { } parent)
+            {
+                foreach (var join in Of(parent).Joins.Where(join => input.Executions.PassJoinWouldOrder(join.Instance, join.OperationId,
+                                                                                                         firstAccess, secondAccess)))
+                {
+                    WorkCancellation.Check();
+                    yield return Check(join.Gap, PASS_JOIN_REASON);
+                }
+            }
             if (first != second && Related(first, second))
             {
                 foreach (var (waitingAccess, spawned) in new[] { (firstAccess, second), (secondAccess, first) })

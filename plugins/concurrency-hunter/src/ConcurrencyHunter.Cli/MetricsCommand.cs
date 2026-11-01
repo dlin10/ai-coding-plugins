@@ -29,8 +29,9 @@ internal static class MetricsCommand
 
     private const string LOAD = "load";
     private const string RENDER = "render";
-    // 1.1 added the ordering counters to each coverage entry, 1.2 the callees of its semantic gaps.
-    private const string SCHEMA_VERSION = "1.4";
+    // 1.1 added the ordering counters to each coverage entry, 1.2 the callees of its semantic gaps, 1.5 the ordered pairs by the
+    // assumption their ordering rests on.
+    private const string SCHEMA_VERSION = "1.5";
     private const double DETERMINISTIC_SECONDS_LIMIT = 90;
     private const double PEAK_RSS_GB_LIMIT = 4;
     private const double BYTES_PER_MB = 1024d * 1024d;
@@ -126,6 +127,8 @@ internal static class MetricsCommand
     }
 
     /// <summary>The counts of R7: sums over the target's process scopes, the largest bucket a maximum.</summary>
+    /// <param name="loaded">The loaded target, which gives the project counts.</param>
+    /// <param name="analysis">The analysis of the target, which gives every other count.</param>
     internal static MeasurementCounts Counts(LoadedTarget loaded, AnalysisResult analysis)
     {
         var pairs = analysis.Pairs;
@@ -145,6 +148,8 @@ internal static class MetricsCommand
                                pairs.LargestBucket,
                                pairs.Buckets,
                                Sorted(pairs.Skips),
+                               // Every assumption, counted or not, so that a measurement shows a zero as a zero.
+                               Sorted(Accesses.OrderingAssumptions.ALL.ToDictionary(key => key, key => pairs.Assumed.GetValueOrDefault(key))),
                                pairs.Suppressed,
                                pairs.Candidates),
             analysis.Findings.Count,
@@ -288,7 +293,7 @@ internal sealed record TimingsInfo(IReadOnlyList<StepSeconds> Steps, double Tota
 internal sealed record ScopeAnalyses(string Scope, int Count);
 
 internal sealed record PairCountsInfo(int Comparisons, long CartesianBound, int LargestBucket, int Buckets, IReadOnlyDictionary<string, int> Skips,
-                                      int Suppressed, int Candidates);
+                                      IReadOnlyDictionary<string, int> Assumed, int Suppressed, int Candidates);
 
 internal sealed record MeasurementCounts(int ProjectsExpected, int ProjectsLoaded, int Scopes, int Roots, IReadOnlyDictionary<string, int> RootsPerProvider,
                                          int ReachableBodies, int Summaries, int Regions, int Instances, int Accesses, PairCountsInfo Pairs,

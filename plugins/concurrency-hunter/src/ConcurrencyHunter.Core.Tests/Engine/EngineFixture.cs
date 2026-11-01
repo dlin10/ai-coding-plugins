@@ -225,6 +225,7 @@ public static class EngineFixture
         var candidates = accesses.Where(access => !access.IsConstructionLocal).ToArray();
         var pairs = new List<AccessPair>();
         var skips = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var assumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
         var counted = 0;
         var suppressed = 0;
         for (var i = 0; i < candidates.Length; i++)
@@ -236,11 +237,12 @@ public static class EngineFixture
             }
         }
 
-        return new PairAnalysis(pairs, counted, suppressed, skips) { CartesianBound = candidates.Length * (candidates.Length + 1) / 2 };
+        return new PairAnalysis(pairs, counted, suppressed, skips) { CartesianBound = candidates.Length * (candidates.Length + 1) / 2, Assumed = assumed };
 
         void Consider(Access first, Access second, AccessResource reported, IReadOnlyList<string> uncertainties)
         {
             counted++;
+            IReadOnlySet<string> assumptions = new HashSet<string>();
             var skip = first.Operation == AccessOperation.Read && second.Operation == AccessOperation.Read ? InterproceduralPairing.SKIP_READ_READ
                 : !first.Operation.Conflicts() && !second.Operation.Conflicts() ? InterproceduralPairing.SKIP_NO_CONFLICTING_OPERATION
                 : first.Resource.Scope != second.Resource.Scope ||
@@ -249,7 +251,7 @@ public static class EngineFixture
                       : first.Resource.RegionId!] is { Kind: HeapRegionKind.Di } region &&
                   region.Context.StartsWith($"di|{ConcurrencyHunter.Di.DiIndex.HOSTED_SERVICE_KEY}|", StringComparison.Ordinal)
                     ? InterproceduralPairing.SKIP_NO_OVERLAP
-                : InterproceduralPairing.Skip(executions.Timing(first, second)) is { } timing ? timing
+                : InterproceduralPairing.Skip(executions.Timing(first, second, out assumptions)) is { } timing ? timing
                 : IsConfined(first) || IsConfined(second) ? InterproceduralPairing.SKIP_CONFINED
                 : PathConditions.Contradict(first.Conditions, second.Conditions) ? InterproceduralPairing.SKIP_UNSATISFIABLE_PATH
                 : InterproceduralPairing.IsDisjointIteration(first, second) ? InterproceduralPairing.SKIP_DISJOINT_ITERATION
@@ -258,6 +260,8 @@ public static class EngineFixture
             if (skip is not null)
             {
                 skips[skip] = skips.GetValueOrDefault(skip) + 1;
+                foreach (var assumption in assumptions)
+                    assumed[assumption] = assumed.GetValueOrDefault(assumption) + 1;
                 return;
             }
 

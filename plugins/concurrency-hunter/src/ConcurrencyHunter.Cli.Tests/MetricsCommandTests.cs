@@ -61,7 +61,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(["schemaVersion", "target", "revision", "workingTreeClean", "engineVersion", "recordedAt", "machine", "limits", "timings",
                       "peakWorkingSetMb", "counts", "coverage", "targets"],
                      Names(root));
-        Assert.Equal("1.4", root.GetProperty("schemaVersion").GetString());
+        Assert.Equal("1.5", root.GetProperty("schemaVersion").GetString());
         Assert.Equal(BuildInfo.Version, root.GetProperty("engineVersion").GetString());
         Assert.True(DateTimeOffset.TryParse(root.GetProperty("recordedAt").GetString(), out _));
         Assert.Equal(["logicalProcessors", "memoryGb"], Names(root.GetProperty("machine")));
@@ -74,13 +74,31 @@ public sealed class MetricsCommandTests
         Assert.Equal(["projectsExpected", "projectsLoaded", "scopes", "roots", "rootsPerProvider", "reachableBodies", "summaries", "regions",
                       "instances", "accesses", "pairs", "findings", "occurrences", "groups", "fingerprints"],
                      Names(root.GetProperty("counts")));
-        Assert.Equal(["comparisons", "cartesianBound", "largestBucket", "buckets", "skips", "suppressed", "candidates"],
+        Assert.Equal(["comparisons", "cartesianBound", "largestBucket", "buckets", "skips", "assumed", "suppressed", "candidates"],
                      Names(root.GetProperty("counts").GetProperty("pairs")));
+        Assert.Equal(["observers", "thread-context", "thread-pool-entry"], Names(root.GetProperty("counts").GetProperty("pairs").GetProperty("assumed")));
         Assert.All(root.GetProperty("coverage").EnumerateArray(), scope =>
             Assert.Equal(["scopeId", "rootsPerProvider", "accesses", "counters", "ordering", "semanticGaps", "generationRefusals", "decidingGaps"], Names(scope)));
         Assert.Equal(["deterministicSeconds", "peakRssGb"], Names(root.GetProperty("targets")));
         Assert.All(root.GetProperty("targets").EnumerateObject(), target => Assert.Equal(["limit", "actual", "met"], Names(target.Value)));
         Assert.True(root.GetProperty("peakWorkingSetMb").GetDouble() > 0);
+    }
+
+    /// <summary>A target whose pairs no assumption orders still lists every assumption, at zero, so that a zero reads as a zero and not
+    /// as a missing counter.</summary>
+    [Fact]
+    public async Task Measurement_without_assumed_pairs_carries_all_three_keys_at_zero()
+    {
+        using var directory = new TemporaryDirectory();
+        var target = directory.Write("Fixture.slnx", "<Solution />");
+
+        var (measurement, analysis) = await MetricsCommand.MeasureAsync(target, AnalysisLimits.Default, FixtureLoad, ModelGeneration.None, CancellationToken.None);
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(measurement, MetricsJsonContext.Default.Measurement));
+        var assumed = json.RootElement.GetProperty("counts").GetProperty("pairs").GetProperty("assumed");
+
+        Assert.Empty(analysis.Pairs.Assumed);
+        Assert.Equal(["observers", "thread-context", "thread-pool-entry"], Names(assumed));
+        Assert.All(assumed.EnumerateObject(), key => Assert.Equal(0, key.Value.GetInt32()));
     }
 
     [Fact]
@@ -146,6 +164,7 @@ public sealed class MetricsCommandTests
         Assert.Equal(analysis.Pairs.LargestBucket, pairs.LargestBucket);
         Assert.Equal(analysis.Pairs.Buckets, pairs.Buckets);
         Assert.Equal(analysis.Pairs.Skips.ToDictionary(), pairs.Skips.ToDictionary());
+        Assert.Equal(OrderingAssumptions.ALL.ToDictionary(key => key, key => analysis.Pairs.Assumed.GetValueOrDefault(key)), pairs.Assumed.ToDictionary());
         Assert.Equal(analysis.Pairs.Suppressed, pairs.Suppressed);
         Assert.Equal(analysis.Pairs.Candidates, pairs.Candidates);
         Assert.Equal(analysis.Scopes.Select(scope => scope.Id), measurement.Coverage.Select(scope => scope.ScopeId));

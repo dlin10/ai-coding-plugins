@@ -74,6 +74,31 @@ public sealed class IrSpawnLoweringTests
     }
 
     [Fact]
+    public async Task Start_new_and_continue_with_name_their_scheduler_argument_and_a_separate_factory()
+    {
+        var spawns = await Bcl("""
+            void M(Task first, TaskScheduler own, TaskFactory factory)
+            {
+                Task.Factory.StartNew(() => { });
+                Task<int>.Factory.StartNew(() => 1);
+                Task.Factory.StartNew(() => { }, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
+                Task.Factory.StartNew(() => { }, CancellationToken.None, TaskCreationOptions.None, own);
+                factory.StartNew(() => { });
+                new TaskFactory(own).StartNew(() => { }, CancellationToken.None, TaskCreationOptions.None, (TaskScheduler)TaskScheduler.Default);
+                first.ContinueWith(done => { });
+                first.ContinueWith(done => { }, TaskScheduler.Default);
+                first.ContinueWith(done => { }, TaskScheduler.Current);
+                Task.Run(() => { });
+            }
+            """);
+
+        Assert.Equal(
+            ["", "", " scheduler=default", " scheduler=other", " separate-factory=true", " scheduler=default separate-factory=true", "",
+             " scheduler=default", " scheduler=other", ""],
+            spawns.Select(spawn => spawn[(spawn.IndexOf("implicit-join=false", StringComparison.Ordinal) + "implicit-join=false".Length)..]));
+    }
+
+    [Fact]
     public async Task Queue_user_work_item_has_no_handle()
     {
         Expect(
@@ -256,11 +281,11 @@ public sealed class IrSpawnLoweringTests
     }
 
     [Fact]
-    public async Task Task_wait_is_a_join_that_may_throw_before_completion()
+    public async Task Task_wait_is_a_join_that_throws_only_after_completion()
     {
         Expect(
             [
-                "1 join Wait call=operation:0 handles=[%1] handles-known=true throws-only-after-completion=false"
+                "1 join Wait call=operation:0 handles=[%1] handles-known=true throws-only-after-completion=true"
             ],
             await Bcl("void M(Task task) { task.Wait(); }"));
     }
@@ -298,8 +323,8 @@ public sealed class IrSpawnLoweringTests
     {
         Expect(
             [
-                "2 join WaitAll call=operation:1 handles=[%1,%2] handles-known=true throws-only-after-completion=false",
-                "7 join WaitAll call=operation:6 handles=[%2,%1] handles-known=true throws-only-after-completion=false"
+                "2 join WaitAll call=operation:1 handles=[%1,%2] handles-known=true throws-only-after-completion=true",
+                "7 join WaitAll call=operation:6 handles=[%2,%1] handles-known=true throws-only-after-completion=true"
             ],
             await Bcl("void M(Task first, Task second) { Task.WaitAll(first, second); Task.WaitAll(new[] { second, first }); }"));
     }
@@ -309,7 +334,7 @@ public sealed class IrSpawnLoweringTests
     {
         Expect(
             [
-                "3 join WaitAll call=operation:2 handles=[%1,%2] handles-known=true throws-only-after-completion=false"
+                "3 join WaitAll call=operation:2 handles=[%1,%2] handles-known=true throws-only-after-completion=true"
             ],
             await Bcl("void M(Task first, Task second) { Task.WaitAll([first, second]); }"));
     }
@@ -319,7 +344,7 @@ public sealed class IrSpawnLoweringTests
     {
         Expect(
             [
-                "1 join WaitAll call=operation:0 handles=[] handles-known=false throws-only-after-completion=false"
+                "1 join WaitAll call=operation:0 handles=[] handles-known=false throws-only-after-completion=true"
             ],
             await Bcl("void M(Task[] tasks) { Task.WaitAll(tasks); }"));
     }

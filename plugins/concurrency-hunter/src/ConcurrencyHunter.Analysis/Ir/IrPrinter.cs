@@ -89,7 +89,9 @@ public static class IrPrinter
                                     $"handle={OptionalValue(spawn.HandleValue)} work={Values(spawn.WorkValues)} " +
                                     $"work-method={OptionalText(spawn.WorkMethod)} state={OptionalValue(spawn.StateValue)} " +
                                     $"antecedent={OptionalValue(spawn.AntecedentValue)} async={Boolean(spawn.WorkIsAsync)} " +
-                                    $"awaits-work={Boolean(spawn.AwaitsWorkTask)} implicit-join={Boolean(spawn.JoinsOnReturn)}"),
+                                    $"awaits-work={Boolean(spawn.AwaitsWorkTask)} implicit-join={Boolean(spawn.JoinsOnReturn)}" +
+                                    (spawn.SchedulerArgument != IrSchedulerArgument.None ? $" scheduler={spawn.SchedulerArgument.ToString().ToLowerInvariant()}" : "") +
+                                    (spawn.OnSeparateFactory ? " separate-factory=true" : "")),
         IrThreadWorkOperation threadWork => F($"thread-work {Value(threadWork.ThreadValue)} work={Value(threadWork.WorkValue)} " +
                                                   $"async={Boolean(threadWork.WorkIsAsync)}"),
         IrJoinOperation join => F($"join {join.Kind} call={OperationId(join.CallOperationId)} handles={Values(join.HandleValues)} " +
@@ -117,7 +119,8 @@ public static class IrPrinter
                                          $"left={Value(compare.LeftValue)} right={OptionalValue(compare.RightValue)} " +
                                          $"type={OptionalText(compare.Type)}"),
         IrConvertOperation convert => F($"convert {Value(convert.ResultValue)} <- {Value(convert.OperandValue)} " +
-                                         $"type={Text(convert.Type)} kind={convert.ConversionKind}"),
+                                         $"type={Text(convert.Type)} kind={convert.ConversionKind}" +
+                                         (convert.IsImplicit ? " implicit=true" : "")),
         IrUnknownOperation unknown => F($"unknown {Text(unknown.OperationKind)} reason={Text(unknown.Reason)} " +
                                          $"result={OptionalValue(unknown.ResultValue)} " +
                                          $"operands={Values(unknown.OperandValues)}"),

@@ -6,6 +6,7 @@ public sealed class AwaitedRunsMatrixTests
 {
     public static readonly string[] Relations = ["concurrent", "sequential", "sequential-awaited"];
     public static readonly string[] Calls = ["once", "loop", "http"];
+    public static readonly string[] Bodies = ["async", "sync"];
     public static readonly (string Member, string Wait)[] Results =
     [
         ("Run", "await"), ("Run", "wait"), ("Run", "get"), ("Run", "none"),
@@ -16,31 +17,48 @@ public sealed class AwaitedRunsMatrixTests
     ];
 
     public static IEnumerable<object[]> Cells() =>
-        from relation in Relations from result in Results from call in Calls
-        select new object[] { relation, result.Member, result.Wait, call };
+        from relation in Relations from result in Results from call in Calls from body in Bodies
+        select new object[] { relation, result.Member, result.Wait, call, body };
 
     [Fact]
-    public void There_are_180_cells_covering_every_axis()
+    public void There_are_180_cells_on_each_of_2_bodies_covering_every_axis()
     {
         var cells = Cells().ToArray();
-        Assert.Equal(180, cells.Length);
-        Assert.Equal(180, cells.Select(cell => string.Join("/", cell)).Distinct().Count());
-        Assert.All(Relations, relation => Assert.Equal(60, cells.Count(cell => (string)cell[0] == relation)));
-        Assert.All(Results, result => Assert.Equal(9, cells.Count(cell => (string)cell[1] == result.Member && (string)cell[2] == result.Wait)));
-        Assert.All(Calls, call => Assert.Equal(60, cells.Count(cell => (string)cell[3] == call)));
+        Assert.Equal(360, cells.Length);
+        Assert.Equal(360, cells.Select(cell => string.Join("/", cell)).Distinct().Count());
+        Assert.All(Relations, relation => Assert.Equal(120, cells.Count(cell => (string)cell[0] == relation)));
+        Assert.All(Results, result => Assert.Equal(18, cells.Count(cell => (string)cell[1] == result.Member && (string)cell[2] == result.Wait)));
+        Assert.All(Calls, call => Assert.Equal(120, cells.Count(cell => (string)cell[3] == call)));
+        Assert.All(Bodies, body => Assert.Equal(180, cells.Count(cell => (string)cell[4] == body)));
     }
 
     [Theory]
     [MemberData(nameof(Cells))]
-    public void Every_cell_has_exactly_the_required_pairs(string relation, string member, string wait, string call)
+    public void Every_cell_has_exactly_the_required_pairs(string relation, string member, string wait, string call, string body)
     {
         var generic = member is "TaskOf" or "ValueOf" or "TaskBare" or "ValueBare";
-        var invocation = $"Runs.Lib.{member}(async () => {{ await Task.Yield(); _state.C = 1; {(generic ? "return 1;" : "")} }})";
+        var returned = member switch
+        {
+            "RunValue" => "default",
+            "ValueOf" or "ValueBare" => "new ValueTask<int>(1)",
+            "TaskOf" or "TaskBare" => "Task.FromResult(1)",
+            _ => "Task.CompletedTask"
+        };
+        var invocation = body == "async"
+            ? $"Runs.Lib.{member}(async () => {{ await Task.Yield(); _state.C = 1; {(generic ? "return 1;" : "")} }})"
+            : $"Runs.Lib.{member}(() => {{ Task.Run(() => {{ _state.C = 1; }}).Wait(); return {returned}; }})";
         var work = AwaitedRunsFixture.Consume(invocation, wait) + "\n_state.C = 2;";
         if (call == "loop")
             work = "for (var i = 0; i < 2; i++) { " + work + " }";
         var run = AwaitedRunsFixture.Run(work, relation, http: call == "http");
-        var serialized = relation == "sequential-awaited" && call == "once";
-        AwaitedRunsFixture.AssertPairs(run, after: !(serialized && (wait != "none" || member == "Fire")), self: !serialized);
+        if (body == "async")
+        {
+            var serialized = relation == "sequential-awaited" && call == "once";
+            AwaitedRunsFixture.AssertPairs(run, after: !(serialized && (wait != "none" || member == "Fire")), self: !serialized);
+            return;
+        }
+        // The work a synchronous run waits for completes before the code after the call in a caller that does not overlap itself, at
+        // any relation; before the next run only where the record runs the delegate one run at a time.
+        AwaitedRunsFixture.AssertPairs(run, after: call == "http", self: relation != "sequential" || call == "http");
     }
 }

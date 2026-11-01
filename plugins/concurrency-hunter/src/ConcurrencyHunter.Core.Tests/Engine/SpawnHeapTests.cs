@@ -396,7 +396,7 @@ public sealed class SpawnHeapTests
         var task = Assert.Single(Variable(run, POST, "task"));
         Assert.Equal([task], run.Heap.Resolve(Root(run).Id, Assert.Single(summary.Joins[0].Handles).Values.Single()));
         Assert.Equal([task], spawn.Handle!.Values.SelectMany(value => run.Heap.Resolve(Root(run).Id, value)));
-        Assert.All(summary.Joins.Where(join => join.Kind != SummaryJoinKind.Await), join => Assert.False(join.ThrowsOnlyAfterCompletion));
+        Assert.Equal([true, false, true], summary.Joins.OrderBy(join => join.OperationId).Select(join => join.ThrowsOnlyAfterCompletion));
     }
 
     private static void AssertStateWritesTheParentObject(string statement)

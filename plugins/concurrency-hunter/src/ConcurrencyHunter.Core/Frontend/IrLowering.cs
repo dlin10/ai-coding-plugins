@@ -3106,6 +3106,22 @@ public static class IrLowering
             IrSpawnOperation Spawn(IrSpawnKind kind, int? handle, IReadOnlyList<int> values) =>
                 new(NextOperation(), kind, call.Id, handle, values, provenance) { StateValue = Named("state"), WorkIsAsync = workIsAsync };
 
+            // The TaskScheduler argument of a StartNew or ContinueWith: none, a read of TaskScheduler.Default, or any other (R4).
+            IrSchedulerArgument Scheduler() =>
+                original.Parameters.FirstOrDefault(parameter => Bcl.TypeName(parameter.Type) == Bcl.SCHEDULER) is not { } parameter ? IrSchedulerArgument.None
+                : ArgumentOperation(parameter.Ordinal) is { } argument && WithoutConversions(argument) is IPropertyReferenceOperation
+                {
+                    Property: { Name: "Default", IsStatic: true } property
+                } && Bcl.TypeName(property.ContainingType) == Bcl.SCHEDULER ? IrSchedulerArgument.Default
+                : IrSchedulerArgument.Other;
+
+            // Whether a StartNew is called on a factory other than Task.Factory or Task<T>.Factory (R4).
+            bool OnSeparateFactory() =>
+                !(source is IInvocationOperation { Instance: { } receiver } && WithoutConversions(receiver) is IPropertyReferenceOperation
+                {
+                    Property: { Name: "Factory", IsStatic: true } factory
+                } && Bcl.TypeName(factory.ContainingType) is Bcl.TASK or Bcl.TASK_T);
+
             IrJoinOperation Join(IrJoinKind kind) => new(NextOperation(), kind, call.Id, [call.ReceiverValue!.Value], true, provenance);
 
             IrTimerOperation Timer(IrTimerAction action) => new(NextOperation(), action, call.ReceiverValue!.Value, provenance);
@@ -3179,10 +3195,16 @@ public static class IrLowering
                     _operations.Add(Spawn(IrSpawnKind.TaskRun, call.ResultValue, work) with { AwaitsWorkTask = awaitsTask });
                     break;
                 case (Bcl.TASK or Bcl.TASK_T, "ContinueWith", _):
-                    _operations.Add(Spawn(IrSpawnKind.ContinueWith, call.ResultValue, work) with { AntecedentValue = call.ReceiverValue });
+                    _operations.Add(Spawn(IrSpawnKind.ContinueWith, call.ResultValue, work) with
+                    {
+                        AntecedentValue = call.ReceiverValue, SchedulerArgument = Scheduler()
+                    });
                     break;
                 case (Bcl.FACTORY or Bcl.FACTORY_T, "StartNew", _):
-                    _operations.Add(Spawn(IrSpawnKind.StartNew, call.ResultValue, work));
+                    _operations.Add(Spawn(IrSpawnKind.StartNew, call.ResultValue, work) with
+                    {
+                        SchedulerArgument = Scheduler(), OnSeparateFactory = OnSeparateFactory()
+                    });
                     break;
                 case (Bcl.THREAD_POOL, "QueueUserWorkItem", _):
                     _operations.Add(Spawn(IrSpawnKind.QueueUserWorkItem, null, work));
@@ -3211,10 +3233,11 @@ public static class IrLowering
                 case (Bcl.EXTENSIONS, "Unwrap", 1) when ArgumentValue(arguments, 0) is int outer:
                     _operations.Add(new IrUnwrapOperation(NextOperation(), call.ResultValue!.Value, outer, provenance));
                     break;
+                // Wait(), Task.WaitAll(tasks) and the Result of a Task<T> throw only after their tasks complete, where the environment
+                // lets them (ADR 0030); that of a ValueTask<T> may throw before (R3).
                 case (Bcl.TASK, "Wait", 0):
-                    _operations.Add(Join(IrJoinKind.Wait));
+                    _operations.Add(Join(IrJoinKind.Wait) with { ThrowsOnlyAfterCompletion = true });
                     break;
-                // The Result of a Task<T> throws only after the task completes; that of a ValueTask<T> may throw before (R3).
                 case (Bcl.TASK_T or Bcl.VALUE_TASK_T, "get_Result", 0):
                     _operations.Add(Join(IrJoinKind.Result) with { ThrowsOnlyAfterCompletion = type == Bcl.TASK_T });
                     break;
@@ -3228,7 +3251,7 @@ public static class IrLowering
                 {
                     var listed = ListedElements(ArgumentOperation(0));
                     _operations.Add(new IrJoinOperation(NextOperation(), IrJoinKind.WaitAll, call.Id, listed ?? [], listed is not null,
-                                                        provenance));
+                                                        provenance) { ThrowsOnlyAfterCompletion = true });
                     break;
                 }
                 case (Bcl.TASK, "WhenAll", 1):
@@ -4502,7 +4525,7 @@ public static class IrLowering
                 : IrConversionKind.Other;
             _operations.Add(new IrConvertOperation(
                 NextOperation(), result, operand, TypeName(conversion.Type), kind,
-                Provenance(conversion, "conversion")));
+                Provenance(conversion, "conversion")) { IsImplicit = classified.IsImplicit });
             // A conversion that keeps the value keeps what it means; one that makes a number of it means nothing here.
             if (kind is not IrConversionKind.Numeric)
                 Carry(operand, result);
@@ -5362,6 +5385,7 @@ public static class IrLowering
         internal const string TASK_T = "System.Threading.Tasks.Task`1";
         internal const string FACTORY = "System.Threading.Tasks.TaskFactory";
         internal const string FACTORY_T = "System.Threading.Tasks.TaskFactory`1";
+        internal const string SCHEDULER = "System.Threading.Tasks.TaskScheduler";
         internal const string EXTENSIONS = "System.Threading.Tasks.TaskExtensions";
         internal const string PARALLEL = "System.Threading.Tasks.Parallel";
         internal const string THREAD_POOL = "System.Threading.ThreadPool";

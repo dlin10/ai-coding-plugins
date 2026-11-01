@@ -1702,7 +1702,9 @@ public static class MethodSummaryBuilder
                 WorkMethod = spawn.WorkMethod,
                 WorkIsAsync = spawn.WorkIsAsync,
                 AwaitsWorkTask = spawn.AwaitsWorkTask,
-                JoinsOnReturn = spawn.JoinsOnReturn
+                JoinsOnReturn = spawn.JoinsOnReturn,
+                SchedulerArgument = spawn.SchedulerArgument,
+                OnSeparateFactory = spawn.OnSeparateFactory
             };
 
         private SummaryJoin? Join(IrOperation operation, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) => operation switch

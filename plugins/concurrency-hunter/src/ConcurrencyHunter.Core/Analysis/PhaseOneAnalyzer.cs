@@ -196,6 +196,7 @@ public static class PhaseOneAnalyzer
         var candidates = 0;
         var suppressed = 0;
         var pairSkips = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        var pairAssumed = new SortedDictionary<string, int>(StringComparer.Ordinal);
         // One out-of-range diagnostic per project and assembly in the whole report (R5): a project two scopes share is reported in
         // the first of them.
         var outOfRangeReported = new HashSet<(ProjectId, string)>();
@@ -335,6 +336,11 @@ public static class PhaseOneAnalyzer
                 WorkCancellation.Check();
                 pairSkips[reason] = pairSkips.GetValueOrDefault(reason) + count;
             }
+            foreach (var (assumption, count) in scopePairs.Assumed)
+            {
+                WorkCancellation.Check();
+                pairAssumed[assumption] = pairAssumed.GetValueOrDefault(assumption) + count;
+            }
             gapSources[scope.Id] = collection.Coverage.Gaps.SelectMany(gap => gap.Sites).Distinct().ToDictionary(site => site,
                 site => run.Reachable.Bodies[site.BodyId].Blocks.SelectMany(block => block.Operations)
                            .Single(operation => operation.Id == site.OperationId).Provenance.Span);
@@ -378,7 +384,10 @@ public static class PhaseOneAnalyzer
                                             .ToArray()))
                                 .ToArray();
         return new AnalysisResult(scopes, roots, accesses, conflicts.Findings, conflicts.Groups, coverage,
-                                  new PairCounters(comparisons, cartesianBound, buckets, largestBucket, candidates, suppressed, pairSkips),
+                                  new PairCounters(comparisons, cartesianBound, buckets, largestBucket, candidates, suppressed, pairSkips)
+                                  {
+                                      Assumed = pairAssumed
+                                  },
                                   providers)
         {
             Timings = new[]

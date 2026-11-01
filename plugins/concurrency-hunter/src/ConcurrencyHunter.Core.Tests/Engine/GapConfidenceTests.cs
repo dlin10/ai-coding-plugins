@@ -39,6 +39,29 @@ public sealed class GapConfidenceTests
         Assert.DoesNotContain(finding.Uncertainty, item => item.Contains("unresolved call", StringComparison.Ordinal));
     }
 
+    /// <summary>The self-pair of work a pass waits for through a wrapper of its own task, which decides whether the passes overlap (R9).</summary>
+    [Fact]
+    public async Task Self_pair_whose_pass_join_a_gap_decides_is_at_most_Medium()
+    {
+        var finding = Assert.Single(Written(await Findings("""
+            public sealed class Work { public int Count; }
+            public sealed class Worker(Work work) : BackgroundService
+            {
+                protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+                {
+                    for (var pass = 0; pass < 2; pass++) { var own = Task.Run(() => work.Count = 1); await Opaque.Factory.Wrap(own, work); }
+                }
+            }
+            """, "services.AddSingleton<Work>(); services.AddHostedService<Worker>();")));
+
+        Assert.Equal(finding.AccessA.Symbol, finding.AccessB.Symbol);
+        Assert.Equal(DECIDED, finding.Confidence.Components.ExecutionOverlap);
+        Assert.NotEqual("High", finding.Confidence.Label);
+        Assert.True(finding.Confidence.Score <= 79);
+        Assert.Contains(finding.Uncertainty, item => item.Contains("Opaque.Factory.Wrap(Task, object)", StringComparison.Ordinal) &&
+                                                     item.Contains("overlap check", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Continuation_of_a_task_that_may_be_a_gap_result_decides_the_overlap()
     {
@@ -451,6 +474,7 @@ public sealed class GapConfidenceTests
             {
                 public static Task Start(object work) => Task.CompletedTask;
                 public static Task Start() => Task.CompletedTask;
+                public static Task Wrap(Task value, object owner) => value;
                 public static System.Timers.Timer Timer(object owner) => new();
                 public static object Gate(object owner) => new();
             }

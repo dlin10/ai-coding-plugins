@@ -34,6 +34,17 @@ an edge holds for every instance under the environment assumptions — a thread 
 context or task scheduler of its own unless code the analysis sees installs one, thread-pool work
 starts with no context, and observers the program did not subscribe change nothing — so a blocking
 wait for a task without a timeout or a token ends only when that task has completed.
+Amended as [ADR 0029](0029-a-deciding-gap-is-answered-by-a-record-the-call-site-or-ai.md) foresaw: a
+join binds to the pass of the spawn site that started the work. When the parent of a repeated site —
+a loop, a helper called again, the delegate of a `sequential` or `sequential-awaited` call — waits on
+a handle proven to be this pass's work, and passes that wait on every path to the next pass, the work
+is ordered before the next pass of the same site and before the parent's accesses after the wait,
+although the site still repeats; the exceptional exit of a blocking task wait counts as that wait
+under the ADR 0030 assumptions. The parent must not overlap itself, the iterations of one `Parallel`
+call and the callbacks of one periodic timer still overlap one another, and runs with a `concurrent`
+relation or none are not passes. With it a built-in or project model's `sequential` relation proves
+order too: the runs of its delegate go one at a time in the caller's execution, each finishing with
+everything it waited for before the next one starts. A generated model still proves no order.
 
 Rejected: ordering only between a spawn and its chain of parents, with siblings ordered only through
 joins in a common parent. Smaller, and it covers the demo's cases, but every new edge kind (timers,

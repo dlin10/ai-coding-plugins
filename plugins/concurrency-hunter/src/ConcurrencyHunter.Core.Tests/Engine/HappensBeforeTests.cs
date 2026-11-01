@@ -145,20 +145,20 @@ public sealed class HappensBeforeTests
     }
 
     [Fact]
-    public void Wait_in_a_try_with_a_catch_orders_nothing()
+    public void Wait_in_a_try_with_a_catch_orders_the_work()
     {
         var run = Analyze(Worker("var t = Task.Run(() => F()); try { t.Wait(); } catch (Exception) { } P1();"));
 
-        Assert.True(Overlap(run, "P1", "F"));
+        Assert.False(Overlap(run, "P1", "F"));
     }
 
     [Fact]
-    public void Wait_all_in_a_try_with_a_catch_orders_nothing()
+    public void Wait_all_in_a_try_with_a_catch_orders_both_tasks()
     {
         var run = Analyze(Worker("var a = Task.Run(() => F()); var b = Task.Run(() => G()); try { Task.WaitAll(a, b); } catch (Exception) { } P1();"));
 
-        Assert.True(Overlap(run, "P1", "F"));
-        Assert.True(Overlap(run, "P1", "G"));
+        Assert.False(Overlap(run, "P1", "F"));
+        Assert.False(Overlap(run, "P1", "G"));
     }
 
     [Fact]
@@ -504,25 +504,28 @@ public sealed class HappensBeforeTests
         Assert.False(Overlap(run, "P1", "F"));
     }
 
-    /// <summary>A spawn joined inside a delegate a call runs again is a spawn in a loop: no join holds for every start, and the write
-    /// after the call keeps the pair, as <see cref="Helper_joining_its_own_spawn_called_in_a_loop_keeps_the_pair"/> does.</summary>
+    /// <summary>A spawn joined inside a delegate a call runs again completes before the call returns, so the write after the call
+    /// follows every run's work; the next run may start before this one's join, so the runs' work still meets.</summary>
     [Fact]
-    public void Spawn_joined_inside_a_list_for_each_delegate_keeps_the_pair_with_the_write_after_the_call()
+    public void Spawn_joined_inside_a_list_for_each_delegate_is_ordered_before_the_write_after_the_call()
     {
         var run = Analyze(Worker("new System.Collections.Generic.List<int> { 1, 2 }.ForEach(item => Task.Run(() => F()).Wait()); P1();"));
 
-        Assert.True(Overlap(run, "P1", "F"));
+        Assert.False(Overlap(run, "P1", "F"));
+        Assert.True(Overlap(run, "F", "F"));
     }
 
     // ---- identity ----
 
+    /// <summary>Each pass of the loop awaits the helper, which awaits its own spawn: the work completes before the write after the
+    /// helper's await and before the next pass spawns again.</summary>
     [Fact]
-    public void Helper_joining_its_own_spawn_called_in_a_loop_keeps_the_pair()
+    public void Helper_joining_its_own_spawn_called_in_a_loop_is_ordered_before_the_write_after_its_await()
     {
         var run = Analyze(Worker("for (var i = 0; i < 2; i++) await Step();",
                                  "private async Task Step() { var t = Task.Run(() => F()); await t; P1(); }"));
 
-        Assert.True(Overlap(run, "P1", "F"));
+        Assert.False(Overlap(run, "P1", "F"));
     }
 
     [Fact]
@@ -553,12 +556,13 @@ public sealed class HappensBeforeTests
         Assert.True(Overlap(run, "P1", "G"));
     }
 
+    /// <summary>Each pass awaits its own spawn before the loop spawns again, in a worker that runs once.</summary>
     [Fact]
-    public void Spawn_in_a_loop_overlaps_itself_although_each_is_awaited()
+    public void Spawn_in_a_loop_awaited_on_each_pass_does_not_overlap_itself()
     {
         var run = Analyze(Worker("for (var i = 0; i < 2; i++) { var t = Task.Run(() => F()); await t; }"));
 
-        Assert.True(Overlap(run, "F", "F"));
+        Assert.False(Overlap(run, "F", "F"));
     }
 
     [Fact]

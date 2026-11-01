@@ -2,6 +2,7 @@ using ConcurrencyHunter.Accesses;
 using ConcurrencyHunter.Analysis;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Execution;
+using ConcurrencyHunter.Heap;
 using ConcurrencyHunter.Reporting;
 using ConcurrencyHunter.Scopes;
 using Microsoft.CodeAnalysis;
@@ -17,6 +18,7 @@ public sealed class DecidingGapTests
     private const string TOUCH = "Opaque.IBase.Touch(object)";
     private const string START = "Opaque.Factory.Start(object)";
     private const string GATE = "Opaque.Factory.Gate(object)";
+    private const string WRAP = "Opaque.Factory.Wrap(Task, object)";
     private static readonly Lazy<MetadataReference> Library = new(CompileLibrary);
 
     [Fact]
@@ -48,6 +50,119 @@ public sealed class DecidingGapTests
         var finding = Assert.Single(result.Findings, PlainWrites);
 
         AssertDecides(Assert.Single(result.Coverage), START, finding.Fingerprint, ["overlap"]);
+    }
+
+    /// <summary>An opaque wrapper of the current pass's own task between its start and its wait decides whether the passes overlap (R9).</summary>
+    [Fact]
+    public async Task Gap_wrapping_the_current_pass_handle_decides_the_overlap_of_its_self_pair()
+    {
+        var result = await Analyze(Passes("for (var pass = 0; pass < 2; pass++) { var own = Task.Run(() => work.Count = 1); " +
+                                          "await Opaque.Factory.Wrap(own, work); }"));
+        var finding = Assert.Single(result.Findings, PlainWrites);
+
+        Assert.Equal(finding.AccessA.Symbol, finding.AccessB.Symbol);
+        AssertDecides(Assert.Single(result.Coverage), WRAP, finding.Fingerprint, ["overlap"]);
+    }
+
+    /// <summary>A wrapper whose arguments carry no handle of the pass decides nothing, whatever it returns.</summary>
+    [Fact]
+    public async Task Gap_that_cannot_carry_the_current_pass_handle_decides_nothing()
+    {
+        var result = await Analyze(Passes("for (var pass = 0; pass < 2; pass++) { var own = Task.Run(() => work.Count = 1); " +
+                                          "await Opaque.Factory.Wrap(Task.CompletedTask, work); _ = own; }"));
+        var finding = Assert.Single(result.Findings, PlainWrites);
+
+        Assert.Equal(finding.AccessA.Symbol, finding.AccessB.Symbol);
+        Assert.DoesNotContain(Assert.Single(result.Coverage).DecidingGaps,
+                              gap => gap.Callee == WRAP && gap.Findings.Any(item => item.Fingerprint == finding.Fingerprint));
+    }
+
+    /// <summary>A blocking wait on a wrapper of the pass's own task, inside a retry's handler that leads to the next attempt, would order
+    /// the attempts only where its fault follows the task's completion (R3): without the cases of R4 the wrapper decides the overlap; a
+    /// reachable installer of a context, <c>Thread.Interrupt</c> or a task on the program's scheduler leaves it deciding nothing.</summary>
+    /// <param name="prefix">What the worker does before the retry loop.</param>
+    /// <param name="start">How each attempt starts its work.</param>
+    /// <param name="decides">Whether the wrapper decides the overlap of the work's self-pair.</param>
+    [Theory]
+    [InlineData("", "Task.Run(() => work.Count = 1)", true)]
+    [InlineData("SynchronizationContext.SetSynchronizationContext(new SynchronizationContext());", "Task.Run(() => work.Count = 1)", false)]
+    [InlineData("Thread.CurrentThread.Interrupt();", "Task.Run(() => work.Count = 1)", false)]
+    [InlineData("", "Task.Factory.StartNew(() => work.Count = 1, CancellationToken.None, TaskCreationOptions.None, Schedulers.Own)", false)]
+    public async Task Gap_wrapping_the_current_pass_handle_on_the_exceptional_path_obeys_the_exceptions(string prefix, string start, bool decides)
+    {
+        var result = await Analyze(Passes($"for (var attempt = 0; attempt < 3; attempt++) {{ var own = {start}; " +
+                                          "var wrapped = Opaque.Factory.Wrap(own, work); try { wrapped.Wait(); break; } catch (AggregateException) { } }",
+                                          prefix));
+        var finding = Assert.Single(result.Findings, PlainWrites);
+
+        Assert.Equal(finding.AccessA.Symbol, finding.AccessB.Symbol);
+        Assert.Equal(decides, Assert.Single(result.Coverage).DecidingGaps
+                                    .Any(gap => gap.Callee == WRAP && gap.Findings.Any(item => item.Fingerprint == finding.Fingerprint &&
+                                                                                               item.DecidedChecks.Contains("overlap"))));
+    }
+
+    [Fact]
+    public async Task Conditional_proof_preserves_other_contexts_and_gaps()
+    {
+        var library = CSharpCompilation.Create("H2Opaque", [CSharpSyntaxTree.ParseText("""
+            using System.Threading.Tasks;
+            public static class H2Opaque { public static Task Wrap(Task value, object owner) => value; }
+            """)], StubAssemblies.PlatformWithout([]), new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        var emitted = library.Emit(image);
+        Assert.True(emitted.Success, string.Join(Environment.NewLine, emitted.Diagnostics));
+        var options = new FixtureOptions { MetadataReferences = [MetadataReference.CreateFromImage(image.ToArray())] };
+        foreach (var tree in new[] { false, true })
+        foreach (var variant in new[] { "own", "unrelated", "bypassed" })
+        {
+            var wait = variant switch
+            {
+                "own" => "await H2Opaque.Wrap(own, box);",
+                "unrelated" => "await H2Opaque.Wrap(Task.CompletedTask, box);",
+                _ => "if (stoppingToken.IsCancellationRequested) await H2Opaque.Wrap(own, box);"
+            };
+            var source = Usings + Startup("services.AddSingleton<Box>(); services.AddHostedService<Worker>();") + $$"""
+                public sealed class Box { public int Safe; public int Uncertain; }
+                public sealed class Worker(Box shared) : BackgroundService
+                {
+                    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+                    {
+                        var box = {{(tree ? "new Box()" : "shared")}};
+                        for (var pass = 0; pass < 2; pass++) { var own = Task.Run(() => box.Safe = 1); await own; }
+                        for (var pass = 0; pass < 2; pass++) { var own = Task.Run(() => box.Uncertain = 1); {{wait}} }
+                    }
+                }
+                """;
+            var solution = FixtureSolution.Create(options, ("Case.cs", source));
+            var run = AnalyzeScope(solution, "scope:Fixture");
+            var safe = Assert.Single(run.Of("Safe"), access => access.Operation == AccessOperation.Write);
+            var uncertain = Assert.Single(run.Of("Uncertain"), access => access.Operation == AccessOperation.Write);
+            var analysis = run.Execution.Analysis;
+            Assert.Equal(tree ? OwnershipKind.TreeConfined : OwnershipKind.Shared,
+                analysis.Ownership[uncertain.Resource.RegionId!].Kind);
+            if (tree) Assert.NotNull(analysis.Ownership[uncertain.Resource.RegionId!].Creator);
+            var joins = analysis.UnprovenJoins.ToArray();
+            Assert.Equal(PairTiming.Ordered, analysis.Timing(safe, safe));
+            Assert.Equal(PairTiming.Concurrent, analysis.Timing(uncertain, uncertain));
+            Assert.Equal(PairTiming.Concurrent, analysis.Timing(uncertain, uncertain));
+            Assert.Equal(PairTiming.Ordered, analysis.Timing(safe, safe));
+            Assert.Equal(joins, analysis.UnprovenJoins);
+            Assert.False(analysis.RunsOncePerRunOf(safe.ExecutionId, analysis.Execution(safe.ExecutionId).TreeRootId));
+            var program = run.Execution.Heap.Program;
+            var scope = new ScopeProgram(program.ScopeId, program.Input.Roots, program.Result, run.Execution.Heap.Summaries,
+                program.Input.Program, program.Input.DiIndex, program.Input.InjectionBindings) { MetadataSupertypes = program.MetadataSupertypes };
+            var marked = GapDecisions.Mark(run.Pairs.Pairs, new InterproceduralInput(scope, run.Execution.Heap.Heap, analysis), run.Collection.Coverage.Gaps);
+            var self = Assert.Single(marked, pair => pair.First.ExecutionId == uncertain.ExecutionId && pair.Second.ExecutionId == uncertain.ExecutionId &&
+                pair.Resource.Member.Name == "Uncertain");
+            Assert.True((variant == "own") == self.GapChecks.Any(check => check.Component == GapComponents.OVERLAP && check.Callee == "H2Opaque.Wrap(Task, object)"),
+                $"tree={tree}, variant={variant}; deciding checks={string.Join(';', self.GapChecks.Select(check => check.Callee + ':' + check.Component))}");
+            var result = await PhaseOneAnalyzer.AnalyzeAsync(solution, ROOT_DIRECTORY, CancellationToken.None, ModelGeneration.None);
+            var finding = Assert.Single(result.Findings, finding => finding.Resource.AccessPath.SequenceEqual(["Uncertain"]) &&
+                finding.AccessA.Operation == AccessOperation.Write && finding.AccessB.Operation == AccessOperation.Write);
+            Assert.Equal(variant == "own", result.Coverage.SelectMany(coverage => coverage.DecidingGaps)
+                .Any(gap => gap.Callee == "H2Opaque.Wrap(Task, object)" && gap.Findings.Any(item => item.Fingerprint == finding.Fingerprint &&
+                    item.DecidedChecks.Contains(GapComponents.OVERLAP))));
+        }
     }
 
     [Fact]
@@ -307,6 +422,29 @@ public sealed class DecidingGapTests
         }
         """ + Startup("services.AddSingleton<Work>(); services.AddHostedService<Worker>(); services.AddHostedService<Other>();");
 
+    /// <summary>A worker that runs the passes given once, on a shared work, after <paramref name="prefix"/>.</summary>
+    /// <param name="passes">The passes.</param>
+    /// <param name="prefix">What the worker does first.</param>
+    private static string Passes(string passes, string prefix = "") => Usings + $$"""
+        public sealed class OwnScheduler : TaskScheduler
+        {
+            protected override System.Collections.Generic.IEnumerable<Task>? GetScheduledTasks() => null;
+            protected override void QueueTask(Task task) => TryExecuteTask(task);
+            protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued) => TryExecuteTask(task);
+        }
+        public static class Schedulers { public static readonly TaskScheduler Own = new OwnScheduler(); }
+        public sealed class Work { public int Count; }
+        public sealed class Worker(Work work) : BackgroundService
+        {
+            protected override async Task ExecuteAsync(CancellationToken token)
+            {
+                {{prefix}}
+                {{passes}}
+                await Task.CompletedTask;
+            }
+        }
+        """ + Startup("services.AddSingleton<Work>(); services.AddHostedService<Worker>();");
+
     private static string Entry(string body, string? receiver = null) =>
         "{\"member\":\"M:Opaque.IBase.Touch(System.Object)\",\"assemblies\":[\"Opaque\"]," + body +
         (receiver is null ? "" : ",\"receiver\":\"T:" + receiver + "\"") + "}";
@@ -346,6 +484,7 @@ public sealed class DecidingGapTests
             public static class Factory
             {
                 public static Task Start(object owner) => Task.CompletedTask;
+                public static Task Wrap(Task value, object owner) => value;
                 public static object Gate(object owner) => new();
                 public static void Invoke(Action action) { }
             }

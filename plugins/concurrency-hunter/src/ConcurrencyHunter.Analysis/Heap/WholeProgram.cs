@@ -189,7 +189,14 @@ public sealed record SpawnCallee(string InstanceId, SpawnRole Role);
 /// <param name="Tail">The tail region, when the handle's work returns a task the handle does not wait for.</param>
 /// <param name="Callees">The instances it runs, with their roles.</param>
 public sealed record SpawnSite(string CallerInstance, int OperationId, int CallOperationId, IrSpawnKind Kind, IReadOnlySet<string> Handles,
-                               string? Tail, IReadOnlyList<SpawnCallee> Callees);
+                               string? Tail, IReadOnlyList<SpawnCallee> Callees)
+{
+    /// <summary>The <c>TaskScheduler</c> argument of a <c>StartNew</c> or <c>ContinueWith</c> (<see cref="SummarySpawn.SchedulerArgument"/>).</summary>
+    public IrSchedulerArgument SchedulerArgument { get; init; }
+
+    /// <summary>Whether a <c>StartNew</c> is called on a factory other than <c>Task.Factory</c> or <c>Task&lt;T&gt;.Factory</c>.</summary>
+    public bool OnSeparateFactory { get; init; }
+}
 
 /// <summary>A timer's callback or <c>Elapsed</c> handler (<see cref="SummaryTimer"/>) with the timer regions and the instances it runs.</summary>
 /// <param name="CallerInstance">The instance making the timer operation.</param>
@@ -953,11 +960,17 @@ public static partial class WholeProgram
     /// <param name="kind">The kind.</param>
     /// <param name="callOperationId">The callOperationId.</param>
     /// <param name="action">The action.</param>
-    private sealed class SiteState(IrSpawnKind? kind, int callOperationId, IrTimerAction? action = null) : ITrackedState
+    /// <param name="schedulerArgument">The scheduler argument a <c>StartNew</c> or <c>ContinueWith</c> spawn names, or none.</param>
+    /// <param name="onSeparateFactory">Whether a <c>StartNew</c> spawn is called on a factory other than <c>Task.Factory</c> or
+    /// <c>Task&lt;T&gt;.Factory</c>.</param>
+    private sealed class SiteState(IrSpawnKind? kind, int callOperationId, IrTimerAction? action = null,
+                                   IrSchedulerArgument schedulerArgument = IrSchedulerArgument.None, bool onSeparateFactory = false) : ITrackedState
     {
         internal IrSpawnKind? Kind { get; } = kind;
         internal int CallOperationId { get; } = callOperationId;
         internal IrTimerAction? Action { get; } = action;
+        internal IrSchedulerArgument SchedulerArgument { get; } = schedulerArgument;
+        internal bool OnSeparateFactory { get; } = onSeparateFactory;
         internal TrackedSet<RegionRef> Handles { get; } = [];
         private readonly TrackedValue<RegionRef?> _tail = new();
         internal RegionRef? Tail { get => _tail.Value; set => _tail.Value = value; }
@@ -1752,7 +1765,11 @@ public static partial class WholeProgram
                                                                        Sorted(pair.Value.Handles), pair.Value.Tail?.Identity,
                                                                        pair.Value.Callees.OrderBy(callee => callee.Instance, StringComparer.Ordinal)
                                                                            .ThenBy(callee => callee.Role)
-                                                                           .Select(callee => new SpawnCallee(callee.Instance, callee.Role)).ToArray()))
+                                                                           .Select(callee => new SpawnCallee(callee.Instance, callee.Role)).ToArray())
+                {
+                    SchedulerArgument = pair.Value.SchedulerArgument,
+                    OnSeparateFactory = pair.Value.OnSeparateFactory
+                })
                                          .ToArray(),
                 TimerCallbacks = Ordered(_timerCallbacks).Select(pair => new TimerCallbackSite(pair.Key.Caller, pair.Key.Operation, pair.Value.Action!.Value,
                                                                                                Sorted(pair.Value.Handles), Callees(pair.Value))
@@ -2728,7 +2745,8 @@ public static partial class WholeProgram
         /// <param name="spawn">The spawn.</param>
         private void Spawn(InstanceState caller, SummarySpawn spawn)
         {
-            var site = SiteOf(_spawns, caller, spawn.OperationId, () => new SiteState(spawn.Kind, spawn.CallOperationId));
+            var site = SiteOf(_spawns, caller, spawn.OperationId, () => new SiteState(spawn.Kind, spawn.CallOperationId, null, spawn.SchedulerArgument,
+                                                                                      spawn.OnSeparateFactory));
             IReadOnlyList<TrackedSet<RegionRef>> works;
             RegionRef? handle = null;
             if (spawn.Kind == IrSpawnKind.ThreadStart)
