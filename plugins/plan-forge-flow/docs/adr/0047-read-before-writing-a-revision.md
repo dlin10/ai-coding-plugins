@@ -58,6 +58,12 @@ the replayed plan of every round and the code at the Run's base. They found:
     of their own stay separate findings, as before.
   - A finding that needs both a rule and its check states them apart, the rule first.
 
+*Amended 2026-11-01 by [0051](0051-carry-a-findings-invariant-across-rounds.md).* The evidence of an
+`addressedByRevision` or `hostVerified` closure is no longer only audit: when the finding named an
+invariant, the ledger keeps the evidence as the claim, and every later Critic is shown it beside the
+invariant to verify. A partial list is now `complete: false` on the finding rather than a sentence in
+`what`.
+
 ## Consequences
 
 - A major's closure costs a line. A revision that has read nothing cannot close one without the

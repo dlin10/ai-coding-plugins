@@ -1,4 +1,4 @@
-# Plan Forge Flow 0.74.0
+# Plan Forge Flow 0.75.0
 
 Plan Forge Flow is a Codex and Claude Code plugin for decision-complete planning, fresh
 adversarial review, controlled implementation, and final code review. It ships as an MCP server: a
@@ -81,6 +81,10 @@ until a full verification closes them. Either way, a run succeeds only after ful
 - **Findings have stable IDs.** `decision-ledger.json` holds every open finding with its ID and
   disposition (`unresolved`, `deferred`, `rejected`). A Critic only proposes; the Orchestrator
   decides every disposition and may raise findings of its own.
+- **A finding names the rule it breaks.** A Critic's finding carries its invariant — the property
+  violated, stated without the place — and the axes its places vary along. The Builder fixes along
+  them, and when the finding closes the ledger keeps its invariant and the fixer's claim, so every
+  later Critic checks that invariant across the whole plan or diff and verifies the claim.
 - **Decisions are recorded once.** `forge.decision.record` stores the user's settled answers in
   `decisions.json`, and every later Critic sees them, so a review does not reopen a question the
   user already answered.

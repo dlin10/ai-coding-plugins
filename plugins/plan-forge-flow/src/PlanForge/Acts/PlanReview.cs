@@ -160,9 +160,10 @@ internal sealed class PlanReview
         }
 
         Critique critique;
+        IReadOnlyList<string> notes;
         try
         {
-            critique = ledger.IngestCritique(wireCritique, LedgerPhase.PlanReview);
+            critique = ledger.IngestCritique(wireCritique, LedgerPhase.PlanReview, out notes);
         }
         catch (DecisionLedgerCritiqueException error)
         {
@@ -181,7 +182,7 @@ internal sealed class PlanReview
         if (granted) run.AppendFlowGrantedRound("Plan review", round);
         if (continuation is not null) run.AppendFlowAutoContinuedRound("Plan review", round, continuation);
         if (evidenceMapWarning is not null) run.AppendFlowEvidenceMapWarning(round, evidenceMapWarning);
-        run.AppendFlowCritique("Plan review", round, critique);
+        run.AppendFlowCritique("Plan review", round, critique, notes);
         run.AppendFlowKilledTasks("Plan review", round, session.KilledBackgroundTasks);
         SpeedWarning = session.SpeedWarning;
         EvidenceMapWarning = evidenceMapWarning;

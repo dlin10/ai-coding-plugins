@@ -203,7 +203,7 @@ public sealed class PendingFullGateTransitionMatrixTests : IDisposable
         var ledger = NewRun().ReadDecisionLedger();
         ledger.AddFinding(Finding("source"), LedgerPhase.CodeReview);
         ledger.RecordFixAttempt("A", ["F-0001"], Passed(), true, "targeted");
-        ledger.IngestCritique(new VendorCritique { Verdict = "revise", Summary = "assessment", Findings = [new VendorFinding("major", "test.cs", "new")],
+        ledger.IngestCritique(new VendorCritique { Verdict = "revise", Summary = "assessment", Findings = [new VendorFinding("major", "test.cs", "new", "", [], "", false, "")],
             UnresolvedAssessments = [new UnresolvedAssessment("F-0001", false, "not observed")], Reopenings = [] }, LedgerPhase.CodeReview);
         var batch = new OrchestratorDecisionBatch("raise", [], [new OrchestratorRaise("major", "other", "new rule", "orchestrator", "found")]);
         var before = File.ReadAllBytes(ledger.Path);

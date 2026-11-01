@@ -40,7 +40,13 @@ Between the two calls, classify every identified finding by ID:
   settled ID; the Critic cannot reopen it itself. A plan-origin ID accepted here keeps its origin and
   becomes active in code review.
 - **Host-close** an active code ID only after your own verification, using `hostVerified` with
-  evidence in a decisions-only `review.fix` call.
+  evidence in a decisions-only `review.fix` call. For a finding with an `invariant`, the evidence
+  names the check across its `axes`; the ledger keeps it as the claim every later Critic verifies.
+
+A finding's `invariant` and `axes` are the class its fix covers, and the Builder receives both under
+the finding's line. `complete: false` means the Critic's list of places is partial: the class query —
+references and callers of the data that carries the fact — is yours to run before the batch and its
+note.
 
 The bias to hold: when unsure whether to settle a finding, fix it. Deferral and rejection are for
 decisions the plan or user settles, never for findings that are inconvenient. `review.fix` may carry
@@ -48,7 +54,9 @@ decisions and an independent fix attempt together, but the same ID cannot be bot
 and a batch with `raises` travels without a fix attempt.
 
 The Builder reports each fix as a rule and its places: `rule:`, then one line per place with
-`fixed`, `already agreed`, or `left: <reason>`. Read that report before the next round:
+`fixed`, `already agreed`, or `left: <reason>`, and for a finding with an invariant the axes its
+check covers and the ones it left. When the gate closes the finding, that report is kept as the
+claim the next Critic verifies. Read it before the next round:
 
 - A `left:` place the approved plan excludes needs nothing more; it is out of scope, as it would be
   for a Critic. Raise every other one in a decisions-only `forge.review.fix`, then fix it in a later

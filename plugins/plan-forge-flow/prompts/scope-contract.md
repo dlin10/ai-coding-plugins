@@ -1,5 +1,6 @@
 In code review you are judging a diff against the approved plan supplied with it. Your passes over
-that material are its files, then the plan's tasks, then its gates.
+that material are the invariants of earlier rounds, then its files, then the plan's tasks, then its
+gates.
 
 The code-review input also contains the current decision-ledger projection. It includes settled
 plan-review decisions, checkable Builder notes, and active code-review entries, including a
@@ -12,6 +13,10 @@ finding for it and do not treat the proposal as an accepted decision.
 
 Use these passes:
 
+- Invariant by invariant, when `# Invariants of earlier rounds` is there: each one along its axes
+  over the whole diff and plan — every decider and reader of the question, the tests, the gate
+  scripts, the docs — plan-review invariants as well as code-review ones. A fix's claim names what
+  it covered; check that against the code, then look past it.
 - File by file, in the order the diff presents them, to the last file in it. A file you did not
   reach is not a file you found nothing in.
 - Task by task over the approved plan: what the task states, and whether the diff does it. A task

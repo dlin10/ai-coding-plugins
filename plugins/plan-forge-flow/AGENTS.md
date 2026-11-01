@@ -272,7 +272,9 @@ attempt and closure, plus the Orchestrator's own revision — and nothing ever f
 Worker.
 `decision-ledger.json` is the sole authoritative finding state and the only source for bounded
 Critic projections. It keeps immutable finding `origin`, mutable `activePhase`, dispositions,
-applied decision batches and fix attempts; malformed or unknown state stops the call rather than
+applied decision batches, fix attempts, and the invariants of closed findings with the fixer's
+claim, which every later Critic is shown — see
+[docs/adr/0051](docs/adr/0051-carry-a-findings-invariant-across-rounds.md); malformed or unknown state stops the call rather than
 recovering to an empty ledger. `PLAN.md` is the run's plan *as it currently stands*, not the approved
 one: `forge.plan.write` or `forge.plan.patch`
 puts the draft there ahead of the round that judges it — a separate call because a draft streamed

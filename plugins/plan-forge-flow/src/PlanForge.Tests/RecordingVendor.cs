@@ -110,7 +110,9 @@ internal sealed class RecordingVendorSession : IVendorSession
                 {
                     Verdict = critique.Verdict,
                     Findings = [.. critique.Findings.Select(finding =>
-                        new VendorFinding(finding.Severity, finding.Where, finding.What))],
+                        new VendorFinding(finding.Severity, finding.Where, finding.What, finding.Invariant ?? "",
+                                          finding.Axes ?? [], finding.Searched ?? "", finding.Complete ?? false,
+                                          finding.InvariantOf ?? ""))],
                     Summary = critique.Summary,
                     UnresolvedAssessments = critique.UnresolvedAssessments
                         ?? [.. ProjectionIds(prompt).Select(id =>
