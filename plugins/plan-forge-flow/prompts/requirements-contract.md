@@ -12,6 +12,10 @@ Assess every displayed unresolved ID exactly once. A displayed deferred, rejecte
 ID remains settled unless you return a reopening proposal with concrete current-plan evidence;
 the proposal is for the Orchestrator to accept or decline and changes nothing by itself.
 
+When `# Invariants of earlier rounds` is there, it is your first pass: each invariant along its axes
+across requirement, task rule, matrix, gate and docs, over the whole plan — not only the place its
+findings named or the part a revision touched.
+
 Judge the complete brief:
 
 - The requirements are yours to judge. Two that contradict each other, one that admits two different

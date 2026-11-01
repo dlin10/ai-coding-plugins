@@ -156,7 +156,10 @@ the whole plan, including after a patch; the draft is ready when every change pa
   value, one decider of a question, one call form, one case of a rule — is answered for the whole
   class: before you write, run Roslyn `find_callers` or `find_references` on the symbol that
   decides it, on a server that serves this workspace — a search for every use where none does —
-  list every member, and cover each one or narrow the requirement in words. A rule the
+  list every member, and cover each one or narrow the requirement in words. A finding's
+  `invariant` and `axes` are that class: cover it along every axis — requirement, task rule,
+  matrix, gate, docs — not only the place it names. `complete: false` means the Critic's list is
+  partial, so the class query is yours to run. A rule the
   revision adds or changes gets the same query, because its twin deciders are where the next round
   looks. Name the list and the query in `revision`.
 - **Mechanisms are the user's.** When the answer to a finding is a new mechanism — a pass, a state,
@@ -169,7 +172,9 @@ Close each finding the revision answered with `addressedByRevision`. A blocker o
 `evidence`: one line saying what you read, the class you listed and the cell that fails for a wrong
 implementation — `read Ledger.cs:940-964; callers of Ledger.Close: Review, Confirm, Fix; cell
 major × no evidence`. The server refuses a blocker or major closed without
-it, and the Flow log prints the line beside the closure.
+it, and the Flow log prints the line beside the closure. For a finding with an `invariant`, the
+evidence names the check across its axes: the ledger keeps it as the claim, and every later Critic
+is shown it under *Invariants of earlier rounds* to verify, not to take.
 
 On a stale-base refusal, read `forge.plan.outline` and redo the edits against its current hash;
 never resend the refused patch unchanged. A replay after a lost answer is a stale-base conflict,

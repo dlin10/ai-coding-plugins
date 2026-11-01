@@ -1,5 +1,34 @@
 # Plan Forge Flow releases
 
+## 0.75.0
+
+A Critic's finding names the invariant it breaks, the invariant outlives the finding's closure, and
+every later Critic checks it across the whole plan or diff together with what the fixer claimed. ADR
+0051.
+
+- The Critic schema's finding gains `invariant`, `axes`, `searched`, `complete` and `invariantOf`,
+  all required by the strict schema. The server keeps them as they came, a blank value as none, and
+  refuses no critique for them; an `invariantOf` naming an ID the Run never had is stored as none and
+  listed under *Dropped on ingestion* in the round's Flow-log entry. Critique results carry them.
+- `decision-ledger.json` gains `closedInvariants`, the invariant register: one record per closed
+  finding that named an invariant, with how it closed and the fixer's claim — the
+  `addressedByRevision` or `hostVerified` evidence, or the part of the Builder's summary that names
+  the finding, for the attempt whose gate closed it (the gate output when the summary is blank), cut
+  to 600 characters. A claim that looks like a secret is withheld and marked so, since every later
+  Critic prompt carries it. Absent while empty; the schema stays at version 3, and a
+  ledger written before this serializes byte for byte as it did. No batch digest changes.
+- Plan-review and code-review Critics get `# Invariants of earlier rounds` after the projection: the
+  register and the displayed entries' invariants grouped by the first finding of each `invariantOf`
+  chain, blocker and major first, each line on one line of at most 600 characters, the whole
+  section within 12,000 characters; a chain too large to fit is left out without crowding out the
+  others, and the latest claim is the one closed last. Projected entries print their
+  `invariant:`, `axes:` and `invariantOf:`.
+- The Builder's fix prompt prints `invariant:` and `axes:` under each finding.
+- A Flow-log critique line ends with `(again: F-nnnn)` for a recurrence and prints the invariant
+  below it.
+- The critic, scope, requirements and builder contracts, and the plan-review, code-review, ledger
+  and tools references, describe the fields, the invariants pass and the claim.
+
 ## 0.74.0
 
 OpenAI's Decisions API becomes the third Advisor, and the part of an Evidence-map request that every

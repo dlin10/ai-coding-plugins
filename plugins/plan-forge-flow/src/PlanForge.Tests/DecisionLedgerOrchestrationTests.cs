@@ -1476,7 +1476,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         Assert.Throws<DecisionLedgerCritiqueException>(() => ledger.IngestCritique(new VendorCritique
         {
             Verdict = "approve",
-            Findings = [new VendorFinding("major", "new.cs", "new finding")],
+            Findings = [new VendorFinding("major", "new.cs", "new finding", "", [], "", false, "")],
             Summary = "invalid coverage",
             UnresolvedAssessments = [],
             Reopenings = []

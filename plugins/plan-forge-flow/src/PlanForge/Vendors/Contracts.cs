@@ -19,11 +19,35 @@ internal sealed record Critique(string Verdict,
                                 [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
                                 IReadOnlyList<string>? PendingFullGateFindingIds = null);
 
+/// <summary>
+/// A finding as the ledger keeps it and the tools return it. The invariant fields are a Critic's,
+/// absent from a Raise and from an entry stored before they existed, so such a finding serializes
+/// as it did without them.
+/// </summary>
+/// <param name="Severity"><c>blocker</c>, <c>major</c> or <c>minor</c>.</param>
+/// <param name="Where">The place the finding is about.</param>
+/// <param name="What">The gap, concretely enough to act on.</param>
+/// <param name="FindingId">The finding's run-local ID, where the finding is shown with it.</param>
+/// <param name="Invariant">The property violated, stated without the place, so it covers every place that must satisfy it.</param>
+/// <param name="Axes">The layers and forms along which the places that must satisfy the invariant vary.</param>
+/// <param name="Searched">How the Critic looked for the other places.</param>
+/// <param name="Complete">Whether the Critic walked every axis and the places it listed are all there are.</param>
+/// <param name="InvariantOf">The earlier finding whose invariant this one violates again.</param>
 internal sealed record Finding(string Severity,
                                string Where,
                                string What,
                                [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                               string? FindingId = null);
+                               string? FindingId = null,
+                               [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                               string? Invariant = null,
+                               [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                               IReadOnlyList<string>? Axes = null,
+                               [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                               string? Searched = null,
+                               [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                               bool? Complete = null,
+                               [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                               string? InvariantOf = null);
 
 /// <summary>
 /// The Vendor-only wire answer. Findings do not carry IDs: the Run-local ledger allocates those
@@ -52,6 +76,8 @@ internal sealed class VendorCritique : IJsonOnDeserialized
             throw new JsonException("Critiques require verdict and summary.");
         if (Findings is null || Findings.Any(finding => finding is null))
             throw new JsonException("Critiques require a non-null findings array.");
+        if (Findings.Any(finding => finding.Axes is null))
+            throw new JsonException("Critique findings require a non-null axes array.");
         if (UnresolvedAssessments is null || UnresolvedAssessments.Any(assessment => assessment is null))
             throw new JsonException("Critiques require a non-null unresolvedAssessments array.");
         if (Reopenings is null || Reopenings.Any(reopening => reopening is null))
@@ -59,9 +85,26 @@ internal sealed class VendorCritique : IJsonOnDeserialized
     }
 }
 
+/// <summary>
+/// One finding as the Critic returns it. Every field is required by the strict schema; the server
+/// keeps the invariant fields as they came, an empty string as none.
+/// </summary>
+/// <param name="Severity"><c>blocker</c>, <c>major</c> or <c>minor</c>.</param>
+/// <param name="Where">The place the finding is about.</param>
+/// <param name="What">The gap, concretely enough to act on.</param>
+/// <param name="Invariant">The property violated, at the level of the rule rather than the instance.</param>
+/// <param name="Axes">The layers and forms along which the places that must satisfy it vary.</param>
+/// <param name="Searched">How the Critic looked for the other places.</param>
+/// <param name="Complete">True only when every axis was walked and the places listed are all there are.</param>
+/// <param name="InvariantOf">The ID of an earlier finding whose invariant this one violates again, or empty.</param>
 internal sealed record VendorFinding([property: JsonRequired] string Severity,
                                      [property: JsonRequired] string Where,
-                                     [property: JsonRequired] string What);
+                                     [property: JsonRequired] string What,
+                                     [property: JsonRequired] string Invariant,
+                                     [property: JsonRequired] IReadOnlyList<string> Axes,
+                                     [property: JsonRequired] string Searched,
+                                     [property: JsonRequired] bool Complete,
+                                     [property: JsonRequired] string InvariantOf);
 
 internal sealed record UnresolvedAssessment([property: JsonRequired] string FindingId,
                                             [property: JsonRequired] bool StillPresent,
@@ -279,9 +322,14 @@ internal static class Schemas
                 "properties": {
                   "severity": { "type": "string", "enum": ["blocker", "major", "minor"] },
                   "where": { "type": "string" },
-                  "what": { "type": "string" }
+                  "what": { "type": "string" },
+                  "invariant": { "type": "string" },
+                  "axes": { "type": "array", "items": { "type": "string" } },
+                  "searched": { "type": "string" },
+                  "complete": { "type": "boolean" },
+                  "invariantOf": { "type": "string", "pattern": "^(F-[0-9]{4})?$" }
                 },
-                "required": ["severity", "where", "what"],
+                "required": ["severity", "where", "what", "invariant", "axes", "searched", "complete", "invariantOf"],
                 "additionalProperties": false
               }
             },

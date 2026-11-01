@@ -26,6 +26,11 @@ public sealed class DecisionLedgerPromptTests : IDisposable
         Assert.Contains("\"additionalProperties\": false", Schemas.Critique.Json, StringComparison.Ordinal);
         Assert.Contains("\"required\": [\"verdict\", \"findings\", \"summary\", \"unresolvedAssessments\", \"reopenings\"]",
             Schemas.Critique.Json, StringComparison.Ordinal);
+        Assert.Contains("\"required\": [\"severity\", \"where\", \"what\", \"invariant\", \"axes\", \"searched\", \"complete\", \"invariantOf\"]",
+            Schemas.Critique.Json, StringComparison.Ordinal);
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(
+            "{\"verdict\":\"revise\",\"findings\":[{\"severity\":\"major\",\"where\":\"w\",\"what\":\"x\"}],\"summary\":\"ok\",\"unresolvedAssessments\":[],\"reopenings\":[]}",
+            CritiqueJson.Default.VendorCritique));
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize(
             "{\"verdict\":\"approve\",\"findings\":[],\"summary\":\"ok\",\"unresolvedAssessments\":[],\"reopenings\":[],\"extra\":1}",
             CritiqueJson.Default.VendorCritique));
@@ -201,7 +206,7 @@ public sealed class DecisionLedgerPromptTests : IDisposable
     public void New_findings_are_identified_and_allocated_only_after_validation()
     {
         var ledger = Ledger();
-        var result = ledger.IngestCritique(Critique(findings: [new VendorFinding("major", "where", "what")]),
+        var result = ledger.IngestCritique(Critique(findings: [new VendorFinding("major", "where", "what", "", [], "", false, "")]),
                                            LedgerPhase.PlanReview);
 
         var finding = Assert.Single(result.Findings);
@@ -254,7 +259,7 @@ public sealed class DecisionLedgerPromptTests : IDisposable
         var ledger = Ledger();
 
         Assert.Throws<DecisionLedgerCritiqueException>(() => ledger.IngestCritique(
-            Critique(findings: [new VendorFinding("minor", "where", "")]), LedgerPhase.PlanReview));
+            Critique(findings: [new VendorFinding("minor", "where", "", "", [], "", false, "")]), LedgerPhase.PlanReview));
 
         Assert.Equal(1, ledger.Snapshot.NextFindingNumber);
         Assert.Empty(ledger.Snapshot.Entries);

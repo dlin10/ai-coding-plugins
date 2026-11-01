@@ -173,7 +173,7 @@ internal sealed class ReviewFix(IVendor vendor, PromptLibrary prompts, TimeSpan?
                     [], [], ids.Select(id => new LedgerClosureDecision(
                         id, LedgerClosureKind.AutomaticGate, LedgerDecisionMaker.Orchestrator,
                         "closed by the fix attempt", evidence)).ToArray());
-                var closure = ledger.Apply(closureBatch);
+                var closure = ledger.Apply(closureBatch, result.Summary);
                 run.AppendFlowDecisionBatch("Review fix automatic gate", closureBatch, closure, LedgerPhase.CodeReview);
                 closure.ThrowIfConflict();
             }
