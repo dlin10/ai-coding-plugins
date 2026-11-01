@@ -14,8 +14,14 @@ internal interface IAdvisor
     /// <summary>The service's sizing, concurrency and timeout limits.</summary>
     AdvisorLimits Limits { get; }
 
-    /// <summary>The published price in USD per million input tokens; output is not priced.</summary>
+    /// <summary>The published price in USD per million uncached input tokens; output is not priced.</summary>
     decimal InputUsdPerMillion { get; }
+
+    /// <summary>The published price in USD per million input tokens read from the service's cache.</summary>
+    decimal CacheReadUsdPerMillion => InputUsdPerMillion;
+
+    /// <summary>The published price in USD per million input tokens written to the service's cache.</summary>
+    decimal CacheWriteUsdPerMillion => InputUsdPerMillion;
 
     /// <summary>Measures the exact body that would be sent, in the service's limit unit.</summary>
     /// <param name="request">The state and ordered questions to measure.</param>
@@ -27,10 +33,14 @@ internal interface IAdvisor
     Task<AdviceResult> AskAsync(AdviceRequest request, CancellationToken ct);
 }
 
-/// <summary>Object state shared by an ordered set of independent Choice questions.</summary>
-/// <param name="State">The JSON-object state supplied to every question.</param>
+/// <summary>
+/// Object state shared by an ordered set of independent Choice questions, in two parts: the state every request of a map
+/// shares, and the state this request adds.
+/// </summary>
+/// <param name="SharedState">The JSON-object state every request of one map shares.</param>
+/// <param name="RequestState">The JSON-object state this request adds; no property name repeats one of the shared part.</param>
 /// <param name="Questions">Questions in the order they must be sent.</param>
-internal sealed record AdviceRequest(JsonObject State, IReadOnlyList<ChoiceQuestion> Questions);
+internal sealed record AdviceRequest(JsonObject SharedState, JsonObject RequestState, IReadOnlyList<ChoiceQuestion> Questions);
 
 /// <summary>One bounded question with ordered alternatives.</summary>
 /// <param name="Id">The identifier used to match its answer.</param>
@@ -67,7 +77,10 @@ internal sealed record AdviceResult(IReadOnlyDictionary<string, AdviceOutcome> A
 /// <summary>Reported token usage, preserving unknown counts as null.</summary>
 /// <param name="InputTokens">Reported input tokens, or null when unknown.</param>
 /// <param name="OutputTokens">Reported output tokens, or null when unknown.</param>
-internal sealed record AdviceUsage(long? InputTokens, long? OutputTokens);
+/// <param name="CachedInputTokens">The part of the input read from the service's cache, or null when unknown.</param>
+/// <param name="CacheWriteTokens">The part of the input written to the service's cache, or null when unknown.</param>
+internal sealed record AdviceUsage(long? InputTokens, long? OutputTokens, long? CachedInputTokens = null,
+                                   long? CacheWriteTokens = null);
 
 /// <summary>Request sizes expressed in the unit named by the Advisor's limits.</summary>
 /// <param name="Total">The size of the whole serialized body.</param>

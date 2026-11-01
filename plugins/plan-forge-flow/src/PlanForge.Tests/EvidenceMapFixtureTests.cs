@@ -51,7 +51,7 @@ public sealed class EvidenceMapFixtureTests
                 Assert.Equal(label.Candidates, Assert.Single(map.Observation, item => item.Id == label.Id).CandidateUnitIds);
             evaluations.Add(new(map, fixture.Labels[plan]));
         }
-        Assert.Equal(1d, EvidenceMetrics.Of(evaluations, fixture.Progress).CandidateRecall);
+        Assert.Equal(1d, EvidenceMetrics.Of(evaluations, fixture.Progress, new FakeAdvisor { InputUsdPerMillion = 0.042m }).CandidateRecall);
     }
 
     /// <summary>The original missing-consumer gap and its derived obligation need explicit consumer work.</summary>

@@ -68,6 +68,29 @@ public sealed class AdvisorToolsTests : IDisposable
         Assert.DoesNotContain(secret, AtomicFile.Read(Path.Combine(run.Path, "state.json")));
     }
 
+    /// <summary>R6: begin and status carry OpenAI Decisions with its requested model, and never its credential.</summary>
+    [Fact]
+    public async Task Begin_and_status_carry_a_configured_OpenAI_Decisions_with_its_model()
+    {
+        const string secret = "distinctive-openai-credential-5e07b3";
+        var (begin, status, run) = await Results(new()
+        {
+            ["PLANFORGE_OPENAI_API_KEY"] = secret, ["PLANFORGE_OPENAI_MODEL"] = "gpt-6.1-luna"
+        });
+        foreach (var json in new[] { begin, status })
+        {
+            using var result = JsonDocument.Parse(json);
+            var advisors = result.RootElement.GetProperty("advisors");
+            var configured = Assert.Single(advisors.GetProperty("configured").EnumerateArray());
+            Assert.Equal("openai-decisions", configured.GetProperty("id").GetString());
+            Assert.Equal("gpt-6.1-luna", configured.GetProperty("model").GetString());
+            Assert.Empty(advisors.GetProperty("partlyConfigured").EnumerateArray());
+            Assert.DoesNotContain(secret, json);
+        }
+        Assert.DoesNotContain(secret, AtomicFile.Read(run.DiagnosticLogPath));
+        Assert.DoesNotContain(secret, AtomicFile.Read(Path.Combine(run.Path, "state.json")));
+    }
+
     /// <summary>R4: a model without a credential is partly configured, reporting only the missing name.</summary>
     [Fact]
     public async Task Begin_and_status_carry_a_partly_configured_Jev_with_its_problem()

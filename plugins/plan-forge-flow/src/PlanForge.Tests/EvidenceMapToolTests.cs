@@ -366,8 +366,8 @@ public sealed class EvidenceMapToolTests
         await run.Call();
         var usage = Assert.Single(run.Records(), record => record.GetProperty("event").GetString() == "advisor.usage");
         Assert.Equal(["at", "event", "advisor", "requestedModel", "servedModel", "requests", "failedRequests", "judgmentsAsked",
-                      "inputTokens", "outputTokens", "cacheHits", "latencyP50", "latencyP90", "duration", "complete", "stoppedBy",
-                      "costUsd"],
+                      "inputTokens", "outputTokens", "cachedInputTokens", "cacheWriteTokens", "cacheHits", "latencyP50",
+                      "latencyP90", "duration", "complete", "stoppedBy", "costUsd"],
                      usage.EnumerateObject().Select(property => property.Name));
         Assert.Equal(VendorAttempt.FormatLocalTimestamp(DateTimeOffset.UnixEpoch.ToLocalTime()), usage.GetProperty("at").GetString());
         Assert.Equal(1, usage.GetProperty("requests").GetInt32());
@@ -375,11 +375,50 @@ public sealed class EvidenceMapToolTests
         Assert.Equal(2, usage.GetProperty("judgmentsAsked").GetInt32());
         Assert.Equal(12, usage.GetProperty("inputTokens").GetInt64());
         Assert.Equal(3, usage.GetProperty("outputTokens").GetInt64());
+        Assert.Equal(JsonValueKind.Null, usage.GetProperty("cachedInputTokens").ValueKind);
+        Assert.Equal(JsonValueKind.Null, usage.GetProperty("cacheWriteTokens").ValueKind);
         Assert.Equal(250, usage.GetProperty("latencyP50").GetDouble());
         Assert.Equal(250, usage.GetProperty("latencyP90").GetDouble());
         Assert.Equal(0m, usage.GetProperty("costUsd").GetDecimal());
         Assert.Contains(run.Records(), record => record.GetProperty("event").GetString() == "vendor.usage" && record.GetProperty("inputTokens").GetInt64() == 17);
         Assert.Contains(run.Records(), record => record.GetProperty("event").GetString() == "orchestrator.usage");
+    }
+
+    /// <summary>The Advisor record carries the reply's cached and written counts and their cost at the cache rates.</summary>
+    [Fact]
+    public async Task Advisor_usage_records_cache_counts()
+    {
+        using var run = new EvidenceToolRun();
+        (run.Advisor.InputUsdPerMillion, run.Advisor.CacheReadUsdPerMillion, run.Advisor.CacheWriteUsdPerMillion) = (0.10m, 0.01m, 0.125m);
+        run.Advisor.Handler = (request, _) =>
+            Task.FromResult(FakeAdvisor.Answer(request) with { Usage = new(1_000_000, 3, 200_000, 300_000) });
+        var result = JsonNode.Parse(await run.Call(budgetUsd: 10m))!;
+        Assert.Equal(0.0895m, result["costUsd"]!.GetValue<decimal>());
+        var usage = Assert.Single(run.Records(), record => record.GetProperty("event").GetString() == "advisor.usage");
+        Assert.Equal(1_000_000, usage.GetProperty("inputTokens").GetInt64());
+        Assert.Equal(200_000, usage.GetProperty("cachedInputTokens").GetInt64());
+        Assert.Equal(300_000, usage.GetProperty("cacheWriteTokens").GetInt64());
+        Assert.Equal(0.0895m, usage.GetProperty("costUsd").GetDecimal());
+    }
+
+    /// <summary>
+    /// A record written before it carried a cost is priced from its input, cached and written counts at the current
+    /// Advisor's three rates; an absent or null cache count is priced as uncached input.
+    /// </summary>
+    [Fact]
+    public async Task An_older_record_without_cost_is_priced_with_its_cache_counts()
+    {
+        using var run = new EvidenceToolRun();
+        (run.Advisor.InputUsdPerMillion, run.Advisor.CacheReadUsdPerMillion, run.Advisor.CacheWriteUsdPerMillion) = (0.10m, 0.01m, 0.125m);
+        AtomicFile.Write(run.Run.TelemetryPath, """
+            [{"at":"1960-01-01 00:00:00","event":"advisor.usage","advisor":"fixture","inputTokens":1000000,"cachedInputTokens":200000,"cacheWriteTokens":300000},
+             {"at":"1960-01-01 00:00:01","event":"advisor.usage","advisor":"fixture","inputTokens":1000000,"cachedInputTokens":500000},
+             {"at":"1960-01-01 00:00:02","event":"advisor.usage","advisor":"fixture","inputTokens":10000,"cachedInputTokens":null,"cacheWriteTokens":null,"costUsd":null},
+             {"at":"1960-01-01 00:00:03","event":"advisor.usage","advisor":"fixture","cachedInputTokens":900000}]
+            """);
+        var result = JsonNode.Parse(await run.Call(budgetUsd: 10m))!;
+        Assert.True(result["complete"]!.GetValue<bool>());
+        Assert.Equal(0.0895m + 0.055m + 0.001m, result["runCostUsd"]!.GetValue<decimal>());
     }
 
     /// <summary>Cancellation before a response still finalizes both records once.</summary>

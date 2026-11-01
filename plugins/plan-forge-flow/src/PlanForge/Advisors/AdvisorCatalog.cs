@@ -1,5 +1,6 @@
 using PlanForge.Advisors.Jev;
 using PlanForge.Advisors.MicrosoftDecision;
+using PlanForge.Advisors.OpenAiDecisions;
 using PlanForge.Run;
 
 namespace PlanForge.Advisors;
@@ -89,7 +90,8 @@ internal sealed class AdvisorCatalog
     public AdvisorCatalog(IReadOnlyList<AdvisorDescriptor> descriptors) => _descriptors = descriptors;
 
     /// <summary>The production catalogue; other vendors' credentials never configure it.</summary>
-    public static AdvisorCatalog Default { get; } = new([new JevAdvisorDescriptor(), new MicrosoftDecisionAdvisorDescriptor()]);
+    public static AdvisorCatalog Default { get; } =
+        new([new JevAdvisorDescriptor(), new MicrosoftDecisionAdvisorDescriptor(), new OpenAiDecisionsAdvisorDescriptor()]);
 
     /// <summary>All variable names, which Codex's server configuration must forward by name.</summary>
     public IReadOnlyList<string> Variables =>

@@ -103,16 +103,22 @@ public sealed class EvidenceRubricTests
         Assert.Equal(["point 2", "point 1"], root.GetProperty("changePoints").EnumerateArray().Select(value => value.GetString()));
     }
 
-    /// <summary>Request state appends only item, whose three properties exclude all local metadata.</summary>
+    /// <summary>
+    /// The shared part is exactly the canonical shared state; the request part is only item, whose three properties
+    /// exclude all local metadata.
+    /// </summary>
     [Fact]
     public void Request_state_has_canonical_property_order_and_no_locator_or_ids()
     {
-        var state = EvidenceRubric.State(Shared(), EvidenceRubric.Item(Item()));
-        Assert.Equal(["requirements", "exclusions", "changePoints", "item"], state.Select(property => property.Key));
-        Assert.Equal(["kind", "category", "text"], state["item"]!.AsObject().Select(property => property.Key));
+        var shared = EvidenceRubric.SharedPart(Shared());
+        var request = EvidenceRubric.RequestPart(EvidenceRubric.Item(Item()));
+        Assert.Equal(EvidenceRubric.Canonical(Shared()), shared.ToJsonString());
+        Assert.Equal(["requirements", "exclusions", "changePoints"], shared.Select(property => property.Key));
+        Assert.Equal(["item"], request.Select(property => property.Key));
+        Assert.Equal(["kind", "category", "text"], request["item"]!.AsObject().Select(property => property.Key));
         Assert.Equal("{\"kind\":\"scout\",\"category\":\"confirmedFacts\",\"text\":\"ScoutReport needs consumers\"}",
             EvidenceRubric.Canonical(EvidenceRubric.Item(Item())));
-        Assert.Equal(EvidenceRubric.Canonical(EvidenceRubric.Item(Item())), state["item"]!.ToJsonString());
+        Assert.Equal("{\"item\":" + EvidenceRubric.Canonical(EvidenceRubric.Item(Item())) + "}", request.ToJsonString());
     }
 
     /// <summary>Identical inputs yield identical unindented UTF-8 bytes through the generated context.</summary>
@@ -134,11 +140,9 @@ public sealed class EvidenceRubricTests
         var shared = Shared();
         var pair = Pair(Unit());
         var packed = EvidenceRubric.Pack(new ByteAdvisor(), shared, Item(), [pair]);
-        var state = Assert.Single(packed.Requests).Request.State.DeepClone().AsObject();
-        var item = state["item"]!.ToJsonString();
-        state.Remove("item");
-        Assert.Equal(EvidenceRubric.Canonical(shared), state.ToJsonString());
-        Assert.Equal(EvidenceRubric.Canonical(EvidenceRubric.Item(Item())), item);
+        var request = Assert.Single(packed.Requests).Request;
+        Assert.Equal(EvidenceRubric.Canonical(shared), request.SharedState.ToJsonString());
+        Assert.Equal("{\"item\":" + EvidenceRubric.Canonical(EvidenceRubric.Item(Item())) + "}", request.RequestState.ToJsonString());
         using var content = JsonDocument.Parse(EvidenceRubric.CanonicalUnit(pair));
         Assert.Equal(2, content.RootElement.GetArrayLength());
         for (var index = 0; index < 2; index++)
@@ -227,7 +231,7 @@ public sealed class EvidenceRubricTests
         {
             Questions = [judgments[1].Questions[0] with { Instructions = judgments[1].Questions[0].Instructions + "a" }, judgments[1].Questions[1]]
         };
-        var oneByte = new AdviceRequest(full.State, [full.Questions[0], pair.Questions[0], pair.Questions[1]]);
+        var oneByte = new AdviceRequest(full.SharedState, full.RequestState, [full.Questions[0], pair.Questions[0], pair.Questions[1]]);
         Assert.Equal(limit + 1, new ByteAdvisor().Measure(oneByte).Total);
         var packed = EvidenceRubric.Pack(new ByteAdvisor(maxTotal: limit), Shared(), Item(), [judgments[0], pair]);
         Assert.Equal(2, packed.Requests.Count);
@@ -277,7 +281,7 @@ public sealed class EvidenceRubricTests
     {
         var judgments = EvidenceRubric.Judgments(Item(), [Unit(), Unit("s2", text: "next"), Unit("s3", text: "third")]);
         var advisor = new ByteAdvisor(maxQuestions: 3);
-        var firstTwo = new AdviceRequest(EvidenceRubric.State(Shared(), EvidenceRubric.Item(Item())),
+        var firstTwo = new AdviceRequest(EvidenceRubric.SharedPart(Shared()), EvidenceRubric.RequestPart(EvidenceRubric.Item(Item())),
                                          [.. judgments[0].Questions, .. judgments[1].Questions]);
         var bySize = EvidenceRubric.Pack(new ByteAdvisor(maxTotal: advisor.Measure(firstTwo).Total), Shared(), Item(), judgments);
         foreach (var packed in new[] { EvidenceRubric.Pack(advisor, Shared(), Item(), judgments), bySize })
@@ -397,7 +401,7 @@ public sealed class EvidenceRubricTests
         var request = Request(pair);
         var measured = new ByteAdvisor().Measure(request);
         Assert.Equal(Encoding.UTF8.GetByteCount(ByteAdvisor.Serialize(request)), measured.Total);
-        Assert.Equal(Encoding.UTF8.GetByteCount(request.State.ToJsonString()) + pair.Questions.Max(ByteAdvisor.QuestionBytes),
+        Assert.Equal(Encoding.UTF8.GetByteCount(ByteAdvisor.State(request).ToJsonString()) + pair.Questions.Max(ByteAdvisor.QuestionBytes),
             measured.StatePlusLargestQuestion);
         Assert.True(measured.Total > measured.StatePlusLargestQuestion);
     }
@@ -590,7 +594,7 @@ public sealed class EvidenceRubricTests
     /// <summary>Builds a request for a single judgment using production canonical state.</summary>
     /// <param name="judgment">The indivisible judgment.</param>
     private static AdviceRequest Request(EvidenceJudgment judgment) =>
-        new(EvidenceRubric.State(Shared(), EvidenceRubric.Item(Item())), judgment.Questions);
+        new(EvidenceRubric.SharedPart(Shared()), EvidenceRubric.RequestPart(EvidenceRubric.Item(Item())), judgment.Questions);
 
     /// <summary>Packs a Scout relevance and one pair using adapter limits.</summary>
     /// <param name="advisor">The byte-measuring fake Advisor.</param>
@@ -705,7 +709,17 @@ public sealed class EvidenceRubricTests
         /// <summary>Counts the whole body and separately serializes state and every individual question.</summary>
         /// <param name="request">The exact request to measure.</param>
         public AdviceSize Measure(AdviceRequest request) => new(Encoding.UTF8.GetByteCount(Serialize(request)),
-            Encoding.UTF8.GetByteCount(request.State.ToJsonString()) + request.Questions.Select(QuestionBytes).DefaultIfEmpty(0).Max());
+            Encoding.UTF8.GetByteCount(State(request).ToJsonString()) + request.Questions.Select(QuestionBytes).DefaultIfEmpty(0).Max());
+
+        /// <summary>Merges the shared part's properties, then the request part's, into one fresh state object.</summary>
+        /// <param name="request">The request whose two state parts are merged.</param>
+        public static JsonObject State(AdviceRequest request)
+        {
+            var state = new JsonObject();
+            foreach (var (name, value) in request.SharedState.Concat(request.RequestState))
+                state.Add(name, value?.DeepClone());
+            return state;
+        }
 
         /// <summary>Answers locally with valid first-option choices; never contacts a service.</summary>
         /// <param name="request">The exact request the mapper would send.</param>
@@ -725,7 +739,7 @@ public sealed class EvidenceRubricTests
             {
                 writer.WriteStartObject();
                 writer.WritePropertyName("state");
-                request.State.WriteTo(writer);
+                State(request).WriteTo(writer);
                 writer.WritePropertyName("questions");
                 writer.WriteStartArray();
                 foreach (var question in request.Questions)
