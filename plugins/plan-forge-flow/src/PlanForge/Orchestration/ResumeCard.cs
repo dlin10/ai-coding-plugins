@@ -194,7 +194,7 @@ internal static class ResumeCard
                 .AppendLine("- forge.status {} if Scout jobs were running: activeJobs names them; forge.work.poll { jobId, waitSeconds: 3000 } "
                             + "and forge.work.fetch { jobId } for each before you use its answer.")
                 .AppendLine("- forge.plan.write { planDraft: \"<the whole plan>\" }, once the Impact pass has run against the draft.");
-            read = ["interview.md", "planning.md", "scout.md"];
+            read = ["interview.md", "planning.md", "scout.md", "delegation.md"];
         }
         else if (stand == Stand.PlanReview)
         {
@@ -209,7 +209,7 @@ internal static class ResumeCard
                 .Append("- forge.plan.confirm { approved: true, planHash: \"").Append(hash).Append("\", decisions?: {...as above}, ")
                 .AppendLine("fullGate?: \"beforeNextRound\" | \"final\", gateEnvironment?: { \"NAME\": \"value\" }, rebuildFrom?: <a built task> }; "
                             + "never plan, and only after the user said yes. approved: false takes no decisions.");
-            read = ["plan-review.md", "ledger.md", "approval.md"];
+            read = ["plan-review.md", "ledger.md", "approval.md", "delegation.md"];
         }
         else if (stand == Stand.Build)
         {
@@ -219,7 +219,7 @@ internal static class ResumeCard
                 .Append("- forge.build.next { ").Append(builderArguments).AppendLine(" }, once per task until every task is built.")
                 .Append("- A task expected to run past the host's hour: forge.work.start { act: \"build.next\", ").Append(builderArguments)
                 .AppendLine(" }, then forge.work.poll { jobId, waitSeconds: 3000 } until it is no longer running, then forge.work.fetch { jobId }.");
-            read = ["build.md"];
+            read = ["build.md", "delegation.md"];
         }
         else
         {
@@ -232,7 +232,7 @@ internal static class ResumeCard
                 .AppendLine(", fixAttemptId?: \"<one per logical fix>\", fixFindingIds?: [\"F-...\"], note?: \"...\", gate?: \"full\" | \"targeted\" }. "
                             + "Without fixFindingIds it is decisions-only and starts no Builder; a batch with raises carries no fix; a retry keeps the attempt, the IDs and the gate.")
                 .AppendLine("- forge.log.append { message: \"...\", phase: \"code_review\" | \"wrap_up\" | \"done\" } as each begins.");
-            read = ["code-review.md", "ledger.md"];
+            read = ["code-review.md", "ledger.md", "delegation.md"];
         }
 
         card.AppendLine("- forge.decision.record { phase: \"<the phase you are in>\", question: \"<as asked>\", answer: \"<as given>\", "

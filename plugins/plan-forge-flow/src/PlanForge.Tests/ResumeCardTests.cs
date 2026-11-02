@@ -123,7 +123,7 @@ public sealed class ResumeCardTests : IDisposable
         Assert.Contains("phase: \"build\"", card, StringComparison.Ordinal);
         Assert.Contains("Critic: not used yet.", card, StringComparison.Ordinal);
         Assert.Contains("Gate environment holds: CD_SQL (names only).", card, StringComparison.Ordinal);
-        Assert.Contains("references/build.md", card, StringComparison.Ordinal);
+        Assert.Contains("read references/build.md, references/delegation.md", card, StringComparison.Ordinal);
         Clean(card);
     }
 
@@ -149,7 +149,7 @@ public sealed class ResumeCardTests : IDisposable
         Assert.Contains("evidence?: \"<required for hostVerified and accept>\"", card, StringComparison.Ordinal);
         Assert.Contains("raises?: [{ severity:", card, StringComparison.Ordinal);
         Assert.Contains("gate?: \"full\" | \"targeted\"", card, StringComparison.Ordinal);
-        Assert.Contains("read references/code-review.md, references/ledger.md", card, StringComparison.Ordinal);
+        Assert.Contains("read references/code-review.md, references/ledger.md, references/delegation.md", card, StringComparison.Ordinal);
         Clean(card);
     }
 
