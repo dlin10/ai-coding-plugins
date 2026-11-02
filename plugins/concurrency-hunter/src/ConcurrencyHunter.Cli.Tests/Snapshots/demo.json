@@ -3,42 +3,42 @@
     "projectsExpected": 5,
     "projectsLoaded": 5,
     "scopes": 2,
-    "roots": 394,
+    "roots": 396,
     "rootsPerProvider": {
       "aspnetcore": 170,
-      "hosting": 224
+      "hosting": 226
     },
-    "reachableBodies": 1611,
-    "summaries": 1611,
-    "regions": 1136,
-    "instances": 1665,
-    "accesses": 1970,
+    "reachableBodies": 1624,
+    "summaries": 1624,
+    "regions": 1156,
+    "instances": 1678,
+    "accesses": 1980,
     "pairs": {
-      "comparisons": 2087,
-      "cartesianBound": 946001,
+      "comparisons": 2097,
+      "cartesianBound": 957037,
       "largestBucket": 8,
-      "buckets": 868,
+      "buckets": 874,
       "skips": {
         "confined": 23,
         "disjoint-iteration": 1,
         "no-conflicting-operation": 71,
         "no-overlap": 390,
-        "ordered": 59,
-        "read-read": 1225,
+        "ordered": 61,
+        "read-read": 1231,
         "unsatisfiable-path": 2,
         "unsatisfiable-query": 4
       },
       "assumed": {
-        "observers": 1,
-        "thread-context": 1,
+        "observers": 2,
+        "thread-context": 2,
         "thread-pool-entry": 0
       },
       "suppressed": 17,
-      "candidates": 295
+      "candidates": 297
     },
-    "findings": 273,
-    "occurrences": 292,
-    "groups": 220,
+    "findings": 275,
+    "occurrences": 294,
+    "groups": 222,
     "fingerprints": [
       "006126d59d446beb",
       "00c0f9fbc81a0228",
@@ -267,6 +267,7 @@
       "cf4f4e9036edbaf8",
       "d00a11e359b52125",
       "d0a9d9156add8de1",
+      "d21b8b7b1f1e9ab2",
       "d238723a190b0698",
       "d2ea5b0d492d3b9d",
       "d3da03e778857633",
@@ -310,6 +311,7 @@
       "f6beff54a3c25edf",
       "f6f47a3be9cd8f5e",
       "fa80453e1156d2b0",
+      "fae8c9cf258a6605",
       "fd00541eeae2ce38",
       "ff6af698a226ea8c",
       "ff73d454ba7938ac"
@@ -320,44 +322,44 @@
       "scopeId": "Demo.Web",
       "rootsPerProvider": {
         "aspnetcore": 170,
-        "hosting": 223
+        "hosting": 225
       },
-      "accesses": 1375,
+      "accesses": 1383,
       "counters": {
         "delegate-to-opaque": 12,
         "element-operation": 37,
         "generated-in-run": 0,
-        "known-call": 340,
-        "known-call-built-in": 330,
-        "known-call-generated": 4,
+        "known-call": 350,
+        "known-call-built-in": 338,
+        "known-call-generated": 6,
         "known-call-project": 6,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 17,
         "opaque-by-project": 3,
-        "opaque-call": 1361,
+        "opaque-call": 1374,
         "out-of-range-call": 0,
         "pairs-removed-generated": 1,
-        "reachable-bodies": 1608,
+        "reachable-bodies": 1621,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 20,
+        "semantic-gap": 22,
         "solver-available": 1,
         "solver-queries": 21,
         "solver-sat": 17,
         "solver-unsat": 4,
         "unanalysed-registration": 0,
-        "unproven-reference": 225,
+        "unproven-reference": 228,
         "unresolved-base": 34,
         "unresolved-locator": 2,
         "unsupported-operation": 26,
         "wildcard-access": 9
       },
       "ordering": {
-        "spawn-sites": 73,
+        "spawn-sites": 79,
         "timers-disabled": 1,
         "timers-one-shot": 5,
         "timers-periodic": 7,
-        "unproven-joins": 59
+        "unproven-joins": 63
       },
       "semanticGaps": [
         "Google.Protobuf.MessageParser\u003CDemo.Web.Cases.GrpcServiceMethod.GreetReply\u003E..ctor(Func\u003CGreetReply\u003E)",
@@ -365,10 +367,12 @@
         "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreate\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Timer\u003E)",
         "Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u003CTItem\u003E(IMemoryCache, object, Func\u003CICacheEntry, Task\u003Cint\u003E\u003E)",
         "Microsoft.Extensions.Options.Options.Create\u003CTOptions\u003E(Settings)",
+        "Polly.AsyncRetrySyntax.RetryAsync(PolicyBuilder, int)",
         "Polly.CircuitBreaker.CircuitBreakerStrategyOptions\u003Cobject\u003E.set_OnOpened(Func\u003COnCircuitOpenedArguments\u003Cobject\u003E, ValueTask\u003E)",
         "Polly.ResiliencePipeline.Execute(Action)",
         "Polly.ResiliencePipeline.Execute\u003CTResult\u003E(Func\u003Cint\u003E)",
         "Polly.ResiliencePipelineBuilder.Build()",
+        "Polly.RetrySyntax.Retry(PolicyBuilder, int)",
         "System.ComponentModel.TypeDescriptor.GetClassName(object)",
         "System.Console.Write(object)",
         "System.Console.WriteLine(object)",
@@ -548,6 +552,11 @@
           "cause": "engine-recognized"
         },
         {
+          "member": "M:Polly.AsyncRetrySyntax.RetryAsync(Polly.PolicyBuilder,System.Int32)",
+          "file": "Polly/7.2.3/6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb.json",
+          "cause": "vocabulary"
+        },
+        {
           "member": "M:Polly.CircuitBreaker.CircuitBreakerStrategyOptions.#ctor",
           "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
           "cause": "vocabulary"
@@ -596,6 +605,11 @@
           "member": "M:Polly.RetryResiliencePipelineBuilderExtensions.AddRetry(Polly.ResiliencePipelineBuilder,Polly.Retry.RetryStrategyOptions)",
           "file": "Polly.Core/8.7.0/93b7c81c-a268-4bd8-b6c3-71c7d5524935.json",
           "cause": "unknown-touch"
+        },
+        {
+          "member": "M:Polly.RetrySyntax.Retry(Polly.PolicyBuilder,System.Int32)",
+          "file": "Polly/7.2.3/6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb.json",
+          "cause": "vocabulary"
         },
         {
           "member": "M:System.Collections.Concurrent.ConcurrentBag\u00601.#ctor",

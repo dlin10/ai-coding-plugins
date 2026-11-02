@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 2,
+  "generator": "33c365910580a59b330a1f95af75c5b80dca648a0729377696ff2bd93d64495d",
+  "assembly": {
+    "name": "Polly",
+    "version": "7.0.0.0",
+    "mvid": "6f9b95f3-9db6-444d-9fed-d3cc1f1d71cb",
+    "package": "Polly",
+    "packageVersion": "7.2.3"
+  },
+  "members": [
+    {
+      "member": "M:Polly.AsyncRetrySyntax.RetryAsync(Polly.PolicyBuilder,System.Int32)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "result-unnamed",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Polly.Policy.Handle``1",
+      "model": {
+        "member": "M:Polly.Policy.Handle``1",
+        "assemblies": [
+          "Polly"
+        ],
+        "versions": {
+          "minimum": "7.0.0.0",
+          "maximumExclusive": "7.0.0.1"
+        },
+        "effects": {},
+        "result": "new"
+      }
+    },
+    {
+      "member": "M:Polly.RetrySyntax.Retry(Polly.PolicyBuilder,System.Int32)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "result-unnamed",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    }
+  ]
+}

@@ -974,18 +974,28 @@ public sealed class BlockingWaitAssumptionMatrixTests
         Assert.True(Pairs(run, "First", "After"));
     }
 
-    /// <summary>An <c>await</c> of the outer task reads its fault as it always has: after the task completed, with what the task's end
-    /// carries; the blocking forms' exception does not decide it.</summary>
+    /// <summary>An <c>await</c> of an outer task that does not leave before its join of the child reads as it always has: its fault
+    /// comes after the task completed, with what the task's end carries, which includes the child's completion (R2).</summary>
     /// <param name="leave">How the outer task may leave before its join of the child.</param>
     /// <param name="paired">Whether the child's write pairs with the write after the <c>catch</c>.</param>
     [Theory]
-    [InlineData(Leave.Throw, false)]
     [InlineData(Leave.None, false)]
     public void An_await_of_a_task_leaving_before_its_child_join_reads_as_before(Leave leave, bool paired)
     {
         var run = Analyze(Worker($"var outer = {Nested(leave, InnerJoin.Wait)}; try {{ await outer; }} catch (Exception) {{ }} After();", FAIL));
 
         Assert.Equal(paired, Pairs(run, "First", "After"));
+    }
+
+    /// <summary>The fault of an <c>await</c> of a task that may leave with an exception before it joins a child comes after the task
+    /// completed, not after the work the task started, so the child keeps its pair with the write after the waiter's <c>catch</c> as it
+    /// does for the blocking forms (R2).</summary>
+    [Fact]
+    public void An_await_of_a_task_leaving_before_its_child_join_keeps_the_child_pair_past_the_catch()
+    {
+        var run = Analyze(Worker($"var outer = {Nested(Leave.Throw, InnerJoin.Wait)}; try {{ await outer; }} catch (Exception) {{ }} After();", FAIL));
+
+        Assert.True(Pairs(run, "First", "After"));
     }
 
     /// <summary>A <c>Task.Run</c> whose task starts a child writing in <c>First</c>, may leave as given, then joins the child as given and
@@ -1015,7 +1025,7 @@ public sealed class BlockingWaitAssumptionMatrixTests
     }
 
     /// <summary>A program call that may throw.</summary>
-    private const string FAIL = """
+    internal const string FAIL = """
         private static void Fail()
         {
             if (Environment.TickCount % 2 == 0)
@@ -1314,7 +1324,7 @@ public sealed class BlockingWaitAssumptionMatrixTests
     /// <param name="run">The analysed program.</param>
     /// <param name="first">The method writing first.</param>
     /// <param name="second">The method writing second.</param>
-    private static bool Pairs(EngineRun run, string first, string second)
+    internal static bool Pairs(EngineRun run, string first, string second)
     {
         Assert.Contains(run.Of("Value"), access => Is(access.Symbol, first));
         Assert.Contains(run.Of("Value"), access => Is(access.Symbol, second));
@@ -1324,7 +1334,7 @@ public sealed class BlockingWaitAssumptionMatrixTests
         static bool Is(string symbol, string method) => symbol.EndsWith($".{method}()", StringComparison.Ordinal);
     }
 
-    private static string Worker(string body, string members = "") => Startup("services.AddHostedService<Worker>();") + $$"""
+    internal static string Worker(string body, string members = "") => Startup("services.AddHostedService<Worker>();") + $$"""
 
         public sealed class Worker : BackgroundService
         {

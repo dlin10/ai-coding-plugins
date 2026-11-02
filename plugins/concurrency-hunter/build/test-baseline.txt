@@ -1158,6 +1158,417 @@ ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Sequential_runs_read_as_con
 ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Sync_part_of_a_run_still_meets_the_continuation_of_another_outside_one_awaited_entry	Passed
 ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Wait_of_a_call_task_that_fails_the_gate_stays_an_unproven_join	Passed
 ConcurrencyHunter.Core.Tests.Engine.AwaitedRunsTests.Wait_of_a_call_task_that_passes_the_gate_is_no_unproven_join	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitExitFlowTests.An_earlier_await_that_may_throw_is_a_path_around_the_late_join_on_exceptional_exits(row: "failing await, then await inner", body: "var failing = Task.Run(() => Fail()); var inner = "···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitExitFlowTests.An_earlier_await_that_may_throw_is_a_path_around_the_late_join_on_exceptional_exits(row: "failing await, then inner.Wait", body: "var failing = Task.Run(() => Fail()); var inner = "···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitExitFlowTests.An_earlier_await_whose_exception_is_caught_or_comes_after_the_child_is_no_path_around_the_late_join(row: "await inner alone", body: "var inner = Task.Run(() => { First(); return 1; })"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitExitFlowTests.An_earlier_await_whose_exception_is_caught_or_comes_after_the_child_is_no_path_around_the_late_join(row: "await inner twice", body: "var failing = Task.Run(() => Fail()); var inner = "···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitExitFlowTests.An_earlier_await_whose_exception_is_caught_or_comes_after_the_child_is_no_path_around_the_late_join(row: "await inner, then inner.Wait", body: "var failing = Task.Run(() => Fail()); var inner = "···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitExitFlowTests.An_earlier_await_whose_exception_is_caught_or_comes_after_the_child_is_no_path_around_the_late_join(row: "caught await, then await inner", body: "var failing = Task.Run(() => Fail()); var inner = "···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitExitFlowTests.An_earlier_await_whose_exception_is_caught_or_comes_after_the_child_is_no_path_around_the_late_join(row: "caught await, then inner.Wait", body: "var failing = Task.Run(() => Fail()); var inner = "···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitExitFlowTests.The_await_of_a_group_listing_the_child_is_no_path_around_the_late_join_from_after_the_group(row: "group await, then await inner", body: "var inner = Task.Run(() => { First(); return 1; })"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitExitFlowTests.The_await_of_a_group_listing_the_child_is_no_path_around_the_late_join_from_after_the_group(row: "group await, then inner.Wait", body: "var inner = Task.Run(() => { First(); return 1; })"···)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Cells_cover_every_value_of_every_axis	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: CaughtThenJoin, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: CaughtThenJoin, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: CaughtThenJoin, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: CaughtThenJoin, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: CaughtThenJoin, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: CaughtThenJoin, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: CaughtThenJoin, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: CaughtThenJoin, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitCaught, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitCaught, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitCaught, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitCaught, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitCaught, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitCaught, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitCaught, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitCaught, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitOfTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitOfTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitOfTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitOfTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierAwaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWhenAllWithTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWhenAllWithTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlierWhenAllWithTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlyReturn, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlyReturn, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlyReturn, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlyReturn, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlyReturn, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlyReturn, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlyReturn, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: EarlyReturn, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Helper, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Helper, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Helper, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Helper, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Helper, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Helper, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Helper, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Helper, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: None, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: None, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: None, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: None, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: None, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: None, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: None, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: None, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Throw, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Throw, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Throw, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Throw, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Throw, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Throw, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Throw, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Await, leave: Throw, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: CaughtThenJoin, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: CaughtThenJoin, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: CaughtThenJoin, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: CaughtThenJoin, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: CaughtThenJoin, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: CaughtThenJoin, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: CaughtThenJoin, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: CaughtThenJoin, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitCaught, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitCaught, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitCaught, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitCaught, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitCaught, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitCaught, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitCaught, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitCaught, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitOfTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitOfTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitOfTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitOfTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierAwaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWhenAllWithTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWhenAllWithTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlierWhenAllWithTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlyReturn, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlyReturn, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlyReturn, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlyReturn, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlyReturn, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlyReturn, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlyReturn, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: EarlyReturn, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Helper, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Helper, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Helper, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Helper, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Helper, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Helper, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Helper, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Helper, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: None, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: None, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: None, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: None, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: None, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: None, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: None, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: None, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Throw, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Throw, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Throw, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Throw, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Throw, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Throw, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Throw, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitAfterYield, leave: Throw, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: CaughtThenJoin, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: CaughtThenJoin, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: CaughtThenJoin, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: CaughtThenJoin, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: CaughtThenJoin, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: CaughtThenJoin, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: CaughtThenJoin, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: CaughtThenJoin, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitCaught, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitCaught, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitCaught, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitCaught, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitCaught, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitCaught, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitCaught, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitCaught, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitOfTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitOfTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitOfTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitOfTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierAwaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWhenAllWithTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWhenAllWithTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlierWhenAllWithTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlyReturn, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlyReturn, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlyReturn, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlyReturn, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlyReturn, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlyReturn, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlyReturn, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: EarlyReturn, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Helper, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Helper, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Helper, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Helper, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Helper, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Helper, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Helper, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Helper, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: None, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: None, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: None, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: None, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: None, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: None, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: None, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: None, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Throw, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Throw, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Throw, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Throw, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Throw, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Throw, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Throw, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: AwaitInWork, leave: Throw, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: CaughtThenJoin, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: CaughtThenJoin, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: CaughtThenJoin, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: CaughtThenJoin, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: CaughtThenJoin, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: CaughtThenJoin, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: CaughtThenJoin, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: CaughtThenJoin, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitCaught, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitCaught, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitCaught, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitCaught, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitCaught, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitCaught, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitCaught, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitCaught, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitOfTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitOfTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitOfTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitOfTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierAwaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWhenAllWithTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWhenAllWithTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlierWhenAllWithTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlyReturn, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlyReturn, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlyReturn, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlyReturn, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlyReturn, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlyReturn, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlyReturn, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: EarlyReturn, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Helper, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Helper, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Helper, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Helper, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Helper, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Helper, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Helper, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Helper, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: None, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: None, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: None, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: None, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: None, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: None, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: None, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: None, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Throw, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Throw, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Throw, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Throw, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Throw, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Throw, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Throw, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: GetResult, leave: Throw, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: CaughtThenJoin, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: CaughtThenJoin, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: CaughtThenJoin, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: CaughtThenJoin, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: CaughtThenJoin, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: CaughtThenJoin, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: CaughtThenJoin, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: CaughtThenJoin, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitCaught, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitCaught, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitCaught, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitCaught, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitCaught, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitCaught, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitCaught, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitCaught, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitOfTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitOfTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitOfTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitOfTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitOfTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitOfTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierAwaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWaitThrows, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWaitThrows, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWaitThrows, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWaitThrows, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWaitThrows, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWaitThrows, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWaitThrows, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWaitThrows, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWhenAllWithTheChild, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWhenAllWithTheChild, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWhenAllWithTheChild, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWhenAllWithTheChild, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlierWhenAllWithTheChild, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlyReturn, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlyReturn, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlyReturn, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlyReturn, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlyReturn, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlyReturn, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlyReturn, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: EarlyReturn, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Helper, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Helper, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Helper, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Helper, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Helper, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Helper, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Helper, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Helper, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: None, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: None, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: None, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: None, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: None, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: None, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: None, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: None, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Throw, join: Await, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Throw, join: Await, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Throw, join: Await, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Throw, join: Await, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Throw, join: Wait, reader: AboveMiddle)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Throw, join: Wait, reader: AfterCatch)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Throw, join: Wait, reader: AfterUncaught)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_cell_is_exact_outside_the_wider_list(waiter: Wait, leave: Throw, join: Wait, reader: NextPass)	Passed
+ConcurrencyHunter.Core.Tests.Engine.AwaitLeavingWorkMatrixTests.Every_wider_cell_names_a_cell_that_expects_no_pair	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkScopeTests.All_selection_of_the_fixture_compiles_without_an_error	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkScopeTests.All_takes_every_override_and_every_interface_implementation	Passed
 ConcurrencyHunter.Core.Tests.Engine.BenchmarkScopeTests.Default_interface_implementation_is_selected	Passed
@@ -1748,8 +2159,8 @@ ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_wait_ski
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_wait_skipped_by_an_earlier_waits_exception_keeps_its_pair(waits: WaitAll, placement: PassHelper, form: Wait, early: True)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_wait_skipped_by_an_earlier_waits_exception_keeps_its_pair(waits: WaitAll, placement: PassHelper, form: WhenAllWait, early: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.A_wait_skipped_by_an_earlier_waits_exception_keeps_its_pair(waits: WaitAll, placement: PassHelper, form: WhenAllWait, early: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.An_await_of_a_task_leaving_before_its_child_join_keeps_the_child_pair_past_the_catch	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.An_await_of_a_task_leaving_before_its_child_join_reads_as_before(leave: None, paired: False)	Passed
-ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.An_await_of_a_task_leaving_before_its_child_join_reads_as_before(leave: Throw, paired: False)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Another_operation_giving_a_group_or_its_listing_keeps_the_pair(shape: "element-read", inTry: "var all = new[] { t }; Task.WaitAll(new Task[] { a"···)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Another_operation_giving_a_group_or_its_listing_keeps_the_pair(shape: "group-options", inTry: "Task.WhenAll(new Task<int>[] { t }).ConfigureAwait"···)	Passed
 ConcurrencyHunter.Core.Tests.Engine.BlockingWaitAssumptionMatrixTests.Another_operation_giving_a_group_or_its_listing_keeps_the_pair(shape: "listing-call-wait-all", inTry: "Task.WaitAll(Tasks(t));")	Passed
@@ -9257,6 +9668,108 @@ ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Two_new_sites_of_one_type_are_
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Two_receivers_merge_at_one_context_and_the_merged_instance_keeps_both_effects	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Type_initializer_referenced_only_from_an_override_points_to_rules_out_is_not_activated	Passed
 ConcurrencyHunter.Core.Tests.Engine.PointsToTests.Virtual_method_group_on_a_derived_object_runs_only_the_override	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Await_of_the_retry_call_past_the_catch_keeps_the_pair_of_a_child_an_attempt_left(shape: "direct", leaves: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Await_of_the_retry_call_past_the_catch_keeps_the_pair_of_a_child_an_attempt_left(shape: "direct", leaves: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Await_of_the_retry_call_past_the_catch_keeps_the_pair_of_a_child_an_attempt_left(shape: "when-all", leaves: False)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Await_of_the_retry_call_past_the_catch_keeps_the_pair_of_a_child_an_attempt_left(shape: "when-all", leaves: True)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Cells_cover_every_value_of_every_axis	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: CaughtThenJoin, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: CaughtThenJoin, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: CaughtThenJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: CaughtThenJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: EarlierAwaitCaught, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: EarlierAwaitCaught, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: EarlierAwaitCaught, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: EarlierAwaitCaught, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: EarlierAwaitThrows, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: EarlierAwaitThrows, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: EarlierAwaitThrows, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: EarlierAwaitThrows, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: HelperBeforeJoin, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: HelperBeforeJoin, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: HelperBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: HelperBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: JoinsChild, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: JoinsChild, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: JoinsChild, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: JoinsChild, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: ThrowBeforeJoin, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: ThrowBeforeJoin, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: ThrowBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Base, attempt: ThrowBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: CaughtThenJoin, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: CaughtThenJoin, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: CaughtThenJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: CaughtThenJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: EarlierAwaitCaught, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: EarlierAwaitCaught, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: EarlierAwaitCaught, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: EarlierAwaitCaught, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: EarlierAwaitThrows, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: EarlierAwaitThrows, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: EarlierAwaitThrows, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: EarlierAwaitThrows, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: HelperBeforeJoin, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: HelperBeforeJoin, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: HelperBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: HelperBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: JoinsChild, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: JoinsChild, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: JoinsChild, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: JoinsChild, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: ThrowBeforeJoin, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: ThrowBeforeJoin, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: ThrowBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Interface, attempt: ThrowBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: CaughtThenJoin, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: CaughtThenJoin, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: CaughtThenJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: CaughtThenJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: EarlierAwaitCaught, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: EarlierAwaitCaught, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: EarlierAwaitCaught, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: EarlierAwaitCaught, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: EarlierAwaitThrows, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: EarlierAwaitThrows, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: EarlierAwaitThrows, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: EarlierAwaitThrows, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: HelperBeforeJoin, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: HelperBeforeJoin, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: HelperBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: HelperBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: JoinsChild, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: JoinsChild, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: JoinsChild, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: JoinsChild, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: ThrowBeforeJoin, join: Await, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: ThrowBeforeJoin, join: Await, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: ThrowBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Async, receiver: Keyed, attempt: ThrowBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Base, attempt: CaughtThenJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Base, attempt: CaughtThenJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Base, attempt: HelperBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Base, attempt: HelperBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Base, attempt: JoinsChild, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Base, attempt: JoinsChild, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Base, attempt: ThrowBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Base, attempt: ThrowBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Interface, attempt: CaughtThenJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Interface, attempt: CaughtThenJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Interface, attempt: HelperBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Interface, attempt: HelperBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Interface, attempt: JoinsChild, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Interface, attempt: JoinsChild, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Interface, attempt: ThrowBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Interface, attempt: ThrowBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Keyed, attempt: CaughtThenJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Keyed, attempt: CaughtThenJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Keyed, attempt: HelperBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Keyed, attempt: HelperBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Keyed, attempt: JoinsChild, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Keyed, attempt: JoinsChild, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Keyed, attempt: ThrowBeforeJoin, join: Wait, reader: AfterCall)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_cell_is_exact_outside_the_wider_list(record: Sync, receiver: Keyed, attempt: ThrowBeforeJoin, join: Wait, reader: NextAttempt)	Passed
+ConcurrencyHunter.Core.Tests.Engine.PollyRetryAttemptMatrixTests.Every_wider_cell_names_a_cell_that_expects_no_pair	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Abstract_method_has_no_body_and_no_implementation_of_its_own	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Base_type_is_projected_through_a_generic_middle_type	Passed
 ConcurrencyHunter.Core.Tests.Engine.ProgramIndexTests.Delegate_compatibility_compares_parameters_ref_kinds_and_return	Passed
@@ -14239,6 +14752,21 @@ ConcurrencyHunter.Core.Tests.Providers.ParameterKindsTests.Axis_6_a_non_sealed_c
 ConcurrencyHunter.Core.Tests.Providers.ParameterKindsTests.Axis_7_a_sealed_class_a_task_or_a_struct_with_references_is_the_recipes_value	Passed
 ConcurrencyHunter.Core.Tests.Providers.ParameterKindsTests.IEnumerable_of_T_takes_axis_4_before_axis_5	Passed
 ConcurrencyHunter.Core.Tests.Providers.ParameterKindsTests.Ref_out_and_in_parameters_are_asked_about_with_their_referenced_type	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Keyed_receiver_reads_its_record(source: "AsyncRetryPolicy p = Policy.Handle<Exception>().Wa"···, runs: "sequential-awaited")	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Keyed_receiver_reads_its_record(source: "RetryPolicy p = Policy.Handle<Exception>().WaitAnd"···, runs: "sequential")	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Keyed_receiver_reads_its_record(source: "var p = Policy.Handle<Exception>().Retry(2); p.Exe"···, runs: "sequential")	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Keyed_receiver_reads_its_record(source: "var p = Policy.Handle<Exception>().RetryAsync(2); "···, runs: "sequential-awaited")	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Polly_in_its_range_is_not_reported	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Polly_outside_its_range_takes_no_record_and_is_reported(version: "6.0.0.0")	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Polly_outside_its_range_takes_no_record_and_is_reported(version: "8.0.0.0")	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Unkeyed_calls_take_no_fate_from_the_records(source: "AsyncPolicy p = Policy.Handle<Exception>().RetryAs"···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Unkeyed_calls_take_no_fate_from_the_records(source: "IAsyncPolicy p = Policy.Handle<Exception>().RetryA"···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Unkeyed_calls_take_no_fate_from_the_records(source: "ISyncPolicy p = Policy.Handle<Exception>().Retry(2"···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Unkeyed_calls_take_no_fate_from_the_records(source: "Policy p = Policy.Handle<Exception>().Retry(2); p."···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Unkeyed_calls_take_no_fate_from_the_records(source: "Policy.Handle<Exception>().Retry(2).Execute(_ => {"···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Unkeyed_calls_take_no_fate_from_the_records(source: "Policy.Handle<Exception>().RetryAsync(2).ExecuteAs"···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Unkeyed_calls_take_no_fate_from_the_records(source: "Policy<int>.Handle<Exception>().Retry(2).Execute(("···)	Passed
+ConcurrencyHunter.Core.Tests.Providers.PollyRetryRecordTests.Unkeyed_calls_take_no_fate_from_the_records(source: "Policy<int>.Handle<Exception>().RetryAsync(2).Exec"···)	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProbeStructTests.A_struct_constrained_type_parameter_gets_a_probe_struct_that_holds_probe_objects(types: "public sealed class StructComparer<T> where T : st"···, id: "M:Lib.StructComparer`1.Compare(`0,`0)", argument: "x")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProbeStructTests.A_struct_constrained_type_parameter_gets_a_probe_struct_that_holds_probe_objects(types: "public static class Api { public static bool Same<"···, id: "M:Lib.Api.Same``1(``0,System.Object)", argument: "x")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ProbeStructTests.An_interface_constraint_is_met_by_an_explicit_witness_implementation	Passed

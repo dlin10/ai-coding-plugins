@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "448982b1c999692351d708cc1043d1e7917a1cc75e1712c9859e49b2035be214",
+  "generator": "33c365910580a59b330a1f95af75c5b80dca648a0729377696ff2bd93d64495d",
   "assembly": {
     "name": "Microsoft.Extensions.Logging.Debug",
     "version": "10.0.0.0",

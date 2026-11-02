@@ -20,7 +20,8 @@ public sealed class ModelVocabularyTests
     private static readonly Lazy<Compilation> Fixture = new(() => CSharpCompilation.Create(
         "Models", [],
         StubAssemblies.PlatformWithout([]).Concat(StubAssemblies.Names.Select(name => StubAssemblies.Get(name, StubAssemblies.DefaultVersion(name))))
-                                         .Append(MetadataReference.CreateFromFile(typeof(Newtonsoft.Json.JsonConvert).Assembly.Location)),
+                                         .Append(MetadataReference.CreateFromFile(typeof(Newtonsoft.Json.JsonConvert).Assembly.Location))
+                                         .Append(MetadataReference.CreateFromFile(Path.Combine(AppContext.BaseDirectory, "Polly.dll"))),
         new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)));
 
     /// <summary>How many parameters the <c>Invoke</c> of a built-in member's delegate parameter takes.</summary>

@@ -295,8 +295,9 @@ internal sealed partial class HappensBefore
                     return false;
                 }
                 // Only normal completion has been established for the inner work. A fault of the parent may leave it running, so the
-                // wait for the parent completes it on a fault only when every exit of the parent waited for it as well — and for the work
-                // below it, which a join whose fault does not follow that work's completion has not.
+                // wait for the parent completes it on a fault only when every exit of the parent waited for it as well, the exception of an
+                // earlier await that skips its join included — and for the work below it, which a join whose fault does not follow that
+                // work's completion has not.
                 faultCompletion = faultCompletion && flow.BeforeReturn(start, cuts, exceptionalExits: true);
                 Steps?.Add(PassStepEvidence.Of("inner-pass-returns", current, anchor.ExecutionId, true,
                     ("before-own-start", true), ("normal-return", true), ("exceptional-return", faultCompletion)));
@@ -360,8 +361,9 @@ internal sealed partial class HappensBefore
         }
 
         /// <summary>The flow of a pass's parent, in which the exception of a join of the pass that throws only after the work completed
-        /// comes after that join, as <see cref="FlowOf"/> reads proven joins — and so does that of a site calling such a join where the
-        /// hoisting of <see cref="AtCallSites"/> says the call throws only after it: a path asking about the pass's work stops there.</summary>
+        /// comes after that join, as <see cref="FlowOf"/> reads proven joins, an <c>await</c> among them — and so does that of a site
+        /// calling such a join where the hoisting of <see cref="AtCallSites"/> says the call throws only after it: a path asking about
+        /// the pass's work stops there. The exception of an <c>await</c> that is no join of the pass is a step of the exits as it is.</summary>
         /// <param name="anchor">The start of the pass.</param>
         /// <param name="joins">The pass's joins, with whether a faulted outcome of each still follows the work's completion.</param>
         private Flow PassFlow(SpawnAnchor anchor, List<(PointKey Point, bool CompletedFault)> joins)

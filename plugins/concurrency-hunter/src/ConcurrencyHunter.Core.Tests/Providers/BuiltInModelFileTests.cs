@@ -16,8 +16,8 @@ public sealed class BuiltInModelFileTests
     {
         var names = typeof(LibraryModels).Assembly.GetManifestResourceNames().Where(name => name.StartsWith("LibraryModels.BuiltIn.", StringComparison.Ordinal));
         Assert.Equal(["LibraryModels.BuiltIn.entity-framework.json", "LibraryModels.BuiltIn.http-client.json", "LibraryModels.BuiltIn.linq.json",
-                      "LibraryModels.BuiltIn.logging.json", "LibraryModels.BuiltIn.newtonsoft-json.json", "LibraryModels.BuiltIn.system-text-json.json",
-                      "LibraryModels.BuiltIn.system.json"], names.Order(StringComparer.Ordinal));
+                      "LibraryModels.BuiltIn.logging.json", "LibraryModels.BuiltIn.newtonsoft-json.json", "LibraryModels.BuiltIn.polly.json",
+                      "LibraryModels.BuiltIn.system-text-json.json", "LibraryModels.BuiltIn.system.json"], names.Order(StringComparer.Ordinal));
     }
 
     [Fact]

@@ -85,6 +85,10 @@ not a join. Under the **Environment assumptions** an exception out of a blocking
 `Wait`, `.Result`, `GetAwaiter().GetResult()`, `Task.WaitAll` — arrives only after the tasks it waits for have completed, so the path
 through its handler passes the join as the normal return does; in a process scope where code the analysis reaches installs a context or
 interrupts a thread, and for a task created on a scheduler of the program, that exception orders nothing.
+A task that can end with an exception while the work its own joins wait for is still running — the exception comes
+before that join, from a throw or a call, or from an earlier `await` of the same task that skips it — has an exceptional
+exit that is not the completion of that work: the exception out of an `await` or of a blocking wait for such a task orders
+nothing about it, and the join the exception skips counts as passed only on the normal path.
 _Avoid_: wait, sync point, completion (a completion is the end of an execution, a join is where someone relies on it)
 
 **Happens-before**:

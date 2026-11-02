@@ -2971,6 +2971,28 @@
         { "symbol": "Demo.Web.Cases.ProjectModelReceiverType.WritingWorker.WriteViaTextWriter()", "operation": "unknown-effect" },
         { "symbol": "Demo.Web.Cases.ProjectModelReceiverType.ReadingWorker.ExecuteAsync(CancellationToken)", "operation": "read" }
       ]
+    },
+    {
+      "id": "polly-retry-attempts/sync-left",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.PollyRetryAttempts.SyncRetryWorker@Singleton", "accessPath": ["_left"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PollyRetryAttempts.SyncRetryWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.PollyRetryAttempts.SyncRetryWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
+    },
+    {
+      "id": "polly-retry-attempts/async-left",
+      "phase": "5d",
+      "rule": "DCA1001",
+      "confidence": "high",
+      "resource": { "region": "di:Demo.Web.Cases.PollyRetryAttempts.AsyncRetryWorker@Singleton", "accessPath": ["_left"] },
+      "accesses": [
+        { "symbol": "Demo.Web.Cases.PollyRetryAttempts.AsyncRetryWorker.ExecuteAsync(CancellationToken)", "operation": "write" },
+        { "symbol": "Demo.Web.Cases.PollyRetryAttempts.AsyncRetryWorker.ExecuteAsync(CancellationToken)", "operation": "write" }
+      ]
     }
   ],
   "notDefects": [
@@ -3629,6 +3651,16 @@
       "id": "own-pass-join/seed-retry",
       "phase": "5d",
       "resource": { "region": "di:Demo.Web.Cases.OwnPassJoin.SeedRetryWorker@Singleton", "accessPath": ["Seeded"] }
+    },
+    {
+      "id": "polly-retry-attempts/sync-joined",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.PollyRetryAttempts.SyncRetryWorker@Singleton", "accessPath": ["_joined"] }
+    },
+    {
+      "id": "polly-retry-attempts/async-joined",
+      "phase": "5d",
+      "resource": { "region": "di:Demo.Web.Cases.PollyRetryAttempts.AsyncRetryWorker@Singleton", "accessPath": ["_joined"] }
     }
   ]
 }

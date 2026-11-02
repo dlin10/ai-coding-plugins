@@ -10,19 +10,19 @@
     },
     "reachableBodies": 832,
     "summaries": 953,
-    "regions": 1517,
+    "regions": 1521,
     "instances": 1483,
-    "accesses": 4063,
+    "accesses": 4495,
     "pairs": {
-      "comparisons": 6225,
-      "cartesianBound": 892726,
-      "largestBucket": 11,
+      "comparisons": 8007,
+      "cartesianBound": 1248648,
+      "largestBucket": 15,
       "buckets": 1578,
       "skips": {
-        "confined": 2515,
+        "confined": 3353,
         "fresh-object": 9,
-        "no-overlap": 100,
-        "read-read": 3565
+        "no-overlap": 800,
+        "read-read": 3783
       },
       "assumed": {
         "observers": 0,
@@ -30,16 +30,14 @@
         "thread-pool-entry": 0
       },
       "suppressed": 0,
-      "candidates": 36
+      "candidates": 62
     },
-    "findings": 36,
-    "occurrences": 36,
-    "groups": 36,
+    "findings": 32,
+    "occurrences": 62,
+    "groups": 32,
     "fingerprints": [
       "020af98477b9c07e",
       "086eba3900afcb49",
-      "1cd86b1f9dc88b8c",
-      "1e5bd5536c7dc835",
       "1ed177fa6479677c",
       "271725babe72922b",
       "2bc8e4764d749252",
@@ -55,9 +53,7 @@
       "7c919c7aedc4b38e",
       "90bb0d1df684bc73",
       "9ffbf4d2f2c60470",
-      "ab1f6dfbec3a58df",
       "b14a88c5e02edb8e",
-      "b2ec53b17b587b83",
       "b333834b5e6dda11",
       "be100a47f042fa90",
       "c3742921240a68bf",
@@ -145,35 +141,35 @@
         "aspnetcore": 15,
         "hosting": 0
       },
-      "accesses": 687,
+      "accesses": 1081,
       "counters": {
-        "delegate-to-opaque": 13,
+        "delegate-to-opaque": 11,
         "element-operation": 47,
         "generated-in-run": 0,
-        "known-call": 250,
-        "known-call-built-in": 250,
+        "known-call": 252,
+        "known-call-built-in": 252,
         "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 20,
         "opaque-by-project": 0,
-        "opaque-call": 222,
+        "opaque-call": 220,
         "out-of-range-call": 0,
         "pairs-removed-generated": 0,
         "reachable-bodies": 150,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 12,
+        "semantic-gap": 10,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 59,
-        "unresolved-base": 184,
+        "unresolved-base": 182,
         "unresolved-locator": 6,
         "unsupported-operation": 141,
         "wildcard-access": 0
       },
       "ordering": {
-        "spawn-sites": 1,
+        "spawn-sites": 2,
         "timers-disabled": 0,
         "timers-one-shot": 0,
         "timers-periodic": 0,
@@ -189,129 +185,10 @@
         "Microsoft.AspNetCore.Hosting.WebHostBuilderKestrelExtensions.ConfigureKestrel(IWebHostBuilder, Action\u003CKestrelServerOptions\u003E)",
         "Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Listen(IPAddress, int, Action\u003CListenOptions\u003E)",
         "Microsoft.EntityFrameworkCore.ExecutionStrategyExtensions.ExecuteAsync(IExecutionStrategy, Func\u003CTask\u003E)",
-        "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
-        "Polly.AsyncRetrySyntax.WaitAndRetryAsync(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)",
-        "Polly.Policy.Execute(Action)"
+        "Polly.AsyncRetrySyntax.WaitAndRetryAsync(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": [
-        {
-          "callee": "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
-          "findings": [
-            {
-              "fingerprint": "020af98477b9c07e",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "086eba3900afcb49",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "1e5bd5536c7dc835",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "2bc8e4764d749252",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "2bf02d78f0eeab8b",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "4d3db3d49896fe32",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "55d5db2f01f68b10",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "581ca7502849d0e2",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "70996fb674ab46b4",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "9ffbf4d2f2c60470",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "ab1f6dfbec3a58df",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "b14a88c5e02edb8e",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "be100a47f042fa90",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "c3742921240a68bf",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "c66125b488af2df1",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "e2b9ea8272a6f507",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "e76b88a032d0217e",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "fec73e1c4a519de6",
-              "checks": [
-                "overlap"
-              ]
-            }
-          ],
-          "callSites": [
-            "Services/Catalog/Catalog.API/Infrastructure/CatalogContextSeed.cs:11"
-          ]
-        }
-      ]
+      "decidingGaps": []
     },
     {
       "scopeId": "Identity.API",
@@ -427,35 +304,35 @@
         "aspnetcore": 9,
         "hosting": 0
       },
-      "accesses": 176,
+      "accesses": 214,
       "counters": {
-        "delegate-to-opaque": 12,
+        "delegate-to-opaque": 10,
         "element-operation": 37,
         "generated-in-run": 0,
-        "known-call": 103,
-        "known-call-built-in": 103,
+        "known-call": 105,
+        "known-call-built-in": 105,
         "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 22,
         "opaque-by-project": 0,
-        "opaque-call": 156,
+        "opaque-call": 154,
         "out-of-range-call": 0,
         "pairs-removed-generated": 0,
         "reachable-bodies": 99,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 10,
+        "semantic-gap": 8,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 43,
-        "unresolved-base": 103,
+        "unresolved-base": 101,
         "unresolved-locator": 6,
         "unsupported-operation": 53,
         "wildcard-access": 0
       },
       "ordering": {
-        "spawn-sites": 1,
+        "spawn-sites": 2,
         "timers-disabled": 0,
         "timers-one-shot": 0,
         "timers-periodic": 0,
@@ -468,118 +345,11 @@
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureAppConfiguration(IWebHostBuilder, Action\u003CIConfigurationBuilder\u003E)",
         "Microsoft.AspNetCore.Hosting.WebHostBuilderKestrelExtensions.ConfigureKestrel(IWebHostBuilder, Action\u003CKestrelServerOptions\u003E)",
         "Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Listen(IPAddress, int, Action\u003CListenOptions\u003E)",
-        "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
         "Polly.AsyncRetrySyntax.WaitAndRetryAsync(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)",
-        "Polly.Policy.Execute(Action)",
         "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
       ],
       "generationRefusals": [],
-      "decidingGaps": [
-        {
-          "callee": "Polly.AsyncPolicy.ExecuteAsync(Func\u003CTask\u003E)",
-          "findings": [
-            {
-              "fingerprint": "1cd86b1f9dc88b8c",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "1ed177fa6479677c",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "271725babe72922b",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "3b1f06183b0a9f43",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "41c21c6f6eeea16a",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "54c29f126fa4f806",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "6ddeba16ecc60320",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "90bb0d1df684bc73",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "b2ec53b17b587b83",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "b333834b5e6dda11",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "d895f2d196672612",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "d9de2ebaeff5e7bf",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "e2f90b13e3a22ff2",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "ebf363b7f8f114c6",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "edb1e535bb0b6443",
-              "checks": [
-                "overlap"
-              ]
-            },
-            {
-              "fingerprint": "fd3c9a1de47e689c",
-              "checks": [
-                "overlap"
-              ]
-            }
-          ],
-          "callSites": [
-            "Services/Ordering/Ordering.API/Infrastructure/OrderingContextSeed.cs:11"
-          ]
-        }
-      ]
+      "decidingGaps": []
     },
     {
       "scopeId": "Ordering.BackgroundTasks",
@@ -983,27 +753,27 @@
       },
       "accesses": 72,
       "counters": {
-        "delegate-to-opaque": 5,
+        "delegate-to-opaque": 4,
         "element-operation": 17,
         "generated-in-run": 0,
-        "known-call": 49,
-        "known-call-built-in": 49,
+        "known-call": 50,
+        "known-call-built-in": 50,
         "known-call-generated": 0,
         "known-call-project": 0,
         "merged-context": 0,
         "model-entry-rejected": 0,
         "no-receiver-object": 1,
         "opaque-by-project": 0,
-        "opaque-call": 59,
+        "opaque-call": 58,
         "out-of-range-call": 0,
         "pairs-removed-generated": 0,
         "reachable-bodies": 26,
         "scc-budget-exceeded": 0,
-        "semantic-gap": 4,
+        "semantic-gap": 3,
         "solver-available": 1,
         "unanalysed-registration": 0,
         "unproven-reference": 12,
-        "unresolved-base": 37,
+        "unresolved-base": 36,
         "unresolved-locator": 3,
         "unsupported-operation": 23,
         "wildcard-access": 1
@@ -1018,7 +788,6 @@
       "semanticGaps": [
         "Microsoft.AspNetCore.Hosting.IWebHostBuilder.ConfigureAppConfiguration(Action\u003CWebHostBuilderContext, IConfigurationBuilder\u003E)",
         "Microsoft.AspNetCore.Hosting.WebHostBuilderExtensions.ConfigureLogging(IWebHostBuilder, Action\u003CWebHostBuilderContext, ILoggingBuilder\u003E)",
-        "Polly.Policy.Execute(Action)",
         "Polly.RetrySyntax.WaitAndRetry(PolicyBuilder, int, Func\u003Cint, TimeSpan\u003E, Action\u003CException, TimeSpan, int, Context\u003E)"
       ],
       "generationRefusals": [],

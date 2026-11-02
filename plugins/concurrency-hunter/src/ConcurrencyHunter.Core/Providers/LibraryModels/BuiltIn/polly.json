@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "note": "Polly 7 retries: Policy.Execute(Action) on a RetryPolicy and AsyncPolicy.ExecuteAsync(Func<Task>) on an AsyncRetryPolicy run their delegate during the call, one attempt after another, and a record is chosen by the receiver's static type, so a receiver declared as Policy, AsyncPolicy, ISyncPolicy or IAsyncPolicy takes none.",
+  "assemblies": [
+    "Polly"
+  ],
+  "versions": {
+    "minimum": "7.0.0.0",
+    "maximumExclusive": "8.0.0.0"
+  },
+  "models": [
+    {
+      "member": "M:Polly.Policy.Execute(System.Action)",
+      "receiver": "T:Polly.Retry.RetryPolicy",
+      "effects": {},
+      "fates": {
+        "action": {
+          "fate": "invoke-now",
+          "runs": "sequential"
+        }
+      }
+    },
+    {
+      "member": "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{System.Threading.Tasks.Task})~System.Threading.Tasks.Task",
+      "receiver": "T:Polly.Retry.AsyncRetryPolicy",
+      "effects": {},
+      "fates": {
+        "action": {
+          "fate": "invoke-now",
+          "runs": "sequential-awaited"
+        }
+      }
+    }
+  ]
+}

@@ -11,7 +11,7 @@ public static class LibraryPackages
                  .Select(path => (Name: Path.GetFileNameWithoutExtension(path), Path: path))
                  .Where(file => file.Name.StartsWith("Microsoft.Extensions.", StringComparison.Ordinal) ||
                                 file.Name.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal) ||
-                                file.Name == "Newtonsoft.Json")
+                                file.Name is "Newtonsoft.Json" or "Polly")
                  .Select(file => (file.Name, (MetadataReference)MetadataReference.CreateFromFile(file.Path)))
                  .ToArray();
 

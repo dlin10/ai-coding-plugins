@@ -11,6 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageDownload Include="Polly" Version="[7.2.3]" />
+    <None Include="$(NuGetPackageRoot)polly/7.2.3/lib/netstandard2.0/Polly.dll" Link="Polly.dll" CopyToOutputDirectory="PreserveNewest" />
     <!-- Transitive pinning makes this a direct reference, and Microsoft.Build.Locator refuses
          (MSBL001) unless MSBuild assemblies are kept out of the output: they must come from the
          installed SDK at run time, not from bin. -->

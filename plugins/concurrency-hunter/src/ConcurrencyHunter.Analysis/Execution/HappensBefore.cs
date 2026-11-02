@@ -579,9 +579,9 @@ internal sealed partial class HappensBefore
 
     /// <summary>Whether a joined execution ends before the joining one: the join runs on every path of the joining execution from where
     /// it starts the joined work (from its own start, when the work comes from elsewhere) to its normal end. An exception that leaves the
-    /// joining execution is no path to that end here, so the end carries the joined work's completion only on a normal return; a blocking
-    /// wait for the joining execution reads its exceptional exit as that completion only where no exception leaves around the join
-    /// (<see cref="LeavesWorkRunning"/>).</summary>
+    /// joining execution is no path to that end here, so the end carries the joined work's completion only on a normal return; a wait for
+    /// the joining execution, a blocking wait or an <c>await</c>, reads its exceptional exit as that completion only where no exception
+    /// leaves around the join (<see cref="LeavesWorkRunning"/>).</summary>
     /// <param name="joining">The joining.</param>
     /// <param name="join">The join.</param>
     /// <param name="joined">The joined.</param>
@@ -737,7 +737,9 @@ internal sealed partial class HappensBefore
                         if (targets.Count == 0)
                             continue;
                         var throwsAfter = ThrowsAfterCompletion(execution, instance.Id, join, proven);
-                        if (throwsAfter && join.Kind != SummaryJoinKind.Await)
+                        // Every wait the summary lists, an await included, is read as completing the work of its tasks' ends on its
+                        // exceptional exit only where no task it waits for leaves such work running (WithoutRunningWork).
+                        if (throwsAfter)
                             blocking.Add((execution, new PointKey(instance.Id, join.OperationId, false)));
                         Wait(candidates, resumed, execution, visit, instance, join.OperationId, targets, throwsAfter);
                     }
@@ -807,13 +809,15 @@ internal sealed partial class HappensBefore
         }
     }
 
-    /// <summary>The waits with a blocking wait's exceptional exit read as the completion of its tasks only where it is also the completion
-    /// of the work their ends carry: the fault of a task comes after the task completed, not after the work it started, so a blocking wait
-    /// for a task that may end with an exception while such work runs (<see cref="LeavesWorkRunning"/>) throws before that work completes.
-    /// An <c>await</c> is read as it always has been. Null when no wait changes.</summary>
+    /// <summary>The waits with a wait's exceptional exit read as the completion of its tasks only where it is also the completion of the
+    /// work their ends carry: the fault of a task comes after the task completed, not after the work it started, so a blocking wait or an
+    /// <c>await</c> for a task that may end with an exception while such work runs (<see cref="LeavesWorkRunning"/>) throws before that
+    /// work completes. The waits no join of a summary makes — the start of the tails a prefix <c>await</c> stops at, the return of an
+    /// admitted call without a task, a <c>Parallel</c> return, a timer's wait — are not among the given ones and are read as they always
+    /// have been. Null when no wait changes.</summary>
     /// <param name="waits">The waits, before hoisting, read from the anchors already made.</param>
-    /// <param name="blocking">The blocking waits for tasks whose exceptional exit is read as their tasks' completion, by execution and
-    /// point.</param>
+    /// <param name="blocking">The blocking waits and awaits for tasks whose exceptional exit is read as their tasks' completion, by
+    /// execution and point.</param>
     private List<Candidate>? WithoutRunningWork(IReadOnlyList<Candidate> waits, IReadOnlySet<(string Execution, PointKey Point)> blocking)
     {
         var known = new Dictionary<string, bool>(StringComparer.Ordinal);
@@ -833,8 +837,9 @@ internal sealed partial class HappensBefore
 
     /// <summary>Whether an execution may end with an exception while work whose completion its end carries still runs: a join of the
     /// execution bounds its end on every normal path (<see cref="BoundsEnd"/>) but an exception leaves the execution around it, or the
-    /// joined execution's own end carries such work in turn. An execution reached again through its own joins is taken to leave work
-    /// running.</summary>
+    /// joined execution's own end carries such work in turn. The exception of an earlier <c>await</c> is one that leaves around the
+    /// join, although it comes after what that <c>await</c> waits for completed: it does not wait for the work of the join. An
+    /// execution reached again through its own joins is taken to leave work running.</summary>
     /// <param name="execution">The execution.</param>
     /// <param name="known">The answers already found, by execution.</param>
     private bool LeavesWorkRunning(string execution, Dictionary<string, bool> known)
@@ -1060,7 +1065,8 @@ internal sealed partial class HappensBefore
 
     /// <summary>Whether an exception out of a wait comes only after every task it waits for completed, so that a path through a handler
     /// after it is ordered as its normal return is (R3, R4; ADR 0030). An await resumes only after its task completed, whatever the thread
-    /// context. A blocking wait does when its form does — <c>Wait()</c>, the <c>Result</c> or <c>GetResult()</c> of a <c>Task</c> or a
+    /// context; the work that task started may still run, which <see cref="WithoutRunningWork"/> decides for it as for a blocking wait.
+    /// A blocking wait does when its form does — <c>Wait()</c>, the <c>Result</c> or <c>GetResult()</c> of a <c>Task</c> or a
     /// <c>Task&lt;T&gt;</c>, <c>Task.WaitAll(tasks)</c> — and, under the thread-context assumption, when every task it waits for is
     /// proven, no reachable call of the process scope installs another context and no task it waits for runs on a scheduler the program
     /// names: a task not proven may run on any. Every other wait may throw before its work completes. A blocking wait so read rests on
@@ -1912,7 +1918,10 @@ internal sealed partial class HappensBefore
     /// end, plus an entry and an exit per segment. Passing an operation is an edge; an operation that may throw has an edge to each
     /// handler of its block, except an await that throws only after completion and the operations that belong to a wait. The exception of
     /// a wait that throws only after completion comes after that wait (<see cref="WaitExit"/>): a path through it has waited for what the
-    /// wait waits for and for nothing else; that of any other wait comes before it. A call descends into its callees and returns only to its own site, with a summary edge when a callee can complete. A call
+    /// wait waits for and for nothing else; that of any other wait comes before it. That of an await that throws only after completion
+    /// comes after its tasks completed as well, but a path that does not ask for exceptional exits reads the await as returning, and
+    /// one that does takes it as a wait's, so that the exception of an earlier await skips a later join of work that await did not
+    /// wait for. A call descends into its callees and returns only to its own site, with a summary edge when a callee can complete. A call
     /// that runs a delegate 0..n times (SPEC TD-034a) may run it again from where it stands. A prefix leaves its body at its first await.
     /// </summary>
     internal sealed class Flow
@@ -1942,6 +1951,10 @@ internal sealed partial class HappensBefore
 
         /// <summary>The exceptional steps of the operations a wait throws at, by node (<see cref="WaitExit"/>).</summary>
         private readonly Dictionary<int, WaitExit> _waitExits = [];
+
+        /// <summary>The exceptional steps of the <c>await</c>s that throw only after their tasks completed, by node, which only a path
+        /// asking for exceptional exits takes (<see cref="Reach"/>): such an <c>await</c> has no exceptional step for any other path.</summary>
+        private readonly Dictionary<int, WaitExit> _awaitExits = [];
 
         /// <summary>The calls that may run a delegate again before they return: a known call's <c>invoke-now</c> delegate, an
         /// enumeration's <c>iterator</c> delegate, the delegate of a member of the collection table
@@ -2149,7 +2162,21 @@ internal sealed partial class HappensBefore
                         }
 
                         var afterWait = throwsAfter.TryGetValue((visit.InstanceId, operation.Id), out var waited);
-                        if (MayThrow(operation) && !(afterWait && operation is IrAwaitOperation))
+                        if (afterWait && operation is IrAwaitOperation && MayThrow(operation))
+                        {
+                            // The exception of an await that throws only after completion comes after its tasks completed: it is no step of
+                            // a path that does not ask for exceptional exits, and one that does takes it only where its cut holds no gate,
+                            // which the same completion below builds as for a wait's exit.
+                            var thrown = _awaitExits[node] = new WaitExit([node, .. marks[operation.Id]]);
+                            after.Add((thrown, waited!));
+                            foreach (var handler in exceptional[block])
+                            {
+                                CheckCancellation();
+                                thrown.Handlers.Add(Node(handler, 0));
+                            }
+                            thrown.Escapes = exceptional[block].Count == 0;
+                        }
+                        else if (MayThrow(operation))
                         {
                             // The exception of a wait read as throwing only after completion comes after that wait: its steps are taken
                             // only by a path that does not stop at the wait. Any other wait may throw before its work completes.
@@ -2361,7 +2388,8 @@ internal sealed partial class HappensBefore
         /// <summary>The exceptional steps of an operation a wait throws at, which come after that wait and only after it: a path that
         /// stops at the wait — whose cut holds one of the gates — has not taken them, and any other path has, without waiting for
         /// anything the wait waits for. An exception the wait throws after the work completed thus orders that work alone, never the work
-        /// of a later wait it skips.</summary>
+        /// of a later wait it skips. An <c>await</c> that throws only after completion has the same steps, in <see cref="_awaitExits"/>
+        /// and not in the plain ones, so that only a path asking for exceptional exits takes them.</summary>
         /// <param name="gates">The nodes of the wait: the operation's own and those of the joins marking it.</param>
         private sealed class WaitExit(int[] gates)
         {
@@ -2502,10 +2530,11 @@ internal sealed partial class HappensBefore
 
         /// <summary>Whether every path from just after an operation (from the point itself for a point after a call, from the
         /// execution's start for none) to the execution's end passes one of the targets: to its normal end, or with exceptional exits,
-        /// also out of it with an exception no handler catches.</summary>
+        /// also out of it with an exception no handler catches, that of an <c>await</c> that throws only after completion included.</summary>
         /// <param name="from">The point the paths start after, or null for the execution's start.</param>
         /// <param name="targets">The points one of which every path must pass.</param>
-        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its end.</param>
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its end, and the exception of an
+        /// <c>await</c> that throws only after completion is a step (<see cref="WaitExit"/>).</param>
         internal bool AlwaysFollows(PointKey? from, IReadOnlyCollection<PointKey> targets, bool exceptionalExits = false)
         {
             var fromNodes = from is not { } point ? _starts.ToArray()
@@ -2555,10 +2584,11 @@ internal sealed partial class HappensBefore
 
         /// <summary>Whether every path from just after a pass's start (from the point itself for a point after a call) to the
         /// execution's end passes one of the pass's completions: to its normal end, or with exceptional exits, also out of it with an
-        /// exception no handler catches.</summary>
+        /// exception no handler catches, that of an <c>await</c> that throws only after completion included.</summary>
         /// <param name="start">The pass's start.</param>
         /// <param name="completions">The points that complete the pass's work.</param>
-        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its end.</param>
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its end, and the exception of an
+        /// <c>await</c> that throws only after completion is a step (<see cref="WaitExit"/>).</param>
         internal bool BeforeReturn(PointKey start, IReadOnlyCollection<PointKey> completions, bool exceptionalExits)
         {
             var cuts = completions.SelectMany(Nodes).ToHashSet();
@@ -2628,8 +2658,10 @@ internal sealed partial class HappensBefore
 
         /// <summary>Whether every path of one visit, from its entry to its exit or out of it with an exception, passes one of the points:
         /// waiting for one thing at several places is one wait, so the alternatives are cut together. An exception computing a handle a
-        /// wait waits on leaves before that wait, but without returning, and so does the exception of an earlier wait for something else,
-        /// which skips the later one (<see cref="WaitExit"/>): they count only where the exceptional exits are asked for.</summary>
+        /// wait waits on leaves before that wait, but without returning, and so does the exception of an earlier blocking wait for
+        /// something else, which skips the later one (<see cref="WaitExit"/>): they count only where the exceptional exits are asked for.
+        /// The exception of an earlier <c>await</c> is not among them; a call that waits through an <c>await</c> is read as it is, and the
+        /// exits of the awaiting execution read that exception (<see cref="AlwaysFollows"/>).</summary>
         /// <param name="instance">The instance.</param>
         /// <param name="segment">The segment.</param>
         /// <param name="points">The points.</param>
@@ -2677,7 +2709,8 @@ internal sealed partial class HappensBefore
         /// <param name="starts">The starts.</param>
         /// <param name="ascend">Whether a path may leave the body of a start through a site calling it.</param>
         /// <param name="cut">The cut.</param>
-        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit.</param>
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit, and the exception of an
+        /// <c>await</c> that throws only after completion is a step.</param>
         private bool[] Reach(string key, IEnumerable<int> starts, bool ascend, IReadOnlySet<int> cut, bool exceptionalExits = false)
         {
             CheckCancellation();
@@ -2689,7 +2722,8 @@ internal sealed partial class HappensBefore
         /// <param name="key">The key the answer is kept under; it names the exceptional exits a query asks for.</param>
         /// <param name="starts">The starts.</param>
         /// <param name="cut">The cut.</param>
-        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit.</param>
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit, and the exception of an
+        /// <c>await</c> that throws only after completion is a step.</param>
         private bool[] Reach(string key, IEnumerable<(int Node, bool Ascend)> starts, IReadOnlySet<int> cut, bool exceptionalExits = false)
         {
             if (_reach.TryGetValue(key, out var cached))
@@ -2716,20 +2750,23 @@ internal sealed partial class HappensBefore
         /// after a wait only where the cut does not hold that wait (<see cref="WaitExit"/>) —, into a callee and, through the summary edge
         /// of its own site, past the call when a callee can complete, and into the call's delegate again where the call may run it again.
         /// A path that leaves a body it may leave returns to any site calling it, and to that site again where it may run the body again;
-        /// an exception that leaves such a body goes on as <see cref="Thrown"/> says.</summary>
+        /// an exception that leaves such a body goes on as <see cref="Thrown"/> says. With exceptional exits, an <c>await</c> that throws
+        /// only after completion has the same steps to its handlers and out of its body, under the same condition on the cut.</summary>
         /// <param name="node">The node.</param>
         /// <param name="up">Whether the path may leave the node's body through a site calling it.</param>
         /// <param name="cut">The operations the path may not pass.</param>
         /// <param name="completing">The segments whose exit their entry reaches without passing the cut.</param>
         /// <param name="pending">Receives the steps.</param>
-        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit.</param>
+        /// <param name="exceptionalExits">Whether an exception that leaves the execution reaches its exit, and the exception of an
+        /// <c>await</c> that throws only after completion is a step.</param>
         private void Expand(int node, bool up, IReadOnlySet<int> cut, HashSet<int> completing, Stack<(int Node, bool Ascend)> pending,
                             bool exceptionalExits = false)
         {
             if (_pass[node] >= 0 && !cut.Contains(node))
                 pending.Push((_pass[node], up));
             var exit = _waitExits.GetValueOrDefault(node) is { } wait && Open(wait.Gates, cut) ? wait : null;
-            foreach (var next in _plain[node].Concat(exit?.Handlers ?? []))
+            var awaitExit = exceptionalExits && _awaitExits.GetValueOrDefault(node) is { } awaited && Open(awaited.Gates, cut) ? awaited : null;
+            foreach (var next in _plain[node].Concat(exit?.Handlers ?? []).Concat(awaitExit?.Handlers ?? []))
             {
                 CheckCancellation();
                 pending.Push((next, up));
@@ -2759,7 +2796,7 @@ internal sealed partial class HappensBefore
                         pending.Push((site, true));
                 }
             }
-            if (_escapes.Contains(node) || exit is { Escapes: true })
+            if (_escapes.Contains(node) || exit is { Escapes: true } || awaitExit is { Escapes: true })
             {
                 foreach (var (next, ascend, gates) in Thrown(_visitOf[node], exceptionalExits))
                 {

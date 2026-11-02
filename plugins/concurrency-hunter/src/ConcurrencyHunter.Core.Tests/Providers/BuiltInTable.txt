@@ -145,6 +145,8 @@ M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.Js
 M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
 M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.Formatting,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
 M M:Newtonsoft.Json.JsonConvert.SerializeObject(System.Object,System.Type,Newtonsoft.Json.JsonSerializerSettings)~System.String | reads-deep:value | Newtonsoft.Json@13.0.0.0-14.0.0.0
+M M:Polly.AsyncPolicy.ExecuteAsync(System.Func{System.Threading.Tasks.Task})~System.Threading.Tasks.Task |  | Polly@7.0.0.0-8.0.0.0 | receiver=T:Polly.Retry.AsyncRetryPolicy | fates=action:invoke-now/sequential-awaited
+M M:Polly.Policy.Execute(System.Action) |  | Polly@7.0.0.0-8.0.0.0 | receiver=T:Polly.Retry.RetryPolicy | fates=action:invoke-now/sequential
 M M:System.Array.Clear(System.Array) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
 M M:System.Array.Clear(System.Array,System.Int32,System.Int32) | writes-cells:array | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0
 M M:System.Array.ConstrainedCopy(System.Array,System.Int32,System.Array,System.Int32,System.Int32) | writes-cells:destinationArray | System.Runtime@8.0.0.0-11.0.0.0;System.Private.CoreLib@8.0.0.0-11.0.0.0;System.Private.Uri@8.0.0.0-11.0.0.0 | stores=destinationArray=[elements(arg:sourceArray)]

@@ -225,7 +225,7 @@ public sealed class LibraryModels
         _dependencies = dependencies;
     }
 
-    /// <summary>The built-in library models, read from the seven embedded files once per process.</summary>
+    /// <summary>The built-in library models, read from the eight embedded files once per process.</summary>
     public static LibraryModels BuiltIn { get; } = LoadBuiltIn();
 
     internal static LibraryModels LoadBuiltIn()
@@ -235,7 +235,7 @@ public sealed class LibraryModels
         var members = new List<LibraryModel>();
         var types = new List<ImmutableLibraryType>();
         foreach (var file in new[] { "system.json", "system-text-json.json", "newtonsoft-json.json", "logging.json",
-                                     "http-client.json", "entity-framework.json", "linq.json" })
+                                     "http-client.json", "entity-framework.json", "linq.json", "polly.json" })
         {
             WorkCancellation.Check();
             using var stream = assembly.GetManifestResourceStream("LibraryModels.BuiltIn." + file) ??

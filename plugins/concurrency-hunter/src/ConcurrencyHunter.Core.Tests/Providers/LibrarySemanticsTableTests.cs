@@ -404,7 +404,7 @@ public sealed class LibrarySemanticsTableTests
         var table = Table.Members.Select(member => (member.Id, Effects(member.Effects)))
                          .Concat(Table.ImmutableTypes.Select(type => (type.Id, Effects: type.IncludesDerived ? "IncludesDerived" : "")))
                          .ToHashSet();
-        var list = Phase5aList.Concat(runB).Concat(ArrayCellWriters).ToHashSet();
+        var list = Phase5aList.Concat(runB).Concat(ArrayCellWriters).Concat(PollyRetryFamily.Select(id => (id, ""))).ToHashSet();
         var resultOnly = Phase5aList.Select(entry => entry.Id)
                                     .Where(id => R6Phase5aNames.Any(name => id.StartsWith($"M:System.Linq.Enumerable.{name}``", StringComparison.Ordinal)))
                                     .ToArray();
@@ -413,7 +413,7 @@ public sealed class LibrarySemanticsTableTests
             id.StartsWith("M:System.Text.Json.JsonSerializer.Deserialize", StringComparison.Ordinal) ||
             id.StartsWith("M:Newtonsoft.Json.JsonConvert.DeserializeObject", StringComparison.Ordinal)).ToArray();
 
-        Assert.Equal(Phase5aList.Length + runB.Length + ArrayCellWriters.Length, list.Count);
+        Assert.Equal(Phase5aList.Length + runB.Length + ArrayCellWriters.Length + PollyRetryFamily.Length, list.Count);
         Assert.Empty(table.Except(list));
         Assert.Empty(list.Except(table));
         Assert.Equal(15, resultOnly.Length);
@@ -421,7 +421,8 @@ public sealed class LibrarySemanticsTableTests
         Assert.All(Table.Members.Where(member => deserializers.Contains(member.Id, StringComparer.Ordinal)), member => Assert.Equal("new", member.Result?.ToString()));
         Assert.Equal(26, HttpClientTaskResults.Length);
         Assert.All(Table.Members.Where(member => HttpClientTaskResults.Contains(member.Id, StringComparer.Ordinal)), member => Assert.Equal("task(new)", member.Result?.ToString()));
-        Assert.Equal(runB.Select(entry => entry.Id).Concat(resultOnly).Concat(deserializers).Concat(HttpClientTaskResults).Order(StringComparer.Ordinal),
+        Assert.Equal(runB.Select(entry => entry.Id).Concat(resultOnly).Concat(deserializers).Concat(HttpClientTaskResults).Concat(PollyRetryFamily)
+                         .Order(StringComparer.Ordinal),
                      described.Order(StringComparer.Ordinal));
     }
 
@@ -834,6 +835,14 @@ public sealed class LibrarySemanticsTableTests
         "M:System.Net.Http.HttpClient.SendAsync(System.Net.Http.HttpRequestMessage,System.Net.Http.HttpCompletionOption,System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.Net.Http.HttpResponseMessage}",
         "M:System.Net.Http.HttpContent.ReadAsStringAsync~System.Threading.Tasks.Task{System.String}",
         "M:System.Net.Http.HttpContent.ReadAsStringAsync(System.Threading.CancellationToken)~System.Threading.Tasks.Task{System.String}",
+    ];
+
+    /// <summary>The two Polly 7 retry members the built-in set describes: <c>Policy.Execute(Action)</c> and
+    /// <c>AsyncPolicy.ExecuteAsync(Func&lt;Task&gt;)</c>, each with a delegate fate and no effect.</summary>
+    private static readonly string[] PollyRetryFamily =
+    [
+        "M:Polly.Policy.Execute(System.Action)",
+        "M:Polly.AsyncPolicy.ExecuteAsync(System.Func{System.Threading.Tasks.Task})~System.Threading.Tasks.Task"
     ];
 
     /// <summary>The members phase 5c run B adds with their effects: <c>Comparer&lt;T&gt;.Create</c> and every public Enumerable method taking
