@@ -45,7 +45,7 @@ public sealed class OrchestratorPhaseTests : IDisposable
         await AssertRefused("review");
 
     [Fact]
-    public async Task An_empty_phase_is_refused() => await AssertRefused("");
+    public async Task An_empty_phase_is_refused() => await AssertRefused(string.Empty);
 
     [Fact]
     public async Task A_whitespace_phase_is_refused() => await AssertRefused("   ");

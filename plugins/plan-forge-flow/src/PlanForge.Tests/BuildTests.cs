@@ -113,7 +113,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "first task built"));
-        var run = NewRun("", "");
+        var run = NewRun(string.Empty, string.Empty);
 
         await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
                                                                                   new Selection("builder-model", null),
@@ -135,7 +135,7 @@ public sealed class BuildTests : IDisposable
                         "retry-token");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"),
                         "next-token");
-        var run = NewRun("codex", "");
+        var run = NewRun("codex", string.Empty);
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
         var first = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
@@ -158,7 +158,7 @@ public sealed class BuildTests : IDisposable
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"),
                         "next-token");
-        var run = NewRun("codex", "");
+        var run = NewRun("codex", string.Empty);
 
         var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
                                                                                                  new Selection("builder-model", "low"),
@@ -179,7 +179,7 @@ public sealed class BuildTests : IDisposable
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "110 tests passed"), "done"), "token-1");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt", "tests.txt"], new Verification("passed", "124 tests passed"), "done"), "token-2");
-        var run = NewRun("codex", "", GatedPlan("Write-Output 'suite ran'; cmd /c exit 2", "Write-Output second"));
+        var run = NewRun("codex", string.Empty, GatedPlan("Write-Output 'suite ran'; cmd /c exit 2", "Write-Output second"));
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
         var first = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
@@ -216,7 +216,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("unavailable", "the sandbox denied dotnet"), "done"));
-        var run = NewRun("", "", GatedPlan("Write-Output green", "Write-Output second"));
+        var run = NewRun(string.Empty, string.Empty, GatedPlan("Write-Output green", "Write-Output second"));
 
         var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
                                                                                                  new Selection("builder-model", null),
@@ -234,7 +234,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
-        var run = NewRun("", "", GatedPlan("if ($env:CD_TEST_SQL_CONN -ne 'Server=.') { exit 6 }", "Write-Output second"),
+        var run = NewRun(string.Empty, string.Empty, GatedPlan("if ($env:CD_TEST_SQL_CONN -ne 'Server=.') { exit 6 }", "Write-Output second"),
                          new Dictionary<string, string> { ["CD_TEST_SQL_CONN"] = "Server=." });
 
         var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
@@ -250,7 +250,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"));
-        var run = NewRun("", "", "## Approach\n\n1. **Task.** Do it. **Gate:** every new type carries a doc comment. (R1)\n");
+        var run = NewRun(string.Empty, string.Empty, "## Approach\n\n1. **Task.** Do it. **Gate:** every new type carries a doc comment. (R1)\n");
 
         var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
                                                                                                  new Selection("builder-model", null),
@@ -268,7 +268,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("blocked", [], new Verification("failed", "the suite is red"), "stuck"));
-        var run = NewRun("", "", GatedPlan("cmd /c exit 1", "Write-Output second"));
+        var run = NewRun(string.Empty, string.Empty, GatedPlan("cmd /c exit 1", "Write-Output second"));
 
         var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
                                                                                                  new Selection("builder-model", null),
@@ -295,7 +295,7 @@ public sealed class BuildTests : IDisposable
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "done"), "token-1");
         vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "the sandbox cannot reach SQL Express"),
                                         "fixed the deserialization, cannot run the gated tests"), "token-2");
-        var run = NewRun("codex", "", GatedPlan("Write-Output 'deserializing'; cmd /c exit 2", "Write-Output second"));
+        var run = NewRun("codex", string.Empty, GatedPlan("Write-Output 'deserializing'; cmd /c exit 2", "Write-Output second"));
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
         var first = await build.NextAsync(run, new Selection("builder-model", "low"), CancellationToken.None);
@@ -331,7 +331,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("blocked", [], new Verification("unavailable", "the sandbox denied dotnet"), "cannot verify"));
-        var run = NewRun("", "", GatedPlan("Write-Output 'the host tried'; cmd /c exit 4", "Write-Output second"));
+        var run = NewRun(string.Empty, string.Empty, GatedPlan("Write-Output 'the host tried'; cmd /c exit 4", "Write-Output second"));
 
         var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
                                                                                                  new Selection("builder-model", null),
@@ -349,7 +349,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
-        var run = NewRun("", "", Plan, builderRoots: [@"C:\Dev\eShopOnContainers"]);
+        var run = NewRun(string.Empty, string.Empty, Plan, builderRoots: [@"C:\Dev\eShopOnContainers"]);
 
         await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run, new Selection("builder-model", null),
                                                                                   CancellationToken.None);
@@ -362,7 +362,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("claude");
         vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
-        var run = NewRun("", "", Plan, workerTools: ["sql-server"]);
+        var run = NewRun(string.Empty, string.Empty, Plan, workerTools: ["sql-server"]);
 
         await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run, new Selection("builder-model", null),
                                                                                   CancellationToken.None);
@@ -380,7 +380,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("claude");
         vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
-        var run = NewRun("", "");
+        var run = NewRun(string.Empty, string.Empty);
 
         await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run, new Selection("builder-model", null),
                                                                                   CancellationToken.None);
@@ -401,7 +401,7 @@ public sealed class BuildTests : IDisposable
         vendor.Enqueue(new BuildResult("done", ["run-limits-grid.ps1"], new Verification("unavailable", "the grid is still running"), "started the grid"),
                        "token-1", killedBackgroundTasks: ["pwsh -File run-limits-grid.ps1"]);
         vendor.Enqueue(new BuildResult("done", ["limits.md"], new Verification("passed", "the grid ran"), "done"), "token-1");
-        var run = NewRun("claude", "", GatedPlan("Write-Output green", "Write-Output second"));
+        var run = NewRun("claude", string.Empty, GatedPlan("Write-Output green", "Write-Output second"));
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
         var first = await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
@@ -442,7 +442,7 @@ public sealed class BuildTests : IDisposable
                        killedBackgroundTasks: ["dotnet test"]);
         vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
         vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "ran"), "done"));
-        var run = NewRun("", "");
+        var run = NewRun(string.Empty, string.Empty);
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
         await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
@@ -463,7 +463,7 @@ public sealed class BuildTests : IDisposable
         var vendor = new RecordingVendor("claude");
         vendor.Enqueue(new BuildResult("blocked", [], new Verification("failed", "tests failed"), "blocked"),
                        killedBackgroundTasks: ["dotnet watch test"]);
-        var run = NewRun("", "", GatedPlan("Write-Output green", "Write-Output second"));
+        var run = NewRun(string.Empty, string.Empty, GatedPlan("Write-Output green", "Write-Output second"));
 
         var outcome = await new Build(vendor, new PromptLibrary(RepositoryPrompts())).NextAsync(run,
                                                                                                  new Selection("builder-model", null),
@@ -524,7 +524,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("fake");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"));
-        var run = NewRun("", "");
+        var run = NewRun(string.Empty, string.Empty);
         run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
 
         await new Build(vendor, new PromptLibrary(RepositoryPrompts()))
@@ -546,7 +546,7 @@ public sealed class BuildTests : IDisposable
         var vendor = new RecordingVendor("fake");
         vendor.Enqueue(new BuildResult("done", ["src/First.cs", "tests/FirstTests.cs"], new Verification("passed", "the checks ran"), "built"), "first-token");
         vendor.Enqueue(new BuildResult("done", ["src/Second.cs"], new Verification("passed", "the checks ran"), "built"), "second-token");
-        var run = NewRun("fake", "");
+        var run = NewRun("fake", string.Empty);
         run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
@@ -571,7 +571,7 @@ public sealed class BuildTests : IDisposable
     public async Task A_plan_review_note_reaches_only_its_named_builder_task()
     {
         const string plan = "# Toy plan\n\n## Approach\n\n1. First task.\n2. Second task.\n3. Third task.\n";
-        var run = NewRun("fake", "", plan);
+        var run = NewRun("fake", string.Empty, plan);
         var finding = run.ReadDecisionLedger().AddFinding(
             new Finding("minor", "Requirements R1", "Check the empty input case."), LedgerPhase.PlanReview);
         run.ReadDecisionLedger().Apply(new OrchestratorDecisionBatch("note-third-task", [
@@ -606,7 +606,7 @@ public sealed class BuildTests : IDisposable
         var vendor = new RecordingVendor("fake");
         vendor.Enqueue(new BuildResult("blocked", ["src/Half.cs"], new Verification("unavailable", "needs a decision"), "stuck"), "task-token");
         vendor.Enqueue(new BuildResult("done", ["src/Whole.cs"], new Verification("passed", "the checks ran"), "built"), "task-token");
-        var run = NewRun("fake", "");
+        var run = NewRun("fake", string.Empty);
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
         await build.NextAsync(run, new Selection("builder-model", null), CancellationToken.None);
@@ -627,7 +627,7 @@ public sealed class BuildTests : IDisposable
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"), "first-token");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "retried"), "second-token");
         var plan = "# Toy plan\n\n" + GatedPlan("cmd /c exit 3", "Write-Output second");
-        var run = NewRun("fake", "", plan);
+        var run = NewRun("fake", string.Empty, plan);
         run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
@@ -647,7 +647,7 @@ public sealed class BuildTests : IDisposable
         var vendor = new RecordingVendor("fake");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "first"));
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "second"));
-        var run = NewRun("fake", "");
+        var run = NewRun("fake", string.Empty);
         run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
@@ -756,7 +756,7 @@ public sealed class BuildTests : IDisposable
     public async Task Builder_brief_delivery_sensitive_brief_is_refused_before_build_vendor_start()
     {
         var vendor = new RecordingVendor("fake");
-        var run = NewRun("", "", SensitiveBriefPlan);
+        var run = NewRun(string.Empty, string.Empty, SensitiveBriefPlan);
 
         var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
             new Build(vendor, new PromptLibrary(RepositoryPrompts()))
@@ -771,7 +771,7 @@ public sealed class BuildTests : IDisposable
     public async Task Builder_brief_delivery_sensitive_brief_recovers_after_clean_direct_reapproval()
     {
         var vendor = new RecordingVendor("fake");
-        var run = NewRun("", "", SensitiveBriefPlan);
+        var run = NewRun(string.Empty, string.Empty, SensitiveBriefPlan);
         run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
         var build = new Build(vendor, new PromptLibrary(RepositoryPrompts()));
 
@@ -796,7 +796,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("fake");
         var plan = "# Toy plan\n\n## Approach\n\n1. api_key: Abcdefghijklmnop1234+\n";
-        var run = NewRun("", "", plan);
+        var run = NewRun(string.Empty, string.Empty, plan);
 
         var error = await Assert.ThrowsAsync<SensitiveContentException>(() =>
             new Build(vendor, new PromptLibrary(RepositoryPrompts()))
@@ -812,7 +812,7 @@ public sealed class BuildTests : IDisposable
     {
         var vendor = new RecordingVendor("fake");
         vendor.Enqueue(new BuildResult("done", ["tracked.txt"], new Verification("passed", "the checks ran"), "built"));
-        var run = NewRun("", "", "\n\n## Approach\n\n1. First task.\n");
+        var run = NewRun(string.Empty, string.Empty, "\n\n## Approach\n\n1. First task.\n");
         run.WriteState(run.ReadState() with { BuilderInstructions = "use the ponytail-net skill" });
 
         await new Build(vendor, new PromptLibrary(RepositoryPrompts()))

@@ -272,7 +272,7 @@ public sealed class DecisionLedgerTests : IDisposable
 
         Assert.Equal("conflict", response.Outcome);
         Assert.Equal("first", response.Result.DecisionFindingIds.Single() == entry.FindingId
-            ? ledger.Snapshot.Entries.Single().Decision!.Reason : "");
+            ? ledger.Snapshot.Entries.Single().Decision!.Reason : string.Empty);
         Assert.Equal(before, File.ReadAllBytes(ledger.Path));
     }
 

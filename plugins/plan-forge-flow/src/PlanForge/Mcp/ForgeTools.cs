@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using ModelContextProtocol;
 using ModelContextProtocol.Extensions.Apps;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PlanForge.Acts;
 using PlanForge.Advisors;
@@ -593,35 +594,48 @@ internal sealed class ForgeTools
     /// </summary>
     /// <remarks>
     /// The UI is attached through <c>_meta.ui</c>, which a host without the MCP Apps capability
-    /// ignores, so the call degrades to the same JSON every other tool returns. That is why the
-    /// description sends Text-profile hosts to the chat rather than here: the result would be the
-    /// plan they already hold, rendered by nobody. See docs/adr/0008.
+    /// ignores. That is why the description sends Text-profile hosts to the chat rather than here:
+    /// nothing would render. See docs/adr/0008.
+    /// <para>
+    /// The plan text goes in the result's <c>_meta</c>, never in its content: the Orchestrator wrote
+    /// the plan and needs only its hash, and a whole plan in its context cost 41–45k tokens a Run.
+    /// <c>structuredContent</c> would not keep it out, because Claude Code hands the model
+    /// <c>structuredContent</c> in place of the content whenever a result has it. See docs/adr/0053.
+    /// </para>
     /// </remarks>
     /// <param name="roots">The session roots advertised by the MCP host.</param>
     /// <param name="workspaceRoot">The run's workspace root.</param>
     /// <param name="runId">The run whose plan is shown.</param>
     /// <param name="ct">Cancels the call on behalf of the MCP host.</param>
     /// <param name="plan">The complete plan to render, or null for <c>PLAN.md</c> as it stands.</param>
-    [McpServerTool(Name = "forge.plan.show"), McpAppUi(ResourceUri = PlanCanvas.ResourceUri), Description("Renders the plan as a document in the host's own UI, with the working-tree drift beside it. Call it only when forge.begin reported profile `Canvas`, immediately before you ask the user to approve — and still ask, because this records nothing. On a `Text` profile nothing renders, so show the plan in the chat instead. Omit plan to show PLAN.md as forge.plan.write and forge.plan.patch left it; the result's planHash names what was shown, for forge.plan.confirm.")]
-    public static async Task<string> ShowPlan(SessionRoots roots,
-                                              [Description("Absolute path to the workspace root.")] string workspaceRoot,
-                                              [Description("Run id from forge.begin.")] string runId,
-                                              CancellationToken ct,
-                                              [Description("Optional plan to show instead of PLAN.md, as markdown: the whole plan, not a summary of it. Omit it to show PLAN.md.")] string? plan = null)
+    /// <returns>The hash and the drift as content, and the plan text in <c>_meta</c> for the canvas.</returns>
+    [McpServerTool(Name = "forge.plan.show"), McpAppUi(ResourceUri = PlanCanvas.ResourceUri), Description("Renders the plan as a document in the host's own UI, with the working-tree drift beside it. Call it only when forge.begin reported profile `Canvas`, immediately before you ask the user to approve — and still ask, because this records nothing. On a `Text` profile nothing renders, so show the plan in the chat instead. Omit plan to show PLAN.md as forge.plan.write and forge.plan.patch left it; the result's planHash names what was shown, for forge.plan.confirm. The result carries no plan text: only the canvas receives it.")]
+    public static async Task<CallToolResult> ShowPlan(SessionRoots roots,
+                                                      [Description("Absolute path to the workspace root.")] string workspaceRoot,
+                                                      [Description("Run id from forge.begin.")] string runId,
+                                                      CancellationToken ct,
+                                                      [Description("Optional plan to show instead of PLAN.md, as markdown: the whole plan, not a summary of it. Omit it to show PLAN.md.")] string? plan = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        return await LoggedAsync(run, workspaceRoot, "forge.plan.show", [("plan", plan)],
+        var shown = string.Empty;
+        var view = await LoggedAsync(run, workspaceRoot, "forge.plan.show", [("plan", plan)],
             async () =>
             {
                 var state = run.ReadState();
-                var shown = plan ?? CurrentPlan(run, "forge.plan.show");
+                shown = plan ?? CurrentPlan(run, "forge.plan.show");
                 var drifted = await run.ReadBaseline(state.BaselineHead)
                                        .DriftedFilesAsync(new GitClient(workspaceRoot), ct);
 
                 return JsonSerializer.Serialize(
-                    new PlanViewResult(state.RunId, shown, PlanOutline.Hash(shown), drifted, state.ReviewRounds, state.Approved),
+                    new PlanViewResult(state.RunId, PlanOutline.Hash(shown), drifted, state.ReviewRounds, state.Approved),
                     ForgeToolJson.Default.PlanViewResult);
             });
+
+        return new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = view }],
+            Meta = new JsonObject { [PlanCanvas.PlanMetaKey] = shown }
+        };
     }
 
     /// <summary>
@@ -1491,17 +1505,16 @@ internal sealed record InstructionsResult(string? CriticInstructions,
                                           RunDocuments Documents);
 
 /// <summary>
-/// What the canvas renders: <c>PLAN.md</c> as it stands, or the plan the call was handed, and the
-/// hash that lets <c>forge.plan.confirm</c> approve exactly that text — see docs/adr/0038.
+/// What the Orchestrator reads of a shown plan: the hash that lets <c>forge.plan.confirm</c>
+/// approve exactly the text the canvas rendered — see docs/adr/0038 — and the drift beside it. The
+/// text itself travels to the canvas alone, in the result's <c>_meta</c>; see docs/adr/0053.
 /// </summary>
 /// <param name="RunId">The run whose plan is shown.</param>
-/// <param name="Plan">The plan text shown.</param>
-/// <param name="PlanHash">The hash of <paramref name="Plan"/>, as <c>forge.plan.outline</c> reports it.</param>
+/// <param name="PlanHash">The hash of the plan shown, as <c>forge.plan.outline</c> reports it.</param>
 /// <param name="DriftedFiles">The working-tree files changed since the baseline.</param>
 /// <param name="ReviewRounds">The plan-review rounds run so far.</param>
 /// <param name="Approved">Whether the run is approved.</param>
 internal sealed record PlanViewResult(string RunId,
-                                      string Plan,
                                       string PlanHash,
                                       IReadOnlyList<string> DriftedFiles,
                                       int ReviewRounds,

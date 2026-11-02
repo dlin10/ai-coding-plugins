@@ -307,7 +307,7 @@ internal sealed record DecisionBatchResponse(
             + $"saved result: outcome={Result.Outcome}, decisions=[{string.Join(", ", Result.DecisionFindingIds)}], "
             + $"reopenings=[{string.Join(", ", Result.ReopenedFindingIds)}], "
             + $"closures=[{string.Join(", ", Result.ClosedFindingIds)}]"
-            + (Result.RaisedFindingIds is { Count: > 0 } raised ? $", raises=[{string.Join(", ", raised)}]" : ""));
+            + (Result.RaisedFindingIds is { Count: > 0 } raised ? $", raises=[{string.Join(", ", raised)}]" : string.Empty));
     }
 }
 
@@ -471,7 +471,7 @@ internal sealed class DecisionLedger
                                                        entry.Finding.Where, entry.Finding.Invariant!, entry.Finding.Axes,
                                                        entry.Finding.InvariantOf, DispositionName(entry.Disposition), null, null)))
             .ToDictionary(instance => instance.FindingId, StringComparer.Ordinal);
-        if (instances.Count == 0) return "";
+        if (instances.Count == 0) return string.Empty;
 
         // invariantOf always names an earlier ID, so the walk ends; the root is the chain's lowest ID.
         string Root(InvariantInstance instance)
@@ -516,7 +516,7 @@ internal sealed class DecisionLedger
                    .Append(INVARIANTS_SECTION_LIMIT.ToString("N0", CultureInfo.InvariantCulture))
                    .Append(" characters: ").Append(leftOut.Count).Append(" chains, roots ")
                    .Append(string.Join(", ", leftOut.Take(LEFT_OUT_ROOTS)))
-                   .Append(leftOut.Count > LEFT_OUT_ROOTS ? $" and {leftOut.Count - LEFT_OUT_ROOTS} more" : "")
+                   .Append(leftOut.Count > LEFT_OUT_ROOTS ? $" and {leftOut.Count - LEFT_OUT_ROOTS} more" : string.Empty)
                    .AppendLine(".");
         foreach (var text in shown) section.AppendLine().Append(text);
         return section.ToString();
@@ -1341,7 +1341,7 @@ internal sealed class DecisionLedger
                     // The evidence rides along only to reach the invariant register: the batch's
                     // digest is taken over what the orchestrator sent, not over this closure.
                     closures.Add(new LedgerClosureDecision(decision.FindingId, LedgerClosureKind.Revision,
-                                                           decisionMaker, decision.Reason, decision.Evidence ?? ""));
+                                                           decisionMaker, decision.Reason, decision.Evidence ?? string.Empty));
                     accepted.Add(decision.FindingId);
                     break;
 

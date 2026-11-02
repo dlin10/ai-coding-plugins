@@ -17,9 +17,9 @@ public sealed class FullGateReviewTests : IDisposable
 {
     private readonly string _workspace = Path.Combine(Path.GetTempPath(), "planforge-timing-" + Guid.NewGuid().ToString("n"));
     private const string Plan = "# Brief\n## Approach\n1. Task.\n## Gates\n1. **G1.** `exit 0`\n";
-    private static readonly string?[] Timings = [null, "beforeNextRound", "final", "", " ", "Final", "unknown"];
+    private static readonly string?[] Timings = [null, "beforeNextRound", "final", string.Empty, " ", "Final", "unknown"];
     private static readonly Selection Critic = new("critic", null);
-    private string _head = "";
+    private string _head = string.Empty;
 
     public void Dispose()
     {
@@ -314,7 +314,7 @@ public sealed class FullGateReviewTests : IDisposable
         var run = RunDirectory.Create(_workspace, Guid.NewGuid().ToString("n"));
         run.WriteState(new RunState(run.RunId, _workspace, "Text", DateTimeOffset.Now, 0, 5,
             BaselineHead: _head, Approved: true, PendingGateFailure: "old failure"));
-        run.WriteBaseline(new Baseline(_head, ""));
+        run.WriteBaseline(new Baseline(_head, string.Empty));
         run.WritePlan(Plan);
         run.ReadDecisionLedger();
         if (pending) AddPending(run);

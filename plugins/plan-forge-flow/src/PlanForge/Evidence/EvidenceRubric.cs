@@ -159,7 +159,7 @@ internal static class EvidenceRubric
         var uncheckedJudgments = new List<EvidenceUnchecked>();
         var rubricItem = Item(item);
         if (Sensitive(shared.Requirements.Concat(shared.Exclusions).Concat(shared.ChangePoints)
-                            .Concat([rubricItem.Kind, rubricItem.Category ?? "", rubricItem.Text])))
+                            .Concat([rubricItem.Kind, rubricItem.Category ?? string.Empty, rubricItem.Text])))
             return new(requests, judgments.Select(judgment => new EvidenceUnchecked(judgment, "sensitive")).ToArray());
 
         var sharedPart = SharedPart(shared);

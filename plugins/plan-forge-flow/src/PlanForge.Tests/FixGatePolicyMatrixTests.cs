@@ -9,8 +9,8 @@ namespace PlanForge.Tests;
 
 public sealed class FixGatePolicyMatrixTests
 {
-    private static readonly string?[] Modes = [null, "full", "targeted", "Targeted", "", "   ", "unknown"];
-    private static readonly string?[] Timings = [null, "beforeNextRound", "final", "BeforeNextRound", "", "   ", "unknown"];
+    private static readonly string?[] Modes = [null, "full", "targeted", "Targeted", string.Empty, "   ", "unknown"];
+    private static readonly string?[] Timings = [null, "beforeNextRound", "final", "BeforeNextRound", string.Empty, "   ", "unknown"];
     private static readonly string?[] HostOutcomes = ["passed", "failed", "timeout", "not_executable", "not_run", null];
     private static readonly string[] Statuses = ["done", "blocked", "gate_failed", "background_killed"];
     private static readonly string[] SelfOutcomes = ["passed", "failed", "unavailable"];

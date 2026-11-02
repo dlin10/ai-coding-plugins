@@ -18,7 +18,7 @@ these terms replace it.
 | **Builder Brief** | The approved plan's stable, session-scoped implementation context: the exact non-whitespace Markdown prefix before `## Approach`, including the Builder selection, requirements, exclusions, run-wide gates, and any other preamble sections, while excluding every numbered task. Everything in that prefix is Vendor-bound context, not a place for transient interview notes or host values. On a fresh session — every plan task's and every code-review round's first turn — the act prompt labels a non-empty prefix `# Builder Brief` before that turn's task or kept findings; a retry resumed inside the same Builder session relies on the copy already in its history, and the user's Builder instructions remain the final directly addressed block. Reconfirming a changed Brief invalidates the prior Builder session so it cannot retain stale context, while a change confined to numbered tasks preserves that session because each task is delivered as a turn-specific delta. The Brief is evidence and constraints for implementation, never authority to revise the plan. |
 | **Scout** | The read-only Worker role that answers one bounded reconnaissance question with sourced evidence. It never settles requirements, plans, judges, or edits; the Orchestrator decides what evidence belongs in the requirements and plan. Its lazily selected Vendor, model, effort, and Fast choice are retained for the Run, and later calls resume its persistent session when the Vendor supports it. Scout may always use internet access its Vendor or granted read-only Worker tools already provide; no separate per-call authorization exists. |
 | **Scout report** | The Run's cumulative record of Scout answers, `scout-answers.json`, the only one there is: every successful answer is appended as its own numbered entry holding the question it answers and the answer's structure as the Scout returned it, and an answer that fails or is refused before it is appended adds nothing. There is no markdown rendering of it. Each item is identified by its answer number, category and position, which never change because answers are only appended. Each answer carries six sourced categories: confirmed facts, material assumptions, open decisions, likely change surface, verification evidence, and Dependents and pinned behaviour. Repository facts cite a path plus line or symbol, and external facts cite a URL. The tool result carries the complete answer it appended, unclipped. |
-| **Dependents and pinned behaviour** | The Scout report category that answers "what else breaks" for every location in the likely change surface: its consumers, the tests asserting its current behaviour, and the artefacts outside the code that pin it — snapshots, metrics and baselines, gate scripts, docs, specs, skills and prompts. A location with nothing found is still listed, saying so and naming what was searched. |
+| **Dependents and pinned behaviour** | The Scout report category that answers "what else breaks" for every location in the likely change surface: its consumers, the tests asserting its current behaviour, and the artefacts outside the code that pin it — snapshots, metrics and baselines, gate scripts, docs, specs, skills and prompts. Each dependent opens with what the change does to it — `changes:`, `update:` or `unaffected:`; one the change reaches has an item of its own, and the unaffected dependents of a location share one item that lists them. A location with nothing found is still listed, saying so and naming what was searched. |
 | **Change point** | Something the plan's approach changes that anything else can depend on: a symbol, a contract, a wire or persisted format, a counter, a prompt or skill text. The unit an Impact pass asks about. |
 | **Impact pass** | The Scout question asked after the plan's approach is drafted and before its first review: it names every Change point and asks, for each one, who depends on it and what pins its current behaviour. Unlike an orientation question, which asks where things are before an approach exists, it is required for every plan. It is itself a Scout need, so it starts the lazy Scout selection when none has been made; it is repeated when a revision introduces a Change point not checked before; and when the Run continues without Scout, the Orchestrator makes the same check itself. |
 | **Evidence check** | The Orchestrator's comparison of its plan with every fact in the Scout report that bears on a Change point, made after each Impact pass and before the review that follows it. Each such fact is either used by the plan or departed from on purpose; a deliberate departure is recorded in the Run log, and also in the plan wherever a Critic would otherwise raise it. |
@@ -773,7 +773,7 @@ the published schema. Domain rules that depend on a value being present — a se
 carry a `revision` — stay where they always were, in the act, where they can say what is missing and
 why.
 
-## The `canvas` profile is built, and no supported host negotiates it; nor the Tasks extension
+## The `canvas` profile is built, and Claude Code's desktop app negotiates it; nobody negotiates Tasks
 
 Measured on 2026-08-15 against a spike server built on the MCP C# SDK 2.2.0: Claude Code 2.1.233
 negotiates protocol `2025-11-25` and reports `extensions: null` with no UI capability. Neither the
@@ -788,8 +788,18 @@ Codex has not been measured, because its sandbox refuses to spawn the spike.
 
 So the `canvas` branch is written, and it is one tool wide: `forge.plan.show` renders the plan
 through the `ui://planforge/plan.html` resource — see [docs/adr/0008](docs/adr/0008-render-the-plan-on-a-canvas.md).
-Every other tool still delivers markdown in the tool result, which is also what a `Text` host gets
-from `forge.plan.show` itself.
+Every other tool still delivers markdown in the tool result.
+
+Re-measured on 2026-11-02: the Claude Code desktop app (4.4212) starts the plugin's servers itself,
+and its `LocalMcpServerManager` advertises `io.modelcontextprotocol/ui`; the concurrency-hunter
+runs B4c–H2b, held there, recorded `profile: "Canvas"`. The CLI on its own (`claude -p` 2.1.316)
+advertises roots and elicitation only. What reaches the model is the CLI's choice in both: given a
+result with `structuredContent`, it sends the model that object serialised instead of the
+`content` text — measured with a spike server, and seen in the desktop app's transcripts for
+Windows-MCP — and it never sends `_meta`. So `forge.plan.show` puts the plan text in `_meta` for
+the canvas and keeps only the hash and the drift in the content — see
+[docs/adr/0053](docs/adr/0053-send-the-shown-plan-to-the-canvas-alone.md). Whether the desktop app's
+view bridge forwards `_meta` to the view is not measured.
 
 The Tasks half stands unchanged: nobody negotiates it, so progress is observable only at the
 granularity of one tool call per unit of work, plus `forge.status` on demand.
@@ -1122,3 +1132,17 @@ indentation; on the English runs about a tenth. Forge results were 10–24% of a
 growth, so the encoding was the one change to results worth most of a compaction window, and why
 results now leave through one compacting filter — see
 [docs/adr/0042](docs/adr/0042-tool-results-carry-what-the-orchestrator-acts-on.md).
+
+## The Orchestrator read everything itself, and its reasoning stayed
+
+Measured on 2026-11-02 the same way over the concurrency-hunter runs B4c–H2b on Claude Code (Opus
+5.5): the Runs compacted 4, 1, 1, 1 and 0 times and never called the host's `Agent` tool. The
+Orchestrator's own output was 39–54% of the context growth, because Opus keeps its earlier
+reasoning in context — a step that appended nothing else grew by about 1.25 times the previous
+call's output tokens — and reading was 31–42%: code, the output of turns that only read, Scout
+answers and Evidence-map flags. Scout answers alone were 7–14%; every Impact-pass answer was read
+once and whole, 40–100k characters. A Codex Orchestrator left to choose (H2) spawned 28 subagents
+and compacted 26 times, its own reads nine times the agents' messages. Hence a reference that names
+what reading to hand over and what never, and a Scout that says what the change does to each
+dependent, which an A/B on the H1 and H2a Impact questions measured at a sixth less text — see
+[docs/adr/0052](docs/adr/0052-keep-long-reading-out-of-the-orchestrators-context.md).

@@ -542,7 +542,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var run = NewRun("empty-failed", plan: "## Gates\n\n1. **G1.** `cmd /c exit 3` fails.\n");
         var entry = run.ReadDecisionLedger().AddFinding(Finding("gate"), LedgerPhase.CodeReview);
         var vendor = new RecordingVendor("codex");
-        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", ""), ""), "builder-token");
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", string.Empty), string.Empty), "builder-token");
 
         var result = await new ReviewFix(vendor, new PromptLibrary(RepositoryPrompts())).FixAsync(
             run, new Selection("builder", null), null, "attempt-empty-failed", [entry.FindingId],
@@ -564,7 +564,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var run = NewRun("empty-passed", plan: "## Gates\n\n1. **G1.** `exit 0` passes.\n");
         var entry = run.ReadDecisionLedger().AddFinding(Finding("gate"), LedgerPhase.CodeReview);
         var vendor = new RecordingVendor("codex");
-        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", ""), ""), "builder-token");
+        vendor.Enqueue(new BuildResult("done", [], new Verification("passed", string.Empty), string.Empty), "builder-token");
 
         var result = await new ReviewFix(vendor, new PromptLibrary(RepositoryPrompts())).FixAsync(
             run, new Selection("builder", null), null, "attempt-empty-passed", [entry.FindingId],
@@ -658,7 +658,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var entry = ledger.AddFinding(Finding("settled"), LedgerPhase.PlanReview);
         ledger.Apply(Batch(Decision("defer", entry.FindingId)), LedgerPhase.PlanReview);
         Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
-            Batch(Decision("accept", entry.FindingId, evidence: "")), LedgerPhase.PlanReview));
+            Batch(Decision("accept", entry.FindingId, evidence: string.Empty)), LedgerPhase.PlanReview));
     }
 
     [Theory]
@@ -941,7 +941,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("close"), LedgerPhase.PlanReview);
         Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
-            Batch(Decision("addressedByRevision", entry.FindingId, reason: "", evidence: REVISION_EVIDENCE)), LedgerPhase.PlanReview));
+            Batch(Decision("addressedByRevision", entry.FindingId, reason: string.Empty, evidence: REVISION_EVIDENCE)), LedgerPhase.PlanReview));
     }
 
     [Fact]
@@ -950,7 +950,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         var ledger = Ledger();
         var entry = ledger.AddFinding(Finding("action"), LedgerPhase.PlanReview);
         Assert.Throws<DecisionLedgerRequestException>(() => ledger.Apply(
-            Batch(Decision("", entry.FindingId)), LedgerPhase.PlanReview));
+            Batch(Decision(string.Empty, entry.FindingId)), LedgerPhase.PlanReview));
     }
 
     [Fact]
@@ -1476,7 +1476,7 @@ public sealed class DecisionLedgerOrchestrationTests : IDisposable
         Assert.Throws<DecisionLedgerCritiqueException>(() => ledger.IngestCritique(new VendorCritique
         {
             Verdict = "approve",
-            Findings = [new VendorFinding("major", "new.cs", "new finding", "", [], "", false, "")],
+            Findings = [new VendorFinding("major", "new.cs", "new finding", string.Empty, [], string.Empty, false, string.Empty)],
             Summary = "invalid coverage",
             UnresolvedAssessments = [],
             Reopenings = []

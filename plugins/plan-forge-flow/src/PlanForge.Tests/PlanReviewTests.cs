@@ -926,7 +926,7 @@ public sealed class PlanReviewTests : IDisposable
     {
         var with = PlanReview.Compose("# Plan", "# Decision ledger projection\nEntries: (none)\n",
                                       "# Decisions\n\n- D-0001 (user): q → a\n", null);
-        var without = PlanReview.Compose("# Plan", "# Decision ledger projection\nEntries: (none)\n", "", null);
+        var without = PlanReview.Compose("# Plan", "# Decision ledger projection\nEntries: (none)\n", string.Empty, null);
 
         Assert.Contains("- D-0001 (user): q → a", with, StringComparison.Ordinal);
         Assert.DoesNotContain("# Decisions", without, StringComparison.Ordinal);

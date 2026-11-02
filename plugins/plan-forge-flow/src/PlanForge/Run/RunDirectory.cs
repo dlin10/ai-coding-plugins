@@ -301,7 +301,7 @@ internal sealed class RunDirectory
         {
             entry.AppendLine();
             foreach (var option in options)
-                entry.Append("- ").Append(option.Label).AppendLine(option.Recommended ? " (recommended)" : "");
+                entry.Append("- ").Append(option.Label).AppendLine(option.Recommended ? " (recommended)" : string.Empty);
         }
 
         entry.AppendLine()
@@ -434,7 +434,7 @@ internal sealed class RunDirectory
         AppendFlowDecisionBatch(act, response, phase, batch.Decisions
             .OrderBy(decision => decision.FindingId, StringComparer.Ordinal)
             .Select(decision => $"- {decision.FindingId} {decision.Action} ({decision.By})"
-                                + (decision.ForTasks is { Count: > 0 } tasks ? $" for tasks {string.Join(", ", tasks)}" : "")
+                                + (decision.ForTasks is { Count: > 0 } tasks ? $" for tasks {string.Join(", ", tasks)}" : string.Empty)
                                 + $": {decision.Reason}{RevisionEvidence(decision)}")
             .Concat((batch.Raises ?? []).Zip(response.Result.RaisedFindingIds ?? [])
                 .SelectMany(raise => new[]
@@ -492,7 +492,7 @@ internal sealed class RunDirectory
     private static string RevisionEvidence(OrchestratorDecision decision) =>
         decision.Evidence is { } evidence && DecisionLedger.NormalizeAction(decision.Action) == "addressedByRevision"
             ? $" — evidence: {DecisionRecords.Flat(evidence)}"
-            : "";
+            : string.Empty;
 
     private static string Name<TEnum>(TEnum value) where TEnum : struct, Enum =>
         JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString());

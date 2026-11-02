@@ -1,5 +1,32 @@
 # Plan Forge Flow releases
 
+## 0.76.0
+
+The Orchestrator hands long read-only reading to a host subagent, the Scout writes its dependents
+shorter without dropping any, and `forge.plan.show` stops handing the plan back to the
+Orchestrator. ADRs 0052 and 0053.
+
+- `forge.plan.show` answers with the run id, plan hash, drift, rounds and approval only; the plan
+  text goes to the canvas in the result's `_meta` under `planforge/plan`, which Claude Code keeps
+  from the model. Not `structuredContent`: Claude Code sends the model that in place of the text
+  content. The canvas reads the plan from `_meta`, and says so in the view when none arrived; the
+  approval reference then has the Orchestrator show `PLAN.md` in the chat. `forge.log` no longer
+  records a copy of the plan per call.
+
+- A new skill reference, `delegation.md`, read right after `forge.begin` and after a compaction:
+  what reading to hand to a subagent — the class listing before a claim, test and gate logs, project
+  documents, the code an Evidence-map flag names, the Impact pass made without Scout — and what
+  never; the brief, a report of about 3,000 characters with `path:line` and the quoted line for
+  every item, `Explore` on Claude Code and an `explorer` with `fork_turns: "none"` on Codex; and that
+  a report is a pointer, so a claim still rests on lines the Orchestrator read. The resume card
+  names it beside the phase's references in every phase.
+- The Scout contract has each dependent open with `changes:`, `update:` or `unaffected:`. A
+  dependent the change reaches keeps an item of its own; the unaffected dependents of one location
+  share one item that lists them by `path:line` and name, with why. A test or artefact asserting
+  what a change point modifies is `update:`, and code deciding the same question as a changed rule
+  `changes:`, never `unaffected:`. Every fact is still reported, once and as briefly as it can be
+  said.
+
 ## 0.75.0
 
 A Critic's finding names the invariant it breaks, the invariant outlives the finding's closure, and

@@ -93,7 +93,7 @@ internal abstract class HttpAdvisor : IAdvisor, IDisposable
                 using var response = await _http.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
                 Observe(response);
                 var status = (int)response.StatusCode;
-                var body = ReadsBody(status) ? await response.Content.ReadAsStringAsync(timeout.Token) : "";
+                var body = ReadsBody(status) ? await response.Content.ReadAsStringAsync(timeout.Token) : string.Empty;
                 if (status == 200) return Parse(body);
                 var kind = Failure(status, body);
                 if (kind is not (AdvisorFailureKind.RateLimited or AdvisorFailureKind.Overloaded) || attempt == 2)

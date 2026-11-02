@@ -71,6 +71,10 @@ so it is among what comes back. `build/package.ps1` reads its phrase markers acr
 checks that the core names each reference and stays under 18 KB, ships both hook files, and runs
 the published binary's `--resume-card` in both forms.
 
+*Amended 2026-11-02 by [0052](0052-keep-long-reading-out-of-the-orchestrators-context.md).* The card
+names `delegation.md`, what reading to hand to a subagent, beside the phase's references in every
+phase.
+
 ## Considered and rejected
 
 - **The newest Run, as the issue wrote.** See above: a card in sessions that are not running forge.

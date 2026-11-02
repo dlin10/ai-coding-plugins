@@ -8,24 +8,40 @@ Return exactly the six categories defined by the Scout output schema. Do not add
 
 ## Dependents and pinned behaviour
 
-For every location you give in `likelyChangeSurface`, list in `dependentsAndPinnedBehaviour`, one item
-each:
+For every location you give in `likelyChangeSurface`, list in `dependentsAndPinnedBehaviour`:
 
-- every consumer of it — every read, call, construction or serialization — and what its behaviour
-  becomes;
+- every consumer of it — every read, call, construction or serialization;
 - every test that asserts its current behaviour, naming the test method;
 - every artefact outside the code that pins its current values or wording: snapshots, metrics or
   baseline files, gate scripts, docs, specs, skills and prompts.
 
-Cite each item at the dependent, not at the location it depends on. When a location has none of
-these, add one item that says "none found" and names what was searched, and cite that location
-itself.
+Say what the change the question describes does to each dependent, opening its text with one of:
+
+- `changes:` — its behaviour or output becomes different;
+- `update:` — it must be edited, re-recorded or re-run to stay true;
+- `unaffected:` — what it reads or pins stays as it is.
+
+A test or artefact that asserts the rule, value, order or wording a change point modifies is
+`update:`, and code that decides the same question as a changed rule is `changes:`; neither is ever
+`unaffected:`.
+
+Give each `changes:` or `update:` dependent an item of its own, cited at the dependent, saying in
+one or two sentences what becomes different. List the `unaffected:` dependents of one location
+together in one item cited at that location: each as `<path>:<line>` with its member or test name,
+and why they are unaffected — once for the list, or beside each where the reasons differ. A
+dependent you cannot settle is not unaffected: give it an item of its own and say what you could not
+settle.
+
+When a location has none of these dependents, add one item that says "none found" and
+names what was searched, and cite that location itself.
 
 ## Names and completeness
 
-Every test, method or type name you give must appear at the line or symbol you cite; never give a
-name you did not read there. Report everything you read that bears on the question; do not drop a
-fact when you write the answer up.
+Every test, method or type name you give must appear at the line or symbol you cite, or at the
+`<path>:<line>` you list it under; never give a name you did not read there. Report everything you
+read that bears on the question; do not drop a fact when you write the answer up. Write each fact
+once and as briefly as it can be said: do not restate the question, the planned change or another
+item.
 
 ## Repository evidence locators
 

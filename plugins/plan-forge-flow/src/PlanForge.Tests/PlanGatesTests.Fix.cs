@@ -46,7 +46,7 @@ public sealed partial class PlanGatesTests
     public static IEnumerable<object[]> InvalidFixGrammarCases()
     {
         const string heading = "## Gates\n1. **G1.** condition\n";
-        foreach (var code in new[] { "", "prose `cmd`", "` `", "``", "```ps\n\n```", "~~~\n  \n~~~", "```ps\ncmd", "~~~~\ncmd\n~~~", "```\ncmd\n~~~", "```\ncmd\n``` suffix", "`cmd" })
+        foreach (var code in new[] { string.Empty, "prose `cmd`", "` `", "``", "```ps\n\n```", "~~~\n  \n~~~", "```ps\ncmd", "~~~~\ncmd\n~~~", "```\ncmd\n~~~", "```\ncmd\n``` suffix", "`cmd" })
             yield return [heading + "**Fix gate:** " + code, "executable Fix gate"];
         foreach (var label in new[] { "- **Fix gate:**", "mention **Fix gate:**", "2. mention **Fix gate:**", "**Fix gatekeeper:**" })
             yield return [heading + label + " `cmd`", "none was found"];

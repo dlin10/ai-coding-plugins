@@ -377,7 +377,7 @@ public sealed class TranscriptUsageSourceTests : IDisposable
         new(_claude, _codex, async (_, ct) =>
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
-            return "";
+            return string.Empty;
         }, TimeSpan.FromMilliseconds(200));
 
     /// <summary>
@@ -480,7 +480,7 @@ public sealed class TranscriptUsageSourceTests : IDisposable
         // Another session's transcript in the same folder is never read.
         File.WriteAllText(Path.Combine(Path.GetDirectoryName(ClaudeTranscript())!, "session-b.jsonl"),
                           Assistant("msg-x", 10, input: 999, read: 999, creation: 999, output: 999) + "\n");
-        File.WriteAllText(ClaudeTranscript(), string.Join("\n", lines) + (lines[^1].EndsWith('}') ? "\n" : ""));
+        File.WriteAllText(ClaudeTranscript(), string.Join("\n", lines) + (lines[^1].EndsWith('}') ? "\n" : string.Empty));
     }
 
     private void AppendClaude(string line) => File.AppendAllText(ClaudeTranscript(), line + "\n");
