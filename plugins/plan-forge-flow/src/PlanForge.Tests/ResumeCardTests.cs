@@ -43,14 +43,14 @@ public sealed class ResumeCardTests : IDisposable
     [Fact]
     public void Nothing_is_printed_without_a_run_of_this_session()
     {
-        Assert.Equal("", ResumeCard.Of(_root, SESSION, null));
+        Assert.Equal(string.Empty, ResumeCard.Of(_root, SESSION, null));
 
         NewRun("20261021-100000-other", approved: false, tasksCompleted: 0, session: "session-b");
         var done = NewRun("20261021-110000-done", approved: false, tasksCompleted: 0);
         File.WriteAllText(Path.Combine(done.Path, OrchestratorPhases.FILE_NAME), """{ "state": "none" }""");
 
-        Assert.Equal("", ResumeCard.Of(_root, SESSION, null));
-        Assert.Equal("", ResumeCard.Of(_root, null, null));
+        Assert.Equal(string.Empty, ResumeCard.Of(_root, SESSION, null));
+        Assert.Equal(string.Empty, ResumeCard.Of(_root, null, null));
     }
 
     [Fact]
@@ -281,7 +281,7 @@ public sealed class ResumeCardTests : IDisposable
         Assert.Equal(0, ResumeCard.Run(["--resume-card", _root], TextReader.Null, output, _ => SESSION));
         Assert.Equal(0, ResumeCard.Run(["--resume-card"], new StringReader(new JsonObject { ["session_id"] = SESSION, ["cwd"] = _root }.ToJsonString()),
                                        output, _ => null));
-        Assert.Equal("", output.ToString());
+        Assert.Equal(string.Empty, output.ToString());
         Assert.Equal(2, ResumeCard.Run(["--resume-card", "relative"], TextReader.Null, output, _ => SESSION));
         Assert.Equal(2, ResumeCard.Run(["--resume-card"], TextReader.Null, output, _ => SESSION));
         Assert.Equal(2, ResumeCard.Run(["--resume-card"], new StringReader("""{"session_id":"s","cwd":"relative"}"""), output, _ => null));

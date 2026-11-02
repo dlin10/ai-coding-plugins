@@ -23,7 +23,7 @@ public sealed class OpenAiDecisionsDescriptorTests
     private static readonly string?[] KEYS = [null, " \t", "distinctive-openai-secret-71c4"];
 
     /// <summary>The model's four states: unset, blank, valid and invalid.</summary>
-    private static readonly string?[] MODELS = [null, "", "gpt-6.1-luna", "gpt/6"];
+    private static readonly string?[] MODELS = [null, string.Empty, "gpt-6.1-luna", "gpt/6"];
 
     /// <summary>
     /// All twelve cells of key {unset, blank, set} × model {unset, blank, valid, invalid}: absent when nothing non-blank is set,

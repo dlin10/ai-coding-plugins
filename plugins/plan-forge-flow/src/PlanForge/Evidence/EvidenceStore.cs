@@ -281,7 +281,7 @@ internal sealed class EvidenceStore
             {
                 var answer = outcome.Answer!;
                 if (judgment.ServedModel is null || answer.Probabilities is null || !EvidenceRubric.ValidateStored(
-                    new("stored", "", answer.Probabilities.Keys.Select(value => new ChoiceOption(value, "")).ToArray()), answer))
+                    new("stored", string.Empty, answer.Probabilities.Keys.Select(value => new ChoiceOption(value, string.Empty)).ToArray()), answer))
                     throw Malformed();
             }
         }

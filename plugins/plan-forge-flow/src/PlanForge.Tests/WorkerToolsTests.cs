@@ -20,7 +20,7 @@ public sealed class WorkerToolsTests
     private static readonly string[] ClaudeList =
     [
         "Checking MCP server health…",
-        "",
+        string.Empty,
         "claude.ai Claude Docs: https://api.anthropic.com/v1/pages/mcp - ✔ Connected",
         "plugin:context7:context7: https://mcp.context7.com/mcp?client=claude-code-plugin (HTTP) - ✔ Connected",
         "plugin:plan-forge-flow:plan-forge-flow: cmd.exe /d /c C:/Users/Admin/.claude/plugins/cache/dlin10-ai-coding-plugins/plan-forge-flow/0.29.1\\bin\\planforge-launcher.cmd - ✔ Connected",

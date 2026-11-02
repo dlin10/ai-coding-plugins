@@ -10,7 +10,7 @@ public sealed class PlanOutlineTests
     [Fact]
     public void Concatenating_the_targets_reproduces_the_plan()
     {
-        foreach (var plan in new[] { "", "\n\n", "Intro\n# Title\n## Approach\n\n1. Alpha\n2. Beta\n## Gates\nCheck" })
+        foreach (var plan in new[] { string.Empty, "\n\n", "Intro\n# Title\n## Approach\n\n1. Alpha\n2. Beta\n## Gates\nCheck" })
         foreach (var newline in new[] { "\n", "\r\n" })
         {
             var text = plan.Replace("\n", newline, StringComparison.Ordinal);
@@ -48,7 +48,7 @@ public sealed class PlanOutlineTests
 
         Assert.Equal("heading", Assert.Single(targets).Kind);
         Assert.Equal(0, targets[0].Start);
-        Assert.Empty(PlanOutline.Of("").Targets);
+        Assert.Empty(PlanOutline.Of(string.Empty).Targets);
     }
 
     [Fact]
@@ -163,7 +163,7 @@ public sealed class PlanOutlineTests
     [Fact]
     public void Blank_means_whitespace_after_leading_byte_order_marks()
     {
-        foreach (var text in new string?[] { null, "", "\uFEFF", "\uFEFF\uFEFF \n", "\uFEFF\n\t" })
+        foreach (var text in new string?[] { null, string.Empty, "\uFEFF", "\uFEFF\uFEFF \n", "\uFEFF\n\t" })
             Assert.True(PlanOutline.IsBlank(text));
         foreach (var text in new[] { "\uFEFF x", " \uFEFF" })
             Assert.False(PlanOutline.IsBlank(text));

@@ -617,7 +617,7 @@ internal sealed class ForgeTools
                                                       [Description("Optional plan to show instead of PLAN.md, as markdown: the whole plan, not a summary of it. Omit it to show PLAN.md.")] string? plan = null)
     {
         var run = await RunDirectory.OpenAsync(roots, workspaceRoot, runId, ct);
-        var shown = "";
+        var shown = string.Empty;
         var view = await LoggedAsync(run, workspaceRoot, "forge.plan.show", [("plan", plan)],
             async () =>
             {

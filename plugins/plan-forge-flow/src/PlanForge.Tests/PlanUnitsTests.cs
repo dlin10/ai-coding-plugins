@@ -186,7 +186,7 @@ public sealed class PlanUnitsTests
     [Fact]
     public void Empty_and_blank_plans_remain_exact_partitions()
     {
-        Assert.Empty(PlanUnits.Of(""));
+        Assert.Empty(PlanUnits.Of(string.Empty));
         var blank = Assert.Single(PlanUnits.Of(" \n\t\r\n"));
 
         Assert.Equal(("s0", "other", "(blank)", " \n\t\r\n"), (blank.Id, blank.Kind, blank.Label, blank.Text));

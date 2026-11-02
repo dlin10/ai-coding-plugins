@@ -24,7 +24,7 @@ public sealed class OpenAiDecisionsFailureMatrixTests
     private static readonly string[] BODIES =
     [
         // (1)–(8) Envelope shapes: empty, not JSON, no error, error not an object, other roots, markers only at the top level.
-        "",
+        string.Empty,
         "Service unavailable",
         """{"message":"x"}""",
         """{"error":"insufficient_quota"}""",

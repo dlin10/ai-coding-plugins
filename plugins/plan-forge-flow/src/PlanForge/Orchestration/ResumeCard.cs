@@ -82,17 +82,17 @@ internal static class ResumeCard
     /// <param name="references">The forge skill's <c>references</c> folder, or null when it cannot be found.</param>
     internal static string Of(string root, string? sessionId, string? references)
     {
-        if (sessionId is not { Length: > 0 }) return "";
+        if (sessionId is not { Length: > 0 }) return string.Empty;
 
         var forge = Path.Combine(root, RunDirectory.FORGE_FOLDER);
-        if (!Directory.Exists(forge)) return "";
+        if (!Directory.Exists(forge)) return string.Empty;
 
         var (runId, phase) = Directory.EnumerateDirectories(forge)
                                       .Select(path => (Id: Path.GetFileName(path), Phase: OpenPhase(path)))
                                       .Where(candidate => candidate.Phase?.HostSessionId == sessionId)
                                       .OrderByDescending(candidate => candidate.Id, StringComparer.Ordinal)
                                       .FirstOrDefault();
-        if (phase is null) return "";
+        if (phase is null) return string.Empty;
 
         var run = RunDirectory.Open(root, runId);
         try
@@ -162,7 +162,7 @@ internal static class ResumeCard
                             ? "- Decisions: none recorded yet."
                             : $"- Decisions: {decisions.Count} recorded in {run.DecisionsPath}. Read them there, not in your summary, "
                               + "before you ask the user anything the run may have settled."
-                              + (widenings == 0 ? "" : $" Widenings since the interview: {widenings}."));
+                              + (widenings == 0 ? string.Empty : $" Widenings since the interview: {widenings}."));
 
         AppendIds(card, "Unresolved", ledger.UnresolvedFindingIds);
         AppendIds(card, "  of which active in plan review", ledger.PlanReviewActiveFindingIds.Intersect(ledger.UnresolvedFindingIds).ToArray());
@@ -293,7 +293,7 @@ internal static class ResumeCard
                 var act = Text(fields, "tool") switch
                 {
                     "forge.work.start" => Text(fields, "act"),
-                    { } tool => tool.Replace("forge.", "", StringComparison.Ordinal),
+                    { } tool => tool.Replace("forge.", string.Empty, StringComparison.Ordinal),
                     null => null
                 };
                 if (Text(fields, "model") is not { } model) continue;
@@ -326,7 +326,7 @@ internal static class ResumeCard
     private static string Fallout(RunState state) =>
         state.FalloutOwed is { Count: > 0 }
             ? ", fallout: { own: [\"F-...\"], sibling: [], sameClass: [], older: [] } (required: every ID listed above, each under exactly one label)"
-            : "";
+            : string.Empty;
 
     private static string? Text(JsonElement fields, string name) =>
         fields.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
@@ -344,8 +344,8 @@ internal static class ResumeCard
     }
 
     private static string Rounds(int rounds, int cap, int granted, int automatic) =>
-        $"{rounds} rounds, cap {cap}" + (granted > 0 ? $" + {granted} granted" : "")
-                                       + (automatic > 0 ? $" + {automatic} automatic" : "");
+        $"{rounds} rounds, cap {cap}" + (granted > 0 ? $" + {granted} granted" : string.Empty)
+                                       + (automatic > 0 ? $" + {automatic} automatic" : string.Empty);
 
     private static void AppendIds(StringBuilder card, string label, IReadOnlyList<string> ids)
     {
@@ -398,6 +398,6 @@ internal static class ResumeCard
     {
         /// <summary>The selection as a tool call's arguments.</summary>
         public string Arguments =>
-            $"model: \"{Model}\"" + (Effort is null ? "" : $", effort: \"{Effort}\"") + $", vendor: \"{Vendor ?? "claude"}\", fast: {(Fast ? "true" : "false")}";
+            $"model: \"{Model}\"" + (Effort is null ? string.Empty : $", effort: \"{Effort}\"") + $", vendor: \"{Vendor ?? "claude"}\", fast: {(Fast ? "true" : "false")}";
     }
 }

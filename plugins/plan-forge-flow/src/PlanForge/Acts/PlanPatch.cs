@@ -120,7 +120,7 @@ internal static class PlanPatch
                 throw Reject("conflicting_edits", $"Edit {index}, target {Shown(edit.Target, PlanValueKind.Id)}: " +
                     "an insertion is anchored on a deleted target.");
 
-        var newline = plan.Contains('\n') && plan.Replace("\r\n", "", StringComparison.Ordinal).IndexOfAny(['\r', '\n']) < 0
+        var newline = plan.Contains('\n') && plan.Replace("\r\n", string.Empty, StringComparison.Ordinal).IndexOfAny(['\r', '\n']) < 0
             ? "\r\n" : "\n";
         var pieces = new List<string>();
         var removed = new StringBuilder();

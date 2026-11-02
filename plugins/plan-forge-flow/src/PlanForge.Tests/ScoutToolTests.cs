@@ -88,7 +88,7 @@ public sealed class ScoutToolTests : IDisposable
         var starts = 0;
 
         await Assert.ThrowsAsync<ArgumentRejectedException>(() =>
-            ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "question", "",
+            ForgeTools.ScoutRun(SessionRoots.None, _workspace, run.RunId, "question", string.Empty,
                                 CancellationToken.None, _ =>
                                 {
                                     starts++;

@@ -30,8 +30,8 @@ public sealed class InvariantRegisterTests : IDisposable
 
         var critique = ledger.IngestCritique(Critique(
             new VendorFinding("major", "Approach: task 2", "misses the ref path", "every reader of the key sees the stored value",
-                              ["call kinds", "", "docs"], "callers of Store.Read", true, ""),
-            new VendorFinding("minor", "Gates: G1", "count", " ", [], "", false, "")), LedgerPhase.PlanReview);
+                              ["call kinds", string.Empty, "docs"], "callers of Store.Read", true, string.Empty),
+            new VendorFinding("minor", "Gates: G1", "count", " ", [], string.Empty, false, string.Empty)), LedgerPhase.PlanReview);
 
         var first = ledger.Snapshot.Entries[0].Finding;
         Assert.Equal("every reader of the key sees the stored value", first.Invariant);
@@ -75,7 +75,7 @@ public sealed class InvariantRegisterTests : IDisposable
     {
         var ledger = NewRun().ReadDecisionLedger();
         ledger.IngestCritique(Critique(Invariant("major", "Approach: task 2", "one rule", axes: ["matrix", "gate"]),
-                                       Invariant("minor", "Gates: G1", "")), LedgerPhase.PlanReview);
+                                       Invariant("minor", "Gates: G1", string.Empty)), LedgerPhase.PlanReview);
 
         ledger.Apply(new OrchestratorDecisionBatch("close", [
             new OrchestratorDecision("F-0001", "addressedByRevision", "orchestrator", "revised", "read Ledger.cs:10-40; cell major x none"),

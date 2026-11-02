@@ -157,7 +157,7 @@ public sealed class OpenAiDecisionsAdvisorTests
         using var advisor = new OpenAiDecisionsAdvisor(KEY, MODEL, Respond(200, SUCCESS[..SUCCESS.IndexOf(",\"usage\"", StringComparison.Ordinal)] + "}"));
         Assert.Null((await advisor.AskAsync(Request(), CancellationToken.None)).Usage);
         using var withoutDetails = new OpenAiDecisionsAdvisor(KEY, MODEL, Respond(200, SUCCESS.Replace(
-            ",\"input_tokens_details\":{\"cached_tokens\":2759,\"cache_write_tokens\":0}", "", StringComparison.Ordinal)));
+            ",\"input_tokens_details\":{\"cached_tokens\":2759,\"cache_write_tokens\":0}", string.Empty, StringComparison.Ordinal)));
         Assert.Equal(new AdviceUsage(3000, 2, null, null), (await withoutDetails.AskAsync(Request(), CancellationToken.None)).Usage);
     }
 
@@ -168,7 +168,7 @@ public sealed class OpenAiDecisionsAdvisorTests
     /// <summary>A 200 without a served model is an invalid response.</summary>
     [Fact]
     public Task A_missing_model_is_invalid_response() => AssertFailure(200, AdvisorFailureKind.InvalidResponse,
-        SUCCESS.Replace("\"model\":\"gpt-6-luna-2026-10-15\",", "", StringComparison.Ordinal));
+        SUCCESS.Replace("\"model\":\"gpt-6-luna-2026-10-15\",", string.Empty, StringComparison.Ordinal));
 
     /// <summary>A blank served model is an invalid response.</summary>
     [Fact]
@@ -219,7 +219,7 @@ public sealed class OpenAiDecisionsAdvisorTests
     /// <summary>A choice answer without probabilities is an invalid response; a refusal needs none.</summary>
     [Fact]
     public Task Missing_probabilities_are_invalid_response() => AssertFailure(200, AdvisorFailureKind.InvalidResponse,
-        SUCCESS.Replace("\"probabilities\":[{\"value\":\"yes\",\"probability\":0.8},{\"value\":\"no\",\"probability\":0.2}],", "",
+        SUCCESS.Replace("\"probabilities\":[{\"value\":\"yes\",\"probability\":0.8},{\"value\":\"no\",\"probability\":0.2}],", string.Empty,
                         StringComparison.Ordinal));
 
     /// <summary>A probability whose value is a number, null, missing, or the entry itself null, is an invalid response.</summary>

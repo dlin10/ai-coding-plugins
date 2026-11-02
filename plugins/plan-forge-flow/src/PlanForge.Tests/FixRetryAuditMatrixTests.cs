@@ -59,7 +59,7 @@ public sealed class FixRetryAuditMatrixTests : IDisposable
         else if (global == "interruption") expected.Append("\n# The previous attempt was cut short\n\n" + globalBrief + "\n");
         var retryStart = prompt.IndexOf("\n# The previous attempt", StringComparison.Ordinal);
         Assert.Equal(expected.ToString().ReplaceLineEndings("\n"),
-            retryStart < 0 ? "" : prompt[retryStart..].ReplaceLineEndings("\n"));
+            retryStart < 0 ? string.Empty : prompt[retryStart..].ReplaceLineEndings("\n"));
         Assert.DoesNotContain("The same command runs again", prompt, StringComparison.Ordinal);
         if (last is "failed" or "timeout") Assert.DoesNotContain("global failure evidence", prompt, StringComparison.Ordinal);
         if (global == "interruption")

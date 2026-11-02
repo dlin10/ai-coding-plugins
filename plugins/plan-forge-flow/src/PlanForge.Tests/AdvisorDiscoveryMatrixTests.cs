@@ -25,7 +25,7 @@ public sealed class AdvisorDiscoveryMatrixTests
     private static readonly DiscoveryRow[] DISCOVERY =
     [
         new("unset", null, ["absent", "absent", "absent", "jev-1.13.0"]),
-        new("empty", "", ["absent", "absent", "absent", "jev-1.13.0"]),
+        new("empty", string.Empty, ["absent", "absent", "absent", "jev-1.13.0"]),
         new("jev-1.14.0", "jev-1.14.0", ["missing", "missing", "missing", "jev-1.14.0"]),
         new("jev-latest", "jev-latest", ["missing,invalid", "missing,invalid", "missing,invalid", "invalid"]),
         new("jev-preview", "jev-preview", ["missing,invalid", "missing,invalid", "missing,invalid", "invalid"]),
@@ -63,7 +63,7 @@ public sealed class AdvisorDiscoveryMatrixTests
         {
             var environment = new Dictionary<string, string?>
             {
-                [KEY] = KEY_AXIS[keyIndex] switch { "unset" => null, "empty" => "", "whitespace" => " \t\r\n", _ => "distinctive-secret" },
+                [KEY] = KEY_AXIS[keyIndex] switch { "unset" => null, "empty" => string.Empty, "whitespace" => " \t\r\n", _ => "distinctive-secret" },
                 [MODEL] = row.Model
             };
             var found = catalog.Discover(name => environment.GetValueOrDefault(name));
