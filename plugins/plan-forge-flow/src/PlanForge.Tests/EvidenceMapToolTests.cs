@@ -669,7 +669,7 @@ internal sealed class EvidenceToolRun : IDisposable
     /// <param name="telemetryFails">Whether the telemetry attempt must fail.</param>
     public void AssertRecords(bool flowFails = false, bool telemetryFails = false)
     {
-        var flow = File.Exists(Run.FlowLogPath) ? AtomicFile.Read(Run.FlowLogPath) : "";
+        var flow = File.Exists(Run.FlowLogPath) ? AtomicFile.Read(Run.FlowLogPath) : string.Empty;
         var flowCount = flow.Split("## Evidence map", StringSplitOptions.None).Length - 1;
         Assert.Equal(flowFails ? 0 : 1, flowCount);
         Assert.Equal(telemetryFails ? 0 : 1, Records().Count(record => record.GetProperty("event").GetString() == "advisor.usage"));

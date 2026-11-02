@@ -107,7 +107,7 @@ public sealed class PlanOutlineMatrixTests
             for (var index = 0; index < tasks.Count; index++)
             {
                 var text = plan.Substring(targets[index].Start, targets[index].Length).Replace("\r\n", "\n", StringComparison.Ordinal);
-                var body = Regex.Replace(text, @"^\s*\d+\.\s+", "", RegexOptions.CultureInvariant);
+                var body = Regex.Replace(text, @"^\s*\d+\.\s+", string.Empty, RegexOptions.CultureInvariant);
                 Assert.StartsWith(tasks[index].Text, body, StringComparison.Ordinal);
             }
         }

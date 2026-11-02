@@ -206,7 +206,7 @@ public sealed class DecisionLedgerPromptTests : IDisposable
     public void New_findings_are_identified_and_allocated_only_after_validation()
     {
         var ledger = Ledger();
-        var result = ledger.IngestCritique(Critique(findings: [new VendorFinding("major", "where", "what", "", [], "", false, "")]),
+        var result = ledger.IngestCritique(Critique(findings: [new VendorFinding("major", "where", "what", string.Empty, [], string.Empty, false, string.Empty)]),
                                            LedgerPhase.PlanReview);
 
         var finding = Assert.Single(result.Findings);
@@ -259,7 +259,7 @@ public sealed class DecisionLedgerPromptTests : IDisposable
         var ledger = Ledger();
 
         Assert.Throws<DecisionLedgerCritiqueException>(() => ledger.IngestCritique(
-            Critique(findings: [new VendorFinding("minor", "where", "", "", [], "", false, "")]), LedgerPhase.PlanReview));
+            Critique(findings: [new VendorFinding("minor", "where", string.Empty, string.Empty, [], string.Empty, false, string.Empty)]), LedgerPhase.PlanReview));
 
         Assert.Equal(1, ledger.Snapshot.NextFindingNumber);
         Assert.Empty(ledger.Snapshot.Entries);

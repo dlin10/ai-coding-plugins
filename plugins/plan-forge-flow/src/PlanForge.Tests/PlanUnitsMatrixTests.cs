@@ -154,7 +154,7 @@ public sealed class PlanUnitsMatrixTests
     /// <param name="preceding">The preceding-text axis value.</param>
     private static string Before(Preceding preceding) => preceding switch
     {
-        Preceding.Nothing => "",
+        Preceding.Nothing => string.Empty,
         Preceding.Subheading => "### Notes\nDetails\n",
         Preceding.FencedHeading => "```markdown\n## Notes\n```\n",
         _ => throw new ArgumentOutOfRangeException(nameof(preceding))

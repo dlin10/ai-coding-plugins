@@ -25,7 +25,7 @@ public sealed class PhaseLifecycleMatrixTests : IDisposable
 
     private static readonly string[] NAMES = ["interview", "planning", "plan_revision", "approval", "build", "code_review", "wrap_up"];
 
-    private static readonly string[] INVALID = ["Planning", "plan-revision", "", " ", "review"];
+    private static readonly string[] INVALID = ["Planning", "plan-revision", string.Empty, " ", "review"];
 
     private static readonly Before[] AXIS_A = [Before.Interview, Before.Build, Before.Nothing];
 

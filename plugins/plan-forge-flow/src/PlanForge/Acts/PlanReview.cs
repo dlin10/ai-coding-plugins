@@ -485,7 +485,7 @@ internal sealed class PlanPatchFailedException(string outcome, PlanPatchSizes si
 internal sealed class ReviewCapReachedException(int rounds, int cap, FalloutTally? fallout = null)
     : Exception($"plan review already ran {rounds} rounds, and the cap is {cap}. "
                 + (fallout is null
-                    ? ""
+                    ? string.Empty
                     : $"Fallout in the last round: {fallout.Fallout} of {fallout.New} new findings (own {fallout.Own}, sibling {fallout.Sibling})"
                       + (fallout.Mostly ? ", half or more, so no round continues unasked: sweep the rules the revisions touched, "
                                           + "then show the user this share when you ask. " : ". "))

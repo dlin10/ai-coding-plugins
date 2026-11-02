@@ -70,7 +70,7 @@ public sealed class PlanPatchMatrixTests
         Assert.Equal(20, cells.Length);
         foreach (var cell in cells)
         {
-            var content = cell.Content switch { "null" => null, "empty" => "", "whitespace" => " \t\n", _ => "New text" };
+            var content = cell.Content switch { "null" => null, "empty" => string.Empty, "whitespace" => " \t\n", _ => "New text" };
             var target = PlanOutline.Of(FiveTargets).Targets[1];
             var edit = new PlanEdit(cell.Op, target.Id, target.Hash, content);
             var accepted = cell.Op == "delete" ? content is null :
@@ -130,7 +130,7 @@ public sealed class PlanPatchMatrixTests
             PlanEdit?[] edits;
             if (cell.Result == "blank") edits = targets.Select((_, index) => (PlanEdit?)Edit(plan, index, "delete")).ToArray();
             else if (cell.Result is "equal" or "equal-after-BOM")
-                edits = [Edit(plan, 0, "replace", (cell.Result == "equal-after-BOM" ? "\uFEFF\uFEFF" : "") +
+                edits = [Edit(plan, 0, "replace", (cell.Result == "equal-after-BOM" ? "\uFEFF\uFEFF" : string.Empty) +
                     plan.Substring(targets[0].Start, targets[0].Length))];
             else
                 edits = targets.Select((_, index) => (PlanEdit?)(index == 0

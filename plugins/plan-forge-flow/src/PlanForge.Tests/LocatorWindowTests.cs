@@ -212,7 +212,7 @@ public sealed class LocatorWindowTests : IDisposable
     [Fact]
     public void An_empty_file_has_no_line()
     {
-        Write("empty.cs", "");
+        Write("empty.cs", string.Empty);
         AssertReason("empty.cs:1", "line_out_of_range");
     }
 

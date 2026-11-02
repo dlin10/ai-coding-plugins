@@ -12,7 +12,7 @@ public sealed class PendingFullGateTransitionMatrixTests : IDisposable
 {
     private readonly string _workspace = Path.Combine(Path.GetTempPath(), "planforge-tests", Guid.NewGuid().ToString("n"));
     private const string ValidPlan = "## Gates\n1. **G1.** `exit 0`\n**Fix gate:** `exit 0` (R2)\n";
-    private static readonly string?[] Modes = [null, "full", "targeted", "Targeted", "", "   ", "unknown"];
+    private static readonly string?[] Modes = [null, "full", "targeted", "Targeted", string.Empty, "   ", "unknown"];
     private static readonly string[] Actions = ["hostVerified", "defer", "reject", "duplicateOf", "addressedByRevision", "accept", "decline"];
     private static readonly string[] Outcomes = ["passed", "failed", "timeout", "not_run", "background_killed", "cut_short", "sensitive_guard_refusal", "vendor_start_refusal"];
 
@@ -203,7 +203,7 @@ public sealed class PendingFullGateTransitionMatrixTests : IDisposable
         var ledger = NewRun().ReadDecisionLedger();
         ledger.AddFinding(Finding("source"), LedgerPhase.CodeReview);
         ledger.RecordFixAttempt("A", ["F-0001"], Passed(), true, "targeted");
-        ledger.IngestCritique(new VendorCritique { Verdict = "revise", Summary = "assessment", Findings = [new VendorFinding("major", "test.cs", "new", "", [], "", false, "")],
+        ledger.IngestCritique(new VendorCritique { Verdict = "revise", Summary = "assessment", Findings = [new VendorFinding("major", "test.cs", "new", string.Empty, [], string.Empty, false, string.Empty)],
             UnresolvedAssessments = [new UnresolvedAssessment("F-0001", false, "not observed")], Reopenings = [] }, LedgerPhase.CodeReview);
         var batch = new OrchestratorDecisionBatch("raise", [], [new OrchestratorRaise("major", "other", "new rule", "orchestrator", "found")]);
         var before = File.ReadAllBytes(ledger.Path);
@@ -337,7 +337,7 @@ public sealed class PendingFullGateTransitionMatrixTests : IDisposable
             if (code) ledger.RecordFixAttempt("A", ["F-0001"], Passed(), true, "targeted");
             var before = File.ReadAllBytes(ledger.Path);
             var request = new DecisionBatchRequest("close", [], [], [new LedgerClosureDecision("F-0001", kind,
-                LedgerDecisionMaker.Orchestrator, "verified", kind == LedgerClosureKind.HostVerified ? "host passed" : "")]);
+                LedgerDecisionMaker.Orchestrator, "verified", kind == LedgerClosureKind.HostVerified ? "host passed" : string.Empty)]);
             if (code == (kind == LedgerClosureKind.HostVerified))
             {
                 ledger.Apply(request);

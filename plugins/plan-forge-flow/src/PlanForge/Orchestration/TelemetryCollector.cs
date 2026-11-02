@@ -272,7 +272,7 @@ internal sealed class TelemetryCollector : IDisposable
         var caller = request.RemoteEndPoint.Address;
         if (!IsLoopback(caller)) return (403, EMPTY_ANSWER);
 
-        var path = request.Url?.AbsolutePath ?? "";
+        var path = request.Url?.AbsolutePath ?? string.Empty;
         return (request.HttpMethod, path) switch
         {
             ("POST", "/v1/logs") => await TakeLogsAsync(request, caller),

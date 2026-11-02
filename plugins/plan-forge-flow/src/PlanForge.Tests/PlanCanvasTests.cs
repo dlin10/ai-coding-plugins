@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ModelContextProtocol.Protocol;
 using PlanForge.Acts;
 using PlanForge.Mcp;
 using PlanForge.Repo;
@@ -39,16 +40,24 @@ public sealed class PlanCanvasTests : IDisposable
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
+    /// <summary>
+    /// The canvas gets the whole plan and the Orchestrator only its hash and the drift: the host
+    /// hands the content to the model and keeps <c>_meta</c> for the view — see docs/adr/0053.
+    /// </summary>
     [Fact]
-    public async Task The_plan_comes_back_whole_with_the_drift_beside_it()
+    public async Task The_plan_goes_to_the_canvas_alone_with_the_drift_beside_it()
     {
         var ct = CancellationToken.None;
         var run = await StartRunAsync(ct);
         await File.WriteAllTextAsync(Path.Combine(_repo, "tracked.txt"), "edited after the baseline\n", ct);
 
-        var view = await ShowAsync(run.RunId, ct);
+        var result = await ForgeTools.ShowPlan(SessionRoots.None, _repo, run.RunId, ct, Plan);
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
+        var view = JsonSerializer.Deserialize(text, ForgeToolJson.Default.PlanViewResult)!;
 
-        Assert.Equal(Plan, view.Plan);
+        Assert.Equal(Plan, result.Meta?[PlanCanvas.PlanMetaKey]?.GetValue<string>());
+        Assert.DoesNotContain("First task", text, StringComparison.Ordinal);
+        Assert.Null(result.StructuredContent);
         Assert.Equal(PlanOutline.Hash(Plan), view.PlanHash);
         Assert.Equal(["tracked.txt"], view.DriftedFiles);
         Assert.Equal(run.RunId, view.RunId);
@@ -66,11 +75,12 @@ public sealed class PlanCanvasTests : IDisposable
         var run = await StartRunAsync(ct);
         run.WritePlan(Plan);
 
-        var view = JsonSerializer.Deserialize(await ForgeTools.ShowPlan(SessionRoots.None, _repo, run.RunId, ct),
+        var result = await ForgeTools.ShowPlan(SessionRoots.None, _repo, run.RunId, ct);
+        var view = JsonSerializer.Deserialize(Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text,
                                               ForgeToolJson.Default.PlanViewResult)!;
         await ForgeTools.ConfirmPlan(SessionRoots.None, _repo, run.RunId, true, ct, planHash: view.PlanHash);
 
-        Assert.Equal(Plan, view.Plan);
+        Assert.Equal(Plan, result.Meta?[PlanCanvas.PlanMetaKey]?.GetValue<string>());
         Assert.True(run.ReadState().Approved);
     }
 
@@ -101,7 +111,7 @@ public sealed class PlanCanvasTests : IDisposable
         var ct = CancellationToken.None;
         var run = await StartRunAsync(ct);
 
-        await ShowAsync(run.RunId, ct);
+        await ForgeTools.ShowPlan(SessionRoots.None, _repo, run.RunId, ct, Plan);
 
         Assert.False(run.ReadState().Approved);
         Assert.False(File.Exists(Path.Combine(run.Path, "PLAN.md")));
@@ -135,6 +145,7 @@ public sealed class PlanCanvasTests : IDisposable
         Assert.Contains("ui/initialize", html, StringComparison.Ordinal);
         Assert.Contains("ui/notifications/tool-result", html, StringComparison.Ordinal);
         Assert.Contains("ui/notifications/size-changed", html, StringComparison.Ordinal);
+        Assert.Contains($"\"{PlanCanvas.PlanMetaKey}\"", html, StringComparison.Ordinal);
     }
 
     private async Task<RunDirectory> StartRunAsync(CancellationToken ct)
@@ -153,11 +164,5 @@ public sealed class PlanCanvasTests : IDisposable
             ReviewRounds: 2, ReviewRoundCap: 5, BaselineHead: baseline.Head));
 
         return run;
-    }
-
-    private async Task<PlanViewResult> ShowAsync(string runId, CancellationToken ct)
-    {
-        var json = await ForgeTools.ShowPlan(SessionRoots.None, _repo, runId, ct, Plan);
-        return JsonSerializer.Deserialize(json, ForgeToolJson.Default.PlanViewResult)!;
     }
 }

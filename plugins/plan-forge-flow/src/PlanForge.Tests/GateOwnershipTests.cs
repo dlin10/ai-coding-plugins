@@ -45,7 +45,7 @@ public sealed class GateOwnershipTests : IDisposable
     [InlineData(true)]
     public async Task A_missing_task_artifact_fails_even_without_plan_gates_or_with_a_passing_one(bool hasPlanGate)
     {
-        var planGates = hasPlanGate ? "## Gates\n\n1. **G1.** `Write-Output green` (R1)\n\n" : "";
+        var planGates = hasPlanGate ? "## Gates\n\n1. **G1.** `Write-Output green` (R1)\n\n" : string.Empty;
         var run = NewRun(planGates + "## Approach\n\n1. Create required.txt. **Gate:** `if (!(Test-Path required.txt)) { exit 9 }` (R1)\n");
         var vendor = new RecordingVendor("codex");
         vendor.Enqueue(new BuildResult("done", [], new Verification("passed", "builder says checks passed"), "done"));

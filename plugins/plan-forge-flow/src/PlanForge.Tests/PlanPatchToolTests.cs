@@ -517,7 +517,7 @@ public sealed class PlanPatchToolTests : IDisposable
     public async Task A_diagnostic_log_that_cannot_be_written_does_not_change_the_outcome()
     {
         var run = NewRun();
-        File.WriteAllText(run.DiagnosticLogPath, "");
+        File.WriteAllText(run.DiagnosticLogPath, string.Empty);
         string json;
         using (Hold(run.DiagnosticLogPath, FileShare.Read))
             json = await Patch(run, PlanOutline.Hash(Plan), [Edit(PlanOutline.Of(Plan))]);

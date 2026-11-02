@@ -105,7 +105,7 @@ public sealed class DecisionRecordTests : IDisposable
             "by-case" => () => Record(run, by: "User"),
             "question-blank" => () => Record(run, question: " \n"),
             "question-long" => () => Record(run, question: new string('q', 4_001)),
-            "answer-blank" => () => Record(run, answer: ""),
+            "answer-blank" => () => Record(run, answer: string.Empty),
             "answer-long" => () => Record(run, answer: new string('a', 8_001)),
             "option-null" => () => Record(run, options: [null!]),
             "option-blank" => () => Record(run, options: [new DecisionOption("Yes"), new DecisionOption(" ")]),
@@ -262,7 +262,7 @@ public sealed class DecisionRecordTests : IDisposable
             - D-0003 (orchestrator): Which store? → SQLite with WAL
 
             """.ReplaceLineEndings(), DecisionRecords.Section(records));
-        Assert.Equal("", DecisionRecords.Section([]));
+        Assert.Equal(string.Empty, DecisionRecords.Section([]));
     }
 
     /// <summary>

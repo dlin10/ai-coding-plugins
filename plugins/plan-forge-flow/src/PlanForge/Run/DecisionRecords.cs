@@ -147,7 +147,7 @@ internal static class DecisionRecords
         foreach (var option in offered ?? []) SensitiveInput.Guard(option!.Label, "a decision's option");
         if (governs is not null) SensitiveInput.Guard(governs, "the decision's bearsOn");
 
-        return new DecisionRecord("", phase, question!, offered?.Select(option => option!).ToArray(), answer!, by, governs, replaced,
+        return new DecisionRecord(string.Empty, phase, question!, offered?.Select(option => option!).ToArray(), answer!, by, governs, replaced,
                                   tagged);
     }
 
@@ -239,7 +239,7 @@ internal static class DecisionRecords
     public static string Section(IReadOnlyList<DecisionRecord> records)
     {
         var current = Current(records);
-        if (current.Count == 0) return "";
+        if (current.Count == 0) return string.Empty;
 
         var lines = current.Select(record => Line(record, SECTION_LINE_LIMIT)).ToArray();
         var first = lines.Length;
@@ -272,7 +272,7 @@ internal static class DecisionRecords
     /// <param name="limit">The most characters the line may hold.</param>
     internal static string Line(DecisionRecord record, int limit)
     {
-        var line = $"{record.DecisionId} ({record.By}{(record.Supersedes is { } replaced ? $", supersedes {replaced}" : "")}): "
+        var line = $"{record.DecisionId} ({record.By}{(record.Supersedes is { } replaced ? $", supersedes {replaced}" : string.Empty)}): "
                    + $"{Flat(record.Question)} → {Flat(record.Answer)}";
         if (line.Length <= limit) return line;
 
@@ -331,7 +331,7 @@ internal static class DecisionRecords
     /// <summary>The fingerprint of what a record says, its ID aside: equal for a replay of the same decision.</summary>
     /// <param name="record">The record.</param>
     private static string Digest(DecisionRecord record) =>
-        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(record with { DecisionId = "" },
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(record with { DecisionId = string.Empty },
                                                                                  DecisionRecordsJson.Default.DecisionRecord)))
                .ToLowerInvariant();
 }

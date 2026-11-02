@@ -42,6 +42,7 @@ and again whenever you resume it:
 |---|---|---|
 | `references/asking.md` | before your first question to the user | Asking the user: one question per call, each explained, the recommendation first; Scope questions; Recording the answer |
 | `references/interview.md` | right after `forge.begin` | Act 1: the interview, the opening questions, the mode ladder, verification and feasibility; Choosing the vendor and model |
+| `references/delegation.md` | right after `forge.begin`, and again after a compaction | Reading through a subagent: what to hand over and what never, the brief and the report, the agent, a report is a pointer |
 | `references/scout.md` | at the first broad reconnaissance need, for feasibility during the interview, and before the Impact pass | Scout reconnaissance; The Scout question; The feasibility question; The Impact pass; The Evidence check |
 | `references/planning.md` | once the interview's decisions are settled | Writing the plan: requirements, gates, the Fix gate grammar, gate commands, the Approach; When the user chooses a probe first; The matrix check; The matrix task; First-draft shape and split offer |
 | `references/plan-review.md` | before the first `forge.plan.review` | First-draft split decision; Rounds, revision, and caps; Writing a revision; Labelling fallout, and the sweep |

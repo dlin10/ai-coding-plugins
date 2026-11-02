@@ -79,7 +79,7 @@ public sealed class PlanPatchTests
     public void An_edit_replaces_one_exact_match_and_may_delete_text()
     {
         var result = Apply(Plan, Find(Plan, 2, "R1", "Requirement one"),
-            Find(Plan, 1, "carefully", ""));
+            Find(Plan, 1, "carefully", string.Empty));
 
         Assert.Contains("## Requirements\nRequirement one\n", result.Plan, StringComparison.Ordinal);
         Assert.Contains("Build .\n", result.Plan, StringComparison.Ordinal);
@@ -131,7 +131,7 @@ public sealed class PlanPatchTests
     public void An_edit_requires_a_nonempty_find_and_a_replace_value()
     {
         var valid = Find(Plan, 2, "R1", "Revised");
-        Reject(Plan, "invalid_edit", valid with { Find = "" });
+        Reject(Plan, "invalid_edit", valid with { Find = string.Empty });
         Reject(Plan, "invalid_edit", valid with { Replace = null });
         Reject(Plan, "invalid_edit", valid with { Content = "ignored" });
         Reject(Plan, "invalid_edit", Edit(Plan, 2) with { Find = "R1", Replace = "Revised" });

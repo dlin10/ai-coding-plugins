@@ -13,7 +13,7 @@ if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([Syst
 $rid = 'win-x64'
 # The forge skill's core and the references its phases read, so the core stays under the host's
 # re-injection budget after a compaction (docs/adr/0040). Every one of them ships.
-$skillFiles = @('SKILL.md', 'references/asking.md', 'references/interview.md', 'references/scout.md',
+$skillFiles = @('SKILL.md', 'references/asking.md', 'references/interview.md', 'references/delegation.md', 'references/scout.md',
     'references/planning.md', 'references/plan-review.md', 'references/ledger.md', 'references/approval.md',
     'references/build.md', 'references/code-review.md', 'references/tools.md',
     'references/CONTEXT-FORMAT.md', 'references/ADR-FORMAT.md') | ForEach-Object { "skills/forge/$_" }

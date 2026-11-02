@@ -239,8 +239,8 @@ public sealed class VendorTimingTests : IDisposable
         var start = ToolEvent("codex", "command_execution", "slow", true);
         var end = ToolEvent("codex", "command_execution", "slow", false);
         var spec = OperatingSystem.IsWindows()
-            ? new ProcessSpec("powershell.exe", ["-NoProfile", "-Command", $"Write-Output '{start}'; Start-Sleep -Milliseconds 3500; Write-Output '{end}'"], null, "")
-            : new ProcessSpec("/bin/sh", ["-c", $"echo '{start}'; sleep 3.5; echo '{end}'"], null, "");
+            ? new ProcessSpec("powershell.exe", ["-NoProfile", "-Command", $"Write-Output '{start}'; Start-Sleep -Milliseconds 3500; Write-Output '{end}'"], null, string.Empty)
+            : new ProcessSpec("/bin/sh", ["-c", $"echo '{start}'; sleep 3.5; echo '{end}'"], null, string.Empty);
         var beforeStart = DateTimeOffset.Now;
         DateTimeOffset? firstOutputAt = null;
         var elapsed = Stopwatch.StartNew();

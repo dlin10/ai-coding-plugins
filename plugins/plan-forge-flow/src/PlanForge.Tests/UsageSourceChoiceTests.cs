@@ -195,7 +195,7 @@ public sealed class UsageSourceChoiceTests
     [Fact]
     public void An_export_interval_that_is_not_a_positive_integer_defaults_to_5000()
     {
-        foreach (var value in new[] { "0", "-5", "1.5", "5s", "", " 100" })
+        foreach (var value in new[] { "0", "-5", "1.5", "5s", string.Empty, " 100" })
             Assert.Equal(TimeSpan.FromMilliseconds(5000), ExportProfile.Interval(value));
 
         Assert.Equal(TimeSpan.FromMilliseconds(5000),

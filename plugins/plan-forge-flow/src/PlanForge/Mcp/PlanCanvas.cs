@@ -22,6 +22,12 @@ internal sealed class PlanCanvas
     internal const string ResourceUri = "ui://planforge/plan.html";
 
     /// <summary>
+    /// The key under the tool result's <c>_meta</c> that carries the plan text to the canvas.
+    /// <c>PlanCanvas.html</c> spells it out too; the two must agree.
+    /// </summary>
+    internal const string PlanMetaKey = "planforge/plan";
+
+    /// <summary>
     /// Fixed by <c>LogicalName</c> in the csproj rather than derived from the folder, so moving the
     /// file cannot silently break the lookup at startup.
     /// </summary>
