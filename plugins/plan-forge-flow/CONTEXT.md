@@ -773,7 +773,7 @@ the published schema. Domain rules that depend on a value being present — a se
 carry a `revision` — stay where they always were, in the act, where they can say what is missing and
 why.
 
-## The `canvas` profile is built, and no supported host negotiates it; nor the Tasks extension
+## The `canvas` profile is built, and Claude Code's desktop app negotiates it; nobody negotiates Tasks
 
 Measured on 2026-08-15 against a spike server built on the MCP C# SDK 2.2.0: Claude Code 2.1.233
 negotiates protocol `2025-11-25` and reports `extensions: null` with no UI capability. Neither the
@@ -788,8 +788,18 @@ Codex has not been measured, because its sandbox refuses to spawn the spike.
 
 So the `canvas` branch is written, and it is one tool wide: `forge.plan.show` renders the plan
 through the `ui://planforge/plan.html` resource — see [docs/adr/0008](docs/adr/0008-render-the-plan-on-a-canvas.md).
-Every other tool still delivers markdown in the tool result, which is also what a `Text` host gets
-from `forge.plan.show` itself.
+Every other tool still delivers markdown in the tool result.
+
+Re-measured on 2026-11-02: the Claude Code desktop app (4.4212) starts the plugin's servers itself,
+and its `LocalMcpServerManager` advertises `io.modelcontextprotocol/ui`; the concurrency-hunter
+runs B4c–H2b, held there, recorded `profile: "Canvas"`. The CLI on its own (`claude -p` 2.1.316)
+advertises roots and elicitation only. What reaches the model is the CLI's choice in both: given a
+result with `structuredContent`, it sends the model that object serialised instead of the
+`content` text — measured with a spike server, and seen in the desktop app's transcripts for
+Windows-MCP — and it never sends `_meta`. So `forge.plan.show` puts the plan text in `_meta` for
+the canvas and keeps only the hash and the drift in the content — see
+[docs/adr/0053](docs/adr/0053-send-the-shown-plan-to-the-canvas-alone.md). Whether the desktop app's
+view bridge forwards `_meta` to the view is not measured.
 
 The Tasks half stands unchanged: nobody negotiates it, so progress is observable only at the
 granularity of one tool call per unit of work, plus `forge.status` on demand.

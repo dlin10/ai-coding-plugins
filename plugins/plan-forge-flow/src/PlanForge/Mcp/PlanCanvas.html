@@ -250,23 +250,34 @@
       "<header><h1>Plan awaiting your approval</h1>" +
       '<div class="meta">' + meta.join("<span>·</span>") + "</div></header>" +
       driftBlock(data.driftedFiles) +
-      '<div class="plan">' + markdown(data.plan || "") + "</div>" +
+      (typeof data.plan === "string"
+        ? '<div class="plan">' + markdown(data.plan) + "</div>"
+        : '<div class="drift"><strong>The plan\'s text did not reach this view.</strong> ' +
+          "Ask in the chat to see the plan before you answer.</div>") +
       "<footer>Approve this plan, or say what to change, in the chat. " +
       "Nothing here records your answer.</footer>";
 
     reportSize();
   }
 
+  // The plan text travels in the result's _meta, which the host keeps from the model; the
+  // content holds only what the Orchestrator reads. PlanCanvas.PlanMetaKey spells the same key.
+  var PLAN_META_KEY = "planforge/plan";
+
   function fromToolResult(params) {
     if (!params) return null;
-    if (params.structuredContent) return params.structuredContent;
+    var data = null;
+    if (params.structuredContent) data = params.structuredContent;
     var content = params.content || [];
-    for (var i = 0; i < content.length; i++) {
+    for (var i = 0; !data && i < content.length; i++) {
       if (content[i] && content[i].type === "text") {
-        try { return JSON.parse(content[i].text); } catch (error) { /* not ours to render */ }
+        try { data = JSON.parse(content[i].text); } catch (error) { /* not ours to render */ }
       }
     }
-    return null;
+    if (data && params._meta && typeof params._meta[PLAN_META_KEY] === "string") {
+      data.plan = params._meta[PLAN_META_KEY];
+    }
+    return data;
   }
 
   function applyContext(context) {

@@ -2,8 +2,16 @@
 
 ## 0.76.0
 
-The Orchestrator hands long read-only reading to a host subagent, and the Scout writes its
-dependents shorter without dropping any. ADR 0052.
+The Orchestrator hands long read-only reading to a host subagent, the Scout writes its dependents
+shorter without dropping any, and `forge.plan.show` stops handing the plan back to the
+Orchestrator. ADRs 0052 and 0053.
+
+- `forge.plan.show` answers with the run id, plan hash, drift, rounds and approval only; the plan
+  text goes to the canvas in the result's `_meta` under `planforge/plan`, which Claude Code keeps
+  from the model. Not `structuredContent`: Claude Code sends the model that in place of the text
+  content. The canvas reads the plan from `_meta`, and says so in the view when none arrived; the
+  approval reference then has the Orchestrator show `PLAN.md` in the chat. `forge.log` no longer
+  records a copy of the plan per call.
 
 - A new skill reference, `delegation.md`, read right after `forge.begin` and after a compaction:
   what reading to hand to a subagent — the class listing before a claim, test and gate logs, project

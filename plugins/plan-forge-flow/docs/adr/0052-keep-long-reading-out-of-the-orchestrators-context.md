@@ -94,8 +94,9 @@ and a subagent here only reads for the Orchestrator.
 - A dependent the Scout calls unaffected and is not comes back as a Critic finding, as an omitted
   one did; it is still named in its list, so the Evidence check can see it. The Evidence map judges
   a grouped item once, as one item.
-- The Orchestrator's reasoning, about half of the growth, is untouched, and so is the plan text
-  `forge.plan.show` returns on the Canvas profile.
+- The Orchestrator's reasoning, about half of the growth, is untouched. The plan text
+  `forge.plan.show` returned on the Canvas profile is
+  [0053](0053-send-the-shown-plan-to-the-canvas-alone.md)'s.
 - The effect is measured by the next Runs: compactions, the share of reading in the growth, the
   size of Impact answers, and the plan-review findings that trace to a dependent the Scout listed
   as unaffected.

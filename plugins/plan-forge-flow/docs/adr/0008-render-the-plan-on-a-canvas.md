@@ -38,6 +38,11 @@ one advertising the extension and one not, `tools/list` is identical either way 
 tools plus this one, and `_meta.ui` on this one alone. What both now also see is a `resources`
 capability and a single `ui://` resource, which is the whole cost of the change to a text host.
 
+> **Amended 2026-11-02 ([0053](0053-send-the-shown-plan-to-the-canvas-alone.md)).** The plan no
+> longer travels as the tool's text: the content holds the hash and the drift, and the plan text
+> goes to the canvas in the result's `_meta`, which the host keeps from the model. Claude Code's
+> desktop app now negotiates MCP Apps, and Runs there record `Canvas`.
+
 > **Amended 2026-10-22 ([0043](0043-remove-cursor-as-host-and-vendor.md)).** Cursor, the one host
 > measured to negotiate MCP Apps, is no longer supported. The canvas stays, because it answers the
 > capability rather than a host's name; until another host negotiates it, it is dormant — Claude

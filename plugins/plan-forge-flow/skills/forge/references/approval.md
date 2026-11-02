@@ -11,8 +11,9 @@ job, in five steps. Declare `phase: "approval"` before the first of them:
 2. Show the user the **whole** plan, not a summary of it, and the drifted files beside it.
    - On the `Canvas` profile — the one `forge.begin` reported for a host that negotiated MCP Apps — call
      `forge.plan.show` without `plan`. It renders `PLAN.md` as a document, with the drift above it,
-     in the host's own UI, and answers with its `planHash`. Do not paste the plan into the chat as
-     well; the canvas is where they read it.
+     in the host's own UI, and answers with its `planHash` and the drift, not the plan's text. Do
+     not paste the plan into the chat as well; the canvas is where they read it. If they say the
+     canvas shows no plan, show `PLAN.md` to them as on the `Text` profile.
    - On the `Text` profile, show them `PLAN.md` the way your host displays best: an artifact, a
      widget, or plain markdown in the chat. Do not call `forge.plan.show` — nothing renders. The
      `planHash` is the one your last `forge.plan.write` or `forge.plan.patch` answered with; read
