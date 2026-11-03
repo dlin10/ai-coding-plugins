@@ -19,6 +19,15 @@ public sealed class RequiresEShopFactAttribute : FactAttribute
     }
 }
 
+/// <summary>The tests that load every project of the eShop checkout: xUnit runs the classes of one collection one after another, so two
+/// loads of 30 projects never run at once.</summary>
+[CollectionDefinition(NAME)]
+public sealed class EShopCollection
+{
+    public const string NAME = "eShop";
+}
+
+[Collection(EShopCollection.NAME)]
 public sealed class EShopSnapshotTests
 {
     private const string SOLUTION = "src/eShopOnContainers-ServicesAndWebApps.sln";

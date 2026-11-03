@@ -147,9 +147,10 @@ and runs alike, without asking for it.
 Set `CH_ESHOP_ROOT` before any change that can move the engine's output: without it the eShop tests
 skip, `dotnet test` stays green, and only `check-test-baseline.ps1` and `package.ps1` notice. The
 suite restores the demo (`DemoWorkspace.EnsureRestoredAsync`) but never eShop. With its
-`obj/project.assets.json` files gone, the eShop measurement shrinks to 2 findings instead of 36 and
-reads exactly like an engine regression. Before re-recording anything measured on eShop, check that
-every `.csproj` has its `obj/project.assets.json`, and restore it if not:
+`obj/project.assets.json` files gone, the eShop measurement shrinks to 2 findings, which is also the
+number a correct measurement gives, so a broken restore and a correct run read alike. Before measuring
+eShop, and before re-recording anything measured on it, check that every `.csproj` has its
+`obj/project.assets.json`, and restore it if not:
 `dotnet restore $env:CH_ESHOP_ROOT/src/eShopOnContainers-ServicesAndWebApps.sln --disable-build-servers -nodeReuse:false`.
 
 A variable set with `$env:` stays set for every later command in the same PowerShell process. A run's
@@ -197,8 +198,9 @@ did not make; the comparison leaves the commit out. Whether CoreLib is generated
 call (ADR 0022): run `-Since` and ask before regenerating.
 
 Account for every number that moved before re-recording. A green eShop snapshot proves that every
-eShop finding's identity is unchanged, but no eShop pair is skipped as `ordered`: a change to the
-happens-before graph cannot move it, and the demo and the engine tests are the only evidence for one.
+eShop finding's identity is unchanged, but the eShop snapshot counts the pairs skipped as `ordered`
+and the pairs counted under `assumed` as totals, not by pair: a change to the happens-before graph or
+to the proof of a pass moves them, and each shift is explained before the snapshot is re-recorded.
 
 ## The skill's text
 

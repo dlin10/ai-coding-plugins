@@ -14,6 +14,7 @@ using Demo.Web.Cases.ProjectModelTryGetValue;
 using Demo.Web.Cases.ProjectModelAwaitedRuns;
 using Demo.Web.Cases.ProjectModelReceiverType;
 using Demo.Web.Cases.PollyRetryAttempts;
+using Demo.Web.Cases.PollyNestedRetry;
 using Demo.Web.Cases.AwaitedResultShared;
 using Demo.Web.Cases.TaskRunResultShared;
 using Demo.Web.Cases.CompletionSourceHandoff;
@@ -452,7 +453,8 @@ builder.Services.AddDiSingletonControllerVsWorker()
                 .AddExceptionLeavesSpawningHelper()
                 .AddProjectModelAwaitedRuns()
                 .AddProjectModelReceiverType()
-                .AddPollyRetryAttempts();
+                .AddPollyRetryAttempts()
+                .AddPollyNestedRetry();
 
 var app = builder.Build();
 

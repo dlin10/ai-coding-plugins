@@ -24,13 +24,13 @@ public sealed class AwaitedRunsTests
     private const string SyncThenAwait = "async () => { _state.C = 3; await Task.Yield(); _state.C = 1; }";
 
     [Fact]
-    public void Sync_part_of_a_run_still_meets_the_continuation_of_another_outside_one_awaited_entry()
+    public void Sync_part_of_a_run_follows_the_continuation_of_another_in_a_root_body_that_runs_once()
     {
-        // The call sits in the root body, which no async call enters; the void member gives no task to await.
+        // The call sits in the root body, which no async call enters and which runs once; the void member gives no task to await.
         foreach (var member in new[] { "Run", "Fire" })
         {
             var run = AwaitedRunsFixture.Run((member == "Run" ? "await " : "") + $"Runs.Lib.{member}({SyncThenAwait});\n_state.C = 2;");
-            AwaitedRunsFixture.AssertNextRun(run, pair: true);
+            AwaitedRunsFixture.AssertNextRun(run, pair: false);
             AwaitedRunsFixture.AssertPairs(run, after: false, self: false);
         }
     }
@@ -51,9 +51,42 @@ public sealed class AwaitedRunsTests
             $"private async Task Helper() {{ var t = Runs.Lib.Run({SyncThenAwait}); _state.Choose = true; await t; }}"), pair: true);
 
     [Fact]
-    public void Continuation_meets_the_next_sync_part_when_the_body_has_two_async_entries() =>
+    public void Continuation_meets_no_next_sync_part_when_each_of_two_async_entries_completes_before_the_next() =>
         AwaitedRunsFixture.AssertNextRun(AwaitedRunsFixture.Run("await Helper();\nawait Helper();", members:
-            $"private async Task Helper() {{ await Runs.Lib.Run({SyncThenAwait}); }}"), pair: true);
+            $"private async Task Helper() {{ await Runs.Lib.Run({SyncThenAwait}); }}"), pair: false);
+
+    /// <summary>The call a helper makes and the helper's form of waiting for its task, which the root awaits as <c>await Helper();</c>:
+    /// a wait at once (R2) is one that no operation that may throw separates from the call, and then the continuation of a run precedes
+    /// the next sync part of a run whatever the form of the wait; a field written between them, or the task of a
+    /// <c>Task.WhenAll</c>, is no wait at once.</summary>
+    /// <param name="form">The form of the wait.</param>
+    /// <param name="pair">Whether the continuation still meets the sync part of the next run.</param>
+    [Theory]
+    [InlineData("await", false)]
+    [InlineData("wait", false)]
+    [InlineData("get", false)]
+    [InlineData("result", false)]
+    [InlineData("wait-all", false)]
+    [InlineData("configure-await", false)]
+    [InlineData("store-then-wait", true)]
+    [InlineData("when-all", true)]
+    public void Continuation_of_a_run_precedes_the_next_sync_part_where_one_entry_waits_the_call_at_once(string form, bool pair)
+    {
+        var typed = "async () => { _state.C = 3; await Task.Yield(); _state.C = 1; return 1; }";
+        var helper = form switch
+        {
+            "await" => $"private async Task Helper() {{ await Runs.Lib.Run({SyncThenAwait}); }}",
+            "wait" => $"private Task Helper() {{ Runs.Lib.Run({SyncThenAwait}).Wait(); return Task.CompletedTask; }}",
+            "get" => $"private Task Helper() {{ Runs.Lib.Run({SyncThenAwait}).GetAwaiter().GetResult(); return Task.CompletedTask; }}",
+            "result" => $"private Task Helper() {{ _ = Runs.Lib.TaskOf({typed}).Result; return Task.CompletedTask; }}",
+            "wait-all" => $"private Task Helper() {{ Task.WaitAll(Runs.Lib.Run({SyncThenAwait})); return Task.CompletedTask; }}",
+            "configure-await" => $"private async Task Helper() {{ await Runs.Lib.Run({SyncThenAwait}).ConfigureAwait(false); }}",
+            "store-then-wait" => $"private Task Helper() {{ var t = Runs.Lib.Run({SyncThenAwait}); _state.Choose = true; t.Wait(); return Task.CompletedTask; }}",
+            "when-all" => $"private async Task Helper() {{ await Task.WhenAll(Runs.Lib.Run({SyncThenAwait})); }}",
+            _ => throw new ArgumentOutOfRangeException(nameof(form), form, null)
+        };
+        AwaitedRunsFixture.AssertNextRun(AwaitedRunsFixture.Run("await Helper();", members: helper), pair);
+    }
 
     [Fact]
     public void Continuation_meets_the_next_sync_part_when_the_entry_does_not_complete_before_its_next_start() =>
@@ -128,11 +161,11 @@ public sealed class AwaitedRunsTests
     }
 
     [Fact]
-    public void Wait_of_a_call_task_that_fails_the_gate_stays_an_unproven_join()
+    public void Wait_of_a_call_task_admitted_only_per_pass_stays_an_unproven_join()
     {
         var run = AwaitedRunsFixture.Run("for (var i = 0; i < 2; i++) { " + AwaitedRunsFixture.Direct + " }");
         Assert.Contains(run.Execution.Analysis.UnprovenJoins, site => site.BodyId.EndsWith("Worker.ExecuteAsync(System.Threading.CancellationToken)", StringComparison.Ordinal));
-        AwaitedRunsFixture.AssertPairs(run, after: true, self: true);
+        AwaitedRunsFixture.AssertPairs(run, after: false, self: false);
     }
 
     [Fact]

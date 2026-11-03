@@ -65,8 +65,8 @@ internal sealed record PassFrameEvidence(string Execution, string? Parent, strin
 internal sealed record PassJoinEvidence(string Instance, int Operation, bool CompletedFault, string? Reason, ModelRecordEvidence? Model = null);
 
 /// <summary>One transition check of the pass completion proof, in the order the proof made it.</summary>
-/// <param name="Step">The check: <c>complete-before-next</c>, <c>complete-before-access</c>, <c>inner-pass-returns</c> or
-/// <c>parent-allows</c>.</param>
+/// <param name="Step">The check: <c>complete-before-next</c>, <c>complete-before-access</c>, <c>inner-pass-returns</c>,
+/// <c>parent-allows</c>, <c>sequential-runs</c> or <c>climb</c>.</param>
 /// <param name="Execution">The execution whose pass the check read.</param>
 /// <param name="Other">The other execution the check relates it to, or null.</param>
 /// <param name="Outcomes">Each flow question the check asked, in order, with its answer; a question it did not reach is absent.</param>

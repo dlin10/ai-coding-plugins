@@ -53,7 +53,9 @@ public sealed class AwaitedRunsMatrixTests
         var run = AwaitedRunsFixture.Run(work, relation, http: call == "http");
         if (body == "async")
         {
-            var serialized = relation == "sequential-awaited" && call == "once";
+            // R1: a pass of a loop that waits for the call's task at once (R2) orders its runs before the next pass and the code after
+            // the wait; without the wait the pairs stay.
+            var serialized = relation == "sequential-awaited" && (call == "once" || call == "loop" && (wait != "none" || member == "Fire"));
             AwaitedRunsFixture.AssertPairs(run, after: !(serialized && (wait != "none" || member == "Fire")), self: !serialized);
             return;
         }

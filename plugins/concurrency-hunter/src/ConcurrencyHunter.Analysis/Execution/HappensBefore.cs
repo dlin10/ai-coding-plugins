@@ -72,8 +72,13 @@ internal sealed partial class HappensBefore
     private readonly Dictionary<string, List<string>> _handles = new(StringComparer.Ordinal);
     private readonly IReadOnlyList<ExecutionModel.AdmittedCall> _admittedCalls;
 
-    /// <summary>The admitted calls whose record also orders every run's continuation: the only ones joins, anchors and call tasks read.</summary>
+    /// <summary>The admitted calls whose record also orders every run's continuation, per run or per pass: the only ones anchors and the
+    /// pass completion proof read.</summary>
     private readonly IReadOnlyList<ExecutionModel.AdmittedCall> _awaitedCalls;
+
+    /// <summary>The awaited calls admitted per run: the only ones whose own task, or whose return for a member without one, joins the end
+    /// of all their runs. A call admitted per pass only has the proof of its pass, so the wait of its task stays an unproven join.</summary>
+    private readonly IReadOnlyList<ExecutionModel.AdmittedCall> _joinedCalls;
 
     /// <summary>The admitted calls, sequential and sequential-awaited alike, whose next run begins only after this one returns: the
     /// pass completion proof reads their repetition as a boundary between passes.</summary>
@@ -153,6 +158,7 @@ internal sealed partial class HappensBefore
         _duringStartup = duringStartup;
         _admittedCalls = admittedCalls;
         _awaitedCalls = admittedCalls.Where(call => call.Relation == RunRelation.SequentialAwaited).ToArray();
+        _joinedCalls = _awaitedCalls.Where(call => call.Threshold == ExecutionModel.AdmissionThreshold.PerRun).ToArray();
         _sequentialRuns = admittedCalls.Select(call => (call.Instance, call.Operation)).ToHashSet();
         _spawnSites = heap.Spawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
         var asyncSites = heap.AsyncSpawns.ToDictionary(site => (site.CallerInstance, site.OperationId));
@@ -617,8 +623,8 @@ internal sealed partial class HappensBefore
 
     /// <summary>A spawn's position in its parent. An admitted sequential-awaited call starts its continuations before the call's
     /// repeated delegate prefixes have all returned, so no path orders a later run's prefix after an earlier run's continuation; only the
-    /// completion proof of the queried passes does, where the call's task is awaited at once in a body entered through one async call
-    /// whose pass completes before its next start. Any other async return, including a sequential-awaited call outside the admission,
+    /// completion proof of the queried passes does, where the call's task is waited for at once and every entry of the body completes
+    /// before the next one starts. Any other async return, including a sequential-awaited call outside the admission,
     /// starts its continuation after the call returns, so a path already orders it after the synchronous part of every run.</summary>
     /// <param name="anchor">The spawn anchor.</param>
     private PointKey AnchorPoint(SpawnAnchor anchor) =>
@@ -746,7 +752,7 @@ internal sealed partial class HappensBefore
                 }
 
                 AtResumptions(candidates, execution, resumed);
-                foreach (var call in _awaitedCalls.Where(call => call.Execution == execution && call.Task is null))
+                foreach (var call in _joinedCalls.Where(call => call.Execution == execution && call.Task is null))
                 {
                     CheckCancellation();
                     candidates.Add(new Candidate(execution, new PointKey(call.Instance, call.Operation, false), call.Continuations, true));
@@ -1522,19 +1528,20 @@ internal sealed partial class HappensBefore
     }
 
     /// <summary>Every continuation a curated call's own task waits for, with the same source proof as an async call's handle.
-    /// Unlike a spawn handle it names all runs of the delegate, whose continuation execution may be repeated.</summary>
+    /// Unlike a spawn handle it names all runs of the delegate, whose continuation execution may be repeated. Only a call admitted per
+    /// run has this join: the task of one admitted per pass is waited for only as the proof of its pass reads it.</summary>
     /// <param name="execution">The waiting execution.</param>
     /// <param name="instance">The instance expressing the handle.</param>
     /// <param name="handle">The handle value.</param>
     /// <param name="operation">The wait operation.</param>
     private IReadOnlyList<string>? ProveCallTask(string execution, MethodInstance instance, SummaryValue handle, int operation)
     {
-        if (_awaitedCalls.Count == 0)
+        if (_joinedCalls.Count == 0)
             return null;
         var regions = handle.Values.SelectMany(value => _heap.Resolve(instance.Id, value)).Distinct(StringComparer.Ordinal).ToArray();
         if (regions is not [var region])
             return null;
-        var calls = _awaitedCalls.Where(call => call.Task == region).ToArray();
+        var calls = _joinedCalls.Where(call => call.Task == region).ToArray();
         if (calls.Length == 0 || _heap.CallTasks.Any(producer => producer.Value == region &&
             !calls.Any(call => call.Instance == producer.Key.Instance && call.Operation == producer.Key.Operation)))
         {
@@ -2268,9 +2275,28 @@ internal sealed partial class HappensBefore
         /// <param name="faults">Whether a call's exception faults the task it returns instead of leaving the call.</param>
         private WaitOperations WaitParts(IrBody body, Func<IrJoinOperation, bool> counts, Func<IrCallOperation, bool> faults)
         {
+            CheckCancellation();
+            var joins = body.Blocks.SelectMany(block => block.Operations).OfType<IrJoinOperation>().Where(counts)
+                            .Select(join => new Waited(join.CallOperationId, join.HandleValues, join is { Kind: IrJoinKind.WaitAll, HandlesKnown: true }))
+                            .ToArray();
+            return WaitParts(body, joins, faults);
+        }
+
+        /// <summary>What a wait waits for: the values it is handed, and the call it marks, if any.</summary>
+        /// <param name="CallOperationId">The call a join marks, or null for an <c>await</c>, which marks none.</param>
+        /// <param name="Handles">The values the wait is handed: a join's handles, or the awaitable of an <c>await</c>.</param>
+        /// <param name="ListsTasks">Whether the marked call lists its tasks in an array or span it is given (<c>Task.WaitAll</c>).</param>
+        private sealed record Waited(int? CallOperationId, IReadOnlyList<int> Handles, bool ListsTasks);
+
+        /// <summary>The operations that belong to the waits given, which throw only as the waits do (<see cref="WaitParts(IrBody, Func{IrJoinOperation, bool}, Func{IrCallOperation, bool})"/>
+        /// for the joins of a body, to which an <c>await</c> is added as a wait of its awaitable).</summary>
+        /// <param name="body">The body.</param>
+        /// <param name="waits">The waits.</param>
+        /// <param name="faults">Whether a call's exception faults the task it returns instead of leaving the call.</param>
+        private WaitOperations WaitParts(IrBody body, IReadOnlyList<Waited> waits, Func<IrCallOperation, bool> faults)
+        {
             var operations = body.Blocks.SelectMany(block => block.Operations).ToArray();
-            var joins = operations.OfType<IrJoinOperation>().Where(counts).ToArray();
-            if (joins.Length == 0)
+            if (waits.Count == 0)
                 return new WaitOperations([], [], []);
 
             var byId = operations.ToDictionary(operation => operation.Id);
@@ -2282,15 +2308,16 @@ internal sealed partial class HappensBefore
             var groups = operations.OfType<IrWhenAllOperation>().ToLookup(group => group.ResultValue);
             var parts = new HashSet<int>();
             var producers = new HashSet<int>();
-            foreach (var join in joins)
+            foreach (var wait in waits)
             {
                 CheckCancellation();
-                parts.Add(join.CallOperationId);
-                producers.UnionWith(join.HandleValues.SelectMany(value => definers.GetValueOrDefault(value) ?? []));
-                var pending = new Stack<int>(join.HandleValues);
+                if (wait.CallOperationId is int marked)
+                    parts.Add(marked);
+                producers.UnionWith(wait.Handles.SelectMany(value => definers.GetValueOrDefault(value) ?? []));
+                var pending = new Stack<int>(wait.Handles);
                 // The array or span a call lists its tasks in is made for the call, written in it.
                 var listings = new HashSet<int>();
-                if (join is { Kind: IrJoinKind.WaitAll, HandlesKnown: true } && byId.GetValueOrDefault(join.CallOperationId) is IrCallOperation waitAll)
+                if (wait is { ListsTasks: true, CallOperationId: int listing } && byId.GetValueOrDefault(listing) is IrCallOperation waitAll)
                     Listing(waitAll.ArgumentValues);
                 var seen = new HashSet<int>();
                 while (pending.TryPop(out var value))
@@ -2375,7 +2402,76 @@ internal sealed partial class HappensBefore
             }
 
             producers.ExceptWith(parts);
-            return new WaitOperations(parts, producers, joins.Select(join => join.CallOperationId).ToHashSet());
+            return new WaitOperations(parts, producers, waits.Select(wait => wait.CallOperationId).OfType<int>().ToHashSet());
+        }
+
+        /// <summary>The wait at which a block waits for the task of a call at once: the first wait for that one task after the call —
+        /// an <c>await</c>, also of its <c>ConfigureAwait(bool)</c>, a <c>Wait()</c>, a <c>Result</c>, a <c>GetAwaiter().GetResult()</c> or a
+        /// <c>Task.WaitAll</c> of just that task — with nothing between the call and the wait that may throw, but the operations that belong
+        /// to the wait (<see cref="WaitParts(IrBody, Func{IrJoinOperation, bool}, Func{IrCallOperation, bool})"/>). A member that returns no
+        /// task is waited for by its own return, and gives the call itself. The task of a <c>Task.WhenAll</c> that lists it is another
+        /// task, and so no wait for it.</summary>
+        /// <param name="body">The body holding the call.</param>
+        /// <param name="call">The call.</param>
+        /// <param name="returnsTask">Whether the member the call runs returns a task.</param>
+        internal IrOperation? WaitAtOnce(IrBody body, IrCallOperation call, bool returnsTask)
+        {
+            CheckCancellation();
+            if (!returnsTask)
+                return call;
+            if (call.ResultValue is not int task || body.Blocks.FirstOrDefault(block => block.Operations.Any(operation => operation.Id == call.Id)) is not { } block)
+                return null;
+
+            // A value names the call's task through the assignments, the identity and implicit reference conversions and the
+            // task-preserving members (GetAwaiter(), ConfigureAwait) a wait goes through; a value defined twice names nothing.
+            var sources = new Dictionary<int, List<int>>();
+            foreach (var operation in body.Blocks.SelectMany(candidate => candidate.Operations))
+            {
+                CheckCancellation();
+                var (target, source) = operation switch
+                {
+                    IrAssignOperation assign => (assign.TargetValue, assign.SourceValue),
+                    IrTaskOperation { Kind: IrTaskKind.Same, ResultValue: int result, TaskValue: int same } => (result, same),
+                    IrConvertOperation convert when convert.ConversionKind == IrConversionKind.Identity ||
+                                                    convert is { ConversionKind: IrConversionKind.Reference, IsImplicit: true } => (convert.ResultValue, convert.OperandValue),
+                    _ => (-1, -1)
+                };
+                if (target < 0)
+                    continue;
+                if (!sources.TryGetValue(target, out var known))
+                    sources.Add(target, known = []);
+                known.Add(source);
+            }
+
+            bool Names(int value)
+            {
+                for (var seen = new HashSet<int>(); seen.Add(value);)
+                {
+                    CheckCancellation();
+                    if (value == task)
+                        return true;
+                    if (!sources.TryGetValue(value, out var known) || known.Count != 1)
+                        return false;
+                    value = known[0];
+                }
+
+                return false;
+            }
+
+            var after = block.Operations.SkipWhile(operation => operation.Id != call.Id).Skip(1).ToArray();
+            var wait = after.FirstOrDefault(operation => operation switch
+            {
+                IrAwaitOperation awaited => Names(awaited.TaskValue ?? awaited.AwaitableValue),
+                IrJoinOperation { Kind: IrJoinKind.Wait or IrJoinKind.Result or IrJoinKind.WaitAll, HandlesKnown: true, HandleValues: [var handle] } => Names(handle),
+                _ => false
+            });
+            if (wait is null)
+                return null;
+            var waited = wait is IrJoinOperation join
+                ? new Waited(join.CallOperationId, join.HandleValues, join.Kind == IrJoinKind.WaitAll)
+                : new Waited(null, [((IrAwaitOperation)wait).AwaitableValue], false);
+            var parts = WaitParts(body, [waited], _ => false).Parts;
+            return after.TakeWhile(operation => operation.Id != wait.Id).All(operation => !MayThrow(operation) || parts.Contains(operation.Id)) ? wait : null;
         }
 
         /// <summary>The operations that belong to a body's waits, and those that compute a handle one of them waits on without
@@ -2580,6 +2676,32 @@ internal sealed partial class HappensBefore
                 return true;
             var overlapping = Reach($"overlapping:{string.Join(";", runs.Order())}", runs, ascend: false, new HashSet<int>());
             return !targets.Any(node => overlapping[node]);
+        }
+
+        /// <summary>Whether a valid path leads from just after a start (from the point itself for a point after a call) to a destination
+        /// although nothing completes on the way: the destination is reached from a call that has no wait for its work, as a loop reaches
+        /// the call again. A start or a destination with no node is read as reaching, as every other question of the flow reads what it
+        /// cannot place.</summary>
+        /// <param name="start">The start.</param>
+        /// <param name="destination">The point the paths lead to.</param>
+        /// <param name="overlappingRuns">Whether the runs a call around the start may begin before this one ends count.</param>
+        internal bool Reaches(PointKey start, PointKey destination, bool overlappingRuns)
+        {
+            var targets = Nodes(destination);
+            var begins = (start.AfterCall ? Nodes(start) : Nodes(start).Where(node => _pass[node] >= 0).Select(node => _pass[node]))
+                         .Select(node => (Node: node, Ascend: true)).ToArray();
+            if (targets.Count == 0 || begins.Length == 0)
+                return true;
+            var reach = Reach($"reaches:{start}", begins, new HashSet<int>());
+            if (targets.Any(node => reach[node]))
+                return true;
+            if (!overlappingRuns)
+                return false;
+            var runs = OverlappingRuns(Nodes(start));
+            if (runs.Count == 0)
+                return false;
+            var overlapping = Reach($"overlapping:{string.Join(";", runs.Order())}", runs, ascend: false, new HashSet<int>());
+            return targets.Any(node => overlapping[node]);
         }
 
         /// <summary>Whether every path from just after a pass's start (from the point itself for a point after a call) to the

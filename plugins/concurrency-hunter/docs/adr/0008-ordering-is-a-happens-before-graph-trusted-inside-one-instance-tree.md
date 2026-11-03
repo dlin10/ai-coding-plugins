@@ -40,9 +40,18 @@ a loop, a helper called again, the delegate of a `sequential` or `sequential-awa
 a handle proven to be this pass's work, and passes that wait on every path to the next pass, the work
 is ordered before the next pass of the same site and before the parent's accesses after the wait,
 although the site still repeats; the exceptional exit of a blocking task wait counts as that wait
-under the ADR 0030 assumptions. The parent must not overlap itself, the iterations of one `Parallel`
-call and the callbacks of one periodic timer still overlap one another, and runs with a `concurrent`
-relation or none are not passes. With it a built-in or project model's `sequential` relation proves
+under the ADR 0030 assumptions. A `sequential-awaited` call that the once-running parent makes again
+within its one run is admitted per pass in the same way: its runs are the work of the pass, and the
+wait for its task right after the call is the join. A body that suspends at that wait hands its task to
+its caller, so the join holds only where the caller waits for that task, up every level of async
+entries; a body that a caller awaits at once suspends that caller at the await, and the climb goes on
+from there. The delegate of another admitted call is one such entry: its suspension ends the work for
+the delegate's next run whatever becomes of the call's task, because the library waits each run's task,
+and for what follows that call's return, and for the call's next pass, only where the call's task is
+waited at once, on the exits of that wait that follow its completion. The join of its task over all the runs, above, is built only for a call made once per run of
+its execution. The parent must not overlap
+itself, the iterations of one `Parallel` call and the callbacks of one periodic timer still overlap
+one another, and runs with a `concurrent` relation or none are not passes. With it a built-in or project model's `sequential` relation proves
 order too: the runs of its delegate go one at a time in the caller's execution, each finishing with
 everything it waited for before the next one starts. A generated model still proves no order.
 

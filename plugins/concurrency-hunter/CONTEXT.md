@@ -96,7 +96,8 @@ The proven order of two execution events: a path through spawns, joins, continua
 leads from one to the other, inside one instance tree whose root runs once. Two accesses with
 happens-before in either direction never overlap; without it they may. A **Join** of a spawn site its
 parent passes more than once orders the work of its own **Site pass** before the next pass of the same
-site, however often the site repeats.
+site, however often the site repeats. The runs of a `sequential-awaited` call admitted per pass are
+the work of its own pass, and the wait for its task right after the call is that join.
 _Avoid_: sequential, ordered, before (a line above is not happens-before when a loop repeats it)
 
 **Environment assumption**:
@@ -126,6 +127,20 @@ iterations of one `Parallel` call or the callbacks of one periodic timer still o
 The parent must not overlap itself: the passes of an HTTP action keep their pairs. The runs of a
 delegate with a `concurrent` relation or none are not passes: each may start before the previous
 one's join.
+A `sequential-awaited` call that the once-running execution makes again within its one run — in a
+loop, or through a helper called twice — is admitted per pass: its runs are the work of the pass, and
+the join is the wait for its task right after the call (an `await`, a blocking wait, or the return of
+a member that has no task). When every path from the call to the next pass reaches that wait, the
+exceptional paths too, the work of the pass completes ahead of the synchronous part of every run of
+this and later passes, ahead of the other runs' continuations, and ahead of the parent's accesses
+after the wait, in the body that makes the call and in what a body runs after it suspends. A body
+that suspends hands its task to its caller, so the work is complete only where the caller waits for
+that task, and so on up the async entries of the body. The delegate of another admitted call is such
+an entry too: its suspension ends the work for the delegate's next run, because the library waits each
+run's task, and for what follows the call's return only where the call's own task is waited at once. A method that a run and the pass both call is
+a place of the pass wherever the pass calls it. A call that can come back to itself without reaching
+the wait is admitted per pass all the same and keeps its pairs. The task join over all the runs of a call (**Join**) is built only
+for a call admitted once per run of its execution.
 _Avoid_: iteration (the iterations of a `Parallel` body overlap one another), attempt, round
 
 **Construction**:

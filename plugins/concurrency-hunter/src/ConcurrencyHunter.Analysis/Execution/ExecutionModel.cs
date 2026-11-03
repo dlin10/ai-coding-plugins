@@ -688,17 +688,31 @@ public static class ExecutionModel
     /// <param name="delegateRegion">The delegate region.</param>
     public static string UnknownDelegateCallId(string delegateRegion) => $"unknown-delegate-call:{delegateRegion}";
 
+    /// <summary>The threshold at which a call was admitted: how often the one execution making it passes the call.</summary>
+    internal enum AdmissionThreshold
+    {
+        /// <summary>The call is made at most once per run of the execution making it: every one of its runs is a run of the call.</summary>
+        PerRun,
+
+        /// <summary>The execution runs once but may pass the call's site again within that run, so the call is a pass of the site and
+        /// the join of its work is the wait right after it, read once per pass.</summary>
+        PerPass
+    }
+
     /// <summary>A call whose record runs its delegate one run at a time, admitted by the one selection every reader of a record's run
     /// relation shares: a <c>sequential</c> call, or a <c>sequential-awaited</c> call, whose record also orders every run's continuation
-    /// under the once-running caller threshold.</summary>
+    /// under the once-running caller threshold, or, for a call made again within one run of the once-running execution, per pass of
+    /// its site.</summary>
     /// <param name="Instance">The instance making the call.</param>
     /// <param name="Operation">The call operation.</param>
     /// <param name="Relation">The relation of every run of the call.</param>
     /// <param name="Execution">The execution making a sequential-awaited call; null for a sequential one.</param>
     /// <param name="Task">The call's own task, or null for a member returning no task or a sequential call.</param>
     /// <param name="Continuations">The executions continuing a sequential-awaited call's runs; none for a sequential one.</param>
+    /// <param name="Threshold">The threshold that admitted the call: a <c>sequential</c> call is admitted per run, a
+    /// <c>sequential-awaited</c> one per run or, where its site is passed again, per pass.</param>
     internal sealed record AdmittedCall(string Instance, int Operation, RunRelation Relation, string? Execution, string? Task,
-                                        IReadOnlyList<string> Continuations);
+                                        IReadOnlyList<string> Continuations, AdmissionThreshold Threshold);
 
     private sealed class Builder(ScopeProgram scope, HeapSolution heap, CancellationToken cancellationToken, ExecutionWalkOrder? walkOrder)
     {
@@ -915,8 +929,9 @@ public static class ExecutionModel
             FinishSpawnedExecutions();
             FinishUnknownDelegateCalls();
             var admittedCalls = AdmittedCalls();
-            foreach (var continuation in admittedCalls.Where(call => call.Relation == RunRelation.SequentialAwaited).SelectMany(call => call.Continuations)
-                                                      .Distinct(StringComparer.Ordinal))
+            // A call admitted only per pass leaves its continuations their policy: the proof of its pass decides their pairs, not the policy.
+            foreach (var continuation in admittedCalls.Where(call => call.Relation == RunRelation.SequentialAwaited && call.Threshold == AdmissionThreshold.PerRun)
+                                                      .SelectMany(call => call.Continuations).Distinct(StringComparer.Ordinal))
             {
                 CheckCancellation();
                 _executions[continuation] = _executions[continuation] with { Policy = SERIALIZED };
@@ -1326,9 +1341,10 @@ public static class ExecutionModel
 
         /// <summary>The single owner of every run relation's effects: only a curated call of the built-in or project layer, whose one
         /// <c>invoke-now</c> delegate is created in the calling body. A <c>sequential</c> call is admitted when every run made at it is
-        /// sequential; a <c>sequential-awaited</c> one only when made once by one once-running execution, with that delegate supplying
-        /// its whole continuation site and having only async targets, or non-async ones that each run as one async call of their body,
-        /// whose site is then theirs (<see cref="Wrapped"/>).</summary>
+        /// sequential; a <c>sequential-awaited</c> one only when made by one once-running execution, per run of it where it passes the
+        /// site once and per pass (<see cref="AdmissionThreshold.PerPass"/>) where it passes the site again, with that delegate
+        /// supplying its whole continuation site and having only async targets, or non-async ones that each run as one async call of
+        /// their body, whose site is then theirs (<see cref="Wrapped"/>).</summary>
         private IReadOnlyList<AdmittedCall> AdmittedCalls()
         {
             var result = new List<AdmittedCall>();
@@ -1352,7 +1368,7 @@ public static class ExecutionModel
                     if (invoked is [var only] && !only.Value.Unseen && only.Value.Runs.Count != 0 &&
                         call.ArgumentAt(only.Key.Ordinal) is int value && CreatedDelegate(body, value))
                     {
-                        result.Add(new AdmittedCall(instance.Id, call.Id, RunRelation.Sequential, null, null, []));
+                        result.Add(new AdmittedCall(instance.Id, call.Id, RunRelation.Sequential, null, null, [], AdmissionThreshold.PerRun));
                     }
                     continue;
                 }
@@ -1391,11 +1407,10 @@ public static class ExecutionModel
                     continue;
                 }
 
-                if (OnlyExecution(instance, call.Id) is not { } execution || !RunsOnce(execution) ||
-                    !SiteOnce(execution, body.BodyId, call.Id, afterCall: true))
-                {
+                if (OnlyExecution(instance, call.Id) is not { } execution || !RunsOnce(execution))
                     continue;
-                }
+                // A site the execution passes again within its one run is admitted per pass: the proof of the pass decides what it orders.
+                var threshold = SiteOnce(execution, body.BodyId, call.Id, afterCall: true) ? AdmissionThreshold.PerRun : AdmissionThreshold.PerPass;
                 bool ContinuationOf(SpawnAnchor anchor) => site is not null && anchor.CallerInstance == instance.Id && anchor.OperationId == call.Id ||
                                                            continuationSites.Contains((anchor.CallerInstance, anchor.OperationId));
                 var continuations = _anchors.Where(anchor => anchor.ExecutionId == execution && anchor.Kind == SpawnAnchorKind.AsyncReturn && ContinuationOf(anchor))
@@ -1407,7 +1422,7 @@ public static class ExecutionModel
                     continue;
                 }
                 result.Add(new AdmittedCall(instance.Id, call.Id, RunRelation.SequentialAwaited, execution,
-                                            heap.CallTasks.GetValueOrDefault((instance.Id, call.Id)), continuations));
+                                            heap.CallTasks.GetValueOrDefault((instance.Id, call.Id)), continuations, threshold));
             }
             return result;
         }
