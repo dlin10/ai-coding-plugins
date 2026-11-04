@@ -493,7 +493,7 @@ public sealed class ImplementationAssemblyTests : IDisposable
     }
 
     [Fact]
-    public void A_package_assembly_the_shared_framework_also_has_is_compiled_from_the_package_s_copy_only()
+    public void A_package_assembly_the_shared_framework_also_has_ties_and_is_compiled_from_the_framework_s_copy()
     {
         var shared = _install.SharedFramework("8.0.1", ["System.Text.Json", "System.Memory", "Other"]);
         var package = _install.Package("System.Text.Json", "8.0.5", """<dependencies><dependency id="System.Memory" version="4.5.0" /></dependencies>""",
@@ -504,8 +504,8 @@ public sealed class ImplementationAssemblyTests : IDisposable
 
         Assert.Equal(Path.Combine(package, "lib", "net8.0", "System.Text.Json.dll"), found.Path);
         Assert.DoesNotContain(Path.Combine(shared, "System.Text.Json.dll"), found.References);
-        Assert.DoesNotContain(Path.Combine(shared, "System.Memory.dll"), found.References);
-        Assert.Contains(Path.Combine(memory, "lib", "netstandard2.0", "System.Memory.dll"), found.References);
+        Assert.Contains(Path.Combine(shared, "System.Memory.dll"), found.References);
+        Assert.DoesNotContain(Path.Combine(memory, "lib", "netstandard2.0", "System.Memory.dll"), found.References);
         Assert.Contains(Path.Combine(shared, "Other.dll"), found.References);
         Assert.DoesNotContain(Path.Combine(shared, "coreclr.dll"), found.References);
     }
@@ -708,7 +708,7 @@ public sealed class ImplementationAssemblyTests : IDisposable
     }
 
     [Fact]
-    public void A_package_copy_still_wins_over_AspNetCore_App()
+    public void A_package_copy_that_ties_with_AspNetCore_App_loses_to_it()
     {
         var shared = _install.SharedFramework("8.0.1", ["Both"]);
         var web = _install.AspNetCoreFramework("8.0.1", ["Both", "Microsoft.AspNetCore.Http", "Web.Only"]);
@@ -718,12 +718,53 @@ public sealed class ImplementationAssemblyTests : IDisposable
 
         var found = Found(_install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8));
 
-        Assert.Contains(Path.Combine(bar, "lib", "net8.0", "Microsoft.AspNetCore.Http.dll"), found.References);
-        Assert.DoesNotContain(Path.Combine(web, "Microsoft.AspNetCore.Http.dll"), found.References);
+        Assert.DoesNotContain(Path.Combine(bar, "lib", "net8.0", "Microsoft.AspNetCore.Http.dll"), found.References);
+        Assert.Contains(Path.Combine(web, "Microsoft.AspNetCore.Http.dll"), found.References);
         Assert.Contains(Path.Combine(shared, "Both.dll"), found.References);
         Assert.DoesNotContain(Path.Combine(web, "Both.dll"), found.References);
         var references = found.References.ToList();
         Assert.True(references.IndexOf(Path.Combine(shared, "Both.dll")) < references.IndexOf(Path.Combine(web, "Web.Only.dll")));
+    }
+
+    [Fact]
+    public void A_higher_assembly_version_of_the_package_copy_wins_over_the_framework()
+    {
+        var shared = _install.SharedFramework("8.0.1", ["Other"], images: new Dictionary<string, byte[]>
+        {
+            ["Higher"] = EmittedAssemblies.Image("Higher", version: "1.0.0.0"),
+            ["Lower"] = EmittedAssemblies.Image("Lower", version: "2.0.0.0")
+        });
+        _install.Package("Foo", "1.0.0", """<dependencies><dependency id="Bar" version="1.0.0" /></dependencies>""", "net8.0/Foo");
+        var bar = _install.Package("Bar", "1.0.0", "", new Dictionary<string, byte[]>
+        {
+            ["net8.0/Bar"] = EmittedAssemblies.Image("Bar"),
+            ["net8.0/Higher"] = EmittedAssemblies.Image("Higher", version: "2.0.0.0"),
+            ["net8.0/Lower"] = EmittedAssemblies.Image("Lower", version: "1.0.0.0")
+        });
+
+        var found = Found(_install.Resolver().Resolve("Foo", "1.0.0", "Foo", NET8));
+
+        Assert.Contains(Path.Combine(bar, "lib", "net8.0", "Higher.dll"), found.References);
+        Assert.DoesNotContain(Path.Combine(shared, "Higher.dll"), found.References);
+        Assert.Contains(Path.Combine(shared, "Lower.dll"), found.References);
+        Assert.DoesNotContain(Path.Combine(bar, "lib", "net8.0", "Lower.dll"), found.References);
+        Assert.Single(found.References, reference => Path.GetFileName(reference) == "Higher.dll");
+        Assert.Single(found.References, reference => Path.GetFileName(reference) == "Lower.dll");
+    }
+
+    [Fact]
+    public void AssemblyFile_reads_each_assembly_reference_with_its_version()
+    {
+        var dependency = EmittedAssemblies.Image("Dep", version: "3.1.4.1");
+        var other = EmittedAssemblies.Image("Other.Dep", version: "2.0.0.0");
+        var main = EmittedAssemblies.Write(Path.Combine(_install.Root, "Main.dll"), "Main", references: [dependency, other]);
+        var plain = EmittedAssemblies.Write(Path.Combine(_install.Root, "Plain.dll"), "Plain");
+
+        var file = AssemblyFile.Read(main)!;
+
+        Assert.Contains(new AssemblyReference("Dep", new Version(3, 1, 4, 1)), file.References);
+        Assert.Contains(new AssemblyReference("Other.Dep", new Version(2, 0, 0, 0)), file.References);
+        Assert.DoesNotContain(AssemblyFile.Read(plain)!.References, row => row.Name is "Dep" or "Other.Dep");
     }
 
     [Fact]

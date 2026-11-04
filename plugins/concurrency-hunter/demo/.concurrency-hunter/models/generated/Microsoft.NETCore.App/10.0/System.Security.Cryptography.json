@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "8e0e0a2afae09b5d5d57e18426e82c38901750e1dc44f2a3acdfd562644d1750",
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
   "assembly": {
     "name": "System.Security.Cryptography",
     "version": "10.0.0.0",
@@ -13,7 +13,7 @@
       "member": "M:System.Security.Cryptography.Oid.get_Value",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -21,7 +21,7 @@
       "member": "M:System.Security.Cryptography.OidCollection.GetEnumerator",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -29,7 +29,7 @@
       "member": "M:System.Security.Cryptography.OidEnumerator.MoveNext",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -37,7 +37,7 @@
       "member": "M:System.Security.Cryptography.OidEnumerator.get_Current",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -45,7 +45,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate.#ctor",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -53,7 +53,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate.Dispose",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -61,7 +61,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate.GetHashCode",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -69,7 +69,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate.ToString(System.Boolean)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -77,7 +77,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate.get_Subject",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -85,7 +85,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate2.#ctor",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -93,7 +93,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate2.get_Extensions",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -101,7 +101,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate2.get_HasPrivateKey",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -109,7 +109,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate2.get_Thumbprint",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -117,7 +117,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate2Collection.#ctor",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -125,7 +125,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate2Collection.AddRange(System.Security.Cryptography.X509Certificates.X509Certificate2Collection)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -133,7 +133,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate2Collection.GetEnumerator",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -141,7 +141,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate2Enumerator.MoveNext",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -149,7 +149,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Certificate2Enumerator.get_Current",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -157,7 +157,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509CertificateCollection.#ctor",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -165,7 +165,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509CertificateCollection.AddRange(System.Security.Cryptography.X509Certificates.X509CertificateCollection)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -173,7 +173,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509CertificateCollection.GetEnumerator",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -181,7 +181,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509CertificateCollection.X509CertificateEnumerator.MoveNext",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -189,7 +189,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509CertificateCollection.X509CertificateEnumerator.get_Current",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -197,7 +197,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Chain.#ctor",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -205,7 +205,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Chain.Build(System.Security.Cryptography.X509Certificates.X509Certificate2)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -213,7 +213,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Chain.get_ChainElements",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -221,7 +221,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Chain.get_ChainPolicy",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -229,7 +229,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Chain.get_ChainStatus",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -237,7 +237,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainElement.get_Certificate",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -245,7 +245,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainElementCollection.get_Count",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -253,7 +253,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainElementCollection.get_Item(System.Int32)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -261,7 +261,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainPolicy.get_CustomTrustStore",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -269,7 +269,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainPolicy.get_ExtraStore",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -277,7 +277,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainPolicy.set_DisableCertificateDownloads(System.Boolean)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -285,7 +285,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainPolicy.set_RevocationMode(System.Security.Cryptography.X509Certificates.X509RevocationMode)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -293,7 +293,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainPolicy.set_TrustMode(System.Security.Cryptography.X509Certificates.X509ChainTrustMode)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -301,7 +301,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainPolicy.set_VerificationFlags(System.Security.Cryptography.X509Certificates.X509VerificationFlags)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -309,7 +309,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ChainStatus.get_Status",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -317,7 +317,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension.get_EnhancedKeyUsages",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -325,7 +325,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ExtensionCollection.GetEnumerator",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -333,7 +333,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ExtensionEnumerator.MoveNext",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -341,7 +341,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509ExtensionEnumerator.get_Current",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -349,7 +349,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509KeyUsageExtension.get_KeyUsages",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -357,7 +357,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Store.#ctor(System.Security.Cryptography.X509Certificates.StoreName,System.Security.Cryptography.X509Certificates.StoreLocation)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -365,7 +365,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Store.Add(System.Security.Cryptography.X509Certificates.X509Certificate2)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -373,7 +373,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Store.Dispose",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -381,7 +381,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Store.Open(System.Security.Cryptography.X509Certificates.OpenFlags)",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     },
@@ -389,7 +389,7 @@
       "member": "M:System.Security.Cryptography.X509Certificates.X509Store.get_Certificates",
       "refusal": {
         "reason": "library-does-not-compile",
-        "detail": "CS7036, SYSLIB5006",
+        "detail": "CS7036",
         "causes": []
       }
     }

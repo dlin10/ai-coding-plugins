@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
+  "assembly": {
+    "name": "Microsoft.AspNetCore.Routing.Abstractions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteData.#ctor",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Routing.RouteData.#ctor",
+        "assemblies": [
+          "Microsoft.AspNetCore.Routing.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    }
+  ]
+}

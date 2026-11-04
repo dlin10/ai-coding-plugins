@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "8e0e0a2afae09b5d5d57e18426e82c38901750e1dc44f2a3acdfd562644d1750",
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
   "assembly": {
     "name": "Microsoft.AspNetCore.Mvc.Core",
     "version": "10.0.0.0",
@@ -12,25 +12,99 @@
     {
       "member": "M:Microsoft.AspNetCore.Builder.ControllerEndpointRouteBuilderExtensions.MapControllers(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
       "refusal": {
-        "reason": "library-does-not-compile",
-        "detail": "CS0115, CS0122, CS0281",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "call-receiver-unfollowed",
+          "callback-value-in-library-call",
+          "callback-value-read",
+          "probe-handed-to-unseen",
+          "result-unresolved",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
       }
     },
     {
       "member": "M:Microsoft.AspNetCore.Mvc.ControllerBase.#ctor",
       "refusal": {
-        "reason": "library-does-not-compile",
-        "detail": "CS0115, CS0122, CS0281",
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Mvc.ControllerBase.#ctor is not public; M:Microsoft.AspNetCore.Mvc.ControllerBase.#ctor constructs an abstract type",
         "causes": []
       }
     },
     {
       "member": "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_HttpContext",
       "refusal": {
-        "reason": "library-does-not-compile",
-        "detail": "CS0115, CS0122, CS0281",
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "result-unresolved",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder.get_PartManager",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder.get_PartManager is abstract; M:Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder.get_PartManager is an interface member",
         "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder.get_Services",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder.get_Services is abstract; M:Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder.get_Services is an interface member",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.MvcBuilder.#ctor(Microsoft.Extensions.DependencyInjection.IServiceCollection,Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPartManager)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.DependencyInjection.MvcBuilder.#ctor(Microsoft.Extensions.DependencyInjection.IServiceCollection,Microsoft.AspNetCore.Mvc.ApplicationParts.ApplicationPartManager) is not public",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcCoreBuilderExtensions.AddAuthorization(Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcCoreBuilderExtensions.AddFormatterMappings(Microsoft.Extensions.DependencyInjection.IMvcCoreBuilder)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.DependencyInjection.MvcCoreServiceCollectionExtensions.AddMvcCore(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "callback-value-in-library-call",
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "result-unnamed",
+          "value-unnamed",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
       }
     }
   ]

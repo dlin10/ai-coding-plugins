@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ICSharpCode.Decompiler;
@@ -49,6 +50,10 @@ public sealed record DecompiledModule(IReadOnlyList<SyntaxTree> Trees, IReadOnly
     /// <summary>The names of the assemblies the decompiler's type system held, the module's own among them: a simple type name it wrote
     /// names the one type of that name it saw there.</summary>
     public IReadOnlySet<string> DecompilerAssemblies { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The public key of the module's assembly, empty when it is not strong-named: the copy compiled from it is public-signed
+    /// with this key, so that it has the identity the assemblies that name it as a friend were built against.</summary>
+    public ImmutableArray<byte> PublicKey { get; init; } = ImmutableArray<byte>.Empty;
 }
 
 /// <summary>What a test hooks into one library compilation to hold it at a known place; <c>null</c> in production.</summary>
@@ -332,7 +337,8 @@ public static class LibraryCompilation
         trees[^1] = Parse(attributes.DecompileModuleAndAssemblyAttributes(), settings, $"{assembly.AssemblyName}/AssemblyInfo.cs", checks);
         return new DecompiledModule(trees.OfType<SyntaxTree>().ToArray(), failures.OfType<string>().ToArray())
         {
-            DecompilerAssemblies = typeSystem.Modules.Select(loaded => loaded.AssemblyName).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            DecompilerAssemblies = typeSystem.Modules.Select(loaded => loaded.AssemblyName).ToHashSet(StringComparer.OrdinalIgnoreCase),
+            PublicKey = metadata.IsAssembly ? metadata.GetBlobContent(metadata.GetAssemblyDefinition().PublicKey) : ImmutableArray<byte>.Empty
         };
     }
 
@@ -370,10 +376,11 @@ public static class LibraryCompilation
         }
 
         return CompileTrees(assemblyName, module.Trees, references, checks, selectedMembers, repairArtefacts: repairArtefacts,
-                            decompilerAssemblies: module.DecompilerAssemblies);
+                            decompilerAssemblies: module.DecompilerAssemblies, publicKey: module.PublicKey);
     }
 
-    /// <summary>Compiles decompiled trees as a library named as the assembly, unsafe code allowed, nullable disabled, makes every
+    /// <summary>Compiles decompiled trees as a library named as the assembly, unsafe code allowed, nullable disabled, public-signed
+    /// when it has a public key, makes every
     /// member of a type <see cref="HasNoBodies"/> names and every intrinsic's placeholder (<see cref="IsPlaceholder"/>)
     /// <c>extern</c>, then rewrites every member whose body has an error as
     /// <c>extern</c> and recompiles, at most three times. A declaration-level error other
@@ -385,13 +392,15 @@ public static class LibraryCompilation
     /// <param name="cancellationToken">Cancels the compilation.</param>
     /// <param name="selectedMembers">Additional whole-member documentation ids to make extern.</param>
     /// <param name="openFields">Whether to open seed and path fields for the model driver.</param>
+    /// <param name="publicKey">The public key to public-sign the compilation with, or empty for an unsigned one.</param>
     // bounded: overload forwarding terminates at the implementation overload.
     internal static LibraryCompilationResult CompileTrees(string assemblyName, IReadOnlyList<SyntaxTree> trees,
                                                           IReadOnlyList<MetadataReference> references, CancellationToken cancellationToken,
-                                                          IReadOnlySet<string>? selectedMembers = null, bool openFields = true) =>
-        CompileTrees(assemblyName, trees, references, new GenerationChecks(cancellationToken), selectedMembers, openFields);
+                                                          IReadOnlySet<string>? selectedMembers = null, bool openFields = true,
+                                                          ImmutableArray<byte> publicKey = default) =>
+        CompileTrees(assemblyName, trees, references, new GenerationChecks(cancellationToken), selectedMembers, openFields, publicKey: publicKey);
 
-    /// <summary>Compiles decompiled trees as a stage of a generation (<see cref="CompileTrees(string, IReadOnlyList{SyntaxTree}, IReadOnlyList{MetadataReference}, CancellationToken, IReadOnlySet{string}?, bool)"/>):
+    /// <summary>Compiles decompiled trees as a stage of a generation (<see cref="CompileTrees(string, IReadOnlyList{SyntaxTree}, IReadOnlyList{MetadataReference}, CancellationToken, IReadOnlySet{string}?, bool, ImmutableArray{byte})"/>):
     /// it checks before each tree it rewrites and before each rewrite round. The decompiler's artefacts are repaired once, before any
     /// body is rewritten, so that a body whose only error was one keeps its body.</summary>
     /// <param name="assemblyName">The assembly name.</param>
@@ -403,16 +412,21 @@ public static class LibraryCompilation
     /// <param name="repairArtefacts">Whether the decompiler's artefacts are repaired (<see cref="Repaired"/>).</param>
     /// <param name="decompilerAssemblies">The assemblies the decompiler saw (<see cref="DecompiledModule.DecompilerAssemblies"/>), or
     /// <c>null</c> when only the library itself is known to be among them.</param>
+    /// <param name="publicKey">The public key to public-sign the compilation with (<see cref="DecompiledModule.PublicKey"/>), or empty
+    /// for an unsigned one.</param>
     internal static LibraryCompilationResult CompileTrees(string assemblyName, IReadOnlyList<SyntaxTree> trees,
                                                           IReadOnlyList<MetadataReference> references, GenerationChecks checks,
                                                           IReadOnlySet<string>? selectedMembers = null, bool openFields = true,
-                                                          bool repairArtefacts = true, IReadOnlySet<string>? decompilerAssemblies = null)
+                                                          bool repairArtefacts = true, IReadOnlySet<string>? decompilerAssemblies = null,
+                                                          ImmutableArray<byte> publicKey = default)
     {
         var cancellationToken = checks.Token;
         var bodies = trees.Sum(tree => tree.GetRoot(cancellationToken).DescendantNodes().Count(IsBody));
-        var compilation = CSharpCompilation.Create(assemblyName, trees, references,
-                                                   new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
-                                                                                nullableContextOptions: NullableContextOptions.Disable));
+        var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+                                                   nullableContextOptions: NullableContextOptions.Disable);
+        if (!publicKey.IsDefaultOrEmpty)
+            options = options.WithCryptoPublicKey(publicKey).WithPublicSign(true);
+        var compilation = CSharpCompilation.Create(assemblyName, trees, references, options);
         var externMembers = new SortedSet<string>(StringComparer.Ordinal);
         var issuedNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         var externBodies = 0;
@@ -554,12 +568,21 @@ public static class LibraryCompilation
     /// <param name="type">The type.</param>
     internal static bool HasNoBodies(INamedTypeSymbol type) => type.GetDocumentationCommentId() == UNSAFE;
 
+    /// <summary>Whether a diagnostic is an error of the compiler: severity error, with an id of <c>CS</c> and digits. An error of another
+    /// id belongs to an analyzer-like rule the compiler reports for a consumer (<c>[Experimental]</c> and obsoletion ids such as
+    /// <c>ASP0029</c> and <c>SYSLIB5006</c>), which says nothing on whether the library compiles, binds or runs; every place that
+    /// decides on the errors of a generation's compilation goes through this one test.</summary>
+    /// <param name="diagnostic">The diagnostic.</param>
+    internal static bool IsCompilerError(Diagnostic diagnostic) =>
+        diagnostic.Severity == DiagnosticSeverity.Error && diagnostic.Id.Length > 2 &&
+        diagnostic.Id.StartsWith("CS", StringComparison.Ordinal) && diagnostic.Id.AsSpan(2).IndexOfAnyExceptInRange('0', '9') < 0;
+
     /// <summary>The errors of a compilation, CS8051 first: getter targets are known before CS0276 is assigned to the same property,
     /// regardless of diagnostic order.</summary>
     /// <param name="compilation">The compilation.</param>
     /// <param name="cancellationToken">Cancels the binding.</param>
     private static Diagnostic[] Errors(CSharpCompilation compilation, CancellationToken cancellationToken) =>
-        compilation.GetDiagnostics(cancellationToken).Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+        compilation.GetDiagnostics(cancellationToken).Where(IsCompilerError)
                    .OrderBy(error => error.Id == "CS8051" ? 0 : 1).ToArray();
 
     /// <summary>The compilation with the decompiler's artefacts repaired, or the same compilation when it has none. A simple type name

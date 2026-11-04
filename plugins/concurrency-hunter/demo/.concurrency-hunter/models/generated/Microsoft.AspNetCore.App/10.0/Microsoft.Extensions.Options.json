@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "8e0e0a2afae09b5d5d57e18426e82c38901750e1dc44f2a3acdfd562644d1750",
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
   "assembly": {
     "name": "Microsoft.Extensions.Options",
     "version": "10.0.0.0",
@@ -127,6 +127,14 @@
             "arg:options"
           ]
         }
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.Options.OptionsBuilder`1.Configure``1(System.Action{`0,``0})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS0115 'Seed_4.Configure<TDep>(Action<Probe_TOptions, Probe_TDep>)': no suitable method found to override",
+        "causes": []
       }
     }
   ]

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "8e0e0a2afae09b5d5d57e18426e82c38901750e1dc44f2a3acdfd562644d1750",
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
   "assembly": {
     "name": "System.Linq",
     "version": "10.0.0.0",
@@ -68,6 +68,25 @@
           ]
         },
         "result": "sequence(elements(arg:first))"
+      }
+    },
+    {
+      "member": "M:System.Linq.Enumerable.OrderBy``2(System.Collections.Generic.IEnumerable{``0},System.Func{``0,``1},System.Collections.Generic.IComparer{``1})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "call-receiver-unfollowed",
+          "delegate-input-unobserved",
+          "enumeration-without-sequence",
+          "probe-accessed-elsewhere",
+          "probe-handed-to-unseen",
+          "result-unnamed",
+          "unproven-reference-store",
+          "unsupported-store",
+          "value-unnamed",
+          "value-unobserved"
+        ]
       }
     },
     {

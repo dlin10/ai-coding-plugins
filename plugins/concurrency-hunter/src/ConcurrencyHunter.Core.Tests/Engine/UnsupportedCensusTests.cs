@@ -80,3 +80,12 @@ public sealed class RequiresEShopFactAttribute : FactAttribute
             Skip = $"{VARIABLE} is not set. Set it to an eShopOnContainers checkout to run this read-only eval.";
     }
 }
+
+/// <summary>A theory that runs only when <c>CH_ESHOP_ROOT</c> is set, skipped with <see cref="RequiresEShopFactAttribute"/>'s reason.</summary>
+public sealed class RequiresEShopTheoryAttribute : TheoryAttribute
+{
+    public RequiresEShopTheoryAttribute()
+    {
+        Skip = new RequiresEShopFactAttribute().Skip;
+    }
+}

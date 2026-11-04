@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "8e0e0a2afae09b5d5d57e18426e82c38901750e1dc44f2a3acdfd562644d1750",
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
   "assembly": {
     "name": "Microsoft.AspNetCore.Http.Abstractions",
     "version": "10.0.0.0",
@@ -9,6 +9,45 @@
     "major": 10
   },
   "members": [
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.#ctor is not public; M:Microsoft.AspNetCore.Builder.EndpointBuilder.#ctor constructs an abstract type",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_ApplicationServices",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-several-objects"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_DisplayName",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "unseeded-read"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_FilterFactories",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store",
+          "result-several-objects"
+        ]
+      }
+    },
     {
       "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_Metadata",
       "refusal": {
@@ -22,12 +61,52 @@
       }
     },
     {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.get_RequestDelegate",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.set_ApplicationServices(System.IServiceProvider)",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.set_ApplicationServices(System.IServiceProvider)",
+        "assemblies": [
+          "Microsoft.AspNetCore.Http.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      }
+    },
+    {
       "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.set_DisplayName(System.String)",
       "refusal": {
         "reason": "vocabulary",
         "detail": "",
         "causes": [
           "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Builder.EndpointBuilder.set_RequestDelegate(Microsoft.AspNetCore.Http.RequestDelegate)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
         ]
       }
     },
@@ -96,6 +175,27 @@
       }
     },
     {
+      "member": "M:Microsoft.AspNetCore.Http.DefaultEndpointFilterInvocationContext.#ctor(Microsoft.AspNetCore.Http.HttpContext,System.Object[])",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "unsupported-store"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.Endpoint.#ctor(Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.AspNetCore.Http.EndpointMetadataCollection,System.String)",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "unseeded-read",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
       "member": "M:Microsoft.AspNetCore.Http.Endpoint.get_DisplayName",
       "refusal": {
         "reason": "incomplete",
@@ -116,6 +216,70 @@
       }
     },
     {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointFilterDelegate.Invoke(Microsoft.AspNetCore.Http.EndpointFilterInvocationContext)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.EndpointFilterDelegate.Invoke(Microsoft.AspNetCore.Http.EndpointFilterInvocationContext) is a DelegateInvoke, not a method, constructor, operator, conversion or accessor",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.get_ApplicationServices",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.get_MethodInfo",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.set_ApplicationServices(System.IServiceProvider)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointFilterFactoryContext.set_MethodInfo(System.Reflection.MethodInfo)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.; CS9035 Required member 'EndpointFilterFactoryContext.MethodInfo' must be set in the object initializer or attribute constructor.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointFilterInvocationContext.get_Arguments",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.EndpointFilterInvocationContext.get_Arguments is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointFilterInvocationContext.get_HttpContext",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.EndpointFilterInvocationContext.get_HttpContext is abstract",
+        "causes": []
+      }
+    },
+    {
       "member": "M:Microsoft.AspNetCore.Http.EndpointHttpContextExtensions.GetEndpoint(Microsoft.AspNetCore.Http.HttpContext)",
       "refusal": {
         "reason": "unknown-touch",
@@ -125,6 +289,18 @@
           "result-unresolved",
           "value-unobserved",
           "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.EndpointMetadataCollection.#ctor(System.Collections.Generic.IEnumerable{System.Object})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "enumeration-without-sequence",
+          "probe-handed-to-unseen",
+          "struct-storage-write"
         ]
       }
     },
@@ -165,6 +341,14 @@
       "refusal": {
         "reason": "driver-not-synthesized",
         "detail": "M:Microsoft.AspNetCore.Http.HttpContext.get_RequestAborted is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpContext.get_RequestServices",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpContext.get_RequestServices is abstract",
         "causes": []
       }
     },
@@ -225,6 +409,22 @@
       }
     },
     {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponse.get_BodyWriter",
+      "refusal": {
+        "reason": "overridable",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.get_BodyWriter is virtual in Microsoft.AspNetCore.Http.HttpResponse, which is not sealed: a call may run another type's override, which the driver does not analyse",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponse.get_ContentType",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.get_ContentType is abstract",
+        "causes": []
+      }
+    },
+    {
       "member": "M:Microsoft.AspNetCore.Http.HttpResponse.get_HasStarted",
       "refusal": {
         "reason": "driver-not-synthesized",
@@ -249,6 +449,14 @@
       }
     },
     {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponse.get_StatusCode",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.get_StatusCode is abstract",
+        "causes": []
+      }
+    },
+    {
       "member": "M:Microsoft.AspNetCore.Http.HttpResponse.set_ContentType(System.String)",
       "refusal": {
         "reason": "driver-not-synthesized",
@@ -262,6 +470,66 @@
         "reason": "driver-not-synthesized",
         "detail": "M:Microsoft.AspNetCore.Http.HttpResponse.set_StatusCode(System.Int32) is abstract",
         "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponseWritingExtensions.WriteAsync(Microsoft.AspNetCore.Http.HttpResponse,System.String,System.Threading.CancellationToken)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "probe-handed-to-unseen",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResults.EmptyHttpResult.get_Instance",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpValidationProblemDetails.#ctor(System.Collections.Generic.IDictionary{System.String,System.String[]})",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.IProblemDetailsService.TryWriteAsync(Microsoft.AspNetCore.Http.ProblemDetailsContext)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.IProblemDetailsService.TryWriteAsync(Microsoft.AspNetCore.Http.ProblemDetailsContext) is an interface member; only a default could fill the Microsoft.AspNetCore.Http.IProblemDetailsService of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.IResult.ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.IResult.ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext) is abstract; M:Microsoft.AspNetCore.Http.IResult.ExecuteAsync(Microsoft.AspNetCore.Http.HttpContext) is an interface member; only a default could fill the Microsoft.AspNetCore.Http.IResult of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.Metadata.AcceptsMetadata.#ctor(System.String[],System.Type,System.Boolean)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "value-unobserved"
+        ]
       }
     },
     {
@@ -279,12 +547,170 @@
       }
     },
     {
+      "member": "M:Microsoft.AspNetCore.Http.ProblemDetailsContext.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS9035 Required member 'ProblemDetailsContext.HttpContext' must be set in the object initializer or attribute constructor.; CS9035 Required member 'ProblemDetailsContext.HttpContext' must be set in the object initializer or attribute constructor.; CS9035 Required member 'ProblemDetailsContext.HttpContext' must be set in the object initializer or attribute constructor.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.ProblemDetailsContext.set_HttpContext(Microsoft.AspNetCore.Http.HttpContext)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS9035 Required member 'ProblemDetailsContext.HttpContext' must be set in the object initializer or attribute constructor.; CS9035 Required member 'ProblemDetailsContext.HttpContext' must be set in the object initializer or attribute constructor.; CS9035 Required member 'ProblemDetailsContext.HttpContext' must be set in the object initializer or attribute constructor.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.ProblemDetailsContext.set_ProblemDetails(Microsoft.AspNetCore.Mvc.ProblemDetails)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "the driver does not compile: CS9035 Required member 'ProblemDetailsContext.HttpContext' must be set in the object initializer or attribute constructor.; CS9035 Required member 'ProblemDetailsContext.HttpContext' must be set in the object initializer or attribute constructor.; CS9035 Required member 'ProblemDetailsContext.HttpContext' must be set in the object initializer or attribute constructor.",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegate.Invoke(Microsoft.AspNetCore.Http.HttpContext)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.AspNetCore.Http.RequestDelegate.Invoke(Microsoft.AspNetCore.Http.HttpContext) is a DelegateInvoke, not a method, constructor, operator, conversion or accessor",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateResult.#ctor(Microsoft.AspNetCore.Http.RequestDelegate,System.Collections.Generic.IReadOnlyList{System.Object})",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Http.RequestDelegateResult.#ctor(Microsoft.AspNetCore.Http.RequestDelegate,System.Collections.Generic.IReadOnlyList{System.Object})",
+        "assemblies": [
+          "Microsoft.AspNetCore.Http.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "fates": {
+          "requestDelegate": {
+            "fate": "unknown-execution"
+          }
+        },
+        "keeps": {
+          "this": [
+            "arg:metadata"
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateResult.get_RequestDelegate",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-several-objects"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.#ctor",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "struct-storage-write",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.#ctor(System.Collections.Generic.IEnumerable{System.Collections.Generic.KeyValuePair{System.String,System.Object}})",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "enumeration-without-sequence",
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "struct-storage-write",
+          "value-unnamed",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.Enumerator.MoveNext",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "struct-storage-write",
+          "unseeded-read",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.Enumerator.get_Current",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unresolved",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.GetEnumerator",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-several-objects"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.get_Count",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.get_Count",
+        "assemblies": [
+          "Microsoft.AspNetCore.Http.Abstractions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
       "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.get_Item(System.String)",
       "refusal": {
         "reason": "incomplete",
         "detail": "",
         "causes": [
           "result-unnamed",
+          "unseeded-read",
+          "value-unnamed",
+          "value-unobserved",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Routing.RouteValueDictionary.set_Item(System.String,System.Object)",
+      "refusal": {
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
           "unseeded-read",
           "value-unnamed",
           "value-unobserved",

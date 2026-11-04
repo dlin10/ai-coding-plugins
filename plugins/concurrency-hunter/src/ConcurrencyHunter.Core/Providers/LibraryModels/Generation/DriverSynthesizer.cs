@@ -299,17 +299,20 @@ public static class DriverSynthesizer
         SyntaxTree tree;
         CSharpCompilation compilation;
         Diagnostic[] errors;
+        // The driver is the friend a strong-named copy names with its public key, so it carries that key.
+        var driverOptions = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+                                                         nullableContextOptions: NullableContextOptions.Disable);
+        if (library.Options.CryptoPublicKey is { IsDefaultOrEmpty: false } publicKey)
+            driverOptions = driverOptions.WithCryptoPublicKey(publicKey).WithPublicSign(true);
         for (var attempt = 0; ; attempt++)
         {
             checks.Check(GenerationStage.Synthesize);
             source = writer.Source();
             tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview), $"{ASSEMBLY}/{DRIVER_TYPE}.cs",
                                               cancellationToken: cancellationToken);
-            compilation = CSharpCompilation.Create(ASSEMBLY, [tree], library.References.Append(library.ToMetadataReference()),
-                                                   new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
-                                                                                nullableContextOptions: NullableContextOptions.Disable));
+            compilation = CSharpCompilation.Create(ASSEMBLY, [tree], library.References.Append(library.ToMetadataReference()), driverOptions);
             errors = compilation.GetDiagnostics(cancellationToken)
-                                .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error &&
+                                .Where(diagnostic => LibraryCompilation.IsCompilerError(diagnostic) &&
                                                      !IsTargetInitError(diagnostic, tree, writer.CallStatements, cancellationToken)).ToArray();
             if (errors.Length == 0 || attempt > 0 || TriggersIn(tree, errors, cancellationToken) is not { } failing)
                 break;
@@ -594,11 +597,12 @@ public static class DriverSynthesizer
         private readonly IReadOnlySet<string> _openedFields = openedFields;
 
         /// <summary>Whether the library's copy names the driver's assembly a friend, as every opened copy does
-        /// (<see cref="LibraryFieldOpening"/>): C# then requires an override of the library's <c>protected internal</c> member to keep
-        /// both modifiers, where an assembly that does not see its internals writes <c>protected</c>.</summary>
+        /// (<see cref="LibraryFieldOpening"/>), by its bare name or, for a strong-named copy, with its public key: C# then requires an
+        /// override of the library's <c>protected internal</c> member to keep both modifiers, where an assembly that does not see its
+        /// internals writes <c>protected</c>.</summary>
         private readonly bool _friend = library.Assembly.GetAttributes().Any(attribute =>
             attribute.AttributeClass?.ToDisplayString() == "System.Runtime.CompilerServices.InternalsVisibleToAttribute" &&
-            attribute.ConstructorArguments is [{ Value: ASSEMBLY }]);
+            attribute.ConstructorArguments is [{ Value: string friend }] && friend.Split(',')[0].Trim() == ASSEMBLY);
 
         private readonly Dictionary<ITypeParameterSymbol, string> _probeTypes = new(SymbolEqualityComparer.Default);
 

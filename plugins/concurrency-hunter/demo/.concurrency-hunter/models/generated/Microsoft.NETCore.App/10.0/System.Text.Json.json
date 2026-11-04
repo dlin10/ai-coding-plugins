@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "8e0e0a2afae09b5d5d57e18426e82c38901750e1dc44f2a3acdfd562644d1750",
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
   "assembly": {
     "name": "System.Text.Json",
     "version": "10.0.0.0",
@@ -19,6 +19,14 @@
           "result-several-objects",
           "unsupported-store"
         ]
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonNamingPolicy.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Text.Json.JsonNamingPolicy.#ctor is not public; M:System.Text.Json.JsonNamingPolicy.#ctor constructs an abstract type",
+        "causes": []
       }
     },
     {
@@ -44,6 +52,22 @@
       }
     },
     {
+      "member": "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Pipelines.PipeWriter,``0,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializer.get_IsReflectionEnabledByDefault",
+      "refusal": {
+        "reason": "not-a-candidate",
+        "detail": "M:System.Text.Json.JsonSerializer.get_IsReflectionEnabledByDefault has no receiver, parameter or result that can hold a user object",
+        "causes": []
+      }
+    },
+    {
       "member": "M:System.Text.Json.JsonSerializerOptions.#ctor(System.Text.Json.JsonSerializerOptions)",
       "refusal": {
         "reason": "timeout",
@@ -60,7 +84,31 @@
       }
     },
     {
+      "member": "M:System.Text.Json.JsonSerializerOptions.MakeReadOnly",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
       "member": "M:System.Text.Json.JsonSerializerOptions.get_Converters",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializerOptions.set_Encoder(System.Text.Encodings.Web.JavaScriptEncoder)",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.JsonSerializerOptions.set_TypeInfoResolver(System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver)",
       "refusal": {
         "reason": "timeout",
         "detail": "the generation did not finish within the member limit of 120 s",
@@ -88,6 +136,52 @@
       "refusal": {
         "reason": "timeout",
         "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.#ctor",
+      "model": {
+        "member": "M:System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.#ctor",
+        "assemblies": [
+          "System.Text.Json"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.get_Options",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.get_PolymorphismOptions",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.get_Type",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Json.Serialization.Metadata.JsonTypeInfoResolver.Combine(System.ReadOnlySpan{System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "resolvers needs a value of System.ReadOnlySpan<System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver?>, a ref-like or pointer type",
         "causes": []
       }
     }

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 2,
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
+  "assembly": {
+    "name": "System.IO.Pipelines",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.IO.Pipelines.PipeWriter.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.IO.Pipelines.PipeWriter.#ctor is not public; M:System.IO.Pipelines.PipeWriter.#ctor constructs an abstract type",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.IO.Pipelines.PipeWriter.Advance(System.Int32)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.IO.Pipelines.PipeWriter.Advance(System.Int32) is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.IO.Pipelines.PipeWriter.FlushAsync(System.Threading.CancellationToken)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.IO.Pipelines.PipeWriter.FlushAsync(System.Threading.CancellationToken) is abstract",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.IO.Pipelines.PipeWriter.GetSpan(System.Int32)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.IO.Pipelines.PipeWriter.GetSpan(System.Int32) is abstract",
+        "causes": []
+      }
+    }
+  ]
+}

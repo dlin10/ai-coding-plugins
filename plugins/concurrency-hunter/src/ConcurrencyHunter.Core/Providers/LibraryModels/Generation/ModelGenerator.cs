@@ -33,7 +33,8 @@ public sealed record GenerationImplementation(string Path, string AssemblyVersio
 /// <summary>What the generation used and saw (G-6).</summary>
 /// <param name="Implementation">The implementation assembly, or <c>null</c> until one was opened.</param>
 /// <param name="Framework">The platform used, or <c>null</c> when none was chosen.</param>
-/// <param name="MissingDependencies">The package dependencies skipped.</param>
+/// <param name="MissingDependencies">The package dependencies skipped and the package dependencies taken below a floor, named as
+/// <see cref="ImplementationAssembly.MissingDependencies"/> names them.</param>
 /// <param name="ExternBodies">The bodies the library compilation made <c>extern</c>.</param>
 /// <param name="DefaultedValues">The non-holding values the driver filled with a default, by parameter name.</param>
 /// <param name="Refusals">By parameter, the applicability rule that refused the fate the probes showed.</param>

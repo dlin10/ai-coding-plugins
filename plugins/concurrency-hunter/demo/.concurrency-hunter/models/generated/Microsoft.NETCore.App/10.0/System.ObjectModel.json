@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 2,
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
+  "assembly": {
+    "name": "System.ObjectModel",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.Collections.ObjectModel.ObservableCollection`1.#ctor",
+      "model": {
+        "member": "M:System.Collections.ObjectModel.ObservableCollection`1.#ctor",
+        "assemblies": [
+          "System.ObjectModel"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:System.Collections.ObjectModel.ObservableCollection`1.add_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler)",
+      "refusal": {
+        "reason": "overridable",
+        "detail": "M:System.Collections.ObjectModel.ObservableCollection`1.add_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler) is virtual in System.Collections.ObjectModel.ObservableCollection<T>, which is not sealed: a call may run another type's override, which the driver does not analyse",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Collections.ObjectModel.ObservableCollection`1.remove_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler)",
+      "refusal": {
+        "reason": "overridable",
+        "detail": "M:System.Collections.ObjectModel.ObservableCollection`1.remove_CollectionChanged(System.Collections.Specialized.NotifyCollectionChangedEventHandler) is virtual in System.Collections.ObjectModel.ObservableCollection<T>, which is not sealed: a call may run another type's override, which the driver does not analyse",
+        "causes": []
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "8e0e0a2afae09b5d5d57e18426e82c38901750e1dc44f2a3acdfd562644d1750",
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
   "assembly": {
     "name": "System.Text.RegularExpressions",
     "version": "10.0.0.0",
@@ -51,6 +51,14 @@
     },
     {
       "member": "M:System.Text.RegularExpressions.Regex.#ctor(System.String,System.Text.RegularExpressions.RegexOptions)",
+      "refusal": {
+        "reason": "timeout",
+        "detail": "the generation did not finish within the member limit of 120 s",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.RegularExpressions.Regex.#ctor(System.String,System.Text.RegularExpressions.RegexOptions,System.TimeSpan)",
       "refusal": {
         "reason": "timeout",
         "detail": "the generation did not finish within the member limit of 120 s",

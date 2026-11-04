@@ -1,0 +1,163 @@
+assembly	package	version	framework	member
+HealthChecks.SqlServer	AspNetCore.HealthChecks.SqlServer	6.0.2	net8.0	M:Microsoft.Extensions.DependencyInjection.SqlServerHealthCheckBuilderExtensions.AddSqlServer(Microsoft.Extensions.DependencyInjection.IHealthChecksBuilder,System.String,System.String,System.String,System.Nullable{Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus},System.Collections.Generic.IEnumerable{System.String},System.Nullable{System.TimeSpan},System.Action{Microsoft.Data.SqlClient.SqlConnection})
+Azure.Identity	Azure.Identity	1.5.0-beta.3	net8.0	M:Azure.Identity.ClientSecretCredential.#ctor(System.String,System.String,System.String)
+Azure.Identity	Azure.Identity	1.9.0-beta.1	net8.0	M:Azure.Identity.ClientSecretCredential.#ctor(System.String,System.String,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.AuthenticationOptions.set_CookieLifetime(System.TimeSpan)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.EventsOptions.set_RaiseErrorEvents(System.Boolean)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.EventsOptions.set_RaiseFailureEvents(System.Boolean)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.EventsOptions.set_RaiseInformationEvents(System.Boolean)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.EventsOptions.set_RaiseSuccessEvents(System.Boolean)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.IdentityServerOptions.get_Authentication
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.IdentityServerOptions.get_Events
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.IdentityServerOptions.get_UserInteraction
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.IdentityServerOptions.set_IssuerUri(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Configuration.UserInteractionOptions.get_DeviceVerificationUserCodeParameter
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Events.ConsentDeniedEvent.#ctor(System.String,System.String,System.Collections.Generic.IEnumerable{System.String})
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Events.ConsentGrantedEvent.#ctor(System.String,System.String,System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{System.String},System.Boolean)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Events.GrantsRevokedEvent.#ctor(System.String,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Events.UserLoginFailureEvent.#ctor(System.String,System.String,System.Boolean,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Events.UserLoginSuccessEvent.#ctor(System.String,System.String,System.String,System.Boolean,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Events.UserLoginSuccessEvent.#ctor(System.String,System.String,System.String,System.String,System.Boolean,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Events.UserLogoutSuccessEvent.#ctor(System.String,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Extensions.PrincipalExtensions.GetDisplayName(System.Security.Claims.ClaimsPrincipal)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Extensions.PrincipalExtensions.GetSubjectId(System.Security.Principal.IPrincipal)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.IdentityServerUser.#ctor(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.IdentityServerUser.set_AdditionalClaims(System.Collections.Generic.ICollection{System.Security.Claims.Claim})
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.IdentityServerUser.set_DisplayName(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.IdentityServerUser.set_IdentityProvider(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.AuthorizationRequest.get_Client
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.AuthorizationRequest.get_IdP
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.AuthorizationRequest.get_LoginHint
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.AuthorizationRequest.get_RedirectUri
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.AuthorizationRequest.get_ValidatedResources
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.ConsentResponse.#ctor
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.ConsentResponse.get_RememberConsent
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.ConsentResponse.get_ScopesValuesConsented
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.ConsentResponse.set_Description(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.ConsentResponse.set_Error(System.Nullable{Duende.IdentityServer.Models.AuthorizationError})
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.ConsentResponse.set_RememberConsent(System.Boolean)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.ConsentResponse.set_ScopesValuesConsented(System.Collections.Generic.IEnumerable{System.String})
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.DeviceFlowAuthorizationRequest.get_Client
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.DeviceFlowAuthorizationRequest.get_ValidatedResources
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.ErrorMessage.set_ErrorDescription(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.Grant.get_ClientId
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.Grant.get_CreationTime
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.Grant.get_Description
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.Grant.get_Expiration
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.Grant.get_Scopes
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.GrantTypes.get_Code
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.GrantTypes.get_Hybrid
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.GrantTypes.get_Implicit
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.HashExtensions.Sha256(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.IdentityResources.OpenId.#ctor
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.IdentityResources.Profile.#ctor
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.LogoutRequest.get_ClientId
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.LogoutRequest.get_ClientName
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.LogoutRequest.get_PostLogoutRedirectUri
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.LogoutRequest.get_ShowSignoutPrompt
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.LogoutRequest.get_SignOutIFrameUrl
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Models.ResourceExtensions.FindApiScope(Duende.IdentityServer.Models.Resources,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IDeviceFlowInteractionService.GetAuthorizationContextAsync(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IDeviceFlowInteractionService.HandleRequestAsync(System.String,Duende.IdentityServer.Models.ConsentResponse)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IEventService.RaiseAsync(Duende.IdentityServer.Events.Event)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IIdentityServerInteractionService.CreateLogoutContextAsync
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IIdentityServerInteractionService.DenyAuthorizationAsync(Duende.IdentityServer.Models.AuthorizationRequest,Duende.IdentityServer.Models.AuthorizationError,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IIdentityServerInteractionService.GetAllUserGrantsAsync
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IIdentityServerInteractionService.GetAuthorizationContextAsync(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IIdentityServerInteractionService.GetErrorContextAsync(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IIdentityServerInteractionService.GetLogoutContextAsync(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IIdentityServerInteractionService.GrantConsentAsync(Duende.IdentityServer.Models.AuthorizationRequest,Duende.IdentityServer.Models.ConsentResponse,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IIdentityServerInteractionService.IsValidReturnUrl(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Services.IIdentityServerInteractionService.RevokeUserConsentAsync(System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Stores.IClientStoreExtensions.FindEnabledClientByIdAsync(Duende.IdentityServer.Stores.IClientStore,System.String)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Stores.IResourceStoreExtensions.FindResourcesByScopeAsync(Duende.IdentityServer.Stores.IResourceStore,System.Collections.Generic.IEnumerable{System.String})
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Validation.ParsedScopeValue.get_ParsedName
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Validation.ParsedScopeValue.get_ParsedParameter
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Validation.ParsedScopeValue.get_RawValue
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Validation.ResourceValidationResult.get_ParsedScopes
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Validation.ResourceValidationResult.get_RawScopeValues
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Duende.IdentityServer.Validation.ResourceValidationResult.get_Resources
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Microsoft.AspNetCore.Builder.IdentityServerApplicationBuilderExtensions.UseIdentityServer(Microsoft.AspNetCore.Builder.IApplicationBuilder,Microsoft.AspNetCore.Builder.IdentityServerMiddlewareOptions)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Microsoft.AspNetCore.Http.AuthenticationManagerExtensions.SignInAsync(Microsoft.AspNetCore.Http.HttpContext,Duende.IdentityServer.IdentityServerUser,Microsoft.AspNetCore.Authentication.AuthenticationProperties)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Microsoft.Extensions.DependencyInjection.IdentityServerBuilderExtensionsCrypto.AddDeveloperSigningCredential(Microsoft.Extensions.DependencyInjection.IIdentityServerBuilder,System.Boolean,System.String,Duende.IdentityServer.IdentityServerConstants.RsaSigningAlgorithm)
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Microsoft.Extensions.DependencyInjection.IdentityServerBuilderExtensionsInMemory.AddInMemoryApiResources(Microsoft.Extensions.DependencyInjection.IIdentityServerBuilder,System.Collections.Generic.IEnumerable{Duende.IdentityServer.Models.ApiResource})
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Microsoft.Extensions.DependencyInjection.IdentityServerBuilderExtensionsInMemory.AddInMemoryApiScopes(Microsoft.Extensions.DependencyInjection.IIdentityServerBuilder,System.Collections.Generic.IEnumerable{Duende.IdentityServer.Models.ApiScope})
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Microsoft.Extensions.DependencyInjection.IdentityServerBuilderExtensionsInMemory.AddInMemoryClients(Microsoft.Extensions.DependencyInjection.IIdentityServerBuilder,System.Collections.Generic.IEnumerable{Duende.IdentityServer.Models.Client})
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Microsoft.Extensions.DependencyInjection.IdentityServerBuilderExtensionsInMemory.AddInMemoryIdentityResources(Microsoft.Extensions.DependencyInjection.IIdentityServerBuilder,System.Collections.Generic.IEnumerable{Duende.IdentityServer.Models.IdentityResource})
+Duende.IdentityServer	Duende.IdentityServer	6.2.0	net8.0	M:Microsoft.Extensions.DependencyInjection.IdentityServerServiceCollectionExtensions.AddIdentityServer(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Duende.IdentityServer.Configuration.IdentityServerOptions})
+Grpc.AspNetCore.Server	Grpc.AspNetCore.Server	2.50.0	net8.0	M:Grpc.AspNetCore.Server.GrpcServiceOptions.set_EnableDetailedErrors(System.Nullable{System.Boolean})
+Grpc.AspNetCore.Server	Grpc.AspNetCore.Server	2.50.0	net8.0	M:Microsoft.Extensions.DependencyInjection.GrpcServicesExtensions.AddGrpc(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Grpc.AspNetCore.Server.GrpcServiceOptions})
+Microsoft.ApplicationInsights.AspNetCore	Microsoft.ApplicationInsights.AspNetCore	2.22.0-beta1	net8.0	M:Microsoft.Extensions.DependencyInjection.ApplicationInsightsExtensions.AddApplicationInsightsTelemetry(Microsoft.Extensions.DependencyInjection.IServiceCollection,Microsoft.Extensions.Configuration.IConfiguration)
+Microsoft.AspNetCore.Diagnostics		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Builder.DeveloperExceptionPageExtensions.UseDeveloperExceptionPage(Microsoft.AspNetCore.Builder.IApplicationBuilder)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Builder.ControllerEndpointRouteBuilderExtensions.MapDefaultControllerRoute(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.#ctor
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.Accepted
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.BadRequest
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.BadRequest(System.Object)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.Challenge(Microsoft.AspNetCore.Authentication.AuthenticationProperties,System.String[])
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.CreatedAtAction(System.String,System.Object,System.Object)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.File(System.Byte[],System.String)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.NoContent
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.NotFound
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.NotFound(System.Object)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.Ok
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.Ok(System.Object)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.Redirect(System.String)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.RedirectToAction(System.String)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.RedirectToAction(System.String,System.String,System.Object)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.SignOut(Microsoft.AspNetCore.Authentication.AuthenticationProperties,System.String[])
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.get_HttpContext
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.get_ModelState
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.get_Request
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.get_Url
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ControllerBase.get_User
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.Filters.FilterCollection.Add(System.Type)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.JsonOptions.get_JsonSerializerOptions
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.MvcOptions.get_Filters
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.RedirectResult.#ctor(System.String)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.UrlHelperExtensions.Action(Microsoft.AspNetCore.Mvc.IUrlHelper,System.String)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.UrlHelperExtensions.Action(Microsoft.AspNetCore.Mvc.IUrlHelper,System.String,System.Object)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcBuilderExtensions.AddApplicationPart(Microsoft.Extensions.DependencyInjection.IMvcBuilder,System.Reflection.Assembly)
+Microsoft.AspNetCore.Mvc.Core		8.0.0.0	net8.0	M:Microsoft.Extensions.DependencyInjection.MvcCoreMvcBuilderExtensions.AddJsonOptions(Microsoft.Extensions.DependencyInjection.IMvcBuilder,System.Action{Microsoft.AspNetCore.Mvc.JsonOptions})
+Microsoft.AspNetCore.Mvc		8.0.0.0	net8.0	M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllers(Microsoft.Extensions.DependencyInjection.IServiceCollection)
+Microsoft.AspNetCore.Mvc		8.0.0.0	net8.0	M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllers(Microsoft.Extensions.DependencyInjection.IServiceCollection,System.Action{Microsoft.AspNetCore.Mvc.MvcOptions})
+Microsoft.AspNetCore.Mvc		8.0.0.0	net8.0	M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllersWithViews(Microsoft.Extensions.DependencyInjection.IServiceCollection)
+Microsoft.AspNetCore.Mvc		8.0.0.0	net8.0	M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddRazorPages(Microsoft.Extensions.DependencyInjection.IServiceCollection)
+Microsoft.AspNetCore.Mvc.ViewFeatures		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.Controller.#ctor
+Microsoft.AspNetCore.Mvc.ViewFeatures		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.Controller.View
+Microsoft.AspNetCore.Mvc.ViewFeatures		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.Controller.View(System.Object)
+Microsoft.AspNetCore.Mvc.ViewFeatures		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.Controller.View(System.String)
+Microsoft.AspNetCore.Mvc.ViewFeatures		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.Controller.View(System.String,System.Object)
+Microsoft.AspNetCore.Mvc.ViewFeatures		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.Controller.get_ViewData
+Microsoft.AspNetCore.Mvc.ViewFeatures		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Mvc.ViewFeatures.ViewDataDictionary.set_Item(System.String,System.Object)
+Microsoft.AspNetCore.Server.Kestrel.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions.Listen(System.Net.IPAddress,System.Int32,System.Action{Microsoft.AspNetCore.Server.Kestrel.Core.ListenOptions})
+Microsoft.AspNetCore.Server.Kestrel.Core		8.0.0.0	net8.0	M:Microsoft.AspNetCore.Server.Kestrel.Core.ListenOptions.set_Protocols(Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols)
+Microsoft.EntityFrameworkCore.SqlServer	Microsoft.EntityFrameworkCore.SqlServer	8.0.0	net8.0	M:Microsoft.EntityFrameworkCore.SqlServerDbContextOptionsExtensions.UseSqlServer(Microsoft.EntityFrameworkCore.DbContextOptionsBuilder,System.String,System.Action{Microsoft.EntityFrameworkCore.Infrastructure.SqlServerDbContextOptionsBuilder})
+Microsoft.EntityFrameworkCore.SqlServer	Microsoft.EntityFrameworkCore.SqlServer	8.0.0	net8.0	M:Microsoft.EntityFrameworkCore.SqlServerDbContextOptionsExtensions.UseSqlServer``1(Microsoft.EntityFrameworkCore.DbContextOptionsBuilder{``0},System.Data.Common.DbConnection,System.Action{Microsoft.EntityFrameworkCore.Infrastructure.SqlServerDbContextOptionsBuilder})
+System.Text.Json		8.0.0.0	net8.0	M:System.Text.Json.JsonSerializerOptions.set_PropertyNameCaseInsensitive(System.Boolean)
+System.Text.Json		8.0.0.0	net8.0	M:System.Text.Json.JsonSerializerOptions.set_WriteIndented(System.Boolean)
+Serilog.AspNetCore	Serilog.AspNetCore	6.1.0-dev-00289	net8.0	M:Serilog.SerilogWebHostBuilderExtensions.UseSerilog(Microsoft.AspNetCore.Hosting.IWebHostBuilder,Serilog.ILogger,System.Boolean,Serilog.Extensions.Logging.LoggerProviderCollection)
+Serilog.AspNetCore	Serilog.AspNetCore	6.1.0-dev-00289	net8.0	M:Serilog.SerilogWebHostBuilderExtensions.UseSerilog(Microsoft.AspNetCore.Hosting.IWebHostBuilder,System.Action{Microsoft.AspNetCore.Hosting.WebHostBuilderContext,Serilog.LoggerConfiguration},System.Boolean,System.Boolean)
+StackExchange.Redis	StackExchange.Redis	2.5.61	net8.0	M:StackExchange.Redis.ConfigurationOptions.Parse(System.String,System.Boolean)
+StackExchange.Redis	StackExchange.Redis	2.5.61	net8.0	M:StackExchange.Redis.ConnectionMultiplexer.Connect(StackExchange.Redis.ConfigurationOptions,System.IO.TextWriter)
+StackExchange.Redis	StackExchange.Redis	2.5.61	net8.0	M:StackExchange.Redis.ConnectionMultiplexer.GetDatabase(System.Int32,System.Object)
+StackExchange.Redis	StackExchange.Redis	2.5.61	net8.0	M:StackExchange.Redis.IDatabaseAsync.KeyDeleteAsync(StackExchange.Redis.RedisKey,StackExchange.Redis.CommandFlags)
+StackExchange.Redis	StackExchange.Redis	2.5.61	net8.0	M:StackExchange.Redis.IDatabaseAsync.StringGetAsync(StackExchange.Redis.RedisKey,StackExchange.Redis.CommandFlags)
+StackExchange.Redis	StackExchange.Redis	2.5.61	net8.0	M:StackExchange.Redis.IDatabaseAsync.StringSetAsync(StackExchange.Redis.RedisKey,StackExchange.Redis.RedisValue,System.Nullable{System.TimeSpan},System.Boolean,StackExchange.Redis.When,StackExchange.Redis.CommandFlags)
+StackExchange.Redis	StackExchange.Redis	2.5.61	net8.0	M:StackExchange.Redis.RedisValue.get_IsNullOrEmpty
+Microsoft.AspNetCore.Mvc.Core		10.0.0.0		M:Microsoft.AspNetCore.Builder.ControllerEndpointRouteBuilderExtensions.MapControllers(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)
+Microsoft.AspNetCore.Mvc.Core		10.0.0.0		M:Microsoft.AspNetCore.Mvc.ControllerBase.#ctor
+Microsoft.AspNetCore.Mvc.Core		10.0.0.0		M:Microsoft.AspNetCore.Mvc.ControllerBase.get_HttpContext
+Microsoft.AspNetCore.Mvc		10.0.0.0		M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllers(Microsoft.Extensions.DependencyInjection.IServiceCollection)
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.Map(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,Microsoft.AspNetCore.Http.RequestDelegate)
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPost(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Builder.EndpointRoutingApplicationBuilderExtensions.UseEndpoints(Microsoft.AspNetCore.Builder.IApplicationBuilder,System.Action{Microsoft.AspNetCore.Routing.IEndpointRouteBuilder})
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Builder.EndpointRoutingApplicationBuilderExtensions.UseRouting(Microsoft.AspNetCore.Builder.IApplicationBuilder)
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Routing.EndpointDataSource.#ctor
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Routing.HttpMethodMetadata.get_HttpMethods
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Routing.IEndpointRouteBuilder.get_ServiceProvider
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Routing.Patterns.RoutePattern.get_RawText
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.AspNetCore.Routing.RouteOptions.SetParameterPolicy``1(System.String)
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.Extensions.DependencyInjection.RoutingServiceCollectionExtensions.AddRouting(Microsoft.Extensions.DependencyInjection.IServiceCollection)
+Microsoft.AspNetCore.Routing		10.0.0.0		M:Microsoft.Extensions.DependencyInjection.RoutingServiceCollectionExtensions.AddRoutingCore(Microsoft.Extensions.DependencyInjection.IServiceCollection)

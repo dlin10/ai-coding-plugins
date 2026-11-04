@@ -14207,6 +14207,13 @@ ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.V_Call_of_a_task_of_
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.V_Call_only_reads_its_fields_creates_its_probes_and_calls	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.V_Enum_exists_only_for_an_enumerable_result	Passed
 ConcurrencyHunter.Core.Tests.Providers.DriverSynthesisTests.Value_sources_follow_the_recipes_order	Passed
+ConcurrencyHunter.Core.Tests.Providers.EmittedAssemblyOptionsTests.A_generation_install_lays_a_given_image_instead_of_the_type_only_one_and_beside_the_listed_names	Passed
+ConcurrencyHunter.Core.Tests.Providers.EmittedAssemblyOptionsTests.An_emitted_image_carries_the_assembly_version_it_is_given	Passed
+ConcurrencyHunter.Core.Tests.Providers.EmittedAssemblyOptionsTests.An_emitted_image_carries_the_file_version_it_is_given_apart_from_the_assembly_version	Passed
+ConcurrencyHunter.Core.Tests.Providers.EmittedAssemblyOptionsTests.An_emitted_image_carries_the_public_key_it_is_given	Passed
+ConcurrencyHunter.Core.Tests.Providers.EmittedAssemblyOptionsTests.An_emitted_image_is_cached_for_the_options_it_was_asked_with_and_only_those	Passed
+ConcurrencyHunter.Core.Tests.Providers.EmittedAssemblyOptionsTests.An_emitted_image_names_each_referenced_image_with_the_assembly_version_of_that_image	Passed
+ConcurrencyHunter.Core.Tests.Providers.EmittedAssemblyOptionsTests.An_emitted_image_suppresses_the_diagnostic_ids_it_is_given	Passed
 ConcurrencyHunter.Core.Tests.Providers.EngineClaimsTests.A_library_declaring_a_type_a_recognizer_claims_is_engine_recognized(recognizer: "collections", ns: "System.Collections.Generic", type: "LinkedList<T>")	Passed
 ConcurrencyHunter.Core.Tests.Providers.EngineClaimsTests.A_library_declaring_a_type_a_recognizer_claims_is_engine_recognized(recognizer: "di-registration", ns: "Microsoft.Extensions.DependencyInjection", type: "ServiceCollectionServiceExtensions")	Passed
 ConcurrencyHunter.Core.Tests.Providers.EngineClaimsTests.A_library_declaring_a_type_a_recognizer_claims_is_engine_recognized(recognizer: "lock", ns: "System.Threading", type: "ReaderWriterLockSlim")	Passed
@@ -14700,6 +14707,7 @@ ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_m
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_member_of_an_uninstalled_major_never_takes_another(version: "8.0")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_member_of_an_uninstalled_major_never_takes_another(version: "8")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_framework_member_without_AspNetCore_App_installed_is_no_implementation	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_higher_assembly_version_of_the_package_copy_wins_over_the_framework	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_lib_folder_only_of_a_higher_platform_is_no_compatible_lib_folder	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_missing_bound_with_a_round_bracket_stays_a_range(range: "(, 1.5.0)", taken: "1.0.0")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_missing_bound_with_a_round_bracket_stays_a_range(range: "(,2.0.0]", taken: "1.0.0")	Passed
@@ -14715,8 +14723,8 @@ ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_missing_bou
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_missing_bound_without_a_round_bracket_is_no_range_and_its_dependency_is_skipped_and_named(range: "[1.0.0,]")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_net_framework_lib_folder_is_never_taken	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_nuspec_group_name_is_normalized_to_its_short_folder_name	Passed
-ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_assembly_the_shared_framework_also_has_is_compiled_from_the_package_s_copy_only	Passed
-ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_copy_still_wins_over_AspNetCore_App	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_assembly_the_shared_framework_also_has_ties_and_is_compiled_from_the_framework_s_copy	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_copy_that_ties_with_AspNetCore_App_loses_to_it	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_folder_is_found_from_a_version_by_normalization(version: "1.0.0.0")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_folder_is_found_from_a_version_by_normalization(version: "1.0.0+build.7")	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.A_package_folder_is_found_from_a_version_by_normalization(version: "1.0")	Passed
@@ -14746,6 +14754,7 @@ ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.An_exclusive_
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.An_inclusive_lower_bound_takes_the_lowest_cached_version_it_admits	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.An_ungrouped_dependency_list_applies_to_every_framework	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.AspNetCore_App_patch_is_the_highest_of_the_major	Passed
+ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.AssemblyFile_reads_each_assembly_reference_with_its_version	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Every_assembly_of_a_lib_folder_is_a_reference	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Lib_folder_falls_back_to_netstandard2_0_before_netstandard1	Passed
 ConcurrencyHunter.Core.Tests.Providers.ImplementationAssemblyTests.Lib_folder_falls_back_to_netstandard2_1_before_netstandard2_0	Passed
@@ -14851,10 +14860,41 @@ ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Subscribing_throu
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.The_same_path_under_two_frameworks_is_two_compilations	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Waiting_for_a_compilation_another_caller_started_stops_with_the_waiters_token	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryCompilationTests.Waiting_for_an_off_copy_another_attempt_opens_stops_with_the_waiters_token	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.Demo_AspNetCore_library_compiles(assemblyName: "Microsoft.AspNetCore.Mvc.Core")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.Demo_AspNetCore_library_compiles(assemblyName: "Microsoft.AspNetCore.Mvc")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.Demo_AspNetCore_library_compiles(assemblyName: "Microsoft.AspNetCore.Routing")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Azure.Identity", version: "1.5.0-beta.3", packageId: "Azure.Identity")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Azure.Identity", version: "1.9.0-beta.1", packageId: "Azure.Identity")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Duende.IdentityServer", version: "6.2.0", packageId: "Duende.IdentityServer")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Grpc.AspNetCore.Server", version: "2.50.0", packageId: "Grpc.AspNetCore.Server")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "HealthChecks.SqlServer", version: "6.0.2", packageId: "AspNetCore.HealthChecks.SqlServer")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Microsoft.ApplicationInsights.AspNetCore", version: "2.22.0-beta1", packageId: "Microsoft.ApplicationInsights.AspNetCore")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Microsoft.AspNetCore.Diagnostics", version: "8.0.0.0", packageId: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Microsoft.AspNetCore.Mvc.Core", version: "8.0.0.0", packageId: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Microsoft.AspNetCore.Mvc.ViewFeatures", version: "8.0.0.0", packageId: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Microsoft.AspNetCore.Mvc", version: "8.0.0.0", packageId: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Microsoft.AspNetCore.Server.Kestrel.Core", version: "8.0.0.0", packageId: null)	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Microsoft.EntityFrameworkCore.SqlServer", version: "8.0.0", packageId: "Microsoft.EntityFrameworkCore.SqlServer")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "Serilog.AspNetCore", version: "6.1.0-dev-00289", packageId: "Serilog.AspNetCore")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "StackExchange.Redis", version: "2.5.61", packageId: "StackExchange.Redis")	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryCompileAcceptanceTests.EShop_library_compiles(assemblyName: "System.Text.Json", version: "8.0.0.0", packageId: null)	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryExternSelectionTests.Property_selected_through_one_accessor_loses_every_accessor_body	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryExternSelectionTests.Selected_members_compile_without_a_body	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryExternSelectionTests.Selection_is_part_of_the_cache_key	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibraryExternSelectionTests.Unselected_members_keep_their_bodies	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.A_copy_compiled_with_a_key_carries_the_key_and_is_public_signed	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.A_copy_compiled_without_a_key_is_not_signed	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.A_framework_assembly_that_grants_its_internals_to_the_signed_library_compiles_with_the_key_and_not_without_it	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.A_recipe_copy_names_the_driver_with_the_key_of_a_signed_library_and_bare_otherwise	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.A_signed_library_that_uses_the_internals_a_framework_assembly_grants_it_compiles_whole_after_the_decompiler	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.An_ordinary_opened_copy_names_the_driver_with_the_key_of_a_signed_library_and_bare_otherwise	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.An_override_of_a_protected_internal_member_is_protected_when_the_library_names_no_such_friend	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.An_override_of_a_protected_internal_member_of_a_signed_library_stays_protected_internal	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.Decompile_reads_the_public_key_of_a_strong_named_assembly_and_leaves_an_unsigned_ones_empty	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.The_driver_of_a_signed_library_member_carries_the_key_and_compiles_without_CS1726_or_CS0281	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.The_driver_of_an_unsigned_library_member_is_not_signed	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.The_key_reaches_the_copy_of_the_route_a_generation_takes	Passed
+ConcurrencyHunter.Core.Tests.Providers.LibraryIdentityTests.The_key_reaches_the_copy_through_Decompile_and_CompileModule	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Another_overload_of_a_listed_name_is_not_known	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Effect_without_a_parameter_name_fails_the_build	Passed
 ConcurrencyHunter.Core.Tests.Providers.LibrarySemanticsTableTests.Empty_assembly_name_fails_the_build	Passed
@@ -15086,6 +15126,30 @@ ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.Entries_differin
 ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_as_a_result_and_an_output_loads_in_both_layers	Passed
 ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_inside_one_of_is_refused	Passed
 ConcurrencyHunter.Core.Tests.Providers.NewResultVocabularyTests.New_on_a_void_member_is_refused	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.A_body_that_uses_a_member_obsolete_as_an_error_with_an_id_of_its_own_stays_a_body	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.A_body_that_uses_an_experimental_member_stays_a_body	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.A_body_with_an_error_of_the_compiler_is_still_made_extern_beside_a_body_with_an_experimental_use	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.A_library_whose_public_signature_uses_an_experimental_type_compiles_by_both_routes	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "ASP0029", severity: Error, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS", severity: Error, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "cs0246", severity: Error, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS0246", severity: Error, expected: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS0246", severity: Hidden, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS0246", severity: Info, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS0246", severity: Warning, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS12A4", severity: Error, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS٣٣", severity: Error, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS7036", severity: Error, expected: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS8051", severity: Error, expected: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CS8600", severity: Warning, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "CSX0001", severity: Error, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "SYSLIB5006", severity: Error, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "TEST0001", severity: Error, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_is_an_error_with_an_id_of_CS_and_digits(id: "TEST0002", severity: Error, expected: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.An_error_of_the_compiler_still_refuses_the_library_and_Errors_names_it_without_the_experimental_one	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.Opening_a_field_is_not_rolled_back_by_an_error_that_is_not_the_compilers	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.Opening_a_field_is_still_rolled_back_by_an_error_of_the_compiler_beside_an_experimental_type	Passed
+ConcurrencyHunter.Core.Tests.Providers.NonCompilerErrorTests.The_driver_of_a_member_that_takes_an_experimental_type_is_synthesized_and_compiles	Passed
 ConcurrencyHunter.Core.Tests.Providers.ObjectMemberTriggerMatrixTests.A_message_parser_shaped_holder_fits_the_24_triggers	Passed
 ConcurrencyHunter.Core.Tests.Providers.ObjectMemberTriggerMatrixTests.Every_axis_value_occurs_in_a_cell	Passed
 ConcurrencyHunter.Core.Tests.Providers.ObjectMemberTriggerMatrixTests.Every_cell_gets_its_expected_trigger_set	Passed
@@ -15361,6 +15425,74 @@ ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.Generic_rec
 ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.There_are_162_receiver_cells_and_every_axis_value_occurs	Passed
 ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.There_are_36_result_cells_and_every_allowed_axis_value_occurs	Passed
 ConcurrencyHunter.Core.Tests.Providers.RecordRunsReceiverMatrixTests.There_are_540_runs_cells_and_every_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_chain_of_lifts_past_the_round_bound_stops_at_the_last_round_and_names_the_dependency_below_the_floor	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_copy_that_lost_the_duplicate_to_the_framework_gives_no_floor_and_the_copy_that_won_does(packageCopy: "1.0.0.0", taken: "1.0.0")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_copy_that_lost_the_duplicate_to_the_framework_gives_no_floor_and_the_copy_that_won_does(packageCopy: "3.0.0.0", taken: "9.0.0")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_floor_lifts_a_dependency_and_the_closure_follows_the_version_lifted_to	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_floor_raised_by_a_name_no_dependency_holds_takes_one_round_and_reads_the_same_nuspecs	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_floor_stays_raised_when_the_assembly_that_raised_it_leaves_the_set	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_reference_of_version_zero_raises_no_floor_and_the_lowest_version_stays(referenced: "0.0.0.0", taken: "1.0.0")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_reference_of_version_zero_raises_no_floor_and_the_lowest_version_stays(referenced: "1.0.0.0", taken: "1.0.0")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_reference_of_version_zero_raises_no_floor_and_the_lowest_version_stays(referenced: "2.0.0.0", taken: "2.0.0")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_version_outside_the_range_is_never_taken_to_reach_a_floor	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.A_version_without_a_compatible_lib_folder_reaches_every_floor	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.Two_sources_of_different_versions_set_the_floor_by_the_higher	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceFloorTests.When_no_cached_version_reaches_the_floor_the_lowest_admitted_stays_in_the_set_and_is_named_with_it	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_axis_value_occurs	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Equal", fileVersion: "Equal", framework: "AspNetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Equal", fileVersion: "Equal", framework: "NetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Equal", fileVersion: "Newer", framework: "AspNetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Equal", fileVersion: "Newer", framework: "NetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Equal", fileVersion: "Older", framework: "AspNetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Equal", fileVersion: "Older", framework: "NetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Newer", fileVersion: "Equal", framework: "AspNetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Newer", fileVersion: "Equal", framework: "NetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Newer", fileVersion: "Newer", framework: "AspNetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Newer", fileVersion: "Newer", framework: "NetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Newer", fileVersion: "Older", framework: "AspNetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Newer", fileVersion: "Older", framework: "NetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Older", fileVersion: "Equal", framework: "AspNetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Older", fileVersion: "Equal", framework: "NetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Older", fileVersion: "Newer", framework: "AspNetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Older", fileVersion: "Newer", framework: "NetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Older", fileVersion: "Older", framework: "AspNetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_conflict_cell_is_exact(assemblyVersion: "Older", fileVersion: "Older", framework: "NetCoreApp")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "FallsShort", source: "Framework", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "FallsShort", source: "Framework", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "FallsShort", source: "Library", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "FallsShort", source: "Library", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "FallsShort", source: "OtherPackage", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "FallsShort", source: "OtherPackage", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "Reaches", source: "Framework", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "Reaches", source: "Framework", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "Reaches", source: "Library", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "Reaches", source: "Library", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "Reaches", source: "OtherPackage", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Above", higher: "Reaches", source: "OtherPackage", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "FallsShort", source: "Framework", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "FallsShort", source: "Framework", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "FallsShort", source: "Library", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "FallsShort", source: "Library", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "FallsShort", source: "OtherPackage", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "FallsShort", source: "OtherPackage", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "Reaches", source: "Framework", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "Reaches", source: "Framework", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "Reaches", source: "Library", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "Reaches", source: "Library", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "Reaches", source: "OtherPackage", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Below", higher: "Reaches", source: "OtherPackage", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "FallsShort", source: "Framework", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "FallsShort", source: "Framework", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "FallsShort", source: "Library", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "FallsShort", source: "Library", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "FallsShort", source: "OtherPackage", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "FallsShort", source: "OtherPackage", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "Reaches", source: "Framework", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "Reaches", source: "Framework", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "Reaches", source: "Library", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "Reaches", source: "Library", lib: "Incompatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "Reaches", source: "OtherPackage", lib: "Compatible")	Passed
+ConcurrencyHunter.Core.Tests.Providers.ReferenceSetMatrixTests.Every_floor_cell_is_exact(lowest: "Equal", higher: "Reaches", source: "OtherPackage", lib: "Incompatible")	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Git_file_marks_a_work_tree_root	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Git_work_tree_root_when_no_folder_holds_one	Passed
 ConcurrencyHunter.Core.Tests.Providers.RepositoryRootTests.Missing_folder_walks_up_without_failing	Passed
@@ -15578,6 +15710,15 @@ ConcurrencyHunter.Core.Tests.Providers.TypeShapeTests.Strings_primitives_enums_a
 ConcurrencyHunter.Core.Tests.Providers.TypeShapeTests.Task_and_ValueTask_are_tasks_not_references	Passed
 ConcurrencyHunter.Core.Tests.Providers.TypeShapeTests.Task_of_T_and_ValueTask_of_T_are_tasks_of_T	Passed
 ConcurrencyHunter.Core.Tests.Providers.TypeShapeTests.ValueTask_of_T_is_a_task_of_T_not_a_struct_with_references	Passed
+ConcurrencyHunter.Core.Tests.Providers.UnprovidedReferenceTests.A_lib_folder_of_a_version_without_the_file_or_for_another_platform_passes_to_the_next_version	Passed
+ConcurrencyHunter.Core.Tests.Providers.UnprovidedReferenceTests.A_name_a_package_dependency_gives_is_not_looked_up	Passed
+ConcurrencyHunter.Core.Tests.Providers.UnprovidedReferenceTests.A_name_the_shared_framework_gives_is_not_looked_up	Passed
+ConcurrencyHunter.Core.Tests.Providers.UnprovidedReferenceTests.A_reference_no_cached_version_reaches_leaves_the_set_without_it_and_names_nothing	Passed
+ConcurrencyHunter.Core.Tests.Providers.UnprovidedReferenceTests.A_reference_of_version_zero_takes_the_lowest_cached_version_that_holds_the_file	Passed
+ConcurrencyHunter.Core.Tests.Providers.UnprovidedReferenceTests.A_reference_the_dependency_makes_and_not_the_library_is_not_looked_up	Passed
+ConcurrencyHunter.Core.Tests.Providers.UnprovidedReferenceTests.A_reference_with_no_package_folder_leaves_the_set_without_it_and_names_nothing	Passed
+ConcurrencyHunter.Core.Tests.Providers.UnprovidedReferenceTests.Of_three_cached_versions_the_lowest_not_below_the_reference_is_taken_and_only_that_one_file	Passed
+ConcurrencyHunter.Core.Tests.Providers.UnprovidedReferenceTests.The_lookup_checks_for_cancellation_before_it_reads_each_cached_version	Passed
 ConcurrencyHunter.Core.Tests.Providers.ValueSourceMatrixTests.Every_axis_value_occurs_in_a_cell	Passed
 ConcurrencyHunter.Core.Tests.Providers.ValueSourceMatrixTests.Every_cell_gets_its_expected_value	Passed
 ConcurrencyHunter.Core.Tests.Providers.ValueSourceMatrixTests.No_seed_cell_leaves_a_statement_for_its_unseeded_path	Passed

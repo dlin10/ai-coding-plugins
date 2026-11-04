@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 2,
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
+  "assembly": {
+    "name": "Microsoft.Extensions.ObjectPool",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.Extensions.ObjectPool.ObjectPoolProvider.Create``1(Microsoft.Extensions.ObjectPool.IPooledObjectPolicy{``0})",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:Microsoft.Extensions.ObjectPool.ObjectPoolProvider.Create``1(Microsoft.Extensions.ObjectPool.IPooledObjectPolicy{``0}) is abstract",
+        "causes": []
+      }
+    }
+  ]
+}

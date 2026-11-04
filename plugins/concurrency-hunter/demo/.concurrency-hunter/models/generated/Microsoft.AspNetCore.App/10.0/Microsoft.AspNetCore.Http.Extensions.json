@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 2,
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
+  "assembly": {
+    "name": "Microsoft.AspNetCore.Http.Extensions",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.AspNetCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync``1(Microsoft.AspNetCore.Http.HttpResponse,``0,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "probe-handed-to-unseen",
+          "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.HttpResponseJsonExtensions.WriteAsJsonAsync``1(Microsoft.AspNetCore.Http.HttpResponse,``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.String,System.Threading.CancellationToken)",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "only a default could fill the System.Text.Json.Serialization.Metadata.JsonTypeInfo<TValue> of jsonTypeInfo",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.Json.JsonOptions.#ctor",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Http.Json.JsonOptions.#ctor",
+        "assemblies": [
+          "Microsoft.AspNetCore.Http.Extensions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.Json.JsonOptions.get_SerializerOptions",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-several-objects"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.#ctor",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.#ctor",
+        "assemblies": [
+          "Microsoft.AspNetCore.Http.Extensions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.get_EndpointBuilder",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.get_ServiceProvider",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.set_DisableInferBodyFromParameters(System.Boolean)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.set_EndpointBuilder(Microsoft.AspNetCore.Builder.EndpointBuilder)",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.set_EndpointBuilder(Microsoft.AspNetCore.Builder.EndpointBuilder)",
+        "assemblies": [
+          "Microsoft.AspNetCore.Http.Extensions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.set_RouteParameterNames(System.Collections.Generic.IEnumerable{System.String})",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.set_RouteParameterNames(System.Collections.Generic.IEnumerable{System.String})",
+        "assemblies": [
+          "Microsoft.AspNetCore.Http.Extensions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.set_ServiceProvider(System.IServiceProvider)",
+      "model": {
+        "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.set_ServiceProvider(System.IServiceProvider)",
+        "assemblies": [
+          "Microsoft.AspNetCore.Http.Extensions"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {},
+        "keeps": {
+          "this": [
+            "arg:value"
+          ]
+        }
+      }
+    },
+    {
+      "member": "M:Microsoft.AspNetCore.Http.RequestDelegateFactoryOptions.set_ThrowOnBadRequest(System.Boolean)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store"
+        ]
+      }
+    }
+  ]
+}

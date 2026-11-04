@@ -401,17 +401,17 @@
         {
           "member": "M:Microsoft.AspNetCore.Builder.ControllerEndpointRouteBuilderExtensions.MapControllers(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
           "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.Core.json",
-          "cause": "library-does-not-compile"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapGet(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)",
           "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Routing.json",
-          "cause": "library-does-not-compile"
+          "cause": "driver-not-synthesized"
         },
         {
           "member": "M:Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions.MapPost(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder,System.String,System.Delegate)",
           "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Routing.json",
-          "cause": "library-does-not-compile"
+          "cause": "driver-not-synthesized"
         },
         {
           "member": "M:Microsoft.AspNetCore.Builder.GrpcEndpointRouteBuilderExtensions.MapGrpcService\u0060\u00601(Microsoft.AspNetCore.Routing.IEndpointRouteBuilder)",
@@ -451,12 +451,12 @@
         {
           "member": "M:Microsoft.AspNetCore.Mvc.ControllerBase.#ctor",
           "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.Core.json",
-          "cause": "library-does-not-compile"
+          "cause": "driver-not-synthesized"
         },
         {
           "member": "M:Microsoft.AspNetCore.Mvc.ControllerBase.get_HttpContext",
           "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.Core.json",
-          "cause": "library-does-not-compile"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Microsoft.Extensions.Caching.Memory.CacheExtensions.GetOrCreateAsync\u0060\u00601(Microsoft.Extensions.Caching.Memory.IMemoryCache,System.Object,System.Func{Microsoft.Extensions.Caching.Memory.ICacheEntry,System.Threading.Tasks.Task{\u0060\u00600}})",
@@ -491,7 +491,7 @@
         {
           "member": "M:Microsoft.Extensions.DependencyInjection.MvcServiceCollectionExtensions.AddControllers(Microsoft.Extensions.DependencyInjection.IServiceCollection)",
           "file": "Microsoft.AspNetCore.App/10.0/Microsoft.AspNetCore.Mvc.json",
-          "cause": "library-does-not-compile"
+          "cause": "unknown-touch"
         },
         {
           "member": "M:Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions.AddHostedService\u0060\u00601(Microsoft.Extensions.DependencyInjection.IServiceCollection)",

@@ -18,7 +18,9 @@ namespace ConcurrencyHunter.Providers.LibraryModels.Generation;
 /// <c>Microsoft.AspNetCore.App</c> and a package that needs it are compiled against that framework's directory too.</param>
 /// <param name="References">The files the decompiled assembly is compiled against; empty for a reference assembly.</param>
 /// <param name="MissingDependencies">The package dependencies skipped, as <c>&lt;id&gt;@&lt;ranges&gt;</c> or
-/// <c>&lt;id&gt;@&lt;version&gt;: no compatible lib folder</c>.</param>
+/// <c>&lt;id&gt;@&lt;version&gt;: no compatible lib folder</c>, and the package dependencies taken below a floor, as
+/// <c>&lt;id&gt;@&lt;version&gt;: &lt;assembly&gt; older than &lt;floor&gt;</c>: an assembly of the dependency's lib folder is older than the
+/// highest version with which an assembly of the set references it. A dependency of the third form stays in the set.</param>
 /// <param name="AssemblyVersion">The assembly version.</param>
 /// <param name="FileVersion">The file version.</param>
 /// <param name="Mvid">The module version id.</param>
@@ -55,6 +57,11 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
     private const string SHARED_FRAMEWORK = "Microsoft.NETCore.App";
     private const string ASPNETCORE_FRAMEWORK = "Microsoft.AspNetCore.App";
     internal const int CLOSURE_ROUNDS = 128;
+
+    /// <summary>The floors of a resolution that has none: no assembly is referenced with a version a dependency must reach.</summary>
+    private static readonly IReadOnlyDictionary<string, Version> NoFloors = new Dictionary<string, Version>(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly Version NoVersion = new(0, 0, 0, 0);
 
     /// <summary>Told the path of each nuspec the resolver reads; <c>null</c> in production.</summary>
     internal Action<string>? NuspecRead { get; init; }
@@ -149,12 +156,13 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
         if (SharedFramework(SHARED_FRAMEWORK, major) is not { } shared)
             return Missing($"no shared framework of .NET {major} is installed", major);
         if (Find(shared.Directory, assemblyName) is { } core)
-            return Opened(assemblyName, core.Path, core.File, null, shared.Version, major, [shared.Directory], SHARED_FRAMEWORK, [], [], checks);
+            return Opened(assemblyName, core.Path, core.File, null, shared.Version, major, [shared.Directory], SHARED_FRAMEWORK, [],
+                          ClosedDependencies.None, NoFloors, checks).Resolution;
         var web = SharedFramework(ASPNETCORE_FRAMEWORK, major);
         if (web is { } installed && Find(installed.Directory, assemblyName) is { } aspNetCore)
         {
             return Opened(assemblyName, aspNetCore.Path, aspNetCore.File, null, installed.Version, major, [shared.Directory, installed.Directory],
-                          ASPNETCORE_FRAMEWORK, [], [], checks);
+                          ASPNETCORE_FRAMEWORK, [], ClosedDependencies.None, NoFloors, checks).Resolution;
         }
 
         return Missing(web is { } searched
@@ -183,27 +191,53 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
             return Missing($"no shared framework of .NET {major} is installed", major, file.Mvid);
 
         var nuspec = ReadNuspec(packageDirectory, major, checks);
-        var closure = Closure(packageId, nuspec.Dependencies, major, checks);
-        var sharedDirectories = new List<string> { shared.Directory };
-        if (nuspec.FrameworkReferences.Concat(closure.FrameworkReferences).Contains(ASPNETCORE_FRAMEWORK, StringComparer.OrdinalIgnoreCase))
+        var floors = NoFloors;
+        // bounded: at most CLOSURE_ROUNDS rounds, each a Closure that checks at its own rounds.
+        for (var round = 1; ; round++)
         {
-            if (SharedFramework(ASPNETCORE_FRAMEWORK, major) is not { } web)
+            var closure = Closure(packageId, nuspec.Dependencies, major, floors, checks);
+            var sharedDirectories = new List<string> { shared.Directory };
+            if (nuspec.FrameworkReferences.Concat(closure.FrameworkReferences).Contains(ASPNETCORE_FRAMEWORK, StringComparer.OrdinalIgnoreCase))
             {
-                return Missing($"{packageId} or a package it depends on names the {ASPNETCORE_FRAMEWORK} framework, " +
-                               $"which is not installed for .NET {major}", major, file.Mvid);
+                if (SharedFramework(ASPNETCORE_FRAMEWORK, major) is not { } web)
+                {
+                    return Missing($"{packageId} or a package it depends on names the {ASPNETCORE_FRAMEWORK} framework, " +
+                                   $"which is not installed for .NET {major}", major, file.Mvid);
+                }
+
+                sharedDirectories.Add(web.Directory);
             }
 
-            sharedDirectories.Add(web.Directory);
+            var opened = Opened(assemblyName, path, file, packageId, packageVersion.Normalized, major, sharedDirectories, null, [lib, .. closure.Folders],
+                                closure, floors, checks);
+            if (round >= CLOSURE_ROUNDS || !HoldsBelow(closure, floors, opened.Floors))
+                return opened.Resolution;
+            floors = opened.Floors;
         }
+    }
 
-        return Opened(assemblyName, path, file, packageId, packageVersion.Normalized, major, sharedDirectories, null, [lib, .. closure.Folders],
-                      closure.Missing, checks);
+    /// <summary>Whether another round of resolution can change the set: a floor rose, by an assembly a dependency taken holds, and
+    /// the dependency's copy is older than the floor now. A floor that rose by a name no dependency taken holds — the reference of
+    /// nearly every assembly to <c>System.Private.CoreLib</c> — leaves the set final, so that a resolution with nothing to lift is
+    /// one closure and one scan.</summary>
+    /// <param name="closure">The dependencies the round took.</param>
+    /// <param name="before">The floors the round resolved with.</param>
+    /// <param name="after">The floors after the round: those of <paramref name="before"/> raised by the references of its set.</param>
+    private static bool HoldsBelow(ClosedDependencies closure, IReadOnlyDictionary<string, Version> before, IReadOnlyDictionary<string, Version> after)
+    {
+        var raised = after.Where(pair => !before.TryGetValue(pair.Key, out var floor) || pair.Value > floor)
+                          .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        return raised.Count > 0 && closure.Choices.Any(entry => entry.Choice.Lib is { } lib && Older(lib, raised).Any());
     }
 
     /// <summary>The resolution of an opened assembly: refused when it is a reference assembly, else with its references — every
     /// other managed assembly of <paramref name="folders"/>, then of the shared frameworks in the order given, an assembly name
-    /// taken only once, so a package's copy wins over a framework's and <c>Microsoft.NETCore.App</c>'s over
-    /// <c>Microsoft.AspNetCore.App</c>'s.</summary>
+    /// taken only once. A name's package copy is the first of the lib folders in order, its framework copy the first of the shared
+    /// frameworks in order, so <c>Microsoft.NETCore.App</c>'s wins over <c>Microsoft.AspNetCore.App</c>'s. A name both give is
+    /// taken from the higher assembly version, then the higher file version, a tie going to the framework's copy. An assembly the
+    /// opened one references that the set lacks is added from the packages folder (<see cref="Unprovided"/>). The floors are raised by
+    /// the AssemblyRef rows of the opened assembly and of the references taken — never of a copy that lost a name, and never by a
+    /// row of version <c>0.0.0.0</c> — and the dependencies of <paramref name="closure"/> are named against the raised floors.</summary>
     /// <param name="assemblyName">The assembly name asked for.</param>
     /// <param name="path">The implementation file.</param>
     /// <param name="file">Its metadata.</param>
@@ -215,25 +249,30 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
     /// <param name="frameworkName">The shared framework a framework assembly was found in; <c>null</c> for a package assembly.</param>
     /// <param name="folders">The package's lib folder and its dependencies' lib folders, in that order; empty for a framework
     /// member.</param>
-    /// <param name="missing">The dependencies skipped.</param>
+    /// <param name="closure">The dependencies of the package, which name the ones skipped and the ones taken below a floor in
+    /// <see cref="ImplementationAssembly.MissingDependencies"/>; none for a framework member.</param>
+    /// <param name="floors">The floors the dependencies were resolved with: the highest version, by assembly name, with which an
+    /// assembly of an earlier round's set references it.</param>
     /// <param name="checks">The generation's checks; cancel before the metadata of each candidate reference is read.</param>
-    private static ImplementationResolution Opened(string assemblyName, string path, AssemblyFile file, string? packageId,
-                                                   string implementationVersion, int major, IReadOnlyList<string> sharedDirectories,
-                                                   string? frameworkName, IReadOnlyList<string> folders, IReadOnlyList<string> missing,
-                                                   GenerationChecks checks)
+    private OpenedAssembly Opened(string assemblyName, string path, AssemblyFile file, string? packageId, string implementationVersion,
+                                  int major, IReadOnlyList<string> sharedDirectories, string? frameworkName, IReadOnlyList<string> folders,
+                                  ClosedDependencies closure, IReadOnlyDictionary<string, Version> floors, GenerationChecks checks)
     {
         var fileVersion = FileVersionInfo.GetVersionInfo(path).FileVersion ?? "";
         if (file.IsReferenceAssembly)
         {
-            return new ImplementationResolution(
-                new ImplementationAssembly(assemblyName, path, packageId, implementationVersion, $"net{major}.0", sharedDirectories[0], [], missing,
-                                           file.Version.ToString(), fileVersion, file.Mvid, frameworkName),
-                GenerationReasons.REFERENCE_ASSEMBLY, $"{path} is a reference assembly", $"net{major}.0");
+            return new OpenedAssembly(
+                new ImplementationResolution(
+                    new ImplementationAssembly(assemblyName, path, packageId, implementationVersion, $"net{major}.0", sharedDirectories[0], [],
+                                               closure.MissingDependencies(floors), file.Version.ToString(), fileVersion, file.Mvid, frameworkName),
+                    GenerationReasons.REFERENCE_ASSEMBLY, $"{path} is a reference assembly", $"net{major}.0"),
+                floors);
         }
 
-        var supplied = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { file.Name };
-        var references = new List<string>();
-        foreach (var folder in folders.Concat(sharedDirectories))
+        var packageCopies = new Dictionary<string, Copy>(StringComparer.OrdinalIgnoreCase);
+        var frameworkCopies = new Dictionary<string, Copy>(StringComparer.OrdinalIgnoreCase);
+        var position = 0;
+        foreach (var (folder, isFramework) in folders.Select(folder => (folder, false)).Concat(sharedDirectories.Select(folder => (folder, true))))
         {
             WorkCancellation.Check();
             foreach (var candidate in Directory.EnumerateFiles(folder, "*.dll").Select(Path.GetFullPath).Order(StringComparer.OrdinalIgnoreCase))
@@ -241,15 +280,104 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
                 checks.Check(GenerationStage.Resolve);
                 if (!Contains(folder, candidate) || string.Equals(candidate, path, StringComparison.OrdinalIgnoreCase))
                     continue;
-                if (AssemblyFile.Read(candidate) is { } reference && supplied.Add(reference.Name))
-                    references.Add(candidate);
+                if (AssemblyFile.Read(candidate) is { } reference && !string.Equals(reference.Name, file.Name, StringComparison.OrdinalIgnoreCase))
+                    (isFramework ? frameworkCopies : packageCopies).TryAdd(reference.Name, new Copy(candidate, reference, position++));
             }
         }
 
-        return new ImplementationResolution(
-            new ImplementationAssembly(assemblyName, path, packageId, implementationVersion, $"net{major}.0", sharedDirectories[0], references, missing,
-                                       file.Version.ToString(), fileVersion, file.Mvid, frameworkName),
-            null, $"{path}", $"net{major}.0");
+        var taken = packageCopies.Values
+                                 .Select(package => frameworkCopies.TryGetValue(package.File.Name, out var framework) ? Winner(package, framework) : package)
+                                 .Concat(frameworkCopies.Values.Where(framework => !packageCopies.ContainsKey(framework.File.Name)))
+                                 .OrderBy(copy => copy.Position)
+                                 .ToList();
+        var provided = taken.Select(copy => copy.File.Name).Append(file.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var reference in file.References.OrderByDescending(row => row.Version)
+                                      .DistinctBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+                                      .Where(row => !provided.Contains(row.Name)))
+        {
+            WorkCancellation.Check();
+            if (Unprovided(reference, major, position, checks) is { } found)
+            {
+                taken.Add(found);
+                position++;
+            }
+        }
+
+        var raised = Raised(floors, file.References.Concat(taken.SelectMany(copy => copy.File.References)));
+        return new OpenedAssembly(
+            new ImplementationResolution(
+                new ImplementationAssembly(assemblyName, path, packageId, implementationVersion, $"net{major}.0", sharedDirectories[0],
+                                           taken.Select(copy => copy.Path).ToList(), closure.MissingDependencies(raised), file.Version.ToString(),
+                                           fileVersion, file.Mvid, frameworkName),
+                null, $"{path}", $"net{major}.0"),
+            raised);
+    }
+
+    /// <summary>The floors after a set: each name at the higher of its floor and the highest version with which a row references it.
+    /// A row of version <c>0.0.0.0</c> names no version and raises nothing.</summary>
+    /// <param name="floors">The floors so far; never lowered.</param>
+    /// <param name="rows">The AssemblyRef rows of the assemblies of the set.</param>
+    private static Dictionary<string, Version> Raised(IReadOnlyDictionary<string, Version> floors, IEnumerable<AssemblyReference> rows)
+    {
+        var raised = new Dictionary<string, Version>(floors, StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            WorkCancellation.Check();
+            if (row.Version > NoVersion && (!raised.TryGetValue(row.Name, out var floor) || row.Version > floor))
+                raised[row.Name] = row.Version;
+        }
+
+        return raised;
+    }
+
+    /// <summary>The one file of the packages folder that gives an assembly the opened one references and its set lacks: the package
+    /// of that id — the assembly's simple name — at the lowest cached version whose lib folder for the platform holds the assembly at
+    /// a version not older than the reference. Nothing is found for a name that is no package id, a package that is not cached, or
+    /// no cached version that reaches the reference; nothing is downloaded.</summary>
+    /// <param name="reference">The AssemblyRef row of the opened assembly.</param>
+    /// <param name="major">The platform major.</param>
+    /// <param name="position">The position the file takes among the references.</param>
+    /// <param name="checks">The generation's checks; cancel before the metadata of each cached version's file is read.</param>
+    private Copy? Unprovided(AssemblyReference reference, int major, int position, GenerationChecks checks)
+    {
+        if (!IsPackageId(reference.Name))
+            return null;
+        var idDirectory = Path.GetFullPath(Path.Combine(packagesFolder, reference.Name.ToLowerInvariant()));
+        if (!Contains(packagesFolder, idDirectory) || !Directory.Exists(idDirectory))
+            return null;
+        foreach (var (directory, _) in CachedVersions(idDirectory))
+        {
+            checks.Check(GenerationStage.Resolve);
+            if (LibFolder(directory, major) is not { } lib)
+                continue;
+            var path = Path.GetFullPath(Path.Combine(lib, reference.Name + ".dll"));
+            if (Contains(lib, path) && File.Exists(path) && AssemblyFile.Read(path) is { } file &&
+                string.Equals(file.Name, reference.Name, StringComparison.OrdinalIgnoreCase) && file.Version >= reference.Version)
+                return new Copy(path, file, position);
+        }
+
+        return null;
+    }
+
+    /// <summary>Which of a package's and a shared framework's copies of one assembly name is compiled against: the higher assembly
+    /// version, then the higher file version, a tie going to the framework's copy. The file version is read only on a tie of the
+    /// assembly versions.</summary>
+    /// <param name="package">The package's copy.</param>
+    /// <param name="framework">The shared framework's copy.</param>
+    private static Copy Winner(Copy package, Copy framework)
+    {
+        var byAssembly = package.File.Version.CompareTo(framework.File.Version);
+        if (byAssembly != 0)
+            return byAssembly > 0 ? package : framework;
+        return FileVersion(package.Path).CompareTo(FileVersion(framework.Path)) > 0 ? package : framework;
+    }
+
+    /// <summary>The file version a file's version resource gives, or <c>0.0.0.0</c> without one.</summary>
+    /// <param name="path">The file.</param>
+    private static Version FileVersion(string path)
+    {
+        var info = FileVersionInfo.GetVersionInfo(path);
+        return new Version(info.FileMajorPart, info.FileMinorPart, info.FileBuildPart, info.FilePrivatePart);
     }
 
     private static ImplementationResolution Missing(string detail, int major, Guid? assetMvid = null) =>
@@ -395,17 +523,23 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
     }
 
     /// <summary>Resolves the package's dependencies, recursively, to a fixpoint: each id once for the whole closure, at the lowest
-    /// version in the packages folder that every range reaching it admits. A dependency no cached version satisfies, or whose
-    /// chosen version has no compatible lib folder, is skipped and named, and its own dependencies are not followed. When no
+    /// version in the packages folder that every range reaching it admits and whose assemblies the floors name are not older than
+    /// them. A dependency no cached version satisfies, or whose chosen version has no compatible lib folder, is skipped and named,
+    /// and its own dependencies are not followed. A dependency no admitted version of which reaches the floors stays at the lowest
+    /// admitted version, in the set, and is named with the floor (<see cref="ClosedDependencies.MissingDependencies"/>). When no
     /// fixpoint comes — a set of choices repeats (the ranges oscillate) or <see cref="CLOSURE_ROUNDS"/> rounds pass — every id whose
     /// choice still changes is skipped and named with its ranges, round after round, until the choices left are the ones every range
     /// reaching them admits: a version outside a range is never taken, and no dependency is dropped without a name. The shared
-    /// frameworks the dependencies taken reference are returned with the folders.</summary>
+    /// frameworks the dependencies taken reference are returned with the folders. The floors are fixed for the whole call: a rise
+    /// of a floor is a new call, with a new cache of choices.</summary>
     /// <param name="packageId">The package whose closure it is; a dependency back on it is ignored.</param>
     /// <param name="direct">The package's own dependencies.</param>
     /// <param name="major">The platform major.</param>
+    /// <param name="floors">The floors by assembly name: the highest version with which an assembly of an earlier round's set
+    /// references it.</param>
     /// <param name="checks">The generation's checks; cancels the closure before a round and before a nuspec is read.</param>
-    private ClosedDependencies Closure(string packageId, IReadOnlyList<Dependency> direct, int major, GenerationChecks checks)
+    private ClosedDependencies Closure(string packageId, IReadOnlyList<Dependency> direct, int major, IReadOnlyDictionary<string, Version> floors,
+                                       GenerationChecks checks)
     {
         var chosen = new Dictionary<string, Choice>(StringComparer.OrdinalIgnoreCase);
         var choices = new Dictionary<string, Choice>(StringComparer.OrdinalIgnoreCase);
@@ -437,7 +571,7 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
             var next = ranges.ToDictionary(pair => pair.Key,
                                            pair => unsettled.Contains(pair.Key)
                                                ? Unsatisfied(pair.Key, pair.Value)
-                                               : Choose(pair.Key, pair.Value, major, choices, checks),
+                                               : Choose(pair.Key, pair.Value, major, floors, choices, checks),
                                            StringComparer.OrdinalIgnoreCase);
             var changed = next.Where(pair => !unsettled.Contains(pair.Key) &&
                                              !(chosen.TryGetValue(pair.Key, out var before) && before.Version == pair.Value.Version &&
@@ -453,10 +587,9 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
                 unsettled.UnionWith(changed);
         }
 
-        var ordered = chosen.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase).Select(pair => pair.Value).ToArray();
-        return new ClosedDependencies(ordered.Where(choice => choice.Lib is not null).Select(choice => choice.Lib!).ToArray(),
-                                      ordered.Where(choice => choice.Missing is not null).Select(choice => choice.Missing!).ToArray(),
-                                      ordered.Where(choice => choice.Lib is not null).SelectMany(choice => choice.Nuspec.FrameworkReferences)
+        var ordered = chosen.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase).Select(pair => (Id: pair.Key, Choice: pair.Value)).ToArray();
+        return new ClosedDependencies(ordered.Where(entry => entry.Choice.Lib is not null).Select(entry => entry.Choice.Lib!).ToArray(), ordered,
+                                      ordered.Where(entry => entry.Choice.Lib is not null).SelectMany(entry => entry.Choice.Nuspec.FrameworkReferences)
                                              .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 
@@ -466,39 +599,78 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
     private static Choice Unsatisfied(string id, IReadOnlyList<Dependency> reaching) =>
         new(null, null, Nuspec.Empty, $"{id}@{string.Join(" ", reaching.Select(dependency => dependency.Text).Distinct(StringComparer.Ordinal))}");
 
-    /// <summary>The lowest cached version of a dependency every range reaching it admits, read once per id and ranges.</summary>
+    /// <summary>The lowest cached version of a dependency every range reaching it admits and the floors do not pass, read once per id
+    /// and ranges; the floors are those of the closure, so the cache is the closure's.</summary>
     /// <param name="id">The dependency id.</param>
     /// <param name="reaching">The dependencies on it that reach it.</param>
     /// <param name="major">The platform major.</param>
+    /// <param name="floors">The floors by assembly name.</param>
     /// <param name="choices">The choices already made in this closure, by id and ranges.</param>
     /// <param name="checks">The generation's checks; cancels before the chosen version's nuspec is read.</param>
-    private Choice Choose(string id, IReadOnlyList<Dependency> reaching, int major, Dictionary<string, Choice> choices,
-                          GenerationChecks checks)
+    private Choice Choose(string id, IReadOnlyList<Dependency> reaching, int major, IReadOnlyDictionary<string, Version> floors,
+                          Dictionary<string, Choice> choices, GenerationChecks checks)
     {
         var unsatisfied = Unsatisfied(id, reaching);
         if (choices.TryGetValue(unsatisfied.Missing!, out var known))
             return known;
-        return choices[unsatisfied.Missing!] = Lowest(id, reaching, major, unsatisfied, checks);
+        return choices[unsatisfied.Missing!] = Lowest(id, reaching, major, unsatisfied, floors, checks);
     }
 
-    private Choice Lowest(string id, IReadOnlyList<Dependency> reaching, int major, Choice unsatisfied, GenerationChecks checks)
+    /// <summary>The lowest cached version every range admits whose lib folder holds no assembly a floor names below the floor. A
+    /// version without a compatible lib folder reaches every floor and is taken, named, as it always was. When no admitted version
+    /// reaches the floors, the lowest admitted one is taken with its lib folder.</summary>
+    /// <param name="id">The dependency id.</param>
+    /// <param name="reaching">The dependencies on it that reach it.</param>
+    /// <param name="major">The platform major.</param>
+    /// <param name="unsatisfied">The choice that skips the dependency, for when no cached version is admitted.</param>
+    /// <param name="floors">The floors by assembly name.</param>
+    /// <param name="checks">The generation's checks; cancels before the chosen version's nuspec is read.</param>
+    private Choice Lowest(string id, IReadOnlyList<Dependency> reaching, int major, Choice unsatisfied, IReadOnlyDictionary<string, Version> floors,
+                          GenerationChecks checks)
     {
         var idDirectory = Path.GetFullPath(Path.Combine(packagesFolder, id.ToLowerInvariant()));
         if (!IsPackageId(id) || reaching.Any(dependency => dependency.Range is null) || !Contains(packagesFolder, idDirectory) ||
             !Directory.Exists(idDirectory))
             return unsatisfied;
-        var lowest = Directory.EnumerateDirectories(idDirectory)
-                              .Select(directory => (Directory: Path.GetFullPath(directory),
-                                                    Version: PackageVersion.TryParse(Path.GetFileName(directory), out var parsed) ? parsed : null))
-                              .Where(entry => entry.Version is not null && reaching.All(dependency => dependency.Range!.Admits(entry.Version)))
-                              .OrderBy(entry => entry.Version)
-                              .FirstOrDefault();
-        if (lowest.Version is null)
-            return unsatisfied;
-        var version = lowest.Version.Normalized;
-        return LibFolder(lowest.Directory, major) is { } lib
-            ? new Choice(version, lib, ReadNuspec(lowest.Directory, major, checks), null)
-            : new Choice(version, null, Nuspec.Empty, $"{id}@{version}: no compatible lib folder");
+        var admitted = CachedVersions(idDirectory).Where(entry => reaching.All(dependency => dependency.Range!.Admits(entry.Version)));
+        (string Directory, PackageVersion Version, string Lib)? lowest = null;
+        foreach (var (directory, version) in admitted)
+        {
+            WorkCancellation.Check();
+            if (LibFolder(directory, major) is not { } lib)
+                return new Choice(version.Normalized, null, Nuspec.Empty, $"{id}@{version.Normalized}: no compatible lib folder");
+            lowest ??= (directory, version, lib);
+            if (!Older(lib, floors).Any())
+                return new Choice(version.Normalized, lib, ReadNuspec(directory, major, checks), null);
+        }
+
+        return lowest is { } below ? new Choice(below.Version.Normalized, below.Lib, ReadNuspec(below.Directory, major, checks), null) : unsatisfied;
+    }
+
+    /// <summary>The cached versions of a package id, lowest first; a folder whose name is no version is none.</summary>
+    /// <param name="idDirectory">The package id's folder in the packages folder.</param>
+    private static IEnumerable<(string Directory, PackageVersion Version)> CachedVersions(string idDirectory) =>
+        Directory.EnumerateDirectories(idDirectory)
+                 .Select(directory => (Directory: Path.GetFullPath(directory),
+                                       Version: PackageVersion.TryParse(Path.GetFileName(directory), out var parsed) ? parsed : null))
+                 .Where(entry => entry.Version is not null)
+                 .Select(entry => (entry.Directory, Version: entry.Version!))
+                 .OrderBy(entry => entry.Version);
+
+    /// <summary>The assemblies of a lib folder that a floor names, held below it: the one answer to whether a dependency reaches the
+    /// floors, for the choice of its version, for its name in the record and for whether another round is worth taking.</summary>
+    /// <param name="lib">The lib folder.</param>
+    /// <param name="floors">The floors by assembly name; with none, nothing is read.</param>
+    private static IEnumerable<Shortfall> Older(string lib, IReadOnlyDictionary<string, Version> floors)
+    {
+        if (floors.Count == 0)
+            yield break;
+        foreach (var candidate in Directory.EnumerateFiles(lib, "*.dll").Select(Path.GetFullPath).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            WorkCancellation.Check();
+            if (Contains(lib, candidate) && AssemblyFile.Read(candidate) is { } held && floors.TryGetValue(held.Name, out var floor) && held.Version < floor)
+                yield return new Shortfall(held.Name, floor);
+        }
     }
 
     /// <summary>Whether a full path lies under a directory.</summary>
@@ -521,9 +693,34 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
 
     /// <summary>What a package's dependency closure comes to.</summary>
     /// <param name="Folders">The lib folders of the dependencies taken, by id.</param>
-    /// <param name="Missing">The dependencies skipped, named.</param>
+    /// <param name="Choices">Every dependency of the closure, by id: taken at a version with its lib folder, or skipped and named.</param>
     /// <param name="FrameworkReferences">The shared frameworks the dependencies taken reference, each once.</param>
-    private sealed record ClosedDependencies(IReadOnlyList<string> Folders, IReadOnlyList<string> Missing, IReadOnlyList<string> FrameworkReferences);
+    private sealed record ClosedDependencies(IReadOnlyList<string> Folders, IReadOnlyList<(string Id, Choice Choice)> Choices,
+                                             IReadOnlyList<string> FrameworkReferences)
+    {
+        public static readonly ClosedDependencies None = new([], [], []);
+
+        /// <summary>The dependencies skipped, named as the closure named them, and the dependencies taken whose lib folder holds an
+        /// assembly older than a floor, named with the assembly and the floor, in the order of the ids.</summary>
+        /// <param name="floors">The floors by assembly name: the highest version with which an assembly of the set references it.</param>
+        public IReadOnlyList<string> MissingDependencies(IReadOnlyDictionary<string, Version> floors) =>
+            Choices.Select(entry => entry.Choice.Missing ??
+                                    (entry.Choice.Lib is { } lib && Older(lib, floors).FirstOrDefault() is { } below
+                                        ? $"{entry.Id}@{entry.Choice.Version}: {below.Assembly} older than {below.Floor}"
+                                        : null))
+                   .OfType<string>()
+                   .ToArray();
+    }
+
+    /// <summary>An assembly of a dependency's lib folder that is older than a floor.</summary>
+    /// <param name="Assembly">The assembly name.</param>
+    /// <param name="Floor">The highest version with which an assembly of the set references it.</param>
+    private sealed record Shortfall(string Assembly, Version Floor);
+
+    /// <summary>An opened assembly and the floors its set raised.</summary>
+    /// <param name="Resolution">The resolution.</param>
+    /// <param name="Floors">The floors it was resolved with, raised by the references of its set.</param>
+    private sealed record OpenedAssembly(ImplementationResolution Resolution, IReadOnlyDictionary<string, Version> Floors);
 
     /// <summary>What a nuspec lists for the platform.</summary>
     /// <param name="Dependencies">The dependencies of the chosen group.</param>
@@ -534,14 +731,26 @@ public sealed partial class ImplementationAssemblies(string dotnetRoot, string p
     }
 
     private sealed record Choice(string? Version, string? Lib, Nuspec Nuspec, string? Missing);
+
+    /// <summary>A candidate reference found while scanning the folders of a resolution.</summary>
+    /// <param name="Path">The file.</param>
+    /// <param name="File">Its metadata.</param>
+    /// <param name="Position">Where the scan met it, to keep the references in the order of the scan.</param>
+    private sealed record Copy(string Path, AssemblyFile File, int Position);
 }
+
+/// <summary>One AssemblyRef row of a managed assembly: an assembly it references, with the version it references.</summary>
+/// <param name="Name">The referenced assembly's simple name.</param>
+/// <param name="Version">The version the row names.</param>
+internal sealed record AssemblyReference(string Name, Version Version);
 
 /// <summary>What the resolver reads of a managed assembly's metadata.</summary>
 /// <param name="Name">The assembly name.</param>
 /// <param name="Version">The assembly version.</param>
 /// <param name="IsReferenceAssembly">Whether it carries <c>ReferenceAssemblyAttribute</c>.</param>
 /// <param name="Mvid">The module version id.</param>
-internal sealed record AssemblyFile(string Name, Version Version, bool IsReferenceAssembly, Guid Mvid)
+/// <param name="References">Its AssemblyRef rows, in the order of the table: each assembly it references, with the version it references.</param>
+internal sealed record AssemblyFile(string Name, Version Version, bool IsReferenceAssembly, Guid Mvid, IReadOnlyList<AssemblyReference> References)
 {
     private const string REFERENCE_ASSEMBLY_ATTRIBUTE = "System.Runtime.CompilerServices.ReferenceAssemblyAttribute";
 
@@ -560,8 +769,12 @@ internal sealed record AssemblyFile(string Name, Version Version, bool IsReferen
                 return null;
             var definition = reader.GetAssemblyDefinition();
             var isReference = definition.GetCustomAttributes().Any(handle => AttributeName(reader, reader.GetCustomAttribute(handle)) == REFERENCE_ASSEMBLY_ATTRIBUTE);
+            var references = reader.AssemblyReferences
+                                   .Select(handle => reader.GetAssemblyReference(handle))
+                                   .Select(row => new AssemblyReference(reader.GetString(row.Name), row.Version))
+                                   .ToList();
             return new AssemblyFile(reader.GetString(definition.Name), definition.Version, isReference,
-                                    reader.GetGuid(reader.GetModuleDefinition().Mvid));
+                                    reader.GetGuid(reader.GetModuleDefinition().Mvid), references);
         }
         catch (Exception error) when (error is BadImageFormatException or IOException or UnauthorizedAccessException)
         {

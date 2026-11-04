@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "8e0e0a2afae09b5d5d57e18426e82c38901750e1dc44f2a3acdfd562644d1750",
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
   "assembly": {
     "name": "System.Text.Encodings.Web",
     "version": "10.0.0.0",
@@ -29,6 +29,17 @@
       }
     },
     {
+      "member": "M:System.Text.Encodings.Web.JavaScriptEncoder.get_UnsafeRelaxedJsonEscaping",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
       "member": "M:System.Text.Encodings.Web.TextEncoder.EncodeUtf8(System.ReadOnlySpan{System.Byte},System.Span{System.Byte},System.Int32@,System.Int32@,System.Boolean)",
       "refusal": {
         "reason": "driver-not-synthesized",
@@ -42,6 +53,17 @@
         "reason": "driver-not-synthesized",
         "detail": "utf8Text needs a value of System.ReadOnlySpan<byte>, a ref-like or pointer type",
         "causes": []
+      }
+    },
+    {
+      "member": "M:System.Text.Encodings.Web.UrlEncoder.get_Default",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "result-unnamed",
+          "value-unnamed"
+        ]
       }
     }
   ]

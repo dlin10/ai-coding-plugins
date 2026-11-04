@@ -62,7 +62,7 @@ internal static class LibraryFieldOpening
             cancellationToken.ThrowIfCancellationRequested();
             var applied = plan.Apply(baseline, active, cancellationToken);
             var introduced = applied.Compilation.GetDiagnostics(cancellationToken)
-                                    .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error &&
+                                    .Where(diagnostic => LibraryCompilation.IsCompilerError(diagnostic) &&
                                                          !baselineErrors.Contains(ErrorOf(applied.Compilation, diagnostic, cancellationToken)))
                                     .ToArray();
             if (introduced.Length == 0)
@@ -84,7 +84,7 @@ internal static class LibraryFieldOpening
     }
 
     private static HashSet<CompilationError> Errors(CSharpCompilation compilation, CancellationToken cancellationToken) =>
-        compilation.GetDiagnostics(cancellationToken).Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+        compilation.GetDiagnostics(cancellationToken).Where(LibraryCompilation.IsCompilerError)
                    .Select(diagnostic => ErrorOf(compilation, diagnostic, cancellationToken)).ToHashSet();
 
     private static CompilationError ErrorOf(CSharpCompilation compilation, Diagnostic diagnostic, CancellationToken cancellationToken)
@@ -202,7 +202,7 @@ internal static class LibraryFieldOpening
                 var rewriter = new OpeningRewriter(relevant, active);
                 var root = rewriter.Visit(original.GetRoot(cancellationToken))!;
                 if (index == attributeTree && root is CompilationUnitSyntax compilationUnit)
-                    root = compilationUnit.AddAttributeLists(FriendAttribute());
+                    root = compilationUnit.AddAttributeLists(FriendAttribute(baseline));
                 var rewritten = original.WithRootAndOptions(root, original.Options);
                 compilation = compilation.ReplaceSyntaxTree(original, rewritten);
                 appliedTrees.Add(rewritten, rewriter.Current(root));
@@ -451,9 +451,20 @@ internal static class LibraryFieldOpening
     private static bool Equivalent(SyntaxTokenList left, SyntaxTokenList right) =>
         left.Count == right.Count && left.Zip(right).All(pair => pair.First.IsKind(pair.Second.Kind()));
 
-    private static AttributeListSyntax FriendAttribute() =>
+    /// <summary>The <c>InternalsVisibleTo</c> attribute that names the driver's assembly a friend of a copy.</summary>
+    /// <param name="compilation">The copy, whose public key (<see cref="CompilationOptions.CryptoPublicKey"/>) the friend's name carries.</param>
+    private static AttributeListSyntax FriendAttribute(CSharpCompilation compilation) =>
         AttributeList(SingletonSeparatedList(Attribute(ParseName("global::System.Runtime.CompilerServices.InternalsVisibleTo"))
             .WithArgumentList(AttributeArgumentList(SingletonSeparatedList(AttributeArgument(
-                LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(DriverSynthesizer.ASSEMBLY))))))))
+                LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(FriendName(compilation)))))))))
         .WithTarget(AttributeTargetSpecifier(Token(SyntaxKind.AssemblyKeyword)));
+
+    /// <summary>The name a copy gives the driver's assembly in <c>InternalsVisibleTo</c>: the bare name for a copy without a public
+    /// key, and for a strong-named one the name with the copy's public key in lower-case hex, which C# requires of the friend of a
+    /// strong-named assembly. The driver is compiled with the same key (<see cref="DriverSynthesizer"/>), so it is that friend.</summary>
+    /// <param name="compilation">The copy.</param>
+    private static string FriendName(CSharpCompilation compilation) =>
+        compilation.Options.CryptoPublicKey is { IsDefaultOrEmpty: false } key
+            ? $"{DriverSynthesizer.ASSEMBLY}, PublicKey={Convert.ToHexStringLower(key.AsSpan())}"
+            : DriverSynthesizer.ASSEMBLY;
 }

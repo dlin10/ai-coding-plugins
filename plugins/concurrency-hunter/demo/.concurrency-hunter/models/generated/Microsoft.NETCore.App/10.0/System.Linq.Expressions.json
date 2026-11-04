@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "8e0e0a2afae09b5d5d57e18426e82c38901750e1dc44f2a3acdfd562644d1750",
+  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
   "assembly": {
     "name": "System.Linq.Expressions",
     "version": "10.0.0.0",
@@ -44,6 +44,38 @@
       }
     },
     {
+      "member": "M:System.Linq.Expressions.Expression.Call(System.Reflection.MethodInfo,System.Linq.Expressions.Expression)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "callback-value-in-library-call",
+          "probe-handed-to-unseen",
+          "result-unnamed",
+          "unsupported-store",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression.Call(System.Reflection.MethodInfo,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression,System.Linq.Expressions.Expression)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "argument-member-unseen",
+          "callback-value-in-library-call",
+          "probe-handed-to-unseen",
+          "result-unnamed",
+          "unsupported-store",
+          "value-unnamed",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
       "member": "M:System.Linq.Expressions.Expression.Constant(System.Object,System.Type)",
       "refusal": {
         "reason": "library-state",
@@ -70,6 +102,35 @@
       }
     },
     {
+      "member": "M:System.Linq.Expressions.Expression.Invoke(System.Linq.Expressions.Expression,System.Linq.Expressions.Expression[])",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "reference-value-unobserved",
+          "result-several-objects",
+          "unproven-reference-store",
+          "unsupported-store",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression.Lambda(System.Linq.Expressions.Expression,System.Linq.Expressions.ParameterExpression[])",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-unresolved",
+          "unseeded-read",
+          "unsupported-store",
+          "value-unobserved"
+        ]
+      }
+    },
+    {
       "member": "M:System.Linq.Expressions.Expression.Lambda``1(System.Linq.Expressions.Expression,System.Linq.Expressions.ParameterExpression[])",
       "refusal": {
         "reason": "unknown-touch",
@@ -82,6 +143,31 @@
           "value-unnamed",
           "value-unobserved",
           "witness-value-handed"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression.MakeMemberAccess(System.Linq.Expressions.Expression,System.Reflection.MemberInfo)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "result-several-objects",
+          "unsupported-store",
+          "value-unnamed"
+        ]
+      }
+    },
+    {
+      "member": "M:System.Linq.Expressions.Expression.Parameter(System.Type)",
+      "refusal": {
+        "reason": "library-state",
+        "detail": "",
+        "causes": [
+          "library-state-store",
+          "result-several-objects",
+          "unsupported-store"
         ]
       }
     },
