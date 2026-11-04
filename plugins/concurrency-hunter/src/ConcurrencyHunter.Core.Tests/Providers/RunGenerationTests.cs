@@ -52,6 +52,16 @@ public sealed class RunGenerationTests : IDisposable
     }
 
     [Fact]
+    public void Recording_budget_selects_the_recording_limit_and_every_other_run_keeps_the_run_limit()
+    {
+        Assert.Equal(TimeSpan.FromHours(2), RunGeneration.RECORDING_LIMIT);
+        Assert.True(RunGeneration.RECORDING_LIMIT > RunGeneration.RUN_LIMIT);
+        Assert.Equal(RunGeneration.RECORDING_LIMIT, RunGeneration.RunLimitOf(GenerationBudget.Recording));
+        Assert.Equal(RunGeneration.RUN_LIMIT, RunGeneration.RunLimitOf(GenerationBudget.Run));
+        Assert.Equal(GenerationBudget.Run, new GenerationSetup(ModelGeneration.Generate).Budget);
+    }
+
+    [Fact]
     public void Undescribed_member_is_generated()
     {
         var alpha = Candidate(Project(), "Alpha");

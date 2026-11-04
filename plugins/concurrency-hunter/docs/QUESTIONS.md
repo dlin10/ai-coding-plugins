@@ -204,7 +204,7 @@
 | 189 | Закрыт → SPEC TD-060, join своего прохода; ADR 0008. | `own-pass-join`, `OwnPassJoinTests`, `OwnPassJoinMatrixTests` | 5d run H2a |
 | 190 | Перенесён → [#348](https://github.com/dlin10/ai-coding-plugins/issues/348). | | |
 | 191 | Перенесён → [#349](https://github.com/dlin10/ai-coding-plugins/issues/349). | | |
-| 192 | Перенесён → [#244](https://github.com/dlin10/ai-coding-plugins/issues/244). | | |
+| 192 | Закрыт → SPEC TD-034c, «Бюджет генерации», предел записи; ADR 0031. | — | Tooling, [#244](https://github.com/dlin10/ai-coding-plugins/issues/244) |
 | 193 | Перенесён → [#270](https://github.com/dlin10/ai-coding-plugins/issues/270). | | |
 | 194 | Перенесён → [#248](https://github.com/dlin10/ai-coding-plugins/issues/248). | | |
 | 195 | Перенесён → [#350](https://github.com/dlin10/ai-coding-plugins/issues/350). | | |

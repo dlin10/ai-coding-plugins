@@ -30,8 +30,17 @@ internal sealed class RunGeneration
     /// <summary>The run's limit: the time spent inside generations in one run.</summary>
     internal static readonly TimeSpan RUN_LIMIT = TimeSpan.FromSeconds(900);
 
+    /// <summary>The recording's limit: the time spent inside generations in the run that writes a repository's committed generated models.
+    /// It must exceed what one run needs, so that the recording is one run, and still end a runaway: the demo's recording needs about 3,100 s,
+    /// so two hours leave more than twice that.</summary>
+    internal static readonly TimeSpan RECORDING_LIMIT = TimeSpan.FromHours(2);
+
     /// <summary>One member's limit.</summary>
     internal static readonly TimeSpan MEMBER_LIMIT = GenerationLimits.MEMBER;
+
+    /// <summary>The run limit a budget names.</summary>
+    /// <param name="budget">The budget.</param>
+    internal static TimeSpan RunLimitOf(GenerationBudget budget) => budget == GenerationBudget.Recording ? RECORDING_LIMIT : RUN_LIMIT;
 
     private readonly string _repositoryRoot;
     private readonly CancellationToken _runToken;

@@ -22,7 +22,9 @@ internal sealed record LoadedTarget(Solution Solution, int ProjectsExpected, int
 /// </summary>
 internal static class MetricsCommand
 {
-    private const string USAGE = "Usage: concurrency-hunter metrics --target <path> --out <file> [--limits depth,contexts,scc] [--generation on|read|off]";
+    private const string USAGE = "Usage: concurrency-hunter metrics --target <path> --out <file> [--limits depth,contexts,scc] [--generation on|read|off] " +
+                                 "[--recording]";
+    private const string RECORDING = "--recording";
 
     /// <summary>What a revision reads as when git could not produce one.</summary>
     internal const string UNKNOWN_REVISION = "unknown";
@@ -56,7 +58,8 @@ internal static class MetricsCommand
 
         try
         {
-            var (measurement, _) = await MeasureAsync(options.Target, options.Limits, load ?? LoadWithMsBuildAsync, options.Generation, CancellationToken.None)
+            var (measurement, _) = await MeasureAsync(options.Target, options.Limits, load ?? LoadWithMsBuildAsync, options.Generation, CancellationToken.None,
+                                                      options.Budget)
                                        .ConfigureAwait(false);
             var path = Path.GetFullPath(options.Out);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -77,9 +80,11 @@ internal static class MetricsCommand
     /// <param name="load">Loads the target.</param>
     /// <param name="generation">What the analysis does with the generated model layer: the caller chooses, so that a snapshot says what it measured.</param>
     /// <param name="cancellationToken">Cancels the load and the analysis.</param>
+    /// <param name="budget">Which run limit a run that generates spends: the recording's only when the command line asks for it.</param>
     internal static async Task<(Measurement Measurement, AnalysisResult Analysis)> MeasureAsync(string target, AnalysisLimits limits, TargetLoad load,
                                                                                                  ModelGeneration generation,
-                                                                                                 CancellationToken cancellationToken)
+                                                                                                 CancellationToken cancellationToken,
+                                                                                                 GenerationBudget budget = GenerationBudget.Run)
     {
         var total = Stopwatch.StartNew();
         var step = Stopwatch.StartNew();
@@ -89,7 +94,7 @@ internal static class MetricsCommand
         var rootDirectory = Path.GetDirectoryName(Path.GetFullPath(target))!;
         var startedAt = DateTimeOffset.UtcNow;
         step.Restart();
-        var analysis = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, cancellationToken, generation).ConfigureAwait(false);
+        var analysis = await PhaseOneAnalyzer.AnalyzeAsync(loaded.Solution, rootDirectory, limits, cancellationToken, generation, budget).ConfigureAwait(false);
         var analysisSeconds = step.Elapsed.TotalSeconds;
 
         step.Restart();
@@ -235,19 +240,24 @@ internal static class MetricsCommand
     /// <param name="Limits">The summary and heap limits.</param>
     /// <param name="Generation">What the analysis does with the generated model layer: <c>--generation on</c> generates (the default),
     /// <c>read</c> only reads the generated files, <c>off</c> leaves the layer out.</param>
-    internal sealed record Options(string Target, string Out, AnalysisLimits Limits, ModelGeneration Generation)
+    /// <param name="Budget">Which run limit the generations spend: <c>--recording</c>, which only <c>build/record-demo-models.ps1</c> passes,
+    /// selects the recording's; without it the run's.</param>
+    internal sealed record Options(string Target, string Out, AnalysisLimits Limits, ModelGeneration Generation, GenerationBudget Budget)
     {
         /// <summary>The options of a command line.</summary>
         /// <param name="args">The arguments after the command's name.</param>
-        /// <exception cref="ArgumentException">An argument is unexpected, repeated or without a value, a required option is missing, or a value
-        /// is not one the option takes.</exception>
+        /// <exception cref="ArgumentException">An argument is unexpected, repeated or without a value, a required option is missing, a value
+        /// is not one the option takes, or <c>--recording</c> comes with a run that does not generate.</exception>
         internal static Options Parse(string[] args)
         {
             var values = new Dictionary<string, string>(StringComparer.Ordinal);
+            var recording = false;
             for (var index = 0; index < args.Length; index++)
             {
-                if (args[index] is not ("--target" or "--out" or "--limits" or "--generation") || index + 1 >= args.Length ||
-                    !values.TryAdd(args[index], args[++index]))
+                if (args[index] == RECORDING && !recording)
+                    recording = true;
+                else if (args[index] is not ("--target" or "--out" or "--limits" or "--generation") || index + 1 >= args.Length ||
+                         !values.TryAdd(args[index], args[++index]))
                     throw new ArgumentException($"Unexpected argument '{args[index]}'.");
             }
 
@@ -255,8 +265,11 @@ internal static class MetricsCommand
                 throw new ArgumentException("--target is required.");
             if (!values.TryGetValue("--out", out var output) || string.IsNullOrWhiteSpace(output))
                 throw new ArgumentException("--out is required.");
-            return new Options(target, output, values.TryGetValue("--limits", out var limits) ? ParseLimits(limits) : AnalysisLimits.Default,
-                               values.TryGetValue("--generation", out var generation) ? ParseGeneration(generation) : ModelGeneration.Generate);
+            var mode = values.TryGetValue("--generation", out var generation) ? ParseGeneration(generation) : ModelGeneration.Generate;
+            if (recording && mode != ModelGeneration.Generate)
+                throw new ArgumentException("--recording needs --generation on.");
+            return new Options(target, output, values.TryGetValue("--limits", out var limits) ? ParseLimits(limits) : AnalysisLimits.Default, mode,
+                               recording ? GenerationBudget.Recording : GenerationBudget.Run);
         }
 
         private static ModelGeneration ParseGeneration(string text) => text switch

@@ -191,8 +191,9 @@ public sealed class ModelGenerationModeTests : IDisposable
                                                 .Where(method => method.Name == nameof(PhaseOneAnalyzer.AnalyzeAsync))
                                                 .ToArray();
 
-        // An overload either names the whole setup of the run (the mode, and for a test the install and the generator), or ends in the mode,
-        // after the token, with ReadOnly as its default: so that no caller that passes none generates or writes.
+        // An overload either names the whole setup of the run (the mode, and for a test the install and the generator), or takes the mode
+        // right after the token, with ReadOnly as its default, and may end in the budget, with the run's as its default: so that no caller
+        // that passes none generates, writes or records.
         var withSetup = overloads.Where(method => method.GetParameters().Any(parameter => parameter.ParameterType == typeof(GenerationSetup))).ToArray();
         var withMode = overloads.Except(withSetup).ToArray();
         Assert.NotEmpty(withSetup);
@@ -200,10 +201,16 @@ public sealed class ModelGenerationModeTests : IDisposable
         Assert.All(withMode, method =>
         {
             var parameters = method.GetParameters();
-            Assert.Equal(typeof(ModelGeneration), parameters[^1].ParameterType);
-            Assert.True(parameters[^1].HasDefaultValue, $"{method} has no default mode");
-            Assert.Equal(ModelGeneration.ReadOnly, parameters[^1].DefaultValue);
-            Assert.Equal(typeof(CancellationToken), parameters[^2].ParameterType);
+            var mode = parameters[^1].ParameterType == typeof(GenerationBudget) ? parameters.Length - 2 : parameters.Length - 1;
+            if (mode == parameters.Length - 2)
+            {
+                Assert.True(parameters[^1].HasDefaultValue, $"{method} has no default budget");
+                Assert.Equal(GenerationBudget.Run, parameters[^1].DefaultValue);
+            }
+            Assert.Equal(typeof(ModelGeneration), parameters[mode].ParameterType);
+            Assert.True(parameters[mode].HasDefaultValue, $"{method} has no default mode");
+            Assert.Equal(ModelGeneration.ReadOnly, parameters[mode].DefaultValue);
+            Assert.Equal(typeof(CancellationToken), parameters[mode - 1].ParameterType);
         });
     }
 

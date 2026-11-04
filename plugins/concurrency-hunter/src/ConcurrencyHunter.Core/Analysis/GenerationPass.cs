@@ -12,9 +12,10 @@ namespace ConcurrencyHunter.Analysis;
 /// <param name="Generator">The generator call, or <c>null</c> for the model generator over <paramref name="Install"/>.</param>
 /// <param name="BeforeFileRead">A test hook before a writer re-reads a generated file under its lock.</param>
 /// <param name="Time">The clock generation budgets use, or <c>null</c> for the system clock.</param>
+/// <param name="Budget">Which run limit the run's generations spend: the run's unless the caller records.</param>
 internal sealed record GenerationSetup(ModelGeneration Mode, ImplementationAssemblies? Install = null,
                                        Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? Generator = null, Action? BeforeFileRead = null,
-                                       TimeProvider? Time = null);
+                                       TimeProvider? Time = null, GenerationBudget Budget = GenerationBudget.Run);
 
 /// <summary>A run's dealings with the generated layer, scope by scope (R1, R2, R4, R5): which library members a scope's calls
 /// reach and which of them are generation targets, the generated layer each analysis reads, and what each target stands for
@@ -35,7 +36,8 @@ internal sealed class GenerationPass : IDisposable
     {
         Mode = setup.Mode;
         _install = setup.Install ?? ImplementationAssemblies.ForThisProcess();
-        _generation = new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RUN_LIMIT, RunGeneration.MEMBER_LIMIT, setup.Time ?? TimeProvider.System,
+        _generation = new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RunLimitOf(setup.Budget), RunGeneration.MEMBER_LIMIT,
+                                        setup.Time ?? TimeProvider.System,
                                         setup.Generator ?? ((request, dependencies, token) => ModelGenerator.Generate(request, _install, token, dependencies)));
         _cancellationToken = cancellationToken;
         _beforeFileRead = setup.BeforeFileRead;

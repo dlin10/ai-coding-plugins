@@ -143,12 +143,14 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   the demo and writes `skills/hunt/evals/<host>/run.json`. It first mirrors `bin` into the installed
   Codex plugin cache; robocopy exit 8 there means a `concurrency-hunter.exe` started from that cache
   is still running — stop that one process.
-- `metrics --target <solution> --out <file> [--limits depth,contexts,scc] [--generation on|read|off]` is
+- `metrics --target <solution> --out <file> [--limits depth,contexts,scc] [--generation on|read|off] [--recording]` is
   the measurement behind the snapshots and `skills/hunt/evals/metrics/*.json`; after a Release build run
   it as `dotnet run --project src/ConcurrencyHunter.Cli -c Release --no-build -- metrics ...`.
   `--generation` is what the run does with the generated model layer: `on` (the default) generates the
   models no layer describes and writes `.concurrency-hunter/models/generated/` under the repository
-  root, `read` only reads and applies those files, `off` leaves the layer out.
+  root, `read` only reads and applies those files, `off` leaves the layer out. `--recording`, valid only with
+  `--generation on`, spends the recording limit instead of the run limit (ADR 0031); only
+  `build/record-demo-models.ps1` passes it.
 - `build/record-demo-models.ps1` writes the demo's committed generated models,
   `demo/.concurrency-hunter/models/generated/`, with a `--generation on` run of the demo, then re-reads them to show they suffice.
   A source edit in `Analysis` or `Core` that changes a token or a directive changes the generator version (an edit of

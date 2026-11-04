@@ -9,7 +9,8 @@ using Xunit;
 namespace ConcurrencyHunter.Cli.Tests;
 
 /// <summary>What the product's entry points ask of the analyzer for the generated model layer (R9): the MCP run generates, and the
-/// <c>metrics</c> command takes the mode from <c>--generation on|read|off</c>, generating by default.</summary>
+/// <c>metrics</c> command takes the mode from <c>--generation on|read|off</c>, generating by default, and the recording's run limit only from
+/// <c>--recording</c>.</summary>
 public sealed class ModelGenerationModeTests
 {
     private const string TARGET = "Fixture.slnx";
@@ -61,6 +62,41 @@ public sealed class ModelGenerationModeTests
         {
             using var error = new StringWriter();
             Assert.Equal(ExitCode.UsageError, await MetricsCommand.RunAsync(["--target", TARGET, "--out", OUT, .. arguments], error));
+        }
+    }
+
+    [Fact]
+    public void Mcp_run_cannot_ask_for_the_recording_budget()
+    {
+        // The MCP run's seam to the analyzer carries the mode alone, so its run keeps the run limit the analyzer defaults to.
+        Assert.DoesNotContain(typeof(SolutionAnalyzer).GetMethod(nameof(SolutionAnalyzer.Invoke))!.GetParameters(),
+                              parameter => parameter.ParameterType == typeof(GenerationBudget));
+    }
+
+    [Fact]
+    public async Task Recording_option_selects_the_recording_budget_only_for_a_run_that_generates()
+    {
+        // Without the option every run spends the run limit; the option selects the recording's, beside the other options in any order.
+        Assert.Equal(GenerationBudget.Run, Parse().Budget);
+        Assert.Equal(GenerationBudget.Run, Parse("--generation", "on").Budget);
+        Assert.Equal(GenerationBudget.Recording, Parse("--recording").Budget);
+        Assert.Equal((ModelGeneration.Generate, GenerationBudget.Recording), (Parse("--generation", "on", "--recording").Generation,
+                                                                             Parse("--recording", "--generation", "on").Budget));
+
+        // A run that does not generate has no budget to raise.
+        foreach (var arguments in new[] { new[] { "--recording", "--generation", "read" }, ["--generation", "off", "--recording"] })
+        {
+            using var error = new StringWriter();
+            Assert.Equal(ExitCode.UsageError, await MetricsCommand.RunAsync(["--target", TARGET, "--out", OUT, .. arguments], error));
+            Assert.Contains("--recording needs --generation on.", error.ToString(), StringComparison.Ordinal);
+        }
+
+        // The option takes no value and comes once.
+        foreach (var arguments in new[] { new[] { "--recording", "--recording" }, ["--recording", "on"] })
+        {
+            using var error = new StringWriter();
+            Assert.Equal(ExitCode.UsageError, await MetricsCommand.RunAsync(["--target", TARGET, "--out", OUT, .. arguments], error));
+            Assert.Contains($"Unexpected argument '{arguments[1]}'.", error.ToString(), StringComparison.Ordinal);
         }
     }
 

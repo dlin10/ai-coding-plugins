@@ -582,7 +582,8 @@ _Avoid_: plugin version, release (a release changes it, but so does every change
 
 **Generation budget**:
 The time a run may spend in the **Model generator**: one limit for the whole run and one for each
-member. A member that reaches its own limit gets a **Generation refusal**; the members the run's
+member. The run that records a repository's committed generated models has a larger limit for the whole
+run, the recording limit, so that one run answers every target; every other run has the run limit. A member that reaches its own limit gets a **Generation refusal**; the members the run's
 limit did not reach stay **Opaque calls** in that run. The budget never changes the **Terminal
 status**, and the scope's analyses between **Generation rounds** are no part of it.
 _Avoid_: deadline (the **Deadline** limits AI work), timeout (a member's limit is one part of it)

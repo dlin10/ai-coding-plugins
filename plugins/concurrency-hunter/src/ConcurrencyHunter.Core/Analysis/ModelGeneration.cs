@@ -15,3 +15,14 @@ public enum ModelGeneration
     /// <summary>The generated layer is off: nothing is read, generated or written.</summary>
     None
 }
+
+/// <summary>Which run limit a <see cref="ModelGeneration.Generate"/> run spends its generations within: a parameter of the analyzer, like
+/// <see cref="ModelGeneration"/>, so that only a caller that asks for the recording's limit gets it.</summary>
+public enum GenerationBudget
+{
+    /// <summary>The run's limit, the one every run has unless it records.</summary>
+    Run,
+
+    /// <summary>The recording's limit: the run that writes a repository's committed generated models.</summary>
+    Recording
+}

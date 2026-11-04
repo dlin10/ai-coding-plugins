@@ -426,6 +426,22 @@ public sealed partial class RunGenerationPassTests : IDisposable
     }
 
     [Fact]
+    public async Task Recording_budget_reaches_the_member_the_run_limit_leaves_at_budget()
+    {
+        var clock = new FakeClock();
+        var answer = Answering(("Same", ModelWithEquals));
+        var result = await Run(Chain(), ModelGeneration.Generate, (request, dependencies, token) =>
+        {
+            clock.Advance(RunGeneration.RUN_LIMIT);
+            return answer(request, dependencies, token);
+        }, time: clock, budget: GenerationBudget.Recording);
+
+        Assert.Equal(["M:Acme.Api.Same(System.Object,System.Object)", "M:Acme.Api.Poke(System.Object)"], _requested);
+        Assert.Empty(Assert.Single(result.Coverage).GenerationRefusals);
+        Assert.Equal(2, Counter(result, CoverageCounters.GENERATED_IN_RUN));
+    }
+
+    [Fact]
     public async Task Refused_member_reached_through_a_model_ends_the_rounds()
     {
         var result = await Run(Chain(), ModelGeneration.Generate, Answering(("Same", ModelWithEquals), ("Poke", Refusal)));
@@ -612,8 +628,10 @@ public sealed partial class RunGenerationPassTests : IDisposable
     /// <param name="token">The run's token.</param>
     /// <param name="install">The install target resolution reads, or the fixture's.</param>
     /// <param name="time">The clock generation budgets use, or the system clock.</param>
+    /// <param name="budget">Which run limit the run's generations spend.</param>
     private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer>? generator = null,
-                                     CancellationToken token = default, ImplementationAssemblies? install = null, TimeProvider? time = null)
+                                     CancellationToken token = default, ImplementationAssemblies? install = null, TimeProvider? time = null,
+                                     GenerationBudget budget = GenerationBudget.Run)
     {
         generator ??= (request, _, _) => Model(request);
         return PhaseOneAnalyzer.AnalyzeAsync(solution, ROOT_DIRECTORY, _repository, ProviderRegistry.BuiltIn, Counted, AnalysisLimits.Default,
@@ -622,7 +640,7 @@ public sealed partial class RunGenerationPassTests : IDisposable
                                              {
                                                  _requested.Add(request.MemberId);
                                                  return generator(request, dependencies, cancellation);
-                                             }, Time: time), token);
+                                             }, Time: time, Budget: budget), token);
     }
 
     private Task<AnalysisResult> Run(Solution solution, ModelGeneration mode, Func<GenerationRequest, GeneratedAnswer> generator) =>

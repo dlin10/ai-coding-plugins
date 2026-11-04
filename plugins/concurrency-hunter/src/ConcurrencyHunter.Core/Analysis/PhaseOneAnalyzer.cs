@@ -45,10 +45,11 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
+    /// <param name="budget">Which run limit a run that generates spends: the run's unless the caller records.</param>
     // bounded: forwards once to the analysis overload that owns the work.
     public static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, AnalysisLimits limits, CancellationToken cancellationToken,
-                                                    ModelGeneration generation = ModelGeneration.ReadOnly) =>
-        AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits, cancellationToken, generation);
+                                                    ModelGeneration generation = ModelGeneration.ReadOnly, GenerationBudget budget = GenerationBudget.Run) =>
+        AnalyzeAsync(solution, rootDirectory, ProviderRegistry.BuiltIn, InterproceduralPairing.Pair, limits, cancellationToken, generation, budget);
 
     /// <summary>Scopes, then per scope the DI index, root providers in registration order, injection bindings, the program index,
     /// the reachable set (lowering once per method across scopes), summaries, the whole-program heap, executions and ownership,
@@ -99,12 +100,13 @@ public static class PhaseOneAnalyzer
     /// <param name="limits">The summary and heap limits.</param>
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer.</param>
+    /// <param name="budget">Which run limit a run that generates spends: the run's unless the caller records.</param>
     // bounded: forwards once to the analysis overload that owns the work.
     private static Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                      Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                      AnalysisLimits limits, CancellationToken cancellationToken,
-                                                     ModelGeneration generation = ModelGeneration.ReadOnly) =>
-        AnalyzeAsync(solution, rootDirectory, registry, pairing, limits, Z3ConstraintSolver.Create, cancellationToken, generation);
+                                                     ModelGeneration generation = ModelGeneration.ReadOnly, GenerationBudget budget = GenerationBudget.Run) =>
+        AnalyzeAsync(solution, rootDirectory, registry, pairing, limits, Z3ConstraintSolver.Create, cancellationToken, generation, budget);
 
     /// <summary>The analysis with another solver behind the last filter: the seam a test uses to run as if the native library
     /// had never loaded, which no environment variable of a shipped build can do (ADR 0004).</summary>
@@ -117,14 +119,16 @@ public static class PhaseOneAnalyzer
     /// <param name="cancellationToken">Cancels the analysis.</param>
     /// <param name="generation">What the run does with the generated model layer; by default the generated files are read and applied, and
     /// nothing is generated or written.</param>
+    /// <param name="budget">Which run limit a run that generates spends: the run's unless the caller records.</param>
     // bounded: forwards once to the analysis overload that owns the work.
     internal static async Task<AnalysisResult> AnalyzeAsync(Solution solution, string rootDirectory, ProviderRegistry registry,
                                                             Func<IReadOnlyList<Access>, ExecutionAnalysis, HeapSolution, PairAnalysis> pairing,
                                                             AnalysisLimits limits, Func<IConstraintSolver> solverFactory,
                                                             CancellationToken cancellationToken,
-                                                            ModelGeneration generation = ModelGeneration.ReadOnly) =>
+                                                            ModelGeneration generation = ModelGeneration.ReadOnly,
+                                                            GenerationBudget budget = GenerationBudget.Run) =>
         await AnalyzeAsync(solution, rootDirectory, RepositoryRoot.Find(rootDirectory), registry, pairing, limits, solverFactory,
-                           new GenerationSetup(generation), cancellationToken);
+                           new GenerationSetup(generation, Budget: budget), cancellationToken);
 
     /// <summary>The analysis of a solution whose repository root the caller names.</summary>
     /// <param name="solution">The solution to analyse.</param>
