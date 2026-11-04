@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
+  "generator": "d58fb5ad1777e903a98772da51d5a00c9f84e271b82c5acf73ee4f9e3021a9a3",
   "assembly": {
     "name": "System.Text.Json",
     "version": "10.0.0.0",
@@ -70,9 +70,15 @@
     {
       "member": "M:System.Text.Json.JsonSerializerOptions.#ctor(System.Text.Json.JsonSerializerOptions)",
       "refusal": {
-        "reason": "timeout",
-        "detail": "the generation did not finish within the member limit of 120 s",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "unseeded-read",
+          "value-unnamed",
+          "value-unobserved"
+        ]
       }
     },
     {
@@ -134,9 +140,16 @@
     {
       "member": "M:System.Text.Json.Serialization.JsonSerializerContext.get_Options",
       "refusal": {
-        "reason": "timeout",
-        "detail": "the generation did not finish within the member limit of 120 s",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "result-keeps-receiver",
+          "result-several-objects",
+          "unseeded-read",
+          "value-unnamed"
+        ]
       }
     },
     {

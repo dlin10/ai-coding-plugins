@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
+  "generator": "d58fb5ad1777e903a98772da51d5a00c9f84e271b82c5acf73ee4f9e3021a9a3",
   "assembly": {
     "name": "System.Net.Primitives",
     "version": "10.0.0.0",
@@ -10,9 +10,31 @@
   },
   "members": [
     {
+      "member": "M:System.Net.EndPoint.#ctor",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.Net.EndPoint.#ctor is not public; M:System.Net.EndPoint.#ctor constructs an abstract type",
+        "causes": []
+      }
+    },
+    {
       "member": "M:System.Net.IPAddress.#ctor(System.Int64)",
       "model": {
         "member": "M:System.Net.IPAddress.#ctor(System.Int64)",
+        "assemblies": [
+          "System.Net.Primitives"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:System.Net.IPEndPoint.#ctor(System.Int64,System.Int32)",
+      "model": {
+        "member": "M:System.Net.IPEndPoint.#ctor(System.Int64,System.Int32)",
         "assemblies": [
           "System.Net.Primitives"
         ],

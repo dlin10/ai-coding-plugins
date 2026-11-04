@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "generator": "d58fb5ad1777e903a98772da51d5a00c9f84e271b82c5acf73ee4f9e3021a9a3",
+  "assembly": {
+    "name": "System.ComponentModel.Primitives",
+    "version": "10.0.0.0",
+    "mvid": null,
+    "framework": "Microsoft.NETCore.App",
+    "major": 10
+  },
+  "members": [
+    {
+      "member": "M:System.ComponentModel.Component.#ctor",
+      "model": {
+        "member": "M:System.ComponentModel.Component.#ctor",
+        "assemblies": [
+          "System.ComponentModel.Primitives"
+        ],
+        "versions": {
+          "minimum": "10.0.0.0",
+          "maximumExclusive": "10.0.0.1"
+        },
+        "effects": {}
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.Component.Dispose",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-handed-to-unseen",
+          "receiver-member-unseen"
+        ]
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.Component.get_DesignMode",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.ComponentModel.Component.get_DesignMode is not public",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.ISynchronizeInvoke.BeginInvoke(System.Delegate,System.Object[])",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.ComponentModel.ISynchronizeInvoke.BeginInvoke(System.Delegate,System.Object[]) is abstract; M:System.ComponentModel.ISynchronizeInvoke.BeginInvoke(System.Delegate,System.Object[]) is an interface member; only a default could fill the System.ComponentModel.ISynchronizeInvoke of Recv",
+        "causes": []
+      }
+    },
+    {
+      "member": "M:System.ComponentModel.ISynchronizeInvoke.get_InvokeRequired",
+      "refusal": {
+        "reason": "driver-not-synthesized",
+        "detail": "M:System.ComponentModel.ISynchronizeInvoke.get_InvokeRequired is abstract; M:System.ComponentModel.ISynchronizeInvoke.get_InvokeRequired is an interface member; only a default could fill the System.ComponentModel.ISynchronizeInvoke of Recv",
+        "causes": []
+      }
+    }
+  ]
+}

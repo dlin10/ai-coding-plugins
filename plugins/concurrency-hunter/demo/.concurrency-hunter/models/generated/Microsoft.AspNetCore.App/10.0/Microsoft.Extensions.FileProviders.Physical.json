@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "37e651d222f9a495795da4938743222df523db847f6b4b66fb8b9aacaab7f9a8",
+  "generator": "d58fb5ad1777e903a98772da51d5a00c9f84e271b82c5acf73ee4f9e3021a9a3",
   "assembly": {
     "name": "Microsoft.Extensions.FileProviders.Physical",
     "version": "10.0.0.0",
@@ -16,6 +16,41 @@
         "detail": "",
         "causes": [
           "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.FileProviders.PhysicalFileProvider.#ctor(System.String,Microsoft.Extensions.FileProviders.Physical.ExclusionFilters)",
+      "refusal": {
+        "reason": "vocabulary",
+        "detail": "",
+        "causes": [
+          "value-unobserved"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.FileProviders.PhysicalFileProvider.set_UseActivePolling(System.Boolean)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-accessed-elsewhere",
+          "probe-handed-to-unseen",
+          "unseeded-read"
+        ]
+      }
+    },
+    {
+      "member": "M:Microsoft.Extensions.FileProviders.PhysicalFileProvider.set_UsePollingFileWatcher(System.Boolean)",
+      "refusal": {
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "probe-accessed-elsewhere",
+          "probe-handed-to-unseen",
+          "unseeded-read",
+          "unsupported-store"
         ]
       }
     }
