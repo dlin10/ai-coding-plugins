@@ -97,6 +97,73 @@ public sealed class GeneratorVersionTests
         Assert.Equal(moves, before != after);
     }
 
+    private const string SOURCE = """
+        #define TRACE_GENERATOR
+        #nullable enable
+        using System;
+
+        namespace Sample;
+
+        /// <summary>The sample.</summary>
+        internal static class Sample
+        {
+            // The sample's comment.
+            internal static string Name(int value) => value + "a b";
+        #if DEBUG
+            internal static int Debug() => 1;
+        #else
+            internal static int Release() => 2;
+        #endif
+        #pragma warning disable CS0168
+        }
+
+        """;
+
+    [Theory]
+    [InlineData("comment", "// The sample's comment.", "/* Another comment. */", false)]
+    [InlineData("documentation-comment", "<summary>The sample.</summary>", "<summary>Another sample.</summary>", false)]
+    [InlineData("whitespace", "Name(int value) => value + ", "Name( int value )\n        =>   value+", false)]
+    [InlineData("directive-comment", "#nullable enable", "#nullable enable // why", false)]
+    [InlineData("token", "value + ", "value - ", true)]
+    [InlineData("string-literal", "\"a b\"", "\"a  b\"", true)]
+    [InlineData("joined-tokens", "static string Name", "static stringName", true)]
+    [InlineData("if-directive", "#if DEBUG", "#if RELEASE", true)]
+    [InlineData("define-directive", "#define TRACE_GENERATOR", "#define TRACE_OTHER", true)]
+    [InlineData("nullable-directive", "#nullable enable", "#nullable disable", true)]
+    [InlineData("pragma-directive", "CS0168", "CS0219", true)]
+    [InlineData("disabled-code", "Debug() => 1", "Debug() => 3", true)]
+    public void Fingerprint_counts_a_source_by_its_tokens_and_directives(string edit, string before, string after, bool moves)
+    {
+        using var tree = SampleTree();
+        var original = GeneratorFingerprint.Compute(tree.Root);
+
+        Assert.Contains(before, SOURCE);
+        tree.Write(Core + "Sample.cs", SOURCE.Replace(before, after));
+
+        Assert.True(moves == (original != GeneratorFingerprint.Compute(tree.Root)), edit);
+    }
+
+    [Fact]
+    public void Fingerprint_counts_a_comment_outside_a_source()
+    {
+        using var tree = SampleTree();
+        var original = GeneratorFingerprint.Compute(tree.Root);
+
+        tree.Write(Core + "ConcurrencyHunter.Core.csproj", "<!-- A comment. --><Project />");
+
+        Assert.NotEqual(original, GeneratorFingerprint.Compute(tree.Root));
+    }
+
+    private static Tree SampleTree()
+    {
+        var tree = new Tree();
+        foreach (var path in new[] { "Directory.Build.props", "Directory.Packages.props", Analysis + "ConcurrencyHunter.Analysis.csproj",
+                                     Core + "ConcurrencyHunter.Core.csproj", BuiltIn + "first.json" })
+            tree.Write(path, "<Project />");
+        tree.Write(Core + "Sample.cs", SOURCE);
+        return tree;
+    }
+
     private sealed class Tree : IDisposable
     {
         public string Root { get; } = Directory.CreateTempSubdirectory("ch-generator-version-").FullName;

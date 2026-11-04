@@ -14644,6 +14644,19 @@ ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Package_asset_follo
 ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Two_versions_of_one_package_are_two_targets	Passed
 ConcurrencyHunter.Core.Tests.Providers.GenerationTargetTests.Types_of_one_assembly_forwarded_apart_get_their_own_answers_in_either_order	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Built_fingerprint_matches_the_sources	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_comment_outside_a_source	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "comment", before: "// The sample's comment.", after: "/* Another comment. */", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "define-directive", before: "#define TRACE_GENERATOR", after: "#define TRACE_OTHER", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "directive-comment", before: "#nullable enable", after: "#nullable enable // why", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "disabled-code", before: "Debug() => 1", after: "Debug() => 3", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "documentation-comment", before: "<summary>The sample.</summary>", after: "<summary>Another sample.</summary>", moves: False)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "if-directive", before: "#if DEBUG", after: "#if RELEASE", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "joined-tokens", before: "static string Name", after: "static stringName", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "nullable-directive", before: "#nullable enable", after: "#nullable disable", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "pragma-directive", before: "CS0168", after: "CS0219", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "string-literal", before: "\"a b\"", after: "\"a  b\"", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "token", before: "value + ", after: "value - ", moves: True)	Passed
+ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_counts_a_source_by_its_tokens_and_directives(edit: "whitespace", before: "Name(int value) => value + ", after: "Name( int value )\n        =>   value+", moves: False)	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_is_64_lowercase_hex	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "add-source", moves: True)	Passed
 ConcurrencyHunter.Core.Tests.Providers.GeneratorVersionTests.Fingerprint_moves_with_its_inputs_and_only_with_them(change: "analysis-project", moves: True)	Passed

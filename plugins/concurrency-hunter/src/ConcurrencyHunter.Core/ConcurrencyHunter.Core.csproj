@@ -17,7 +17,7 @@
   <ItemGroup>
     <!-- The model generator (SPEC TD-034b) decompiles a library's implementation assembly in memory. -->
     <PackageReference Include="ICSharpCode.Decompiler" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" GeneratePathProperty="true" />
     <!-- The solver lives here rather than in ConcurrencyHunter.Analysis, which carries no reference of
          any kind: Analysis owns the query and the degradation, this project binds them to Z3. See
          docs/adr/0004. -->
@@ -25,9 +25,18 @@
     <ProjectReference Include="..\ConcurrencyHunter.Analysis\ConcurrencyHunter.Analysis.csproj" />
   </ItemGroup>
 
+  <!-- The fingerprint parses the sources with Roslyn (docs/adr/0023). The inline task compiles against netstandard, so it
+       references the netstandard2.0 Roslyn of the package this project restores. At run time `dotnet build` binds it to the
+       SDK's Roslyn, which must be no older than that package, and Visual Studio's MSBuild loads the package's own copy. -->
+  <PropertyGroup>
+    <_FingerprintRoslynVersion>$([System.IO.Path]::GetFileName($(PkgMicrosoft_CodeAnalysis_CSharp_Workspaces)))</_FingerprintRoslynVersion>
+  </PropertyGroup>
+
   <UsingTask TaskName="ComputeGeneratorFingerprint" TaskFactory="RoslynCodeTaskFactory"
              AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
     <Task>
+      <Reference Include="$(NuGetPackageRoot)microsoft.codeanalysis.common/$(_FingerprintRoslynVersion)/lib/netstandard2.0/Microsoft.CodeAnalysis.dll" />
+      <Reference Include="$(NuGetPackageRoot)microsoft.codeanalysis.csharp/$(_FingerprintRoslynVersion)/lib/netstandard2.0/Microsoft.CodeAnalysis.CSharp.dll" />
       <Code Type="Class" Source="$(MSBuildThisFileDirectory)../../build/GeneratorFingerprint.cs" />
     </Task>
   </UsingTask>

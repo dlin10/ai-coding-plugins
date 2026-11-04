@@ -758,7 +758,13 @@ function Source-Fingerprint
     if ($null -eq ('GeneratorFingerprint' -as [type]))
     {
         $source = Get-Content (Join-Path $PSScriptRoot 'GeneratorFingerprint.cs') -Raw
-        Add-Type -TypeDefinition ("#define GENERATOR_FINGERPRINT_TESTS`n" + $source) -Language CSharp
+        # The fingerprint parses the sources with Roslyn, which pwsh ships beside itself; naming one reference replaces the defaults.
+        $pwsh = Split-Path ([System.Management.Automation.PSObject].Assembly.Location)
+        $references = @((Join-Path $pwsh 'Microsoft.CodeAnalysis.dll'), (Join-Path $pwsh 'Microsoft.CodeAnalysis.CSharp.dll'), 'System.Runtime',
+                        'System.Collections', 'System.Collections.Concurrent', 'System.Collections.Immutable', 'System.Linq',
+                        'System.Linq.Parallel', 'System.Security.Cryptography', 'System.Text.Encoding.Extensions')
+        Add-Type -TypeDefinition ("#define GENERATOR_FINGERPRINT_TESTS`n" + $source) -Language CSharp -ReferencedAssemblies $references `
+                 -IgnoreWarnings -WarningAction SilentlyContinue
     }
     return ('GeneratorFingerprint' -as [type])::Compute((Split-Path $root -Parent))
 }

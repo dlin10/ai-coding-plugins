@@ -151,7 +151,8 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   root, `read` only reads and applies those files, `off` leaves the layer out.
 - `build/record-demo-models.ps1` writes the demo's committed generated models,
   `demo/.concurrency-hunter/models/generated/`, with a `--generation on` run of the demo, then re-reads them to show they suffice.
-  A source edit in `Analysis` or `Core` changes generator version; `build/record-demo-models.ps1` rewrites the demo files.
+  A source edit in `Analysis` or `Core` that changes a token or a directive changes the generator version (an edit of
+  comments or whitespace alone does not, ADR 0023); `build/record-demo-models.ps1` rewrites the demo files.
   Run it when a demo case reaches a library member no committed model describes: a demo run that would generate fails
   `DemoGeneratedModelsTests`.
 
