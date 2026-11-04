@@ -166,7 +166,20 @@ internal static class MustHeldLocks
     internal static MustHeldState Compute(IrBody body, Func<IrOperation, LockEffect> effectOf,
                                           IReadOnlyDictionary<string, HeldLock>? entry = null,
                                           CancellationToken cancellationToken = default) =>
-        new Solver(body, effectOf, entry, cancellationToken: cancellationToken).Run();
+        new Solver(body, Cached(effectOf), entry, cancellationToken: cancellationToken).Run();
+
+    /// <summary>The effect of each operation computed once: an operation's effect does not depend on the state it is applied to.</summary>
+    /// <param name="effectOf">The lock effect of each operation of the body.</param>
+    private static Func<IrOperation, LockEffect> Cached(Func<IrOperation, LockEffect> effectOf)
+    {
+        var effects = new Dictionary<IrOperation, LockEffect>(ReferenceEqualityComparer.Instance);
+        return operation =>
+        {
+            if (!effects.TryGetValue(operation, out var effect))
+                effects[operation] = effect = effectOf(operation);
+            return effect;
+        };
+    }
 
     /// <summary>Whether <paramref name="key"/> is released on every path out of <paramref name="body"/>, which is what a scope
     /// somebody else opened needs of the body that closes it (R3, ADR 0009).</summary>
@@ -394,7 +407,8 @@ internal static class MustHeldLocks
     private static Solver Dual(IrBody body, Func<IrOperation, LockEffect> effectOf, string key, CancellationToken cancellationToken)
     {
         WorkCancellation.Check();
-        return new(body, operation => Dual(effectOf(operation), key), null, NullGuards(body, effectOf, key, cancellationToken), cancellationToken);
+        return new(body, Cached(operation => Dual(effectOf(operation), key)), null, NullGuards(body, effectOf, key, cancellationToken),
+                   cancellationToken);
     }
 
     /// <summary>
@@ -498,6 +512,12 @@ internal static class MustHeldLocks
     {
         private readonly Dictionary<string, HeldLock> Empty = new(entry ?? new Dictionary<string, HeldLock>(), StringComparer.Ordinal);
         private readonly Dictionary<int, IrRegion> _regions = body.Regions.ToDictionary(region => region.Id);
+
+        /// <summary>What leaves each finally, by the region and the state it is entered with.</summary>
+        private readonly Dictionary<int, Dictionary<Dictionary<string, HeldLock>, Dictionary<string, HeldLock>?>> _throughFinally = [];
+
+        /// <summary>The dual solver of each key.</summary>
+        private readonly Dictionary<string, Solver> _duals = new(StringComparer.Ordinal);
 
         internal MustHeldState Run()
         {
@@ -637,7 +657,7 @@ internal static class MustHeldLocks
                     WorkCancellation.Check();
                     cancellationToken.ThrowIfCancellationRequested();
                     // A finally that never completes normally proves nothing about what it releases, so it is left out.
-                    var dual = MustHeldLocks.Dual(body, effectOf, key, cancellationToken);
+                    var dual = DualOf(key);
                     if (dual.ThroughFinally(region, dual.Empty) is { } exit &&
                         exit.TryGetValue(key, out var proven) && proven.Depth >= held.Depth)
                     {
@@ -649,55 +669,316 @@ internal static class MustHeldLocks
             return released;
         }
 
-        /// <summary>Entry states of blocks <paramref name="first"/>..<paramref name="last"/> when control enters at
-        /// <paramref name="entry"/> with <paramref name="entryState"/>; null is a block no path reaches.</summary>
+        /// <summary>The dual solver of <paramref name="key"/>, made once per key so that its caches serve every finally.</summary>
+        /// <param name="key">The key of the lock.</param>
+        private Solver DualOf(string key)
+        {
+            if (!_duals.TryGetValue(key, out var dual))
+                _duals[key] = dual = MustHeldLocks.Dual(body, effectOf, key, cancellationToken);
+            return dual;
+        }
+
+        /// <summary>
+        /// Entry states of blocks <paramref name="first"/>..<paramref name="last"/> when control enters at <paramref name="entry"/>
+        /// with <paramref name="entryState"/>; null is a block no path reaches. The fixpoint is reached by a worklist in reverse
+        /// postorder: a block is transferred again only when its entry changed, and an entry is joined again only when what one of its
+        /// senders sends it changed. The entry is joined from scratch, in one fixed order — the solve's own entry, then what each block
+        /// sends in the order of the blocks, then the handlers' shares in the order of the regions — so a contribution a sender no
+        /// longer sends does not stay, and the join, which keeps the left state's lock object, sees its operands in the same order
+        /// whatever order the blocks are taken in. A handler's share depends on every block of the region it guards and is taken again
+        /// when one of their entries changes, once no block is waiting.
+        /// </summary>
         /// <param name="first">The first block of the range.</param>
         /// <param name="last">The last block of the range.</param>
         /// <param name="entry">The block control enters at.</param>
         /// <param name="entryState">The locks held on entry.</param>
         private Dictionary<string, HeldLock>?[] Solve(int first, int last, int entry, Dictionary<string, HeldLock> entryState)
         {
-            var entries = new Dictionary<string, HeldLock>?[last - first + 1];
-            entries[entry - first] = entryState;
-            while (true)
+            var count = last - first + 1;
+            var entries = new Dictionary<string, HeldLock>?[count];
+            var sent = new List<Sending>[count];
+            var senders = new SortedSet<int>[count];
+            var guarding = new List<int>?[count];
+            for (var index = 0; index < count; index++)
+            {
+                WorkCancellation.Check();
+                sent[index] = [];
+                senders[index] = [];
+            }
+
+            var handlers = new List<Handling>();
+            foreach (var handler in body.Regions.Where(region => region.Kind is IrRegionKind.Catch or IrRegionKind.Filter or IrRegionKind.Finally))
             {
                 WorkCancellation.Check();
                 cancellationToken.ThrowIfCancellationRequested();
-                var incoming = new Dictionary<string, HeldLock>?[entries.Length];
-                incoming[entry - first] = entryState;
-                for (var ordinal = first; ordinal <= last; ordinal++)
+                if (handler.FirstBlockOrdinal < first || handler.FirstBlockOrdinal > last || handler.FirstBlockOrdinal == entry ||
+                    Protected(handler) is not { } protectedRegion ||
+                    protectedRegion.FirstBlockOrdinal < first || protectedRegion.LastBlockOrdinal > last)
                 {
-                    WorkCancellation.Check();
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (entries[ordinal - first] is not { } state)
-                        continue;
-
-                    var block = body.Blocks[ordinal];
-                    var conditional = new Dictionary<int, HeldLock>();
-                    var exit = Transfer(block, state, null, conditional);
-                    Propagate(block.ConditionalBranch, Taking(exit, conditional, block.ConditionalBranch, taken: true), first, last, incoming);
-                    Propagate(block.FallThroughBranch, Taking(exit, conditional, block.ConditionalBranch, taken: false), first, last, incoming);
+                    continue;
                 }
 
-                foreach (var handler in body.Regions.Where(region => region.Kind is IrRegionKind.Catch or IrRegionKind.Filter or IrRegionKind.Finally))
+                for (var ordinal = protectedRegion.FirstBlockOrdinal; ordinal <= protectedRegion.LastBlockOrdinal; ordinal++)
                 {
                     WorkCancellation.Check();
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (handler.FirstBlockOrdinal < first || handler.FirstBlockOrdinal > last || handler.FirstBlockOrdinal == entry ||
-                        Protected(handler) is not { } protectedRegion ||
-                        protectedRegion.FirstBlockOrdinal < first || protectedRegion.LastBlockOrdinal > last)
+                    (guarding[ordinal - first] ??= []).Add(handlers.Count);
+                }
+                handlers.Add(new Handling(handler.FirstBlockOrdinal - first, handler, protectedRegion));
+            }
+
+            var handled = new Dictionary<string, HeldLock>?[handlers.Count];
+            var rank = Ranks(first, last, entry, guarding, handlers.Select(handler => handler.Target).ToArray());
+            var byRank = new int[count];
+            for (var index = 0; index < count; index++)
+            {
+                WorkCancellation.Check();
+                byRank[rank[index]] = index;
+            }
+
+            var blocks = new SortedSet<int>();
+            var pendingHandlers = new SortedSet<int>();
+            Enter(entry - first);
+            while (blocks.Count > 0 || pendingHandlers.Count > 0)
+            {
+                WorkCancellation.Check();
+                cancellationToken.ThrowIfCancellationRequested();
+                if (blocks.Count > 0)
+                {
+                    var next = blocks.Min;
+                    blocks.Remove(next);
+                    var index = byRank[next];
+                    var now = entries[index] is { } state ? Sent(body.Blocks[index + first], state, first, last) : [];
+                    var before = sent[index];
+                    sent[index] = now;
+                    var targets = new SortedSet<int>();
+                    foreach (var (target, _) in before)
                     {
-                        continue;
+                        WorkCancellation.Check();
+                        targets.Add(target);
+                        senders[target].Remove(index);
                     }
-
-                    var index = handler.FirstBlockOrdinal - first;
-                    incoming[index] = Join(incoming[index],
-                                           Abandoned(handler, protectedRegion, MinimumOver(protectedRegion, entries, first), entries, first));
+                    foreach (var (target, _) in now)
+                    {
+                        WorkCancellation.Check();
+                        targets.Add(target);
+                        senders[target].Add(index);
+                    }
+                    foreach (var target in targets)
+                    {
+                        WorkCancellation.Check();
+                        Enter(target);
+                    }
+                    continue;
                 }
 
-                if (Same(incoming, entries))
-                    return entries;
-                entries = incoming;
+                var pending = pendingHandlers.Min;
+                pendingHandlers.Remove(pending);
+                var (handlerTarget, handlerRegion, guardedRegion) = handlers[pending];
+                var share = Abandoned(handlerRegion, guardedRegion, MinimumOver(guardedRegion, entries, first), entries, first);
+                if (SameState(handled[pending], share))
+                    continue;
+                handled[pending] = share;
+                Enter(handlerTarget);
+            }
+
+            return entries;
+
+            void Enter(int target)
+            {
+                Dictionary<string, HeldLock>? joined = target == entry - first ? entryState : null;
+                foreach (var sender in senders[target])
+                {
+                    WorkCancellation.Check();
+                    foreach (var (to, state) in sent[sender])
+                    {
+                        WorkCancellation.Check();
+                        if (to == target)
+                            joined = Join(joined, state);
+                    }
+                }
+                for (var handler = 0; handler < handlers.Count; handler++)
+                {
+                    WorkCancellation.Check();
+                    if (handlers[handler].Target == target)
+                        joined = Join(joined, handled[handler]);
+                }
+
+                if (SameState(entries[target], joined))
+                    return;
+                entries[target] = joined;
+                blocks.Add(rank[target]);
+                foreach (var handler in guarding[target] ?? [])
+                {
+                    WorkCancellation.Check();
+                    pendingHandlers.Add(handler);
+                }
+            }
+        }
+
+        /// <summary>The reverse postorder rank of each block of the range, over its branches, the finally regions they pass and
+        /// the handlers its blocks are guarded by; a block no edge reaches ranks after every block one does.</summary>
+        /// <param name="first">The first block of the range.</param>
+        /// <param name="last">The last block of the range.</param>
+        /// <param name="entry">The block control enters at.</param>
+        /// <param name="guarding">The handlers guarding each block, by their index in <paramref name="handlerTargets"/>.</param>
+        /// <param name="handlerTargets">The index of the first block of each handler.</param>
+        private int[] Ranks(int first, int last, int entry, List<int>?[] guarding, int[] handlerTargets)
+        {
+            var count = last - first + 1;
+            var visited = new bool[count];
+            var postorder = new List<int>(count);
+            var stack = new Stack<Visit>();
+            visited[entry - first] = true;
+            stack.Push(new Visit(entry - first, Successors(entry - first).GetEnumerator()));
+            while (stack.Count > 0)
+            {
+                WorkCancellation.Check();
+                var (index, next) = stack.Peek();
+                if (!next.MoveNext())
+                {
+                    stack.Pop();
+                    postorder.Add(index);
+                    continue;
+                }
+                if (visited[next.Current])
+                    continue;
+                visited[next.Current] = true;
+                stack.Push(new Visit(next.Current, Successors(next.Current).GetEnumerator()));
+            }
+
+            var rank = new int[count];
+            var position = 0;
+            for (var index = postorder.Count - 1; index >= 0; index--)
+            {
+                WorkCancellation.Check();
+                rank[postorder[index]] = position++;
+            }
+            for (var index = 0; index < count; index++)
+            {
+                WorkCancellation.Check();
+                if (!visited[index])
+                    rank[index] = position++;
+            }
+            return rank;
+
+            IEnumerable<int> Successors(int index)
+            {
+                var block = body.Blocks[index + first];
+                foreach (var branch in new[] { block.ConditionalBranch, block.FallThroughBranch }.OfType<IrBranch>())
+                {
+                    WorkCancellation.Check();
+                    foreach (var regionId in branch.FinallyRegions)
+                    {
+                        WorkCancellation.Check();
+                        if (_regions.TryGetValue(regionId, out var region) && region.FirstBlockOrdinal >= first && region.FirstBlockOrdinal <= last)
+                            yield return region.FirstBlockOrdinal - first;
+                    }
+                    if (branch.Destination is int destination && destination >= first && destination <= last)
+                        yield return destination - first;
+                }
+                foreach (var handler in guarding[index] ?? [])
+                {
+                    WorkCancellation.Check();
+                    yield return handlerTargets[handler];
+                }
+            }
+        }
+
+        /// <summary>What one block sends along its branches when it is entered with <paramref name="state"/>, in the order its
+        /// target joins it: the conditional branch before the fall-through, and on each the finally regions it passes before its
+        /// destination.</summary>
+        /// <param name="block">The block.</param>
+        /// <param name="state">The locks held on entry to the block.</param>
+        /// <param name="first">The first block of the range.</param>
+        /// <param name="last">The last block of the range.</param>
+        private List<Sending> Sent(IrBlock block, Dictionary<string, HeldLock> state, int first, int last)
+        {
+            var sent = new List<Sending>();
+            var conditional = new Dictionary<int, HeldLock>();
+            var exit = Transfer(block, state, null, conditional);
+            Send(block.ConditionalBranch, Taking(exit, conditional, block.ConditionalBranch, taken: true), first, last, sent);
+            Send(block.FallThroughBranch, Taking(exit, conditional, block.ConditionalBranch, taken: false), first, last, sent);
+            return sent;
+        }
+
+        /// <summary>What a branch sends, appended to <paramref name="sent"/>: the state it leaves with to the first block of each
+        /// finally it passes, and what leaves those finally regions to its destination; nothing past a finally that never completes
+        /// normally.</summary>
+        /// <param name="branch">The branch, or null for none.</param>
+        /// <param name="exit">The state on the branch.</param>
+        /// <param name="first">The first block of the range.</param>
+        /// <param name="last">The last block of the range.</param>
+        /// <param name="sent">What the block sends, by the target's index in the range.</param>
+        private void Send(IrBranch? branch, Dictionary<string, HeldLock> exit, int first, int last, List<Sending> sent)
+        {
+            if (branch is null)
+                return;
+
+            var state = exit;
+            foreach (var regionId in branch.FinallyRegions)
+            {
+                WorkCancellation.Check();
+                var finallyRegion = _regions[regionId];
+                if (finallyRegion.FirstBlockOrdinal >= first && finallyRegion.FirstBlockOrdinal <= last)
+                    sent.Add(new Sending(finallyRegion.FirstBlockOrdinal - first, state));
+
+                if (ThroughFinally(finallyRegion, state) is not { } through)
+                    return;
+                state = through;
+            }
+
+            if (branch.Destination is int destination && destination >= first && destination <= last)
+                sent.Add(new Sending(destination - first, state));
+        }
+
+        /// <summary>What one block sends one block of the range.</summary>
+        /// <param name="Target">The index of the block sent to in the range.</param>
+        /// <param name="State">The locks held as control reaches it.</param>
+        private readonly record struct Sending(int Target, Dictionary<string, HeldLock> State);
+
+        /// <summary>A handler of the range and the region it guards, whose blocks decide the state the handler is entered with.</summary>
+        /// <param name="Target">The index of the handler's first block in the range.</param>
+        /// <param name="Region">The handler region.</param>
+        /// <param name="Guarded">The region it guards.</param>
+        private sealed record Handling(int Target, IrRegion Region, IrRegion Guarded);
+
+        /// <summary>A block on the depth-first walk that ranks the range, with the successors it has still to visit.</summary>
+        /// <param name="Index">The index of the block in the range.</param>
+        /// <param name="Next">Its successors not visited yet.</param>
+        private readonly record struct Visit(int Index, IEnumerator<int> Next);
+
+        private static bool SameState(Dictionary<string, HeldLock>? left, Dictionary<string, HeldLock>? right)
+        {
+            if (left is null || right is null)
+                return left is null && right is null;
+            if (left.Count != right.Count)
+                return false;
+            foreach (var (key, held) in left)
+            {
+                WorkCancellation.Check();
+                if (!right.TryGetValue(key, out var other) || other != held)
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>States compared by value, so that a state can key the cache of what leaves a finally.</summary>
+        private sealed class StateComparer : IEqualityComparer<Dictionary<string, HeldLock>>
+        {
+            internal static readonly StateComparer Instance = new();
+
+            public bool Equals(Dictionary<string, HeldLock>? left, Dictionary<string, HeldLock>? right) => SameState(left, right);
+
+            public int GetHashCode(Dictionary<string, HeldLock> state)
+            {
+                WorkCancellation.Check();
+                var hash = state.Count;
+                foreach (var (key, held) in state)
+                {
+                    WorkCancellation.Check();
+                    hash += HashCode.Combine(StringComparer.Ordinal.GetHashCode(key), held);
+                }
+                return hash;
             }
         }
 
@@ -759,33 +1040,20 @@ internal static class MustHeldLocks
             return owned ?? minimum;
         }
 
-        private void Propagate(IrBranch? branch, Dictionary<string, HeldLock> exit, int first, int last,
-                               Dictionary<string, HeldLock>?[] incoming)
+        /// <summary>What leaves <paramref name="finallyRegion"/> entered with <paramref name="state"/>, or null where it never completes
+        /// normally. It depends on the region and the state only, so it is solved once for each pair and kept for the solver.</summary>
+        /// <param name="finallyRegion">The finally region.</param>
+        /// <param name="state">The locks held on entry to it.</param>
+        private Dictionary<string, HeldLock>? ThroughFinally(IrRegion finallyRegion, Dictionary<string, HeldLock> state)
         {
-            if (branch is null)
-                return;
-
-            Dictionary<string, HeldLock>? state = exit;
-            foreach (var regionId in branch.FinallyRegions)
-            {
-                WorkCancellation.Check();
-                var finallyRegion = _regions[regionId];
-                if (finallyRegion.FirstBlockOrdinal >= first && finallyRegion.FirstBlockOrdinal <= last)
-                {
-                    var index = finallyRegion.FirstBlockOrdinal - first;
-                    incoming[index] = Join(incoming[index], state);
-                }
-
-                state = ThroughFinally(finallyRegion, state);
-                if (state is null)
-                    return;
-            }
-
-            if (branch.Destination is int destination && destination >= first && destination <= last)
-                incoming[destination - first] = Join(incoming[destination - first], state);
+            if (!_throughFinally.TryGetValue(finallyRegion.Id, out var known))
+                _throughFinally[finallyRegion.Id] = known = new Dictionary<Dictionary<string, HeldLock>, Dictionary<string, HeldLock>?>(StateComparer.Instance);
+            if (!known.TryGetValue(state, out var exit))
+                known[Copy(state)] = exit = ThroughFinallySolved(finallyRegion, state);
+            return exit;
         }
 
-        private Dictionary<string, HeldLock>? ThroughFinally(IrRegion finallyRegion, Dictionary<string, HeldLock> state)
+        private Dictionary<string, HeldLock>? ThroughFinallySolved(IrRegion finallyRegion, Dictionary<string, HeldLock> state)
         {
             var entries = Solve(finallyRegion.FirstBlockOrdinal, finallyRegion.LastBlockOrdinal, finallyRegion.FirstBlockOrdinal, state);
             var lastEntry = entries[^1];
@@ -1004,24 +1272,5 @@ internal static class MustHeldLocks
         private static Dictionary<string, HeldLock> Copy(IReadOnlyDictionary<string, HeldLock> state) =>
             new(state, StringComparer.Ordinal);
 
-        private static bool Same(Dictionary<string, HeldLock>?[] left, Dictionary<string, HeldLock>?[] right)
-        {
-            for (var index = 0; index < left.Length; index++)
-            {
-                WorkCancellation.Check();
-                var (first, second) = (left[index], right[index]);
-                if (first is null || second is null)
-                {
-                    if (first != second)
-                        return false;
-                    continue;
-                }
-
-                if (first.Count != second.Count || first.Any(pair => !second.TryGetValue(pair.Key, out var other) || other != pair.Value))
-                    return false;
-            }
-
-            return true;
-        }
     }
 }

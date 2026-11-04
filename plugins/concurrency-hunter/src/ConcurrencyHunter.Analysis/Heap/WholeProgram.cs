@@ -1134,6 +1134,14 @@ public static partial class WholeProgram
         /// <summary>What completed each task region, for the export only (<see cref="HeapSolution.TaskCompleters"/>): no rule of the solve
         /// reads it.</summary>
         private readonly TrackedSet<(RegionRef Task, TaskCompleter Completer)> _completers = [];
+
+        /// <summary>The arguments of the call <see cref="Call"/> is running, evaluated once for the caller and shared by every callee it
+        /// binds; null outside a call. It holds no fact of the solve.</summary>
+        private Dictionary<CallArgument, TrackedSet<RegionRef>>? _callArguments;
+
+        /// <summary>The operations of each lowered body by id (<see cref="OperationsById"/>), by body id. It indexes the lowered bodies,
+        /// which do not change, and holds no fact of the solve; queries of the solved heap read it too.</summary>
+        private readonly ConcurrentDictionary<string, ILookup<int, IrOperation>> _operationsById = new(StringComparer.Ordinal);
         private int _changes;
         private readonly CancellationToken _cancellationToken;
         private readonly TrackedValue<bool> _solvingState = new(true);
@@ -3307,6 +3315,24 @@ public static partial class WholeProgram
 
         private void Call(InstanceState caller, CallTransfer call)
         {
+            // Every callee the call binds is handed the caller's arguments, which evaluate alike for each: they are evaluated once. A
+            // callee that is the caller itself adds to the caller's parameters, which it read, so the caller is processed again.
+            _callArguments = new(ReferenceEqualityComparer.Instance);
+            try
+            {
+                CallTargets(caller, call);
+            }
+            finally
+            {
+                _callArguments = null;
+            }
+        }
+
+        /// <summary>The work of <see cref="Call"/>: the callees the call reaches, bound to the caller's arguments.</summary>
+        /// <param name="caller">The calling instance.</param>
+        /// <param name="call">The call.</param>
+        private void CallTargets(InstanceState caller, CallTransfer call)
+        {
             var typeArguments = (call.TargetMethodTypeArgumentKeys ?? []).Select(key => ProgramIndex.Substitute(key, caller.Substitution)).ToArray();
             var containing = call.TargetContainingTypeKey is null ? null : ProgramIndex.Substitute(call.TargetContainingTypeKey, caller.Substitution);
             TrackedSet<RegionRef>? evaluatedReceivers = null;
@@ -3423,12 +3449,18 @@ public static partial class WholeProgram
             }
         }
 
+        /// <summary>The operations of a lowered body by their id, in the order of its blocks, made once per body: the lowered bodies do
+        /// not change.</summary>
+        /// <param name="body">The lowered body.</param>
+        private ILookup<int, IrOperation> OperationsById(IrBody body) =>
+            _operationsById.GetOrAdd(body.BodyId, static (_, lowered) => lowered.Blocks.SelectMany(block => block.Operations)
+                                                                               .ToLookup(operation => operation.Id), body);
+
         private TrackedSet<RegionRef> IteratorMember(InstanceState caller, int operationId, IEnumerable<RegionRef> receivers)
         {
             var handled = new TrackedSet<RegionRef>();
             if (!_scope.Reachable.Bodies.TryGetValue(caller.BodyId, out var body) ||
-                body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
-                    .FirstOrDefault(call => call.Id == operationId) is not { } operation)
+                OperationsById(body)[operationId].OfType<IrCallOperation>().FirstOrDefault() is not { } operation)
                 return handled;
 
             var member = IteratorMemberOf(operation.Method);
@@ -3612,6 +3644,11 @@ public static partial class WholeProgram
         private void Copy(InstanceState instance, ElementTransfer copy)
         {
             var targets = Eval(instance, copy.Arrays);
+            // Every target takes the same objects from every source, so the union of what the sources hold goes into each target once:
+            // adding it source by source adds the same objects again for each source. A field set only grows, so a source read after a
+            // target it aliases took objects yields only objects of that union.
+            var gathered = new TrackedSet<RegionRef>();
+            var read = false;
             foreach (var source in Eval(instance, copy.CopiedFrom!))
             {
                 CheckCancellation();
@@ -3636,11 +3673,17 @@ public static partial class WholeProgram
                 else
                     held = Load(source, PathValue.ELEMENT);
 
-                foreach (var target in targets)
-                {
-                    CheckCancellation();
-                    Add(Field(target, copy.Slot), held);
-                }
+                gathered.UnionWith(held);
+                read = true;
+            }
+
+            // With no source, no target's field is touched, as when each source was added on its own.
+            if (!read)
+                return;
+            foreach (var target in targets)
+            {
+                CheckCancellation();
+                Add(Field(target, copy.Slot), gathered);
             }
         }
 
@@ -5455,7 +5498,10 @@ public static partial class WholeProgram
             foreach (var argument in call.Arguments)
             {
                 CheckCancellation();
-                Add(Parameter(callee, argument.ParameterOrdinal), Eval(caller, argument.Values));
+                TrackedSet<RegionRef>? values = null;
+                if (_callArguments is not null && !_callArguments.TryGetValue(argument, out values))
+                    _callArguments.Add(argument, values = Eval(caller, argument.Values));
+                Add(Parameter(callee, argument.ParameterOrdinal), values ?? Eval(caller, argument.Values));
                 foreach (var reference in argument.References)
                 {
                     CheckCancellation();
@@ -5698,11 +5744,16 @@ public static partial class WholeProgram
             foreach (var segment in path.Segments)
             {
                 CheckCancellation();
+                if (segment == PathValue.WILDCARD)
+                {
+                    current = Closure(current);
+                    continue;
+                }
                 var next = new TrackedSet<RegionRef>();
                 foreach (var region in current)
                 {
                     CheckCancellation();
-                    next.UnionWith(segment == PathValue.WILDCARD ? Closure(region) : Load(region, segment));
+                    next.UnionWith(LoadView(region, segment, out _));
                 }
 
                 current = next;
@@ -5716,8 +5767,17 @@ public static partial class WholeProgram
         private TrackedSet<RegionRef> Closure(RegionRef region)
         {
             CheckCancellation();
+            return Closure([region]);
+        }
+
+        /// <summary>Every region reachable from any of some regions through one field or more: the union of their closures, walked
+        /// once, since regions of one structure reach the same ones.</summary>
+        /// <param name="regions">The regions.</param>
+        private TrackedSet<RegionRef> Closure(IEnumerable<RegionRef> regions)
+        {
+            CheckCancellation();
             var seen = new TrackedSet<RegionRef>();
-            var pending = new Stack<RegionRef>([region]);
+            var pending = new Stack<RegionRef>(regions);
             while (pending.TryPop(out var current))
             {
                 CheckCancellation();
@@ -6278,9 +6338,21 @@ public static partial class WholeProgram
         /// <param name="field">The field.</param>
         private TrackedSet<RegionRef> Load(RegionRef regionId, string field)
         {
+            var view = LoadView(regionId, field, out var fresh);
+            return fresh ? (TrackedSet<RegionRef>)view : new TrackedSet<RegionRef>(view);
+        }
+
+        /// <summary>What <see cref="Load"/> returns, without the copy: the field set or the union the solve keeps, which a caller only
+        /// reads at once, or a set made for the call.</summary>
+        /// <param name="regionId">The regionId.</param>
+        /// <param name="field">The field.</param>
+        /// <param name="fresh">Whether the set was made for the call, so the caller may keep it.</param>
+        private IEnumerable<RegionRef> LoadView(RegionRef regionId, string field, out bool fresh)
+        {
             CheckCancellation();
+            fresh = true;
             if (!TryGetRegion(regionId, out var region))
-                return [];
+                return new TrackedSet<RegionRef>();
             // A struct's storage holds nothing of its own: its fields are its holder's slots below its path (R1), and those of a struct
             // put into that slot whole, as a collection or a task holds a value it is handed.
             if (region.Kind == HeapRegionKind.StructStorage)
@@ -6295,7 +6367,7 @@ public static partial class WholeProgram
             }
             // Any other region a query named holds nothing the solve put there.
             if (!_groups.TryGetValue(GroupOf(regionId, region), out var members))
-                return [];
+                return new TrackedSet<RegionRef>();
             var joined = new List<TrackedSet<RegionRef>>();
             foreach (var member in members)
             {
@@ -6305,9 +6377,11 @@ public static partial class WholeProgram
             }
 
             if (joined.Count == 0)
-                return [];
+                return new TrackedSet<RegionRef>();
+            fresh = false;
             if (joined.Count == 1)
-                return new TrackedSet<RegionRef>(joined[0]);
+                return joined[0];
+            fresh = true;
             if (Querying)
             {
                 var result = new TrackedSet<RegionRef>();
@@ -6332,7 +6406,8 @@ public static partial class WholeProgram
                 union.Joined[values] = count;
             }
 
-            return new TrackedSet<RegionRef>(union.Objects);
+            fresh = false;
+            return union.Objects;
         }
 
         /// <summary>A union <see cref="Load"/> keeps of a field over several regions of a group: the objects, and the size each field set
@@ -6380,9 +6455,8 @@ public static partial class WholeProgram
                           $"alloc:{owner}#{DisplayType(typeKey)}{ordinal}", typeKey, instance.Context, $"alloc|{site.BodyId}#{site.OperationId}",
                           merged: instance.IsMerged, site: site,
                           exactType: _scope.Reachable.Bodies.TryGetValue(site.BodyId, out var lowered) &&
-                                     lowered.Blocks.SelectMany(block => block.Operations)
-                                            .Any(operation => operation.Id == site.OperationId &&
-                                                              operation is IrAllocateOperation or IrCallOperation { DefaultComparer: not null }));
+                                     OperationsById(lowered)[site.OperationId]
+                                         .Any(operation => operation is IrAllocateOperation or IrCallOperation { DefaultComparer: not null }));
         }
 
         /// <summary>The comparer a call of CoreLib's default-comparer factory makes in an instance (<see cref="DefaultComparers"/>): the

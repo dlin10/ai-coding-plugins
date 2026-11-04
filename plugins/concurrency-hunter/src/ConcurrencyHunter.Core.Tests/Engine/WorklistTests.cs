@@ -321,6 +321,10 @@ public sealed class WorklistTests
             "_unseenStarts",
             // Memos of a union and of a copy: each use still reads the tracked sets they were made from and checks them grown or not.
             "_loadedUnions", "_copiedSlots",
+            // The arguments of the call being bound, evaluated once for its callees and dropped when the call ends: no fact outlives it.
+            "_callArguments",
+            // An index of the lowered bodies, which do not change: the operations of each by id.
+            "_operationsById",
             // Names, not facts: the interned region identities, a region's links read only after the region itself, and whether a query
             // named a region.
             "_interned", "_queryInterned", "_queryIdentities", "_links", "_anyNamed", "_unresolvedDelegate"

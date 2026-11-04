@@ -3051,7 +3051,7 @@ public static class MethodSummaryBuilder
         /// <summary>The text of a constant that is not a number, <c>null</c> and the frontend's own placeholders aside.</summary>
         /// <param name="value">The value whose constant text is read.</param>
         private string? Literal(int value) =>
-            _body.Values.FirstOrDefault(candidate => candidate.Id == NumericOrigin(value)) is { Kind: IrValueKind.Constant } constant &&
+            _values.GetValueOrDefault(NumericOrigin(value)) is { Kind: IrValueKind.Constant } constant &&
             constant.Name is not ("null" or "default" or "exceptional")
                 ? constant.Name
                 : null;
@@ -3539,7 +3539,7 @@ public static class MethodSummaryBuilder
                                                ElementSelector? Selector);
 
         private long? Constant(int value) =>
-            _body.Values.FirstOrDefault(candidate => candidate.Id == NumericOrigin(value)) is { Kind: IrValueKind.Constant } constant &&
+            _values.GetValueOrDefault(NumericOrigin(value)) is { Kind: IrValueKind.Constant } constant &&
             long.TryParse(constant.Name, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number)
                 ? number
                 : null;

@@ -4576,11 +4576,18 @@ public static partial class InterproceduralAccesses
         /// <summary>The collections a region stands for as the heap holds them: the lists a <c>LinkedListNode</c> created on its own was
         /// handed to, and the dictionary a live view is of; any other region stands for itself.</summary>
         /// <param name="target">The region.</param>
-        private IEnumerable<string> StandsFor(string target) =>
-            _heap.PointsTo(target, PathValue.NODE_LIST).Concat(_heap.PointsTo(target, PathValue.VIEWED)).Where(collection => collection != target)
-                 .Distinct(StringComparer.Ordinal).ToArray() is { Length: > 0 } collections
-                ? collections
-                : [target];
+        private IEnumerable<string> StandsFor(string target)
+        {
+            // The heap is frozen once solved, so what a region stands for is asked of it once.
+            if (_standsFor.TryGetValue(target, out var known))
+                return known;
+            string[] collections = _heap.PointsTo(target, PathValue.NODE_LIST).Concat(_heap.PointsTo(target, PathValue.VIEWED))
+                                        .Where(collection => collection != target).Distinct(StringComparer.Ordinal).ToArray();
+            return _standsFor[target] = collections.Length > 0 ? collections : [target];
+        }
+
+        /// <summary>What each region stands for, as <see cref="StandsFor"/> answered it.</summary>
+        private readonly Dictionary<string, string[]> _standsFor = new(StringComparer.Ordinal);
 
         /// <summary>The resource an access names on a region through the fields of <paramref name="path"/> (R1): its path is every field's
         /// name, the cell's selector right after the field holding the collection, and its identity carries the field it is named by and

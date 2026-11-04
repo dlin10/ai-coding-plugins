@@ -72,6 +72,17 @@ Keep the two apart:
   row in PLAN says what it delivered, and the temporary limits it lifted leave PLAN. SPEC changes
   only where a requirement changed.
 
+## Issues
+
+Issues live in `dlin10/ai-coding-plugins`, on the GitHub project "Concurrency Hunter" (`gh project … 3 --owner dlin10`).
+When you start work on an issue, move its Status there from `Todo` to `In Progress`: take the ids from
+`gh project item-list 3 --owner dlin10 --format json` and `gh project field-list 3 --owner dlin10 --format json`, then run
+`gh project item-edit --project-id <project> --id <item> --field-id <Status> --single-select-option-id <In Progress>`.
+
+The project moves an issue to `Done` itself when the issue is closed. So a pull request that delivers an issue says
+`Closes #<n>` in its description, and merging it closes the issue. A change merged into `main` without a pull request closes
+its issue only if a commit message says `Closes #<n>`; otherwise close it by hand with `gh issue close <n>`.
+
 ## Commands
 
 ```powershell

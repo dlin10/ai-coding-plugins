@@ -254,7 +254,9 @@ public sealed class EngineCancellationTests
         Assert.NotEmpty(InterproceduralAccesses.Collect(
             new InterproceduralInput(scope, Observed(solved.Heap, regions => baseline += regions.Contains(gate) ? 1 : 0), executions),
             CancellationToken.None).Accesses);
-        Assert.True(baseline > 2);
+        // A lock solver takes each operation's effect once, so uncancelled it asks the heap about the gate once for the acquire and once
+        // for the release: there is a question after the first one for a cancelled solving to leave unasked.
+        Assert.True(baseline >= 2);
 
         using var cancellation = new CancellationTokenSource();
         var asked = 0;
@@ -269,9 +271,9 @@ public sealed class EngineCancellationTests
             InterproceduralAccesses.Collect(new InterproceduralInput(scope, observed, executions), cancellation.Token));
 
         Assert.Equal("accesses", error.Stage);
-        // The solvers of locks ask the heap about the lock again for every operation they walk: the one that cancelled is followed by
-        // at most the one it asks beside it, not by the questions of the rest of the solving.
-        Assert.InRange(asked, 1, 2);
+        // Once cancelled, the collection asks the heap nothing more: the questions the uncancelled run asks after the one that cancelled
+        // stay unasked.
+        Assert.InRange(asked, 1, baseline - 1);
     }
 
     [Fact]
