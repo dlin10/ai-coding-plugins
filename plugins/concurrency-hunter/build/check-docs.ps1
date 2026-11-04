@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
 Guards docs/SPEC.md and CONTEXT.md against the development process: they describe the finished first version and its words,
-and how it is being built lives in docs/PLAN.md, docs/QUESTIONS.md and docs/runs/.
+and how it is being built lives in docs/PLAN.md, docs/QUESTIONS.md, docs/runs/ and the GitHub issues.
 
 .DESCRIPTION
 Fails on any of these in either file, with the line, the section and the text around it:
@@ -9,6 +9,7 @@ Fails on any of these in either file, with the line, the section and the text ar
 - a phase or subphase (`фаза 5`, `в фазе 8`, `phase 5b`, `5d`, `подфазы`, `subphase`);
 - a run (`run B2b`, `ран A4`, `третий ран`);
 - a question number (`вопрос 85`, `question 7`);
+- an issue (`issue 312`, `#312`, a link to a GitHub issue);
 - an interview that settled something;
 - a date (`2026-09-27`);
 - a link to PLAN.md, QUESTIONS.md or docs/runs/.
@@ -41,6 +42,7 @@ $RULES = [ordered]@{
     'phase'     = '(?i)\b(?:под)?фаз[а-яё]*\s+(?:[0-8][a-g]?\b|[0-8]\s*[–-]\s*[0-8])|\bподфаз[а-яё]*|\b(?:sub)?phases?[\s-]+[0-8][a-g]?\b|\bsubphases?\b|(?<![\w.\-])[1-8][a-g](?![\w\-])'
     'run'       = '\b(?:[Rr]un|[Рр]ан[а-яё]*)\s+[A-C]\d*b?\b|(?i:\b(?:перв|втор|трет|четвёрт|последн)[а-яё]*\s+ран[а-яё]*)'
     'question'  = '(?i)\bвопрос[а-яё]*\s+\d+|\bquestions?\s+\d+'
+    'issue'     = '(?i)\bissues?\s+#?\d+|(?<![\w&#])#\d+\b|/issues/\d+'
     'interview' = '(?i)\binterview|\bинтервью'
     'date'      = '\b20\d\d-\d\d-\d\d\b'
     'link'      = 'QUESTIONS\.md|PLAN\.md|docs/runs/|\]\(runs/'
@@ -76,5 +78,5 @@ if ($problems.Count -gt 0) {
     exit 1
 }
 
-Write-Output "$($DOCUMENTS -join ' and ') name no phase, run, question, interview or date of the development process."
+Write-Output "$($DOCUMENTS -join ' and ') name no phase, run, question, issue, interview or date of the development process."
 exit 0

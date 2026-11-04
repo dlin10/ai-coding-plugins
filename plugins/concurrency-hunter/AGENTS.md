@@ -31,10 +31,13 @@ architecture is SPEC §2.
 - `CONTEXT.md` — the vocabulary. Name things in code, tests and docs with its words; it lists the
   words to avoid.
 - `demo/SCENARIOS.md` (Russian) — the demo cases of every phase, with intent and verdict in words.
-- `docs/PLAN.md` (Russian) — the phases and runs with their gates, what each delivered, and the
-  temporary limits: what SPEC describes and the code does not do yet, with the phase that lifts it.
-- `docs/QUESTIONS.md` (Russian) — the numbered questions, open and closed. Code, tests, evals and
-  docs cite them by number.
+- `docs/PLAN.md` (Russian) — the finished phases and runs with their gates and what each delivered,
+  and the temporary limits: what SPEC describes and the code does not do yet, with the phase or run
+  that lifts it. A phase or run still to do is a row that points at its issue.
+- `docs/QUESTIONS.md` (Russian) — questions 1–217, closed or moved to an issue (`Перенесён → #N`).
+  It takes no new rows. Code, tests, evals and docs cite these questions by number
+  (`question 183`); a newer question is an issue and is cited as `issue 312`.
+- The issues (see "Issues" below) — the work still to do: phases, runs, questions and tasks.
 - `docs/runs/` — one record per run that re-recorded snapshots, evals or expectations: every number
   that moved, with its cause. A record is written once, when its run ends, and is not kept current.
 - `docs/research/library-models.md` — the measurements behind ADR 0012; read it before work on
@@ -42,46 +45,56 @@ architecture is SPEC §2.
 - `docs/concurrency-hunter-guide.ru.html` — a secondary explanation written at one point in time. A
   claim in it is a lead to check against the sources above, never evidence.
 
-Precedence: PRD, then a later ADR, then SPEC, then SCENARIOS. PLAN, QUESTIONS and `docs/runs/` set
-no behaviour.
+Precedence: PRD, then a later ADR, then SPEC, then SCENARIOS. PLAN, QUESTIONS, the issues and
+`docs/runs/` set no behaviour.
 
 SPEC describes the whole first version, phases 0–7, and the code is partway through it. Phase 8 is
 the development PRD 8 names, outside the first version; it brings its own changes to PRD and SPEC.
-Where code and SPEC disagree, read PLAN first: a row of a later phase is not built yet, and its
-temporary limits name what is still missing. Report any other divergence to the user with both
+Where code and SPEC disagree, read PLAN first: a phase or run whose row points at an issue is not
+built yet, and the temporary limits name what is still missing. Report any other divergence to the user with both
 sides quoted, and leave the code and the document as they are.
 
 ## Requirements and process
 
-SPEC says what the first version is; PLAN, QUESTIONS and `docs/runs/` say how it is being built.
-Keep the two apart:
+SPEC says what the first version is; PLAN, QUESTIONS, the issues and `docs/runs/` say how it is
+being built. Keep the two apart:
 
-- SPEC is written in the present tense about the finished version. It names no phase, run, date or
-  question, and says nothing like "from 5d", "until then", "closed in" or "introduced in". Two things
+- SPEC is written in the present tense about the finished version. It names no phase, run, date,
+  question or issue, and says nothing like "from 5d", "until then", "closed in" or "introduced in". Two things
   only look like exceptions: `phase` and `until` of `expected-findings.json` (SPEC 12.2) are a file
   format, and the phase of a run (Run State, the deadline) is a term of the product. CONTEXT.md
   keeps the same rule: a word and a resolved ambiguity are stated as they stand, not when or where
   they were settled. `build/check-docs.ps1` finds what this rule forbids in both.
 - A behaviour that is not built yet is written in SPEC as it will be, and the gap goes to PLAN's
-  temporary limits with the phase that lifts it.
-- Links run one way: PLAN, QUESTIONS, SCENARIOS and `docs/runs/` cite SPEC; SPEC cites none of
-  PLAN, QUESTIONS or `docs/runs/`.
-- Closing a question moves its decision into SPEC or an ADR; the header of QUESTIONS.md says what
-  stays of the row.
+  temporary limits with the phase or run that lifts it and a link to its issue.
+- Links run one way: the issues, PLAN, QUESTIONS, SCENARIOS and `docs/runs/` cite SPEC; SPEC cites
+  none of them.
+- Closing a question moves its decision into SPEC or an ADR, and its issue is closed with a comment
+  that names that place and the commit.
 - When a run ends, its record goes to `docs/runs/<phase>-<run>.md` if it re-recorded anything, its
-  row in PLAN says what it delivered, and the temporary limits it lifted leave PLAN. SPEC changes
-  only where a requirement changed.
+  issue is closed with a comment saying what it delivered, with the commit and the record, and the
+  temporary limits it lifted leave PLAN. Deferred review findings and leftovers become issues under
+  the phase or run that will take them. SPEC changes only where a requirement changed.
 
 ## Issues
 
 Issues live in `dlin10/ai-coding-plugins`, on the GitHub project "Concurrency Hunter" (`gh project … 3 --owner dlin10`).
+
+The work is a tree of sub-issues: a phase epic (`concurrency-hunter: phase 5g — …`), its runs
+(`concurrency-hunter: 5d run H3 — …`), and under them questions (`concurrency-hunter: Q55 — …`, label `question`) and
+tasks. A question no run has taken yet sits under its phase epic, and the run that takes it becomes its parent. Every issue
+carries the label `concurrency-hunter` and the project field `Phase` (`5d` … `8`, `Tooling`, `Unscheduled`). The title is
+English; the body of a question moved from QUESTIONS.md is its Russian row, verbatim. Status is only `Todo`, `In Progress`
+or `Done`: work that waits for something is `Todo` with a "blocked by" link to the issue it waits for.
+
 When you start work on an issue, move its Status there from `Todo` to `In Progress`: take the ids from
 `gh project item-list 3 --owner dlin10 --format json` and `gh project field-list 3 --owner dlin10 --format json`, then run
 `gh project item-edit --project-id <project> --id <item> --field-id <Status> --single-select-option-id <In Progress>`.
 
 The project moves an issue to `Done` itself when the issue is closed. So a pull request that delivers an issue says
 `Closes #<n>` in its description, and merging it closes the issue. A change merged into `main` without a pull request closes
-its issue only if a commit message says `Closes #<n>`; otherwise close it by hand with `gh issue close <n>`.
+its issue only if a commit message says `Closes #<n>`; otherwise close it by hand with `gh issue close <n>`. Work on
+`feature/race-hunter` reaches `main` long after it is done, so close its issues by hand when the work ends.
 
 ## Commands
 
@@ -102,7 +115,7 @@ dotnet test src/ConcurrencyHunter.slnx -c Release *> test.log; Get-Content test.
   requires every case of the current phase's catalog. The phase it checks is named in the script. It
   checks the file only; the analyzer's exact match against the file is `DemoExpectationTests`.
 - `build/check-docs.ps1` fails when `docs/SPEC.md` or `CONTEXT.md` names a phase, run, question,
-  interview or date of the development process, or links PLAN, QUESTIONS or `docs/runs/`. Run it
+  issue, interview or date of the development process, or links PLAN, QUESTIONS or `docs/runs/`. Run it
   after editing either; CI does not.
 - `build/package.ps1` is what CI runs (`build-concurrency-hunter.yml`). It publishes the single
   `bin/win-x64/concurrency-hunter.exe`, checks that it reports the manifests' version, and runs the
