@@ -98,6 +98,8 @@ public static class LibraryCompilation
 
     private static readonly ConcurrentDictionary<string, Lazy<Task<LibraryCompilationResult>>> Compilations = new(StringComparer.OrdinalIgnoreCase);
 
+    private static readonly LibraryReferences SharedReferences = new();
+
     /// <summary>The compilation of an implementation assembly, built once per implementation path, shared framework directory and
     /// dependency paths.</summary>
     /// <param name="assembly">The implementation assembly, not a reference assembly.</param>
@@ -252,7 +254,7 @@ public static class LibraryCompilation
             {
                 probe?.Started?.Invoke();
                 return CompileModule(assembly.AssemblyName, Decompile(assembly, checks, probe),
-                                     assembly.References.Select(reference => MetadataReference.CreateFromFile(reference)).ToArray(), checks, selection);
+                                     assembly.References.Select(SharedReferences.Of).ToArray(), checks, selection);
             });
             compiling.ContinueWith(finished =>
             {

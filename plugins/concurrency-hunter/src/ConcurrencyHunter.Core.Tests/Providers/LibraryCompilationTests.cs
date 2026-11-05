@@ -840,6 +840,18 @@ public sealed class LibraryCompilationTests
     }
 
     [Fact]
+    public void Two_library_compilations_share_the_reference_to_each_file_both_compile_against()
+    {
+        using var install = new GenerationInstall();
+        var first = LibraryCompilation.Compile(Emitted(install, "Fixture.SharingFirst", "public sealed class First { }"), CancellationToken.None);
+        var second = LibraryCompilation.Compile(Emitted(install, "Fixture.SharingSecond", "public sealed class Second { }"), CancellationToken.None);
+
+        Assert.NotSame(first.Compilation, second.Compilation);
+        Assert.Equal(EmittedAssemblies.RUNTIME_ASSEMBLIES.Length, first.Compilation!.References.Count());
+        Assert.All(first.Compilation.References.Zip(second.Compilation!.References), pair => Assert.Same(pair.First, pair.Second));
+    }
+
+    [Fact]
     public void The_same_path_under_two_frameworks_is_two_compilations()
     {
         using var install = new GenerationInstall();
