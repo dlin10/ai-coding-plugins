@@ -71,6 +71,8 @@ public static class MethodSummaryBuilder
         /// <summary>How far the chain of slices is unwound to find the collection it cuts, past the budget for its offsets.</summary>
         private const int SLICE_DEPTH = 32;
 
+        /// <summary>One copy of each guard text the summary's predicates carry: a guard is restated for every access it decides.</summary>
+        private readonly StringPool _strings = new();
         private readonly IrBody _body;
         private readonly ProgramIndex _index;
         private readonly AnalysisLimits _limits;
@@ -3343,11 +3345,11 @@ public static class MethodSummaryBuilder
                 // A condition that is the value itself tests a boolean, and the branch says which one it must be.
                 case IrLoadFieldOperation load when load.Field.Type is "bool" or "System.Boolean":
                     return new SummaryPredicate(load.Id, origin, PathRelation.Equal, expected ? "true" : "false",
-                                                $"{load.Field.ContainingType}.{load.Field.Name}");
+                                                _strings.Get($"{load.Field.ContainingType}.{load.Field.Name}"));
                 case IrCompareOperation { Operator: { } comparison } compare when Compare(compare, comparison, expected) is { } predicate:
                     return predicate;
                 default:
-                    return new SummaryPredicate(null, null, PathRelation.Unsupported, null, Describe(origin));
+                    return new SummaryPredicate(null, null, PathRelation.Unsupported, null, _strings.Get(Describe(origin)));
             }
         }
 
@@ -3390,9 +3392,9 @@ public static class MethodSummaryBuilder
             // The subject is decided in the width of its own type: a guard over a `long` read as an `int` is another guard.
             var type = Definition(origin) is IrLoadFieldOperation field ? field.Field.Type : TypeOf(origin);
             return Definition(origin) is IrLoadFieldOperation load
-                ? new SummaryPredicate(load.Id, origin, relation, constant, $"{load.Field.ContainingType}.{load.Field.Name}")
+                ? new SummaryPredicate(load.Id, origin, relation, _strings.GetOrNull(constant), _strings.Get($"{load.Field.ContainingType}.{load.Field.Name}"))
                     { Width = Width(type), Signed = IsSigned(type) }
-                : new SummaryPredicate(null, origin, relation, constant, Describe(origin))
+                : new SummaryPredicate(null, origin, relation, _strings.GetOrNull(constant), _strings.Get(Describe(origin)))
                     { Width = Width(type), Signed = IsSigned(type) };
         }
 

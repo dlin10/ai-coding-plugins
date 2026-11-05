@@ -159,6 +159,8 @@ public static partial class InterproceduralAccesses
                                            .ToDictionary(group => group.Key, group => (IReadOnlyList<UnknownCall>)group.ToArray(), StringComparer.Ordinal);
             var reach = new UnknownCalls.Reach(input.Scope, input.Heap);
             var workHosts = WorkHosts(input, unknownCalls);
+            // The collectors run one after another, so they share one pool: the accesses of every execution restate the same texts.
+            var strings = new StringPool();
             foreach (var execution in input.Executions.Executions)
             {
                 WorkCancellation.Check();
@@ -172,7 +174,7 @@ public static partial class InterproceduralAccesses
                      workHosts.Contains(execution.Id)))
                 {
                     var collector = new ExecutionCollector(input, execution, entries ?? [], graph, discoveries, holders, slotFields, origins,
-                                                           unknownCalls, reach, cancellationToken);
+                                                           unknownCalls, reach, strings, cancellationToken);
                     accesses.AddRange(collector.Collect());
                     unproven.UnionWith(collector.UnprovenReferences);
                     folded.UnionWith(collector.FoldedReferences);
@@ -875,7 +877,7 @@ public static partial class InterproceduralAccesses
                                             Lazy<IReadOnlyDictionary<string, CollectionHolder>> holders,
                                             Lazy<IReadOnlyDictionary<string, IrFieldRef>> slotFields, GapOrigins origins,
                                             IReadOnlyDictionary<string, IReadOnlyList<UnknownCall>> unknownCalls, UnknownCalls.Reach reach,
-                                            CancellationToken cancellationToken)
+                                            StringPool strings, CancellationToken cancellationToken)
     {
         /// <summary>A resource-less stand-in for the field of a wildcard access: the wildcard resource names the region alone.</summary>
         private static readonly IrFieldRef WILDCARD_FIELD = new("", PathValue.WILDCARD, PathValue.WILDCARD, IrFieldKind.Field, false, false, "");
@@ -3781,7 +3783,7 @@ public static partial class InterproceduralAccesses
                         subjectTerm = bound;
                     }
                 }
-                conditions.Add(new PathPredicate(subject, condition.Relation, condition.Value, condition.Text)
+                conditions.Add(new PathPredicate(strings.Get(subject), condition.Relation, condition.Value, condition.Text)
                 {
                     Width = condition.Width,
                     Signed = condition.Signed,
@@ -4225,12 +4227,12 @@ public static partial class InterproceduralAccesses
             var steps = new List<CodeFlowStep>();
             var entryInstance = _heap.Instances[entry.InstanceId];
             steps.Add(execution.RootId is not null
-                ? new CodeFlowStep("root", $"{RootDescriptor().Entry.Display} starts", RootDescriptor().Entry.Source)
-                : new CodeFlowStep("root", $"{execution.Display} starts", BodySource(entryInstance.BodyId) ?? accessSource));
+                ? new CodeFlowStep("root", strings.Get($"{RootDescriptor().Entry.Display} starts"), RootDescriptor().Entry.Source)
+                : new CodeFlowStep("root", strings.Get($"{execution.Display} starts"), BodySource(entryInstance.BodyId) ?? accessSource));
             if (!input.Executions.IsInert(execution.Id) && entry.Kind is ExecutionEntryKind.Construction or ExecutionEntryKind.TypeInitializer)
             {
                 var subject = entry.IntervalObject is { } interval && _heap.Regions.TryGetValue(interval, out var region) ? region.Display : entryInstance.BodyId;
-                steps.Add(new CodeFlowStep("construction", $"constructs {subject}", BodySource(entryInstance.BodyId) ?? accessSource));
+                steps.Add(new CodeFlowStep("construction", strings.Get($"constructs {subject}"), BodySource(entryInstance.BodyId) ?? accessSource));
             }
 
             var path = new List<PathNode>();
@@ -4250,19 +4252,19 @@ public static partial class InterproceduralAccesses
                 if (step.Edge.Reason == WholeProgram.CONSTRUCTION_REASON && _constructedBy.TryGetValue(step.Edge, out var constructed))
                 {
                     var subject = _heap.Regions.TryGetValue(constructed, out var constructedRegion) ? constructedRegion.Display : constructed;
-                    steps.Add(new CodeFlowStep("construction", $"constructs {subject} in {calleeSymbol}",
+                    steps.Add(new CodeFlowStep("construction", strings.Get($"constructs {subject} in {calleeSymbol}"),
                                                Provenance(caller.BodyId, step.Edge.OperationId)?.Span ?? BodySource(callee.BodyId) ?? accessSource));
                     continue;
                 }
 
                 var receiver = callee.Receivers.Order(StringComparer.Ordinal).Select(region => _heap.Regions[region].Display).FirstOrDefault();
-                steps.Add(new CodeFlowStep("call", receiver is null ? $"calls {calleeSymbol}" : $"calls {calleeSymbol} on {receiver}",
+                steps.Add(new CodeFlowStep("call", strings.Get(receiver is null ? $"calls {calleeSymbol}" : $"calls {calleeSymbol} on {receiver}"),
                                            Provenance(caller.BodyId, step.Edge.OperationId)?.Span ?? accessSource));
             }
 
             steps.AddRange(held.OrderBy(info => info.Acquisition.Path, StringComparer.Ordinal).ThenBy(info => info.Acquisition.StartLine)
-                               .Select(info => new CodeFlowStep("acquire", $"acquires {info.Display}", info.Acquisition)));
-            steps.Add(new CodeFlowStep("access", accessText, accessSource));
+                               .Select(info => new CodeFlowStep("acquire", strings.Get($"acquires {info.Display}"), info.Acquisition)));
+            steps.Add(new CodeFlowStep("access", strings.Get(accessText), accessSource));
             return steps;
         }
 
@@ -4322,7 +4324,7 @@ public static partial class InterproceduralAccesses
             var uncertainties = new List<string>();
             // A guard the analysis cannot read is abstracted away rather than dropped, and says so on the finding (TD-095).
             uncertainties.AddRange(conditions.Where(condition => !condition.IsSupported)
-                                             .Select(condition => PathConditions.UnsupportedUncertainty(condition.Text))
+                                             .Select(condition => strings.Get(PathConditions.UnsupportedUncertainty(condition.Text)))
                                              .Distinct(StringComparer.Ordinal));
             // A comparer the analysis cannot read leaves the cell unknown; the candidate stays, with the reason recorded.
             if (access.Selector is not null && access.Selector != ElementSelector.Unknown && resource.Selector == ElementSelector.Unknown)

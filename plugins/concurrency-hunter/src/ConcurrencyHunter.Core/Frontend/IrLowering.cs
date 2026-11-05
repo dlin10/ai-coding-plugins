@@ -734,6 +734,8 @@ public static class IrLowering
 
     private sealed class BodyLowerer
     {
+        /// <summary>One copy of each path, symbol and type name this body's IR names: a body names them once per operation or value.</summary>
+        private readonly StringPool _strings = new();
         private readonly IMethodSymbol _method;
         private readonly IReadOnlyList<Segment> _segments;
         private readonly string _bodyId;
@@ -4772,7 +4774,16 @@ public static class IrLowering
 
         private FieldLocation GetFieldLocation(IFieldReferenceOperation reference)
         {
-            var field = FieldRef(reference.Field);
+            var named = FieldRef(reference.Field);
+            var field = named with
+            {
+                Assembly = _strings.Get(named.Assembly),
+                ContainingType = _strings.Get(named.ContainingType),
+                Name = _strings.Get(named.Name),
+                Type = _strings.Get(named.Type),
+                ContainingTypeIdentity = _strings.GetOrNull(named.ContainingTypeIdentity),
+                FieldTypeKey = _strings.GetOrNull(named.FieldTypeKey)
+            };
             if (_context.IsSilent(reference.Field.ContainingType))
                 _silentFields.Add(field);
             else if (IsHidden(reference.Field) && _context.LeftOutTypeKeys.Contains(SymbolNames.TypeKey(reference.Field.ContainingType.OriginalDefinition)))
@@ -5083,11 +5094,13 @@ public static class IrLowering
         private int AddValue(IrValueKind kind, ITypeSymbol? type, string name, int version, string? symbolKey = null, bool isReference = false)
         {
             var id = _nextValueId++;
-            _values.Add(new IrValue(id, kind, TypeName(type), name, version)
+            _values.Add(new IrValue(id, kind, _strings.Get(TypeName(type)), name, version)
             {
                 SymbolKey = symbolKey,
-                StructTypeKey = HeldStructTypeKey(type),
-                ObjectTypeKey = type is { IsValueType: false } and not (IPointerTypeSymbol or IFunctionPointerTypeSymbol) ? TypeKeyOf(type) : null,
+                StructTypeKey = _strings.GetOrNull(HeldStructTypeKey(type)),
+                ObjectTypeKey = type is { IsValueType: false } and not (IPointerTypeSymbol or IFunctionPointerTypeSymbol)
+                    ? _strings.GetOrNull(TypeKeyOf(type))
+                    : null,
                 IsReference = isReference
             });
             return id;
@@ -5160,14 +5173,14 @@ public static class IrLowering
             var outsideRoot = relativePath == ".." ||
                               relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ||
                               Path.IsPathRooted(relativePath);
-            var path = (outsideRoot ? fullPath : relativePath).Replace('\\', '/');
+            var path = _strings.Get((outsideRoot ? fullPath : relativePath).Replace('\\', '/'));
             var span = new SourceSpan(
                 path,
                 lineSpan.StartLinePosition.Line + 1,
                 lineSpan.StartLinePosition.Character + 1,
                 lineSpan.EndLinePosition.Line + 1,
                 lineSpan.EndLinePosition.Character + 1);
-            return new IrProvenance(span, SymbolNames.Method(_method), syntax.Kind().ToString(), transformation);
+            return new IrProvenance(span, _strings.Get(SymbolNames.Method(_method)), syntax.Kind().ToString(), transformation);
         }
 
         private static IrBodyKind BodyKind(IMethodSymbol method) => method.MethodKind switch
