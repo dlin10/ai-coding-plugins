@@ -2,7 +2,7 @@
 
 Источник: [issue #249](https://github.com/dlin10/ai-coding-plugins/issues/249); рядом лежит [спецификация v1.3](spec.md).
 
-- [Спецификация v1.3 — `plugins/codex-session-pulse/docs/spec.md`](https://github.com/dlin10/ai-coding-plugins/blob/main/plugins/codex-session-pulse/docs/spec.md) — источник истины; до слияния лежит на ветке `claude/great-bohr-s4vriv`.
+- [Спецификация v1.3 — `plugins/codex-session-pulse/docs/spec.md`](https://github.com/dlin10/ai-coding-plugins/blob/main/plugins/codex-session-pulse/docs/spec.md) — источник истины.
 
 ## Цель
 
