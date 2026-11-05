@@ -8,6 +8,11 @@ namespace ConcurrencyHunter.Frontend;
 
 internal sealed class SsaPlan
 {
+    private const int ABSENT = 0;
+    private const int DEFAULT = 1;
+    private const int EXCEPTIONAL = 2;
+    private const int FIRST_INCOMING = 3;
+
     private readonly IMethodSymbol _method;
     private readonly ISymbol? _initializerOwner;
     private readonly EffectiveFlowGraph _flowGraph;
@@ -18,9 +23,22 @@ internal sealed class SsaPlan
     private readonly Dictionary<CaptureId, SsaVariable> _capturedVariables = [];
     private readonly List<SsaVariable> _variables = [];
     private readonly Dictionary<int, List<SsaDefinition>> _definitions = [];
-    private readonly Dictionary<int, Dictionary<SsaVariable, SsaToken>> _entry = [];
-    private readonly Dictionary<int, Dictionary<SsaVariable, SsaToken>> _exit = [];
-    private readonly Dictionary<(int Block, SsaVariable Variable), SsaPhiToken> _phis = [];
+
+    /// <summary>The tokens the fixpoint deals in, by code: none at <see cref="ABSENT"/>, then <see cref="Default"/>,
+    /// <see cref="Exceptional"/>, each variable's incoming token in variable order, each block's last definition of each variable
+    /// it defines, and the phis in the order the fixpoint creates them. A token has one code, so two codes are equal exactly when
+    /// their tokens are.</summary>
+    private readonly List<SsaToken?> _tokens = [];
+
+    /// <summary>The code of each block's entry token of each variable, at <c>block * variables + variable</c>, and
+    /// <see cref="ABSENT"/> until the fixpoint first visits the pair.</summary>
+    private int[] _entry = [];
+
+    /// <summary>Per block, the ordinals of the variables it defines, ascending.</summary>
+    private int[][] _definedVariables = [];
+
+    /// <summary>Per block, the code of its last definition of each variable in <see cref="_definedVariables"/>.</summary>
+    private int[][] _lastDefinitions = [];
 
     private SsaPlan(IMethodSymbol method, ControlFlowGraph graph, EffectiveFlowGraph flowGraph, ISymbol? initializerOwner)
     {
@@ -86,53 +104,118 @@ internal sealed class SsaPlan
 
     internal SsaVariable GetVariable(CaptureId capture) => _captures[capture];
 
-    internal SsaToken Entry(int blockOrdinal, SsaVariable variable) => _entry[blockOrdinal][variable];
+    internal SsaToken Entry(int blockOrdinal, SsaVariable variable) =>
+        _tokens[_entry[checked(blockOrdinal * _variables.Count + OrdinalOf(variable))]] ??
+        throw new KeyNotFoundException($"No entry was planned for '{variable.Name}' in block {blockOrdinal}.");
 
-    internal IReadOnlyList<(SsaVariable Variable, SsaPhiToken Token)> Phis(int blockOrdinal) =>
-        _variables.Where(variable => _phis.ContainsKey((blockOrdinal, variable)))
-                  .Select(variable => (variable, _phis[(blockOrdinal, variable)]))
-                  .ToArray();
+    internal IReadOnlyList<(SsaVariable Variable, SsaPhiToken Token)> Phis(int blockOrdinal)
+    {
+        var phis = new List<(SsaVariable Variable, SsaPhiToken Token)>();
+        for (var variable = 0; variable < _variables.Count; variable++)
+        {
+            WorkCancellation.Check();
+            if (PhiAt(blockOrdinal, variable) is { } phi)
+                phis.Add((_variables[variable], phi));
+        }
+        return phis;
+    }
 
     internal IReadOnlyList<(EffectiveFlowGraph.FlowEdge Edge, SsaToken Token)> PhiInputs(
-        int blockOrdinal, SsaVariable variable) =>
-        _flowGraph.Predecessors(blockOrdinal)
-                  .Select(edge => (edge, EdgeToken(edge, variable) ?? Initial(variable)))
-                  .ToArray();
+        int blockOrdinal, SsaVariable variable)
+    {
+        var ordinal = OrdinalOf(variable);
+        return _flowGraph.Predecessors(blockOrdinal)
+                         .Select(edge => (edge, _tokens[EdgeToken(edge.Source, edge.Kind == IrEdgeKind.Exceptional, ordinal)] ??
+                                                _tokens[Initial(ordinal)]!))
+                         .ToArray();
+    }
 
     internal IReadOnlyList<SsaDefinition> Definitions(int blockOrdinal) =>
         _definitions.GetValueOrDefault(blockOrdinal) ?? [];
 
+    /// <summary>Computes every block's entry token of every variable: passes over the blocks in graph order and, in each block, over
+    /// the variables in <see cref="Variables"/> order, until a pass changes no entry. A block's exit token of a variable is not kept:
+    /// it is the block's last definition of the variable, otherwise its entry, and like the entry it is absent until the fixpoint
+    /// first visits the pair. Every write of the plan happens here, during construction.</summary>
+    /// <param name="graph">The graph whose blocks are planned.</param>
     private void Compute(ControlFlowGraph graph)
     {
-        foreach (var block in graph.Blocks)
+        var blocks = graph.Blocks.Length;
+        var width = _variables.Count;
+        _tokens.AddRange([null, Default, Exceptional]);
+        foreach (var variable in _variables)
         {
             WorkCancellation.Check();
-            _entry.Add(block.Ordinal, []);
-            _exit.Add(block.Ordinal, []);
+            _tokens.Add(variable.Incoming);
         }
 
+        _definedVariables = new int[blocks][];
+        _lastDefinitions = new int[blocks][];
+        for (var block = 0; block < blocks; block++)
+        {
+            WorkCancellation.Check();
+            var definitions = Definitions(block);
+            if (definitions.Count == 0)
+            {
+                _definedVariables[block] = [];
+                _lastDefinitions[block] = [];
+                continue;
+            }
+
+            var last = new SortedDictionary<int, SsaDefinitionToken>();
+            foreach (var definition in definitions)
+            {
+                WorkCancellation.Check();
+                last[definition.Variable.Ordinal] = definition.Token;
+            }
+            _definedVariables[block] = [.. last.Keys];
+            _lastDefinitions[block] = new int[last.Count];
+            var index = 0;
+            foreach (var token in last.Values)
+            {
+                WorkCancellation.Check();
+                _lastDefinitions[block][index++] = _tokens.Count;
+                _tokens.Add(token);
+            }
+        }
+
+        var starts = new int[blocks + 1];
+        var sources = new List<int>();
+        var exceptional = new List<bool>();
+        for (var block = 0; block < blocks; block++)
+        {
+            WorkCancellation.Check();
+            foreach (var edge in _flowGraph.Predecessors(block))
+            {
+                WorkCancellation.Check();
+                sources.Add(edge.Source);
+                exceptional.Add(edge.Kind == IrEdgeKind.Exceptional);
+            }
+            starts[block + 1] = sources.Count;
+        }
+        var edgeSources = sources.ToArray();
+        var edgeExceptional = exceptional.ToArray();
+
+        _entry = new int[checked(blocks * width)];
         var changed = true;
         while (changed)
         {
             WorkCancellation.Check();
             changed = false;
-            foreach (var block in graph.Blocks)
+            for (var block = 0; block < blocks; block++)
             {
                 WorkCancellation.Check();
-                foreach (var variable in _variables)
+                var row = block * width;
+                var count = starts[block + 1] - starts[block];
+                var blockSources = edgeSources.AsSpan(starts[block], count);
+                var blockExceptional = edgeExceptional.AsSpan(starts[block], count);
+                for (var variable = 0; variable < width; variable++)
                 {
                     WorkCancellation.Check();
-                    var incoming = Incoming(block.Ordinal, variable);
-                    if (!_entry[block.Ordinal].TryGetValue(variable, out var oldEntry) || oldEntry != incoming)
+                    var incoming = Incoming(block, variable, blockSources, blockExceptional);
+                    if (_entry[row + variable] != incoming)
                     {
-                        _entry[block.Ordinal][variable] = incoming;
-                        changed = true;
-                    }
-
-                    var outgoing = LastDefinition(block.Ordinal, variable)?.Token ?? incoming;
-                    if (!_exit[block.Ordinal].TryGetValue(variable, out var oldExit) || oldExit != outgoing)
-                    {
-                        _exit[block.Ordinal][variable] = outgoing;
+                        _entry[row + variable] = incoming;
                         changed = true;
                     }
                 }
@@ -140,50 +223,85 @@ internal sealed class SsaPlan
         }
     }
 
-    private SsaToken Incoming(int blockOrdinal, SsaVariable variable)
+    /// <summary>The code of a block's entry token of a variable from its predecessors' tokens: the initial token at the entry block
+    /// or without predecessors, or when no predecessor has a token yet; the one token when all that have one agree and no phi was
+    /// created here before; otherwise this pair's phi, created at first need.</summary>
+    /// <param name="block">The block's ordinal.</param>
+    /// <param name="variable">The variable's ordinal.</param>
+    /// <param name="sources">The block's predecessor edges' sources, in <see cref="EffectiveFlowGraph.Predecessors"/> order.</param>
+    /// <param name="exceptional">Whether each of those edges is exceptional.</param>
+    private int Incoming(int block, int variable, ReadOnlySpan<int> sources, ReadOnlySpan<bool> exceptional)
     {
-        var predecessors = _flowGraph.Predecessors(blockOrdinal);
-        if (blockOrdinal == 0 || predecessors.Count == 0)
+        if (block == 0 || sources.Length == 0)
             return Initial(variable);
 
-        var tokens = predecessors.Select(edge => EdgeToken(edge, variable))
-                                 .Where(token => token is not null)
-                                 .Cast<SsaToken>()
-                                 .Distinct()
-                                 .ToArray();
-        if (tokens.Length == 0)
+        var first = ABSENT;
+        var several = false;
+        for (var index = 0; index < sources.Length && !several; index++)
+        {
+            WorkCancellation.Check();
+            var token = EdgeToken(sources[index], exceptional[index], variable);
+            if (token == ABSENT || token == first)
+                continue;
+            if (first == ABSENT)
+                first = token;
+            else
+                several = true;
+        }
+
+        if (first == ABSENT)
             return Initial(variable);
-        if (tokens.Length == 1 && !_phis.ContainsKey((blockOrdinal, variable)))
-            return tokens[0];
-        return GetPhi(blockOrdinal, variable);
+        if (!several && PhiAt(block, variable) is null)
+            return first;
+        return GetPhi(block, variable);
     }
 
-    private SsaToken? EdgeToken(EffectiveFlowGraph.FlowEdge edge, SsaVariable variable)
+    /// <summary>The code of the token an edge carries into its destination, or <see cref="ABSENT"/> while its source has none: an
+    /// exceptional edge carries <see cref="Exceptional"/> when its source defines the variable, visited or not, and otherwise the
+    /// source's entry; any other edge carries the source's exit, which is absent while its entry is.</summary>
+    /// <param name="source">The edge's source block.</param>
+    /// <param name="exceptional">Whether the edge is exceptional.</param>
+    /// <param name="variable">The variable's ordinal.</param>
+    private int EdgeToken(int source, bool exceptional, int variable)
     {
-        if (edge.Kind == IrEdgeKind.Exceptional)
-        {
-            if (LastDefinition(edge.Source, variable) is not null)
-                return Exceptional;
-            return _entry[edge.Source].GetValueOrDefault(variable);
-        }
-
-        return _exit[edge.Source].GetValueOrDefault(variable);
+        var entry = _entry[source * _variables.Count + variable];
+        var definition = LastDefinition(source, variable);
+        if (exceptional)
+            return definition != ABSENT ? EXCEPTIONAL : entry;
+        return entry == ABSENT || definition == ABSENT ? entry : definition;
     }
 
-    private SsaToken Initial(SsaVariable variable) => variable.IsIncoming ? variable.Incoming : Default;
+    private int Initial(int variable) => _variables[variable].IsIncoming ? FIRST_INCOMING + variable : DEFAULT;
 
-    private SsaPhiToken GetPhi(int blockOrdinal, SsaVariable variable)
+    private int GetPhi(int block, int variable)
     {
-        if (!_phis.TryGetValue((blockOrdinal, variable), out var phi))
-        {
-            phi = new SsaPhiToken(blockOrdinal, variable);
-            _phis.Add((blockOrdinal, variable), phi);
-        }
-        return phi;
+        if (PhiAt(block, variable) is not null)
+            return _entry[block * _variables.Count + variable];
+        _tokens.Add(new SsaPhiToken(block, _variables[variable]));
+        return _tokens.Count - 1;
     }
 
-    private SsaDefinition? LastDefinition(int blockOrdinal, SsaVariable variable) =>
-        _definitions.GetValueOrDefault(blockOrdinal)?.LastOrDefault(definition => definition.Variable == variable);
+    /// <summary>The phi of a block for a variable, if the fixpoint created one. A phi is written as its own pair's entry when it is
+    /// created and stays the entry at every later visit: edge tokens, once present, stay present, so <see cref="Incoming"/> keeps
+    /// finding one and returns the phi. The entry is therefore the record of the phi.</summary>
+    /// <param name="block">The block's ordinal.</param>
+    /// <param name="variable">The variable's ordinal.</param>
+    private SsaPhiToken? PhiAt(int block, int variable) =>
+        _tokens[_entry[block * _variables.Count + variable]] is SsaPhiToken phi && phi.BlockOrdinal == block &&
+        phi.Variable == _variables[variable]
+            ? phi
+            : null;
+
+    private int LastDefinition(int block, int variable)
+    {
+        var index = Array.BinarySearch(_definedVariables[block], variable);
+        return index >= 0 ? _lastDefinitions[block][index] : ABSENT;
+    }
+
+    private int OrdinalOf(SsaVariable variable) =>
+        variable.Ordinal < _variables.Count && _variables[variable.Ordinal] == variable
+            ? variable.Ordinal
+            : throw new KeyNotFoundException($"'{variable.Name}' is not a variable of this plan.");
 
     private void Scan(IOperation operation, int blockOrdinal)
     {
@@ -482,6 +600,7 @@ internal sealed class SsaPlan
                              !SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, _method) &&
                              !SymbolEqualityComparer.Default.Equals(symbol.ContainingSymbol, _initializerOwner);
         var variable = new SsaVariable(
+            _variables.Count,
             symbol,
             null,
             // A local the compiler synthesized, the flag of a `lock` statement among them, has no name of its own.
@@ -503,6 +622,7 @@ internal sealed class SsaPlan
             return existing;
 
         var variable = new SsaVariable(
+            _variables.Count,
             null,
             capture,
             $"capture:{_captures.Count + 1}",
@@ -535,9 +655,10 @@ internal sealed class SsaPlan
 
 internal sealed class SsaVariable
 {
-    internal SsaVariable(ISymbol? symbol, CaptureId? capture, string name, ITypeSymbol? type, IrValueKind kind,
+    internal SsaVariable(int ordinal, ISymbol? symbol, CaptureId? capture, string name, ITypeSymbol? type, IrValueKind kind,
                          bool isIncoming, bool isOuterCapture, IOperation? firstReference)
     {
+        Ordinal = ordinal;
         Symbol = symbol;
         Capture = capture;
         Name = name;
@@ -549,6 +670,8 @@ internal sealed class SsaVariable
         Incoming = new SsaIncomingToken(this);
     }
 
+    /// <summary>The variable's place in its plan's <see cref="SsaPlan.Variables"/>, given by the plan that creates it.</summary>
+    internal int Ordinal { get; }
     internal ISymbol? Symbol { get; }
     internal CaptureId? Capture { get; }
     internal string Name { get; }

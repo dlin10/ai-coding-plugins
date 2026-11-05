@@ -91,6 +91,42 @@ public sealed class IrSsaAndNestedBodyTests
     }
 
     [Fact]
+    public async Task Join_reached_on_every_path_by_one_later_assignment_has_no_phi()
+    {
+        // In graph order `Read` comes before `Assign`, its predecessor that assigns the variable. On the first pass `Assign` has
+        // no exit yet, so `Read` takes only the version `Reenter` carries; a phi made there from `Assign`'s assignment would stay.
+        var body = (await Lower($$"""
+            class C
+            {
+                void M(bool condition)
+                {
+                    var value = 0;
+                    if (condition) goto Assign;
+                    return;
+                Reenter:
+                    Work();
+                Read:
+                    Take(value);
+                    return;
+                Assign:
+                    value = 1;
+                    if (Flag()) goto Read;
+                    Work();
+                    goto Reenter;
+                }
+                static void Take(int value) { }
+                {{Helpers}}
+            }
+            """)).Body;
+
+        var take = Assert.Single(Operations<IrCallOperation>(body), call => call.Method.Contains(".Take(", StringComparison.Ordinal));
+        var read = body.Blocks.Single(block => block.Operations.Contains(take));
+        Assert.Equal(2, read.FlowPredecessors.Count);
+        Assert.DoesNotContain(read.Operations.OfType<IrPhiOperation>(), phi => Value(body, phi.TargetValue).Name == "value");
+        Assert.True(Value(body, Assert.Single(take.ArgumentValues)) is { Kind: IrValueKind.Local, Name: "value", SsaVersion: 2 });
+    }
+
+    [Fact]
     public async Task Catch_entry_phi_inputs_follow_flow_predecessors()
     {
         var body = (await Lower($$"""
