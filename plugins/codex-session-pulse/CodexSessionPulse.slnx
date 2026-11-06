@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+  </Folder>
+  <Project Path="src/CodexSessionPulse.App/CodexSessionPulse.App.csproj" />
+  <Project Path="src/CodexSessionPulse.Core/CodexSessionPulse.Core.csproj" />
+  <Project Path="src/CodexSessionPulse.Infrastructure/CodexSessionPulse.Infrastructure.csproj" />
+  <Project Path="src/CodexSessionPulse.Win32/CodexSessionPulse.Win32.csproj" />
+  <Project Path="tests/CodexSessionPulse.Core.Tests/CodexSessionPulse.Core.Tests.csproj" />
+  <Project Path="tests/CodexSessionPulse.Infrastructure.Tests/CodexSessionPulse.Infrastructure.Tests.csproj" />
+  <Project Path="tests/CodexSessionPulse.Win32.Tests/CodexSessionPulse.Win32.Tests.csproj" />
+</Solution>
