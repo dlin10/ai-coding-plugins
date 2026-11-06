@@ -121,6 +121,13 @@ public static class MethodSummaryBuilder
         private Dictionary<int, List<IrOperation>>? _uses;
         private Dictionary<int, HashSet<int>>? _dominators;
 
+        /// <summary>The predicates of each block's guards, by block ordinal: every operation of a block has its guards.</summary>
+        private readonly Dictionary<int, IReadOnlyList<SummaryPredicate>> _conditions = [];
+
+        /// <summary>The predicate of each guard, by its condition and the outcome it must have: one guard decides every block it
+        /// dominates.</summary>
+        private readonly Dictionary<(int Value, bool Expected), SummaryPredicate> _predicates = [];
+
         internal Builder(IrBody body, ProgramIndex index, AnalysisLimits limits, Func<string, IrBody?>? bodies, ReachableSetResult? reachable)
         {
             _body = body;
@@ -3329,10 +3336,25 @@ public static class MethodSummaryBuilder
 
         /// <summary>The predicates that must hold where an operation runs (TD-090): one per condition that decides it, read as
         /// far as the bounded forms go. Everything else is kept as an unsupported predicate, which constrains nothing and is
-        /// reported as an uncertainty rather than dropped (TD-095).</summary>
+        /// reported as an uncertainty rather than dropped (TD-095). Every operation of a block gets the same list, and every list
+        /// the same predicate for one guard; neither is ever changed, and the access collection tells lists apart by reference.</summary>
         /// <param name="operationId">The id of the operation whose conditions are sought.</param>
-        private IReadOnlyList<SummaryPredicate> Conditions(int operationId) =>
-            Guards(operationId).Select(guard => Predicate(guard.Value, guard.Expected)).ToArray();
+        private IReadOnlyList<SummaryPredicate> Conditions(int operationId)
+        {
+            if (!BlockOf.TryGetValue(operationId, out var block))
+                return [];
+            if (_conditions.TryGetValue(block, out var conditions))
+                return conditions;
+
+            conditions = Guards(operationId).Select(guard =>
+            {
+                if (!_predicates.TryGetValue(guard, out var predicate))
+                    _predicates.Add(guard, predicate = Predicate(guard.Value, guard.Expected));
+                return predicate;
+            }).ToArray();
+            _conditions.Add(block, conditions);
+            return conditions;
+        }
 
         private SummaryPredicate Predicate(int value, bool expected)
         {
