@@ -9,6 +9,9 @@ namespace CodexSessionPulse.JsonlInspect;
 internal static class RolloutReader
 {
     private const string TimingOpen = "open";
+    private const string TimingTtft = "ttft+duration";
+    private const string TimingDuration = "duration";
+    private const string TimingNone = "none";
 
     /// <summary>Collects one row per <c>token_count</c> event in <paramref name="path"/>.</summary>
     /// <param name="path">A plain <c>.jsonl</c> rollout file.</param>
@@ -69,14 +72,15 @@ internal static class RolloutReader
                         rows.Add(new UsageRow(Text(root, "timestamp") ?? "-", threadId, model, turnId, Usage(payload), TimingOpen));
                         break;
                     case ("event_msg", "task_complete"):
-                        var timing = payload.TryGetProperty("time_to_first_token_ms", out _) ? "ttft+duration"
-                                   : payload.TryGetProperty("duration_ms", out _) ? "duration"
-                                   : "none";
+                        var timing = payload.TryGetProperty("time_to_first_token_ms", out _) ? TimingTtft
+                                   : payload.TryGetProperty("duration_ms", out _) ? TimingDuration
+                                   : TimingNone;
                         var completed = Text(payload, "turn_id");
                         for (var i = firstOpenRow; i < rows.Count; i++)
-                            if (rows[i].TurnId == completed)
+                            if (rows[i].Timing == TimingOpen && (rows[i].TurnId is null || rows[i].TurnId == completed))
                                 rows[i] = rows[i] with { Timing = timing };
-                        firstOpenRow = rows.Count;
+                        while (firstOpenRow < rows.Count && rows[firstOpenRow].Timing != TimingOpen)
+                            firstOpenRow++;
                         break;
                 }
             }
