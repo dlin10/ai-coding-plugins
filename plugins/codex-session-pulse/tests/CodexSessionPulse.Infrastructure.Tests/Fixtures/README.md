@@ -20,6 +20,7 @@ Byte-exact LF files; `.gitattributes` marks this folder `-text` so a checkout do
 |---|---|
 | `…-000000000001.jsonl` | Desktop main thread, `cli_version` 0.167.0-alpha.3.2. Two turns: the first with a partial cache, the second warm. |
 | `…-000000000001.jsonl.zst` | The same bytes, zstd-compressed, as Codex stores a cold rollout. |
+| `…-000000000001_00000000-0000-7000-8000-000000000101.jsonl` | Second segment of thread 1, written when a user message was edited. It is named with a new timestamp and a `_<rollout-id>` suffix, and its `session_meta` carries the same `id`. `history_base` points into the first segment: `end_ordinal_exclusive` 24, and `end_byte_offset` re-pointed at the thread-1 fixture. Its ordinals continue from 24. It has six turns. |
 | `…-000000000002.jsonl` | Desktop fork of thread 1 (`forked_from_id`, `history_base`; ordinals continue from 33). The parent prefix is not copied; `end_byte_offset` points at the end of the thread-1 fixture. Contains, in order: a cold first turn; a `/Compact` turn (a `token_usage_record` with no `token_count` partner, a `compacted` record, then an all-zero `token_count`); a warm turn; a turn that spawns subagent 3. |
 | `…-000000000003.jsonl` | Desktop subagent of thread 2 (`thread_source: subagent`, `parent_thread_id`, `session_id` = thread 2). |
 | `…-000000000048.jsonl` | `codex exec` 0.147.0 run whose only `token_count` has `info: null`. Older than `token_usage_record`. |
