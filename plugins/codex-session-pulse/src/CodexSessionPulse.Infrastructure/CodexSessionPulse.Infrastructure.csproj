@@ -4,4 +4,8 @@
     <ProjectReference Include="..\CodexSessionPulse.Core\CodexSessionPulse.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="CodexSessionPulse.Infrastructure.Tests" />
+  </ItemGroup>
+
 </Project>
