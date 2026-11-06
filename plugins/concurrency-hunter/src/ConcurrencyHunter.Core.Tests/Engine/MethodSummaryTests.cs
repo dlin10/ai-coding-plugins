@@ -304,6 +304,97 @@ public sealed class MethodSummaryTests
         Assert.True(cancelled);
     }
 
+    // The inner `if` has a branch of its own and dominates neither of the stores after the outer one. The last `if` comes after it, so
+    // its branch is decided by a block whose ordinal is above that of a branching block that does not dominate the store.
+    private const string GUARDED = """
+        class C
+        {
+            bool _p, _q;
+            int _a, _b, _c;
+            void M(int n)
+            {
+                if (_p)
+                {
+                    if (_q)
+                        _a = n;
+                }
+                _b = n;
+                if (_q)
+                    _c = n;
+            }
+        }
+        """;
+
+    [Fact]
+    public void A_store_runs_under_the_branches_of_the_blocks_that_dominate_it_in_their_order()
+    {
+        var summary = Summarize(GUARDED);
+
+        Assert.Equal(["C._p true", "C._q true"], Guards(summary, "_a"));
+        Assert.Empty(Guards(summary, "_b"));
+        Assert.Equal(["C._q true"], Guards(summary, "_c"));
+    }
+
+    [Fact]
+    public void A_store_past_the_64th_block_runs_under_the_branches_that_dominate_it_in_their_order()
+    {
+        // Forty `if`s inside the outer one put the last branch past the 64th block, so the store's dominators fill two words. Each of
+        // the forty branches dominates the store and decides nothing about it.
+        var skips = string.Concat(Enumerable.Repeat("if (_p) _b++; ", 40));
+        var (body, index) = Lower($$"""
+            class C
+            {
+                bool _p, _q;
+                int _b, _c;
+                void M(int n)
+                {
+                    if (_q)
+                    {
+                        {{skips}}
+                        if (_p)
+                            _c = n;
+                    }
+                }
+            }
+            """);
+
+        Assert.True(body.Blocks.Count > 64, $"{body.Blocks.Count} blocks");
+        Assert.Equal(["C._q true", "C._p true"], Guards(MethodSummaryBuilder.Build(body, index, AnalysisLimits.Default), "_c"));
+    }
+
+    [Theory]
+    [InlineData("Guards")]
+    [InlineData("Versions")]
+    public void Cancellation_inside_the_walks_of_the_guards_and_the_versions_stops_the_summary(string walk)
+    {
+        var (body, index) = Lower(GUARDED);
+        var checks = 0;
+        using (WorkCancellation.Enter(CancellationToken.None, () => checks += CheckedIn() == walk ? 1 : 0))
+            MethodSummaryBuilder.Build(body, index, AnalysisLimits.Default);
+        // The guards check once per word of a block's dominators and once per dominator, so at least twice for each of the three blocks
+        // the stores are in: one word, and the block itself. The versions check once per value of the body.
+        Assert.True(walk == "Guards" ? checks >= 6 : checks >= body.Values.Count, $"{checks} checks in {walk}");
+
+        using var cancellation = new CancellationTokenSource();
+        var cancelled = false;
+        using var work = WorkCancellation.Enter(cancellation.Token, () =>
+        {
+            if (cancelled || CheckedIn() != walk)
+                return;
+            cancelled = true;
+            cancellation.Cancel();
+        });
+        Assert.Throws<OperationCanceledException>(() => MethodSummaryBuilder.Build(body, index, AnalysisLimits.Default));
+        Assert.True(cancelled);
+    }
+
+    /// <summary>The conditions of the one store of a field, each as its text and the value it must have.</summary>
+    /// <param name="summary">The summary of the body.</param>
+    /// <param name="field">The name of the field stored.</param>
+    private static string[] Guards(MethodSummary summary, string field) =>
+        Assert.Single(summary.Accesses, access => access.Kind == SummaryAccessKind.Store && access.Field.Name == field)
+              .Conditions.Select(condition => $"{condition.Text} {condition.Value}").ToArray();
+
     /// <summary>The name of the method of the summary builder whose check is being observed: the first frame below this test's own
     /// frames and <see cref="WorkCancellation"/>'s, or null where that frame is not the builder's.</summary>
     private static string? CheckedIn() =>

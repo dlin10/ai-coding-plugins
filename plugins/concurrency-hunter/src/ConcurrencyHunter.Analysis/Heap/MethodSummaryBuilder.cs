@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Numerics;
 using ConcurrencyHunter.Analysis;
 using System.Runtime.CompilerServices;
 using ConcurrencyHunter.Accesses;
@@ -119,7 +120,16 @@ public static class MethodSummaryBuilder
         private Dictionary<int, int>? _blockOf;
         private Dictionary<int, int>? _positionOf;
         private Dictionary<int, List<IrOperation>>? _uses;
+        private Dictionary<string, List<IrValue>>? _versions;
+        private HashSet<int?>? _cellBindings;
         private ulong[][]? _dominators;
+
+        /// <summary>The state of the <see cref="Producers"/> walks, one for each depth a walk nests in another, and that depth.</summary>
+        private readonly List<ProducerWalk> _producerWalks = [];
+        private int _producerDepth;
+
+        /// <summary>The guards of each block, by block ordinal: every operation of a block has its guards.</summary>
+        private readonly Dictionary<int, IReadOnlyList<(int Value, bool Expected)>> _guards = [];
 
         /// <summary>The predicates of each block's guards, by block ordinal: every operation of a block has its guards.</summary>
         private readonly Dictionary<int, IReadOnlyList<SummaryPredicate>> _conditions = [];
@@ -692,8 +702,8 @@ public static class MethodSummaryBuilder
                                      .ToArray();
             var variables = VariableKeys().Select(key => new SummaryVariable(key, Final(VariablePoints(key), delegates), VariableDependencies(key))
                                           {
-                                              UnknownSources = _body.Values.Where(value => value.SymbolKey == key).SelectMany(value => _unknown[value.Id]).ToHashSet(),
-                                              Producers = ValueOrigin.Union(_body.Values.Where(value => value.SymbolKey == key).Select(value => Producers(value.Id))),
+                                              UnknownSources = Versions(key).SelectMany(value => _unknown[value.Id]).ToHashSet(),
+                                              Producers = ValueOrigin.Union(Versions(key).Select(value => Producers(value.Id))),
                                               Cell = _cells.GetValueOrDefault(key)
                                           })
                                           .ToArray();
@@ -1571,6 +1581,25 @@ public static class MethodSummaryBuilder
         /// <param name="value">The IR value whose origins are followed.</param>
         private ValueOrigin Producers(int value)
         {
+            // A walk starts another through a library model's argument, and each depth of walks keeps its own marks and stack.
+            if (_producerWalks.Count == _producerDepth)
+                _producerWalks.Add(new ProducerWalk(_body.Values));
+            var walk = _producerWalks[_producerDepth++];
+            try
+            {
+                return WalkProducers(value, walk);
+            }
+            finally
+            {
+                _producerDepth--;
+            }
+        }
+
+        /// <summary>What <see cref="Producers"/> returns, found by one walk back from the value.</summary>
+        /// <param name="value">The IR value whose origins are followed.</param>
+        /// <param name="walk">The marks and the stack of the walk, which no walk in progress uses.</param>
+        private ValueOrigin WalkProducers(int value, ProducerWalk walk)
+        {
             var calls = new HashSet<int>();
             var parameters = new HashSet<int>();
             var fields = new List<FieldOrigin>();
@@ -1578,12 +1607,11 @@ public static class MethodSummaryBuilder
             var elements = new List<IReadOnlySet<AbstractValue>>();
             var keys = new List<IReadOnlySet<AbstractValue>>();
             var kept = new List<IReadOnlySet<AbstractValue>>();
-            var visited = new HashSet<int>();
-            var pending = new Stack<int>([value]);
+            var pending = walk.Start(value);
             while (pending.TryPop(out var current))
             {
                 WorkCancellation.Check();
-                if (!visited.Add(current))
+                if (!walk.Visit(current))
                     continue;
                 // A parameter is what the caller handed over, and a field what some store put there: the origin goes on there (R6).
                 if (_parameterOrdinals.TryGetValue(current, out var ordinal))
@@ -1702,6 +1730,46 @@ public static class MethodSummaryBuilder
 
             var origin = new ValueOrigin(calls, parameters, fields) { Captured = captured, Elements = elements, Keys = keys, Kept = kept };
             return origin.IsNone ? ValueOrigin.None : origin;
+        }
+
+        /// <summary>What one depth of <see cref="Producers"/> walks reuses from walk to walk: the stack of values still to visit, and a
+        /// mark for each value of the body, which is the number of the last walk that visited it. A walk starts by taking a new number,
+        /// so it forgets every earlier walk's visits without clearing anything.</summary>
+        private sealed class ProducerWalk
+        {
+            private readonly int _first;
+            private readonly int[] _marks;
+            private readonly Stack<int> _pending = new();
+            private int _walk;
+
+            /// <summary>No walk yet, and a mark for every id from the lowest of the body's values to the highest.</summary>
+            /// <param name="values">The values of the body, whose ids the marks are kept by.</param>
+            internal ProducerWalk(IReadOnlyList<IrValue> values)
+            {
+                _first = values.Min(value => value.Id);
+                _marks = new int[values.Max(value => value.Id) - _first + 1];
+            }
+
+            /// <summary>Starts a walk from a value: a new number, and a stack holding the value alone.</summary>
+            /// <param name="value">The value the walk starts from.</param>
+            internal Stack<int> Start(int value)
+            {
+                _walk++;
+                _pending.Clear();
+                _pending.Push(value);
+                return _pending;
+            }
+
+            /// <summary>Whether this walk has not visited a value yet; it has from now on.</summary>
+            /// <param name="value">The value reached.</param>
+            internal bool Visit(int value)
+            {
+                ref var mark = ref _marks[value - _first];
+                if (mark == _walk)
+                    return false;
+                mark = _walk;
+                return true;
+            }
         }
 
         private SummarySpawn Spawn(IrSpawnOperation spawn, IReadOnlyDictionary<CreationSite, DelegateCreationValue> delegates) =>
@@ -2890,9 +2958,15 @@ public static class MethodSummaryBuilder
         /// <summary>Whether a <c>foreach</c> binds its iteration variable to each cell by reference: the <c>Current</c> of its enumeration
         /// hands back a reference (R1).</summary>
         /// <param name="enumerator">The <c>GetEnumerator</c> call of the <c>foreach</c>.</param>
-        private bool BindsCells(IrCallOperation enumerator) =>
-            _operations.Any(operation => operation is IrCallOperation { EnumerationRole: IrEnumerationRole.Current, ResultValue: int current } call &&
-                                         call.EnumerationId == enumerator.EnumerationId && _values[current].IsReference);
+        private bool BindsCells(IrCallOperation enumerator) => CellBindings.Contains(enumerator.EnumerationId);
+
+        /// <summary>The enumeration ids of the <c>Current</c> calls that hand back a reference, built once per body for
+        /// <see cref="BindsCells"/>.</summary>
+        private HashSet<int?> CellBindings =>
+            _cellBindings ??= _operations.OfType<IrCallOperation>()
+                                         .Where(call => call is { EnumerationRole: IrEnumerationRole.Current, ResultValue: int current } && _values[current].IsReference)
+                                         .Select(call => call.EnumerationId)
+                                         .ToHashSet();
 
         /// <summary>The places a reference to a cell of a collection may point to: the cell of the field the collection was read from, the
         /// cell of a collection the body got by value, or one of a collection a call returned; none for any other collection.</summary>
@@ -3301,26 +3375,38 @@ public static class MethodSummaryBuilder
         /// It is the edge that has to stand on every path, not only its destination: the block after an <c>if</c> without an
         /// <c>else</c> is the destination of the branch that skips the <c>if</c>, and is reached from its body as well.</summary>
         /// <param name="operationId">The id of the operation whose guards are sought.</param>
+        /// <remarks>The candidates are the bits of the block's dominator set, which are block ordinals and so indices into the body's
+        /// blocks: read in ascending order, they come in the order of the blocks. The guards depend on the block alone, and are
+        /// built once for each.</remarks>
         private IReadOnlyList<(int Value, bool Expected)> Guards(int operationId)
         {
             if (!BlockOf.TryGetValue(operationId, out var block))
                 return [];
+            if (_guards.TryGetValue(block, out var known))
+                return known;
 
             var guards = new List<(int, bool)>();
-            foreach (var candidate in _body.Blocks)
+            var dominators = Dominators[block];
+            for (var word = 0; word < dominators.Length; word++)
             {
                 WorkCancellation.Check();
-                if (candidate.Ordinal == block || candidate.ConditionalBranch is not { ConditionValue: int condition, Destination: int taken } branch ||
-                    candidate.FallThroughBranch?.Destination is not { } skipped || !DominatedBy(block, candidate.Ordinal))
+                for (var bits = dominators[word]; bits != 0; bits &= bits - 1)
                 {
-                    continue;
-                }
+                    WorkCancellation.Check();
+                    var candidate = _body.Blocks[word * 64 + BitOperations.TrailingZeroCount(bits)];
+                    if (candidate.Ordinal == block || candidate.ConditionalBranch is not { ConditionValue: int condition, Destination: int taken } branch ||
+                        candidate.FallThroughBranch?.Destination is not { } skipped)
+                    {
+                        continue;
+                    }
 
-                var jumped = EdgeDominates(candidate.Ordinal, taken, block);
-                if (jumped != EdgeDominates(candidate.Ordinal, skipped, block))
-                    guards.Add((condition, jumped == (branch.JumpIfTrue ?? true)));
+                    var jumped = EdgeDominates(candidate.Ordinal, taken, block);
+                    if (jumped != EdgeDominates(candidate.Ordinal, skipped, block))
+                        guards.Add((condition, jumped == (branch.JumpIfTrue ?? true)));
+                }
             }
 
+            _guards.Add(block, guards);
             return guards;
         }
 
@@ -3940,10 +4026,33 @@ public static class MethodSummaryBuilder
                  .Distinct(StringComparer.Ordinal);
 
         private HashSet<AbstractValue> VariablePoints(string key) =>
-            _body.Values.Where(value => value.SymbolKey == key).SelectMany(value => _points[value.Id]).ToHashSet();
+            Versions(key).SelectMany(value => _points[value.Id]).ToHashSet();
 
         private HashSet<ValueDependency> VariableDependencies(string key) =>
-            _body.Values.Where(value => value.SymbolKey == key).SelectMany(value => _dependencies[value.Id]).ToHashSet();
+            Versions(key).SelectMany(value => _dependencies[value.Id]).ToHashSet();
+
+        /// <summary>The values of a symbol key, the versions of one variable, in the order of the body's values.</summary>
+        /// <param name="key">The symbol key of the variable.</param>
+        private IReadOnlyList<IrValue> Versions(string key)
+        {
+            if (_versions is null)
+            {
+                var versions = new Dictionary<string, List<IrValue>>(StringComparer.Ordinal);
+                foreach (var value in _body.Values)
+                {
+                    WorkCancellation.Check();
+                    if (value.SymbolKey is not { } symbol)
+                        continue;
+                    if (!versions.TryGetValue(symbol, out var values))
+                        versions[symbol] = values = [];
+                    values.Add(value);
+                }
+
+                _versions = versions;
+            }
+
+            return _versions.TryGetValue(key, out var found) ? found : [];
+        }
 
         private HashSet<AbstractValue> Points(int? value) => value is int id ? _points[id] : [];
 
