@@ -17,10 +17,10 @@ internal static class HookRunner
 
     /// <summary>Reads the hook payload and returns the exit code.</summary>
     /// <param name="stdin">The stream holding the payload.</param>
-    /// <param name="stdout">Receives the assembly names when the debug variable is set; nothing otherwise.</param>
+    /// <param name="getStdout">Opens stdout; called only when the debug variable is set, so the normal path never creates the console writer.</param>
     /// <param name="getEnvironmentVariable">Reads an environment variable.</param>
     /// <returns>Always 0: a hook must never fail Codex.</returns>
-    internal static int Run(Stream stdin, TextWriter stdout, Func<string, string?> getEnvironmentVariable)
+    internal static int Run(Stream stdin, Func<TextWriter> getStdout, Func<string, string?> getEnvironmentVariable)
     {
         try
         {
@@ -33,6 +33,8 @@ internal static class HookRunner
 
         if (getEnvironmentVariable(DebugAssembliesVariable) == "1")
         {
+            TextWriter stdout = getStdout();
+
             foreach (System.Reflection.Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 stdout.WriteLine(assembly.GetName().Name);
@@ -47,24 +49,24 @@ internal static class HookRunner
     /// <returns>The payload; truncated or invalid JSON yields a payload with no fields.</returns>
     internal static HookPayload ReadPayload(Stream stdin)
     {
-        byte[] buffer = new byte[MaxPayloadBytes];
-        int length = 0;
+        using MemoryStream buffer = new();
+        byte[] chunk = new byte[8192];
 
-        while (length < buffer.Length)
+        while (buffer.Length < MaxPayloadBytes)
         {
-            int read = stdin.Read(buffer, length, buffer.Length - length);
+            int read = stdin.Read(chunk, 0, (int)Math.Min(chunk.Length, MaxPayloadBytes - buffer.Length));
 
             if (read == 0)
             {
                 break;
             }
 
-            length += read;
+            buffer.Write(chunk, 0, read);
         }
 
         try
         {
-            using JsonDocument document = JsonDocument.Parse(buffer.AsMemory(0, length));
+            using JsonDocument document = JsonDocument.Parse(buffer.GetBuffer().AsMemory(0, (int)buffer.Length));
             JsonElement root = document.RootElement;
 
             return new HookPayload(GetString(root, "hook_event_name"), GetString(root, "session_id"));

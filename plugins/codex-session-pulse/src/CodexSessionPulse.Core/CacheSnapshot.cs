@@ -16,6 +16,7 @@ namespace CodexSessionPulse.Core;
 /// <param name="Ttl">The TTL estimate.</param>
 /// <param name="Speed">Output tokens per second; always <see langword="null"/> in P0.</param>
 /// <param name="Source">The data source behind the snapshot.</param>
+/// <param name="Diagnostics">A machine-readable diagnostic code for the Error and Stale states, or <see langword="null"/>.</param>
 public sealed record CacheSnapshot(
     DateTimeOffset AtUtc,
     CacheState State,
@@ -28,7 +29,8 @@ public sealed record CacheSnapshot(
     double? CacheRatio,
     CacheTtl Ttl,
     double? Speed,
-    SourceInfo Source);
+    SourceInfo Source,
+    string? Diagnostics);
 
 /// <summary>Why a thread was selected and how sure that is.</summary>
 /// <param name="Confidence">How sure the selection is.</param>

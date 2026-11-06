@@ -30,7 +30,7 @@ public sealed class ContractTests
             new ThreadSelection(SelectionConfidence.Unknown, null),
             null, null, null, null,
             new CacheTtl(null, TtlBasis.Unknown), null,
-            new SourceInfo(SourceStatus.NotFound, null, null));
+            new SourceInfo(SourceStatus.NotFound, null, null), null);
 
         Assert.Equal(Create(), Create());
         Assert.Null(Create().Speed);
