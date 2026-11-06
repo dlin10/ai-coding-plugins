@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using ConcurrencyHunter.Di;
 using Microsoft.CodeAnalysis;
 
@@ -13,6 +14,10 @@ public static class SymbolNames
                                                                           genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
                                                                           miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes);
 
+    /// <summary>The key of each type <see cref="TypeKey"/> was asked for, kept while the symbol lives: a key depends on the
+    /// symbol alone, and one type is keyed again and again.</summary>
+    private static readonly ConditionalWeakTable<ITypeSymbol, string> TYPE_KEYS = new();
+
     public static string Type(ITypeSymbol type) => type.ToDisplayString(TYPE_FORMAT);
 
     /// <summary>The DI index's type key: <see cref="TypeIdentity"/> qualified by the assembly declaring the type, or the key
@@ -21,13 +26,17 @@ public static class SymbolNames
     public static string TypeKey(ITypeSymbol type)
     {
         WorkCancellation.Check();
-        return type switch
-        {
-            IArrayTypeSymbol array => $"{TypeKey(array.ElementType)}[{new string(',', array.Rank - 1)}]",
-            IPointerTypeSymbol pointer => $"{TypeKey(pointer.PointedAtType)}*",
-            _ => type.ContainingAssembly is { } assembly ? DiIndex.TypeKey(assembly.Name, TypeIdentity(type)) : TypeIdentity(type)
-        };
+        return TYPE_KEYS.GetValue(type, BuildTypeKey);
     }
+
+    /// <summary>Builds the key <see cref="TypeKey"/> keeps for a type.</summary>
+    /// <param name="type">The type whose key is built.</param>
+    private static string BuildTypeKey(ITypeSymbol type) => type switch
+    {
+        IArrayTypeSymbol array => $"{TypeKey(array.ElementType)}[{new string(',', array.Rank - 1)}]",
+        IPointerTypeSymbol pointer => $"{TypeKey(pointer.PointedAtType)}*",
+        _ => type.ContainingAssembly is { } assembly ? DiIndex.TypeKey(assembly.Name, TypeIdentity(type)) : TypeIdentity(type)
+    };
 
     /// <summary>A type's name as it identifies the type beside its declaring assembly: the display name, except that in a
     /// generic type (or a type nested in one) every type argument is its own <see cref="TypeKey"/>.</summary>

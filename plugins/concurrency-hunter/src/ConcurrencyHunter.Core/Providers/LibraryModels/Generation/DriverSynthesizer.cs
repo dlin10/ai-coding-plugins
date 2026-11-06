@@ -331,7 +331,8 @@ public static class DriverSynthesizer
 
         if (!Binds(compilation, tree, Id(definition), cancellationToken))
             return new DriverSynthesis(null, GenerationReasons.DRIVER_NOT_SYNTHESIZED, $"the driver's call does not bind to {Id(definition)}");
-        var seeds = SeedOperations(compilation, tree, writer.SeedStatements, cancellationToken);
+        var assignments = SetupAssignments(compilation, tree, cancellationToken);
+        var seeds = SeedOperations(assignments, writer.SeedStatements);
         return new DriverSynthesis(new Driver(definition, compilation, source, writer.Actions, writer.Parameters, writer.Triggers, writer.Uncovered,
                                               writer.Defaulted.Distinct().Order(StringComparer.Ordinal).ToArray(),
                                               writer.Unseeded.Keys.Concat(writer.UnseededRecipeStatics.Select(storage => $"static/{storage.Type}/{storage.Name}"))
@@ -341,7 +342,7 @@ public static class DriverSynthesizer
                                        SeedFactories = writer.SeedFactories,
                                        ProbeTypes = writer.ProbeTypes,
                                        RecipeCandidates = writer.RecipeCandidates.ToHashSet(StringComparer.Ordinal),
-                                       RecipeStatements = SeedOperations(compilation, tree, writer.RecipeStatements, cancellationToken),
+                                       RecipeStatements = SeedOperations(assignments, writer.RecipeStatements),
                                        UnseededRecipeStatics = writer.UnseededRecipeStatics
                                    },
                                    null, "");
@@ -403,24 +404,39 @@ public static class DriverSynthesizer
         return ReferenceEquals(unopened, library) ? definition : FindMember(unopened, id);
     }
 
-    private static IReadOnlyList<DriverSeedStatement> SeedOperations(CSharpCompilation compilation, SyntaxTree tree,
-                                                                     IReadOnlyList<(string Path, string Statement)> statements,
-                                                                     CancellationToken cancellationToken)
+    /// <summary>The assignments and event subscriptions of the driver's setup body, each by its text, those of one text in the
+    /// order the bound body lists them. The setup body is bound once for every list of statements.</summary>
+    /// <param name="compilation">The driver's compilation.</param>
+    /// <param name="tree">The driver's syntax tree.</param>
+    /// <param name="cancellationToken">Cancels the binding.</param>
+    private static ILookup<string, IOperation> SetupAssignments(CSharpCompilation compilation, SyntaxTree tree,
+                                                                CancellationToken cancellationToken)
     {
         var setup = tree.GetRoot(cancellationToken).DescendantNodes().OfType<MethodDeclarationSyntax>()
                         .Single(method => method.Identifier.Text == SETUP);
-        var assignments = compilation.GetSemanticModel(tree).GetOperation(setup, cancellationToken)!.Descendants()
-                                     .Where(operation => operation is ISimpleAssignmentOperation or IEventAssignmentOperation).ToList();
+        return compilation.GetSemanticModel(tree).GetOperation(setup, cancellationToken)!.Descendants()
+                          .Where(operation => operation is ISimpleAssignmentOperation or IEventAssignmentOperation)
+                          .ToLookup(operation => operation.Syntax.ToString(), StringComparer.Ordinal);
+    }
+
+    /// <summary>The bound operation of each statement the writer emitted into the setup body: the first assignment of the
+    /// statement's text that no earlier statement of the list took. A statement whose text no assignment has left gets none.</summary>
+    /// <param name="assignments">The setup body's assignments by text, from <see cref="SetupAssignments"/>.</param>
+    /// <param name="statements">The statements, each with the path it seeds.</param>
+    private static IReadOnlyList<DriverSeedStatement> SeedOperations(ILookup<string, IOperation> assignments,
+                                                                     IReadOnlyList<(string Path, string Statement)> statements)
+    {
+        var taken = new Dictionary<string, int>(StringComparer.Ordinal);
         var result = new List<DriverSeedStatement>();
         foreach (var (path, statement) in statements)
         {
             WorkCancellation.Check();
             var text = statement.TrimEnd(';');
-            var index = assignments.FindIndex(operation => operation.Syntax.ToString() == text);
-            if (index < 0)
+            var count = taken.GetValueOrDefault(text);
+            if (assignments[text].ElementAtOrDefault(count) is not { } operation)
                 continue;
-            result.Add(new DriverSeedStatement(path, assignments[index]));
-            assignments.RemoveAt(index);
+            result.Add(new DriverSeedStatement(path, operation));
+            taken[text] = count + 1;
         }
 
         return result;

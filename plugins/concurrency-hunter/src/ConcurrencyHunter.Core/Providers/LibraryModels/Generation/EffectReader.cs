@@ -38,6 +38,9 @@ public sealed class EffectReader
     /// <summary>The element write of an array as a member of the table names it, directly or through an interface.</summary>
     private const string ARRAY_ELEMENT_WRITE = "System.Array.set_Item";
 
+    /// <summary>What follows an auto-property's name in its backing field's, <c>&lt;Name&gt;k__BackingField</c>.</summary>
+    private const string BACKING_FIELD_SUFFIX = ">k__BackingField";
+
     private readonly Driver _driver;
     private readonly ProgramIndex _program;
     private readonly IReadOnlyDictionary<string, IrBody> _runBodies;
@@ -1229,8 +1232,8 @@ public sealed class EffectReader
         {
             _checks.Check(GenerationStage.ReadEffects);
             foreach (var access in instance.Summary.Accesses.Where(access => access.Kind == SummaryAccessKind.Store &&
-                                                                             Matches(access.Field, member) &&
-                                                                             Within(access.Provenance.Span, span)))
+                                                                             Within(access.Provenance.Span, span) &&
+                                                                             Matches(access.Field, member)))
             {
                 _checks.Check(GenerationStage.ReadEffects);
                 yield return (instance, access);
@@ -1662,12 +1665,18 @@ public sealed class EffectReader
         };
     }
 
-    private static bool Matches(IrFieldRef field, ISymbol member)
-    {
-        var names = member is IPropertySymbol ? new[] { member.Name, $"<{member.Name}>k__BackingField" } : new[] { member.Name };
-        return field.Assembly == member.ContainingAssembly?.Name && names.Contains(field.Name, StringComparer.Ordinal) &&
-               member.ContainingType is { } type && Declares(field, type);
-    }
+    private static bool Matches(IrFieldRef field, ISymbol member) =>
+        field.Assembly == member.ContainingAssembly?.Name && Names(field.Name, member) && member.ContainingType is { } type &&
+        Declares(field, type);
+
+    /// <summary>Whether a field's name is the member's: its own name, or for an auto-property its backing field's,
+    /// <c>&lt;Name&gt;k__BackingField</c>, compared in place.</summary>
+    /// <param name="field">The name of the field an access names.</param>
+    /// <param name="member">The field, auto-property or field-like event.</param>
+    private static bool Names(string field, ISymbol member) =>
+        field == member.Name ||
+        member is IPropertySymbol && field.Length == member.Name.Length + BACKING_FIELD_SUFFIX.Length + 1 && field.StartsWith('<') &&
+        field.AsSpan(1, member.Name.Length).SequenceEqual(member.Name) && field.EndsWith(BACKING_FIELD_SUFFIX, StringComparison.Ordinal);
 
     /// <summary>Whether a field an access names is declared by the type, or by its definition: a body of a generic type names the
     /// field of the definition (<c>ValueTuple&lt;T1, …&gt;.Item1</c>), and setup the field of the construction it built.</summary>
@@ -1675,10 +1684,12 @@ public sealed class EffectReader
     /// <param name="type">The type declaring the unseeded member.</param>
     private static bool Declares(IrFieldRef field, ITypeSymbol type)
     {
+        // The suffix test builds no string, so it goes first: the display names are built only when it fails.
+        if (field.ContainingType.EndsWith(type.Name, StringComparison.Ordinal))
+            return true;
         var display = type.ToDisplayString();
-        var definition = type.OriginalDefinition.ToDisplayString();
-        return field.ContainingTypeId == display || field.ContainingType == display || field.ContainingType == definition ||
-               field.ContainingType.EndsWith(type.Name, StringComparison.Ordinal);
+        return field.ContainingTypeId == display || field.ContainingType == display ||
+               field.ContainingType == type.OriginalDefinition.ToDisplayString();
     }
 
     private static IReadOnlyList<string> OrderRoots(IEnumerable<string> roots) =>
