@@ -2,7 +2,8 @@ namespace CodexSessionPulse.Core;
 
 /// <summary>
 /// The independent state of one thread in a <see cref="ThreadRegistry"/>: its own <see cref="CacheTracker"/>,
-/// kind, model, source and last activity. Mutated only by the registry under the caller's serialization.
+/// kind, model, source and last activity. Mutated by the registry; read it only under the same serialization
+/// (<see cref="PulseEngine"/>'s lock), since its values are not updated atomically.
 /// </summary>
 public sealed class ThreadPulseState
 {

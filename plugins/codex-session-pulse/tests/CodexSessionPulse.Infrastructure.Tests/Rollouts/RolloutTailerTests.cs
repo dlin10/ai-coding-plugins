@@ -67,6 +67,23 @@ public sealed class RolloutTailerTests : IDisposable
         Assert.Equal(ThreadB, events.Current.ThreadId);
     }
 
+    /// <summary>Disposing the source while it is being enumerated ends the enumeration without an exception.</summary>
+    [Fact]
+    public async Task DisposeAsync_WhileEnumerating_EndsTheEnumeration()
+    {
+        RolloutTailerOptions options = RolloutTailerOptions.ForRoot(_root.Root) with { PollInterval = TimeSpan.FromSeconds(1) };
+        RolloutTailer tailer = new(options, _root.Clock);
+        using CancellationTokenSource cts = new(Patience);
+        await using IAsyncEnumerator<TokenUsageSnapshot> events = tailer.WatchAsync(cts.Token).GetAsyncEnumerator(cts.Token);
+        ValueTask<bool> next = events.MoveNextAsync();
+
+        await Task.Delay(300, cts.Token);
+        await tailer.DisposeAsync();
+
+        Assert.False(await next);
+        Assert.False(cts.IsCancellationRequested);
+    }
+
     /// <summary>Cancelling ends the enumeration without an exception.</summary>
     [Fact]
     public async Task WatchAsync_Cancelled_Ends()

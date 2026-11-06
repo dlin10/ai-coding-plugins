@@ -8,15 +8,21 @@ namespace CodexSessionPulse.Infrastructure.Rollouts;
 /// <see cref="RolloutTailerOptions.PollInterval"/> to cover lost events (spec §5.2), over a <see cref="RolloutTail"/>.
 /// </summary>
 /// <remarks>
-/// Threads seen in a <c>session_meta</c> are raised through <see cref="ThreadObserved"/> before the usage events of
-/// the same poll, on the enumerating thread. A missing sessions folder is reported by <see cref="Status"/> and
-/// retried at every poll; the watcher starts once the folder exists.
+/// <para>Polls run on the thread pool, never on the thread that enumerates, so the overlay's dispatcher is not
+/// blocked by file I/O. A burst of watcher notifications is coalesced: after a wake the loop waits
+/// a short debounce before it polls.</para>
+/// <para>Threads seen in a <c>session_meta</c> are raised through <see cref="ThreadObserved"/> before the usage events
+/// of the same poll. A missing sessions folder is reported by <see cref="Status"/> and retried at every poll; the
+/// watcher starts once the folder exists. Enumerate <see cref="WatchAsync"/> once at a time; disposing ends it.</para>
 /// </remarks>
 public sealed class RolloutTailer : ISessionEventSource
 {
+    private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(250);
+
     private readonly RolloutTailerOptions _options;
     private readonly RolloutTail _tail;
     private readonly SemaphoreSlim _signal = new(0, 1);
+    private readonly CancellationTokenSource _disposed = new();
     private readonly Lock _watcherGate = new();
     private FileSystemWatcher? _watcher;
 
@@ -41,11 +47,11 @@ public sealed class RolloutTailer : ISessionEventSource
     /// <inheritdoc/>
     public async IAsyncEnumerable<TokenUsageSnapshot> WatchAsync([EnumeratorCancellation] CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
-        {
-            EnsureWatcher();
-            RolloutPollResult result = _tail.Poll();
+        using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _disposed.Token);
+        CancellationToken token = linked.Token;
 
+        while (await PollAsync(token).ConfigureAwait(false) is { } result)
+        {
             foreach (ThreadObservation observation in result.Observations)
             {
                 ThreadObserved?.Invoke(observation);
@@ -56,11 +62,7 @@ public sealed class RolloutTailer : ISessionEventSource
                 yield return usage;
             }
 
-            try
-            {
-                await _signal.WaitAsync(_options.PollInterval, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
+            if (!await WaitAsync(token).ConfigureAwait(false))
             {
                 yield break;
             }
@@ -76,15 +78,58 @@ public sealed class RolloutTailer : ISessionEventSource
             _watcher = null;
         }
 
-        _signal.Dispose();
+        // Cancelling, not disposing the semaphore, ends a running enumeration cleanly.
+        _disposed.Cancel();
         return ValueTask.CompletedTask;
+    }
+
+    private async Task<RolloutPollResult?> PollAsync(CancellationToken token)
+    {
+        if (token.IsCancellationRequested)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await Task.Run(() =>
+            {
+                EnsureWatcher();
+                return _tail.Poll();
+            }, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Waits for a watcher signal or the poll interval, then lets a burst of notifications settle.</summary>
+    /// <param name="token">Ends the wait.</param>
+    /// <returns><see langword="false"/> when the enumeration should end.</returns>
+    private async Task<bool> WaitAsync(CancellationToken token)
+    {
+        try
+        {
+            if (await _signal.WaitAsync(_options.PollInterval, token).ConfigureAwait(false))
+            {
+                await Task.Delay(Debounce, token).ConfigureAwait(false);
+                _signal.Wait(0, CancellationToken.None);
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
     }
 
     private void EnsureWatcher()
     {
         lock (_watcherGate)
         {
-            if (_watcher is not null || !Directory.Exists(_options.Root))
+            if (_watcher is not null || _disposed.IsCancellationRequested || !Directory.Exists(_options.Root))
             {
                 return;
             }
@@ -138,9 +183,9 @@ public sealed class RolloutTailer : ISessionEventSource
                 _signal.Release();
             }
         }
-        catch (Exception e) when (e is SemaphoreFullException or ObjectDisposedException)
+        catch (SemaphoreFullException)
         {
-            // Already signalled, or disposed while the watcher was still delivering.
+            // Another notification signalled first.
         }
     }
 }

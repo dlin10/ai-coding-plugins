@@ -70,8 +70,11 @@ public sealed class PulseEngine
 
         lock (_gate)
         {
-            _registry.Start(threadId, atUtc);
-            _resolver.OnUserActivity(threadId, atUtc);
+            if (_registry.Start(threadId, atUtc) is not null)
+            {
+                _resolver.OnUserActivity(threadId, atUtc);
+            }
+
             return PublishLocked();
         }
     }
@@ -86,8 +89,11 @@ public sealed class PulseEngine
 
         lock (_gate)
         {
-            _registry.Start(threadId, atUtc);
-            _resolver.OnSessionStart(threadId, atUtc);
+            if (_registry.Start(threadId, atUtc) is not null)
+            {
+                _resolver.OnSessionStart(threadId, atUtc);
+            }
+
             return PublishLocked();
         }
     }

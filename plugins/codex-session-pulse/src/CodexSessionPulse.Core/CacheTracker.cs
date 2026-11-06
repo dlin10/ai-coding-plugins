@@ -153,6 +153,8 @@ public sealed class CacheTracker : ICacheTracker
     }
 
     /// <summary>The §6.3 heuristic: never on an unknown or changed model, and never without a positive write.</summary>
+    /// <param name="current">The new request, compared with the last confirmed one on the same model.</param>
+    /// <returns>Whether the request is an observed miss.</returns>
     private bool IsObservedMiss(TokenUsageSnapshot current)
     {
         if (_reference is not { } previous

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using CodexSessionPulse.Core;
 using CodexSessionPulse.Infrastructure.Rollouts;
@@ -5,6 +6,7 @@ using CodexSessionPulse.Infrastructure.Rollouts;
 namespace CodexSessionPulse.Infrastructure.Tests.Rollouts;
 
 /// <summary>A settable clock.</summary>
+/// <param name="utcNow">The initial time, in UTC.</param>
 internal sealed class FakeClock(DateTimeOffset utcNow) : IClock
 {
     public DateTimeOffset UtcNow { get; set; } = utcNow;
@@ -36,7 +38,8 @@ internal sealed class RolloutTestRoot : IDisposable
     public string DayFolder(int daysAgo)
     {
         DateTime date = Clock.UtcNow.ToLocalTime().Date.AddDays(-daysAgo);
-        return Path.Combine(Root, date.ToString("yyyy"), date.ToString("MM"), date.ToString("dd"));
+        return Path.Combine(Root, date.ToString("yyyy", CultureInfo.InvariantCulture),
+                            date.ToString("MM", CultureInfo.InvariantCulture), date.ToString("dd", CultureInfo.InvariantCulture));
     }
 
     public string RolloutPath(string threadId, string? rolloutId = null, int daysAgo = 0)

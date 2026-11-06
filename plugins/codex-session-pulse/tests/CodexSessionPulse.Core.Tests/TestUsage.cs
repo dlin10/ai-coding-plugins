@@ -1,6 +1,7 @@
 namespace CodexSessionPulse.Core.Tests;
 
 /// <summary>A settable clock for state-machine tests.</summary>
+/// <param name="utcNow">The initial time, in UTC.</param>
 internal sealed class FakeClock(DateTimeOffset utcNow) : IClock
 {
     public DateTimeOffset UtcNow { get; set; } = utcNow;

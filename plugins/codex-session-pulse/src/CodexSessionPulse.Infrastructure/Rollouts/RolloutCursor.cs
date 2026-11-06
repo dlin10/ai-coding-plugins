@@ -33,6 +33,12 @@ internal sealed class RolloutCursor
     /// <summary>Gets or sets the creation time seen when the file was opened; a change means a replaced file.</summary>
     public DateTime CreationTimeUtc { get; set; }
 
+    /// <summary>Gets or sets how many leading bytes <see cref="HeadHash"/> covers (at most 4 KiB).</summary>
+    public int HeadLength { get; set; }
+
+    /// <summary>Gets or sets the hash of the file's first <see cref="HeadLength"/> bytes, to recognize a replaced file.</summary>
+    public int HeadHash { get; set; }
+
     /// <summary>Gets or sets the offset of the next byte to read.</summary>
     public long Offset { get; set; }
 

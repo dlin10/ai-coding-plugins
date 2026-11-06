@@ -7,7 +7,8 @@ namespace CodexSessionPulse.Core;
 /// share a root session are never merged, and a subagent never replaces a main thread's state.
 /// </summary>
 /// <remarks>
-/// Reads are safe from any thread; writes are serialized by the caller (<see cref="PulseEngine"/>).
+/// Not thread-safe as a whole: the caller serializes every read and write, as <see cref="PulseEngine"/> does under
+/// its lock. The concurrent dictionary only keeps enumeration valid while a thread is added or removed.
 /// An ended thread leaves a bounded tombstone: discovery of its old JSONL cannot bring it back, while a new
 /// <c>SessionStart</c>/resume or activity newer than the end clears the tombstone.
 /// </remarks>
@@ -88,13 +89,20 @@ public sealed class ThreadRegistry
         return state;
     }
 
-    /// <summary>Handles <c>SessionStart</c> or resume: clears the tombstone and makes sure the thread is live.</summary>
+    /// <summary>
+    /// Handles a hook that shows the thread is in use (<c>SessionStart</c>, resume, user activity): clears a tombstone
+    /// older than the hook and makes sure the thread is live.
+    /// </summary>
     /// <param name="threadId">The thread id.</param>
-    /// <param name="atUtc">When the session started, in UTC.</param>
-    /// <returns>The thread's state.</returns>
-    public ThreadPulseState Start(string threadId, DateTimeOffset atUtc)
+    /// <param name="atUtc">When the hook fired, in UTC.</param>
+    /// <returns>The thread's state, or <see langword="null"/> when the hook is not newer than the thread's end.</returns>
+    public ThreadPulseState? Start(string threadId, DateTimeOffset atUtc)
     {
-        _tombstones.Remove(threadId);
+        if (!PassesTombstone(threadId, atUtc))
+        {
+            return null;
+        }
+
         ThreadPulseState state = GetOrAdd(threadId);
         Touch(state, atUtc);
 

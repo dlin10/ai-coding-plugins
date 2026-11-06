@@ -198,6 +198,22 @@ public sealed class PulseEngineTests
         Assert.Null(snapshot.Input);
     }
 
+    /// <summary>A hook older than the end (delivered late) neither revives the thread nor confirms it.</summary>
+    [Fact]
+    public void OnUserActivity_OlderThanTheEnd_DoesNotReviveTheThread()
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _engine.Apply(Create("B", T0.AddMinutes(1), 30000, 29000));
+        _engine.OnSessionEnd("A", T0.AddMinutes(5));
+
+        CacheSnapshot activity = _engine.OnUserActivity("A", T0.AddMinutes(4));
+        CacheSnapshot start = _engine.OnSessionStart("A", T0.AddMinutes(3));
+
+        Assert.Equal("B", activity.ThreadId);
+        Assert.Equal("B", start.ThreadId);
+        Assert.Equal(SelectionConfidence.Inferred, start.Selection.Confidence);
+    }
+
     /// <summary>A failed source turns the snapshot into Error with a diagnostic code and no free text.</summary>
     [Fact]
     public void OnSourceStatus_Failed_IsErrorWithCode()

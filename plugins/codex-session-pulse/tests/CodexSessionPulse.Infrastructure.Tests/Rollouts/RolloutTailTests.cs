@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using CodexSessionPulse.Core;
 using CodexSessionPulse.Infrastructure.Rollouts;
@@ -272,7 +273,75 @@ public sealed class RolloutTailTests : IDisposable
         Assert.EndsWith(Path.Combine(".codex", "sessions"), profile);
     }
 
+    /// <summary>
+    /// A file replaced in place with the old creation time (NTFS tunneling) and no shorter length is recognized by
+    /// its head and read anew.
+    /// </summary>
+    [Fact]
+    public void Poll_ReplacedWithSameCreationTime_IsReadAnew()
+    {
+        string path = _root.RolloutPath(ThreadA);
+        File.WriteAllText(path, Meta(ThreadA) + "\n" + TokenCount(1, 1, 10000, 9000) + "\n");
+        RolloutTail tail = _root.CreateTail();
+        tail.Poll();
+        DateTime created = File.GetCreationTimeUtc(path);
+
+        File.Delete(path);
+        File.WriteAllText(path, Meta(ThreadB) + "\n" + TokenCount(1, 1, 30000, 29000) + "\n" + TokenCount(2, 2, 31000, 30000) + "\n");
+        File.SetCreationTimeUtc(path, created);
+        RolloutPollResult result = tail.Poll();
+
+        Assert.Equal([30000L, 31000L], result.Usages.Select(u => u.InputTokens));
+        Assert.All(result.Usages, u => Assert.Equal(ThreadB, u.ThreadId));
+        Assert.Equal(1, tail.Diagnostics.Count(DiagnosticCodes.FileReset));
+    }
+
+    /// <summary>When the file limit is reached, discovery does not push out a file that the watcher reported active.</summary>
+    [Fact]
+    public void Poll_FullAndRediscovered_KeepsTheActiveFile()
+    {
+        string first = _root.RolloutPath(ThreadA);
+        File.WriteAllText(first, Meta(ThreadA) + "\n");
+        RolloutTail tail = _root.CreateTail(o => o with { MaxFiles = 1 });
+        tail.Poll();
+
+        string active = _root.RolloutPath(ThreadB);
+        File.WriteAllText(active, Meta(ThreadB) + "\n");
+        tail.MarkChanged(active);
+        tail.Poll();
+        tail.RequestRescan();
+        tail.Poll();
+        Append(active, TokenCount(1, 1, 20000, 19000) + "\n");
+        RolloutPollResult result = tail.Poll();
+
+        Assert.Equal(1, tail.TrackedFiles);
+        Assert.Equal(ThreadB, Assert.Single(result.Usages).ThreadId);
+    }
+
+    /// <summary>Day folders are Gregorian whatever the current culture's calendar is.</summary>
+    [Fact]
+    public void Poll_ThaiCulture_FindsGregorianDayFolders()
+    {
+        File.WriteAllText(_root.RolloutPath(ThreadA), Meta(ThreadA) + "\n" + TokenCount(1, 1, 10000, 9000) + "\n");
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        RolloutPollResult result;
+
+        try
+        {
+            CultureInfo.CurrentCulture = new CultureInfo("th-TH");
+            result = _root.CreateTail().Poll();
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
+
+        Assert.Single(result.Usages);
+    }
+
     /// <summary>The thread id comes from plain, segment and compressed names; other names are refused.</summary>
+    /// <param name="path">The path or name.</param>
+    /// <param name="expected">The thread id, or <see langword="null"/> for a name that is not a rollout.</param>
     [Theory]
     [InlineData("rollout-2026-11-06T23-50-33-00000000-0000-7000-8000-000000000001.jsonl", "00000000-0000-7000-8000-000000000001")]
     [InlineData(@"C:\s\rollout-2026-11-07T00-41-23-00000000-0000-7000-8000-000000000001_00000000-0000-7000-8000-000000000101.jsonl", "00000000-0000-7000-8000-000000000001")]

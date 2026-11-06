@@ -30,6 +30,9 @@ public sealed class CacheTrackerTests
     }
 
     /// <summary>The TTL boundaries: warm, expiring soon at exactly 25% left, estimated expired at the deadline.</summary>
+    /// <param name="elapsedSeconds">The time since the hit.</param>
+    /// <param name="expected">The expected state.</param>
+    /// <param name="remainingSeconds">The expected remaining time.</param>
     [Theory]
     [InlineData(0, CacheState.Warm, 30 * 60)]
     [InlineData(22 * 60 + 29, CacheState.Warm, 7 * 60 + 31)]
@@ -142,6 +145,8 @@ public sealed class CacheTrackerTests
     }
 
     /// <summary>The heuristic never fires on a zero or unknown write, an unknown model, or a model change (§11.1 item 10).</summary>
+    /// <param name="write">The cache write of the second request.</param>
+    /// <param name="model">The model of the second request.</param>
     [Theory]
     [InlineData(0L, "gpt-6.1-sol")]
     [InlineData(null, "gpt-6.1-sol")]

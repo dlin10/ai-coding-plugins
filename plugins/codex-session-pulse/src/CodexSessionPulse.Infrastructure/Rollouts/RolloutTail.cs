@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Globalization;
 using CodexSessionPulse.Core;
 
 namespace CodexSessionPulse.Infrastructure.Rollouts;
@@ -31,12 +32,13 @@ public sealed class RolloutTail
 {
     private const int ReadBufferBytes = 64 * 1024;
     private const int MaxReplayKeys = 4096;
+    private const int HeadCheckBytes = 4096;
     private const string RolloutExtension = ".jsonl";
 
     private readonly RolloutTailerOptions _options;
     private readonly IClock _clock;
     private readonly Dictionary<string, RolloutCursor> _cursors = new(StringComparer.OrdinalIgnoreCase);
-    private readonly ConcurrentQueue<string> _changed = new();
+    private readonly ConcurrentDictionary<string, byte> _changed = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<ReplayKey> _replayKeys = [];
     private readonly Queue<ReplayKey> _replayOrder = new();
     private DateTimeOffset? _lastDiscoveryUtc;
@@ -67,7 +69,8 @@ public sealed class RolloutTail
     /// <param name="path">The full path from the watcher.</param>
     public void MarkChanged(string path)
     {
-        _changed.Enqueue(path);
+        // A set, not a queue: a burst of writes to one file holds one entry until the next poll.
+        _changed.TryAdd(path, 0);
     }
 
     /// <summary>Makes the next poll list the day folders again (after a watcher overflow).</summary>
@@ -97,19 +100,23 @@ public sealed class RolloutTail
             _rescanRequested = false;
             _lastDiscoveryUtc = now;
 
+            // Discovery only fills free slots; only real activity (below) displaces a tracked file, so the two
+            // never take turns evicting each other.
             foreach (string path in Discover(now))
             {
-                Track(path, now);
+                Track(path, now, evict: false);
             }
         }
 
-        while (_changed.TryDequeue(out string? path))
+        foreach (string path in _changed.Keys)
         {
+            _changed.TryRemove(path, out _);
+
             if (path.EndsWith(RolloutExtension, StringComparison.OrdinalIgnoreCase)
              && RolloutFileName.TryGetThreadId(path, out _)
              && File.Exists(path))
             {
-                Track(path, now);
+                Track(path, now, evict: true);
             }
         }
 
@@ -130,7 +137,9 @@ public sealed class RolloutTail
         for (int day = -1; day <= _options.MaxAgeDays; day++)
         {
             DateTime date = today.AddDays(-day);
-            string folder = Path.Combine(_options.Root, date.ToString("yyyy"), date.ToString("MM"), date.ToString("dd"));
+            string folder = Path.Combine(_options.Root, date.ToString("yyyy", CultureInfo.InvariantCulture),
+                                         date.ToString("MM", CultureInfo.InvariantCulture),
+                                         date.ToString("dd", CultureInfo.InvariantCulture));
 
             if (Directory.Exists(folder))
             {
@@ -144,7 +153,7 @@ public sealed class RolloutTail
                     .Select(f => f.FullName);
     }
 
-    private void Track(string path, DateTimeOffset nowUtc)
+    private void Track(string path, DateTimeOffset nowUtc, bool evict)
     {
         string fullPath = Path.GetFullPath(path);
 
@@ -155,6 +164,11 @@ public sealed class RolloutTail
 
         if (_cursors.Count >= _options.MaxFiles)
         {
+            if (!evict)
+            {
+                return;
+            }
+
             RolloutCursor stalest = _cursors.Values.MinBy(c => c.LastGrowthUtc)!;
             _cursors.Remove(stalest.Path);
         }
@@ -175,14 +189,7 @@ public sealed class RolloutTail
             return;
         }
 
-        if (cursor.IsOpened && (file.Length < cursor.Offset || file.CreationTimeUtc != cursor.CreationTimeUtc))
-        {
-            Diagnostics.Increment(DiagnosticCodes.FileReset);
-            cursor = new RolloutCursor(cursor.Path, nowUtc);
-            _cursors[cursor.Path] = cursor;
-        }
-
-        if (cursor.IsOpened && file.Length == cursor.Offset)
+        if (cursor.IsOpened && file.Length == cursor.Offset && file.CreationTimeUtc == cursor.CreationTimeUtc)
         {
             return;
         }
@@ -193,6 +200,18 @@ public sealed class RolloutTail
         {
             using FileStream stream = new(cursor.Path, FileMode.Open, FileAccess.Read,
                                           FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
+
+            // A shorter file, a new creation time or a different head means truncation or replacement. The head
+            // check catches a replacement that NTFS tunneling gave the old creation time.
+            if (cursor.IsOpened
+             && (stream.Length < cursor.Offset
+              || file.CreationTimeUtc != cursor.CreationTimeUtc
+              || HeadHash(stream, buffer, cursor.HeadLength) != cursor.HeadHash))
+            {
+                Diagnostics.Increment(DiagnosticCodes.FileReset);
+                cursor = new RolloutCursor(cursor.Path, nowUtc);
+                _cursors[cursor.Path] = cursor;
+            }
 
             if (!cursor.IsOpened)
             {
@@ -212,7 +231,16 @@ public sealed class RolloutTail
         }
     }
 
-    /// <summary>Reads the first line (the <c>session_meta</c>), then places the cursor at the start of the history window.</summary>
+    /// <summary>
+    /// Reads the first line (the <c>session_meta</c>) and the head fingerprint, then places the cursor at the start
+    /// of the history window.
+    /// </summary>
+    /// <param name="cursor">The unopened cursor.</param>
+    /// <param name="stream">The file, positioned anywhere.</param>
+    /// <param name="creationTimeUtc">The file's creation time.</param>
+    /// <param name="buffer">A read buffer.</param>
+    /// <param name="observations">Receives the file's own thread.</param>
+    /// <param name="usages">Receives a usage event if the first line is one.</param>
     private void Open(RolloutCursor cursor,
                       FileStream stream,
                       DateTime creationTimeUtc,
@@ -228,6 +256,7 @@ public sealed class RolloutTail
         {
             int limit = (int)Math.Min(length, _options.MaxLineBytes);
             int filled = 0;
+            stream.Seek(0, SeekOrigin.Begin);
             int newline = -1;
 
             while (newline < 0 && filled < limit)
@@ -243,6 +272,9 @@ public sealed class RolloutTail
                 newline = found < 0 ? -1 : filled + found;
                 filled += read;
             }
+
+            cursor.HeadLength = Math.Min(filled, HeadCheckBytes);
+            cursor.HeadHash = Hash(head.AsSpan(0, cursor.HeadLength));
 
             // Without a complete first line (still being written, or too long) the normal path below reads it.
             if (newline >= 0)
@@ -346,10 +378,7 @@ public sealed class RolloutTail
 
         if (parsed.Usage is { } usage)
         {
-            HashCode hash = new();
-            hash.AddBytes(line);
-
-            if (Remember(new ReplayKey(cursor.Path.ToUpperInvariant(), lineStart, hash.ToHashCode())))
+            if (Remember(new ReplayKey(cursor.Path.ToUpperInvariant(), lineStart, Hash(line))))
             {
                 usages.Add(usage);
             }
@@ -375,6 +404,20 @@ public sealed class RolloutTail
         }
 
         return true;
+    }
+
+    private static int Hash(ReadOnlySpan<byte> bytes)
+    {
+        HashCode hash = new();
+        hash.AddBytes(bytes);
+        return hash.ToHashCode();
+    }
+
+    private static int HeadHash(FileStream stream, byte[] buffer, int headLength)
+    {
+        stream.Seek(0, SeekOrigin.Begin);
+        int read = stream.ReadAtLeast(buffer.AsSpan(0, headLength), headLength, throwOnEndOfStream: false);
+        return Hash(buffer.AsSpan(0, read));
     }
 
     private static ReadOnlySpan<byte> TrimCarriageReturn(ReadOnlySpan<byte> line)
