@@ -546,7 +546,7 @@ and the references the library was built against, writes a **Driver** for each m
 the user's code, and records where each delegate ran and what each argument received. A call into
 another assembly, other than `System.Private.CoreLib`, takes that member's built-in model or its
 generated answer, never a project model; the members of other libraries it meets without an answer it
-names to the run, which answers them in the next **Generation round**. Non-CoreLib
+names to the run, which answers them in the same **Generation round**. Non-CoreLib
 generation starts with **Inert type initializer** executions and repeats the whole member with
 initializers left outside the set and **Recipe value** construction when the final fate pass or confirmation
 exceeds 1,500 bodies. CoreLib keeps running initializers. One server constant limits a member to
@@ -590,9 +590,12 @@ _Avoid_: deadline (the **Deadline** limits AI work), timeout (a member's limit i
 
 **Generation round**:
 One step of a run's generated layer in a scope: every target of the scope's last analysis that has no
-answer yet, and every member of another library a generation of the previous round named, gets one —
-from its file of generated models, or from the **Model generator** within the **Generation budget**.
-The scope is analysed again with every answer so far when the answers its targets get applied differ
+answer yet, and every member of another library a generation of the round names without an answer, gets
+one — from its file of generated models, or from the **Model generator** within the **Generation
+budget**. The round takes its members from one queue: the targets first, then every other member by the
+rank of its assembly, so that a member a generation names is generated before the members waiting to read
+it; a member whose dependency's answer changed is generated again in the same round. The round ends when
+the queue is empty. The scope is analysed again with every answer so far when the answers its targets get applied differ
 from those its last analysis read; a refusal where the call was opaque changes nothing. The rounds of a
 scope end when no target is left that a file or the budget can still answer, no member waits to be
 generated again, and the last analysis read what the answers apply; the scope's result is its last

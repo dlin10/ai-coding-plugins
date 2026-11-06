@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
@@ -22,9 +23,11 @@ internal readonly record struct GenerationCandidate(Compilation Compilation, IMe
 internal readonly record struct ScopeLayer(GeneratedModelTable Table, bool Describes, IReadOnlyList<string> Diagnostics);
 
 /// <summary>A run's generation (R1–R4): over the candidates of one scope at a time it decides which members no layer describes and no file
-/// answers for, generates them in R4's order within the <b>Generation budget</b>, remembers every answer by member and file key so that a
-/// member met in several scopes shares its answer, and writes only final answers when the caller ends a scope's step. It is used by one
-/// thread at a time: scopes are analysed one after another.</summary>
+/// answers for, generates them from one queue in R4's order within the <b>Generation budget</b> (ADR 0032), remembers every answer by member
+/// and file key so that a member met in several scopes shares its answer, and writes only final answers when the caller ends a scope's step.
+/// Scopes are analysed one after another. Within a round, taking the next member, queuing a member, publishing an answer, a generation's read
+/// of the run's answers and the time spent hold one lock, so that several threads may share the queue; the steps between rounds run on one
+/// thread with no generation in flight.</summary>
 internal sealed class RunGeneration
 {
     /// <summary>The run's limit: the time spent inside generations in one run.</summary>
@@ -48,8 +51,14 @@ internal sealed class RunGeneration
     private readonly TimeSpan _memberLimit;
     private readonly TimeProvider _time;
     private readonly Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> _generate;
+    private readonly Func<GenerationRequest, CancellationToken, int> _rank;
+    private readonly object _gate = new();
     private readonly Dictionary<GeneratedFileKey, GeneratedModelFile> _files = new();
     private readonly Dictionary<(string MemberId, GeneratedFileKey Key), RunAnswer> _answers = new();
+    private readonly PriorityQueue<GenerationTarget, QueueOrder> _queue = new(QueueOrder.Comparer);
+    private readonly HashSet<(string MemberId, GeneratedFileKey Key)> _queued = [];
+    private readonly HashSet<(string MemberId, GeneratedFileKey Key)> _taken = [];
+    private readonly Dictionary<(string MemberId, GeneratedFileKey Key), HashSet<(string MemberId, GeneratedFileKey Key)>> _readers = new();
     private readonly Dictionary<GeneratedFileKey, List<GeneratedModelAnswer>> _pending = new();
     private readonly List<string> _diagnostics = [];
     private readonly CompilationOwnership _compilations = new();
@@ -66,26 +75,54 @@ internal sealed class RunGeneration
         internal bool Written { get; set; }
     }
 
-    /// <summary>Whether dependencies or changed views still call for another generation round within the budget.</summary>
-    internal bool HasWork => _spent < _runLimit && NextRound().Count != 0;
+    /// <summary>A queued member's place in its round: the targets of the scope's last analysis that have no answer yet come first, members
+    /// handed a delegate first among them; every other member comes after them. Within each, members go by the rank of their assembly, then
+    /// by declaration id in ordinal order, then by file key.</summary>
+    /// <param name="ScopeTarget">Whether the member is a target of the scope's last analysis that has no answer yet.</param>
+    /// <param name="HandedDelegate">Whether such a target is handed a delegate at one of its calls; <c>false</c> for every other member.</param>
+    /// <param name="Rank">The rank of the member's implementation assembly (<see cref="AssemblyRanks"/>).</param>
+    /// <param name="MemberId">The member's declaration id.</param>
+    /// <param name="Key">The text of the member's file key.</param>
+    private readonly record struct QueueOrder(bool ScopeTarget, bool HandedDelegate, int Rank, string MemberId, string Key)
+    {
+        /// <summary>The order the summary gives.</summary>
+        internal static readonly IComparer<QueueOrder> Comparer = Comparer<QueueOrder>.Create(static (left, right) =>
+        {
+            var order = right.ScopeTarget.CompareTo(left.ScopeTarget);
+            if (order == 0)
+                order = right.HandedDelegate.CompareTo(left.HandedDelegate);
+            if (order == 0)
+                order = left.Rank.CompareTo(right.Rank);
+            if (order == 0)
+                order = string.CompareOrdinal(left.MemberId, right.MemberId);
+            return order != 0 ? order : string.CompareOrdinal(left.Key, right.Key);
+        });
+    }
 
-    /// <summary>A run's generation with the server's limits, the system clock and the model generator over this process's install.</summary>
+    /// <summary>Whether dependencies or changed views still call for another generation round within the budget.</summary>
+    internal bool HasWork => Spent < _runLimit && NextRound().Count != 0;
+
+    /// <summary>A run's generation with the server's limits, the system clock, and the model generator and assembly ranks over this process's
+    /// install.</summary>
     /// <param name="repositoryRoot">The repository root whose <c>.concurrency-hunter/models/generated/</c> the run reads and writes.</param>
     /// <param name="cancellationToken">The run's token: its own cancellation or deadline stops generation and the cancellation propagates.</param>
     internal RunGeneration(string repositoryRoot, CancellationToken cancellationToken)
-        : this(repositoryRoot, cancellationToken, RUN_LIMIT, MEMBER_LIMIT, TimeProvider.System, DefaultGenerator())
+        : this(repositoryRoot, cancellationToken, RUN_LIMIT, MEMBER_LIMIT, TimeProvider.System, DefaultGenerator(),
+               new AssemblyRanks(ImplementationAssemblies.ForThisProcess()).Of)
     {
     }
 
-    /// <summary>A run's generation with limits, a clock and a generator of the caller's choosing, for tests.</summary>
+    /// <summary>A run's generation with limits, a clock, a generator and assembly ranks of the caller's choosing.</summary>
     /// <param name="repositoryRoot">The repository root whose <c>.concurrency-hunter/models/generated/</c> the run reads and writes.</param>
     /// <param name="cancellationToken">The run's token: its own cancellation or deadline stops generation and the cancellation propagates.</param>
     /// <param name="runLimit">The time the run may spend inside generations.</param>
     /// <param name="memberLimit">The time one member may spend inside its generation.</param>
     /// <param name="time">The clock both limits are measured on, and the timer that cuts a member.</param>
     /// <param name="generate">The generator call: a member's request, the run's raw dependency answers and the token that cuts the generation.</param>
+    /// <param name="rank">The rank of a request's implementation assembly (<see cref="AssemblyRanks.Of"/>); called under the round's lock.</param>
     internal RunGeneration(string repositoryRoot, CancellationToken cancellationToken, TimeSpan runLimit, TimeSpan memberLimit, TimeProvider time,
-                           Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> generate)
+                           Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> generate,
+                           Func<GenerationRequest, CancellationToken, int> rank)
     {
         _repositoryRoot = repositoryRoot;
         _runToken = cancellationToken;
@@ -93,10 +130,18 @@ internal sealed class RunGeneration
         _memberLimit = memberLimit;
         _time = time;
         _generate = generate;
+        _rank = rank;
     }
 
     /// <summary>The time spent inside generations so far: the budget's measure, and the run's <c>generation</c> timing.</summary>
-    internal TimeSpan Spent => _spent;
+    internal TimeSpan Spent
+    {
+        get
+        {
+            lock (_gate)
+                return _spent;
+        }
+    }
 
     /// <summary>The diagnostics of the generated files met so far, in the order they arose: an unreadable file, an invalid entry, a write
     /// that failed.</summary>
@@ -120,14 +165,16 @@ internal sealed class RunGeneration
     /// <returns>The answer, or <c>null</c> when the run generated nothing for the target.</returns>
     internal GeneratedModelAnswer? AnswerOf(IdentifiedGenerationTarget target) => _answers.GetValueOrDefault((target.MemberId, target.Key))?.Answer;
 
-    /// <summary>Generates what a scope's candidates call for. A candidate is generated when <see cref="GeneratedLayer.Decide"/> says so — no
-    /// project entry, no built-in entry in range and no stored answer describes it, and its implementation is on disk — and the run has not
-    /// answered its target yet. The round also answers dependencies and repeats members whose dependency models changed, except cycles.
-    /// Members handed a delegate come first, then the rest, each group in ordinal order of declaration id and then
-    /// of file key. A member runs under a token cancelled after the smaller of its own limit and what is left of the run's; when its own
-    /// limit is not larger than what is left a cut is <c>timeout</c>, otherwise <c>budget</c>. A member the run's limit has already been spent
-    /// before is <c>budget</c> without a generation. Final answers wait for <see cref="EndScope"/>; a stopped repeat keeps its old answer
-    /// applied in memory and unkept.</summary>
+    /// <summary>Generates what a scope's candidates call for, as one round with one queue (ADR 0032). A candidate is generated when
+    /// <see cref="GeneratedLayer.Decide"/> says so — no project entry, no built-in entry in range and no stored answer describes it, and its
+    /// implementation is on disk — and the run has not answered its target yet. These targets go first, members handed a delegate first
+    /// among them. Every other member waits behind them: a dependency that a generation saw without an answer, which joins the queue when that
+    /// generation's answer is published, and a member whose view of a published answer changed, except cycles. Within each, members go by
+    /// the rank of their assembly, then in ordinal order of declaration id, then of file key, and the round ends when the queue is empty. A
+    /// member runs under a token cancelled after the smaller of its own limit and what is left of the run's; when its own limit is not larger
+    /// than what is left a cut is <c>timeout</c>, otherwise <c>budget</c>. A member the run's limit has already been spent before is
+    /// <c>budget</c> without a generation. Final answers wait for <see cref="EndScope"/>; a stopped repeat keeps its old answer applied in
+    /// memory and unkept.</summary>
     /// <param name="models">The scope's models without the generated layer: they say whether a project or a built-in entry describes a member.</param>
     /// <param name="candidates">The scope's candidates, one per reached call.</param>
     /// <exception cref="OperationCanceledException">The run or enclosing work was cancelled.</exception>
@@ -135,50 +182,132 @@ internal sealed class RunGeneration
     {
         WorkCancellation.Check();
         _runToken.ThrowIfCancellationRequested();
-        var wanted = NextRound();
-        foreach (var (target, handed) in Wanted(models, candidates))
+        var targets = Wanted(models, candidates);
+        var waiting = NextRound();
+        lock (_gate)
         {
-            WorkCancellation.Check();
-            wanted[(target.MemberId, target.Key)] = (target, handed);
+            // A round that a cancellation stopped leaves its queue behind; what it still called for is in the answers.
+            _queue.Clear();
+            _queued.Clear();
+            _taken.Clear();
+            foreach (var (target, handed) in targets)
+            {
+                WorkCancellation.Check();
+                Queue(target, scopeTarget: true, handedDelegate: handed);
+            }
+            foreach (var target in waiting.Values)
+            {
+                WorkCancellation.Check();
+                Queue(target, scopeTarget: false, handedDelegate: false);
+            }
         }
-        foreach (var candidate in candidates)
+        Drain();
+        FinalizeAnswers();
+    }
+
+    /// <summary>Generates the queue's members until it is empty: takes the first, generates it and publishes its answer. Generations run
+    /// outside the lock, so the loop may run on several threads at once; <see cref="Generate"/> runs it once, on its caller's thread. A member
+    /// whose generation throws stays in flight until the next round.</summary>
+    /// <exception cref="OperationCanceledException">The run or enclosing work was cancelled.</exception>
+    internal void Drain()
+    {
+        while (TryTake(out var target))
         {
             WorkCancellation.Check();
-            var identity = (candidate.Target.MemberId, candidate.Target.Key);
-            if (candidate.HandedDelegate && wanted.TryGetValue(identity, out var item))
-                wanted[identity] = (item.Target, true);
+            Publish(target, GenerateOne(target));
         }
-        foreach (var (target, _) in wanted.Values.OrderByDescending(item => item.HandedDelegate)
-                                                .ThenBy(item => item.Target.MemberId, StringComparer.Ordinal)
-                                                .ThenBy(item => item.Target.Key.Text, StringComparer.Ordinal))
+    }
+
+    /// <summary>Takes the first member of the queue, under the lock; the member is in flight until its answer is published.</summary>
+    /// <param name="target">The member taken.</param>
+    /// <returns><c>false</c> when the queue is empty.</returns>
+    private bool TryTake([NotNullWhen(true)] out GenerationTarget? target)
+    {
+        lock (_gate)
         {
-            WorkCancellation.Check();
+            if (!_queue.TryDequeue(out target, out _))
+                return false;
+            _queued.Remove((target.MemberId, target.Key));
+            _taken.Add((target.MemberId, target.Key));
+            return true;
+        }
+    }
+
+    /// <summary>Queues a member at its place, unless it waits in the queue already or is in flight; the caller holds the lock. A member in
+    /// flight is checked again when its answer is published.</summary>
+    /// <param name="target">The member.</param>
+    /// <param name="scopeTarget">Whether it is a target of the scope's last analysis that has no answer yet.</param>
+    /// <param name="handedDelegate">Whether such a target is handed a delegate at one of its calls.</param>
+    private void Queue(GenerationTarget target, bool scopeTarget, bool handedDelegate)
+    {
+        var identity = (target.MemberId, target.Key);
+        if (!_taken.Contains(identity) && _queued.Add(identity))
+            _queue.Enqueue(target, new QueueOrder(scopeTarget, scopeTarget && handedDelegate, _rank(target.Request, _runToken), target.MemberId, target.Key.Text));
+    }
+
+    /// <summary>Publishes a generation's answer and queues what it calls for, under the lock: every dependency it saw that has no answer in
+    /// the run or its file and whose implementation is on disk, every member that saw this one and now sees it differently, and this member
+    /// again when a dependency's answer changed while it was generated — except a member whose views lead back to itself or whose repeat was
+    /// stopped. A stopped repeat keeps the earlier answer, applied but never final, and queues nothing.</summary>
+    /// <param name="target">The member generated.</param>
+    /// <param name="answer">Its answer.</param>
+    private void Publish(GenerationTarget target, RunAnswer answer)
+    {
+        lock (_gate)
+        {
             var identity = (target.MemberId, target.Key);
-            var answer = GenerateOne(target);
+            _taken.Remove(identity);
             if (_answers.TryGetValue(identity, out var earlier) &&
                 answer.Answer.Outcome.Kind is GenerationOutcomeKind.Budget or GenerationOutcomeKind.Failed)
             {
                 // A stopped retry keeps the previous answer applied, but never makes it final.
                 earlier.RetryStopped = true;
+                return;
             }
-            else
-                _answers[identity] = answer;
+
+            // The answer's readers are known before it is stored, so a cancellation below leaves only the queue incomplete, and the next
+            // round builds that again from the answers.
+            // bounded: one pass over the views the generation reported.
+            foreach (var view in answer.Views)
+            {
+                var dependency = (view.Target.MemberId, view.Target.Key);
+                if (!_readers.TryGetValue(dependency, out var readers))
+                    _readers.Add(dependency, readers = []);
+                readers.Add(identity);
+            }
+            _answers[identity] = answer;
+            foreach (var view in answer.Views)
+            {
+                WorkCancellation.Check();
+                if (view.Target is GenerationTarget next && !_answers.ContainsKey((next.MemberId, next.Key)) && DependencyAnswer(next.MemberId, next.Key) is null)
+                    Queue(next, scopeTarget: false, handedDelegate: false);
+            }
+            foreach (var reader in _readers.GetValueOrDefault(identity, []).Append(identity))
+            {
+                WorkCancellation.Check();
+                if (_answers.TryGetValue(reader, out var read) && !read.RetryStopped && read.Views.Any(view => !SameView(view)) && !InCycle(reader))
+                    Queue(read.Target, scopeTarget: false, handedDelegate: false);
+            }
         }
-        FinalizeAnswers();
     }
 
-    /// <summary>The run's answer before applicability, otherwise the current generator version's stored answer.</summary>
+    /// <summary>The run's answer before applicability, otherwise the current generator version's stored answer, read under the lock.</summary>
     /// <param name="memberId">The dependency's member id.</param>
     /// <param name="key">The dependency's own file key.</param>
-    private GeneratedModelEntry? DependencyAnswer(string memberId, GeneratedFileKey key) =>
-        _answers.TryGetValue((memberId, key), out var answer)
-            ? GeneratedModelFiles.EntryOf(answer.Answer, FileOf(key).DisplayPath)
-            : FileOf(key).Entries.GetValueOrDefault(memberId);
-
-    /// <summary>The next round's unanswered dependencies and members whose raw dependency models changed.</summary>
-    private Dictionary<(string MemberId, GeneratedFileKey Key), (GenerationTarget Target, bool HandedDelegate)> NextRound()
+    private GeneratedModelEntry? DependencyAnswer(string memberId, GeneratedFileKey key)
     {
-        var wanted = new Dictionary<(string MemberId, GeneratedFileKey Key), (GenerationTarget Target, bool HandedDelegate)>();
+        lock (_gate)
+        {
+            return _answers.TryGetValue((memberId, key), out var answer)
+                ? GeneratedModelFiles.EntryOf(answer.Answer, FileOf(key).DisplayPath)
+                : FileOf(key).Entries.GetValueOrDefault(memberId);
+        }
+    }
+
+    /// <summary>The unanswered dependencies and the members whose raw dependency models changed: nothing once a round's queue is empty.</summary>
+    private Dictionary<(string MemberId, GeneratedFileKey Key), GenerationTarget> NextRound()
+    {
+        var wanted = new Dictionary<(string MemberId, GeneratedFileKey Key), GenerationTarget>();
         foreach (var (identity, answer) in _answers)
         {
             WorkCancellation.Check();
@@ -188,10 +317,10 @@ internal sealed class RunGeneration
                 var dependency = (view.Target.MemberId, view.Target.Key);
                 if (view.Target is GenerationTarget target && !_answers.ContainsKey(dependency) &&
                     DependencyAnswer(dependency.MemberId, dependency.Key) is null)
-                    wanted[dependency] = (target, false);
+                    wanted[dependency] = target;
             }
             if (!answer.RetryStopped && answer.Views.Any(view => !SameView(view)) && !InCycle(identity))
-                wanted[identity] = (answer.Target, false);
+                wanted[identity] = answer.Target;
         }
         return wanted;
     }
@@ -422,7 +551,7 @@ internal sealed class RunGeneration
     {
         WorkCancellation.Check();
         _runToken.ThrowIfCancellationRequested();
-        var left = _runLimit - _spent;
+        var left = _runLimit - Spent;
         if (left <= TimeSpan.Zero)
             return new RunAnswer(target, Refused(target, GenerationOutcome.BUDGET, $"the run's generation budget of {Seconds(_runLimit)} s was spent before the member was reached"), []);
 
@@ -455,7 +584,9 @@ internal sealed class RunGeneration
         }
         finally
         {
-            _spent += _time.GetElapsedTime(started);
+            var elapsed = _time.GetElapsedTime(started);
+            lock (_gate)
+                _spent += elapsed;
         }
     }
 

@@ -60,7 +60,7 @@ public sealed class GenerationRoundMatrixTests
         // Y's model/refusal transitions require Z's model. W cannot spend the budget before that transition happens.
         if (cell.Path is PathOfY.ModelChanges or PathOfY.ModelRefused or PathOfY.RefusalBecomesModel)
             return cell.Chain == Chain.ZModel && cell.Second != Second.Budget;
-        // X's special repeat outcomes need Y's model and remaining budget; a W budget cut would prevent that repeat.
+        // X's special repeat outcomes need Y's model and remaining budget; they are not combined with a W budget cut.
         if (cell.Path is PathOfY.SameX or PathOfY.FailedX or PathOfY.TimeoutX)
             return cell.Timing == Timing.After && cell.Chain == Chain.Direct && cell.Second != Second.Budget;
         // A cut Y cannot have views and spends the whole remainder before W; a W answer cannot be constructed after it.
@@ -69,7 +69,7 @@ public sealed class GenerationRoundMatrixTests
         // The failed/refused paths have no dependency views, while W remains an independent branch.
         if (cell.Path is PathOfY.NoThenFailed or PathOfY.NoThenRefusal)
             return cell.Timing == Timing.After && cell.Chain == Chain.Direct;
-        // W's cut would prevent the Z answer specified by a chain; no such chain is built with a W budget cut.
+        // No chain is combined with a W budget cut.
         return cell.Path == PathOfY.NoThenModel && cell.Timing == Timing.After && (cell.Chain == Chain.Direct || cell.Second != Second.Budget);
     }
 
@@ -149,10 +149,13 @@ public sealed class GenerationRoundMatrixTests
         var stoppedZ = cell.Chain == Chain.ZBudget;
         var changes = ChangesY(cell);
         var callsY = Stored(cell.Path) || Missing(cell.Path) ? 0 : changes ? 2 : 1;
+        // The four assemblies reference none of one another, so they share a rank and the queue goes by declaration id: RoundX, RoundY,
+        // RoundZ, then W's RoundZZ. X's repeat comes before W's budget cut, and a Y generated before X settles its chain in its own round,
+        // so X never sees Y's first model.
         var callsX = 1;
-        if (!cycle && cell.Budget != Budget.BeforeRetry && cell.Second != Second.Budget)
+        if (!cycle && cell.Budget != Budget.BeforeRetry && cell.Timing == Timing.After)
         {
-            if (cell.Timing == Timing.After && FirstYModel(cell))
+            if (FirstYModel(cell))
                 callsX++;
             if (changes)
                 callsX++;
@@ -161,8 +164,9 @@ public sealed class GenerationRoundMatrixTests
         var final = timeoutRetry || !cycle && !unavailableY && !stoppedY && !stoppedW && !stoppedZ &&
                     cell.Budget == Budget.Enough && cell.Path != PathOfY.FailedX;
         var known = cell.Outcome == Outcome.Model && !timeoutRetry;
+        // Z's budget cut, before W by id, leaves W nothing to be generated with.
         return new(callsX, callsY, final, final, known, !cycle && !unavailableY && !stoppedY && !stoppedZ,
-                   cell.Chain is Chain.ZModel or Chain.ZRefusal, cell.Second == Second.Refusal, known ? 1 : 0);
+                   cell.Chain is Chain.ZModel or Chain.ZRefusal, cell.Second == Second.Refusal && !stoppedZ, known ? 1 : 0);
     }
 
     private sealed class Fixture : IDisposable

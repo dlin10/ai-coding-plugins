@@ -38,7 +38,8 @@ internal sealed class GenerationPass : IDisposable
         _install = setup.Install ?? ImplementationAssemblies.ForThisProcess();
         _generation = new RunGeneration(repositoryRoot, cancellationToken, RunGeneration.RunLimitOf(setup.Budget), RunGeneration.MEMBER_LIMIT,
                                         setup.Time ?? TimeProvider.System,
-                                        setup.Generator ?? ((request, dependencies, token) => ModelGenerator.Generate(request, _install, token, dependencies)));
+                                        setup.Generator ?? ((request, dependencies, token) => ModelGenerator.Generate(request, _install, token, dependencies)),
+                                        new AssemblyRanks(_install).Of);
         _cancellationToken = cancellationToken;
         _beforeFileRead = setup.BeforeFileRead;
     }

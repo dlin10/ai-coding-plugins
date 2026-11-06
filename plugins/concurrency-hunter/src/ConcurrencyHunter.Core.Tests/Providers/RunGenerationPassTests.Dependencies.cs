@@ -28,7 +28,7 @@ public sealed partial class RunGenerationPassTests
     }
 
     [Fact]
-    public async Task Regeneration_keeps_scope_delegate_priority_before_dependency_targets()
+    public async Task Regeneration_of_a_handed_target_waits_with_the_dependencies_by_rank_and_id()
     {
         var y = Dependency("Y");
         var w = Dependency("W");
@@ -43,7 +43,8 @@ public sealed partial class RunGenerationPassTests
             return WithViews(Model(request), View(y, source));
         });
 
-        Assert.Equal(["M:Acme.Api.Run(System.Action)", y.MemberId, "M:Acme.Api.Run(System.Action)", w.MemberId, y.MemberId], _requested);
+        // Only a target's first generation goes first, by its delegate. Its repeat waits behind W, whose id sorts first at the same rank.
+        Assert.Equal(["M:Acme.Api.Run(System.Action)", y.MemberId, w.MemberId, "M:Acme.Api.Run(System.Action)", y.MemberId], _requested);
     }
 
     [Fact]
@@ -59,7 +60,8 @@ public sealed partial class RunGenerationPassTests
             return WithViews(view.ModelText is null ? Model(request) : Writing(request), view);
         });
 
-        Assert.Equal(3, _analyses);
+        // One round generates Touch, Y and Touch again; the scope is analysed again once, with Touch's last model.
+        Assert.Equal(2, _analyses);
         Assert.Equal(2, _requested.Count(member => member.Contains("Touch", StringComparison.Ordinal)));
         Assert.Equal((1, 1), (Counter(result, CoverageCounters.KNOWN_CALL_GENERATED), Counter(result, CoverageCounters.GENERATED_IN_RUN)));
         Assert.Contains(result.Accesses, access => access.Operation == AccessOperation.Write);
@@ -74,7 +76,7 @@ public sealed partial class RunGenerationPassTests
     }
 
     [Fact]
-    public async Task Model_replaced_by_a_refusal_is_analysed_again()
+    public async Task Model_replaced_by_a_refusal_in_its_round_is_never_analysed()
     {
         var y = Dependency("Y");
         var solution = Solution("Acme.Api.Touch(_state);");
@@ -88,7 +90,9 @@ public sealed partial class RunGenerationPassTests
             return WithViews(view.ModelText is null ? Model(request) : Refusal(request), view);
         });
 
-        Assert.Equal(3, _analyses);
+        // Touch's first model is replaced by its refusal in the same round, so no analysis reads the model, and a refusal where the call
+        // was opaque asks for none.
+        Assert.Equal(1, _analyses);
         Assert.Equal(Fingerprints(off), Fingerprints(result));
         Assert.Equal((0, 0, 0), (Counter(result, CoverageCounters.KNOWN_CALL_GENERATED), Counter(result, CoverageCounters.GENERATED_IN_RUN),
                                  Counter(result, CoverageCounters.PAIRS_REMOVED_GENERATED)));
@@ -116,7 +120,7 @@ public sealed partial class RunGenerationPassTests
 
         Assert.Equal(2, _requested.Count(member => member == y.MemberId));
         Assert.Equal(3, _requested.Count(member => member.Contains("Touch", StringComparison.Ordinal)));
-        Assert.Equal(3, _analyses); // The first repeat of X has the same bytes; only Y's changed bytes change X's effects.
+        Assert.Equal(2, _analyses); // One round settles Touch, Y and Z; the scope is analysed again once, with Touch's last model.
         Assert.NotEmpty(CountFindings(result));
         Assert.DoesNotContain(result.Accesses, access => access.Operation == AccessOperation.UnknownEffect);
         Assert.NotNull(Stored(y));
@@ -236,11 +240,11 @@ public sealed partial class RunGenerationPassTests
         });
 
         Assert.Equal(2, _requested.Count(member => member == poke.MemberId));
-        Assert.Equal([2, 3], pokeAnalyses); // Poke is generated before the third analysis first reaches its call.
+        Assert.Equal([1, 1], pokeAnalyses); // Poke is generated twice in the first round, as a dependency, before an analysis reaches its call.
         Assert.Equal(2, Counter(result, CoverageCounters.GENERATED_IN_RUN));
         Assert.Equal(2, Counter(result, CoverageCounters.KNOWN_CALL_GENERATED));
         Assert.Empty(Assert.Single(result.Coverage).GenerationRefusals);
-        Assert.Equal(4, _analyses);
+        Assert.Equal(2, _analyses);
         Assert.NotEmpty(CountFindings(result));
         Assert.Equal(2, GeneratedModelFiles.Read(_repository, key).Entries.Count);
     }

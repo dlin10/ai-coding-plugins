@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "cd00a7b8a309e8d0302afc62e4980c907772e016d17aeccf94017e6dc379b2ae",
+  "generator": "70e426b3cd51a6f6bf0b456f6efad200d907f8e41b3e57e902e95ff06a7322d6",
   "assembly": {
     "name": "Microsoft.AspNetCore.Cors",
     "version": "10.0.0.0",

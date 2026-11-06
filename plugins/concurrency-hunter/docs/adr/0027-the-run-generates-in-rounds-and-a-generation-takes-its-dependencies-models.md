@@ -59,7 +59,11 @@ The forces:
   can still give, no member waiting to be generated again — and the layer applies what the last analysis read; the
   finite set of members and the budget guarantee it. A round answers all its new targets at once, so the number of rounds
   follows the depth of the chains, not the number of members. A run that only reads the files makes the same rounds over
-  the stored answers.
+  the stored answers. Amended by
+  [ADR 0032](0032-a-round-generates-from-one-queue-by-assembly-rank-and-a-dependency-read-without-an-answer-joins-it-at-once.md):
+  a round generates from one queue, its targets first and every other member behind them by assembly rank. A dependency
+  read without an answer and a member whose view changed are generated in the same round, so the rounds follow the
+  scope's analyses.
 - The scope's result is its last analysis. The pairs a generated model removed are the pairs of the analysis without the
   layer that the last analysis does not have. A target left without an answer is `budget` when the run generates and
   `not-generated` when it only reads; `reached-through-model` is no longer a cause.
@@ -68,7 +72,8 @@ The forces:
   never reads a project model or the model lock: project entries apply to the program's own calls. A member of a library
   compilation's implementation reference is a target with its own file key, for the version that compilation references.
 - A generation reports what it saw of each dependency it called: no answer, a refusal, an implementation not on disk,
-  or a model by its bytes. The dependencies it saw without an answer become targets of the next round. A member's answer
+  or a model by its bytes. The dependencies it saw without an answer become targets of the next round (amended by
+  ADR 0032: of the same round). A member's answer
   is final when its file keeps the outcome and every dependency it saw now has a final answer that looks the same to it
   — a refusal looks like no answer, a model like its bytes — and only a final answer is written. An answer that rests on
   a reason of the run — a dependency cut by the budget, one that failed or stopped, one whose implementation is not on

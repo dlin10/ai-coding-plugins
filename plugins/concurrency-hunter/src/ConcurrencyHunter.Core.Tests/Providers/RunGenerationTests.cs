@@ -13,7 +13,7 @@ namespace ConcurrencyHunter.Core.Tests.Providers;
 
 /// <summary>A run's generation (R1, R3, R4): which members it generates, in which order, within which limits, and what it keeps. A fake
 /// generator, a fake clock and a package in a fake NuGet layout stand for the real ones.</summary>
-public sealed class RunGenerationTests : IDisposable
+public sealed partial class RunGenerationTests : IDisposable
 {
     private const string PACKAGE = "Acme.Lib";
     private const string LIBRARY = """
@@ -485,21 +485,29 @@ public sealed class RunGenerationTests : IDisposable
     /// <param name="runLimit">The run's limit; a thousand seconds when omitted.</param>
     /// <param name="memberLimit">The member's limit; a minute when omitted.</param>
     /// <param name="token">The run's token.</param>
+    /// <param name="ranks">The rank of each member's assembly by the member's name; 0 for a member not named, and for all without it.</param>
     private RunGeneration Subject(Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> generate, TimeSpan? runLimit = null, TimeSpan? memberLimit = null,
-                                  CancellationToken token = default) =>
+                                  CancellationToken token = default, IReadOnlyDictionary<string, int>? ranks = null) =>
         new(_repository, token, runLimit ?? Seconds(1000), memberLimit ?? Seconds(60), _clock, (request, dependencies, cancellation) =>
         {
-            _calls.Add(request);
+            lock (_calls)
+                _calls.Add(request);
             return generate(request, dependencies, cancellation);
-        });
+        }, (request, _) => ranks?.GetValueOrDefault(Name(request)) ?? 0);
 
     /// <summary>The members one scope's step generates, in the order it generated them.</summary>
     /// <param name="models">The scope's models.</param>
     /// <param name="candidates">The scope's candidates.</param>
-    private string[] Run(LibraryModels models, params GenerationCandidate[] candidates)
+    private string[] Run(LibraryModels models, params GenerationCandidate[] candidates) => Run(models, null, candidates);
+
+    /// <summary>The members one scope's step generates, in the order it generated them, with the ranks given.</summary>
+    /// <param name="models">The scope's models.</param>
+    /// <param name="ranks">The rank of each member's assembly by the member's name.</param>
+    /// <param name="candidates">The scope's candidates.</param>
+    private string[] Run(LibraryModels models, IReadOnlyDictionary<string, int>? ranks, params GenerationCandidate[] candidates)
     {
         var start = _calls.Count;
-        var subject = Subject((request, _, _) => ModelAnswer(request));
+        var subject = Subject((request, _, _) => ModelAnswer(request), ranks: ranks);
         subject.Generate(models, candidates);
         subject.EndScope();
         return _calls.Skip(start).Select(Name).ToArray();
