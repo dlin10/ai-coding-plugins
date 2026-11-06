@@ -26,9 +26,10 @@ internal static class HookRunner
         {
             ReadPayload(stdin);
         }
-        catch (IOException)
+        catch (Exception)
         {
-            // A closed or broken stdin is a normal end of input for a hook.
+            // A closed or broken stdin, or anything unexpected, must not fail Codex or raise a WER dialog.
+            // Nothing from stdin is logged.
         }
 
         if (getEnvironmentVariable(DebugAssembliesVariable) == "1")

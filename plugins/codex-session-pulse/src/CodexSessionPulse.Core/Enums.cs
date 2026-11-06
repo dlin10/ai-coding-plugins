@@ -39,6 +39,25 @@ public enum ThreadKind
 
     /// <summary>A subagent thread.</summary>
     Subagent,
+
+    /// <summary>The kind could not be determined.</summary>
+    Unknown,
+}
+
+/// <summary>The display state of the window anchor (spec §3.3).</summary>
+public enum AnchorState
+{
+    /// <summary>No Codex window was found.</summary>
+    NotFound,
+
+    /// <summary>The Codex window is visible and in the foreground.</summary>
+    Attached,
+
+    /// <summary>The Codex window exists but is in the background; the overlay is hidden.</summary>
+    Background,
+
+    /// <summary>The Codex window is minimized; the overlay is hidden.</summary>
+    Minimized,
 }
 
 /// <summary>How sure the engine is that a thread is the one the user is looking at.</summary>

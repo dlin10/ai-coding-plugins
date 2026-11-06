@@ -194,7 +194,7 @@ public readonly record struct TokenUsageSnapshot(
     string? Model,
     long InputTokens,
     long CachedInputTokens,
-    long CacheWriteInputTokens,
+    long? CacheWriteInputTokens,
     long OutputTokens,
     long? ReasoningOutputTokens,
     string SourcePath,

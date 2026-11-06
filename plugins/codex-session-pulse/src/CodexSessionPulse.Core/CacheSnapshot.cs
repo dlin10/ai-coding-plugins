@@ -17,6 +17,8 @@ namespace CodexSessionPulse.Core;
 /// <param name="Speed">Output tokens per second; always <see langword="null"/> in P0.</param>
 /// <param name="Source">The data source behind the snapshot.</param>
 /// <param name="Diagnostics">A machine-readable diagnostic code for the Error and Stale states, or <see langword="null"/>.</param>
+/// <param name="Model">The model of the last request, or <see langword="null"/> when unknown.</param>
+/// <param name="CacheWrite">Input tokens written to the cache by the last request, or <see langword="null"/> when unknown (never 0 for unknown).</param>
 public sealed record CacheSnapshot(
     DateTimeOffset AtUtc,
     CacheState State,
@@ -30,7 +32,9 @@ public sealed record CacheSnapshot(
     CacheTtl Ttl,
     double? Speed,
     SourceInfo Source,
-    string? Diagnostics);
+    string? Diagnostics,
+    string? Model,
+    long? CacheWrite);
 
 /// <summary>Why a thread was selected and how sure that is.</summary>
 /// <param name="Confidence">How sure the selection is.</param>
@@ -38,9 +42,14 @@ public sealed record CacheSnapshot(
 public sealed record ThreadSelection(SelectionConfidence Confidence, string? Reason);
 
 /// <summary>A TTL estimate.</summary>
-/// <param name="Estimate">The estimated total TTL, or <see langword="null"/> when none can be made.</param>
+/// <param name="Estimate">The configured total TTL, or <see langword="null"/> when none can be made.</param>
+/// <param name="Remaining">
+/// The time left of <paramref name="Estimate"/> at the snapshot's <c>AtUtc</c>, measured from Core's own
+/// estimated anchor time (not <c>LastRequestAt</c>); <see langword="null"/> when there is no estimate.
+/// The bar is <paramref name="Remaining"/> divided by <paramref name="Estimate"/>.
+/// </param>
 /// <param name="Basis">What the estimate is based on.</param>
-public sealed record CacheTtl(TimeSpan? Estimate, TtlBasis Basis);
+public sealed record CacheTtl(TimeSpan? Estimate, TimeSpan? Remaining, TtlBasis Basis);
 
 /// <summary>The data source behind a snapshot.</summary>
 /// <param name="Status">Whether the source is readable.</param>
