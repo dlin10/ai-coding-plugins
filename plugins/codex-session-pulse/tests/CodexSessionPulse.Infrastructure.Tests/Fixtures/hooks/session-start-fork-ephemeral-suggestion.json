@@ -1,0 +1,9 @@
+{
+  "session_id": "00000000-0000-7000-8000-000000000066",
+  "transcript_path": null,
+  "cwd": "C:\\work\\project",
+  "hook_event_name": "SessionStart",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "default",
+  "source": "fork"
+}
