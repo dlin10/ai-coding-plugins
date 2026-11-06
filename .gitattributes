@@ -7,3 +7,7 @@ plugins/plan-forge-flow/src/PlanForge/Mcp/PlanCanvas.html text eol=lf
 # so the endings are shipped bytes here too rather than a checkout setting.
 plugins/plan-forge-flow/bin/planforge-launcher.cmd text eol=crlf
 plugins/roslyn-mcp/bin/roslyn-mcp-launcher.cmd text eol=crlf
+
+# Rollout fixtures are Codex's own LF bytes, and a fork fixture records a byte offset into its
+# parent, so a CRLF checkout would break the very offsets the tests read.
+plugins/codex-session-pulse/tests/CodexSessionPulse.Infrastructure.Tests/Fixtures/rollouts/** -text
