@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ConcurrencyHunter.Core.Tests.Fixtures;
 using ConcurrencyHunter.Frontend;
 using ConcurrencyHunter.Heap;
@@ -244,12 +245,87 @@ public sealed class MethodSummaryTests
         Assert.Equal("Gate", Assert.IsType<StaticFieldValue>(Assert.Single(held.Values)).Field.Name);
     }
 
+    // The first copy takes A before anything else uses it, in its own block, and B only after a load of B there. The second copy
+    // takes B in a branch the merge of the two copies does not pass through.
+    private const string OVERWRITTEN = """
+        struct S { public object A; public object B; }
+        class C
+        {
+            static void Keep(object value) { }
+            void M(S first, S second, bool flag, object x)
+            {
+                var copy = first;
+                copy.A = x;
+                Keep(copy.B);
+                copy.B = x;
+                if (flag)
+                {
+                    copy = second;
+                    copy.B = x;
+                }
+                Keep(copy.A);
+            }
+        }
+        """;
+
+    [Fact]
+    public void A_copy_is_overwritten_only_by_a_store_before_every_other_use_of_it()
+    {
+        var summary = Summarize(OVERWRITTEN);
+
+        // B is kept twice: a load of the first copy comes before its store in their block, and the merge reads the second copy on the
+        // path that skips its store.
+        Assert.Equal(new[] { "Fixture:S.A" }, summary.StructCopies.SelectMany(copy => copy.Overwritten));
+    }
+
+    [Theory]
+    [InlineData("get_Uses")]
+    [InlineData("Overwritten")]
+    public void Cancellation_inside_the_walks_of_the_overwritten_fields_stops_the_summary(string walk)
+    {
+        var (body, index) = Lower(OVERWRITTEN);
+        var operations = body.Blocks.Sum(block => block.Operations.Count);
+        var checks = 0;
+        using (WorkCancellation.Enter(CancellationToken.None, () => checks += CheckedIn() == walk ? 1 : 0))
+            MethodSummaryBuilder.Build(body, index, AnalysisLimits.Default);
+        // The index of the uses checks once per operation and once per operand; the fields check once per store on a copy.
+        Assert.True(walk == "get_Uses" ? checks >= operations : checks >= 3, $"{checks} checks in {walk}");
+
+        using var cancellation = new CancellationTokenSource();
+        var cancelled = false;
+        using var work = WorkCancellation.Enter(cancellation.Token, () =>
+        {
+            if (cancelled || CheckedIn() != walk)
+                return;
+            cancelled = true;
+            cancellation.Cancel();
+        });
+        Assert.Throws<OperationCanceledException>(() => MethodSummaryBuilder.Build(body, index, AnalysisLimits.Default));
+        Assert.True(cancelled);
+    }
+
+    /// <summary>The name of the method of the summary builder whose check is being observed: the first frame below this test's own
+    /// frames and <see cref="WorkCancellation"/>'s, or null where that frame is not the builder's.</summary>
+    private static string? CheckedIn() =>
+        new StackTrace().GetFrames().Select(frame => frame.GetMethod())
+                        .SkipWhile(method => method?.DeclaringType is { } type &&
+                                             (type == typeof(MethodSummaryTests) || type.DeclaringType == typeof(MethodSummaryTests) ||
+                                              type == typeof(WorkCancellation)))
+                        .FirstOrDefault() is { DeclaringType.FullName: "ConcurrencyHunter.Heap.MethodSummaryBuilder+Builder" } method
+            ? method.Name
+            : null;
+
     private static MethodSummary Summarize(string source, string member = "M", AnalysisLimits? limits = null)
+    {
+        var (body, index) = Lower(source, member);
+        return MethodSummaryBuilder.Build(body, index, limits ?? AnalysisLimits.Default);
+    }
+
+    private static (IrBody Body, CallGraph.ProgramIndex Index) Lower(string source, string member = "M")
     {
         var (compilation, index) = Compile(source);
         var method = compilation.GetTypeByMetadataName("C")!.GetMembers(member).OfType<IMethodSymbol>().Single();
-        var body = IrLowering.Lower(method, compilation, EngineFixture.ROOT_DIRECTORY, CancellationToken.None).Body;
-        return MethodSummaryBuilder.Build(body, index, limits ?? AnalysisLimits.Default);
+        return (IrLowering.Lower(method, compilation, EngineFixture.ROOT_DIRECTORY, CancellationToken.None).Body, index);
     }
 
     private static (MethodSummary Outer, MethodSummary Nested) SummarizeWithNested(string source)

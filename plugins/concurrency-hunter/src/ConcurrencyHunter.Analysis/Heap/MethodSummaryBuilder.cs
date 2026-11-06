@@ -115,6 +115,8 @@ public static class MethodSummaryBuilder
         /// <summary>The <c>GetEnumerator</c> call of each <c>foreach</c> of the body, by its enumeration id.</summary>
         private readonly Dictionary<int, IrCallOperation> _enumerators = [];
         private Dictionary<int, int>? _blockOf;
+        private Dictionary<int, int>? _positionOf;
+        private Dictionary<int, List<IrOperation>>? _uses;
         private Dictionary<int, HashSet<int>>? _dominators;
 
         internal Builder(IrBody body, ProgramIndex index, AnalysisLimits limits, Func<string, IrBody?>? bodies, ReachableSetResult? reachable)
@@ -3468,7 +3470,7 @@ public static class MethodSummaryBuilder
         private HashSet<string> Overwritten(int value)
         {
             var overwritten = new HashSet<string>(StringComparer.Ordinal);
-            var uses = _operations.Where(operation => operation.Operands.Contains(value)).ToArray();
+            var uses = Uses.GetValueOrDefault(value) ?? [];
             foreach (var store in uses.OfType<IrStoreFieldOperation>().Where(store => store.ReceiverValue == value))
             {
                 WorkCancellation.Check();
@@ -3487,15 +3489,45 @@ public static class MethodSummaryBuilder
         {
             if (!BlockOf.TryGetValue(first, out var from) || !BlockOf.TryGetValue(second, out var to))
                 return false;
-            if (from != to)
-                return Dominators[to].Contains(from);
-            var operations = _body.Blocks.Single(block => block.Ordinal == from).Operations;
-            return operations.ToList().FindIndex(operation => operation.Id == first) < operations.ToList().FindIndex(operation => operation.Id == second);
+            return from != to ? Dominators[to].Contains(from) : PositionOf[first] < PositionOf[second];
         }
 
         private IReadOnlyDictionary<int, int> BlockOf =>
             _blockOf ??= _body.Blocks.SelectMany(block => block.Operations.Select(operation => (operation.Id, block.Ordinal)))
                               .ToDictionary(pair => pair.Id, pair => pair.Ordinal);
+
+        /// <summary>Each operation's index among the operations of its block, by operation id.</summary>
+        private IReadOnlyDictionary<int, int> PositionOf =>
+            _positionOf ??= _body.Blocks.SelectMany(block => block.Operations.Select((operation, position) => (operation.Id, Position: position)))
+                                 .ToDictionary(pair => pair.Id, pair => pair.Position);
+
+        /// <summary>The operations that take each value as an operand, by value, in the order of <see cref="_operations"/>: each once,
+        /// however many of its operands name the value.</summary>
+        private IReadOnlyDictionary<int, List<IrOperation>> Uses
+        {
+            get
+            {
+                if (_uses is not null)
+                    return _uses;
+
+                var uses = new Dictionary<int, List<IrOperation>>();
+                foreach (var operation in _operations)
+                {
+                    WorkCancellation.Check();
+                    foreach (var operand in operation.Operands)
+                    {
+                        WorkCancellation.Check();
+                        if (!uses.TryGetValue(operand, out var users))
+                            uses[operand] = users = [];
+                        // An operation naming the value twice, as a phi with two equal inputs does, is added once.
+                        if (users.Count == 0 || !ReferenceEquals(users[^1], operation))
+                            users.Add(operation);
+                    }
+                }
+
+                return _uses = uses;
+            }
+        }
 
         /// <summary>Which blocks every block is reached only through, by the usual fixpoint over the predecessors.</summary>
         private IReadOnlyDictionary<int, HashSet<int>> Dominators
