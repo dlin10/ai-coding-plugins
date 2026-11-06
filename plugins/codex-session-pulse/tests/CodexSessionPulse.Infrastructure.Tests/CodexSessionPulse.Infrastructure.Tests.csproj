@@ -22,4 +22,8 @@
     <ProjectReference Include="..\..\src\CodexSessionPulse.Infrastructure\CodexSessionPulse.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
