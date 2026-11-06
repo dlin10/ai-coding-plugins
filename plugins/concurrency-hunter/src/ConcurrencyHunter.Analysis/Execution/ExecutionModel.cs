@@ -783,6 +783,15 @@ public static class ExecutionModel
         private readonly Dictionary<string, IReadOnlyList<string>> _prefixes = new(StringComparer.Ordinal);
         private readonly Dictionary<string, IReadOnlyList<SpawnSiteLocation>> _spawnSites = new(StringComparer.Ordinal);
         private readonly Dictionary<(string BodyId, int Operation), bool> _inCycle = [];
+
+        /// <summary>The flow successors of each block of a body that <see cref="_inCycle"/> was asked about, by body id: the same for
+        /// every operation of the body.</summary>
+        private readonly Dictionary<string, Dictionary<int, int[]>> _successors = new(StringComparer.Ordinal);
+
+        /// <summary>The blocks one walk of <see cref="InCycle(string, IrBody, int)"/> has met and has yet to visit, kept from walk to
+        /// walk: a body of thousands of blocks would otherwise allocate sets of that size for every operation asked about.</summary>
+        private readonly HashSet<int> _inCycleSeen = [];
+        private readonly Stack<int> _inCyclePending = new();
         private readonly Dictionary<string, HashSet<string>> _sharedReach = new(StringComparer.Ordinal);
         private readonly Dictionary<string, (HashSet<string> Stored, HashSet<string> Targets)[]> _stores = new(StringComparer.Ordinal);
         private Dictionary<string, string[]>? _callersOf;
@@ -3463,25 +3472,42 @@ public static class ExecutionModel
             CheckCancellation();
             if (!_inCycle.TryGetValue((bodyId, operationId), out var inCycle))
             {
-                inCycle = scope.Reachable.Bodies.TryGetValue(bodyId, out var body) && InCycle(body, operationId);
+                inCycle = scope.Reachable.Bodies.TryGetValue(bodyId, out var body) && InCycle(bodyId, body, operationId);
                 _inCycle.Add((bodyId, operationId), inCycle);
             }
 
             return inCycle;
         }
 
-        private bool InCycle(IrBody body, int operationId)
+        /// <summary>Whether the block of an operation reaches itself again along the body's flow edges.</summary>
+        /// <param name="bodyId">The id of the body, by which its successors are kept.</param>
+        /// <param name="body">The body.</param>
+        /// <param name="operationId">The id of the operation.</param>
+        private bool InCycle(string bodyId, IrBody body, int operationId)
         {
             CheckCancellation();
             var block = body.Blocks.FirstOrDefault(candidate => candidate.Operations.Any(operation => operation.Id == operationId));
             if (block is null)
                 return false;
 
-            var successors = body.Blocks.SelectMany(candidate => candidate.FlowPredecessors.Select(predecessor => (predecessor.BlockOrdinal, candidate.Ordinal)))
+            if (!_successors.TryGetValue(bodyId, out var successors))
+            {
+                successors = body.Blocks.SelectMany(candidate => candidate.FlowPredecessors.Select(predecessor => (predecessor.BlockOrdinal, candidate.Ordinal)))
                                  .GroupBy(pair => pair.BlockOrdinal)
                                  .ToDictionary(group => group.Key, group => group.Select(pair => pair.Ordinal).ToArray());
-            var seen = new HashSet<int>();
-            var pending = new Stack<int>(successors.GetValueOrDefault(block.Ordinal) ?? []);
+                _successors.Add(bodyId, successors);
+            }
+
+            var seen = _inCycleSeen;
+            seen.Clear();
+            var pending = _inCyclePending;
+            pending.Clear();
+            foreach (var next in successors.GetValueOrDefault(block.Ordinal) ?? [])
+            {
+                CheckCancellation();
+                pending.Push(next);
+            }
+
             while (pending.TryPop(out var current))
             {
                 CheckCancellation();

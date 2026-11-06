@@ -119,7 +119,7 @@ public static class MethodSummaryBuilder
         private Dictionary<int, int>? _blockOf;
         private Dictionary<int, int>? _positionOf;
         private Dictionary<int, List<IrOperation>>? _uses;
-        private Dictionary<int, HashSet<int>>? _dominators;
+        private ulong[][]? _dominators;
 
         /// <summary>The predicates of each block's guards, by block ordinal: every operation of a block has its guards.</summary>
         private readonly Dictionary<int, IReadOnlyList<SummaryPredicate>> _conditions = [];
@@ -3311,7 +3311,7 @@ public static class MethodSummaryBuilder
             {
                 WorkCancellation.Check();
                 if (candidate.Ordinal == block || candidate.ConditionalBranch is not { ConditionValue: int condition, Destination: int taken } branch ||
-                    candidate.FallThroughBranch?.Destination is not { } skipped || !Dominators[block].Contains(candidate.Ordinal))
+                    candidate.FallThroughBranch?.Destination is not { } skipped || !DominatedBy(block, candidate.Ordinal))
                 {
                     continue;
                 }
@@ -3331,8 +3331,8 @@ public static class MethodSummaryBuilder
         /// <param name="to">The ordinal of the block the edge enters.</param>
         /// <param name="block">The ordinal of the block every path to which is checked.</param>
         private bool EdgeDominates(int from, int to, int block) =>
-            Dominators[block].Contains(to) &&
-            _body.Blocks[to].Predecessors.All(predecessor => predecessor == from || Dominators[predecessor].Contains(to));
+            DominatedBy(block, to) &&
+            _body.Blocks[to].Predecessors.All(predecessor => predecessor == from || DominatedBy(predecessor, to));
 
         /// <summary>The predicates that must hold where an operation runs (TD-090): one per condition that decides it, read as
         /// far as the bounded forms go. Everything else is kept as an unsupported predicate, which constrains nothing and is
@@ -3513,7 +3513,7 @@ public static class MethodSummaryBuilder
         {
             if (!BlockOf.TryGetValue(first, out var from) || !BlockOf.TryGetValue(second, out var to))
                 return false;
-            return from != to ? Dominators[to].Contains(from) : PositionOf[first] < PositionOf[second];
+            return from != to ? DominatedBy(to, from) : PositionOf[first] < PositionOf[second];
         }
 
         private IReadOnlyDictionary<int, int> BlockOf =>
@@ -3553,37 +3553,75 @@ public static class MethodSummaryBuilder
             }
         }
 
-        /// <summary>Which blocks every block is reached only through, by the usual fixpoint over the predecessors.</summary>
-        private IReadOnlyDictionary<int, HashSet<int>> Dominators
+        /// <summary>Which blocks every block is reached only through, by the usual fixpoint over the predecessors: by block ordinal,
+        /// one bit per block ordinal, which is the block's index in the body. Each set is narrowed in place, so a pass allocates
+        /// nothing; read them through <see cref="DominatedBy"/>.</summary>
+        private ulong[][] Dominators
         {
             get
             {
                 if (_dominators is not null)
                     return _dominators;
 
-                var all = _body.Blocks.Select(block => block.Ordinal).ToHashSet();
-                _dominators = _body.Blocks.ToDictionary(block => block.Ordinal,
-                                                        block => block.Predecessors.Count == 0 ? [block.Ordinal] : new HashSet<int>(all));
+                var blocks = _body.Blocks;
+                var all = new ulong[(blocks.Count + 63) / 64];
+                Array.Fill(all, ulong.MaxValue);
+                if (blocks.Count % 64 != 0)
+                    all[^1] = (1UL << (blocks.Count % 64)) - 1;
+                var dominators = new ulong[blocks.Count][];
+                foreach (var block in blocks)
+                {
+                    WorkCancellation.Check();
+                    if (block.Predecessors.Count != 0)
+                        dominators[block.Ordinal] = (ulong[])all.Clone();
+                    else
+                    {
+                        dominators[block.Ordinal] = new ulong[all.Length];
+                        dominators[block.Ordinal][block.Ordinal / 64] = 1UL << (block.Ordinal % 64);
+                    }
+                }
+
+                var common = new ulong[all.Length];
                 for (var changed = true; changed;)
                 {
                     WorkCancellation.Check();
                     changed = false;
-                    foreach (var block in _body.Blocks.Where(block => block.Predecessors.Count != 0))
+                    foreach (var block in blocks)
                     {
                         WorkCancellation.Check();
-                        var dominators = block.Predecessors.Select(predecessor => _dominators[predecessor])
-                                              .Aggregate(new HashSet<int>(all), (common, next) => common.Intersect(next).ToHashSet());
-                        dominators.Add(block.Ordinal);
-                        if (dominators.SetEquals(_dominators[block.Ordinal]))
+                        if (block.Predecessors.Count == 0)
                             continue;
-                        _dominators[block.Ordinal] = dominators;
+
+                        all.CopyTo(common, 0);
+                        foreach (var predecessor in block.Predecessors)
+                        {
+                            WorkCancellation.Check();
+                            var other = dominators[predecessor];
+                            for (var word = 0; word < common.Length; word++)
+                            {
+                                WorkCancellation.Check();
+                                common[word] &= other[word];
+                            }
+                        }
+
+                        common[block.Ordinal / 64] |= 1UL << (block.Ordinal % 64);
+                        if (common.AsSpan().SequenceEqual(dominators[block.Ordinal]))
+                            continue;
+                        common.CopyTo(dominators[block.Ordinal], 0);
                         changed = true;
                     }
                 }
 
-                return _dominators;
+                return _dominators = dominators;
             }
         }
+
+        /// <summary>Whether every path to a block passes through another, as <see cref="Dominators"/> holds it: a block is reached
+        /// only through itself.</summary>
+        /// <param name="block">The ordinal of the block reached.</param>
+        /// <param name="dominator">The ordinal of the block every path to it may pass through.</param>
+        private bool DominatedBy(int block, int dominator) =>
+            (Dominators[block][dominator / 64] & (1UL << (dominator % 64))) != 0;
 
         /// <summary>One call of a modelled collection member: the call, what it does, the load of the collection it works on — null
         /// where no field of this body names it — and the cell its key names.</summary>
