@@ -131,8 +131,8 @@
 
 ```mermaid
 flowchart TD
-    K["Codex lifecycle hooks"] --> L["SessionPulse.exe --hook (short-lived)"]
-    L -->|"Launch if absent"| O["SessionPulse.exe --overlay (WPF)"]
+    K["Codex lifecycle hooks"] --> L["CodexSessionPulse.exe --hook (short-lived)"]
+    L -->|"Launch if absent"| O["CodexSessionPulse.exe --overlay (WPF)"]
     L -->|"Named Pipe events"| O
     J["All Codex rollout JSONL"] --> W["Incremental JSONL Reader"]
     W --> N["Usage Normalizer"]
@@ -194,7 +194,7 @@ public readonly record struct TokenUsageSnapshot(
     string? Model,
     long InputTokens,
     long CachedInputTokens,
-    long CacheWriteInputTokens,
+    long? CacheWriteInputTokens,
     long OutputTokens,
     long? ReasoningOutputTokens,
     string SourcePath,
@@ -544,7 +544,7 @@ Auto Warm нельзя считать работающим, пока **факт�
 
 ### Шаг 1 — Core и Infrastructure
 
-Сделать доменные типы, incremental tailer, `ThreadRegistry` (`Dictionary<threadId, ThreadPulseState>`), независимые state machine CacheTracker/SpeedTracker, `ActiveThreadResolver` **Auto only**, clock abstraction и settings; покрыть тестами, включая образец пользователя. Компоненты должны работать без WPF. Начинать можно параллельно с Шагом 0 на синтетических фикстурах и rollouts от CLI; обезличенные фикстуры Desktop из Шага 0 дополняют тесты позже.
+Сделать доменные типы, incremental tailer, `ThreadRegistry` (`ConcurrentDictionary<string, ThreadPulseState>`), независимые state machine CacheTracker/SpeedTracker, `ActiveThreadResolver` **Auto only**, clock abstraction и settings; покрыть тестами, включая образец пользователя. Компоненты должны работать без WPF. Начинать можно параллельно с Шагом 0 на синтетических фикстурах и rollouts от CLI; обезличенные фикстуры Desktop из Шага 0 дополняют тесты позже.
 
 ### Шаг 2 — WPF/Win32 UI
 
