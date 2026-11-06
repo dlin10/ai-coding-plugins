@@ -1,0 +1,20 @@
+{
+  "name": "codex-session-pulse",
+  "version": "0.1.0",
+  "description": "A small overlay over Codex Desktop showing the last observed prompt-cache read and a TTL estimate.",
+  "author": {
+    "name": "Dmitry Linetsky"
+  },
+  "license": "MIT",
+  "interface": {
+    "displayName": "Codex Session Pulse",
+    "shortDescription": "Cache-read overlay for Codex Desktop",
+    "longDescription": "Shows a small non-activating overlay over Codex Desktop with the last observed cached-input and input token counts and an estimate of the prompt-cache TTL. Rollout JSONL files are the source of truth; lifecycle hooks only make updates faster.",
+    "developerName": "Dmitry Linetsky",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": "Explain what the Codex Session Pulse overlay is showing for this session."
+  }
+}
