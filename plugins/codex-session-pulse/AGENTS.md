@@ -37,6 +37,21 @@ so build the solution first. Before a PR also run `npm run validate:plugins` at 
 - The hook never writes stdin anywhere, reads nothing from the current directory, and always exits 0.
 - Every public type and member in Core carries a complete XML doc comment; the build fails without one.
 
+## Additive contract (#251)
+
+New public types beside the frozen ones; adding members to them is allowed. Their XML docs hold the rules.
+
+- `PulseEngine` – the one entry point: `Apply`/`Observe` from the reader, `OnUserActivity`/`OnSessionStart`/
+  `OnSessionEnd` from hooks (thread id from `RolloutFileName.TryGetThreadId(transcript_path)`, never the hook
+  `session_id`), `OnCodexWindows`, `OnSourceStatus`, `Tick`. It publishes every `CacheSnapshot` to `Snapshots`.
+- `SnapshotPublisher<T>` – hand-rolled latest-value `IObservable<T>`; no Rx.
+- `SelectionReasons` and `DiagnosticCodes` – the only values of `ThreadSelection.Reason`, `CacheSnapshot.Diagnostics`
+  and the reader's counters. Core and the reader never emit free text; add a constant rather than a string.
+- `HookActivityRecorder`/`HookActivitySnapshot` – hook counts for diagnostics; `InMemorySessionEventSource` – the stub
+  source for tests and for the overlay before integration.
+- `Infrastructure/Rollouts/` – `RolloutTailer` (the live `ISessionEventSource`, raises `ThreadObserved`),
+  `RolloutTail` (its synchronous core, used by tests), `RolloutTailerOptions`, `RolloutDiagnostics`.
+
 ## Logs
 
 None are written yet. Build and test logs go to `scratch/` (ignored); the overlay's own log location is decided with the overlay.
