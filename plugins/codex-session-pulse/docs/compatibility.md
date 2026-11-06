@@ -136,7 +136,8 @@ app-server детектированная оболочка — `powershell` («S
 - Размеры: `SessionStart` ≈ 360 байт, `UserPromptSubmit` растёт с длиной промпта (служебный промпт
   Desktop — 1240 символов).
 
-На настоящем `CodexSessionPulse.exe` это ещё предстоит повторить (раздел 3.5).
+Настоящий `CodexSessionPulse.exe` в Desktop тоже отработал на `UserPromptSubmit` (раздел 3.5). Тип
+handle stdin и число прочитанных байт на нём не замерялись: заглушка scaffold их не сообщает.
 
 Окружение (**подтверждено**):
 
@@ -267,6 +268,7 @@ ADR 0004 roslyn-mcp описывает другой job — job MCP-сервер
 | Подсказка следующего сообщения (Desktop делает её сам после некоторых ходов) | Эфемерный форк: `SessionStart` `source: fork` с `transcript_path: null`, `UserPromptSubmit` со служебным промптом («app-generated request for a suggested next user message»), через 4–10 с `SessionEnd` `reason: other`. Rollout не создаётся. |
 | Черновой тред (текст набран на главной, промпт не отправлен) | Создан rollout с одним `session_meta`. `SessionStart` не было; через ≈10 мин app-server выгрузил тред («no subscribers and is idle») — пришёл `SessionEnd` `reason: other`. |
 | Субагент (модель вызвала `spawn_agent`) | `SubagentStart`: `session_id` и `turn_id` родителя, `transcript_path` = rollout субагента, `agent_id` = id треда субагента, `agent_type: "default"`. `SubagentStop`: `transcript_path` = rollout родителя, плюс `agent_transcript_path`. Своего `SessionStart` и `UserPromptSubmit` у субагента не было. |
+| Закрыть тред | Отдельного действия «закрыть тред» в Desktop нет. Меню треда (Rename, Pin, New side chat, Fork, Add scheduled task, Share, Copy, Open in new window, Open in, Archive) и команды `/` предлагают только Archive и Permanently delete chat; вкладок с крестиком нет. Ближайшие действия: уйти с треда (пассивное переключение — ничего) и Archive (`SessionEnd`, строка выше). Permanently delete chat не проверялся. |
 | Закрыть последнее окно Desktop | Ничего. Процессы `ChatGPT.exe` (16) и `codex.exe` (2) живы; за 15 минут ни одного `SessionEnd`. |
 | Простой без окон | За 34 минуты после закрытия последнего окна (36 мин без активности в тредах) ни одного `SessionEnd`; в логах app-server ни одной выгрузки треда. Выгрузка через 30 мин простоя **не установлена**. |
 | Выход из приложения (File → Quit ChatGPT) | Ни одного `SessionEnd`. В логах нет записей о завершении тредов. |
@@ -419,7 +421,9 @@ ADR 0004 roslyn-mcp описывает другой job — job MCP-сервер
 
 ### 7.4 Сегменты и `.zst`
 
-- В корпусе из 1148 файлов (`sessions` и `archived_sessions`) все имена имеют вид
+- На 2026-11-07 00:15 в `sessions` и `archived_sessions` лежало 1148 файлов: 809 файлов корпуса,
+  8 тредов этой проверки в `sessions` и 331 в `archived_sessions`, включая 1 тред этой проверки.
+  Все имена имеют вид
   `rollout-<yyyy-mm-ddThh-mm-ss>-<thread-id>.jsonl[.zst]`: суффикса нет. Компактификация и форк
   нового сегмента не создают.
 - **Подтверждено:** правка своего сообщения в Desktop создаёт новый сегмент того же треда:
@@ -475,26 +479,6 @@ ADR 0004 roslyn-mcp описывает другой job — job MCP-сервер
 - Все наблюдения — на одной машине, с одной версией Desktop (26.1103) и app-server
   (0.167.0-alpha.3.2).
 
-## 11. Остатки проверки
-
-Удалено: временный плагин из Desktop (Uninstall), его папка кэша, проект `PulseProbe250` в Desktop,
-временная запись в `.agents/plugins/marketplace.json`, `plugin.json`, `hooks.json` и `bin/` в рабочей
-копии, все файлы и процессы зонда, стенд замеров.
-
-Осталось и перечислено точно (это `~/.codex`, в эту проверку только для чтения):
-
-- `~/.codex/config.toml`:
-  - `[projects.'C:\Dev\Worktrees\CodexPlugins\session-pulse-250-848698']` с
-    `trust_level = "trusted"` — записан Desktop при «Trust this folder»;
-  - пять записей `[hooks.state."codex-session-pulse@dlin10-ai-coding-plugins:hooks/hooks.json:<event>:0:0"]`
-    для `session_start`, `session_end`, `user_prompt_submit`, `subagent_start`,
-    `subagent_stop` — записаны Desktop при Trust all.
-- `~/.codex/archived_sessions/`: 9 rollout тестовых тредов от 2026-11-06 23:41 до 2026-11-07 00:41
-  (заархивированы через Desktop, видны в Settings → Archived chats).
-- `~/.codex/sessions/2026/11/06/rollout-2026-11-06T23-40-01-…e781….jsonl`: черновой тред с одним
-  `session_meta`, без сообщений.
-- `~/.codex/logs_2.sqlite`: строки логов app-server за время проверки.
-
 ## 9. `jsonl-inspect`
 
 Консольная утилита `tools/CodexSessionPulse.JsonlInspect` (`jsonl-inspect.exe`). Читает rollout с
@@ -521,8 +505,9 @@ dotnet run --project plugins/codex-session-pulse/tools/CodexSessionPulse.JsonlIn
 
 Как обезличено:
 
-- id заменены синтетическими (`00000000-0000-7000-8000-0000000000NN`) согласованно во всех файлах:
-  хук-фикстуры ссылаются на те же треды, что и rollout;
+- id заменены синтетическими (`00000000-0000-7000-8000-0000000000NN`) согласованно во всех файлах.
+  Хук-фикстуры тредов 1, 2 и 3 ссылаются на rollout-фикстуры тех же тредов. У служебного треда-
+  подсказки (66) и архивированного треда (67) rollout-фикстуры нет;
 - пути заменены на `C:\Users\user\…` и `C:\work\project`;
 - весь свободный текст заменён на `"redacted"`;
 - записи без нужных #251 данных сведены к `{type}`-заглушкам с прежним `ordinal`;
@@ -531,3 +516,27 @@ dotnet run --project plugins/codex-session-pulse/tools/CodexSessionPulse.JsonlIn
 
 Папка `rollouts/` помечена в `.gitattributes` как `-text`, чтобы LF и смещения доходили до тестов
 байт в байт.
+
+Фикстуры stdin для `SessionStart` `source: resume` нет. Событие наблюдалось (раздел 5.2), но
+захваты stdin были удалены вместе с зондом раньше, чем дошло до фикстур. Восстанавливать его по
+памяти не стали.
+
+## 11. Остатки проверки
+
+Удалено: временный плагин из Desktop (Uninstall), его папка кэша, проект `PulseProbe250` в Desktop,
+временная запись в `.agents/plugins/marketplace.json`, `plugin.json`, `hooks.json` и `bin/` в рабочей
+копии, все файлы и процессы зонда, стенд замеров.
+
+Осталось и перечислено точно (это `~/.codex`, в эту проверку только для чтения):
+
+- `~/.codex/config.toml`:
+  - `[projects.'<путь рабочей копии>']` с `trust_level = "trusted"` — записан Desktop при «Trust
+    this folder»;
+  - пять записей `[hooks.state."codex-session-pulse@dlin10-ai-coding-plugins:hooks/hooks.json:<event>:0:0"]`
+    для `session_start`, `session_end`, `user_prompt_submit`, `subagent_start`,
+    `subagent_stop` — записаны Desktop при Trust all.
+- `~/.codex/archived_sessions/`: 9 rollout тестовых тредов от 2026-11-06 23:41 до 2026-11-07 00:41
+  (заархивированы через Desktop, видны в Settings → Archived chats).
+- `~/.codex/sessions/2026/11/06/rollout-2026-11-06T23-40-01-<thread-id>.jsonl`: черновой тред с
+  одним `session_meta`, без сообщений.
+- `~/.codex/logs_2.sqlite`: строки логов app-server за время проверки.

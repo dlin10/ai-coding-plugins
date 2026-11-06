@@ -6,7 +6,8 @@ how it was observed is in [`docs/compatibility.md`](../../../docs/compatibility.
 Anonymization keeps structure, numbers and timestamps:
 
 - Ids are replaced by synthetic ones (`00000000-0000-7000-8000-0000000000NN`), consistently across
-  every file here, so a hook sample points at the rollout fixture of the same thread.
+  every file here. The hook samples of threads 1, 2 and 3 point at the rollout fixtures of those
+  threads; the suggestion thread (66) and the archived thread (67) have no rollout fixture.
 - Paths become `C:\Users\user\…` or `C:\work\project`.
 - Free text becomes `"redacted"`.
 - Records #251 has no use for (tool calls, reasoning, world state, …) are reduced to a `{type}` stub
@@ -42,3 +43,8 @@ The JSON each hook received on stdin, one file per observed shape. `prompt` and
 | `session-start-fork-ephemeral-suggestion.json` | `SessionStart`, `source: fork`, `transcript_path: null`: Desktop's own next-message suggestion thread |
 | `session-end-ephemeral-suggestion.json` | `SessionEnd` of that suggestion thread |
 | `session-end-archive.json` | `SessionEnd`, `reason: other`, sent when a thread is archived |
+
+There is no `SessionStart` `source: resume` sample. Resume was observed, and its `transcript_path`
+pointed at the current `_<rollout-id>` segment (see `docs/compatibility.md`, 5.2 and 7.4). But the
+probe's stdin captures were deleted before this sample was taken, and it was not reconstructed by
+hand.

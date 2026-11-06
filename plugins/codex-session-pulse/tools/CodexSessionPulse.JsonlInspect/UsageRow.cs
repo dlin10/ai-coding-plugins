@@ -4,7 +4,7 @@ namespace CodexSessionPulse.JsonlInspect;
 
 /// <summary>One <c>token_count</c> event as the inspector prints it.</summary>
 /// <param name="Timestamp">The record's <c>timestamp</c>, as written.</param>
-/// <param name="ThreadId">The <c>id</c> of the nearest preceding <c>session_meta</c>, if any.</param>
+/// <param name="ThreadId">The owning thread: the file's first <c>session_meta</c> from its <c>subagent_history_start_ordinal</c> on, otherwise the nearest preceding <c>session_meta</c>; <see langword="null"/> before any.</param>
 /// <param name="Model">The <c>model</c> of the nearest preceding <c>turn_context</c>, if any.</param>
 /// <param name="TurnId">The <c>turn_id</c> of the nearest preceding <c>task_started</c>, if any.</param>
 /// <param name="Usage">The <c>info.last_token_usage</c> counts, or <see langword="null"/> when <c>info</c> is null.</param>
