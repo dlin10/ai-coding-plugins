@@ -12,13 +12,16 @@ namespace ConcurrencyHunter.Cli.Tests;
 
 /// <summary>
 /// What a directory listing and a proxy cannot prove about <c>generate</c> (R1), read from the metadata of
-/// <c>ConcurrencyHunter.Core.dll</c> and the CLI assembly as built: no networking or P/Invoke at all, and no file-system write
-/// reachable from <c>GenerateCommand.Run</c> but its one <c>File.WriteAllBytes</c> to the output path.
+/// <c>ConcurrencyHunter.Core.dll</c> and the CLI assembly as built: no networking, no P/Invoke but the one by which the member limit finds
+/// its thread, and no file-system write reachable from <c>GenerateCommand.Run</c> but its one <c>File.WriteAllBytes</c> to the output path.
 /// </summary>
 public sealed class GeneratorBoundaryTests
 {
     private const string GENERATE = "ConcurrencyHunter.GenerateCommand.Run";
     private const string WRITE_ALL_BYTES = "System.IO.File.WriteAllBytes";
+
+    /// <summary>The analyzer's one native import (SPEC TD-034b): the member limit's thread id, by which it reads the thread's CPU time.</summary>
+    private const string THREAD_ID_IMPORT = "kernel32.dll!GetCurrentThreadId";
 
     /// <summary>The one writer the run's generated model layer added: it writes the generated files, and only the run's generation reaches
     /// it (SPEC TD-034c), so <c>generate</c> still reaches no writer but its own.</summary>
@@ -45,10 +48,10 @@ public sealed class GeneratorBoundaryTests
     {
         using var program = BuiltImages();
         foreach (var image in program.Images)
-        {
             Assert.Empty(NetworkUse(image));
-            Assert.Empty(PlatformInvokes(image));
-        }
+        // BuiltImages reads Core first, then the CLI.
+        Assert.Equal([THREAD_ID_IMPORT], PlatformInvokes(program.Images[0]));
+        Assert.Empty(PlatformInvokes(program.Images[1]));
 
         var solution = RepositoryFiles.FindRepositoryFile("plugins", "concurrency-hunter", "src", "ConcurrencyHunter.slnx");
         var projects = XDocument.Load(solution).Descendants().Where(element => element.Name.LocalName == "Project")
@@ -138,7 +141,8 @@ public sealed class GeneratorBoundaryTests
 
     private static bool IsNetwork(string name) => name == "System.Net" || name.StartsWith("System.Net.", StringComparison.Ordinal);
 
-    /// <summary>Every method imported from native code: <c>DllImport</c>, or <c>LibraryImport</c> on its declaration.</summary>
+    /// <summary>Every method imported from native code, as <c>module!name</c>: <c>DllImport</c>, or <c>LibraryImport</c> on its
+    /// declaration.</summary>
     /// <param name="image">The assembly.</param>
     private static List<string> PlatformInvokes(Image image)
     {
@@ -149,8 +153,9 @@ public sealed class GeneratorBoundaryTests
             var method = reader.GetMethodDefinition(handle);
             var libraryImport = method.GetCustomAttributes().Any(attribute => image.AttributeTypeName(reader.GetCustomAttribute(attribute)) ==
                                                                                 "System.Runtime.InteropServices.LibraryImportAttribute");
-            if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0 || !method.GetImport().Module.IsNil || libraryImport)
-                found.Add(reader.GetString(method.Name));
+            var module = method.GetImport().Module;
+            if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0 || !module.IsNil || libraryImport)
+                found.Add($"{(module.IsNil ? "?" : reader.GetString(reader.GetModuleReference(module).Name))}!{reader.GetString(method.Name)}");
         }
 
         return found;

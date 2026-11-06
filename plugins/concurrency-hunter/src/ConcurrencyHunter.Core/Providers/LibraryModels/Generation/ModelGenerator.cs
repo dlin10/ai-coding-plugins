@@ -182,11 +182,13 @@ public static class ModelGenerator
         return Resolve(facts, resolver, checks, dependencyAnswers).Answer;
     }
 
-    /// <summary>Generates one member within one limit covering all its attempts; an expired limit is a timeout answer.</summary>
+    /// <summary>Generates one member within one limit covering all its attempts, counted in the CPU time of the calling thread
+    /// (<see cref="MemberLimit"/>); an expired limit is a timeout answer.</summary>
     /// <param name="request">The member asked for.</param>
     /// <param name="resolver">Finds the implementation assembly.</param>
     /// <param name="limit">The member limit, or the server's limit.</param>
-    /// <param name="time">The clock for the limit and the generation record, or the system clock.</param>
+    /// <param name="time">The clock for the limit and the generation record, or the system clock; another clock stands for the CPU time
+    /// too.</param>
     /// <param name="cancellationToken">External cancellation, which propagates.</param>
     public static GeneratedAnswer GenerateWithin(GenerationRequest request, ImplementationAssemblies resolver, TimeSpan? limit = null,
                                                  TimeProvider? time = null, CancellationToken cancellationToken = default) =>
@@ -221,7 +223,7 @@ public static class ModelGenerator
             return Unnamed(facts) ?? Classify(facts, library, checks, initializers: initializers);
         });
 
-    // bounded: one timer covers the entire member, and only its own expiry becomes an answer.
+    // bounded: one member limit covers the entire member, and only its own expiry becomes an answer.
     private static GenerationTrace Within(GenerationRequest request, TimeSpan? limit, TimeProvider? time, CancellationToken cancellationToken,
                                           Action<GenerationStage, int>? checkReported, Func<Facts, GenerationChecks, GenerationTrace> generate)
     {
@@ -229,7 +231,8 @@ public static class ModelGenerator
         var memberLimit = limit ?? GenerationLimits.MEMBER;
         using var outside = WorkCancellation.Enter(cancellationToken);
         var outsideToken = WorkCancellation.Token;
-        using var timeout = new CancellationTokenSource(memberLimit, clock);
+        using var timeout = new CancellationTokenSource();
+        using var memberTime = new MemberLimit(timeout, memberLimit, clock);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(outsideToken, timeout.Token);
         GenerationChecks checks = new(linked.Token, checkReported, clock, memberLimit);
         var facts = new Facts(request, checks);

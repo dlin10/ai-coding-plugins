@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "70e426b3cd51a6f6bf0b456f6efad200d907f8e41b3e57e902e95ff06a7322d6",
+  "generator": "5cd939e982ba23fc580a936663c1d927e8dc39efba38198e531279f738f0a3f0",
   "assembly": {
     "name": "Microsoft.AspNetCore.Authentication",
     "version": "10.0.0.0",

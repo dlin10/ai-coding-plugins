@@ -550,14 +550,14 @@ names to the run, which answers them in the same **Generation round**. Non-CoreL
 generation starts with **Inert type initializer** executions and repeats the whole member with
 initializers left outside the set and **Recipe value** construction when the final fate pass or confirmation
 exceeds 1,500 bodies. CoreLib keeps running initializers. One server constant limits a member to
-120 seconds across both attempts in a run, model evals and `generate`; the CoreLib tool keeps five
+120 seconds of its thread's CPU time across both attempts in a run, model evals and `generate`; the CoreLib tool keeps five
 minutes. The generation record names the answer treatment, every attempt and its stage times.
 _Avoid_: model inference, AI generator (the generator runs no AI)
 
 **Generation refusal**:
 The **Model generator**'s answer that a member gets no generated **Library model**, with its cause:
 the library does not compile, no **Driver** could be built, something the analysis cannot see
-touched a probe, the member exhausted its 120-second limit across its attempts (`timeout`), an
+touched a probe, the member exhausted its 120-second CPU limit across its attempts (`timeout`), an
 unseeded recipe static was read or written, or an excluded initializer could start work (`initializer-work-not-run`).
 The `generate` command and model evals keep the generation record up to a timeout, including its
 interrupted stage; a run keeps the refusal without a partial record. It is kept beside
@@ -582,8 +582,9 @@ _Avoid_: plugin version, release (a release changes it, but so does every change
 
 **Generation budget**:
 The time a run may spend in the **Model generator**: one limit for the whole run and one for each
-member. The run that records a repository's committed generated models has a larger limit for the whole
-run, the recording limit, so that one run answers every target; every other run has the run limit. A member that reaches its own limit gets a **Generation refusal**; the members the run's
+member, counted in the CPU time of the thread that generates it, with a wall-clock backstop of four
+member limits for a member that waits. The run that records a repository's committed generated models has a larger limit for the whole
+run, the recording limit, so that one run answers every target; that run also generates four members at once. Every other run has the run limit. A member that reaches its own limit gets a **Generation refusal**; the members the run's
 limit did not reach stay **Opaque calls** in that run. The budget never changes the **Terminal
 status**, and the scope's analyses between **Generation rounds** are no part of it.
 _Avoid_: deadline (the **Deadline** limits AI work), timeout (a member's limit is one part of it)
@@ -595,7 +596,8 @@ one — from its file of generated models, or from the **Model generator** withi
 budget**. The round takes its members from one queue: the targets first, then every other member by the
 rank of its assembly, so that a member a generation names is generated before the members waiting to read
 it; a member whose dependency's answer changed is generated again in the same round. The round ends when
-the queue is empty. The scope is analysed again with every answer so far when the answers its targets get applied differ
+the queue is empty. In the run that records a repository's committed generated models, four threads take from the
+queue, and the round ends when it is empty and none of them has a member in flight. The scope is analysed again with every answer so far when the answers its targets get applied differ
 from those its last analysis read; a refusal where the call was opaque changes nothing. The rounds of a
 scope end when no target is left that a file or the budget can still answer, no member waits to be
 generated again, and the last analysis read what the answers apply; the scope's result is its last

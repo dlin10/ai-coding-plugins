@@ -121,6 +121,25 @@ public sealed class GenerationRecordTests
     }
 
     [Fact]
+    public void On_the_system_clock_the_member_limit_counts_cpu_time_not_a_wait()
+    {
+        var slept = false;
+        var trace = ModelGenerator.TraceWithin(REQUEST, Library(), TimeSpan.FromSeconds(5), TimeProvider.System,
+            checkReported: (stage, _) =>
+            {
+                // A wait longer than the limit spends no CPU time; the backstop is four limits away.
+                if (stage == GenerationStage.Analyze && !slept)
+                {
+                    slept = true;
+                    Thread.Sleep(TimeSpan.FromSeconds(5.5));
+                }
+            });
+
+        Assert.True(slept);
+        Assert.NotEqual(GenerationReasons.TIMEOUT, trace.Answer.Reason);
+    }
+
+    [Fact]
     public void An_outside_cancellation_is_not_a_timeout()
     {
         using var outside = new CancellationTokenSource();

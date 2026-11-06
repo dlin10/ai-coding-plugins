@@ -25,6 +25,9 @@
     <!-- Required for ModelContextProtocol AIFunctionFactory tool parameter marshalling (for example,
          Dictionary<string,double> budgets); without it the published server fails to start. -->
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <!-- Collections run on the GC's own threads, so a member's CPU-time limit counts the member's own work, also beside the
+         recording's other workers (docs/adr/0033). -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>

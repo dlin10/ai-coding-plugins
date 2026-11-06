@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using ConcurrencyHunter.Providers.LibraryModels;
 using ConcurrencyHunter.Providers.LibraryModels.Generation;
 using Microsoft.CodeAnalysis;
@@ -26,8 +27,9 @@ internal readonly record struct ScopeLayer(GeneratedModelTable Table, bool Descr
 /// answers for, generates them from one queue in R4's order within the <b>Generation budget</b> (ADR 0032), remembers every answer by member
 /// and file key so that a member met in several scopes shares its answer, and writes only final answers when the caller ends a scope's step.
 /// Scopes are analysed one after another. Within a round, taking the next member, queuing a member, publishing an answer, a generation's read
-/// of the run's answers and the time spent hold one lock, so that several threads may share the queue; the steps between rounds run on one
-/// thread with no generation in flight.</summary>
+/// of the run's answers and the time spent hold one lock, so that several threads may share the queue: the recording's round drains it on
+/// <see cref="RECORDING_WORKERS"/> threads (ADR 0033), every other run's on the caller's thread. The steps between rounds run on one thread
+/// with no generation in flight.</summary>
 internal sealed class RunGeneration
 {
     /// <summary>The run's limit: the time spent inside generations in one run.</summary>
@@ -41,9 +43,17 @@ internal sealed class RunGeneration
     /// <summary>One member's limit.</summary>
     internal static readonly TimeSpan MEMBER_LIMIT = GenerationLimits.MEMBER;
 
+    /// <summary>The recording's worker threads: the members of its round it generates at once (ADR 0033). Every other run generates one at
+    /// a time.</summary>
+    private const int RECORDING_WORKERS = 4;
+
     /// <summary>The run limit a budget names.</summary>
     /// <param name="budget">The budget.</param>
     internal static TimeSpan RunLimitOf(GenerationBudget budget) => budget == GenerationBudget.Recording ? RECORDING_LIMIT : RUN_LIMIT;
+
+    /// <summary>The worker threads a budget names: <see cref="RECORDING_WORKERS"/> for the recording, one otherwise.</summary>
+    /// <param name="budget">The budget.</param>
+    internal static int WorkersOf(GenerationBudget budget) => budget == GenerationBudget.Recording ? RECORDING_WORKERS : 1;
 
     private readonly string _repositoryRoot;
     private readonly CancellationToken _runToken;
@@ -52,6 +62,7 @@ internal sealed class RunGeneration
     private readonly TimeProvider _time;
     private readonly Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> _generate;
     private readonly Func<GenerationRequest, CancellationToken, int> _rank;
+    private readonly int _workers;
     private readonly object _gate = new();
     private readonly Dictionary<GeneratedFileKey, GeneratedModelFile> _files = new();
     private readonly Dictionary<(string MemberId, GeneratedFileKey Key), RunAnswer> _answers = new();
@@ -116,14 +127,17 @@ internal sealed class RunGeneration
     /// <param name="repositoryRoot">The repository root whose <c>.concurrency-hunter/models/generated/</c> the run reads and writes.</param>
     /// <param name="cancellationToken">The run's token: its own cancellation or deadline stops generation and the cancellation propagates.</param>
     /// <param name="runLimit">The time the run may spend inside generations.</param>
-    /// <param name="memberLimit">The time one member may spend inside its generation.</param>
-    /// <param name="time">The clock both limits are measured on, and the timer that cuts a member.</param>
+    /// <param name="memberLimit">The CPU time one member's thread may spend inside its generation (<see cref="MemberLimit"/>).</param>
+    /// <param name="time">The clock both limits are measured on, and the timer that cuts a member; a clock other than the system clock stands
+    /// for a member's CPU time too.</param>
     /// <param name="generate">The generator call: a member's request, the run's raw dependency answers and the token that cuts the generation.</param>
     /// <param name="rank">The rank of a request's implementation assembly (<see cref="AssemblyRanks.Of"/>); called under the round's lock.</param>
+    /// <param name="workers">The threads that drain a round's queue (<see cref="WorkersOf"/>); one, the caller's, unless the run records.</param>
     internal RunGeneration(string repositoryRoot, CancellationToken cancellationToken, TimeSpan runLimit, TimeSpan memberLimit, TimeProvider time,
                            Func<GenerationRequest, DependencyAnswers, CancellationToken, GeneratedAnswer> generate,
-                           Func<GenerationRequest, CancellationToken, int> rank)
+                           Func<GenerationRequest, CancellationToken, int> rank, int workers = 1)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(workers, 1);
         _repositoryRoot = repositoryRoot;
         _runToken = cancellationToken;
         _runLimit = runLimit;
@@ -131,6 +145,7 @@ internal sealed class RunGeneration
         _time = time;
         _generate = generate;
         _rank = rank;
+        _workers = workers;
     }
 
     /// <summary>The time spent inside generations so far: the budget's measure, and the run's <c>generation</c> timing.</summary>
@@ -170,11 +185,12 @@ internal sealed class RunGeneration
     /// implementation is on disk — and the run has not answered its target yet. These targets go first, members handed a delegate first
     /// among them. Every other member waits behind them: a dependency that a generation saw without an answer, which joins the queue when that
     /// generation's answer is published, and a member whose view of a published answer changed, except cycles. Within each, members go by
-    /// the rank of their assembly, then in ordinal order of declaration id, then of file key, and the round ends when the queue is empty. A
-    /// member runs under a token cancelled after the smaller of its own limit and what is left of the run's; when its own limit is not larger
-    /// than what is left a cut is <c>timeout</c>, otherwise <c>budget</c>. A member the run's limit has already been spent before is
-    /// <c>budget</c> without a generation. Final answers wait for <see cref="EndScope"/>; a stopped repeat keeps its old answer applied in
-    /// memory and unkept.</summary>
+    /// the rank of their assembly, then in ordinal order of declaration id, then of file key. The run's workers drain the queue, and the round
+    /// ends when it is empty and no member is in flight. When a member's own limit is not larger than what is left of the run's, the member
+    /// runs under its own limit alone, counted in its thread's CPU time (<see cref="MemberLimit"/>), and a cut is <c>timeout</c>; otherwise it
+    /// runs under what is left of the run's limit on the clock, and a cut is <c>budget</c>. A member the run's limit has already been spent
+    /// before is <c>budget</c> without a generation. Final answers wait for <see cref="EndScope"/>; a stopped repeat keeps its old answer
+    /// applied in memory and unkept.</summary>
     /// <param name="models">The scope's models without the generated layer: they say whether a project or a built-in entry describes a member.</param>
     /// <param name="candidates">The scope's candidates, one per reached call.</param>
     /// <exception cref="OperationCanceledException">The run or enclosing work was cancelled.</exception>
@@ -201,13 +217,16 @@ internal sealed class RunGeneration
                 Queue(target, scopeTarget: false, handedDelegate: false);
             }
         }
-        Drain();
+        if (_workers == 1)
+            Drain();
+        else
+            DrainOnWorkers();
         FinalizeAnswers();
     }
 
     /// <summary>Generates the queue's members until it is empty: takes the first, generates it and publishes its answer. Generations run
-    /// outside the lock, so the loop may run on several threads at once; <see cref="Generate"/> runs it once, on its caller's thread. A member
-    /// whose generation throws stays in flight until the next round.</summary>
+    /// outside the lock, so the loop may run on several threads at once; with one worker <see cref="Generate"/> runs it once, on its caller's
+    /// thread. A member whose generation throws stays in flight until the next round.</summary>
     /// <exception cref="OperationCanceledException">The run or enclosing work was cancelled.</exception>
     internal void Drain()
     {
@@ -215,6 +234,70 @@ internal sealed class RunGeneration
         {
             WorkCancellation.Check();
             Publish(target, GenerateOne(target));
+        }
+    }
+
+    /// <summary>Drains the queue on the run's worker threads. A worker that finds the queue empty waits while another has a member in flight,
+    /// because publishing that member's answer can queue more; all stop when the queue is empty and no member is in flight, or when one of
+    /// them throws, and the first exception is thrown again here.</summary>
+    /// <exception cref="OperationCanceledException">The run or enclosing work was cancelled.</exception>
+    private void DrainOnWorkers()
+    {
+        Exception? failure = null;
+        var threads = Enumerable.Range(1, _workers).Select(worker => new Thread(() =>
+        {
+            try
+            {
+                while (TakeOrWait(() => Volatile.Read(ref failure) is not null, out var target))
+                {
+                    WorkCancellation.Check();
+                    Publish(target, GenerateOne(target));
+                    lock (_gate)
+                        Monitor.PulseAll(_gate);
+                }
+            }
+            catch (Exception error)
+            {
+                Interlocked.CompareExchange(ref failure, error, null);
+                lock (_gate)
+                    Monitor.PulseAll(_gate);
+            }
+        }) { Name = $"generation worker {worker}", IsBackground = true }).ToArray();
+        foreach (var thread in threads)
+        {
+            WorkCancellation.Check();
+            thread.Start();
+        }
+        // bounded: one join per worker; the workers themselves observe cancellation.
+        foreach (var thread in threads)
+            thread.Join();
+        if (failure is not null)
+            ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    /// <summary>Takes the first member of the queue, waiting while it is empty and another worker has a member in flight.</summary>
+    /// <param name="failed">Whether a worker has thrown, which ends every worker.</param>
+    /// <param name="target">The member taken.</param>
+    /// <returns><c>false</c> when the queue is empty and no member is in flight, or a worker has thrown.</returns>
+    private bool TakeOrWait(Func<bool> failed, [NotNullWhen(true)] out GenerationTarget? target)
+    {
+        lock (_gate)
+        {
+            while (true)
+            {
+                WorkCancellation.Check();
+                target = null;
+                if (failed())
+                    return false;
+                if (TryTake(out target))
+                    return true;
+                if (_taken.Count == 0)
+                {
+                    Monitor.PulseAll(_gate);
+                    return false;
+                }
+                Monitor.Wait(_gate);
+            }
         }
     }
 
@@ -557,7 +640,8 @@ internal sealed class RunGeneration
 
         var ownLimitBinds = _memberLimit <= left;
         using var member = CancellationTokenSource.CreateLinkedTokenSource(_runToken, WorkCancellation.Token);
-        using var timer = _time.CreateTimer(_ => Cut(member), null, ownLimitBinds ? _memberLimit : left, Timeout.InfiniteTimeSpan);
+        using var ownLimit = ownLimitBinds ? new MemberLimit(member, _memberLimit, _time) : null;
+        using var runLimit = ownLimitBinds ? null : _time.CreateTimer(_ => Cut(member), null, left, Timeout.InfiniteTimeSpan);
         var started = _time.GetTimestamp();
         try
         {
