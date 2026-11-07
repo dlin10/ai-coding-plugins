@@ -7,9 +7,10 @@ tokens and a TTL estimate. The source of truth is `docs/spec.md` (Russian); the 
 ## Layout
 
 - `CodexSessionPulse.slnx`, `Directory.Build.props`, `Directory.Packages.props`, `global.json` at the plugin root.
-- `src/CodexSessionPulse.App` – the only WinExe, `CodexSessionPulse.exe`: `--hook`, `--overlay`, `--no-start`.
-  `--overlay --stub` drives the overlay from a scripted snapshot loop over every `CacheState` (development only)
-  until the real pipeline calls `OverlayController.UpdateCache`.
+- `src/CodexSessionPulse.App` – the only WinExe, `CodexSessionPulse.exe`: `--hook [--no-start]`, `--overlay`.
+  `--overlay --stub` replaces the rollout pipeline with a scripted snapshot loop over every `CacheState` (development only).
+- `hooks/hooks.json` and `bin/codex-session-pulse-launcher.cmd` – the Codex hooks; the launcher runs the exe from
+  `%USERPROFILE%\.codex-session-pulse\bin\<manifest version>\` (or `%CODEX_SESSION_PULSE_HOME%\bin\…`).
 - `src/CodexSessionPulse.Core` – domain contract, trackers, state. No WPF, no I/O, no formatted strings.
 - `src/CodexSessionPulse.Infrastructure` – JSONL tailer, settings, filesystem. References Core.
 - `src/CodexSessionPulse.Win32` – HWND, DPI, monitor geometry.
@@ -63,6 +64,26 @@ New public types beside the frozen ones; adding members to them is allowed. Thei
   source for tests and for the overlay before integration.
 - `Infrastructure/Rollouts/` – `RolloutTailer` (the live `ISessionEventSource`, raises `ThreadObserved`),
   `RolloutTail` (its synchronous core, used by tests), `RolloutTailerOptions`, `RolloutDiagnostics`.
+
+## Additive contract (#252)
+
+- `PulseEngine.Prune`, `IsEnded`, `StaleAfter` (6 h), `PruneAfter` (24 h), `MaxLiveThreads` (64) and
+  `ThreadRegistry.Prune`: threads whose `SessionEnd` never came are dropped with a tombstone; the shown thread idle
+  for `StaleAfter` is `Stale`. `ThreadRegistry.End` ignores a thread known as a subagent.
+- Win32: `JobProcess` (`StartDetached` with breakaway and fallback, `Current` for `exitsWithJob`) and
+  `WindowEnumerator.CountCodexWindowsIncludingCloaked` for the exit recheck.
+
+## Lifecycle (#252)
+
+The rules live in the XML docs of `HookRunner`, `OverlayBootstrap`, `HookPipeServer`, `LastWindowExit` and
+`OverlayController`; measurements in `docs/compatibility.md` §12. In short: the overlay takes the mutex and opens the
+pipe before WPF, a second overlay exits; a hook starts the overlay only when no mutex exists and never with
+`--no-start`; the overlay exits only 3–4 s after the last Codex window is confirmed gone, never on `SessionEnd`.
+Only `SessionStart`, `UserPromptSubmit` and `SessionEnd` with a thread id reach the engine; other events are counted.
+
+Tests that start the exe set `CODEX_SESSION_PULSE_HOME` and `CODEX_HOME` to scratch folders (`LifecycleHome`), which
+also moves the mutex and pipe names, so they never reach or start your own overlay. They share the `exe` xUnit
+collection and run one at a time; `Overlay_ExitsOnlyAfterTheLastCodexWindow` briefly shows two plain windows.
 
 ## Logs
 
