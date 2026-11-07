@@ -21,7 +21,7 @@ internal static class Program
 
         if (options.Mode == LaunchMode.Overlay)
         {
-            return OverlayHost.Run();
+            return OverlayHost.Run(options);
         }
 
         return 2;

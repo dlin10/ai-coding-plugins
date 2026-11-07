@@ -1,22 +1,37 @@
 using System.Runtime.CompilerServices;
 using System.Windows;
+using CodexSessionPulse.App.Diagnostics;
+using CodexSessionPulse.App.Overlay;
+using CodexSessionPulse.Infrastructure.Settings;
 
 namespace CodexSessionPulse.App;
 
 /// <summary>
-/// The <c>--overlay</c> path. It is the only class that touches WPF; <c>Program</c> reaches it
-/// through a non-inlined call so the <c>--hook</c> path never JIT-loads the WPF assemblies.
+/// The <c>--overlay</c> path. It is the only entry into WPF; <c>Program</c> reaches it through a non-inlined call so
+/// the <c>--hook</c> path never JIT-loads the WPF assemblies.
 /// </summary>
 internal static class OverlayHost
 {
-    /// <summary>Creates the WPF application. A placeholder: it shuts down at once and shows no window yet.</summary>
+    /// <summary>Runs the overlay until Exit is chosen from the tray.</summary>
+    /// <param name="options">The parsed command line.</param>
     /// <returns>The process exit code.</returns>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    internal static int Run()
+    internal static int Run(LaunchOptions options)
     {
-        Application application = new();
-        application.Shutdown();
+        PulsePaths paths = PulsePaths.FromEnvironment(Environment.GetEnvironmentVariable);
+        RollingFileLog log = new(paths.LogsDirectory);
+        Application application = new() { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        OverlayController controller = new(paths, log, options.Stub);
 
-        return 0;
+        application.DispatcherUnhandledException += (_, e) =>
+        {
+            // The overlay is a passive display: log, keep running, never show a crash dialog over Codex.
+            log.Error("unhandled UI exception", e.Exception);
+            e.Handled = true;
+        };
+        application.Startup += (_, _) => controller.Start();
+        application.Exit += (_, _) => controller.Dispose();
+
+        return application.Run();
     }
 }

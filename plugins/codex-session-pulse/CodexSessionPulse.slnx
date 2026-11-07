@@ -8,6 +8,7 @@
   <Project Path="src/CodexSessionPulse.Core/CodexSessionPulse.Core.csproj" />
   <Project Path="src/CodexSessionPulse.Infrastructure/CodexSessionPulse.Infrastructure.csproj" />
   <Project Path="src/CodexSessionPulse.Win32/CodexSessionPulse.Win32.csproj" />
+  <Project Path="tests/CodexSessionPulse.App.Tests/CodexSessionPulse.App.Tests.csproj" />
   <Project Path="tests/CodexSessionPulse.Core.Tests/CodexSessionPulse.Core.Tests.csproj" />
   <Project Path="tests/CodexSessionPulse.Infrastructure.Tests/CodexSessionPulse.Infrastructure.Tests.csproj" />
   <Project Path="tests/CodexSessionPulse.Win32.Tests/CodexSessionPulse.Win32.Tests.csproj" />

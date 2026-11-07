@@ -16,7 +16,8 @@ internal enum LaunchMode
 /// <summary>The parsed command line.</summary>
 /// <param name="Mode">The selected mode.</param>
 /// <param name="NoStart">Whether the hook must not start the overlay when it is absent.</param>
-internal sealed record LaunchOptions(LaunchMode Mode, bool NoStart)
+/// <param name="Stub">Whether the overlay is driven by the development stub snapshots (<c>--stub</c>) instead of the real pipeline.</param>
+internal sealed record LaunchOptions(LaunchMode Mode, bool NoStart, bool Stub)
 {
     /// <summary>Parses the command line; unknown arguments are ignored and the last mode wins.</summary>
     /// <param name="args">The command-line arguments.</param>
@@ -25,6 +26,7 @@ internal sealed record LaunchOptions(LaunchMode Mode, bool NoStart)
     {
         LaunchMode mode = LaunchMode.None;
         bool noStart = false;
+        bool stub = false;
 
         foreach (string arg in args)
         {
@@ -40,8 +42,12 @@ internal sealed record LaunchOptions(LaunchMode Mode, bool NoStart)
             {
                 noStart = true;
             }
+            else if (arg == "--stub")
+            {
+                stub = true;
+            }
         }
 
-        return new LaunchOptions(mode, noStart);
+        return new LaunchOptions(mode, noStart, stub);
     }
 }

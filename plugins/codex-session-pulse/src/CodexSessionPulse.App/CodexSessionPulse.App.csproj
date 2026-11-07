@@ -6,10 +6,18 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>CodexSessionPulse</AssemblyName>
     <RootNamespace>CodexSessionPulse.App</RootNamespace>
+    <!-- Declares PerMonitorV2 so DWM bounds, monitor work areas and window sizes are physical pixels (spec §7.3). -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CodexSessionPulse.Core\CodexSessionPulse.Core.csproj" />
+    <ProjectReference Include="..\CodexSessionPulse.Infrastructure\CodexSessionPulse.Infrastructure.csproj" />
+    <ProjectReference Include="..\CodexSessionPulse.Win32\CodexSessionPulse.Win32.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CodexSessionPulse.App.Tests" />
   </ItemGroup>
 
 </Project>
