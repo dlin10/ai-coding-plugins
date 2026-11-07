@@ -32,10 +32,29 @@ so build the solution first. Before a PR also run `npm run validate:plugins` at 
   touch a WPF type; WPF is reached only through `OverlayHost`, called with `NoInlining`. The test
   `Hook_WithJsonOnStdin_ExitsZeroWithoutLoadingWpf` enforces it (set `CODEX_SESSION_PULSE_DEBUG_ASSEMBLIES=1`
   to make `--hook` print the loaded assemblies).
-- **The spec §4.3 contract in Core is frozen.** Do not rename, reorder or add members to the public types in
-  `CodexSessionPulse.Core`; changes go through the orchestrator.
+- **The spec §4.3 public records in Core are frozen** (`TokenUsageSnapshot`, `CacheSnapshot`, `AnchorSnapshot`, the
+  interfaces and enums): do not rename, reorder or add members; changes go through the orchestrator. Additive types
+  are allowed and listed below.
 - The hook never writes stdin anywhere, reads nothing from the current directory, and always exits 0.
 - Every public type and member in Core carries a complete XML doc comment; the build fails without one.
+
+## Additive contract (#251)
+
+New public types beside the frozen ones; adding members to them is allowed. Their XML docs hold the rules.
+
+- `PulseEngine` – the one entry point: `Apply`/`Observe` from the reader, `OnUserActivity`/`OnSessionStart`/
+  `OnSessionEnd` from hooks (thread id from `RolloutFileName.TryGetThreadId(transcript_path)`, never the hook
+  `session_id`), `OnCodexWindows`, `OnSourceStatus`, `Tick`. It publishes every `CacheSnapshot` to `Snapshots`.
+- Behind it: `CacheTracker` with `CacheTrackerOptions` (per-thread TTL and miss state), `ThreadRegistry` with
+  `ThreadPulseState` and `ThreadObservation` (independent per-thread state, tombstones), `ActiveThreadResolver` with
+  `ResolvedThread` (Auto selection), `SystemClock`.
+- `SnapshotPublisher<T>` – hand-rolled latest-value `IObservable<T>`; no Rx.
+- `SelectionReasons` and `DiagnosticCodes` – the only values of `ThreadSelection.Reason`, `CacheSnapshot.Diagnostics`
+  and the reader's counters. Core and the reader never emit free text; add a constant rather than a string.
+- `HookActivityRecorder`/`HookActivitySnapshot` – hook counts for diagnostics; `InMemorySessionEventSource` – the stub
+  source for tests and for the overlay before integration.
+- `Infrastructure/Rollouts/` – `RolloutTailer` (the live `ISessionEventSource`, raises `ThreadObserved`),
+  `RolloutTail` (its synchronous core, used by tests), `RolloutTailerOptions`, `RolloutDiagnostics`.
 
 ## Logs
 
