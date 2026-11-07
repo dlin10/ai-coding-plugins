@@ -28,6 +28,7 @@ public sealed partial class TrayIcon : IDisposable
     private const uint WmRButtonUp = 0x0205;
     private const uint WmContextMenu = 0x007B;
     private const uint WmNull = 0x0000;
+    private const uint WmClose = 0x0010;
     private const uint MfString = 0x0;
     private const uint MfSeparator = 0x800;
     private const uint TpmRightButton = 0x2;
@@ -65,6 +66,15 @@ public sealed partial class TrayIcon : IDisposable
 
     /// <summary>Raised when a menu command throws.</summary>
     public event Action<Exception>? CommandFailed;
+
+    /// <summary>
+    /// Raised when another process sends <c>WM_CLOSE</c> to the hidden tray window (class <see cref="WindowClassName"/>),
+    /// the graceful way to end the overlay from outside.
+    /// </summary>
+    public event Action? CloseRequested;
+
+    /// <summary>Gets the window class of the hidden tray window, for callers that look it up to send <c>WM_CLOSE</c>.</summary>
+    public static string WindowClassName => WindowClass;
 
     /// <summary>Gets a value indicating whether the shell accepted the icon (it may not, e.g. without Explorer).</summary>
     public bool IsAdded { get; private set; }
@@ -172,6 +182,21 @@ public sealed partial class TrayIcon : IDisposable
                 if (trayEvent is WmLButtonUp or WmRButtonUp or WmContextMenu)
                 {
                     tray.ShowMenu();
+                }
+
+                return 0;
+            }
+
+            if (message == WmClose)
+            {
+                // Another process asks the overlay to exit (tests, an updater); DefWindowProc would only destroy this window.
+                try
+                {
+                    tray.CloseRequested?.Invoke();
+                }
+                catch (Exception exception)
+                {
+                    tray.CommandFailed?.Invoke(exception);
                 }
 
                 return 0;

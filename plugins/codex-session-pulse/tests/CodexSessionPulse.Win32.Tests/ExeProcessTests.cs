@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using Xunit;
 
 namespace CodexSessionPulse.Win32.Tests;
@@ -72,15 +73,58 @@ public sealed class ExeProcessTests
             Assert.True(LogHas(log, "stub True"), "The overlay did not take --stub.");
             Assert.True(LogHas(log, "anchor "), "The window anchor reported no state.");
             Assert.False(LogHas(log, "ERROR"), "The overlay logged an error.");
+
+            // Graceful exit, the same path as tray Exit, so no dead icon is left in the notification area.
+            nint tray = FindTrayWindow(process.Id);
+            Assert.NotEqual(0, tray);
+            PostMessage(tray, WmClose, 0, 0);
+
+            Assert.True(process.WaitForExit(TimeoutMs), "The overlay did not exit on WM_CLOSE.");
+            Assert.Equal(0, process.ExitCode);
+            Assert.True(LogHas(log, "overlay stop"), "The overlay did not log its stop.");
         }
         finally
         {
-            // The overlay only exits from its tray menu; the test ends it by force.
-            process.Kill();
-            process.WaitForExit(TimeoutMs);
+            if (!process.HasExited)
+            {
+                process.Kill();
+                process.WaitForExit(TimeoutMs);
+            }
+
             Directory.Delete(home, recursive: true);
         }
     }
+
+    private const uint WmClose = 0x0010;
+
+    /// <summary>Finds the hidden tray window of a process by its window class.</summary>
+    /// <param name="processId">The overlay process.</param>
+    /// <returns>The window, or 0 when there is none.</returns>
+    private static nint FindTrayWindow(int processId)
+    {
+        for (nint window = FindWindowEx(0, 0, TrayIcon.WindowClassName, null); window != 0;
+             window = FindWindowEx(0, window, TrayIcon.WindowClassName, null))
+        {
+            GetWindowThreadProcessId(window, out uint owner);
+
+            if (owner == processId)
+            {
+                return window;
+            }
+        }
+
+        return 0;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern nint FindWindowEx(nint parent, nint after, string className, string? windowName);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint hwnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostMessage(nint hwnd, uint message, nint wParam, nint lParam);
 
     private static string Exe => Path.Combine(typeof(ExeProcessTests).Assembly
         .GetCustomAttributes<AssemblyMetadataAttribute>()

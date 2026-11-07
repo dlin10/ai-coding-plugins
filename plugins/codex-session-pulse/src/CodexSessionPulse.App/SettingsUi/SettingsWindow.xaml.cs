@@ -1,11 +1,15 @@
 using System.Globalization;
 using System.Windows;
+using System.Windows.Input;
 using CodexSessionPulse.Infrastructure.Settings;
 using Microsoft.Win32;
 
 namespace CodexSessionPulse.App.SettingsUi;
 
-/// <summary>The Settings dialog (spec §8.1). An ordinary window that may take focus; the overlay stays non-activating.</summary>
+/// <summary>
+/// The Settings dialog (spec §8.1). An ordinary modeless window that may take focus; the overlay stays non-activating.
+/// Save closes it with <see cref="Saved"/> set; Cancel, Esc and the title-bar button close it without saving.
+/// </summary>
 internal partial class SettingsWindow : Window
 {
     private readonly PulseSettings _current;
@@ -142,7 +146,20 @@ internal partial class SettingsWindow : Window
         }
 
         Saved = candidate;
-        DialogResult = true;
+
+        // The window is shown modeless (the tray must keep working), so DialogResult and IsCancel are not available.
+        Close();
+    }
+
+    private void OnCancel(object sender, RoutedEventArgs e) => Close();
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            e.Handled = true;
+            Close();
+        }
     }
 
     private static bool TryInt(string text, out int value) => int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value);

@@ -80,6 +80,11 @@ internal sealed class OverlayController : IDisposable
             new TrayMenuItem("Exit", () => Application.Current.Shutdown()),
         ]);
         _tray.CommandFailed += exception => _log.Error("tray command failed", exception);
+        _tray.CloseRequested += () =>
+        {
+            _log.Info("WM_CLOSE received, exiting");
+            Application.Current.Shutdown();
+        };
         _log.Info($"tray icon {(_tray.IsAdded ? "added" : "not added")}; overlay ex-style 0x{_window.ExtendedStyle:X8}");
 
         UpdateCache(StubOrEmpty());
