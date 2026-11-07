@@ -68,6 +68,10 @@ public sealed class DiagnosticsTests : IDisposable
     }
 
     /// <summary>The overlay shows only for the foreground Codex window, or a background one with keep-visible, and never when hidden from the tray.</summary>
+    /// <param name="state">The anchor state.</param>
+    /// <param name="hideWhenInactive">The hide-when-inactive setting.</param>
+    /// <param name="userHidden">Whether the user hid it from the tray.</param>
+    /// <param name="expected">Whether the overlay is shown.</param>
     [Theory]
     [InlineData(AnchorState.Attached, true, false, true)]
     [InlineData(AnchorState.Background, true, false, false)]

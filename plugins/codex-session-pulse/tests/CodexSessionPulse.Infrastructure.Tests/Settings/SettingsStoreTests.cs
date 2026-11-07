@@ -67,6 +67,7 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     /// <summary>A TTL outside 1–720 minutes is refused on save and replaced by the default on load.</summary>
+    /// <param name="minutes">The out-of-range TTL.</param>
     [Theory]
     [InlineData(0)]
     [InlineData(721)]
@@ -112,9 +113,12 @@ public sealed class SettingsStoreTests : IDisposable
     }
 
     /// <summary>Broken JSON, an unknown enum value and a newer schema fall back to the defaults with a code.</summary>
+    /// <param name="json">The file content.</param>
+    /// <param name="problem">The expected problem code.</param>
     [Theory]
     [InlineData("{ not json", "settings-invalid-json")]
-    [InlineData("""{ "theme": "Purple" }""", "settings-invalid-json")]
+    [InlineData("""{ "theme": "Purple" }""", "theme-invalid")]
+    [InlineData("""{ "anchor": 0 }""", "anchor-invalid")]
     [InlineData("""{ "schemaVersion": 2, "offsetY": 5 }""", "settings-schema-newer")]
     [InlineData("""{ "codexProcessNames": [] }""", "process-names-invalid")]
     public void Load_InvalidFile_FallsBackToDefaults(string json, string problem)
@@ -126,6 +130,20 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal([problem], loaded.Problems);
         Assert.Equal(-170, loaded.Settings.OffsetY);
         Assert.Equal(["Codex", "ChatGPT"], loaded.Settings.CodexProcessNames);
+    }
+
+    /// <summary>A bad enum value resets only its own field; the other fields of the file are kept.</summary>
+    [Fact]
+    public void Load_BadEnum_KeepsTheOtherFields()
+    {
+        WriteRaw("""{ "theme": "Darker", "offsetY": -10, "codexProcessNames": ["ChatGPT"] }""");
+
+        SettingsLoadResult loaded = Store().Load();
+
+        Assert.Equal(["theme-invalid"], loaded.Problems);
+        Assert.Equal(OverlayTheme.System, loaded.Settings.Theme);
+        Assert.Equal(-10, loaded.Settings.OffsetY);
+        Assert.Equal(["ChatGPT"], loaded.Settings.CodexProcessNames);
     }
 
     /// <summary>An override that does not exist is dropped on load and refused on save.</summary>
@@ -190,6 +208,7 @@ public sealed class SettingsStoreTests : IDisposable
         Assert.Equal(Path.Combine(profile, ".codex-session-pulse", "settings.json"), defaults.SettingsFile);
         Assert.Equal(Path.Combine(profile, ".codex-session-pulse", "logs"), defaults.LogsDirectory);
         Assert.Equal(Path.Combine(_root, "settings.json"), moved.SettingsFile);
+        Assert.Equal(defaults, PulsePaths.FromEnvironment(name => name == PulsePaths.HomeVariable ? @"relative\home" : null));
     }
 
     private SettingsStore Store() => new(SettingsPath, _root);

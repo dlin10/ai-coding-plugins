@@ -9,8 +9,9 @@ public static class WindowEnumerator
     /// Lists the visible, unowned top-level windows in z-order, top first. Invisible service windows
     /// (most of Codex Desktop's 19–21 top-level windows) are skipped before any process is opened.
     /// </summary>
+    /// <param name="readTitles">Whether to read each window's title; without it the titles are empty.</param>
     /// <returns>The candidates; the executable path is read once per process and every process handle is closed.</returns>
-    public static IReadOnlyList<WindowCandidate> EnumerateTopLevel()
+    public static IReadOnlyList<WindowCandidate> EnumerateTopLevel(bool readTitles = true)
     {
         List<(nint Hwnd, uint ProcessId)> windows = [];
 
@@ -36,18 +37,28 @@ public static class WindowEnumerator
                 paths[processId] = path;
             }
 
-            candidates.Add(new WindowCandidate(hwnd, (int)processId, path, GetTitle(hwnd), IsVisible: true, IsCloaked(hwnd), HasOwner: false));
+            candidates.Add(new WindowCandidate(hwnd, (int)processId, path, readTitles ? GetTitle(hwnd) : string.Empty, IsVisible: true,
+                                               IsCloaked(hwnd), HasOwner: false));
         }
 
         return candidates;
     }
 
-    /// <summary>Lists the Codex Desktop windows in z-order, top first.</summary>
+    /// <summary>
+    /// Lists the Codex Desktop windows in z-order, top first. Titles are read only for windows that already match the
+    /// process and path rule, so other applications' window titles are never read.
+    /// </summary>
     /// <param name="options">The detection rule.</param>
     /// <returns>The matching windows.</returns>
     public static IReadOnlyList<WindowCandidate> EnumerateCodexWindows(WindowDetectorOptions options)
     {
-        return EnumerateTopLevel().Where(candidate => CodexWindowFilter.IsCodexWindow(candidate, options)).ToList();
+        WindowDetectorOptions anyTitle = options with { TitleFilter = null };
+
+        return EnumerateTopLevel(readTitles: false)
+            .Where(candidate => CodexWindowFilter.IsCodexWindow(candidate, anyTitle))
+            .Select(candidate => candidate with { Title = GetTitle(candidate.Hwnd) })
+            .Where(candidate => CodexWindowFilter.IsCodexWindow(candidate, options))
+            .ToList();
     }
 
     /// <summary>Reads the full executable path of a process.</summary>

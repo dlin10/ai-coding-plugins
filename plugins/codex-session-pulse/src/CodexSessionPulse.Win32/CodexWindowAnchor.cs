@@ -47,6 +47,7 @@ public sealed class CodexWindowAnchor : IWindowAnchor
     private bool _refreshQueued;
     private bool _geometryQueued;
     private bool _disposed;
+    private bool _published;
     private long _refreshes;
 
     /// <summary>Creates the anchor; call <see cref="Start"/> to begin.</summary>
@@ -237,8 +238,10 @@ public sealed class CodexWindowAnchor : IWindowAnchor
             _poll = null;
         }
 
-        if (snapshot with { AtUtc = Current.AtUtc } != Current)
+        // The first snapshot is always published, so subscribers learn "not found" too.
+        if (!_published || snapshot with { AtUtc = Current.AtUtc } != Current)
         {
+            _published = true;
             Current = snapshot;
             _stream.Publish(snapshot);
         }

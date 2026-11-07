@@ -17,15 +17,18 @@ public sealed record PulsePaths(string Root)
     /// <summary>Gets the log folder.</summary>
     public string LogsDirectory => Path.Combine(Root, "logs");
 
-    /// <summary>Resolves the root from <see cref="HomeVariable"/> or the user profile.</summary>
+    /// <summary>
+    /// Resolves the root from <see cref="HomeVariable"/> or the user profile. A relative value is ignored: it would resolve
+    /// against the current directory, which for a hook is the user's project.
+    /// </summary>
     /// <param name="getEnvironmentVariable">Reads an environment variable.</param>
     /// <returns>The paths.</returns>
     public static PulsePaths FromEnvironment(Func<string, string?> getEnvironmentVariable)
     {
         string? home = getEnvironmentVariable(HomeVariable);
 
-        return new PulsePaths(string.IsNullOrWhiteSpace(home)
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex-session-pulse")
-            : Path.GetFullPath(home));
+        return new PulsePaths(home is not null && Path.IsPathFullyQualified(home)
+            ? Path.GetFullPath(home)
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex-session-pulse"));
     }
 }

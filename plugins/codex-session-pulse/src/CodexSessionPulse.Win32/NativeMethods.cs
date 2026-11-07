@@ -17,7 +17,6 @@ internal static partial class NativeMethods
     internal const uint GaRootOwner = 3;
 
     internal const uint SwpNoSize = 0x0001;
-    internal const uint SwpNoMove = 0x0002;
     internal const uint SwpNoZOrder = 0x0004;
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpNoOwnerZOrder = 0x0200;
@@ -37,7 +36,6 @@ internal static partial class NativeMethods
     internal const uint EventSystemMinimizeStart = 0x0016;
     internal const uint EventSystemMinimizeEnd = 0x0017;
     internal const uint EventObjectDestroy = 0x8001;
-    internal const uint EventObjectShow = 0x8002;
     internal const uint EventObjectHide = 0x8003;
     internal const uint EventObjectLocationChange = 0x800B;
     internal const int ObjIdWindow = 0;

@@ -54,6 +54,9 @@ public sealed class CodexWindowFilterTests
     }
 
     /// <summary>The title filter is a case-insensitive substring; empty means any title.</summary>
+    /// <param name="filter">The title filter.</param>
+    /// <param name="title">The window title.</param>
+    /// <param name="expected">Whether the window matches.</param>
     [Theory]
     [InlineData(null, "ChatGPT", true)]
     [InlineData("", "ChatGPT", true)]

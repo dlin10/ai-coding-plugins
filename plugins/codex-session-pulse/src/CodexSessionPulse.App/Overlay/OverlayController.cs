@@ -167,7 +167,7 @@ internal sealed class OverlayController : IDisposable
         WindowBounds bounds = OverlayPlacement.Compute(codex, workArea, content.DesiredSize.Width, content.DesiredSize.Height,
                                                        anchor.DpiScale, _settings.OffsetX, _settings.OffsetY);
 
-        OverlayWindowInterop.PlaceAbove(_window.Handle, anchor.Hwnd, bounds);
+        OverlayWindowInterop.PlaceAbove(_window.Handle, anchor.Hwnd, bounds.Left, bounds.Top);
 
         if (!_window.IsVisible)
         {

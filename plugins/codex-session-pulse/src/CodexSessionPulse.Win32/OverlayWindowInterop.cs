@@ -28,14 +28,16 @@ public static class OverlayWindowInterop
     }
 
     /// <summary>
-    /// Moves the overlay to <paramref name="bounds"/> and puts it directly above the Codex window in z-order, without activating
-    /// it, so any window over Codex also covers the overlay.
+    /// Moves the overlay's top-left corner to a point and puts it directly above the Codex window in z-order, without
+    /// activating it, so any window over Codex also covers the overlay. The size is left to WPF (<c>SizeToContent</c>), which
+    /// rescales it on <c>WM_DPICHANGED</c>; setting it here as well would make the two fight across mixed-DPI monitors.
     /// </summary>
     /// <param name="overlay">The overlay window.</param>
     /// <param name="codex">The Codex window it follows.</param>
-    /// <param name="bounds">The overlay rectangle in physical pixels.</param>
+    /// <param name="left">The left edge in physical pixels.</param>
+    /// <param name="top">The top edge in physical pixels.</param>
     /// <returns><see langword="true"/> when <c>SetWindowPos</c> succeeded.</returns>
-    public static bool PlaceAbove(nint overlay, nint codex, WindowBounds bounds)
+    public static bool PlaceAbove(nint overlay, nint codex, int left, int top)
     {
         if (NativeMethods.IsIconic(overlay))
         {
@@ -43,7 +45,7 @@ public static class OverlayWindowInterop
             NativeMethods.ShowWindow(overlay, NativeMethods.SwShowNoActivate);
         }
 
-        uint flags = NativeMethods.SwpNoActivate | NativeMethods.SwpNoOwnerZOrder;
+        uint flags = NativeMethods.SwpNoActivate | NativeMethods.SwpNoOwnerZOrder | NativeMethods.SwpNoSize;
         nint insertAfter = NativeMethods.HwndTop;
         nint above = NativeMethods.GetWindow(codex, NativeMethods.GwHwndPrev);
 
@@ -58,11 +60,6 @@ public static class OverlayWindowInterop
             insertAfter = above;
         }
 
-        return NativeMethods.SetWindowPos(overlay, insertAfter, bounds.Left, bounds.Top, bounds.Width, bounds.Height, flags);
+        return NativeMethods.SetWindowPos(overlay, insertAfter, left, top, 0, 0, flags);
     }
-
-    /// <summary>Checks whether a window is the foreground window.</summary>
-    /// <param name="hwnd">The window.</param>
-    /// <returns><see langword="true"/> when it is.</returns>
-    public static bool IsForeground(nint hwnd) => NativeMethods.GetForegroundWindow() == hwnd;
 }

@@ -64,6 +64,10 @@ public sealed class OverlayFormatterTests
     }
 
     /// <summary>Each state has its §3.2 wording and colour.</summary>
+    /// <param name="step">The stub step that produces the state.</param>
+    /// <param name="text">The expected state text.</param>
+    /// <param name="tone">The expected tone name.</param>
+    /// <param name="metrics">Whether the metrics are shown.</param>
     [Theory]
     [InlineData(0, "Codex session not found", "Neutral", false)]
     [InlineData(1, "Waiting for token usage…", "Neutral", false)]
@@ -103,6 +107,8 @@ public sealed class OverlayFormatterTests
     }
 
     /// <summary>Token counts: plain below 1000, one decimal with k or M above, a dash when unknown.</summary>
+    /// <param name="tokens">The count.</param>
+    /// <param name="expected">The expected text.</param>
     [Theory]
     [InlineData(null, "—")]
     [InlineData(512L, "512")]

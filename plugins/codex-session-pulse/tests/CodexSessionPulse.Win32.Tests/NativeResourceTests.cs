@@ -61,6 +61,7 @@ public sealed class NativeResourceTests
             Assert.False(anchor.Current.IsAttached);
             Assert.Equal(0, anchor.Current.CodexWindows);
             Assert.Equal(CodexWindowAnchor.WindowNotFound, anchor.Current.Diagnostics);
+            Assert.NotEmpty(seen);
             Assert.All(seen, snapshot => Assert.Equal(AnchorState.NotFound, snapshot.State));
 
             AnchorDiagnostics diagnostics = anchor.GetDiagnostics();

@@ -13,6 +13,7 @@ namespace CodexSessionPulse.App.Diagnostics;
 /// <param name="maxFiles">The number of files kept, the current one included.</param>
 internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 1024, int maxFiles = 5)
 {
+    private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
     private readonly Lock _gate = new();
 
     /// <summary>Gets the current log file.</summary>
@@ -42,12 +43,12 @@ internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 10
                 Directory.CreateDirectory(directory);
                 FileInfo current = new(CurrentFile);
 
-                if (current.Exists && current.Length + Encoding.UTF8.GetByteCount(line) > maxBytes)
+                if (current.Exists && current.Length + Utf8NoBom.GetByteCount(line) > maxBytes)
                 {
                     Rotate();
                 }
 
-                File.AppendAllText(CurrentFile, line, Encoding.UTF8);
+                File.AppendAllText(CurrentFile, line, Utf8NoBom);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {

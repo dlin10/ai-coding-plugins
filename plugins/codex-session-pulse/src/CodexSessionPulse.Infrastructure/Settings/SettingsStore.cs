@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace CodexSessionPulse.Infrastructure.Settings;
 
@@ -19,7 +18,7 @@ public sealed class SettingsStore(string path, string userProfile)
         WriteIndented = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
-        Converters = { new JsonStringEnumConverter(allowIntegerValues: false) },
+        Converters = { new LenientEnumConverter<OverlayAnchor>(), new LenientEnumConverter<OverlayTheme>() },
     };
 
     /// <summary>Gets the settings file.</summary>
