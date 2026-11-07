@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "exit 0",
-            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\bin\codex-session-pulse-launcher.cmd\" --hook",
+            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\\bin\\codex-session-pulse-launcher.cmd\" --hook",
             "async": true,
             "timeout": 60
           }
@@ -20,7 +20,7 @@
           {
             "type": "command",
             "command": "exit 0",
-            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\bin\codex-session-pulse-launcher.cmd\" --hook",
+            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\\bin\\codex-session-pulse-launcher.cmd\" --hook",
             "async": true,
             "timeout": 10
           }
@@ -33,7 +33,7 @@
           {
             "type": "command",
             "command": "exit 0",
-            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\bin\codex-session-pulse-launcher.cmd\" --hook --no-start",
+            "commandWindows": "cmd.exe /d /c \"${PLUGIN_ROOT}\\bin\\codex-session-pulse-launcher.cmd\" --hook --no-start",
             "timeout": 3
           }
         ]
