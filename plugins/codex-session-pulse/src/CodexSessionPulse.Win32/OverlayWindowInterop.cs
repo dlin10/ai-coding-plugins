@@ -39,7 +39,7 @@ public static class OverlayWindowInterop
     {
         if (NativeMethods.IsIconic(overlay))
         {
-            // Show desktop (Win+D) or another tool can minimize even a tool window; restore it without activating it.
+            // Another process can minimize even a tool window (measured: a screenshot tool did); restore it without activating it.
             NativeMethods.ShowWindow(overlay, NativeMethods.SwShowNoActivate);
         }
 
