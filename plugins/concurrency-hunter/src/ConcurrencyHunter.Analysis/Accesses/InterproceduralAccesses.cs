@@ -908,6 +908,9 @@ public static partial class InterproceduralAccesses
         private readonly Dictionary<(string Instance, int Enumeration), EnumerationLocks?> _enumerationStates = [];
         private readonly HashSet<(string Instance, int Enumeration)> _enumerationInProgress = [];
 
+        /// <summary>The <c>GetEnumerator</c> call of each enumeration of a body, by body id (<see cref="GetEnumerators"/>).</summary>
+        private readonly Dictionary<string, Dictionary<int, IrCallOperation>> _getEnumerators = new(StringComparer.Ordinal);
+
         /// <summary>The reference operations, by body, with a place nothing proves among those they may reach (R3).</summary>
         internal HashSet<(string Body, int Operation)> UnprovenReferences { get; } = [];
 
@@ -1487,6 +1490,31 @@ public static partial class InterproceduralAccesses
                                                IReadOnlyList<LockObject> ExitReleases, IReadOnlyList<LockObject> StepMay,
                                                IReadOnlyList<LockObject> ExitMay);
 
+        /// <summary>The <c>GetEnumerator</c> call of each enumeration of a body, by enumeration id: the first of its blocks in order holds,
+        /// built once per body.</summary>
+        /// <param name="bodyId">The id of the body, by which the calls are kept.</param>
+        /// <param name="body">The body.</param>
+        private Dictionary<int, IrCallOperation> GetEnumerators(string bodyId, IrBody body)
+        {
+            if (_getEnumerators.TryGetValue(bodyId, out var known))
+                return known;
+
+            var calls = new Dictionary<int, IrCallOperation>();
+            foreach (var block in body.Blocks)
+            {
+                CheckCancellation();
+                foreach (var operation in block.Operations)
+                {
+                    CheckCancellation();
+                    if (operation is IrCallOperation { EnumerationRole: IrEnumerationRole.GetEnumerator, EnumerationId: int enumeration } call)
+                        calls.TryAdd(enumeration, call);
+                }
+            }
+
+            _getEnumerators.Add(bodyId, calls);
+            return calls;
+        }
+
         private EnumerationLocks? EnumerationState(MethodInstance instance, int enumeration)
         {
             // An iterator's lock effects are asked of the callee's operations in turn, so each descent enters here again.
@@ -1499,9 +1527,7 @@ public static partial class InterproceduralAccesses
             try
             {
                 if (!input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body) ||
-                    body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>()
-                        .FirstOrDefault(call => call.EnumerationId == enumeration &&
-                                                call.EnumerationRole == IrEnumerationRole.GetEnumerator) is not { } getEnumerator ||
+                    !GetEnumerators(instance.BodyId, body).TryGetValue(enumeration, out var getEnumerator) ||
                     instance.Summary.OpaqueCalls.FirstOrDefault(call => call.OperationId == getEnumerator.Id) is not { } transfer)
                     return _enumerationStates[key] = null;
 
@@ -2660,22 +2686,35 @@ public static partial class InterproceduralAccesses
                 : new HandedValue(WouldBeAccessed: !input.Scope.Program.ImmutableTypeKeys.Contains(type), IsCopy: false);
         }
 
-        private readonly Dictionary<(string Body, int Operation), IrCallOperation?> _callOperations = [];
+        /// <summary>The call operations of each body, by body id, then by operation id (<see cref="CallOperation"/>).</summary>
+        private readonly Dictionary<string, Dictionary<int, IrCallOperation>> _callOperations = new(StringComparer.Ordinal);
 
-        /// <summary>The call operation of an instance's body, null where the operation is no call.</summary>
+        /// <summary>The call operation of an instance's body, null where the operation is no call. A body's calls are indexed once,
+        /// the first of each id in the order of its blocks.</summary>
         /// <param name="instance">The instance.</param>
         /// <param name="operationId">The operation.</param>
         private IrCallOperation? CallOperation(MethodInstance instance, int operationId)
         {
-            if (!_callOperations.TryGetValue((instance.BodyId, operationId), out var operation))
+            if (!input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body))
+                return null;
+            if (!_callOperations.TryGetValue(instance.BodyId, out var calls))
             {
-                operation = input.Scope.Reachable.Bodies.TryGetValue(instance.BodyId, out var body)
-                    ? body.Blocks.SelectMany(block => block.Operations).OfType<IrCallOperation>().FirstOrDefault(call => call.Id == operationId)
-                    : null;
-                _callOperations.Add((instance.BodyId, operationId), operation);
+                calls = [];
+                foreach (var block in body.Blocks)
+                {
+                    CheckCancellation();
+                    foreach (var operation in block.Operations)
+                    {
+                        CheckCancellation();
+                        if (operation is IrCallOperation call)
+                            calls.TryAdd(call.Id, call);
+                    }
+                }
+
+                _callOperations.Add(instance.BodyId, calls);
             }
 
-            return operation;
+            return calls.GetValueOrDefault(operationId);
         }
 
         /// <summary>
@@ -4669,8 +4708,12 @@ public static partial class InterproceduralAccesses
             }
         }
 
+        /// <summary>The 1-based position of each site of a body among its sites of one kind in source order, by body id and kind
+        /// (<see cref="SiteOrdinal"/>).</summary>
+        private readonly Dictionary<(string Body, Func<IrOperation, bool> IsSite), Dictionary<int, int>> _siteOrdinals = [];
+
         /// <summary>The 1-based position of a site among its body's sites of the same kind in source order, or the operation id
-        /// (prefixed) for a site that is no such operation.</summary>
+        /// (prefixed) for a site that is no such operation. A body's sites of one kind are ordered once.</summary>
         /// <param name="bodyId">The body the site is in.</param>
         /// <param name="operationId">The site's operation, if any.</param>
         /// <param name="isSite">Whether an operation is a site of the same kind.</param>
@@ -4678,14 +4721,27 @@ public static partial class InterproceduralAccesses
         {
             if (!input.Scope.Reachable.Bodies.TryGetValue(bodyId, out var body))
                 return $"op{operationId}";
-            var sites = body.Blocks.SelectMany(block => block.Operations).Where(isSite)
-                            .OrderBy(operation => operation.Provenance.Span.StartLine)
-                            .ThenBy(operation => operation.Provenance.Span.StartColumn)
-                            .ThenBy(operation => operation.Id)
-                            .Select(operation => operation.Id)
-                            .ToList();
-            var index = operationId is { } id ? sites.IndexOf(id) : -1;
-            return index < 0 ? $"op{operationId}" : (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (!_siteOrdinals.TryGetValue((bodyId, isSite), out var ordinals))
+            {
+                var sites = body.Blocks.SelectMany(block => block.Operations).Where(isSite)
+                                .OrderBy(operation => operation.Provenance.Span.StartLine)
+                                .ThenBy(operation => operation.Provenance.Span.StartColumn)
+                                .ThenBy(operation => operation.Id)
+                                .Select(operation => operation.Id)
+                                .ToList();
+                ordinals = [];
+                for (var index = 0; index < sites.Count; index++)
+                {
+                    CheckCancellation();
+                    ordinals.TryAdd(sites[index], index + 1);
+                }
+
+                _siteOrdinals.Add((bodyId, isSite), ordinals);
+            }
+
+            return operationId is { } id && ordinals.TryGetValue(id, out var ordinal)
+                ? ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : $"op{operationId}";
         }
 
         private static string? DeclaringAssembly(string? typeKey)

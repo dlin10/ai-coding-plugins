@@ -703,7 +703,7 @@ public static class MethodSummaryBuilder
             var variables = VariableKeys().Select(key => new SummaryVariable(key, Final(VariablePoints(key), delegates), VariableDependencies(key))
                                           {
                                               UnknownSources = Versions(key).SelectMany(value => _unknown[value.Id]).ToHashSet(),
-                                              Producers = ValueOrigin.Union(Versions(key).Select(value => Producers(value.Id))),
+                                              Producers = ProducersOf(Versions(key).Select(value => value.Id).ToArray()),
                                               Cell = _cells.GetValueOrDefault(key)
                                           })
                                           .ToArray();
@@ -1579,7 +1579,13 @@ public static class MethodSummaryBuilder
         /// <summary>Where a value comes from in the body: the calls and <c>dynamic</c> operations whose result it is, the parameters it
         /// is, and the fields it is read from (<see cref="ValueOrigin"/>).</summary>
         /// <param name="value">The IR value whose origins are followed.</param>
-        private ValueOrigin Producers(int value)
+        private ValueOrigin Producers(int value) => ProducersOf([value]);
+
+        /// <summary>Where any of several values comes from in the body, found by one walk back from all of them: each origin once,
+        /// however many of the values it reaches, in the order of the walk. A variable's versions are walked together, since a
+        /// version reached through phis reaches the earlier ones again.</summary>
+        /// <param name="values">The IR values whose origins are followed.</param>
+        private ValueOrigin ProducersOf(IReadOnlyList<int> values)
         {
             // A walk starts another through a library model's argument, and each depth of walks keeps its own marks and stack.
             if (_producerWalks.Count == _producerDepth)
@@ -1587,7 +1593,7 @@ public static class MethodSummaryBuilder
             var walk = _producerWalks[_producerDepth++];
             try
             {
-                return WalkProducers(value, walk);
+                return WalkProducers(values, walk);
             }
             finally
             {
@@ -1595,10 +1601,10 @@ public static class MethodSummaryBuilder
             }
         }
 
-        /// <summary>What <see cref="Producers"/> returns, found by one walk back from the value.</summary>
-        /// <param name="value">The IR value whose origins are followed.</param>
+        /// <summary>What <see cref="ProducersOf"/> returns, found by one walk back from the values.</summary>
+        /// <param name="values">The IR values whose origins are followed.</param>
         /// <param name="walk">The marks and the stack of the walk, which no walk in progress uses.</param>
-        private ValueOrigin WalkProducers(int value, ProducerWalk walk)
+        private ValueOrigin WalkProducers(IReadOnlyList<int> values, ProducerWalk walk)
         {
             var calls = new HashSet<int>();
             var parameters = new HashSet<int>();
@@ -1607,7 +1613,7 @@ public static class MethodSummaryBuilder
             var elements = new List<IReadOnlySet<AbstractValue>>();
             var keys = new List<IReadOnlySet<AbstractValue>>();
             var kept = new List<IReadOnlySet<AbstractValue>>();
-            var pending = walk.Start(value);
+            var pending = walk.Start(values);
             while (pending.TryPop(out var current))
             {
                 WorkCancellation.Check();
@@ -1750,13 +1756,18 @@ public static class MethodSummaryBuilder
                 _marks = new int[values.Max(value => value.Id) - _first + 1];
             }
 
-            /// <summary>Starts a walk from a value: a new number, and a stack holding the value alone.</summary>
-            /// <param name="value">The value the walk starts from.</param>
-            internal Stack<int> Start(int value)
+            /// <summary>Starts a walk from values: a new number, and a stack holding the values, the first on top.</summary>
+            /// <param name="values">The values the walk starts from.</param>
+            internal Stack<int> Start(IReadOnlyList<int> values)
             {
                 _walk++;
                 _pending.Clear();
-                _pending.Push(value);
+                for (var index = values.Count - 1; index >= 0; index--)
+                {
+                    WorkCancellation.Check();
+                    _pending.Push(values[index]);
+                }
+
                 return _pending;
             }
 

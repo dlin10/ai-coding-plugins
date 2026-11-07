@@ -362,6 +362,30 @@ public sealed class MethodSummaryTests
         Assert.Equal(["C._q true", "C._p true"], Guards(MethodSummaryBuilder.Build(body, index, AnalysisLimits.Default), "_c"));
     }
 
+    [Fact]
+    public void A_variables_producers_list_each_field_it_is_read_from_once()
+    {
+        // `x` has a version for each assignment and one where the `if` merges them. Walked one at a time, the merge would list both
+        // fields again; the versions walked together list each once.
+        var summary = Summarize("""
+            class C
+            {
+                object _a, _b;
+                static void Keep(object value) { }
+                void M(bool flag)
+                {
+                    var x = _a;
+                    if (flag)
+                        x = _b;
+                    Keep(x);
+                }
+            }
+            """);
+
+        var x = Assert.Single(summary.Variables, variable => variable.Producers.Fields.Count != 0);
+        Assert.Equal(["C._a", "C._b"], x.Producers.Fields.Select(field => $"{field.Field.ContainingType}.{field.Field.Name}").Order());
+    }
+
     [Theory]
     [InlineData("Guards")]
     [InlineData("Versions")]

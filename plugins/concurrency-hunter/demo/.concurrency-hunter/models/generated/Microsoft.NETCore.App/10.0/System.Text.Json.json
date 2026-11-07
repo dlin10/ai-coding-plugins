@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generator": "5cd939e982ba23fc580a936663c1d927e8dc39efba38198e531279f738f0a3f0",
+  "generator": "ccdc75a053d6ab7fb20d212dd6e827ff9684e184cf514cf3d174394e200bc69d",
   "assembly": {
     "name": "System.Text.Json",
     "version": "10.0.0.0",
@@ -84,41 +84,64 @@
     {
       "member": "M:System.Text.Json.JsonSerializerOptions.GetTypeInfo(System.Type)",
       "refusal": {
-        "reason": "timeout",
-        "detail": "the generation did not finish within the member limit of 120 s",
-        "causes": []
+        "reason": "unknown-touch",
+        "detail": "",
+        "causes": [
+          "enumeration-write",
+          "kept-user-object",
+          "probe-handed-to-unseen",
+          "result-keeps-receiver",
+          "result-unnamed",
+          "unseeded-read",
+          "unsupported-store",
+          "value-unnamed",
+          "value-unobserved"
+        ]
       }
     },
     {
       "member": "M:System.Text.Json.JsonSerializerOptions.MakeReadOnly",
       "refusal": {
-        "reason": "timeout",
-        "detail": "the generation did not finish within the member limit of 120 s",
-        "causes": []
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "unseeded-read"
+        ]
       }
     },
     {
       "member": "M:System.Text.Json.JsonSerializerOptions.get_Converters",
       "refusal": {
-        "reason": "timeout",
-        "detail": "the generation did not finish within the member limit of 120 s",
-        "causes": []
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "kept-user-object",
+          "result-keeps-receiver",
+          "result-unnamed",
+          "unseeded-read",
+          "value-unnamed",
+          "value-unobserved"
+        ]
       }
     },
     {
       "member": "M:System.Text.Json.JsonSerializerOptions.set_Encoder(System.Text.Encodings.Web.JavaScriptEncoder)",
       "refusal": {
-        "reason": "timeout",
-        "detail": "the generation did not finish within the member limit of 120 s",
-        "causes": []
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "unseeded-read"
+        ]
       }
     },
     {
       "member": "M:System.Text.Json.JsonSerializerOptions.set_TypeInfoResolver(System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver)",
       "refusal": {
-        "reason": "timeout",
-        "detail": "the generation did not finish within the member limit of 120 s",
-        "causes": []
+        "reason": "incomplete",
+        "detail": "",
+        "causes": [
+          "unseeded-read"
+        ]
       }
     },
     {

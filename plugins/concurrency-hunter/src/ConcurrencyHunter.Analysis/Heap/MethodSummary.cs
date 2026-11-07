@@ -1073,7 +1073,8 @@ public sealed record SummaryVariable(string SymbolKey, IReadOnlySet<AbstractValu
 {
     public IReadOnlySet<UnknownSource> UnknownSources { get; init; } = new HashSet<UnknownSource>();
 
-    /// <summary>Where every version of the variable in the body comes from (<see cref="ValueOrigin"/>).</summary>
+    /// <summary>Where every version of the variable in the body comes from (<see cref="ValueOrigin"/>), found by one walk back from all
+    /// of them: each field, element, key and kept storage is listed once, in the order of the walk, not once per version.</summary>
     public ValueOrigin Producers { get; init; } = ValueOrigin.None;
 
     /// <summary>The variable's capture cell, where a lambda or a local function the body knows of captures it; null otherwise.</summary>

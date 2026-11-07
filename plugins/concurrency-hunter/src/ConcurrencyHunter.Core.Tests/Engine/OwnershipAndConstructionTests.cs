@@ -309,6 +309,43 @@ public sealed class OwnershipAndConstructionTests
     }
 
     [Fact]
+    public void An_allocation_on_a_cycle_of_a_constructor_that_runs_once_is_not_one_object_per_process()
+    {
+        // The singleton's constructor runs once, but its loop runs the first allocation again, its `do` repeats the second in one
+        // block that branches back to itself, and its catch sends the third back to the label before the try: a cycle only the
+        // exceptional edge into the catch closes.
+        var run = Execute("""
+            public sealed class Item { }
+            public sealed class Again { }
+            public sealed class Attempt { }
+            public sealed class Ledger
+            {
+                private readonly object _gate = new();
+                private Item? _item;
+                private Again? _again;
+                private Attempt? _attempt;
+                public Ledger()
+                {
+                    for (var index = 0; index < 3; index++)
+                        _item = new Item();
+                    var count = 3;
+                    do { _again = new Again(); } while (--count > 0);
+                    var attempts = 0;
+                retry:
+                    try { _attempt = new Attempt(); }
+                    catch (System.InvalidOperationException) { if (++attempts < 3) goto retry; }
+                }
+            }
+            public class LedgerController(Ledger ledger) : ControllerBase { public void Post() { } }
+            """ + Startup("services.AddSingleton<Ledger>();"));
+
+        Assert.True(run.Analysis.IsSingleObject(run.Heap.Region("alloc:Ledger..ctor()#object").Identity));
+        Assert.False(run.Analysis.IsSingleObject(run.Heap.Region("alloc:Ledger..ctor()#Item").Identity));
+        Assert.False(run.Analysis.IsSingleObject(run.Heap.Region("alloc:Ledger..ctor()#Again").Identity));
+        Assert.False(run.Analysis.IsSingleObject(run.Heap.Region("alloc:Ledger..ctor()#Attempt").Identity));
+    }
+
+    [Fact]
     public void Hosted_service_registered_twice_as_a_singleton_hosted_service_is_not_one_object()
     {
         var run = Execute("""

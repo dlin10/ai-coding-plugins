@@ -784,14 +784,9 @@ public static class ExecutionModel
         private readonly Dictionary<string, IReadOnlyList<SpawnSiteLocation>> _spawnSites = new(StringComparer.Ordinal);
         private readonly Dictionary<(string BodyId, int Operation), bool> _inCycle = [];
 
-        /// <summary>The flow successors of each block of a body that <see cref="_inCycle"/> was asked about, by body id: the same for
-        /// every operation of the body.</summary>
-        private readonly Dictionary<string, Dictionary<int, int[]>> _successors = new(StringComparer.Ordinal);
-
-        /// <summary>The blocks one walk of <see cref="InCycle(string, IrBody, int)"/> has met and has yet to visit, kept from walk to
-        /// walk: a body of thousands of blocks would otherwise allocate sets of that size for every operation asked about.</summary>
-        private readonly HashSet<int> _inCycleSeen = [];
-        private readonly Stack<int> _inCyclePending = new();
+        /// <summary>The cycles of each body that <see cref="_inCycle"/> was asked about, by body id: the same for every operation of the
+        /// body.</summary>
+        private readonly Dictionary<string, BodyCycles> _cycles = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _sharedReach = new(StringComparer.Ordinal);
         private readonly Dictionary<string, (HashSet<string> Stored, HashSet<string> Targets)[]> _stores = new(StringComparer.Ordinal);
         private Dictionary<string, string[]>? _callersOf;
@@ -3480,49 +3475,103 @@ public static class ExecutionModel
         }
 
         /// <summary>Whether the block of an operation reaches itself again along the body's flow edges.</summary>
-        /// <param name="bodyId">The id of the body, by which its successors are kept.</param>
+        /// <param name="bodyId">The id of the body, by which its cycles are kept.</param>
         /// <param name="body">The body.</param>
         /// <param name="operationId">The id of the operation.</param>
         private bool InCycle(string bodyId, IrBody body, int operationId)
         {
             CheckCancellation();
-            var block = body.Blocks.FirstOrDefault(candidate => candidate.Operations.Any(operation => operation.Id == operationId));
-            if (block is null)
-                return false;
+            if (!_cycles.TryGetValue(bodyId, out var cycles))
+                _cycles.Add(bodyId, cycles = Cycles(body));
+            return cycles.BlockOf.TryGetValue(operationId, out var block) && cycles.OnCycle.Contains(block);
+        }
 
-            if (!_successors.TryGetValue(bodyId, out var successors))
-            {
-                successors = body.Blocks.SelectMany(candidate => candidate.FlowPredecessors.Select(predecessor => (predecessor.BlockOrdinal, candidate.Ordinal)))
-                                 .GroupBy(pair => pair.BlockOrdinal)
-                                 .ToDictionary(group => group.Key, group => group.Select(pair => pair.Ordinal).ToArray());
-                _successors.Add(bodyId, successors);
-            }
-
-            var seen = _inCycleSeen;
-            seen.Clear();
-            var pending = _inCyclePending;
-            pending.Clear();
-            foreach (var next in successors.GetValueOrDefault(block.Ordinal) ?? [])
+        /// <summary>The block of each operation of a body, and the blocks that reach themselves again along its flow edges: a block with
+        /// an edge to itself, and every block of a strongly connected component of more than one block (Tarjan's algorithm, with its
+        /// recursion kept on a stack).</summary>
+        /// <param name="body">The body.</param>
+        private BodyCycles Cycles(IrBody body)
+        {
+            // An operation in two blocks would be found in the first, as a scan of the blocks in order finds it.
+            var blockOf = new Dictionary<int, int>();
+            foreach (var block in body.Blocks)
             {
                 CheckCancellation();
-                pending.Push(next);
-            }
-
-            while (pending.TryPop(out var current))
-            {
-                CheckCancellation();
-                if (current == block.Ordinal)
-                    return true;
-                if (!seen.Add(current))
-                    continue;
-                foreach (var next in successors.GetValueOrDefault(current) ?? [])
+                foreach (var operation in block.Operations)
                 {
                     CheckCancellation();
-                    pending.Push(next);
+                    blockOf.TryAdd(operation.Id, block.Ordinal);
                 }
             }
 
-            return false;
+            var successors = body.Blocks.SelectMany(candidate => candidate.FlowPredecessors.Select(predecessor => (predecessor.BlockOrdinal, candidate.Ordinal)))
+                                 .GroupBy(pair => pair.BlockOrdinal)
+                                 .ToDictionary(group => group.Key, group => group.Select(pair => pair.Ordinal).ToArray());
+            var found = new Dictionary<int, int>();
+            var low = new Dictionary<int, int>();
+            var open = new HashSet<int>();
+            var component = new Stack<int>();
+            var frames = new Stack<(int Block, int Next)>();
+            var members = new List<int>();
+            var onCycle = new HashSet<int>();
+            foreach (var root in successors.Keys)
+            {
+                CheckCancellation();
+                if (found.ContainsKey(root))
+                    continue;
+                Enter(root);
+                while (frames.TryPop(out var frame))
+                {
+                    CheckCancellation();
+                    var edges = successors.GetValueOrDefault(frame.Block) ?? [];
+                    if (frame.Next < edges.Length)
+                    {
+                        frames.Push((frame.Block, frame.Next + 1));
+                        var target = edges[frame.Next];
+                        if (!found.ContainsKey(target))
+                            Enter(target);
+                        else if (open.Contains(target))
+                            low[frame.Block] = Math.Min(low[frame.Block], found[target]);
+                        continue;
+                    }
+
+                    if (frames.TryPeek(out var parent))
+                        low[parent.Block] = Math.Min(low[parent.Block], low[frame.Block]);
+                    if (low[frame.Block] != found[frame.Block])
+                        continue;
+
+                    members.Clear();
+                    int member;
+                    do
+                    {
+                        CheckCancellation();
+                        member = component.Pop();
+                        open.Remove(member);
+                        members.Add(member);
+                    }
+                    while (member != frame.Block);
+
+                    if (members.Count > 1)
+                        onCycle.UnionWith(members);
+                    else if (Array.IndexOf(edges, frame.Block) >= 0)
+                        onCycle.Add(frame.Block);
+                }
+            }
+
+            return new BodyCycles(blockOf, onCycle);
+
+            void Enter(int block)
+            {
+                found[block] = low[block] = found.Count;
+                open.Add(block);
+                component.Push(block);
+                frames.Push((block, 0));
+            }
         }
+
+        /// <summary>A body's operations by block, and the blocks on a cycle of its flow edges (<see cref="Cycles"/>).</summary>
+        /// <param name="BlockOf">The ordinal of the block of each operation, by operation id.</param>
+        /// <param name="OnCycle">The ordinals of the blocks that reach themselves again.</param>
+        private sealed record BodyCycles(IReadOnlyDictionary<int, int> BlockOf, IReadOnlySet<int> OnCycle);
     }
 }
