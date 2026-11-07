@@ -62,8 +62,12 @@ public sealed record PulseSettings
     /// <summary>Gets the horizontal offset in DIP; positive moves right.</summary>
     public int OffsetX { get; init; }
 
-    /// <summary>Gets the offset of the overlay's bottom edge from the Codex window's bottom edge in DIP; negative moves up.</summary>
-    public int OffsetY { get; init; } = -72;
+    /// <summary>
+    /// Gets the offset of the overlay's bottom edge from the Codex window's bottom edge in DIP; negative moves up. The default
+    /// clears Codex Desktop's composer card (input box and project chips, about 157 DIP from the bottom), so the line sits
+    /// just above it instead of over the input.
+    /// </summary>
+    public int OffsetY { get; init; } = -170;
 
     /// <summary>Gets a value indicating whether the overlay hides while Codex is not the foreground app.</summary>
     public bool HideWhenCodexInactive { get; init; } = true;

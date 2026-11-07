@@ -26,7 +26,7 @@ public sealed class SettingsStoreTests : IDisposable
 
         Assert.Empty(result.Problems);
         Assert.Equal(30, result.Settings.EstimatedCacheTtlMinutes);
-        Assert.Equal(-72, result.Settings.OffsetY);
+        Assert.Equal(-170, result.Settings.OffsetY);
         Assert.True(result.Settings.HideWhenCodexInactive);
         Assert.Equal(["Codex", "ChatGPT"], result.Settings.CodexProcessNames);
         Assert.False(File.Exists(SettingsPath));
@@ -95,7 +95,7 @@ public sealed class SettingsStoreTests : IDisposable
               "codexWindowTitleFilter": null,
               "anchor": "BottomOfCodexWindow",
               "offsetX": 0,
-              "offsetY": -72,
+              "offsetY": -170,
               "hideWhenCodexInactive": true,
               "theme": "System",
               "estimatedCacheTtlMinutes": 30,
@@ -124,7 +124,7 @@ public sealed class SettingsStoreTests : IDisposable
         SettingsLoadResult loaded = Store().Load();
 
         Assert.Equal([problem], loaded.Problems);
-        Assert.Equal(-72, loaded.Settings.OffsetY);
+        Assert.Equal(-170, loaded.Settings.OffsetY);
         Assert.Equal(["Codex", "ChatGPT"], loaded.Settings.CodexProcessNames);
     }
 
