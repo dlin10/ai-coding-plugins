@@ -21,7 +21,7 @@ public sealed record AnchorDiagnostics(string Rule,
 /// <summary>
 /// Follows the foreground Codex Desktop window (spec §3.3, §7.2). WinEvents drive it: foreground and minimize globally;
 /// destroy, show, hide and location changes only for the Codex processes. Every callback is coalesced onto the UI thread
-/// through the captured <see cref="SynchronizationContext"/>, and a 300 ms poll runs only while Codex is in the foreground.
+/// through the captured <see cref="SynchronizationContext"/>, and a cheap 300 ms poll runs while a Codex window exists.
 /// Create, use and dispose it on the UI thread.
 /// </summary>
 public sealed class CodexWindowAnchor : IWindowAnchor
@@ -42,6 +42,7 @@ public sealed class CodexWindowAnchor : IWindowAnchor
     private IReadOnlyList<WindowCandidate> _windows = [];
     private ITimer? _poll;
     private nint _followed;
+    private nint _lastForeground;
     private bool _foreground;
     private bool _refreshQueued;
     private bool _geometryQueued;
@@ -150,6 +151,7 @@ public sealed class CodexWindowAnchor : IWindowAnchor
         }
 
         nint foreground = NativeMethods.GetForegroundWindow();
+        _lastForeground = foreground;
         nint foregroundRoot = foreground == 0 ? 0 : NativeMethods.GetAncestor(foreground, NativeMethods.GaRootOwner);
         int foregroundProcess = foreground == 0 ? 0 : WindowEnumerator.GetProcessId(foreground);
 
@@ -170,6 +172,22 @@ public sealed class CodexWindowAnchor : IWindowAnchor
         }
 
         PublishGeometry();
+    }
+
+    /// <summary>The fallback poll: a full refresh when the foreground window changed, otherwise only the followed window's geometry.</summary>
+    private void Poll()
+    {
+        if (!_disposed && !_refreshQueued)
+        {
+            if (NativeMethods.GetForegroundWindow() != _lastForeground)
+            {
+                Refresh();
+            }
+            else
+            {
+                PublishGeometry();
+            }
+        }
     }
 
     /// <summary>Reads the followed window's state and geometry and publishes it when anything changed.</summary>
@@ -198,18 +216,22 @@ public sealed class CodexWindowAnchor : IWindowAnchor
                                    geometry.WorkArea, geometry.Bounds is null ? "bounds-unavailable" : null));
     }
 
-    /// <summary>Publishes a snapshot unless it equals the current one apart from its time, and runs the poll only while attached.</summary>
+    /// <summary>
+    /// Publishes a snapshot unless it equals the current one apart from its time, and runs the fallback poll while a Codex
+    /// window exists. Activation does not always raise <c>EVENT_SYSTEM_FOREGROUND</c> (measured: an app activated by
+    /// another process came to the front with no event), so the poll also covers Background and Minimized.
+    /// </summary>
     /// <param name="snapshot">The new snapshot.</param>
     private void Publish(AnchorSnapshot snapshot)
     {
-        bool attached = snapshot.State == AnchorState.Attached;
+        bool found = snapshot.State != AnchorState.NotFound;
 
-        if (attached && _poll is null)
+        if (found && _poll is null)
         {
-            _poll = _time.CreateTimer(_ => _ui.Post(_ => Refresh(), null),
+            _poll = _time.CreateTimer(_ => _ui.Post(_ => Poll(), null),
                                       null, TimeSpan.FromMilliseconds(PollIntervalMs), TimeSpan.FromMilliseconds(PollIntervalMs));
         }
-        else if (!attached && _poll is not null)
+        else if (!found && _poll is not null)
         {
             _poll.Dispose();
             _poll = null;

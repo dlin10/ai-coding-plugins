@@ -37,6 +37,12 @@ public static class OverlayWindowInterop
     /// <returns><see langword="true"/> when <c>SetWindowPos</c> succeeded.</returns>
     public static bool PlaceAbove(nint overlay, nint codex, WindowBounds bounds)
     {
+        if (NativeMethods.IsIconic(overlay))
+        {
+            // Show desktop (Win+D) or another tool can minimize even a tool window; restore it without activating it.
+            NativeMethods.ShowWindow(overlay, NativeMethods.SwShowNoActivate);
+        }
+
         uint flags = NativeMethods.SwpNoActivate | NativeMethods.SwpNoOwnerZOrder;
         nint insertAfter = NativeMethods.HwndTop;
         nint above = NativeMethods.GetWindow(codex, NativeMethods.GwHwndPrev);

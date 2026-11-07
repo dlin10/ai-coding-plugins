@@ -22,6 +22,8 @@ internal static partial class NativeMethods
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpNoOwnerZOrder = 0x0200;
 
+    internal const int SwShowNoActivate = 4;
+
     internal const uint MonitorDefaultToNearest = 2;
 
     internal const uint DwmwaExtendedFrameBounds = 9;
@@ -98,6 +100,10 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll")]
     internal static partial nint GetWindow(nint hwnd, uint command);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ShowWindow(nint hwnd, int command);
 
     [LibraryImport("user32.dll")]
     internal static partial nint GetAncestor(nint hwnd, uint flags);

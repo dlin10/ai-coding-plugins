@@ -9,6 +9,7 @@ public sealed class ExeProcessTests
 {
     private const int TimeoutMs = 30_000;
     private const string DebugVariable = "CODEX_SESSION_PULSE_DEBUG_ASSEMBLIES";
+    private const string HomeVariable = "CODEX_SESSION_PULSE_HOME";
 
     /// <summary>A valid payload makes <c>--hook</c> exit 0 without ever loading WPF.</summary>
     [Fact]
@@ -46,22 +47,63 @@ public sealed class ExeProcessTests
         Assert.Equal(0, exitCode);
     }
 
-    /// <summary>The overlay placeholder creates the WPF application and exits at once.</summary>
+    /// <summary>The overlay with the development stub starts, writes its log under the redirected home and keeps running.</summary>
     [Fact]
-    public void Overlay_CreatesApplicationAndExitsZero()
+    public void Overlay_WithStub_StartsAndKeepsRunning()
     {
-        (int exitCode, _) = Run("--overlay", string.Empty, debug: false);
+        string home = Path.Combine(Path.GetTempPath(), "csp-overlay-" + Guid.NewGuid().ToString("N"));
+        string log = Path.Combine(home, "logs", "overlay.log");
+        ProcessStartInfo startInfo = new(Exe, "--overlay --stub") { UseShellExecute = false, WorkingDirectory = Path.GetTempPath() };
+        startInfo.Environment[HomeVariable] = home;
 
-        Assert.Equal(0, exitCode);
+        using Process process = Process.Start(startInfo)!;
+
+        try
+        {
+            Stopwatch waited = Stopwatch.StartNew();
+
+            while (!LogHas(log, "anchor ") && waited.ElapsedMilliseconds < TimeoutMs && !process.HasExited)
+            {
+                Thread.Sleep(100);
+            }
+
+            Assert.False(process.HasExited, "The overlay exited.");
+            Assert.True(LogHas(log, "overlay start"), "The overlay did not log its start.");
+            Assert.True(LogHas(log, "stub True"), "The overlay did not take --stub.");
+            Assert.True(LogHas(log, "anchor "), "The window anchor reported no state.");
+            Assert.False(LogHas(log, "ERROR"), "The overlay logged an error.");
+        }
+        finally
+        {
+            // The overlay only exits from its tray menu; the test ends it by force.
+            process.Kill();
+            process.WaitForExit(TimeoutMs);
+            Directory.Delete(home, recursive: true);
+        }
+    }
+
+    private static string Exe => Path.Combine(typeof(ExeProcessTests).Assembly
+        .GetCustomAttributes<AssemblyMetadataAttribute>()
+        .Single(attribute => attribute.Key == "AppOutputDir").Value!, "CodexSessionPulse.exe");
+
+    private static bool LogHas(string path, string text)
+    {
+        try
+        {
+            using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using StreamReader reader = new(stream);
+
+            return reader.ReadToEnd().Contains(text, StringComparison.Ordinal);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     private static (int ExitCode, string Stdout) Run(string argument, string stdin, bool debug)
     {
-        string appOutputDir = typeof(ExeProcessTests).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>()
-            .Single(attribute => attribute.Key == "AppOutputDir").Value!;
-        string exe = Path.Combine(appOutputDir, "CodexSessionPulse.exe");
-        ProcessStartInfo startInfo = new(exe, argument)
+        ProcessStartInfo startInfo = new(Exe, argument)
         {
             RedirectStandardInput = true,
             RedirectStandardOutput = true,

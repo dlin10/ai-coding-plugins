@@ -1,0 +1,84 @@
+<Window x:Class="CodexSessionPulse.App.SettingsUi.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:ClassModifier="internal"
+        Title="Codex Session Pulse — Settings"
+        Width="560"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI"
+        FontSize="13">
+  <Window.Resources>
+    <Style TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,4,12,4" />
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Margin" Value="0,4" />
+      <Setter Property="Padding" Value="3,2" />
+    </Style>
+  </Window.Resources>
+
+  <StackPanel Margin="16">
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition />
+        <RowDefinition />
+        <RowDefinition />
+        <RowDefinition />
+        <RowDefinition />
+        <RowDefinition />
+        <RowDefinition />
+        <RowDefinition />
+        <RowDefinition />
+        <RowDefinition />
+      </Grid.RowDefinitions>
+
+      <TextBlock Grid.Row="0" Text="Rollouts folder" />
+      <TextBox Grid.Row="0" Grid.Column="1" x:Name="SessionRoot" ToolTip="Empty: the default ~\.codex\sessions" />
+      <Button Grid.Row="0" Grid.Column="2" Content="Browse…" Margin="8,4,0,4" Padding="10,2" Click="OnBrowse" />
+
+      <TextBlock Grid.Row="1" Text="Codex process names" />
+      <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="ProcessNames" ToolTip="Comma-separated, without .exe" />
+
+      <TextBlock Grid.Row="2" Text="Executable path filters" />
+      <TextBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" x:Name="PathFilters"
+               ToolTip="Semicolon-separated substrings of the executable path; empty accepts any path" />
+
+      <TextBlock Grid.Row="3" Text="Window title filter" />
+      <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" x:Name="TitleFilter" ToolTip="Empty: any title" />
+
+      <TextBlock Grid.Row="4" Text="Offset X (DIP)" />
+      <TextBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" x:Name="OffsetX" />
+
+      <TextBlock Grid.Row="5" Text="Offset Y (DIP)" />
+      <TextBox Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" x:Name="OffsetY"
+               ToolTip="From the bottom edge of the Codex window; negative moves up" />
+
+      <TextBlock Grid.Row="6" Text="Theme" />
+      <ComboBox Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" x:Name="Theme" Margin="0,4" />
+
+      <TextBlock Grid.Row="7" Text="Estimated cache TTL (min)" />
+      <TextBox Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" x:Name="TtlMinutes" ToolTip="1–720; changes only the estimate" />
+
+      <TextBlock Grid.Row="8" Text="Min cached tokens for Warm" />
+      <TextBox Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2" x:Name="MinCachedTokens" />
+
+      <CheckBox Grid.Row="9" Grid.Column="1" Grid.ColumnSpan="2" x:Name="KeepVisible" Margin="0,8,0,4"
+                Content="Keep visible when Codex is not focused" />
+    </Grid>
+
+    <TextBlock x:Name="Problems" Foreground="#C62828" TextWrapping="Wrap" Margin="0,8,0,0" />
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="Save" IsDefault="True" MinWidth="80" Padding="10,3" Click="OnSave" />
+      <Button Content="Cancel" IsCancel="True" MinWidth="80" Padding="10,3" Margin="8,0,0,0" />
+    </StackPanel>
+  </StackPanel>
+</Window>
