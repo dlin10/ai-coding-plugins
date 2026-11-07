@@ -256,6 +256,109 @@ public sealed class PulseEngineTests
         Assert.Equal(SourceStatus.Failed, snapshot.Source.Status);
     }
 
+    /// <summary>A SessionEnd naming a subagent is ambiguous (subagents get none of their own) and changes nothing.</summary>
+    [Fact]
+    public void OnSessionEnd_Subagent_IsIgnored()
+    {
+        _engine.Apply(Create("M", T0, 40755, 40448));
+        _engine.Apply(Create("S", T0.AddMinutes(1), 9000, 8000, kind: ThreadKind.Subagent, rootSessionId: "M", parentThreadId: "M"));
+
+        _engine.OnSessionEnd("S", T0.AddMinutes(2));
+        _engine.Apply(Create("S", T0.AddMinutes(1).AddSeconds(30), 9100, 8000, kind: ThreadKind.Subagent, rootSessionId: "M", parentThreadId: "M"));
+
+        Assert.False(_engine.IsEnded("S"));
+        Assert.Equal("M", _engine.Tick().ThreadId);
+    }
+
+    /// <summary>An unknown thread's end and a repeated end are no-ops for every live thread.</summary>
+    [Fact]
+    public void OnSessionEnd_UnknownOrRepeated_KeepsOtherThreads()
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _engine.OnUserActivity("A", T0.AddMinutes(1));
+
+        _engine.OnSessionEnd("unknown", T0.AddMinutes(2));
+        _engine.OnSessionEnd("unknown", T0.AddMinutes(2));
+        CacheSnapshot snapshot = _engine.Tick();
+
+        Assert.Equal("A", snapshot.ThreadId);
+        Assert.Equal(SelectionConfidence.Confirmed, snapshot.Selection.Confidence);
+    }
+
+    /// <summary>The shown thread with no activity for <see cref="PulseEngine.StaleAfter"/> is Stale, not merely expired.</summary>
+    [Fact]
+    public void Tick_IdlePastStaleAfter_IsStale()
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _clock.UtcNow = T0 + PulseEngine.StaleAfter - TimeSpan.FromMinutes(1);
+        Assert.Equal(CacheState.EstimatedExpired, _engine.Tick().State);
+
+        _clock.UtcNow = T0 + PulseEngine.StaleAfter;
+        CacheSnapshot snapshot = _engine.Tick();
+
+        Assert.Equal(CacheState.Stale, snapshot.State);
+        Assert.Equal(T0, snapshot.LastRequestAt);
+    }
+
+    /// <summary>A TTL estimate longer than <see cref="PulseEngine.StaleAfter"/> keeps running; Stale comes only after it.</summary>
+    [Fact]
+    public void Tick_LongTtlEstimate_IsNotHiddenByStale()
+    {
+        PulseEngine engine = new(CacheTrackerOptions.Default with { EstimatedTtl = TimeSpan.FromHours(10) }, _clock);
+        engine.Apply(Create("A", T0, 40755, 40448));
+
+        _clock.UtcNow = T0 + PulseEngine.StaleAfter + TimeSpan.FromHours(1);
+        Assert.Equal(CacheState.Warm, engine.Tick().State);
+
+        _clock.UtcNow = T0 + TimeSpan.FromHours(10);
+        Assert.Equal(CacheState.Stale, engine.Tick().State);
+    }
+
+    /// <summary>
+    /// Pruning drops threads idle past <see cref="PulseEngine.PruneAfter"/> but keeps the newest and the shown one; a pruned
+    /// thread's old JSONL cannot bring it back, newer activity can.
+    /// </summary>
+    [Fact]
+    public void Prune_DropsIdleThreads_AndTombstonesThem()
+    {
+        _engine.Apply(Create("Old", T0, 40755, 40448));
+        _engine.Apply(Create("Shown", T0.AddMinutes(1), 30000, 29000));
+        _engine.OnUserActivity("Shown", T0.AddMinutes(2));
+        _engine.Apply(Create("Newest", T0.AddMinutes(3), 20000, 19000));
+        _clock.UtcNow = T0 + PulseEngine.PruneAfter + TimeSpan.FromHours(1);
+
+        int dropped = _engine.Prune();
+        CacheSnapshot replayed = _engine.Apply(Create("Old", T0, 40755, 40448));
+
+        Assert.Equal(1, dropped);
+        Assert.Equal("Shown", replayed.ThreadId);
+        Assert.True(_engine.IsEnded("Old"));
+
+        _engine.Apply(Create("Old", _clock.UtcNow, 41000, 40448));
+        _engine.OnSessionEnd("Shown", _clock.UtcNow);
+        CacheSnapshot revived = _engine.Tick();
+
+        Assert.False(_engine.IsEnded("Old"));
+        Assert.Equal("Old", revived.ThreadId);
+        Assert.Equal(41000, revived.Input);
+    }
+
+    /// <summary>Beyond <see cref="PulseEngine.MaxLiveThreads"/> the least recently active threads go first.</summary>
+    [Fact]
+    public void Prune_BoundsTheThreadCount()
+    {
+        for (int index = 0; index < PulseEngine.MaxLiveThreads + 5; index++)
+        {
+            _engine.Apply(Create("T" + index, T0.AddSeconds(index), 40755, 40448));
+        }
+
+        int dropped = _engine.Prune();
+
+        Assert.Equal(5, dropped);
+        Assert.True(_engine.IsEnded("T0"));
+        Assert.False(_engine.IsEnded("T5"));
+    }
+
     /// <summary>Every call publishes, and a new subscriber first gets the current snapshot.</summary>
     [Fact]
     public void Snapshots_SubscriberGetsCurrentThenUpdates()

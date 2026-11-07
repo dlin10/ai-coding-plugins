@@ -7,11 +7,24 @@ namespace CodexSessionPulse.Core;
 /// </summary>
 /// <remarks>
 /// Hook callers (#252) pass the thread id resolved from <c>transcript_path</c>, never the hook <c>session_id</c>,
-/// which a fork or subagent shares. Speed is always <see langword="null"/> in P0. <see cref="CacheState.Stale"/> is
-/// not produced yet: the spec gives it no threshold.
+/// which a fork or subagent shares. Speed is always <see langword="null"/> in P0. A shown thread with no activity for
+/// <see cref="StaleAfter"/> is <see cref="CacheState.Stale"/>; <see cref="Prune"/> drops threads idle for
+/// <see cref="PruneAfter"/>, so a thread whose <c>SessionEnd</c> was missed does not live on.
 /// </remarks>
 public sealed class PulseEngine
 {
+    /// <summary>
+    /// The idle time after which the shown thread is <see cref="CacheState.Stale"/>, or the TTL estimate when that is longer,
+    /// so Stale never hides an estimate that is still running.
+    /// </summary>
+    public static readonly TimeSpan StaleAfter = TimeSpan.FromHours(6);
+
+    /// <summary>The idle time after which <see cref="Prune"/> drops a thread that is not on display.</summary>
+    public static readonly TimeSpan PruneAfter = TimeSpan.FromHours(24);
+
+    /// <summary>The most threads <see cref="Prune"/> keeps.</summary>
+    public const int MaxLiveThreads = 64;
+
     private readonly Lock _gate = new();
     private readonly CacheTrackerOptions _options;
     private readonly IClock _clock;
@@ -143,6 +156,43 @@ public sealed class PulseEngine
         }
     }
 
+    /// <summary>
+    /// Drops the threads idle for longer than <see cref="PruneAfter"/> and the oldest beyond <see cref="MaxLiveThreads"/>,
+    /// keeping the most recent one and the one on display; each leaves a tombstone (see <see cref="ThreadRegistry.Prune"/>).
+    /// </summary>
+    /// <returns>The number of dropped threads.</returns>
+    public int Prune()
+    {
+        lock (_gate)
+        {
+            string? shown = _resolver.Resolve(_registry, _codexWindows)?.Thread.ThreadId;
+            IReadOnlyList<string> dropped = _registry.Prune(_clock.UtcNow, PruneAfter, MaxLiveThreads, shown);
+
+            foreach (string threadId in dropped)
+            {
+                _resolver.Forget(threadId);
+            }
+
+            if (dropped.Count > 0)
+            {
+                PublishLocked();
+            }
+
+            return dropped.Count;
+        }
+    }
+
+    /// <summary>Gets whether a thread was ended or pruned and is held off by a tombstone.</summary>
+    /// <param name="threadId">The thread id.</param>
+    /// <returns>Whether a tombstone exists.</returns>
+    public bool IsEnded(string threadId)
+    {
+        lock (_gate)
+        {
+            return _registry.IsEnded(threadId);
+        }
+    }
+
     /// <summary>Recomputes the snapshot at the clock's current time without a new observation.</summary>
     /// <returns>The published snapshot.</returns>
     public CacheSnapshot Tick()
@@ -178,9 +228,11 @@ public sealed class PulseEngine
         CacheSnapshot tracked = thread.Tracker.Tick(nowUtc);
         bool failed = _sourceStatus == SourceStatus.Failed;
 
+        bool stale = nowUtc - thread.LastActivityUtc >= (StaleAfter > _options.EstimatedTtl ? StaleAfter : _options.EstimatedTtl);
+
         return tracked with
         {
-            State = failed ? CacheState.Error : tracked.State,
+            State = failed ? CacheState.Error : stale ? CacheState.Stale : tracked.State,
             ThreadId = thread.ThreadId,
             Kind = thread.Kind,
             Selection = resolved.Selection,

@@ -1,18 +1,21 @@
 using System.Diagnostics;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using Xunit;
 
 namespace CodexSessionPulse.Win32.Tests;
 
 /// <summary>Starts the real <c>CodexSessionPulse.exe</c> and checks the two modes from outside.</summary>
+[Collection(ExeCollection.Name)]
 public sealed class ExeProcessTests
 {
     private const int TimeoutMs = 30_000;
     private const string DebugVariable = "CODEX_SESSION_PULSE_DEBUG_ASSEMBLIES";
     private const string HomeVariable = "CODEX_SESSION_PULSE_HOME";
 
-    /// <summary>A valid payload makes <c>--hook</c> exit 0 without ever loading WPF.</summary>
+    /// <summary>
+    /// A valid payload makes <c>--hook</c> exit 0 without ever loading WPF, on the path that starts the overlay too (the
+    /// started overlay belongs to a scratch home and is closed afterwards).
+    /// </summary>
     [Fact]
     public void Hook_WithJsonOnStdin_ExitsZeroWithoutLoadingWpf()
     {
@@ -75,12 +78,7 @@ public sealed class ExeProcessTests
             Assert.False(LogHas(log, "ERROR"), "The overlay logged an error.");
 
             // Graceful exit, the same path as tray Exit, so no dead icon is left in the notification area.
-            nint tray = FindTrayWindow(process.Id);
-            Assert.NotEqual(0, tray);
-            PostMessage(tray, WmClose, 0, 0);
-
-            Assert.True(process.WaitForExit(TimeoutMs), "The overlay did not exit on WM_CLOSE.");
-            Assert.Equal(0, process.ExitCode);
+            Assert.True(LifecycleHome.CloseGracefully(process), "The overlay did not exit with 0 on WM_CLOSE.");
             Assert.True(LogHas(log, "overlay stop"), "The overlay did not log its stop.");
         }
         finally
@@ -94,37 +92,6 @@ public sealed class ExeProcessTests
             Directory.Delete(home, recursive: true);
         }
     }
-
-    private const uint WmClose = 0x0010;
-
-    /// <summary>Finds the hidden tray window of a process by its window class.</summary>
-    /// <param name="processId">The overlay process.</param>
-    /// <returns>The window, or 0 when there is none.</returns>
-    private static nint FindTrayWindow(int processId)
-    {
-        for (nint window = FindWindowEx(0, 0, TrayIcon.WindowClassName, null); window != 0;
-             window = FindWindowEx(0, window, TrayIcon.WindowClassName, null))
-        {
-            GetWindowThreadProcessId(window, out uint owner);
-
-            if (owner == processId)
-            {
-                return window;
-            }
-        }
-
-        return 0;
-    }
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern nint FindWindowEx(nint parent, nint after, string className, string? windowName);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(nint hwnd, out uint processId);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool PostMessage(nint hwnd, uint message, nint wParam, nint lParam);
 
     private static string Exe => Path.Combine(typeof(ExeProcessTests).Assembly
         .GetCustomAttributes<AssemblyMetadataAttribute>()
@@ -147,6 +114,8 @@ public sealed class ExeProcessTests
 
     private static (int ExitCode, string Stdout) Run(string argument, string stdin, bool debug)
     {
+        // A scratch home: the hook must never reach, or start, the user's own overlay.
+        using LifecycleHome home = new();
         ProcessStartInfo startInfo = new(Exe, argument)
         {
             RedirectStandardInput = true,
@@ -154,6 +123,8 @@ public sealed class ExeProcessTests
             UseShellExecute = false,
             WorkingDirectory = Path.GetTempPath(),
         };
+        startInfo.Environment[HomeVariable] = home.Root;
+        startInfo.Environment["CODEX_HOME"] = home.CodexHome;
 
         if (debug)
         {

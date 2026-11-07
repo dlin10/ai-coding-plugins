@@ -26,6 +26,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The rollout fixtures of the reader's tests, read in place by the lifecycle tests. -->
+    <AssemblyMetadata Include="FixturesRoot" Value="$(MSBuildProjectDirectory)\..\CodexSessionPulse.Infrastructure.Tests\Fixtures" />
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
       <_Parameter1>AppOutputDir</_Parameter1>
       <_Parameter2>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\src\CodexSessionPulse.App\bin\$(Configuration)\$(TargetFramework)\'))</_Parameter2>

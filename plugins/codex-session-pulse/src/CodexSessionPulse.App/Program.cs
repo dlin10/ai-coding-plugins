@@ -16,12 +16,12 @@ internal static class Program
 
         if (options.Mode == LaunchMode.Hook)
         {
-            return HookRunner.Run(Console.OpenStandardInput(), () => Console.Out, Environment.GetEnvironmentVariable);
+            return HookRunner.Run(Console.OpenStandardInput(), options.NoStart, () => Console.Out, Environment.GetEnvironmentVariable);
         }
 
         if (options.Mode == LaunchMode.Overlay)
         {
-            return OverlayHost.Run(options);
+            return OverlayBootstrap.Run(options);
         }
 
         return 2;

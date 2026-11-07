@@ -122,14 +122,16 @@ public sealed class ThreadRegistry
     /// <summary>
     /// Handles <c>SessionEnd</c> for exactly one thread: removes its state and leaves a tombstone. Idempotent; an
     /// end older than the thread's latest activity is stale and ignored. Other threads, including forks with the
-    /// same root session and the thread's subagents, are kept.
+    /// same root session and the thread's subagents, are kept. A subagent never gets a <c>SessionEnd</c> of its own, so
+    /// an end naming one is ambiguous and ignored.
     /// </summary>
     /// <param name="threadId">The thread id.</param>
     /// <param name="atUtc">When the session ended, in UTC.</param>
-    /// <returns>Whether the end was accepted; <see langword="false"/> for a stale one.</returns>
+    /// <returns>Whether the end was accepted; <see langword="false"/> for a stale one or a subagent.</returns>
     public bool End(string threadId, DateTimeOffset atUtc)
     {
-        if (_threads.TryGetValue(threadId, out ThreadPulseState? state) && state.LastActivityUtc > atUtc)
+        if (_threads.TryGetValue(threadId, out ThreadPulseState? state)
+            && (state.LastActivityUtc > atUtc || state.Kind == ThreadKind.Subagent))
         {
             return false;
         }
@@ -138,6 +140,37 @@ public sealed class ThreadRegistry
         AddTombstone(threadId, atUtc);
 
         return true;
+    }
+
+    /// <summary>
+    /// Drops threads whose <c>SessionEnd</c> never came (a crash, disabled hooks): every thread idle for longer than
+    /// <paramref name="idleAfter"/>, and the least recently active ones beyond <paramref name="maxLive"/>. The most recently
+    /// active thread and <paramref name="keepThreadId"/> are always kept. Each dropped thread leaves a tombstone at its last
+    /// activity, so rediscovery of its old JSONL cannot bring it back while new activity can.
+    /// </summary>
+    /// <param name="nowUtc">The current time, in UTC.</param>
+    /// <param name="idleAfter">How long a thread may be idle before it is dropped.</param>
+    /// <param name="maxLive">How many threads are kept at most.</param>
+    /// <param name="keepThreadId">A thread that is never dropped, such as the one on display, or <see langword="null"/>.</param>
+    /// <returns>The ids of the dropped threads.</returns>
+    public IReadOnlyList<string> Prune(DateTimeOffset nowUtc, TimeSpan idleAfter, int maxLive, string? keepThreadId)
+    {
+        List<ThreadPulseState> byActivity = [.. _threads.Values.OrderByDescending(state => state.LastActivityUtc)];
+        List<string> dropped = [];
+
+        for (int index = 1; index < byActivity.Count; index++)
+        {
+            ThreadPulseState state = byActivity[index];
+
+            if (state.ThreadId != keepThreadId && (index >= maxLive || nowUtc - state.LastActivityUtc > idleAfter))
+            {
+                _threads.TryRemove(state.ThreadId, out _);
+                AddTombstone(state.ThreadId, state.LastActivityUtc);
+                dropped.Add(state.ThreadId);
+            }
+        }
+
+        return dropped;
     }
 
     private static void Describe(ThreadPulseState state,
