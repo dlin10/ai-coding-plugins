@@ -61,10 +61,20 @@ public sealed class ThreadRegistry
         }
 
         ThreadPulseState state = GetOrAdd(usage.ThreadId);
-        Describe(state, usage.Kind, usage.ParentThreadId, usage.RootSessionId, usage.SourcePath, usage.CliVersion);
-        state.Model = usage.Model ?? state.Model;
-        Touch(state, usage.ObservedAtUtc);
         state.Tracker.Apply(usage);
+
+        // Source and model follow only an event the tracker took: an older one (an old segment read after the
+        // new one) must not point the thread back at the old file.
+        bool accepted = state.Tracker.LastUsage == usage;
+        Describe(state, usage.Kind, usage.ParentThreadId, usage.RootSessionId,
+                 accepted ? usage.SourcePath : null, accepted ? usage.CliVersion : null);
+
+        if (accepted)
+        {
+            state.Model = usage.Model ?? state.Model;
+        }
+
+        Touch(state, usage.ObservedAtUtc);
 
         return state;
     }
@@ -116,7 +126,7 @@ public sealed class ThreadRegistry
     /// </summary>
     /// <param name="threadId">The thread id.</param>
     /// <param name="atUtc">When the session ended, in UTC.</param>
-    /// <returns>Whether a live state was removed.</returns>
+    /// <returns>Whether the end was accepted; <see langword="false"/> for a stale one.</returns>
     public bool End(string threadId, DateTimeOffset atUtc)
     {
         if (_threads.TryGetValue(threadId, out ThreadPulseState? state) && state.LastActivityUtc > atUtc)
@@ -124,10 +134,10 @@ public sealed class ThreadRegistry
             return false;
         }
 
-        bool removed = _threads.TryRemove(threadId, out _);
+        _threads.TryRemove(threadId, out _);
         AddTombstone(threadId, atUtc);
 
-        return removed;
+        return true;
     }
 
     private static void Describe(ThreadPulseState state,

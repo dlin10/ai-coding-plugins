@@ -214,6 +214,35 @@ public sealed class PulseEngineTests
         Assert.Equal(SelectionConfidence.Inferred, start.Selection.Confidence);
     }
 
+    /// <summary>A thread revived by newer JSONL after its end is inferred: the hook from before the end is forgotten.</summary>
+    [Fact]
+    public void OnSessionEnd_ThenNewerJsonl_RevivedThreadIsInferred()
+    {
+        _engine.Apply(Create("A", T0, 40755, 40448));
+        _engine.OnUserActivity("A", T0.AddMinutes(1));
+        _engine.OnSessionEnd("A", T0.AddMinutes(2));
+
+        CacheSnapshot snapshot = _engine.Apply(Create("A", T0.AddMinutes(3), 41000, 40448));
+
+        Assert.Equal("A", snapshot.ThreadId);
+        Assert.Equal(new ThreadSelection(SelectionConfidence.Inferred, SelectionReasons.LatestJsonlActivity), snapshot.Selection);
+    }
+
+    /// <summary>An older event read late (an old segment after the new one) leaves the thread's source and model alone.</summary>
+    [Fact]
+    public void Apply_OlderEventFromAnotherFile_KeepsSourceAndModel()
+    {
+        TokenUsageSnapshot current = Create("A", T0.AddMinutes(5), 64244, 64000) with { SourcePath = "new.jsonl", Model = "gpt-6.1-sol" };
+        TokenUsageSnapshot older = Create("A", T0, 40755, 40448) with { SourcePath = "old.jsonl", Model = "gpt-5.4-mini" };
+        _engine.Apply(current);
+
+        CacheSnapshot snapshot = _engine.Apply(older);
+
+        Assert.Equal("new.jsonl", snapshot.Source.Path);
+        Assert.Equal("gpt-6.1-sol", snapshot.Model);
+        Assert.Equal(64244, snapshot.Input);
+    }
+
     /// <summary>A failed source turns the snapshot into Error with a diagnostic code and no free text.</summary>
     [Fact]
     public void OnSourceStatus_Failed_IsErrorWithCode()

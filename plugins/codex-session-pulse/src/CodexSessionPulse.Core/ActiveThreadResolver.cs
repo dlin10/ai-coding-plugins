@@ -38,6 +38,24 @@ public sealed class ActiveThreadResolver
         _sessionStart = Newer(_sessionStart, new HookSignal(threadId, atUtc));
     }
 
+    /// <summary>
+    /// Drops the hook signals of an ended thread, so a later revival by newer JSONL activity is inferred, not
+    /// confirmed by a hook from before the end.
+    /// </summary>
+    /// <param name="threadId">The ended thread.</param>
+    public void Forget(string threadId)
+    {
+        if (_userActivity?.ThreadId == threadId)
+        {
+            _userActivity = null;
+        }
+
+        if (_sessionStart?.ThreadId == threadId)
+        {
+            _sessionStart = null;
+        }
+    }
+
     /// <summary>Chooses the thread to show.</summary>
     /// <param name="registry">The live threads.</param>
     /// <param name="codexWindows">The number of Codex windows found.</param>

@@ -23,7 +23,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Read in place, not copied: the segment fixture's name pushes a copy past MAX_PATH from a long worktree. -->
+    <AssemblyMetadata Include="FixturesRoot" Value="$(MSBuildProjectDirectory)\Fixtures" />
   </ItemGroup>
 
 </Project>

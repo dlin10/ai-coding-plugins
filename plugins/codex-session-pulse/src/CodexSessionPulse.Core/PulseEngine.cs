@@ -108,7 +108,11 @@ public sealed class PulseEngine
 
         lock (_gate)
         {
-            _registry.End(threadId, atUtc);
+            if (_registry.End(threadId, atUtc))
+            {
+                _resolver.Forget(threadId);
+            }
+
             return PublishLocked();
         }
     }

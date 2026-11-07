@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using CodexSessionPulse.Core;
 using CodexSessionPulse.Infrastructure.Rollouts;
@@ -32,7 +33,12 @@ internal sealed class RolloutTestRoot : IDisposable
 
     public static string FixturePath(string name)
     {
-        return Path.Combine(AppContext.BaseDirectory, "Fixtures", "rollouts", name);
+        string root = typeof(RolloutTestRoot).Assembly
+                                             .GetCustomAttributes<AssemblyMetadataAttribute>()
+                                             .Single(a => a.Key == "FixturesRoot")
+                                             .Value!;
+
+        return Path.Combine(root, "rollouts", name);
     }
 
     public string DayFolder(int daysAgo)
