@@ -34,7 +34,7 @@ public sealed class CodexWindowAnchor : IWindowAnchor
 
     private readonly SynchronizationContext _ui;
     private readonly TimeProvider _time;
-    private readonly SnapshotStream<AnchorSnapshot> _stream = new();
+    private readonly SnapshotPublisher<AnchorSnapshot> _stream = new();
     private readonly int _ownProcessId = Environment.ProcessId;
     private readonly List<WinEventHook> _globalHooks = [];
     private readonly Dictionary<int, WinEventHook[]> _processHooks = [];
@@ -122,7 +122,6 @@ public sealed class CodexWindowAnchor : IWindowAnchor
 
             _globalHooks.Clear();
             _processHooks.Clear();
-            _stream.Complete();
         }
 
         return ValueTask.CompletedTask;

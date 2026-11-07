@@ -34,9 +34,17 @@ public sealed class DiagnosticsTests : IDisposable
         AnchorDiagnostics detector = new(WindowDetectorOptions.Default.Describe(), 2, AnchorState.Attached, 1, true, true, 17);
         DiagnosticsInput input = new("1.0.0", "Windows 11 for jdoe", new PulseSettings { SessionRootOverride = Profile + @"\sessions" }, ["ttl-out-of-range"],
                                      Profile + @"\.codex-session-pulse\settings.json", Profile + @"\.codex-session-pulse\logs\overlay.log",
-                                     detector, anchor, cache, true, true, true, false, 0x08080080);
+                                     detector, anchor, cache, new HookActivityRecorder().Snapshot(), true, true, true, false, 0x08080080);
+        HookActivityRecorder hooks = new();
+        hooks.Record("UserPromptSubmit", now);
+        hooks.Record("SessionStart", now.AddMinutes(-1));
+        hooks.Record("UserPromptSubmit", now);
 
         string report = DiagnosticsReport.Build(input, Profile, "jdoe");
+        string withHooks = DiagnosticsReport.Build(input with { Hooks = hooks.Snapshot() }, Profile, "jdoe");
+
+        Assert.Contains("hook events since start: none observed", report, StringComparison.Ordinal);
+        Assert.Contains("hook events since start: SessionStart 1, UserPromptSubmit 2; last UserPromptSubmit at", withHooks, StringComparison.Ordinal);
 
         Assert.DoesNotContain("jdoe", report, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(@"%USERPROFILE%\.codex\sessions\r.jsonl", report, StringComparison.Ordinal);

@@ -95,6 +95,9 @@ internal sealed class OverlayController : IDisposable
         }
     }
 
+    /// <summary>Gets the hook counter that Copy diagnostics reports; the integration step records each received hook into it.</summary>
+    public HookActivityRecorder Hooks { get; } = new();
+
     /// <summary>Shows a new cache snapshot. The integration step calls this from the real pipeline, on the UI thread.</summary>
     /// <param name="snapshot">The snapshot.</param>
     public void UpdateCache(CacheSnapshot snapshot) => _viewModel.Update(snapshot);
@@ -255,7 +258,7 @@ internal sealed class OverlayController : IDisposable
 
         DiagnosticsInput input = new(AppVersion, RuntimeInformation.OSDescription + " " + RuntimeInformation.OSArchitecture,
                                      _settings, _settingsProblems, _paths.SettingsFile, _log.CurrentFile, _anchor.GetDiagnostics(),
-                                     _anchor.Current, _viewModel.Cache, _stub, _tray?.IsAdded == true, _window.IsVisible, _userHidden,
+                                     _anchor.Current, _viewModel.Cache, Hooks.Snapshot(), _stub, _tray?.IsAdded == true, _window.IsVisible, _userHidden,
                                      _window.ExtendedStyle);
         string report = DiagnosticsReport.Build(input, _userProfile, Environment.UserName);
 

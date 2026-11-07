@@ -17,6 +17,7 @@ namespace CodexSessionPulse.App.Diagnostics;
 /// <param name="Detector">The window detector state.</param>
 /// <param name="Anchor">The latest anchor snapshot.</param>
 /// <param name="Cache">The latest cache snapshot, or <see langword="null"/>.</param>
+/// <param name="Hooks">The hooks received since start.</param>
 /// <param name="StubSource">Whether the snapshots come from the development stub.</param>
 /// <param name="TrayAdded">Whether the tray icon was added.</param>
 /// <param name="OverlayVisible">Whether the overlay is shown.</param>
@@ -31,6 +32,7 @@ internal sealed record DiagnosticsInput(string AppVersion,
                                         AnchorDiagnostics Detector,
                                         AnchorSnapshot Anchor,
                                         CacheSnapshot? Cache,
+                                        HookActivitySnapshot Hooks,
                                         bool StubSource,
                                         bool TrayAdded,
                                         bool OverlayVisible,
@@ -84,10 +86,21 @@ internal static class DiagnosticsReport
             text.AppendLine(invariant, $"source: {cache.Source.Status}, path {cache.Source.Path ?? "none"}, codex cli {cache.Source.CliVersion ?? "unknown"}");
         }
 
-        // The JSONL pipeline and the hook IPC are wired in by the integration step; until then these are not measured here.
+        // The JSONL pipeline is wired in by the integration step; until then its counters are not measured here.
         text.AppendLine("rollout files: not reported by the overlay yet");
         text.AppendLine("parser errors: not reported by the overlay yet");
-        text.AppendLine("hook events since start: not reported by the overlay yet");
+
+        if (input.Hooks.CountsByHookType.Count == 0)
+        {
+            text.AppendLine("hook events since start: none observed (after a plugin update, open Review hooks in Codex)");
+        }
+        else
+        {
+            string counts = string.Join(", ", input.Hooks.CountsByHookType.OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                                                                          .Select(pair => $"{pair.Key} {pair.Value}"));
+            text.AppendLine(invariant, $"hook events since start: {counts}; last {input.Hooks.LastSource} at {input.Hooks.LastHookAtUtc?.ToString("O", invariant)}");
+        }
+
         text.AppendLine();
 
         text.AppendLine("[settings]");
