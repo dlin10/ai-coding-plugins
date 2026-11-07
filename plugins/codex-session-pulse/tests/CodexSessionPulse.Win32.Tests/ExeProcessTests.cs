@@ -6,13 +6,17 @@ using Xunit;
 namespace CodexSessionPulse.Win32.Tests;
 
 /// <summary>Starts the real <c>CodexSessionPulse.exe</c> and checks the two modes from outside.</summary>
+[Collection(ExeCollection.Name)]
 public sealed class ExeProcessTests
 {
     private const int TimeoutMs = 30_000;
     private const string DebugVariable = "CODEX_SESSION_PULSE_DEBUG_ASSEMBLIES";
     private const string HomeVariable = "CODEX_SESSION_PULSE_HOME";
 
-    /// <summary>A valid payload makes <c>--hook</c> exit 0 without ever loading WPF.</summary>
+    /// <summary>
+    /// A valid payload makes <c>--hook</c> exit 0 without ever loading WPF, on the path that starts the overlay too (the
+    /// started overlay belongs to a scratch home and is closed afterwards).
+    /// </summary>
     [Fact]
     public void Hook_WithJsonOnStdin_ExitsZeroWithoutLoadingWpf()
     {
@@ -147,6 +151,8 @@ public sealed class ExeProcessTests
 
     private static (int ExitCode, string Stdout) Run(string argument, string stdin, bool debug)
     {
+        // A scratch home: the hook must never reach, or start, the user's own overlay.
+        using LifecycleHome home = new();
         ProcessStartInfo startInfo = new(Exe, argument)
         {
             RedirectStandardInput = true,
@@ -154,6 +160,8 @@ public sealed class ExeProcessTests
             UseShellExecute = false,
             WorkingDirectory = Path.GetTempPath(),
         };
+        startInfo.Environment[HomeVariable] = home.Root;
+        startInfo.Environment["CODEX_HOME"] = home.CodexHome;
 
         if (debug)
         {

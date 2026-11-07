@@ -23,6 +23,7 @@ namespace CodexSessionPulse.App.Diagnostics;
 /// <param name="OverlayVisible">Whether the overlay is shown.</param>
 /// <param name="UserHidden">Whether the user hid it from the tray.</param>
 /// <param name="OverlayExtendedStyle">The overlay window's extended style.</param>
+/// <param name="Pipeline">The hook pipe, the job and the rollout reader, or <see langword="null"/> before they exist.</param>
 internal sealed record DiagnosticsInput(string AppVersion,
                                         string OsDescription,
                                         PulseSettings Settings,
@@ -37,7 +38,22 @@ internal sealed record DiagnosticsInput(string AppVersion,
                                         bool TrayAdded,
                                         bool OverlayVisible,
                                         bool UserHidden,
-                                        long OverlayExtendedStyle);
+                                        long OverlayExtendedStyle,
+                                        PipelineDiagnostics? Pipeline = null);
+
+/// <summary>The process side of the overlay for "Copy diagnostics": hook pipe, job object, rollout reader and exit rule.</summary>
+/// <param name="PipeListening">Whether the hook pipe is open; without it the overlay runs on JSONL alone.</param>
+/// <param name="PipeRejected">The pipe connections whose data was not a valid message.</param>
+/// <param name="Job">The job object the overlay runs in.</param>
+/// <param name="RolloutSource">The rollout source status, or <see langword="null"/> under <c>--stub</c>.</param>
+/// <param name="RolloutCounters">The reader's counters by <see cref="DiagnosticCodes"/> value.</param>
+/// <param name="ExitPending">Whether the last Codex window is gone and the exit waits for the grace period.</param>
+internal sealed record PipelineDiagnostics(bool PipeListening,
+                                           long PipeRejected,
+                                           JobMembership Job,
+                                           SourceStatus? RolloutSource,
+                                           IReadOnlyDictionary<string, long> RolloutCounters,
+                                           bool ExitPending);
 
 /// <summary>Builds the "Copy diagnostics" text (spec §8.2) with the user name redacted.</summary>
 internal static class DiagnosticsReport
@@ -57,7 +73,7 @@ internal static class DiagnosticsReport
         text.AppendLine("Codex Session Pulse diagnostics");
         text.AppendLine(invariant, $"app: {input.AppVersion}");
         text.AppendLine(invariant, $"os: {input.OsDescription}");
-        text.AppendLine(invariant, $"snapshot source: {(input.StubSource ? "development stub (--stub)" : "none wired yet")}");
+        text.AppendLine(invariant, $"snapshot source: {(input.StubSource ? "development stub (--stub)" : "rollout JSONL files, hooks as an accelerator")}");
         text.AppendLine();
 
         text.AppendLine("[window detector]");
@@ -86,9 +102,17 @@ internal static class DiagnosticsReport
             text.AppendLine(invariant, $"source: {cache.Source.Status}, path {cache.Source.Path ?? "none"}, codex cli {cache.Source.CliVersion ?? "unknown"}");
         }
 
-        // The JSONL pipeline is wired in by the integration step; until then its counters are not measured here.
-        text.AppendLine("rollout files: not reported by the overlay yet");
-        text.AppendLine("parser errors: not reported by the overlay yet");
+        if (input.Pipeline is { RolloutSource: { } rolloutSource } pipeline)
+        {
+            string counters = pipeline.RolloutCounters.Count == 0
+                ? "none"
+                : string.Join(", ", pipeline.RolloutCounters.OrderBy(pair => pair.Key, StringComparer.Ordinal).Select(pair => $"{pair.Key} {pair.Value}"));
+            text.AppendLine(invariant, $"rollout source: {rolloutSource}; reader counters: {counters}");
+        }
+        else
+        {
+            text.AppendLine("rollout source: not running");
+        }
 
         if (input.Hooks.CountsByHookType.Count == 0)
         {
@@ -102,6 +126,15 @@ internal static class DiagnosticsReport
         }
 
         text.AppendLine();
+
+        if (input.Pipeline is { } lifecycle)
+        {
+            text.AppendLine("[lifecycle]");
+            text.AppendLine(invariant, $"hook pipe: {(lifecycle.PipeListening ? "listening" : "not available, hooks fall back to JSONL")}, protocol {Ipc.PulseChannel.ProtocolMajor}, rejected {lifecycle.PipeRejected}");
+            text.AppendLine(invariant, $"job: {(lifecycle.Job.InJob ? $"0x{lifecycle.Job.LimitFlags:X4}" : "none")}, exitsWithJob {lifecycle.Job.ExitsWithJob}");
+            text.AppendLine(invariant, $"exit: after the last Codex window is gone for {LastWindowExit.DefaultGracePeriod.TotalSeconds.ToString(invariant)} s{(lifecycle.ExitPending ? " (pending now)" : string.Empty)}; SessionEnd never ends the overlay");
+            text.AppendLine();
+        }
 
         text.AppendLine("[settings]");
         text.AppendLine(invariant, $"file: {input.SettingsFile}");

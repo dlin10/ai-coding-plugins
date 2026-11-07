@@ -12,16 +12,16 @@ namespace CodexSessionPulse.App;
 /// </summary>
 internal static class OverlayHost
 {
-    /// <summary>Runs the overlay until Exit is chosen from the tray.</summary>
+    /// <summary>Runs the overlay until Exit from the tray, <c>WM_CLOSE</c> or the close of the last Codex window.</summary>
     /// <param name="options">The parsed command line.</param>
+    /// <param name="startup">The mutex-holding bootstrap's results.</param>
     /// <returns>The process exit code.</returns>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    internal static int Run(LaunchOptions options)
+    internal static int Run(LaunchOptions options, OverlayStartup startup)
     {
-        PulsePaths paths = PulsePaths.FromEnvironment(Environment.GetEnvironmentVariable);
-        RollingFileLog log = new(paths.LogsDirectory);
+        RollingFileLog log = startup.Log;
         Application application = new() { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        OverlayController controller = new(paths, log, options.Stub);
+        OverlayController controller = new(startup, options.Stub);
 
         application.DispatcherUnhandledException += (_, e) =>
         {

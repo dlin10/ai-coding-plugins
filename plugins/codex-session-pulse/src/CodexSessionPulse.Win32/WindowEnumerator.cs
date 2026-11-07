@@ -61,6 +61,22 @@ public static class WindowEnumerator
             .ToList();
     }
 
+    /// <summary>
+    /// Counts the Codex Desktop windows for the exit decision (spec §4.4 item 5). Unlike <see cref="EnumerateCodexWindows"/>
+    /// it also counts cloaked windows: a window on another virtual desktop is still open, so the overlay must not exit.
+    /// </summary>
+    /// <param name="options">The detection rule.</param>
+    /// <returns>The number of matching windows, cloaked ones included.</returns>
+    public static int CountCodexWindowsIncludingCloaked(WindowDetectorOptions options)
+    {
+        WindowDetectorOptions anyTitle = options with { TitleFilter = null };
+
+        return EnumerateTopLevel(readTitles: false)
+            .Select(candidate => candidate with { IsCloaked = false })
+            .Where(candidate => CodexWindowFilter.IsCodexWindow(candidate, anyTitle))
+            .Count(candidate => CodexWindowFilter.IsCodexWindow(candidate with { Title = GetTitle(candidate.Hwnd) }, options));
+    }
+
     /// <summary>Reads the full executable path of a process.</summary>
     /// <param name="processId">The process id.</param>
     /// <returns>The path, or <see langword="null"/> when the process cannot be opened (it exited or is elevated).</returns>
