@@ -59,6 +59,9 @@ public sealed class HookPathTests
     }
 
     /// <summary>Truncated JSON keeps the fields read before the cut; garbage and non-objects give nothing.</summary>
+    /// <param name="json">The stdin text.</param>
+    /// <param name="eventName">The expected <c>hook_event_name</c>.</param>
+    /// <param name="sessionId">The expected <c>session_id</c>.</param>
     [Theory]
     [InlineData("{\"hook_event_name\":\"SessionStart\",\"session_id\":\"s-1\",\"transcript_pa", "SessionStart", "s-1")]
     [InlineData("{\"hook_event_name\":\"Sess", null, null)]

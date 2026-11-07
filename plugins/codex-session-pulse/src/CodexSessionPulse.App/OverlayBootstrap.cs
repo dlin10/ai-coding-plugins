@@ -29,8 +29,23 @@ internal static class OverlayBootstrap
         RollingFileLog log = new(paths.LogsDirectory);
         PulseChannel channel = PulseChannel.For(paths);
 
+        Mutex singleInstance;
+        bool createdNew;
+
+        try
+        {
+            singleInstance = new Mutex(initiallyOwned: true, channel.MutexName, out createdNew);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or WaitHandleCannotBeOpenedException)
+        {
+            // The mutex exists under a security context this process cannot open: another overlay owns the channel.
+            log.Warn($"single-instance mutex not accessible ({exception.GetType().Name}); exiting");
+
+            return 0;
+        }
+
         // Held, never released, until the process ends: the mutex object goes with its last handle.
-        using Mutex singleInstance = new(initiallyOwned: true, channel.MutexName, out bool createdNew);
+        using Mutex held = singleInstance;
 
         if (!createdNew)
         {

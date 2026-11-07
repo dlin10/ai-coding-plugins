@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 using System.Windows;
 using CodexSessionPulse.App.Diagnostics;
 using CodexSessionPulse.App.Overlay;
-using CodexSessionPulse.Infrastructure.Settings;
 
 namespace CodexSessionPulse.App;
 

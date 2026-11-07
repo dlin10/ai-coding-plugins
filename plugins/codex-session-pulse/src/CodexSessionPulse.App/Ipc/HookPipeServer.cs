@@ -15,6 +15,7 @@ internal sealed class HookPipeServer : IDisposable
 {
     private const int QueueCapacity = 256;
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan CreateRetryDelay = TimeSpan.FromSeconds(1);
 
     private readonly string _pipeName;
     private readonly Action<Exception> _onError;
@@ -102,19 +103,66 @@ internal sealed class HookPipeServer : IDisposable
             {
                 // A client that connected and gave up before the wait began; it got no acknowledgement and knows it.
                 await pipe.DisposeAsync().ConfigureAwait(false);
-                pipe = Create(_pipeName, PipeOptions.None);
+
+                if (await NextInstanceAsync(token).ConfigureAwait(false) is not { } next)
+                {
+                    return;
+                }
+
+                pipe = next;
 
                 continue;
             }
 
             NamedPipeServerStream connected = pipe;
-
-            // The next instance exists before this one is served, so a hook connecting meanwhile finds a listener.
-            pipe = Create(_pipeName, PipeOptions.None);
             _ = ServeAsync(connected, token);
+
+            // The next instance is created right away, so a hook connecting meanwhile finds a listener.
+            if (await NextInstanceAsync(token).ConfigureAwait(false) is not { } following)
+            {
+                return;
+            }
+
+            pipe = following;
         }
 
         await pipe.DisposeAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Creates the next pipe instance, retrying a failed creation once a second until it works or the server stops.</summary>
+    /// <param name="token">Stops the retries.</param>
+    /// <returns>The instance, or <see langword="null"/> when the server stopped.</returns>
+    private async Task<NamedPipeServerStream?> NextInstanceAsync(CancellationToken token)
+    {
+        bool reported = false;
+
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                return Create(_pipeName, PipeOptions.None);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                if (!reported)
+                {
+                    // Hooks fall back to JSONL meanwhile; one report per outage keeps the log readable.
+                    reported = true;
+                    _onError(exception);
+                }
+
+                try
+                {
+                    await Task.Delay(CreateRetryDelay, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return null;
+                }
+            }
+        }
+
+        return null;
     }
 
     private async Task ServeAsync(NamedPipeServerStream pipe, CancellationToken token)
@@ -126,6 +174,7 @@ internal sealed class HookPipeServer : IDisposable
             byte[] buffer = new byte[HookMessage.MaxBytes + 1];
             int length = 0;
             int end;
+            bool accepted = false;
 
             try
             {
@@ -137,8 +186,8 @@ internal sealed class HookPipeServer : IDisposable
                     length += read;
                 }
 
-                bool accepted = end >= 0 && HookMessage.TryParse(buffer.AsSpan(0, end), out HookMessage message)
-                                && _messages.Writer.TryWrite(message);
+                accepted = end >= 0 && HookMessage.TryParse(buffer.AsSpan(0, end), out HookMessage message)
+                           && _messages.Writer.TryWrite(message);
 
                 if (!accepted)
                 {
@@ -149,8 +198,11 @@ internal sealed class HookPipeServer : IDisposable
             }
             catch (Exception exception) when (exception is OperationCanceledException or IOException)
             {
-                // A client that gave up before its acknowledgement; whatever it sent was handled above or rejected.
-                Interlocked.Increment(ref _rejected);
+                // A client that gave up before its acknowledgement. A message already queued still counts as received.
+                if (!accepted)
+                {
+                    Interlocked.Increment(ref _rejected);
+                }
             }
         }
     }

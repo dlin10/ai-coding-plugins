@@ -300,6 +300,20 @@ public sealed class PulseEngineTests
         Assert.Equal(T0, snapshot.LastRequestAt);
     }
 
+    /// <summary>A TTL estimate longer than <see cref="PulseEngine.StaleAfter"/> keeps running; Stale comes only after it.</summary>
+    [Fact]
+    public void Tick_LongTtlEstimate_IsNotHiddenByStale()
+    {
+        PulseEngine engine = new(CacheTrackerOptions.Default with { EstimatedTtl = TimeSpan.FromHours(10) }, _clock);
+        engine.Apply(Create("A", T0, 40755, 40448));
+
+        _clock.UtcNow = T0 + PulseEngine.StaleAfter + TimeSpan.FromHours(1);
+        Assert.Equal(CacheState.Warm, engine.Tick().State);
+
+        _clock.UtcNow = T0 + TimeSpan.FromHours(10);
+        Assert.Equal(CacheState.Stale, engine.Tick().State);
+    }
+
     /// <summary>
     /// Pruning drops threads idle past <see cref="PulseEngine.PruneAfter"/> but keeps the newest and the shown one; a pruned
     /// thread's old JSONL cannot bring it back, newer activity can.

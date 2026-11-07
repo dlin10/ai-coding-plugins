@@ -57,6 +57,7 @@ internal sealed class OverlayController : IDisposable
     private CacheState? _loggedCacheState;
     private int _ticks;
     private bool _exiting;
+    private int _loggedRecheckWindows = -1;
 
     /// <summary>Creates the controller; <see cref="Start"/> does the work.</summary>
     /// <param name="startup">The bootstrap's files, log, hook pipe and job membership.</param>
@@ -87,7 +88,7 @@ internal sealed class OverlayController : IDisposable
         ApplyTheme();
 
         _anchor = new CodexWindowAnchor(ToDetectorOptions(_settings), SynchronizationContext.Current!);
-        _anchorSubscription = _anchor.Snapshots.Subscribe(new AnchorObserver(OnAnchor));
+        _anchorSubscription = _anchor.Snapshots.Subscribe(new Observer<AnchorSnapshot>(OnAnchor));
 
         _tray = new TrayIcon("Codex Session Pulse",
         [
@@ -197,6 +198,7 @@ internal sealed class OverlayController : IDisposable
 
         if (_exit.Pending != wasPending)
         {
+            _loggedRecheckWindows = -1;
             _log.Info(_exit.Pending ? "last Codex window gone; exit pending after the grace period" : "a Codex window is back; exit cancelled");
         }
 
@@ -237,8 +239,10 @@ internal sealed class OverlayController : IDisposable
             {
                 RequestExit("no Codex window left after the grace period");
             }
-            else
+            else if (windows != _loggedRecheckWindows)
             {
+                // Only cloaked windows left, as on another virtual desktop: the recheck repeats, the log line does not.
+                _loggedRecheckWindows = windows;
                 _log.Info($"recheck found {windows} Codex windows (cloaked included); still running");
             }
         }
@@ -255,7 +259,7 @@ internal sealed class OverlayController : IDisposable
         Pipeline pipeline = new(engine, tailer, CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token));
 
         tailer.ThreadObserved += observation => engine.Observe(observation);
-        pipeline.Subscription = engine.Snapshots.Subscribe(new SnapshotObserver(OnEngineSnapshot));
+        pipeline.Subscription = engine.Snapshots.Subscribe(new Observer<CacheSnapshot>(OnEngineSnapshot));
         engine.OnCodexWindows(Math.Max(_loggedWindows, 0));
         _pipeline = pipeline;
         _ = Task.Run(() => TailAsync(pipeline));
@@ -539,9 +543,10 @@ internal sealed class OverlayController : IDisposable
         public SourceStatus LastStatus { get; set; } = SourceStatus.Available;
     }
 
-    /// <summary>Forwards engine snapshots to a handler.</summary>
+    /// <summary>Forwards anchor or engine snapshots to a handler.</summary>
+    /// <typeparam name="T">The snapshot type.</typeparam>
     /// <param name="onNext">The handler.</param>
-    private sealed class SnapshotObserver(Action<CacheSnapshot> onNext) : IObserver<CacheSnapshot>
+    private sealed class Observer<T>(Action<T> onNext) : IObserver<T>
     {
         /// <inheritdoc />
         public void OnCompleted()
@@ -554,24 +559,6 @@ internal sealed class OverlayController : IDisposable
         }
 
         /// <inheritdoc />
-        public void OnNext(CacheSnapshot value) => onNext(value);
-    }
-
-    /// <summary>Forwards anchor snapshots to a handler.</summary>
-    /// <param name="onNext">The handler.</param>
-    private sealed class AnchorObserver(Action<AnchorSnapshot> onNext) : IObserver<AnchorSnapshot>
-    {
-        /// <inheritdoc />
-        public void OnCompleted()
-        {
-        }
-
-        /// <inheritdoc />
-        public void OnError(Exception error)
-        {
-        }
-
-        /// <inheritdoc />
-        public void OnNext(AnchorSnapshot value) => onNext(value);
+        public void OnNext(T value) => onNext(value);
     }
 }

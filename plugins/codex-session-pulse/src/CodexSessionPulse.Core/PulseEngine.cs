@@ -13,7 +13,10 @@ namespace CodexSessionPulse.Core;
 /// </remarks>
 public sealed class PulseEngine
 {
-    /// <summary>The idle time after which the shown thread is <see cref="CacheState.Stale"/>: far past any cache TTL.</summary>
+    /// <summary>
+    /// The idle time after which the shown thread is <see cref="CacheState.Stale"/>, or the TTL estimate when that is longer,
+    /// so Stale never hides an estimate that is still running.
+    /// </summary>
     public static readonly TimeSpan StaleAfter = TimeSpan.FromHours(6);
 
     /// <summary>The idle time after which <see cref="Prune"/> drops a thread that is not on display.</summary>
@@ -225,7 +228,7 @@ public sealed class PulseEngine
         CacheSnapshot tracked = thread.Tracker.Tick(nowUtc);
         bool failed = _sourceStatus == SourceStatus.Failed;
 
-        bool stale = nowUtc - thread.LastActivityUtc >= StaleAfter;
+        bool stale = nowUtc - thread.LastActivityUtc >= (StaleAfter > _options.EstimatedTtl ? StaleAfter : _options.EstimatedTtl);
 
         return tracked with
         {
