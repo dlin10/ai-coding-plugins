@@ -165,12 +165,16 @@ public sealed class HookPathTests
         Assert.NotNull(server);
         Assert.Null(HookPipeServer.TryStart(channel.PipeName, _ => { }));
 
-        // 16 clients at once wait for pipe instances in turn; on a two-core CI runner that outlasts the 300 ms a real hook
-        // gets (measured: 10 of 16 timed out). This test is about every message arriving whole, so it waits longer.
+        // Real hooks are separate processes. Each client here gets a thread of its own rather than a pool thread: 16 blocked
+        // pool threads starve the server's own continuations on a two-core CI runner, and sends then fail for a reason no
+        // hook meets. The longer connect wait covers the clients queuing for pipe instances.
         DateTimeOffset at = DateTimeOffset.UtcNow;
-        bool[] sent = await Task.WhenAll(Enumerable.Range(0, 16).Select(index => Task.Run(() =>
-            HookPipeClient.TrySend(channel.PipeName, new HookMessage("UserPromptSubmit", ThreadId, null, at.AddSeconds(index)).ToBytes(),
-                                   connectTimeoutMs: 10_000))));
+        bool[] sent = new bool[16];
+        Thread[] clients = Enumerable.Range(0, sent.Length).Select(index => new Thread(() =>
+            sent[index] = HookPipeClient.TrySend(channel.PipeName, new HookMessage("UserPromptSubmit", ThreadId, null, at.AddSeconds(index)).ToBytes(),
+                                                 connectTimeoutMs: 10_000))).ToArray();
+        Array.ForEach(clients, client => client.Start());
+        Array.ForEach(clients, client => client.Join());
 
         Assert.All(sent, Assert.True);
         List<HookMessage> received = [];

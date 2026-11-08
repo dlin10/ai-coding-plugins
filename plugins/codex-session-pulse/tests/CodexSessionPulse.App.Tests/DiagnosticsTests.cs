@@ -85,8 +85,16 @@ public sealed class DiagnosticsTests : IDisposable
         const int LinesPerWriter = 300;
         RollingFileLog[] writers = [new(_logs, baseName: "hook"), new(_logs, baseName: "hook")];
 
-        Parallel.For(0, writers.Length * LinesPerWriter, new ParallelOptions { MaxDegreeOfParallelism = 8 },
-                     i => writers[i % writers.Length].Info($"writer {i % writers.Length} line {i:D4}"));
+        // Threads of their own, like two processes, and so no pool thread is held while the writers wait for each other.
+        Thread[] threads = Enumerable.Range(0, writers.Length).Select(w => new Thread(() =>
+        {
+            for (int i = 0; i < LinesPerWriter; i++)
+            {
+                writers[w].Info($"writer {w} line {i:D4}");
+            }
+        })).ToArray();
+        Array.ForEach(threads, thread => thread.Start());
+        Array.ForEach(threads, thread => thread.Join());
 
         string[] lines = File.ReadAllLines(writers[0].CurrentFile);
 
