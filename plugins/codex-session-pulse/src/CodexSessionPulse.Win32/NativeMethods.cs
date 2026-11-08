@@ -42,6 +42,8 @@ internal static partial class NativeMethods
     internal const int ChildIdSelf = 0;
 
     internal static readonly nint HwndTop = 0;
+    internal static readonly nint HwndTopmost = -1;
+    internal static readonly nint HwndNoTopmost = -2;
 
     /// <summary>The callback of <see cref="EnumWindows"/>.</summary>
     /// <param name="hwnd">The enumerated window.</param>

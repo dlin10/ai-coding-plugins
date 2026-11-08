@@ -352,6 +352,9 @@ internal sealed class FakeCodexWindow : IDisposable
     /// <summary>Gets the name of the process that owns the window, as the overlay's rule sees it.</summary>
     public static string ProcessName => Path.GetFileNameWithoutExtension(Environment.ProcessPath!);
 
+    /// <summary>Gets the window handle.</summary>
+    public nint Hwnd => _hwnd;
+
     /// <summary>Minimizes the window; it stays a Codex window.</summary>
     public void Minimize() => ShowWindow(_hwnd, SwMinimize);
 
