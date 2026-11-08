@@ -15,7 +15,7 @@ from the names the spec (`docs/spec.md`) and the Core contract already carry.
 | **Stale** | The shown **thread** has been idle for max(6 h, **TTL estimate**). |
 | **Selection** | Which **thread** the line shows, chosen by `ActiveThreadResolver` and always automatic (Auto). Its **confidence** is confirmed (a **hook** named it), inferred (newest **rollout** activity) or unknown; two or more Codex windows cap it at inferred. |
 | **Hook** | A Codex lifecycle hook of this plugin: `SessionStart`, `UserPromptSubmit`, `SessionEnd`. An **accelerator** only: it confirms a **selection** sooner and starts the **overlay**; losing one costs nothing but speed. |
-| **Review hooks** | Codex's trust step for a plugin's **hooks**. Needed after install and after every version bump; until then Codex skips the hooks silently. |
+| **Review hooks** | Codex's trust step for a plugin's **hooks**. Needed after install and after every update that changes the plugin's files, since the trust is keyed to their content; until then Codex skips the hooks silently. |
 | **Overlay** | The long-lived `CodexSessionPulse.exe --overlay` process: the line, the tray icon, the **pipeline**. One per user, held by the **mutex**. |
 | **Hook run** | The short-lived `CodexSessionPulse.exe --hook` process: reads stdin, sends one **hook message**, starts the **overlay** when none runs (never with `--no-start`), exits 0. Never loads WPF. |
 | **Hook message** | What a **hook run** sends over the **pipe**: event, **thread** id, `SessionStart` source, time. No prompt, path or `cwd`; event and source are mapped to a fixed set. |

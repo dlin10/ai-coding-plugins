@@ -52,8 +52,9 @@ Run both after any change to `bin/`, the App's start-up path or the publish sett
 - **Releasing is a merge to `main`.** `release-codex-session-pulse.yml` cuts `codex-session-pulse-v<version>` with the exe
   when `main` carries a version no tag has yet; never push the tag by hand. A manifest naming an unreleased version
   makes every fresh hook fail to download, so the bump and the merge go together.
-- **Every version bump needs Review hooks again** in Codex Desktop, even with `hooks.json` unchanged
-  (`docs/compatibility.md` §5.3); the README's "After every update" tells users, so do not bump without a reason.
+- **Every update that changes the plugin's files needs Review hooks again** in Codex Desktop: Codex keys the trust to
+  the plugin's content, so a version bump does even with `hooks.json` unchanged, and so does a re-Upgrade of the same
+  version with changed files (`docs/compatibility.md` §5.3, §13.5). The README's "After every update" tells users.
 - `build-codex-session-pulse.yml` builds, tests, packages and runs `test-launcher.ps1` on every PR that touches this
   folder.
 
@@ -77,7 +78,9 @@ or stop the exact PID.
   before the exe; `build/measure-hook.ps1` shows what a change costs. `DOTNET_DISABLE_GUI_ERRORS=1` stays: without it
   a missing .NET 10 Desktop Runtime opens the apphost's dialog inside a hook and blocks it.
 - `hooks.json` runs under `pwsh -Command` after a textual `${PLUGIN_ROOT}` substitution, so a `$` or a backtick in the
-  plugin path would be read by pwsh (`docs/compatibility.md` §3.1); the launcher itself survives spaces, `&` and `!`.
+  plugin path would be read by pwsh (`docs/compatibility.md` §3.1), and `& ( ) @ ^` in the profile name break the hook
+  command before the launcher runs (pwsh passes a path without spaces unquoted, `cmd /c` then strips the quotes). The
+  launcher started directly survives spaces, `&` and `!`. Do not change `commandWindows` without a Desktop re-measurement.
 - Every public type and member in Core carries a complete XML doc comment; the build fails without one.
 
 ## Additive contract (#251)

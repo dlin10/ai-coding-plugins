@@ -19,8 +19,11 @@ internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 10
     private const int ErrorSharingViolation = 32;
     private const int ErrorLockViolation = 33;
 
-    /// <summary>A writer holds the file for one line, so 20 attempts 5 ms apart outlast any other writer.</summary>
-    private const int MaxAttempts = 20;
+    /// <summary>
+    /// A writer holds the file for one line, so 100 ms outlasts any other writer. Bounded by elapsed time, not by a count:
+    /// a 5 ms sleep lasts about 15 ms at the default timer resolution.
+    /// </summary>
+    private const int MaxWaitMs = 100;
     private const int RetryDelayMs = 5;
 
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
@@ -64,7 +67,9 @@ internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 10
                 // file it already moved; the line goes to the current file and a later line rotates.
             }
 
-            for (int attempt = 1; ; attempt++)
+            long started = Environment.TickCount64;
+
+            while (true)
             {
                 try
                 {
@@ -72,7 +77,7 @@ internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 10
 
                     return;
                 }
-                catch (IOException exception) when (IsSharingViolation(exception) && attempt < MaxAttempts)
+                catch (IOException exception) when (IsSharingViolation(exception) && Environment.TickCount64 - started < MaxWaitMs)
                 {
                     // Another process, such as a second hook, holds the file for its own line: wait for it rather than
                     // share the handle, because two appending handles would write at stale offsets over each other.

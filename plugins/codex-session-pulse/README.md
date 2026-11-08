@@ -32,9 +32,12 @@ windows, Settings, Copy diagnostics, Exit.
 ## Requirements
 
 - Windows 11 x64 with Codex Desktop (the MSIX app `OpenAI.Codex`).
-- The [.NET 10 Desktop Runtime x64](https://dotnet.microsoft.com/download/dotnet/10.0). Without it the hooks log
-  `CodexSessionPulse.exe needs the .NET 10 Desktop Runtime x64` and do nothing else; Codex keeps working.
+- The [.NET 10 Desktop Runtime x64](https://dotnet.microsoft.com/download/dotnet/10.0). Without it the launcher writes
+  `CodexSessionPulse.exe needs the .NET 10 Desktop Runtime x64` to the hook's stderr and the hooks do nothing else;
+  Codex keeps working.
 - No administrator rights.
+- A Windows user name without `&`, `(`, `)`, `@` or `^`: the hook command runs from the plugin folder under your
+  profile, and these characters break it before the plugin starts. Start the overlay by hand instead (below).
 
 ## Install
 
@@ -50,7 +53,9 @@ Then **Settings → Hooks**: the plugin's three hooks show as needing review. Op
 Until then Codex skips them without a word, and the overlay does not start by itself.
 
 The first hook of a version downloads `CodexSessionPulse.exe` (about 1 MB) from that version's GitHub release into
-`%USERPROFILE%\.codex-session-pulse\bin\<version>\`; later hooks start it straight from there.
+`%USERPROFILE%\.codex-session-pulse\bin\<version>\`; later hooks start it straight from there. The download runs a
+small PowerShell script with `-ExecutionPolicy Bypass`; an `AllSigned` policy set by Group Policy overrides that and
+blocks it. Then put the release's `CodexSessionPulse.exe` into that folder yourself.
 
 ### After every update
 
@@ -64,13 +69,14 @@ the hooks run in threads you start from then on.
 ## Start it by hand
 
 A supported way, not only a diagnostic one: when hooks are untrusted or turned off by policy, start the overlay
-yourself. Through the launcher (it downloads the exe if this version has none yet):
+yourself. Through the launcher (it downloads the exe if this version has none yet; `Start-Process` returns at once,
+while the launcher waits for the overlay):
 
 ```powershell
-& "$env:USERPROFILE\.codex\plugins\cache\dlin10-ai-coding-plugins\codex-session-pulse\0.1.0\bin\codex-session-pulse-launcher.cmd" --overlay
+Start-Process -WindowStyle Hidden "$env:USERPROFILE\.codex\plugins\cache\dlin10-ai-coding-plugins\codex-session-pulse\0.1.0\bin\codex-session-pulse-launcher.cmd" --overlay
 ```
 
-or the exe directly, once it is there:
+or the exe directly, once it is there (PowerShell does not wait for it):
 
 ```powershell
 & "$env:USERPROFILE\.codex-session-pulse\bin\0.1.0\CodexSessionPulse.exe" --overlay
@@ -89,7 +95,7 @@ and Windows redirects `%LOCALAPPDATA%` writes of the processes it starts into th
 | `settings.json` | Tray → Settings writes it: TTL estimate, minimum cached tokens, rollouts folder, theme, offsets, keep visible. A broken field falls back to its default. |
 | `logs\overlay.log` | The overlay's log, plus `overlay.1.log`…`overlay.4.log`, 1 MB each. No prompts, no rollout text. |
 | `logs\hook.log` | Hook outcomes that need a look (an overlay started, a pipe that did not answer). |
-| `bin\<version>\CodexSessionPulse.exe` | The downloaded release. An old version's folder can be deleted once its overlay has exited. |
+| `bin\<version>\CodexSessionPulse.exe` | The downloaded release, one folder per version. Nothing removes old ones: delete a version's folder once no overlay of that version runs (tray → Exit, then `Remove-Item -Recurse "$env:USERPROFILE\.codex-session-pulse\bin\<old version>"`). |
 
 The rollouts are read from `%CODEX_HOME%\sessions` (`%USERPROFILE%\.codex\sessions` by default) and never written.
 

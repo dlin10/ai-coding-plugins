@@ -30,6 +30,18 @@ public sealed class VersionTests
         Assert.Equal($"# Codex Session Pulse {ManifestVersion()}", title);
     }
 
+    /// <summary>Every version folder the README's commands name (<c>\0.1.0\</c>) is the manifest version.</summary>
+    [Fact]
+    public void ReadmePaths_NameTheManifestVersion()
+    {
+        string[] versions = Regex.Matches(File.ReadAllText(Path.Combine(PluginRoot(), "README.md")), @"\\(\d+\.\d+\.\d+)\\")
+                                 .Select(match => match.Groups[1].Value)
+                                 .ToArray();
+
+        Assert.NotEmpty(versions);
+        Assert.All(versions, version => Assert.Equal(ManifestVersion(), version));
+    }
+
     /// <summary>The newest CHANGELOG entry is the manifest version.</summary>
     [Fact]
     public void Changelog_TopEntryIsTheManifestVersion()
