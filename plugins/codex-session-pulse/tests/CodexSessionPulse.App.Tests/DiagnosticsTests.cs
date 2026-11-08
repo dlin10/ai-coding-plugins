@@ -57,6 +57,16 @@ public sealed class DiagnosticsTests : IDisposable
         Assert.Contains("ex-style 0x08080080", report, StringComparison.Ordinal);
     }
 
+    /// <summary>A thread id in a rollout path is cut to its time prefix: the report carries no raw id (spec §10).</summary>
+    [Fact]
+    public void Redact_CutsThreadIdsToTheirFirstEightCharacters()
+    {
+        string redacted = DiagnosticsReport.Redact(Profile + @"\.codex\sessions\rollout-2026-11-08T22-33-26-019a5c3e-1b2f-7a10-9c4d-0123456789ab.jsonl",
+                                                   Profile, "jdoe");
+
+        Assert.Equal(@"%USERPROFILE%\.codex\sessions\rollout-2026-11-08T22-33-26-019a5c3e….jsonl", redacted);
+    }
+
     /// <summary>The log keeps the current file plus four rotated ones, each under the size limit.</summary>
     [Fact]
     public void RollingLog_KeepsFiveFilesUnderTheLimit()
