@@ -148,13 +148,20 @@ internal static class DiagnosticsReport
         return Redact(text.ToString(), userProfile, userName);
     }
 
-    /// <summary>Replaces the profile path and then any remaining user name.</summary>
+    /// <summary>
+    /// Replaces the profile path, then any remaining user name, and cuts every GUID, such as the thread id in a rollout file
+    /// name, to its first 8 characters (spec §10: no raw ids). Codex thread ids are UUIDv7, so those 8 are only a time prefix.
+    /// </summary>
     /// <param name="text">The text.</param>
     /// <param name="userProfile">The user profile path.</param>
     /// <param name="userName">The user name.</param>
     /// <returns>The redacted text.</returns>
     public static string Redact(string text, string userProfile, string userName)
     {
+        text = System.Text.RegularExpressions.Regex.Replace(
+            text, @"\b([0-9a-fA-F]{8})-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "$1…",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
         if (!string.IsNullOrEmpty(userProfile))
         {
             text = text.Replace(userProfile.TrimEnd('\\'), "%USERPROFILE%", StringComparison.OrdinalIgnoreCase);

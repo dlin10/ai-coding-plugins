@@ -66,10 +66,11 @@ internal static class HookRunner
                 Deliver(HookMessage.From(payload, startedAtUtc), PulseChannel.For(paths), noStart, paths);
             }
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            // A closed or broken stdin, or anything unexpected, must not fail Codex or raise a WER dialog.
-            // Nothing from stdin is logged.
+            // A closed or broken stdin, or anything unexpected, must not fail Codex or raise a WER dialog. The failure
+            // goes to hook.log (spec §4.4 item 1) as its type, HResult and throwing method only: a message could quote stdin.
+            LogFailure(exception, getEnvironmentVariable);
         }
 
         if (getEnvironmentVariable(DebugAssembliesVariable) == "1")
@@ -124,8 +125,24 @@ internal static class HookRunner
 
     private static HookOutcome Log(PulsePaths paths, HookOutcome outcome, string line)
     {
-        new RollingFileLog(paths.LogsDirectory, maxBytes: 256 * 1024, maxFiles: 2, baseName: "hook").Info(line);
+        HookLog(paths).Info(line);
 
         return outcome;
     }
+
+    private static void LogFailure(Exception exception, Func<string, string?> getEnvironmentVariable)
+    {
+        try
+        {
+            System.Reflection.MethodBase? site = exception.TargetSite;
+            HookLog(PulsePaths.FromEnvironment(getEnvironmentVariable))
+                .Warn($"hook failed: {exception.GetType().FullName} 0x{exception.HResult:X8} in {site?.DeclaringType?.FullName}.{site?.Name}");
+        }
+        catch (Exception)
+        {
+            // Not even the log's folder could be found; the hook still exits 0.
+        }
+    }
+
+    private static RollingFileLog HookLog(PulsePaths paths) => new(paths.LogsDirectory, maxBytes: 256 * 1024, maxFiles: 2, baseName: "hook");
 }

@@ -6,7 +6,9 @@ namespace CodexSessionPulse.App.Diagnostics;
 
 /// <summary>
 /// The overlay's own log (spec §8.2): <c>overlay.log</c> plus at most four older files of 1 MB each; the hook writes
-/// <c>hook.log</c> the same way. It never throws, and callers never pass prompts, rollout text or raw JSON.
+/// <c>hook.log</c> the same way. It never throws, and callers never pass prompts, rollout text or raw JSON. Hooks are
+/// separate processes that may log at the same moment, so a line that finds the file held by another writer waits for it
+/// (up to about 100 ms) instead of being dropped.
 /// </summary>
 /// <param name="directory">The log folder.</param>
 /// <param name="maxBytes">The size at which the current file is rotated.</param>
@@ -14,6 +16,16 @@ namespace CodexSessionPulse.App.Diagnostics;
 /// <param name="baseName">The file name without <c>.log</c>.</param>
 internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 1024, int maxFiles = 5, string baseName = "overlay")
 {
+    private const int ErrorSharingViolation = 32;
+    private const int ErrorLockViolation = 33;
+
+    /// <summary>
+    /// A writer holds the file for one line, so 100 ms outlasts any other writer. Bounded by elapsed time, not by a count:
+    /// a 5 ms sleep lasts about 15 ms at the default timer resolution.
+    /// </summary>
+    private const int MaxWaitMs = 100;
+    private const int RetryDelayMs = 5;
+
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
     private readonly Lock _gate = new();
 
@@ -48,15 +60,40 @@ internal sealed class RollingFileLog(string directory, long maxBytes = 1024 * 10
                 {
                     Rotate();
                 }
-
-                File.AppendAllText(CurrentFile, line, Utf8NoBom);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                // Logging must never take the overlay down.
+                // Another writer holds or rotates a file meanwhile: never retry a half-done rotation, which would delete a
+                // file it already moved; the line goes to the current file and a later line rotates.
+            }
+
+            long started = Environment.TickCount64;
+
+            while (true)
+            {
+                try
+                {
+                    File.AppendAllText(CurrentFile, line, Utf8NoBom);
+
+                    return;
+                }
+                catch (IOException exception) when (IsSharingViolation(exception) && Environment.TickCount64 - started < MaxWaitMs)
+                {
+                    // Another process, such as a second hook, holds the file for its own line: wait for it rather than
+                    // share the handle, because two appending handles would write at stale offsets over each other.
+                    Thread.Sleep(RetryDelayMs);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // Logging must never take the overlay down.
+                    return;
+                }
             }
         }
     }
+
+    private static bool IsSharingViolation(IOException exception) =>
+        (exception.HResult & 0xFFFF) is ErrorSharingViolation or ErrorLockViolation;
 
     private void Rotate()
     {

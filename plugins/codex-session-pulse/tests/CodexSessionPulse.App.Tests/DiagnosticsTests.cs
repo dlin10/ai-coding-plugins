@@ -57,6 +57,16 @@ public sealed class DiagnosticsTests : IDisposable
         Assert.Contains("ex-style 0x08080080", report, StringComparison.Ordinal);
     }
 
+    /// <summary>A thread id in a rollout path is cut to its time prefix: the report carries no raw id (spec §10).</summary>
+    [Fact]
+    public void Redact_CutsThreadIdsToTheirFirstEightCharacters()
+    {
+        string redacted = DiagnosticsReport.Redact(Profile + @"\.codex\sessions\rollout-2026-11-08T22-33-26-019a5c3e-1b2f-7a10-9c4d-0123456789ab.jsonl",
+                                                   Profile, "jdoe");
+
+        Assert.Equal(@"%USERPROFILE%\.codex\sessions\rollout-2026-11-08T22-33-26-019a5c3e….jsonl", redacted);
+    }
+
     /// <summary>The log keeps the current file plus four rotated ones, each under the size limit.</summary>
     [Fact]
     public void RollingLog_KeepsFiveFilesUnderTheLimit()
@@ -73,6 +83,33 @@ public sealed class DiagnosticsTests : IDisposable
         Assert.Equal(["overlay.1.log", "overlay.2.log", "overlay.3.log", "overlay.4.log", "overlay.log"], files);
         Assert.All(Directory.GetFiles(_logs), file => Assert.InRange(new FileInfo(file).Length, 1, 1000));
         Assert.Contains("line 0199", File.ReadAllText(log.CurrentFile), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Two writers of one file, as two hooks that log at once: each instance has its own lock, like separate processes,
+    /// so they meet only at the file, and every line still arrives whole.
+    /// </summary>
+    [Fact]
+    public void RollingLog_ConcurrentWritersLoseNoLine()
+    {
+        const int LinesPerWriter = 300;
+        RollingFileLog[] writers = [new(_logs, baseName: "hook"), new(_logs, baseName: "hook")];
+
+        // Threads of their own, like two processes, and so no pool thread is held while the writers wait for each other.
+        Thread[] threads = Enumerable.Range(0, writers.Length).Select(w => new Thread(() =>
+        {
+            for (int i = 0; i < LinesPerWriter; i++)
+            {
+                writers[w].Info($"writer {w} line {i:D4}");
+            }
+        })).ToArray();
+        Array.ForEach(threads, thread => thread.Start());
+        Array.ForEach(threads, thread => thread.Join());
+
+        string[] lines = File.ReadAllLines(writers[0].CurrentFile);
+
+        Assert.Equal(writers.Length * LinesPerWriter, lines.Length);
+        Assert.All(lines, line => Assert.Matches(@"^\S+ INFO writer \d line \d{4}$", line));
     }
 
     /// <summary>The overlay shows only for the foreground Codex window, or a background one with keep-visible, and never when hidden from the tray.</summary>

@@ -10,7 +10,10 @@ tokens and a TTL estimate. The source of truth is `docs/spec.md` (Russian); the 
 - `src/CodexSessionPulse.App` – the only WinExe, `CodexSessionPulse.exe`: `--hook [--no-start]`, `--overlay`.
   `--overlay --stub` replaces the rollout pipeline with a scripted snapshot loop over every `CacheState` (development only).
 - `hooks/hooks.json` and `bin/codex-session-pulse-launcher.cmd` – the Codex hooks; the launcher runs the exe from
-  `%USERPROFILE%\.codex-session-pulse\bin\<manifest version>\` (or `%CODEX_SESSION_PULSE_HOME%\bin\…`).
+  `%USERPROFILE%\.codex-session-pulse\bin\<manifest version>\` (or `%CODEX_SESSION_PULSE_HOME%\bin\…`), and only when it
+  is missing calls `bin/codex-session-pulse-cache.ps1`, which downloads the release asset of that version.
+- `build/` – `package.ps1` (publish and smoke-test the one release asset), `test-launcher.ps1` (the launcher against
+  it), `measure-hook.ps1` and `measure-overlay.ps1` (the numbers in `docs/compatibility.md` §13).
 - `src/CodexSessionPulse.Core` – domain contract, trackers, state. No WPF, no I/O, no formatted strings.
 - `src/CodexSessionPulse.Infrastructure` – JSONL tailer, settings, filesystem. References Core.
 - `src/CodexSessionPulse.Win32` – HWND, DPI, monitor geometry.
@@ -30,6 +33,32 @@ The Win32 tests start the real exe from `src/CodexSessionPulse.App/bin/<Configur
 so build the solution first. Before a PR also run `npm run validate:plugins` at the repo root.
 `CodexDesktopIntegrationTests` run only with `CODEX_SESSION_PULSE_INTEGRATION=1` and an open Codex Desktop window.
 
+## Package and release
+
+```powershell
+pwsh -File build/package.ps1 > ../../scratch/csp-package.log 2>&1; Get-Content ../../scratch/csp-package.log -Tail 5
+pwsh -File build/test-launcher.ps1 > ../../scratch/csp-launcher.log 2>&1; Get-Content ../../scratch/csp-launcher.log -Tail 12
+```
+
+`package.ps1` publishes `artifacts/publish/win-x64/CodexSessionPulse.exe` (framework-dependent, single-file,
+ReadyToRun, symbols embedded; `artifacts/` is git-ignored) and smoke-tests that file; it prints the size and SHA256.
+`test-launcher.ps1` runs the launcher through cmd against it in scratch homes, with a local folder as the release.
+Run both after any change to `bin/`, the App's start-up path or the publish settings.
+
+- **The manifest is the one version source.** `Directory.Build.props` reads its top-level `"version"` line (two spaces
+  in) the way the launcher does; `VersionTests` checks the exe, the README title and the top CHANGELOG entry, and
+  `package.ps1` the published exe. A release bumps `.codex-plugin/plugin.json`, the README title and `CHANGELOG.md` in
+  one commit.
+- **Releasing is a merge to `main`.** `release-codex-session-pulse.yml` cuts `codex-session-pulse-v<version>` with the exe
+  when `main` carries a version no tag has yet; never push the tag by hand. A manifest naming an unreleased version
+  makes every fresh hook fail to download, so the bump and the merge go together.
+- **Every update that changes the plugin's files needs Review hooks again** in Codex Desktop: Codex keys the trust to
+  the plugin's content, so a version bump does even with `hooks.json` unchanged, and so did a return to an earlier,
+  already trusted version number with changed files (`docs/compatibility.md` §5.3, §13.5). The README's "After every
+  update" tells users.
+- `build-codex-session-pulse.yml` builds, tests, packages and runs `test-launcher.ps1` on every PR that touches this
+  folder.
+
 To watch the overlay on the real Codex window without touching your own settings, point it at a scratch home:
 `$env:CODEX_SESSION_PULSE_HOME = "<repo>\scratch\csp-home"`, then start
 `src/CodexSessionPulse.App/bin/Debug/net10.0-windows/CodexSessionPulse.exe --overlay --stub`. Exit from the tray menu,
@@ -44,7 +73,15 @@ or stop the exact PID.
 - **The spec §4.3 public records in Core are frozen** (`TokenUsageSnapshot`, `CacheSnapshot`, `AnchorSnapshot`, the
   interfaces and enums): do not rename, reorder or add members; changes go through the orchestrator. Additive types
   are allowed and listed below.
-- The hook never writes stdin anywhere, reads nothing from the current directory, and always exits 0.
+- The hook never writes stdin anywhere, reads nothing from the current directory, and always exits 0. The launcher
+  keeps that promise too: a missing exe, a failed download or a missing .NET runtime ends a `--hook` with 0.
+- **The launcher's fast path is `if exist` and nothing else.** No PowerShell, no `call` per manifest line, no process
+  before the exe; `build/measure-hook.ps1` shows what a change costs. `DOTNET_DISABLE_GUI_ERRORS=1` stays: without it
+  a missing .NET 10 Desktop Runtime opens the apphost's dialog inside a hook and blocks it.
+- `hooks.json` runs under `pwsh -Command` after a textual `${PLUGIN_ROOT}` substitution, so a `$` or a backtick in the
+  plugin path would be read by pwsh (`docs/compatibility.md` §3.1), and `& ( ) @ ^` in the profile name break the hook
+  command before the launcher runs (pwsh passes a path without spaces unquoted, `cmd /c` then strips the quotes). The
+  launcher started directly survives spaces, `&` and `!`. Do not change `commandWindows` without a Desktop re-measurement.
 - Every public type and member in Core carries a complete XML doc comment; the build fails without one.
 
 ## Additive contract (#251)

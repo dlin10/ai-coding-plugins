@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
+using System.Reflection;
 using System.Text.Json;
 using Xunit;
 
@@ -41,19 +41,22 @@ public sealed class LauncherTests
         Assert.True(LifecycleHome.WaitForLog(home.OverlayLog, "hook SessionStart (startup)"));
     }
 
-    /// <summary>Without the exe the launcher says where it looked and still exits 0 for a hook, 1 otherwise.</summary>
+    /// <summary>
+    /// Without the exe, SessionEnd (<c>--no-start</c>) says where it looked, downloads nothing and exits 0. The download
+    /// path itself is exercised by <c>build/test-launcher.ps1</c> against a local release, never the network.
+    /// </summary>
     [Fact]
-    public void Launcher_MissingExe_ExplainsAndNeverFailsAHook()
+    public void Launcher_MissingExe_SessionEndExplainsAndDownloadsNothing()
     {
         using LifecycleHome home = new();
 
-        (int hookExit, string hookError) = RunLauncher(home, "--hook", "{}");
-        (int overlayExit, _) = RunLauncher(home, "--overlay", string.Empty);
+        (int hookExit, string hookError) = RunLauncher(home, "--hook --no-start", "{}");
 
         Assert.Equal(0, hookExit);
         Assert.Contains("is missing", hookError, StringComparison.Ordinal);
+        Assert.DoesNotContain("downloading", hookError, StringComparison.Ordinal);
         Assert.Contains(Path.Combine("bin", ManifestVersion(), "CodexSessionPulse.exe"), hookError, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(1, overlayExit);
+        Assert.False(Directory.Exists(Path.Combine(home.Root, "bin")));
     }
 
     private static void Check(JsonElement hooks, string name, string arguments, bool async, int timeout)
@@ -98,6 +101,6 @@ public sealed class LauncherTests
         return manifest.RootElement.GetProperty("version").GetString()!;
     }
 
-    private static string PluginRoot([CallerFilePath] string thisFile = "") =>
-        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(thisFile)!, "..", ".."));
+    private static string PluginRoot() =>
+        typeof(LauncherTests).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().Single(attribute => attribute.Key == "PluginRoot").Value!;
 }

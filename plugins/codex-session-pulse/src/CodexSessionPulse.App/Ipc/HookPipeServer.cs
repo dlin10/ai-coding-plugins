@@ -189,20 +189,17 @@ internal sealed class HookPipeServer : IDisposable
                 accepted = end >= 0 && HookMessage.TryParse(buffer.AsSpan(0, end), out HookMessage message)
                            && _messages.Writer.TryWrite(message);
 
-                if (!accepted)
-                {
-                    Interlocked.Increment(ref _rejected);
-                }
-
                 await pipe.WriteAsync(new[] { accepted ? HookMessage.Accepted : HookMessage.Refused }, timeout.Token).ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is OperationCanceledException or IOException)
             {
                 // A client that gave up before its acknowledgement. A message already queued still counts as received.
-                if (!accepted)
-                {
-                    Interlocked.Increment(ref _rejected);
-                }
+            }
+
+            // Counted once, here: a refused message whose client also left before the answer is still one connection.
+            if (!accepted)
+            {
+                Interlocked.Increment(ref _rejected);
             }
         }
     }

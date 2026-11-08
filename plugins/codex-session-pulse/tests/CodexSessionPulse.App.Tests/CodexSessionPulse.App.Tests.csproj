@@ -24,4 +24,9 @@
     <ProjectReference Include="..\..\src\CodexSessionPulse.App\CodexSessionPulse.App.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Not [CallerFilePath]: ContinuousIntegrationBuild maps source paths to /_/, which is no folder on the runner. -->
+    <AssemblyMetadata Include="PluginRoot" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))" />
+  </ItemGroup>
+
 </Project>

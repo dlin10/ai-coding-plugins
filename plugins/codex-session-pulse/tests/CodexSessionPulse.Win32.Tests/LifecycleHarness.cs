@@ -341,9 +341,13 @@ internal sealed class FakeCodexWindow : IDisposable
 
     /// <summary>Creates and shows the window.</summary>
     /// <param name="title">The window title.</param>
-    public FakeCodexWindow(string title)
+    /// <param name="withoutIme">
+    /// Whether the window's thread gets no IME window. Otherwise that hidden window, owned by this one, always sits right
+    /// above it in z-order, which hides any z-order case that depends on the window right above.
+    /// </param>
+    public FakeCodexWindow(string title, bool withoutIme = false)
     {
-        _thread = new Thread(() => Run(title)) { IsBackground = true };
+        _thread = new Thread(() => Run(title, withoutIme)) { IsBackground = true };
         _thread.Start();
         Assert.True(_created.Wait(10_000), "The fake window was not created.");
         Assert.NotEqual(0, _hwnd);
@@ -351,6 +355,9 @@ internal sealed class FakeCodexWindow : IDisposable
 
     /// <summary>Gets the name of the process that owns the window, as the overlay's rule sees it.</summary>
     public static string ProcessName => Path.GetFileNameWithoutExtension(Environment.ProcessPath!);
+
+    /// <summary>Gets the window handle.</summary>
+    public nint Hwnd => _hwnd;
 
     /// <summary>Minimizes the window; it stays a Codex window.</summary>
     public void Minimize() => ShowWindow(_hwnd, SwMinimize);
@@ -367,8 +374,13 @@ internal sealed class FakeCodexWindow : IDisposable
         _created.Dispose();
     }
 
-    private void Run(string title)
+    private void Run(string title, bool withoutIme)
     {
+        if (withoutIme)
+        {
+            ImmDisableIME(0);
+        }
+
         _hwnd = CreateWindowEx(0, "STATIC", title, WsOverlappedWindow | WsVisible, 100, 100, 640, 480, 0, 0, 0, 0);
         _created.Set();
 
@@ -399,6 +411,10 @@ internal sealed class FakeCodexWindow : IDisposable
     [DllImport("user32.dll", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern nint CreateWindowEx(uint exStyle, string className, string title, uint style, int x, int y, int width,
                                               int height, nint parent, nint menu, nint instance, nint param);
+
+    [DllImport("imm32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ImmDisableIME(uint threadId);
 
     [DllImport("user32.dll", EntryPoint = "PeekMessageW")]
     [return: MarshalAs(UnmanagedType.Bool)]

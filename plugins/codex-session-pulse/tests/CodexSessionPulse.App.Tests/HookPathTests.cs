@@ -36,6 +36,18 @@ public sealed class HookPathTests
         Assert.Equal(new HookPayload("SessionStart", "s-1", TranscriptPath, "resume"), payload);
     }
 
+    /// <summary>A UTF-8 BOM before the JSON, as a .NET Framework caller on a UTF-8 console writes it, is skipped, whole or byte by byte.</summary>
+    [Fact]
+    public void Reader_SkipsALeadingUtf8Bom()
+    {
+        byte[] json = [0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes(SessionStart("resume"))];
+        HookPayload expected = new("SessionStart", "s-1", TranscriptPath, "resume");
+
+        Assert.Equal(expected, HookPayloadReader.Read(new MemoryStream(json)));
+        Assert.Equal(expected, HookPayloadReader.Read(new TrickleStream(json)));
+        Assert.Equal(new HookPayload(null, null, null, null), HookPayloadReader.Read(new MemoryStream([0xEF, 0xBB])));
+    }
+
     /// <summary>A prompt far larger than the first buffer is passed over; fields after it are still read.</summary>
     [Fact]
     public void Reader_LargePromptBeforeFields_StillFindsThem()
@@ -127,6 +139,21 @@ public sealed class HookPathTests
         Assert.Null(cleaned.ThreadId);
     }
 
+    /// <summary>Event and source names from stdin and from the pipe are mapped to the fixed sets before anything logs or counts them.</summary>
+    [Fact]
+    public void Message_EventAndSource_AreMappedToFixedSets()
+    {
+        HookMessage known = HookMessage.From(new HookPayload("SessionStart", null, TranscriptPath, "resume"), DateTimeOffset.UtcNow);
+        HookMessage foreign = HookMessage.From(new HookPayload("Stop\r\nINFO forged log line", null, TranscriptPath, new string('s', 5000)),
+                                               DateTimeOffset.UtcNow);
+        bool parsed = HookMessage.TryParse("{\"v\":1,\"event\":\"sessionstart\",\"source\":\"x\",\"at\":\"2026-11-07T10:00:00Z\"}"u8, out HookMessage piped);
+
+        Assert.Equal(("SessionStart", "resume"), (known.Event, known.Source));
+        Assert.Equal((HookMessage.Other, HookMessage.Other), (foreign.Event, foreign.Source));
+        Assert.True(parsed);
+        Assert.Equal((HookMessage.Other, HookMessage.Other), (piped.Event, piped.Source));
+    }
+
     /// <summary>The names carry the user SID and the protocol major; a moved home gets its own channel.</summary>
     [Fact]
     public void Channel_NamesCarrySidVersionAndHome()
@@ -150,10 +177,16 @@ public sealed class HookPathTests
         Assert.NotNull(server);
         Assert.Null(HookPipeServer.TryStart(channel.PipeName, _ => { }));
 
+        // Real hooks are separate processes. Each client here gets a thread of its own rather than a pool thread: 16 blocked
+        // pool threads starve the server's own continuations on a two-core CI runner, and sends then fail for a reason no
+        // hook meets. The longer connect wait covers the clients queuing for pipe instances.
         DateTimeOffset at = DateTimeOffset.UtcNow;
-        bool[] sent = await Task.WhenAll(Enumerable.Range(0, 16).Select(index => Task.Run(() =>
-            HookPipeClient.TrySend(channel.PipeName, new HookMessage("UserPromptSubmit", ThreadId, null, at.AddSeconds(index)).ToBytes(),
-                                   HookPipeClient.ConnectTimeoutMs))));
+        bool[] sent = new bool[16];
+        Thread[] clients = Enumerable.Range(0, sent.Length).Select(index => new Thread(() =>
+            sent[index] = HookPipeClient.TrySend(channel.PipeName, new HookMessage("UserPromptSubmit", ThreadId, null, at.AddSeconds(index)).ToBytes(),
+                                                 connectTimeoutMs: 10_000))).ToArray();
+        Array.ForEach(clients, client => client.Start());
+        Array.ForEach(clients, client => client.Join());
 
         Assert.All(sent, Assert.True);
         List<HookMessage> received = [];
@@ -166,6 +199,67 @@ public sealed class HookPathTests
 
         Assert.Equal(16, received.Select(message => message.AtUtc).Distinct().Count());
         Assert.Equal(0, server.Rejected);
+    }
+
+    /// <summary>
+    /// A refused connection counts once. Clients that leave right after writing are counted at most once each (one that
+    /// left before the server's wait began is not counted at all: it got no answer and knows it); clients that wait for
+    /// the answer, as a hook does, are counted exactly once each.
+    /// </summary>
+    [Fact]
+    public async Task Pipe_RefusedConnections_CountOnce()
+    {
+        const int Clients = 20;
+        PulseChannel channel = TestChannel();
+        using HookPipeServer server = HookPipeServer.TryStart(channel.PipeName, _ => { })!;
+
+        for (int i = 0; i < Clients; i++)
+        {
+            using System.IO.Pipes.NamedPipeClientStream client = new(".", channel.PipeName, System.IO.Pipes.PipeDirection.InOut);
+            client.Connect(10_000);
+            client.Write("garbage\n"u8);
+        }
+
+        // Past the server's 1 s read timeout, every leaving client has been served.
+        await Task.Delay(1500);
+        long leaving = server.Rejected;
+
+        for (int i = 0; i < Clients; i++)
+        {
+            using System.IO.Pipes.NamedPipeClientStream client = new(".", channel.PipeName, System.IO.Pipes.PipeDirection.InOut);
+            client.Connect(10_000);
+            client.Write("garbage\n"u8);
+            Assert.Equal(HookMessage.Refused, client.ReadByte());
+        }
+
+        await Task.Delay(500);
+        Assert.InRange(leaving, 0, Clients);
+        Assert.Equal(Clients, server.Rejected - leaving);
+    }
+
+    /// <summary>A hook that fails still exits 0 and leaves the failure's type in hook.log, never the payload.</summary>
+    [Fact]
+    public void Run_Failure_ExitsZeroAndLogsTheTypeOnly()
+    {
+        string home = Path.Combine(Path.GetTempPath(), "csp-hookfail-" + Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            int exitCode = HookRunner.Run(new FailingStream(), noStart: true, () => TextWriter.Null,
+                                          name => name == "CODEX_SESSION_PULSE_HOME" ? home : null);
+            string log = File.ReadAllText(Path.Combine(home, "logs", "hook.log"));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("WARN hook failed: System.InvalidOperationException 0x80131509 in ", log, StringComparison.Ordinal);
+            Assert.DoesNotContain(FailingStream.Secret, log, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(home))
+            {
+                Directory.Delete(home, recursive: true);
+            }
+        }
     }
 
     /// <summary>Without an overlay a send gives up within its connect limit.</summary>
@@ -290,4 +384,17 @@ public sealed class HookPathTests
     /// <summary>A stream whose position shows how much was read.</summary>
     /// <param name="data">The bytes.</param>
     private sealed class CountingStream(byte[] data) : MemoryStream(data);
+
+    /// <summary>A stdin whose read fails with a message that quotes the payload.</summary>
+    private sealed class FailingStream : MemoryStream
+    {
+        /// <summary>The payload text the exception message carries.</summary>
+        public const string Secret = "secret prompt text";
+
+        /// <inheritdoc />
+        public override int Read(byte[] buffer, int offset, int count) => throw new InvalidOperationException(Secret);
+
+        /// <inheritdoc />
+        public override int Read(Span<byte> buffer) => throw new InvalidOperationException(Secret);
+    }
 }
